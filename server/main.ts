@@ -32,7 +32,7 @@ import {
 
 // Server configuration
 const CONFIG = {
-	pakPath: '../pak0.pak',
+	pakPath: '../static/pak0.pak',
 	port: 4433,
 	certFile: 'cert.pem',
 	keyFile: 'key.pem',
@@ -80,7 +80,7 @@ Options:
   -port <port>         WebTransport port (default: 4433)
   -maxclients <num>    Maximum clients per room (default: 16)
   -map <mapname>       Starting map (default: start)
-  -pak <path>          Path to pak0.pak (default: ../pak0.pak)
+  -pak <path>          Path to pak0.pak (default: ../static/pak0.pak)
   -cert <path>         TLS certificate file (default: cert.pem)
   -key <path>          TLS key file (default: key.pem)
   -tickrate <hz>       Server tick rate (default: 72)

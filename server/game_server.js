@@ -55,7 +55,7 @@ globalThis.addEventListener('unhandledrejection', (event) => {
 
 // Server configuration
 const CONFIG = {
-	pakPath: '../pak0.pak',
+	pakPath: '../static/pak0.pak',
 	port: 4433,
 	certFile: '/etc/letsencrypt/live/wts.mrdoob.com/fullchain.pem',
 	keyFile: '/etc/letsencrypt/live/wts.mrdoob.com/privkey.pem',

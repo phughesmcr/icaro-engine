@@ -41,9 +41,9 @@ async function main() {
 
 		}
 
-		// Load pak0.pak from the same directory
+		// Load pak0.pak from static/
 		Sys_Printf( 'Loading pak0.pak...\\n' );
-		const pak0 = await COM_FetchPak( 'pak0.pak', 'pak0.pak', setProgress );
+		const pak0 = await COM_FetchPak( 'static/pak0.pak', 'pak0.pak', setProgress );
 		if ( pak0 ) {
 
 			COM_AddPack( pak0 );
@@ -67,7 +67,7 @@ async function main() {
 		// Preload custom menu images
 		try {
 
-			await Draw_CachePicFromPNG( 'gfx/mainmenu_ext.lmp', 'mainmenu.png' );
+			await Draw_CachePicFromPNG( 'gfx/mainmenu_ext.lmp', 'static/mainmenu.png' );
 			Sys_Printf( 'Loaded custom menu images\\n' );
 
 		} catch ( e ) {

@@ -29,7 +29,7 @@ const CONFIG = {
 	port: 4433,
 	certFile: '/etc/letsencrypt/live/wts.mrdoob.com/fullchain.pem',
 	keyFile: '/etc/letsencrypt/live/wts.mrdoob.com/privkey.pem',
-	pakPath: '/opt/three-quake/pak0.pak',
+	pakPath: '/opt/three-quake/static/pak0.pak',
 };
 
 // Parse command line arguments
