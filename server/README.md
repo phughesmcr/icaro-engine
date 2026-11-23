@@ -1,6 +1,6 @@
-# Three-Quake Dedicated Server
+# Icaro Engine Dedicated Server
 
-Headless multiplayer server for Three-Quake built on Deno and WebTransport (HTTP/3 over QUIC).
+Headless multiplayer server for Icaro Engine built on Deno and WebTransport (HTTP/3 over QUIC).
 
 The live server uses a two-tier multi-process architecture:
 
@@ -60,9 +60,9 @@ The lobby server listens on port `4433` and spawns `game_server.js` child proces
 | Option | Default | Description |
 |--------|---------|-------------|
 | `-port <port>` | `4433` | Lobby WebTransport port (rooms spawn on `4434`–`4443`) |
-| `-cert <path>` | `/etc/letsencrypt/live/wts.mrdoob.com/fullchain.pem` | TLS certificate file (forwarded to room servers) |
-| `-key <path>` | `/etc/letsencrypt/live/wts.mrdoob.com/privkey.pem` | TLS private key file (forwarded to room servers) |
-| `-pak <path>` | `/opt/three-quake/static/pak0.pak` | Path to `pak0.pak` (forwarded to room servers) |
+| `-cert <path>` | `cert.pem` | TLS certificate file (forwarded to room servers) |
+| `-key <path>` | `key.pem` | TLS private key file (forwarded to room servers) |
+| `-pak <path>` | `../static/pak0.pak` | Path to `pak0.pak` (forwarded to room servers) |
 
 ### `game_server.js`
 
@@ -72,8 +72,8 @@ The lobby server listens on port `4433` and spawns `game_server.js` child proces
 | `-maxclients <num>` | `4` | Maximum players |
 | `-map <name>` | `start` | Starting map |
 | `-pak <path>` | `../static/pak0.pak` | Path to `pak0.pak` |
-| `-cert <path>` | `/etc/letsencrypt/live/wts.mrdoob.com/fullchain.pem` | TLS certificate file |
-| `-key <path>` | `/etc/letsencrypt/live/wts.mrdoob.com/privkey.pem` | TLS private key file |
+| `-cert <path>` | `cert.pem` | TLS certificate file |
+| `-key <path>` | `key.pem` | TLS private key file |
 | `-room <id>` | `null` | Room ID assigned by `lobby_server.js` (enables room idle-exit tracking) |
 | `-direct` | `false` | Direct connection mode flag |
 | `-idletimeout <sec>` | `300` | Seconds empty before a room server exits (after at least one player has joined) |
@@ -81,7 +81,7 @@ The lobby server listens on port `4433` and spawns `game_server.js` child proces
 ## Connecting from Browser
 
 - **Multiplayer menu (lobby mode):** Queries `lobby_server.js` on port `4433` to list, create, or join rooms, then connects directly to the assigned room's `game_server.js` port (`4434`–`4443`). Joining a valid 6-character shared room code for an expired room auto-creates it.
-- **Direct console connection:** In the Three-Quake console, connect directly to a `game_server.js` instance:
+- **Direct console connection:** In the Icaro Engine console, connect directly to a `game_server.js` instance:
 
 ```text
 connect wts://your-server.com:4433
@@ -125,7 +125,7 @@ WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on t
 - `game_server.js` — Dedicated game server running the full Quake VM, physics, and protocol from `../src/`
 - `net_webtransport_server.ts` — Deno WebTransport server network driver
 - `browser_shim.js` — Minimal `three` stubs mapped via `deno.json` for headless execution
-- `sys_server.ts` — Deno system utilities and production log filtering (`__THREE_QUAKE_QUIET_LOGS`)
+- `sys_server.ts` — Deno system utilities and production log filtering (`__ICARO_QUIET_LOGS`)
 
 **Tests & utilities:**
 
@@ -142,11 +142,11 @@ Use valid TLS certificates (e.g. Let's Encrypt) and open UDP ports `4433` (lobby
 
 ```bash
 deno run --allow-net --allow-read --allow-run --unstable-net \
-  /opt/three-quake/server/lobby_server.js \
+  /opt/icaro-engine/server/lobby_server.js \
   -port 4433 \
   -cert /etc/letsencrypt/live/your-domain.com/fullchain.pem \
   -key /etc/letsencrypt/live/your-domain.com/privkey.pem \
-  -pak /opt/three-quake/static/pak0.pak
+  -pak /opt/icaro-engine/static/pak0.pak
 ```
 
 ## License

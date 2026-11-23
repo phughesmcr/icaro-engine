@@ -1,8 +1,8 @@
-// Three-Quake Game Server for Deno
+// Icaro Engine Game Server for Deno
 // Uses the existing JavaScript game modules from src/
 //
 // Local dev:  deno run --allow-net --allow-read --unstable-net --config ../deno.json game_server.js
-// Production: deno run --allow-net --allow-read --unstable-net --config /opt/three-quake/deno.json /opt/three-quake/server/game_server.js
+// Production: deno run --allow-net --allow-read --unstable-net --config /opt/icaro-engine/deno.json /opt/icaro-engine/server/game_server.js
 
 import { Sys_Printf, Sys_FloatTime } from '../src/sys.js';
 import { COM_FetchPak, COM_AddPack, COM_SetLooseFileBasePath, COM_EnsureFile } from '../src/pak.js';
@@ -45,7 +45,7 @@ import {
 import { NET_NewQSocket, NET_FreeQSocket } from '../src/net_main.js';
 
 // Reduce log write volume in production. Keep only allowlisted lines.
-globalThis.__THREE_QUAKE_QUIET_LOGS = true;
+globalThis.__ICARO_QUIET_LOGS = true;
 
 // Global unhandled rejection handler - prevent server crashes from async errors
 globalThis.addEventListener('unhandledrejection', (event) => {
@@ -57,8 +57,8 @@ globalThis.addEventListener('unhandledrejection', (event) => {
 const CONFIG = {
 	pakPath: '../static/pak0.pak',
 	port: 4433,
-	certFile: '/etc/letsencrypt/live/wts.mrdoob.com/fullchain.pem',
-	keyFile: '/etc/letsencrypt/live/wts.mrdoob.com/privkey.pem',
+	certFile: 'cert.pem',
+	keyFile: 'key.pem',
 	maxClients: 4,
 	defaultMap: 'start',
 	roomId: null,        // Room ID if spawned by lobby server
@@ -123,9 +123,9 @@ setInterval(() => {
 async function Host_Init_Server() {
 	Sys_Printf('========================================\n');
 	if (CONFIG.roomId !== null) {
-		Sys_Printf('Three-Quake Room Server [%s]\n', CONFIG.roomId);
+		Sys_Printf('Icaro Room Server [%s]\n', CONFIG.roomId);
 	} else {
-		Sys_Printf('Three-Quake Game Server v1.0\n');
+		Sys_Printf('Icaro Game Server v1.0\n');
 	}
 	Sys_Printf('========================================\n\n');
 
@@ -234,7 +234,7 @@ async function Host_Init_Server() {
 	COM_AddPack(pak);
 
 	// Set base path for on-demand loose file loading (custom maps not in PAK)
-	COM_SetLooseFileBasePath('/opt/three-quake/static/');
+	COM_SetLooseFileBasePath(decodeURIComponent(new URL('../static/', import.meta.url).pathname));
 
 	// Start listening for connections
 	await net_drivers[1].Listen(true);

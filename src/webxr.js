@@ -1,4 +1,4 @@
-// WebXR support for Three-Quake
+// WebXR support for Icaro Engine
 // Provides VR rendering via Three.js WebXR integration
 
 import * as THREE from 'three';

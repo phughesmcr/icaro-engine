@@ -1,4 +1,4 @@
-// Three-Quake entry point
+// Icaro Engine entry point
 // Equivalent to WinQuake/sys_win.c WinMain() + main()
 
 import { Sys_Init, Sys_Printf, Sys_Error } from './src/sys.js';
@@ -82,7 +82,7 @@ async function main() {
 
 		if ( roomId ) {
 
-			const serverUrl = urlParams.get( 'server' ) || 'https://wts.mrdoob.com:4433';
+			const serverUrl = urlParams.get( 'server' ) || 'https://localhost:4433';
 			const connectUrl = serverUrl + '?room=' + encodeURIComponent( roomId );
 			Sys_Printf( 'Auto-joining room: %s\\n', roomId );
 			Cbuf_AddText( 'connect "' + connectUrl + '"\n' );
@@ -119,7 +119,7 @@ async function main() {
 
 	} catch ( e ) {
 
-		console.error( 'Three-Quake Fatal Error:', e );
+		console.error( 'Icaro Engine Fatal Error:', e );
 		Sys_Error( e.message );
 
 	}

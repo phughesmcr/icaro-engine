@@ -1,5 +1,5 @@
 {
-	"name": "@three-quake/server",
+	"name": "@icaro-engine/server",
 	"version": "1.0.0",
 	"exports": "./main.ts",
 	"tasks": {

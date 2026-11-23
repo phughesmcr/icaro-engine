@@ -1,14 +1,6 @@
-# three-quake
+# Icaro Engine
 
-A port of Quake to Three.js.
-
-### Play
-
-https://mrdoob.github.io/three-quake/
-
-### Dev Log
-
-https://x.com/mrdoob/status/2015076521531355583
+A Three.js-based Quake engine port, forked from [three-quake](https://github.com/mrdoob/three-quake).
 
 ### Assets
 
@@ -22,4 +14,4 @@ Code: GPL v2
 ### Credits
 
 - Original game by id Software ([source](https://github.com/id-Software/Quake))
-- Three.js port by [@mrdoob](https://github.com/mrdoob) with [@claude](https://github.com/claude)
+- Original Three.js port (`three-quake`) by [@mrdoob](https://github.com/mrdoob) with [@claude](https://github.com/claude)

@@ -85,7 +85,7 @@ export function Host_InitCommands() {
 
 function Host_Status_f() {
 
-	Con_Printf( 'host:    Three-Quake\n' );
+	Con_Printf( 'host:    Icaro Engine\n' );
 	Con_Printf( 'map:     ' + ( sv.name || 'none' ) + '\n' );
 	Con_Printf( 'players: ' + svs.maxclients + ' max\n' );
 

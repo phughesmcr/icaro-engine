@@ -1,4 +1,4 @@
-// Three-Quake Dedicated Server Entry Point
+// Icaro Engine Dedicated Server Entry Point
 // Runs the Quake server headlessly using Deno
 
 import { Sys_Printf, Sys_FloatTime } from './sys_server.ts';
@@ -72,7 +72,7 @@ function parseArgs(): void {
 
 function printUsage(): void {
 	console.log(`
-Three-Quake Dedicated Server
+Icaro Engine Dedicated Server
 
 Usage: deno run --allow-net --allow-read --allow-env server/main.ts [options]
 
@@ -98,7 +98,7 @@ Example:
 async function initServer(): Promise<boolean> {
 	Sys_Printf('\n');
 	Sys_Printf('========================================\n');
-	Sys_Printf('Three-Quake Dedicated Server v1.0\n');
+	Sys_Printf('Icaro Engine Dedicated Server v1.0\n');
 	Sys_Printf('========================================\n');
 	Sys_Printf('\n');
 

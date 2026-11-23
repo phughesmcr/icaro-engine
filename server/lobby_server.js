@@ -1,4 +1,4 @@
-// Three-Quake Lobby Server for Deno
+// Icaro Engine Lobby Server for Deno
 // Lightweight server that only handles room management
 // Spawns separate game server processes for each room
 //
@@ -7,7 +7,7 @@
 import { Sys_Printf } from './sys_server.ts';
 
 // Reduce log write volume in production. Keep only allowlisted lines.
-globalThis.__THREE_QUAKE_QUIET_LOGS = true;
+globalThis.__ICARO_QUIET_LOGS = true;
 
 // Global unhandled rejection handler - prevent server crashes from async errors
 globalThis.addEventListener( 'unhandledrejection', ( event ) => {
@@ -27,9 +27,9 @@ import {
 // Server configuration
 const CONFIG = {
 	port: 4433,
-	certFile: '/etc/letsencrypt/live/wts.mrdoob.com/fullchain.pem',
-	keyFile: '/etc/letsencrypt/live/wts.mrdoob.com/privkey.pem',
-	pakPath: '/opt/three-quake/static/pak0.pak',
+	certFile: 'cert.pem',
+	keyFile: 'key.pem',
+	pakPath: '../static/pak0.pak',
 };
 
 // Parse command line arguments
@@ -370,7 +370,7 @@ async function acceptConnections( listener ) {
  */
 async function startServer() {
 	Sys_Printf( '========================================\n' );
-	Sys_Printf( 'Three-Quake Lobby Server v1.0\n' );
+	Sys_Printf( 'Icaro Lobby Server v1.0\n' );
 	Sys_Printf( '========================================\n\n' );
 
 	// Configure room manager

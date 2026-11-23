@@ -1,4 +1,4 @@
-// Room Process Manager for Three-Quake
+// Room Process Manager for Icaro Engine
 // Spawns and manages isolated Deno processes for each game room
 // This matches how original Quake handled multiple games: separate server processes
 
@@ -41,9 +41,9 @@ const roomProcesses = new Map<string, RoomProcess>();
 const usedPorts = new Set<number>();
 
 // Configuration (set by main server)
-let certFile = '/etc/letsencrypt/live/wts.mrdoob.com/fullchain.pem';
-let keyFile = '/etc/letsencrypt/live/wts.mrdoob.com/privkey.pem';
-let pakPath = '/opt/three-quake/static/pak0.pak';
+let certFile = 'cert.pem';
+let keyFile = 'key.pem';
+let pakPath = '../static/pak0.pak';
 let denoPath = '/root/.deno/bin/deno';
 
 /**

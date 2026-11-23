@@ -72,7 +72,7 @@ let lanConfig_cursor = 0;
 let lanConfig_joinname = ''; // Room code or full URL (max 64 chars)
 
 // Default WebTransport server (can be overridden by URL param)
-const DEFAULT_WT_SERVER = 'https://wts.mrdoob.com:4433';
+const DEFAULT_WT_SERVER = 'https://localhost:4433';
 
 // Room list state
 let slist_rooms = []; // Array of {id, name, map, playerCount, maxPlayers}
@@ -2102,7 +2102,7 @@ function M_Setup_Key( key ) {
 ==============================================================================
 */
 
-const CREDITS_SOURCE_URL = 'https://github.com/mrdoob/three-quake';
+const CREDITS_SOURCE_URL = 'https://github.com/phughesmcr/icaro-engine';
 
 function M_OpenCreditsSource() {
 
@@ -2135,10 +2135,10 @@ function M_Credits_Draw() {
 	M_Print( 16, 108, ' Tim Willits        Todd Hollenshead\n' );
 	M_PrintWhite( 16, 124, 'Support            Id Mom\n' );
 	M_Print( 16, 132, ' Barrett Alexander  Shawn Green\n' );
-	M_PrintWhite( 16, 148, 'JavaScript port\n' );
-	M_Print( 16, 156, ' mrdoob + claude + codex\n' );
+	M_PrintWhite( 16, 148, 'Icaro Engine (Three.js port)\n' );
+	M_Print( 16, 156, ' Based on three-quake by mrdoob\n' );
 	M_PrintWhite( 16, 172, 'Source code\n' );
-	M_Print( 16, 180, ' github.com/mrdoob/three-quake\n' );
+	M_Print( 16, 180, ' github.com/phughesmcr/icaro-engine\n' );
 
 }
 
@@ -2206,8 +2206,6 @@ function M_Quit_Key( key ) {
 
 		case 121: // 'y'
 		case 89: // 'Y'
-			// Navigate to the project page
-			window.open( 'https://x.com/mrdoob/status/2015076521531355583', '_blank' );
 			M_Menu_Main_f();
 			break;
 

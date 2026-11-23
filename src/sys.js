@@ -10,7 +10,7 @@ SYSTEM IO
 
 export function Sys_Init() {
 
-	console.log( 'Three-Quake initializing...' );
+	console.log( 'Icaro Engine initializing...' );
 
 }
 
@@ -78,7 +78,7 @@ function _shouldPrintLine( line ) {
 
 	if ( _isDenoRuntime() !== true ) return true;
 
-	const quietLogs = globalThis.__THREE_QUAKE_QUIET_LOGS === true;
+	const quietLogs = globalThis.__ICARO_QUIET_LOGS === true;
 	if ( quietLogs !== true ) return true;
 
 	const trimmed = line.trim();

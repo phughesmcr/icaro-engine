@@ -2,7 +2,7 @@
 // Replaces browser sys.js for the dedicated server
 
 export function Sys_Init(): void {
-	console.log('Three-Quake Dedicated Server initializing...');
+	console.log('Icaro Engine Dedicated Server initializing...');
 }
 
 export function Sys_Error(error: string): never {
@@ -27,8 +27,8 @@ const _quietLogAllowPatterns: RegExp[] = [
 ];
 
 function _shouldPrintLine(line: string): boolean {
-	const quietLogs = (globalThis as { __THREE_QUAKE_QUIET_LOGS?: boolean })
-		.__THREE_QUAKE_QUIET_LOGS === true;
+	const quietLogs = (globalThis as { __ICARO_QUIET_LOGS?: boolean })
+		.__ICARO_QUIET_LOGS === true;
 	if (!quietLogs) return true;
 
 	const trimmed = line.trim();

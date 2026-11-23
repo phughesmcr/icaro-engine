@@ -43,7 +43,7 @@ const virtualFiles = new Map();
 
 // Base path for on-demand loose file fetching
 // Browser: 'static/' (relative URLs like 'static/maps/foo.bsp')
-// Deno: '/opt/three-quake/static/' (absolute filesystem path)
+// Deno: '/opt/icaro-engine/static/' (absolute filesystem path)
 let looseFileBasePath = 'static/';
 
 /*
@@ -193,7 +193,7 @@ COM_SetLooseFileBasePath
 
 Sets the base path for on-demand loose file fetching.
 Browser: 'static/' (default, uses relative URLs like 'static/maps/foo.bsp')
-Deno: '/opt/three-quake/static/' (absolute filesystem path)
+Deno: '/opt/icaro-engine/static/' (absolute filesystem path)
 =================
 */
 export function COM_SetLooseFileBasePath( basePath ) {

@@ -227,8 +227,8 @@ export async function Host_Init( parms ) {
 	Chase_Init();
 	Host_InitLocal();
 
-	Con_Printf( 'Three-Quake Version 1.09\n' );
-	Con_Printf( 'Exe: three-quake (JavaScript/Three.js)\n' );
+	Con_Printf( 'Icaro Engine Version 1.09\n' );
+	Con_Printf( 'Exe: icaro-engine (JavaScript/Three.js)\n' );
 
 	// W_LoadWadFile("gfx.wad") - load from pak
 	const wadData = COM_LoadFile( 'gfx.wad' );
