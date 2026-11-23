@@ -31,7 +31,7 @@ async function main() {
 		const loadingProgress = document.getElementById( 'loading-progress' );
 		const loadingOverlay = document.getElementById( 'loading' );
 
-		function setProgress( value ) {
+		const setProgress = ( value ) => {
 
 			if ( loadingProgress ) {
 
@@ -39,7 +39,7 @@ async function main() {
 
 			}
 
-		}
+		};
 
 		// Load pak0.pak from static/
 		Sys_Printf( 'Loading pak0.pak...\\n' );
