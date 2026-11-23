@@ -234,7 +234,7 @@ async function Host_Init_Server() {
 	COM_AddPack(pak);
 
 	// Set base path for on-demand loose file loading (custom maps not in PAK)
-	COM_SetLooseFileBasePath('/opt/three-quake/');
+	COM_SetLooseFileBasePath('/opt/three-quake/static/');
 
 	// Start listening for connections
 	await net_drivers[1].Listen(true);

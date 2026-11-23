@@ -42,9 +42,9 @@ const loadedPacks = [];
 const virtualFiles = new Map();
 
 // Base path for on-demand loose file fetching
-// Browser: '' (relative URLs like 'maps/foo.bsp')
-// Deno: '/opt/three-quake/' (absolute filesystem path)
-let looseFileBasePath = '';
+// Browser: 'static/' (relative URLs like 'static/maps/foo.bsp')
+// Deno: '/opt/three-quake/static/' (absolute filesystem path)
+let looseFileBasePath = 'static/';
 
 /*
 =================
@@ -192,8 +192,8 @@ export function COM_FindFile( filename ) {
 COM_SetLooseFileBasePath
 
 Sets the base path for on-demand loose file fetching.
-Browser: '' (default, uses relative URLs)
-Deno: '/opt/three-quake/' (absolute filesystem path)
+Browser: 'static/' (default, uses relative URLs like 'static/maps/foo.bsp')
+Deno: '/opt/three-quake/static/' (absolute filesystem path)
 =================
 */
 export function COM_SetLooseFileBasePath( basePath ) {
@@ -286,7 +286,7 @@ export async function COM_PreloadLooseFile( filename, url ) {
 =================
 COM_PreloadMaps
 
-Preloads loose map files from the maps/ directory.
+Preloads loose map files from the static/maps/ directory.
 basePath is optional - used by Deno server to specify absolute path.
 =================
 */
@@ -295,7 +295,7 @@ export async function COM_PreloadMaps( mapList, basePath ) {
 	let loaded = 0;
 
 	// Default base path, or use provided one (for Deno server)
-	const base = basePath || 'maps/';
+	const base = basePath || 'static/maps/';
 
 	for ( const mapName of mapList ) {
 
