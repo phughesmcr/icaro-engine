@@ -90,6 +90,8 @@ import {
 import { Mod_LeafPVS, solidskytexture, alphaskytexture } from './gl_model.js';
 import { realtime } from './host.js';
 import { MAX_MODELS } from './quakedef.js';
+import { R_MirrorGate } from './gl_rmirror.js';
+import { isXRActive } from './webxr.js';
 
 //============================================================================
 // Constants
@@ -227,6 +229,12 @@ let worldMeshesBuilt = false; // true after R_BuildWorldMeshes has run
 // instanceVisInfo: Array<{batch: BatchedMesh, instanceId: number, leaves: leaf[]}>
 // Each instance tracks all leaves that contain its surface - visible if ANY leaf is visible
 const instanceVisInfo = [];
+
+// Mirror surfaces of the world: surf -> { surf, geom, texture, batch, instanceId }.
+// Rebuilt with the world meshes. mirrorItems is the visible subset on the
+// mirror plane, filled by R_MirrorChain each frame.
+const worldMirrors = new Map();
+const mirrorItems = [];
 
 // All BatchedMesh objects for the world (one per texture/lightmap combo)
 const worldBatchedMeshes = [];
@@ -1882,10 +1890,9 @@ export function DrawTextureChains() {
 
 			R_DrawSkyChain( s );
 
-		} else if ( i === mirrortexturenum && r_mirroralpha.value !== 1.0 ) {
+		} else if ( i === mirrortexturenum && R_MirrorGate( r_mirroralpha.value, isXRActive() ) ) {
 
 			R_MirrorChain( s );
-			continue;
 
 		} else {
 
@@ -2162,13 +2169,51 @@ export function R_MarkLeaves() {
 // R_MirrorChain
 //============================================================================
 
-function R_MirrorChain( s ) {
+// GLQuake's R_NewMap picks the mirror texture by this name prefix.
+export function R_IsMirrorTexture( t ) {
+
+	return t != null && typeof t.name === 'string' && t.name.substring( 0, 10 ) === 'window02_1';
+
+}
+
+export function R_MirrorChain( s ) {
 
 	if ( mirror )
 		return;
 
 	set_mirror( true );
 	set_mirror_plane( s.plane );
+
+	// GLQuake draws every surface in the chain with the first one's plane.
+	// Only the coplanar ones are mirrored here; any others stay as ordinary
+	// world surfaces.
+	mirrorItems.length = 0;
+	for ( ; s; s = s.texturechain ) {
+
+		if ( s.plane !== mirror_plane )
+			continue;
+
+		const item = worldMirrors.get( s );
+		if ( item !== undefined )
+			mirrorItems.push( item );
+
+	}
+
+}
+
+// The mirror surfaces on mirror_plane that R_MirrorChain found this frame.
+export function R_GetMirrorItems() {
+
+	return mirrorItems;
+
+}
+
+function R_ClearMirrors() {
+
+	for ( const item of worldMirrors.values() )
+		item.geom.dispose();
+	worldMirrors.clear();
+	mirrorItems.length = 0;
 
 }
 
@@ -2553,6 +2598,7 @@ function R_BuildWorldMeshes() {
 
 	// Clear previous batch data
 	instanceVisInfo.length = 0;
+	R_ClearMirrors();
 	worldBatchedMeshes.length = 0;
 	worldAnimatedMeshes.length = 0;
 
@@ -2630,6 +2676,9 @@ function R_BuildWorldMeshes() {
 		const geom = DrawGLPoly( surf.polys, planeNormal );
 		if ( ! geom ) continue;
 
+		// by name: mirrortexturenum is only set after the world meshes are built
+		const isMirrorTexture = R_IsMirrorTexture( t );
+
 		const lmNum = surf.lightmaptexturenum;
 		const texKey = ( t._buildId || ( t._buildId = Math.random() ) ) + '_' + lmNum;
 
@@ -2650,7 +2699,12 @@ function R_BuildWorldMeshes() {
 
 		group.totalVerts += vertCount;
 		group.totalGeoms ++;
-		group.surfaceData.push( { geom: geom, leaves: leaves } );
+		group.surfaceData.push( {
+			geom: geom,
+			leaves: leaves,
+			surf: surf,
+			mirrorGeom: isMirrorTexture ? geom.clone() : null
+		} );
 
 	}
 
@@ -2695,6 +2749,18 @@ function R_BuildWorldMeshes() {
 				instanceId: instanceId,
 				leaves: surfData.leaves
 			} );
+
+			if ( surfData.mirrorGeom != null ) {
+
+				worldMirrors.set( surfData.surf, {
+					surf: surfData.surf,
+					geom: surfData.mirrorGeom,
+					texture: t.gl_texture,
+					batch: batchedMesh,
+					instanceId: instanceId
+				} );
+
+			}
 
 			// Dispose the temporary geometry (data copied to batch)
 			surfData.geom.dispose();
@@ -2795,6 +2861,7 @@ export function GL_BuildLightmaps() {
 
 	// Clear PVS instance visibility info
 	instanceVisInfo.length = 0;
+	R_ClearMirrors();
 
 	// Force visibility update on first frame after map load
 	_visibilityNeedsUpdate = true;
