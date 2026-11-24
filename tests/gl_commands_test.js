@@ -90,6 +90,15 @@ Deno.test( 'S_BlockSound suspends on the first block and resumes on the last unb
 		assertEqual( sound.snd_blocked, 0, 'unblocked' );
 		assertEqual( calls.join( ',' ), 'suspend,resume', 'resumed' );
 
+		// a context created while blocked starts suspended
+		snd_dma.S_Shutdown();
+		snd_dma.S_BlockSound();
+		calls.length = 0;
+		snd_dma.S_Init();
+		assertEqual( calls.join( ',' ), 'suspend', 'new context suspended' );
+		snd_dma.S_UnblockSound();
+		assertEqual( calls.join( ',' ), 'suspend,resume', 'new context resumed' );
+
 	} finally {
 
 		snd_dma.S_Shutdown();

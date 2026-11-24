@@ -98,6 +98,9 @@ export function S_Init() {
 		masterGain.connect( audioContext.destination );
 		masterGain.gain.value = volume.value;
 
+		// started while the page is hidden: stay blocked (S_BlockSound)
+		if ( snd_blocked > 0 ) audioContext.suspend();
+
 		sound_started = true;
 		Sound_SetInitialized( true );
 
