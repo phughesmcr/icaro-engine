@@ -4,7 +4,7 @@ import { Sys_Error } from './sys.js';
 import { Con_Printf, Con_DPrintf, COM_Parse, com_token } from './common.js';
 import { Cmd_AddCommand, Cmd_Argv } from './cmd.js';
 import { cvar_t, Cvar_RegisterVariable } from './cvar.js';
-import { PR_InitBuiltins } from './pr_cmds.js';
+import { PR_InitBuiltins, PF_Format5_1f } from './pr_cmds.js';
 import { CRC_Init, CRC_ProcessByte, CRC_Value } from './crc.js';
 import { MAX_EDICTS } from './quakedef.js';
 import {
@@ -33,6 +33,7 @@ import {
 	RETURN_EDICT,
 } from './progs.js';
 import { PR_ExecuteProgram } from './pr_exec.js';
+import { SV_UnlinkEdict } from './world.js';
 
 //============================================================================
 // Module state
@@ -147,11 +148,7 @@ Marks the edict as free
 */
 export function ED_Free( ed ) {
 
-	if ( sv.SV_UnlinkEdict ) {
-
-		sv.SV_UnlinkEdict( ed );
-
-	}
+	SV_UnlinkEdict( ed ); // unlink from world bsp
 
 	ed.free = true;
 	ed.v.model = 0;
@@ -343,11 +340,12 @@ export function PR_ValueString( type, accessor, ofs ) {
 		case ev_void:
 			return 'void';
 		case ev_float:
-			return accessor.getFloat( ofs ).toFixed( 1 );
+			return PF_Format5_1f( accessor.getFloat( ofs ) ); // "%5.1f"
 		case ev_vector: {
 
+			// "'%5.1f %5.1f %5.1f'"
 			const v = accessor.getVector( ofs );
-			return '\'' + v[ 0 ].toFixed( 1 ) + ' ' + v[ 1 ].toFixed( 1 ) + ' ' + v[ 2 ].toFixed( 1 ) + '\'';
+			return '\'' + PF_Format5_1f( v[ 0 ] ) + ' ' + PF_Format5_1f( v[ 1 ] ) + ' ' + PF_Format5_1f( v[ 2 ] ) + '\'';
 
 		}
 
@@ -770,10 +768,14 @@ export function ED_NewString( string ) {
 
 	// Patch into the string data so PR_GetString can find it
 	// We extend the strings data array
-	const encoded = new TextEncoder().encode( result + '\0' );
-	const newData = new Uint8Array( pr_strings_data.length + encoded.length );
+	// Store one byte per character (Latin-1), matching PR_GetString, which
+	// decodes byte by byte. UTF-8 would split bytes >= 0x80 (gold/coloured
+	// text) into two.
+	const newData = new Uint8Array( pr_strings_data.length + result.length + 1 );
 	newData.set( pr_strings_data );
-	newData.set( encoded, pr_strings_data.length );
+	for ( let i = 0; i < result.length; i ++ )
+		newData[ pr_strings_data.length + i ] = result.charCodeAt( i ) & 0xff;
+	newData[ pr_strings_data.length + result.length ] = 0;
 
 	const newOfs = pr_strings_data.length;
 	PR_SetStringsData( newData );

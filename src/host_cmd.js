@@ -3,21 +3,24 @@
 import { Sys_Printf, Sys_Error, Sys_FloatTime } from './sys.js';
 import { Con_Printf, SZ_Write, SZ_Clear,
 	MSG_WriteByte, MSG_WriteShort, MSG_WriteLong, MSG_WriteFloat,
-	MSG_WriteString, MSG_WriteAngle, COM_Parse, com_token } from './common.js';
+	MSG_WriteString, MSG_WriteAngle, COM_Parse, com_token, rogue, hipnotic } from './common.js';
 import { svc_signonnum, svc_time, svc_updatename, svc_updatefrags,
 	svc_updatecolors, svc_lightstyle, svc_updatestat, svc_setangle,
 	svc_setpause } from './protocol.js';
 import { STAT_TOTALSECRETS, STAT_TOTALMONSTERS, STAT_SECRETS, STAT_MONSTERS,
-	MAX_LIGHTSTYLES, SAVEGAME_COMMENT_LENGTH } from './quakedef.js';
+	MAX_LIGHTSTYLES, SAVEGAME_COMMENT_LENGTH, VERSION,
+	IT_SHOTGUN, IT_GRENADE_LAUNCHER, IT_LIGHTNING,
+	HIT_PROXIMITY_GUN, HIT_LASER_CANNON, HIT_MJOLNIR } from './quakedef.js';
 import { NUM_FOR_EDICT, EDICT_NUM, EDICT_TO_PROG, PR_GetString, pr_global_struct } from './progs.js';
 import { PR_ExecuteProgram } from './pr_exec.js';
-import { ED_NewString, ED_Write, ED_WriteGlobals, ED_ParseGlobals, ED_ParseEdict } from './pr_edict.js';
+import { ED_NewString, ED_Write, ED_WriteGlobals, ED_ParseGlobals, ED_ParseEdict, GetEdictFieldValue } from './pr_edict.js';
 import { sv_player } from './sv_phys.js';
 import { FL_GODMODE, FL_NOTARGET,
 	MOVETYPE_WALK, MOVETYPE_FLY, MOVETYPE_NOCLIP } from './sv_phys.js';
-import { Cvar_Set, Cvar_SetValue, Cvar_VariableValue } from './cvar.js';
+import { Cvar_Set, Cvar_SetValue, Cvar_VariableValue, Cvar_VariableString } from './cvar.js';
+import { net_time, net_activeconnections } from './net.js';
 import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv, Cmd_Args, Cmd_ExecuteString,
-	Cmd_ForwardToServer, cmd_source, src_command, src_client, Cbuf_AddText } from './cmd.js';
+	Cmd_ForwardToServer, cmd_source, src_command, Cbuf_AddText } from './cmd.js';
 import { SV_SpawnServer, SV_SaveSpawnparms, SV_DropClient,
 	SV_WriteClientdataToMessage, current_skill } from './sv_main.js';
 import { sv, svs, host_client, set_host_client,
@@ -83,11 +86,82 @@ export function Host_InitCommands() {
 
 }
 
+/*
+==================
+Host_Status_f
+==================
+*/
 function Host_Status_f() {
 
-	Con_Printf( 'host:    Icaro Engine\n' );
-	Con_Printf( 'map:     ' + ( sv.name || 'none' ) + '\n' );
-	Con_Printf( 'players: ' + svs.maxclients + ' max\n' );
+	let print;
+
+	if ( cmd_source === src_command ) {
+
+		if ( ! sv.active ) {
+
+			Cmd_ForwardToServer();
+			return;
+
+		}
+
+		print = Host_Status_ConPrint;
+
+	} else {
+
+		print = Host_Status_ClientPrint;
+
+	}
+
+	print( 'host:    ' + Cvar_VariableString( 'hostname' ) + '\n' );
+	print( 'version: ' + VERSION.toFixed( 2 ) + '\n' );
+	// C prints the tcp/ip and ipx addresses here; this port has neither
+	print( 'map:     ' + sv.name + '\n' );
+	print( 'players: ' + net_activeconnections + ' active (' + svs.maxclients + ' max)\n\n' );
+
+	for ( let j = 0; j < svs.maxclients; j ++ ) {
+
+		const client = svs.clients[ j ];
+		if ( ! client.active )
+			continue;
+
+		let seconds = ( net_time - client.netconnection.connecttime ) | 0;
+		let minutes = ( seconds / 60 ) | 0;
+		let hours;
+		if ( minutes ) {
+
+			seconds -= minutes * 60;
+			hours = ( minutes / 60 ) | 0;
+			if ( hours )
+				minutes -= hours * 60;
+
+		} else {
+
+			hours = 0;
+
+		}
+
+		// "#%-2u %-16.16s  %3i  %2i:%02i:%02i\n"
+		print( '#' + String( j + 1 ).padEnd( 2, ' ' )
+			+ ' ' + client.name.substring( 0, 16 ).padEnd( 16, ' ' )
+			+ '  ' + String( client.edict.v.frags | 0 ).padStart( 3, ' ' )
+			+ '  ' + String( hours ).padStart( 2, ' ' )
+			+ ':' + String( minutes ).padStart( 2, '0' )
+			+ ':' + String( seconds ).padStart( 2, '0' ) + '\n' );
+		print( '   ' + client.netconnection.address + '\n' );
+
+	}
+
+}
+
+function Host_Status_ConPrint( s ) {
+
+	Con_Printf( '%s', s );
+
+}
+
+function Host_Status_ClientPrint( s ) {
+
+	SV_ClientPrintf( '%s', s );
 
 }
 
@@ -215,17 +289,26 @@ function Host_Changelevel_f() {
 
 }
 
+/*
+==================
+Host_Restart_f
+
+Restarts the current server for a dead player
+==================
+*/
 function Host_Restart_f() {
 
-	if ( ! sv.active )
+	if ( cls.demoplayback || ! sv.active )
 		return;
 
+	if ( cmd_source !== src_command )
+		return;
+
+	// must copy out, because it gets cleared in SV_SpawnServer.
+	// SV_SpawnServer keeps the clients connected, so each client's
+	// spawn_parms (the inventory it entered the level with) survive.
 	const mapname = sv.name;
-	if ( mapname ) {
-
-		Cbuf_AddText( 'map ' + mapname + '\n' );
-
-	}
+	SV_SpawnServer( mapname );
 
 }
 
@@ -563,20 +646,14 @@ function Host_Kill_f() {
 
 	if ( cmd_source === src_command ) {
 
-		// If not running a local server, forward the command to the remote server
-		if ( ! sv.active ) {
-
-			Cmd_ForwardToServer();
-			return;
-
-		}
-
-		Cmd_ExecuteString( 'kill', src_client );
+		// always forward, even to a local server, so the server runs it with
+		// host_client / sv_player set to the client that typed it
+		Cmd_ForwardToServer();
 		return;
 
 	}
 
-	if ( sv_player == null || sv_player.v.health <= 0 ) {
+	if ( sv_player.v.health <= 0 ) {
 
 		SV_ClientPrintf( 'Can\'t suicide -- allready dead!\n' );
 		return;
@@ -696,32 +773,129 @@ function Host_Give_f() {
 		return;
 
 	const t = Cmd_Argv( 1 );
-	const v = parseInt( Cmd_Argv( 2 ) ) || 0;
+	const v = parseInt( Cmd_Argv( 2 ) ) || 0; // atoi
+	const c0 = t.charAt( 0 );
+	let val;
 
-	if ( t.length === 0 ) return;
+	switch ( c0 ) {
 
-	switch ( t[ 0 ] ) {
+		case '0': case '1': case '2': case '3': case '4':
+		case '5': case '6': case '7': case '8': case '9':
+			// MED 01/04/97 added hipnotic give stuff
+			if ( hipnotic ) {
 
-		case '2': case '3': case '4': case '5':
-		case '6': case '7': case '8': {
+				if ( c0 === '6' ) {
 
-			const IT_SHOTGUN = 1;
-			if ( t.charCodeAt( 0 ) >= 50 ) // '2'
-				sv_player.v.items = ( sv_player.v.items | 0 ) | ( IT_SHOTGUN << ( t.charCodeAt( 0 ) - 50 ) );
+					if ( t.charAt( 1 ) === 'a' )
+						sv_player.v.items = ( sv_player.v.items | 0 ) | HIT_PROXIMITY_GUN;
+					else
+						sv_player.v.items = ( sv_player.v.items | 0 ) | IT_GRENADE_LAUNCHER;
+
+				} else if ( c0 === '9' ) {
+
+					sv_player.v.items = ( sv_player.v.items | 0 ) | HIT_LASER_CANNON;
+
+				} else if ( c0 === '0' ) {
+
+					sv_player.v.items = ( sv_player.v.items | 0 ) | HIT_MJOLNIR;
+
+				} else if ( c0 >= '2' ) {
+
+					sv_player.v.items = ( sv_player.v.items | 0 ) | ( IT_SHOTGUN << ( t.charCodeAt( 0 ) - 50 ) );
+
+				}
+
+			} else {
+
+				if ( c0 >= '2' )
+					sv_player.v.items = ( sv_player.v.items | 0 ) | ( IT_SHOTGUN << ( t.charCodeAt( 0 ) - 50 ) );
+
+			}
+
 			break;
 
-		}
-
 		case 's':
+			if ( rogue ) {
+
+				val = GetEdictFieldValue( sv_player, 'ammo_shells1' );
+				if ( val )
+					val.accessor.setFloat( val.ofs, v );
+
+			}
+
 			sv_player.v.ammo_shells = v;
 			break;
 
 		case 'n':
-			sv_player.v.ammo_nails = v;
+			if ( rogue ) {
+
+				val = GetEdictFieldValue( sv_player, 'ammo_nails1' );
+				if ( val ) {
+
+					val.accessor.setFloat( val.ofs, v );
+					if ( sv_player.v.weapon <= IT_LIGHTNING )
+						sv_player.v.ammo_nails = v;
+
+				}
+
+			} else {
+
+				sv_player.v.ammo_nails = v;
+
+			}
+
+			break;
+
+		case 'l':
+			if ( rogue ) {
+
+				val = GetEdictFieldValue( sv_player, 'ammo_lava_nails' );
+				if ( val ) {
+
+					val.accessor.setFloat( val.ofs, v );
+					if ( sv_player.v.weapon > IT_LIGHTNING )
+						sv_player.v.ammo_nails = v;
+
+				}
+
+			}
+
 			break;
 
 		case 'r':
-			sv_player.v.ammo_rockets = v;
+			if ( rogue ) {
+
+				val = GetEdictFieldValue( sv_player, 'ammo_rockets1' );
+				if ( val ) {
+
+					val.accessor.setFloat( val.ofs, v );
+					if ( sv_player.v.weapon <= IT_LIGHTNING )
+						sv_player.v.ammo_rockets = v;
+
+				}
+
+			} else {
+
+				sv_player.v.ammo_rockets = v;
+
+			}
+
+			break;
+
+		case 'm':
+			if ( rogue ) {
+
+				val = GetEdictFieldValue( sv_player, 'ammo_multi_rockets' );
+				if ( val ) {
+
+					val.accessor.setFloat( val.ofs, v );
+					if ( sv_player.v.weapon > IT_LIGHTNING )
+						sv_player.v.ammo_rockets = v;
+
+				}
+
+			}
+
 			break;
 
 		case 'h':
@@ -729,7 +903,39 @@ function Host_Give_f() {
 			break;
 
 		case 'c':
-			sv_player.v.ammo_cells = v;
+			if ( rogue ) {
+
+				val = GetEdictFieldValue( sv_player, 'ammo_cells1' );
+				if ( val ) {
+
+					val.accessor.setFloat( val.ofs, v );
+					if ( sv_player.v.weapon <= IT_LIGHTNING )
+						sv_player.v.ammo_cells = v;
+
+				}
+
+			} else {
+
+				sv_player.v.ammo_cells = v;
+
+			}
+
+			break;
+
+		case 'p':
+			if ( rogue ) {
+
+				val = GetEdictFieldValue( sv_player, 'ammo_plasma' );
+				if ( val ) {
+
+					val.accessor.setFloat( val.ofs, v );
+					if ( sv_player.v.weapon > IT_LIGHTNING )
+						sv_player.v.ammo_cells = v;
+
+				}
+
+			}
+
 			break;
 
 	}
@@ -840,36 +1046,31 @@ function Host_Kick_f() {
 		let message = null;
 		if ( Cmd_Argc() > 2 ) {
 
-			let args = Cmd_Args();
+			// message = COM_Parse( Cmd_Args() ): skip the first token (the
+			// player name, or the '#')
+			let args = COM_Parse( Cmd_Args() ) || '';
 			if ( byNumber ) {
 
-				// skip the # and number
-				const numStr = Cmd_Argv( 2 );
-				const hashIdx = args.indexOf( '#' );
-				if ( hashIdx >= 0 ) {
-
-					args = args.substring( hashIdx + 1 ).trim();
-					args = args.substring( numStr.length ).trim();
-
-				}
+				args = args.substring( 1 ); // skip the #
+				while ( args.charAt( 0 ) === ' ' ) // skip white space
+					args = args.substring( 1 );
+				args = args.substring( Cmd_Argv( 2 ).length ); // skip the number
 
 			}
 
-			if ( args.length > 0 ) {
-
-				message = args;
-
-			}
+			while ( args.charAt( 0 ) === ' ' )
+				args = args.substring( 1 );
+			message = args;
 
 		}
 
 		if ( message != null ) {
 
-			SV_ClientPrintf( 'Kicked by ' + who + ': ' + message + '\n' );
+			SV_ClientPrintf( '%s', 'Kicked by ' + who + ': ' + message + '\n' );
 
 		} else {
 
-			SV_ClientPrintf( 'Kicked by ' + who + '\n' );
+			SV_ClientPrintf( '%s', 'Kicked by ' + who + '\n' );
 
 		}
 

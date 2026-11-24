@@ -8,7 +8,6 @@ import { vec3_origin, DotProduct, VectorCopy, VectorAdd, VectorSubtract, VectorM
 	M_PI, anglemod } from './mathlib.js';
 import { MAX_EDICTS, YAW } from './quakedef.js';
 import { PR_GetString } from './progs.js';
-import { trace_t } from './world.js';
 
 /*
 
@@ -134,7 +133,7 @@ const _wallfriction_side = new Float32Array( 3 );
 // Cached buffers for SV_TryUnstick (Golden Rule #4)
 const _tryunstick_oldorg = new Float32Array( 3 );
 const _tryunstick_dir = new Float32Array( 3 );
-const _tryunstick_steptrace = {};
+const _tryunstick_steptrace = SV_AllocStepTrace();
 
 // Cached buffers for SV_WalkMove (Golden Rule #4)
 const _walkmove_upmove = new Float32Array( 3 );
@@ -143,6 +142,28 @@ const _walkmove_oldorg = new Float32Array( 3 );
 const _walkmove_oldvel = new Float32Array( 3 );
 const _walkmove_nosteporg = new Float32Array( 3 );
 const _walkmove_nostepvel = new Float32Array( 3 );
+// C keeps steptrace on SV_WalkMove's stack and SV_FlyMove copies the trace into
+// it by value, so a second SV_FlyMove that never hits a wall leaves the first
+// move's trace in place. One persistent trace_t does the same here.
+const _walkmove_steptrace = SV_AllocStepTrace();
+
+// Same shape as world.js trace_t. Built here rather than with `new trace_t()`
+// because world.js is not initialised yet when this module is evaluated
+// (circular import).
+function SV_AllocStepTrace() {
+
+	return {
+		allsolid: false,
+		startsolid: false,
+		inopen: false,
+		inwater: false,
+		fraction: 1.0,
+		endpos: new Float32Array( 3 ),
+		plane: { normal: new Float32Array( 3 ), dist: 0 },
+		ent: null
+	};
+
+}
 
 // Cached buffer for SV_Physics_Toss (Golden Rule #4)
 const _toss_move = new Float32Array( 3 );
@@ -479,8 +500,20 @@ export function SV_FlyMove( ent, time, steptrace ) {
 		if ( trace.plane.normal[ 2 ] === 0 ) {
 
 			blocked |= 2; // step
-			if ( steptrace )
-				Object.assign( steptrace, trace ); // save for player extrafriction
+			if ( steptrace ) {
+
+				// save for player extrafriction (C: *steptrace = trace, a struct copy)
+				steptrace.allsolid = trace.allsolid;
+				steptrace.startsolid = trace.startsolid;
+				steptrace.inopen = trace.inopen;
+				steptrace.inwater = trace.inwater;
+				steptrace.fraction = trace.fraction;
+				VectorCopy( trace.endpos, steptrace.endpos );
+				VectorCopy( trace.plane.normal, steptrace.plane.normal );
+				steptrace.plane.dist = trace.plane.dist;
+				steptrace.ent = trace.ent;
+
+			}
 
 		}
 
@@ -1167,7 +1200,13 @@ export function SV_WalkMove( ent ) {
 	const oldvel = _walkmove_oldvel;
 	const nosteporg = _walkmove_nosteporg;
 	const nostepvel = _walkmove_nostepvel;
-	let steptrace = {};
+	const steptrace = _walkmove_steptrace;
+
+	// C leaves the stack struct uninitialised; a zero normal is the defined
+	// stand-in and makes SV_WallFriction a no-op if no wall was ever hit.
+	steptrace.plane.normal[ 0 ] = 0;
+	steptrace.plane.normal[ 1 ] = 0;
+	steptrace.plane.normal[ 2 ] = 0;
 
 	//
 	// do a regular slide move unless it looks like you ran into a step
@@ -1215,7 +1254,6 @@ export function SV_WalkMove( ent ) {
 	ent.v.velocity[ 0 ] = oldvel[ 0 ];
 	ent.v.velocity[ 1 ] = oldvel[ 1 ];
 	ent.v.velocity[ 2 ] = 0;
-	steptrace = {};
 	clip = SV_FlyMove( ent, host_frametime, steptrace );
 
 	// check for stuckness, possibly due to the limited precision of floats

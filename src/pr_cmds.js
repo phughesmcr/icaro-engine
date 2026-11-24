@@ -1,5 +1,7 @@
 // Ported from: WinQuake/pr_cmds.c -- QuakeC built-in functions
 
+import { Sys_Error } from './sys.js';
+import { SV_BroadcastPrintf } from './host.js';
 import {
 	Con_Printf, Con_DPrintf,
 	MSG_WriteByte, MSG_WriteChar, MSG_WriteShort, MSG_WriteLong,
@@ -239,17 +241,7 @@ bprint(value)
 function PF_bprint() {
 
 	const s = PF_VarString( 0 );
-	Con_Printf( '%s', s );
-
-	// send to all clients
-	for ( let i = 0; i < svs.maxclients; i ++ ) {
-
-		const client = svs.clients[ i ];
-		if ( ! client || ! client.active ) continue;
-		MSG_WriteByte( client.message, svc_print );
-		MSG_WriteString( client.message, s );
-
-	}
+	SV_BroadcastPrintf( '%s', s );
 
 }
 
@@ -516,6 +508,15 @@ function PF_sound() {
 	const sample = G_STRING( OFS_PARM2 );
 	const volume = ( G_FLOAT( OFS_PARM3 ) * 255 ) | 0;
 	const attenuation = G_FLOAT( OFS_PARM4 );
+
+	if ( volume < 0 || volume > 255 )
+		Sys_Error( 'SV_StartSound: volume = ' + volume );
+
+	if ( attenuation < 0 || attenuation > 4 )
+		Sys_Error( 'SV_StartSound: attenuation = ' + attenuation.toFixed( 6 ) );
+
+	if ( channel < 0 || channel > 7 )
+		Sys_Error( 'SV_StartSound: channel = ' + channel );
 
 	SV_StartSound( entity, channel, sample, volume, attenuation );
 
@@ -811,6 +812,13 @@ function PF_dprint() {
 
 }
 
+// C printf "%5.1f": one decimal, right-aligned in a 5-character field
+export function PF_Format5_1f( v ) {
+
+	return v.toFixed( 1 ).padStart( 5, ' ' );
+
+}
+
 // Temp string for ftos/vtos (in C this is a static buffer in pr_strings space)
 function PF_ftos() {
 
@@ -818,9 +826,9 @@ function PF_ftos() {
 	let str;
 
 	if ( v === ( v | 0 ) )
-		str = String( v | 0 );
+		str = String( v | 0 ); // %d
 	else
-		str = v.toFixed( 1 );
+		str = PF_Format5_1f( v ); // %5.1f
 
 	// Write into the fixed pr_string_temp area (reused each call, like C)
 	const ofs = PR_SetTempString( str );
@@ -838,7 +846,8 @@ function PF_fabs() {
 function PF_vtos() {
 
 	const v = G_VECTOR( OFS_PARM0 );
-	const str = '\'' + v[ 0 ].toFixed( 1 ) + ' ' + v[ 1 ].toFixed( 1 ) + ' ' + v[ 2 ].toFixed( 1 ) + '\'';
+	// sprintf( pr_string_temp, "'%5.1f %5.1f %5.1f'", ... )
+	const str = '\'' + PF_Format5_1f( v[ 0 ] ) + ' ' + PF_Format5_1f( v[ 1 ] ) + ' ' + PF_Format5_1f( v[ 2 ] ) + '\'';
 
 	// Write into the fixed pr_string_temp area (reused each call, like C)
 	const ofs = PR_SetTempString( str );
@@ -867,7 +876,9 @@ function PF_Find() {
 	const f = G_INT( OFS_PARM1 );
 	const s = G_STRING( OFS_PARM2 );
 
-	if ( ! s )
+	// C tests char pointers here, which are never NULL: an empty string is a
+	// valid search that matches entities whose field is empty or unset.
+	if ( s == null )
 		PR_RunError( 'PF_Find: bad search string' );
 
 	for ( e ++; e < sv.num_edicts; e ++ ) {
@@ -876,7 +887,7 @@ function PF_Find() {
 		if ( ed.free )
 			continue;
 		const t = E_STRING( ed, f );
-		if ( ! t )
+		if ( t == null )
 			continue;
 		if ( t === s ) {
 
