@@ -302,7 +302,7 @@ Shutdown the WebTransport driver
 export function WT_Shutdown() {
 
 	// Close all active connections
-	for ( const [ sock, conn ] of wt_connections ) {
+	for ( const conn of wt_connections.values() ) {
 
 		try {
 
@@ -329,7 +329,7 @@ Enable/disable listening for new connections
 Browser clients don't listen, only servers do
 =============
 */
-export function WT_Listen( state ) {
+export function WT_Listen( _state ) {
 
 	// Browser clients don't listen for connections
 	// This is a no-op on the client side
@@ -343,7 +343,7 @@ WT_SearchForHosts
 Search for available servers
 =============
 */
-export function WT_SearchForHosts( xmit ) {
+export function WT_SearchForHosts( _xmit ) {
 
 	// WebTransport doesn't have broadcast discovery
 	// Use WT_QueryRooms instead for server list
@@ -1357,7 +1357,7 @@ _WT_StartBackgroundReaders
 Start background readers for reliable stream + unreliable datagrams
 =============
 */
-function _WT_StartBackgroundReaders( sock, conn ) {
+function _WT_StartBackgroundReaders( _sock, conn ) {
 
 	Con_Printf( 'Starting reliable stream and datagram readers...\n' );
 	conn.readersStarted = true;

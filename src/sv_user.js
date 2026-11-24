@@ -21,7 +21,7 @@ const forward = new Float32Array( 3 );
 const right = new Float32Array( 3 );
 const up = new Float32Array( 3 );
 
-let wishdir = new Float32Array( 3 );
+const wishdir = new Float32Array( 3 );
 let wishspeed = 0;
 
 // Cached buffers to avoid per-frame allocations (Golden Rule #4)
@@ -57,7 +57,7 @@ export let NET_GetMessage = null;
 export let Cbuf_InsertText = null;
 let _set_host_client = null;
 export let Cmd_ExecuteString = null;
-export let src_client = 0;
+export const src_client = 0;
 
 // clc_ constants (from protocol.h)
 export const clc_bad = 0;
@@ -312,7 +312,7 @@ export function SV_WaterMove() {
 	//
 	// water friction
 	//
-	let speed = Length( velocity );
+	const speed = Length( velocity );
 	let newspeed;
 	if ( speed ) {
 

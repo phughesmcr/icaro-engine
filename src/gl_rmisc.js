@@ -91,7 +91,7 @@ Grab six views for environment mapping tests.
 In Three.js, we would use CubeCamera for this.
 ===============
 */
-export function R_Envmap_f( r_refdef, scene, renderer, camera ) {
+export function R_Envmap_f( _r_refdef, scene, renderer, camera ) {
 
 	if ( ! renderer || ! scene || ! camera )
 		return;

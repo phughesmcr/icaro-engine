@@ -322,7 +322,7 @@ LIGHT SAMPLING
 */
 
 export let lightplane = null;
-export let lightspot = new Float32Array( 3 );
+export const lightspot = new Float32Array( 3 );
 
 /*
 =============

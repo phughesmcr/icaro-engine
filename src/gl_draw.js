@@ -1189,7 +1189,7 @@ export function GL_Upload8( data, width, height, mipmap, alpha ) {
 GL_Upload32
 ================
 */
-export function GL_Upload32( data, width, height, mipmap, alpha ) {
+export function GL_Upload32( _data, _width, _height, _mipmap, _alpha ) {
 
 	// In canvas 2D mode, texture upload is handled differently
 	// This is a stub for compatibility

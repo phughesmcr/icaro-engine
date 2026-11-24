@@ -207,17 +207,16 @@ export function BoxOnPlaneSide( emins, emaxs, p ) {
 export function AngleVectors( angles, forward, right, up ) {
 
 	let angle;
-	let sr, sp, sy, cr, cp, cy;
 
 	angle = angles[ YAW ] * ( M_PI * 2 / 360 );
-	sy = Math.sin( angle );
-	cy = Math.cos( angle );
+	const sy = Math.sin( angle );
+	const cy = Math.cos( angle );
 	angle = angles[ PITCH ] * ( M_PI * 2 / 360 );
-	sp = Math.sin( angle );
-	cp = Math.cos( angle );
+	const sp = Math.sin( angle );
+	const cp = Math.cos( angle );
 	angle = angles[ ROLL ] * ( M_PI * 2 / 360 );
-	sr = Math.sin( angle );
-	cr = Math.cos( angle );
+	const sr = Math.sin( angle );
+	const cr = Math.cos( angle );
 
 	forward[ 0 ] = cp * cy;
 	forward[ 1 ] = cp * sy;

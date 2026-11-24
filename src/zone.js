@@ -90,7 +90,7 @@ export function Z_Malloc( size ) {
 Z_Free
 ========================
 */
-export function Z_Free( ptr ) {
+export function Z_Free( _ptr ) {
 
 	// In JS, just let GC handle it
 	// We could track and subtract from zone_allocated but it's not critical
@@ -123,7 +123,7 @@ level transitions can conceptually "free" old data.
 Hunk_AllocName
 ===================
 */
-export function Hunk_AllocName( size, name ) {
+export function Hunk_AllocName( size, _name ) {
 
 	// In JS, just allocate. The name is for debugging.
 	const buf = new ArrayBuffer( size );
@@ -187,7 +187,7 @@ export function Hunk_FreeToHighMark( mark ) {
 Hunk_HighAllocName
 ===================
 */
-export function Hunk_HighAllocName( size, name ) {
+export function Hunk_HighAllocName( size, _name ) {
 
 	if ( hunk_temp_active ) {
 
@@ -261,7 +261,7 @@ Throw everything out, so new data will be demand cached
 */
 export function Cache_Flush() {
 
-	for ( const [ name, entry ] of cache_entries ) {
+	for ( const entry of cache_entries.values() ) {
 
 		if ( entry.user ) {
 
@@ -373,7 +373,7 @@ Cache_Report
 export function Cache_Report() {
 
 	let total = 0;
-	for ( const [ name, entry ] of cache_entries ) {
+	for ( const entry of cache_entries.values() ) {
 
 		total += entry.size;
 

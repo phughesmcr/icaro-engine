@@ -20,7 +20,7 @@ const MAX_ARGS = 80;
 export const src_client = 0; // came in over a net connection as a clc_stringcmd
 export const src_command = 1; // from the command buffer
 
-let cmd_text = { allowoverflow: false, overflowed: false, data: null, maxsize: 0, cursize: 0 };
+const cmd_text = { allowoverflow: false, overflowed: false, data: null, maxsize: 0, cursize: 0 };
 
 let cmd_alias = null;
 let cmd_wait = false;

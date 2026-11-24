@@ -314,7 +314,6 @@ export function PR_ExecuteProgram( fnum ) {
 	let s;
 	let st;
 	let runaway;
-	let exitdepth;
 
 	if ( fnum === 0 || fnum >= progs.numfunctions ) {
 
@@ -330,7 +329,7 @@ export function PR_ExecuteProgram( fnum ) {
 	PR_SetTrace( false );
 
 	// make a stack frame
-	exitdepth = pr_depth;
+	const exitdepth = pr_depth;
 
 	s = PR_EnterFunction( f );
 

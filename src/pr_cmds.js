@@ -1275,7 +1275,7 @@ This was a major timewaster in progs, so it was converted to C
 function PF_changeyaw() {
 
 	const ent = PROG_TO_EDICT( pr_global_struct.self );
-	let current = anglemod( ent.v.angles[ 1 ] );
+	const current = anglemod( ent.v.angles[ 1 ] );
 	const ideal = ent.v.ideal_yaw;
 	const speed = ent.v.yaw_speed;
 
