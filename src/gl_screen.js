@@ -42,7 +42,7 @@ const scr_showturtle = { name: 'showturtle', string: '0', value: 0 };
 const scr_showpause = { name: 'showpause', string: '1', value: 1 };
 const scr_printspeed = { name: 'scr_printspeed', string: '8', value: 8 };
 const gl_triplebuffer = { name: 'gl_triplebuffer', string: '1', value: 1, archive: true };
-// FitzQuake/QuakeSpirit cvars (QS gl_screen.c)
+// FitzQuake/QuakeSpasm cvars (QS gl_screen.c)
 export const scr_showfps = { name: 'scr_showfps', string: '0', value: 0 };
 export const scr_clock = { name: 'scr_clock', string: '0', value: 0 };
 // QS defaults scr_sbaralpha to 0.75; 1 keeps the opaque WinQuake status bar

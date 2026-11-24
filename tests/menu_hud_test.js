@@ -125,15 +125,43 @@ Deno.test( 'ui_mouse 0 ignores the mouse in menus', () => {
 
 	withMenu( ( move ) => {
 
-		menu.ui_mouse.value = 0;
 		cmd.Cmd_ExecuteString( 'menu_main' );
+		move( 100, 32 + 10 ); // cursor on Single Player
+		menu.ui_mouse.value = 0;
 		move( 100, 32 + 2 * 20 + 10 ); // Options
 		menu.M_Keydown( keys.K_MOUSE1 );
 		menu.M_Keydown( keys.K_MOUSE2 );
 		menu.M_Keydown( keys.K_MWHEELDOWN );
 		assertEqual( menu.m_state, menu.m_main, 'mouse keys do nothing' );
 		menu.M_Keydown( keys.K_ENTER );
-		assertEqual( menu.m_state === menu.m_main || menu.m_state === menu.m_options, false, 'hover did not move the cursor to Options' );
+		assertEqual( menu.m_state, menu.m_singleplayer, 'hover did not move the cursor' );
+
+	} );
+
+} );
+
+Deno.test( 'the mouse does not move the cursor behind a modal dialog', () => {
+
+	withMenu( ( move ) => {
+
+		cmd.Cmd_ExecuteString( 'menu_main' );
+		move( 100, 32 + 10 ); // cursor on Single Player
+		let answer = null;
+		keys.Key_BeginModal( ( yes ) => { answer = yes; } );
+		try {
+
+			move( 100, 32 + 2 * 20 + 10 ); // Options
+
+		} finally {
+
+			keys.Key_Event( 110, true ); // 'n' ends the dialog
+			keys.Key_Event( 110, false );
+
+		}
+
+		assertEqual( answer, false, 'dialog answered no' );
+		menu.M_Keydown( keys.K_ENTER );
+		assertEqual( menu.m_state, menu.m_singleplayer, 'hover during the dialog was ignored' );
 
 	} );
 
