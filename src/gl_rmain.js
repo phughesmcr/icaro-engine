@@ -4,7 +4,6 @@
 import * as THREE from 'three';
 import { Sys_FloatTime } from './sys.js';
 import { Con_Printf } from './common.js';
-import { cvar_t } from './cvar.js';
 import { vid, renderer } from './vid.js';
 import { r_refdef, r_origin, vpn, vright, vup, entity_t } from './render.js';
 import {
@@ -36,7 +35,7 @@ import { d_lightstylevalue, r_framecount, set_r_framecount, inc_r_framecount,
 	gl_clear, gl_cull, gl_texsort, gl_smoothmodels, gl_affinemodels,
 	gl_polyblend, gl_flashblend, gl_playermip, gl_nocolors,
 	gl_keeptjunctions, gl_reporttjunctions,
-	gl_doubleeyes, gl_max_size
+	gl_doubleeyes, gl_max_size, gl_finish, GL_UpdateCull
 } from './glquake.js';
 export { GL_BuildLightmaps_rsurf as GL_BuildLightmaps };
 export { r_norefresh, r_drawentities, r_drawviewmodel, r_speeds,
@@ -181,8 +180,6 @@ export let camera = null; // THREE.PerspectiveCamera
 
 // Most cvars are defined in glquake.js and imported+re-exported above.
 // They are registered in gl_rmisc.js R_Init().
-// gl_ztrick is unique to gl_rmain (not in glquake.js).
-export const gl_ztrick = new cvar_t( 'gl_ztrick', '1' );
 
 //============================================================================
 // R_CullBox
@@ -312,6 +309,9 @@ export function R_SetupGL() {
 
 	const screenaspect = r_refdef.vrect.width / r_refdef.vrect.height;
 
+	// set drawing parms: glEnable/glDisable(GL_CULL_FACE) from gl_cull
+	GL_UpdateCull();
+
 	// set up Three.js camera to match Quake's perspective
 	if ( camera == null ) {
 
@@ -396,8 +396,10 @@ export function R_SetupGL() {
 	// Build a rotation matrix from the Quake basis vectors.
 	// In Quake: forward = where camera looks, right = camera right, up = camera up.
 	// Three.js camera looks down -Z, X=right, Y=up.
-	// GLQuake uses glCullFace(GL_FRONT) to cull front faces (keeping back faces).
-	// We match this with THREE.BackSide on materials.
+	// GLQuake culls with glCullFace(GL_FRONT) because its polygons wind the
+	// other way; the port's meshes face the camera under Three's default
+	// FrontSide. gl_cull 0 turns culling off (glDisable(GL_CULL_FACE)) by
+	// switching registered materials to DoubleSide in GL_UpdateCull.
 	const forward = _setupgl_forward, right = _setupgl_right, up = _setupgl_up;
 	const m = _setupgl_matrix;
 
@@ -1258,6 +1260,11 @@ export function R_RenderView() {
 	}
 
 	mirror = false;
+
+	// glFinish blocks until the GPU is done; WebGL's finish() is the same call
+	// (R_TimeRefresh_f uses it too). Only useful for timing, as in GLQuake.
+	if ( gl_finish.value && renderer !== null )
+		renderer.getContext().finish();
 
 	R_Clear();
 
