@@ -96,6 +96,16 @@ let eventWindow = null; // window, or targetElement when there is no window (Den
 // pointerlockchange handler does not open the menu.
 let suppressLockEscape = false;
 
+// Web-only: some browsers with a mouse-like pointer never grant pointer lock
+// (Samsung TV browsers fire pointerlockerror for every request). Once two
+// requests in a row are refused before any lock has worked, clicks ask for
+// fullscreen instead, which those browsers do allow. One refusal may be
+// transient (an unfocused page), and a refusal after a lock has worked
+// (e.g. Chrome's cooldown after Escape) changes nothing.
+let pointerLockWorked = false;
+let pointerLockRefusals = 0;
+let pointerLockUnavailable = false;
+
 // Quake key sent down for each physical key (event.code), so keyup releases
 // the same Quake key even if Shift or the layout changed event.key meanwhile.
 const keyForCode = new Map();
@@ -152,6 +162,15 @@ function GP_ReleaseAll() {
 function requestPointerLock() {
 
 	if ( pointerLocked || isQuest || touchMode || targetElement == null ) return;
+
+	if ( pointerLockUnavailable ) {
+
+		// Only reached from a user gesture, which fullscreen also needs
+		requestFullscreen();
+		return;
+
+	}
+
 	if ( targetElement.requestPointerLock == null ) return;
 
 	// Chrome returns a promise that rejects if the request is refused
@@ -853,6 +872,7 @@ function handlePointerLockChange() {
 
 	if ( pointerLocked ) {
 
+		pointerLockWorked = true;
 		mouseactive = true;
 
 	} else {
@@ -882,6 +902,20 @@ function handlePointerLockChange() {
 	}
 
 	updateKeyboardLock();
+
+}
+
+// See pointerLockUnavailable. The error follows the request within the
+// click's user activation, so fullscreen can still be requested here.
+function handlePointerLockError() {
+
+	if ( pointerLockWorked || touchMode ) return;
+
+	pointerLockRefusals ++;
+	if ( pointerLockRefusals < 2 ) return;
+
+	pointerLockUnavailable = true;
+	requestFullscreen();
 
 }
 
@@ -1143,7 +1177,11 @@ export function IN_Init( element ) {
 	targetElement.addEventListener( 'wheel', handleWheel, { passive: false } );
 	targetElement.addEventListener( 'contextmenu', handleContextMenu );
 
+	pointerLockWorked = false;
+	pointerLockRefusals = 0;
+	pointerLockUnavailable = false;
 	document.addEventListener( 'pointerlockchange', handlePointerLockChange );
+	document.addEventListener( 'pointerlockerror', handlePointerLockError );
 	document.addEventListener( 'fullscreenchange', updateKeyboardLock );
 	document.addEventListener( 'webkitfullscreenchange', updateKeyboardLock );
 
@@ -1216,6 +1254,7 @@ export function IN_Shutdown() {
 	}
 
 	document.removeEventListener( 'pointerlockchange', handlePointerLockChange );
+	document.removeEventListener( 'pointerlockerror', handlePointerLockError );
 	document.removeEventListener( 'fullscreenchange', updateKeyboardLock );
 	document.removeEventListener( 'webkitfullscreenchange', updateKeyboardLock );
 	document.removeEventListener( 'pointerdown', handlePointerDown, true );

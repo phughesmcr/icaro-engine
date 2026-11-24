@@ -28,6 +28,12 @@ On phones and tablets the game shows touch controls. Play in landscape.
 - **Gyro aiming:** off by default. On iOS, the motion permission prompt appears the first time you tap after turning it on.
 - **Fullscreen on iPhone:** use Safari's *Add to Home Screen*. iOS doesn't allow fullscreen in a browser tab, but the installed app runs fullscreen.
 
+### Smart TVs and slow GPUs
+
+- **Render scale:** add `?scale=0.5` to the URL to draw the 3D view at half the screen resolution (a quarter of the pixels) and stretch it to fill the page. Values from 0.25 to 1 work; menus and the status bar stay at full resolution. This is a web-only option with no GLQuake equivalent.
+- **Fullscreen without pointer lock:** browsers that refuse pointer lock (Samsung TV browsers, for example) go fullscreen instead: click in the game twice (the first refusal might be temporary). Look around with a gamepad or the arrow keys.
+- **Gamepads:** controllers that report the browser's `standard` mapping work as they are. Paired to a Samsung TV, a DualSense works in its browser.
+
 ### License
 
 Code: GPL v2
