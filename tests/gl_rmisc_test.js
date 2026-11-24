@@ -400,3 +400,26 @@ Deno.test( 'map teardown invalidates cached brush entity groups', () => {
 	}
 
 } );
+
+Deno.test( 'timerefresh reports and skips when no map is loaded', () => {
+
+	const savedWorld = cl.worldmodel;
+	const savedLog = console.log;
+	const lines = [];
+	try {
+
+		cl.worldmodel = null;
+		console.log = ( ...args ) => lines.push( args.join( ' ' ) );
+		gl_rmisc.R_TimeRefresh_f();
+
+	} finally {
+
+		console.log = savedLog;
+		cl.worldmodel = savedWorld;
+
+	}
+
+	assertEqual( lines.join( '|' ).includes( 'no map loaded' ), true, 'prints the reason' );
+	assertEqual( lines.join( '|' ).includes( 'fps' ), false, 'no timing printed' );
+
+} );
