@@ -1638,6 +1638,117 @@ Deno.test( 'IN-4: fullscreen request has a pending guard and does not latch afte
 
 } );
 
+Deno.test( 'IN: a browser that refuses pointer lock gets fullscreen from clicks instead', async () => {
+
+	const savedScreen = Object.getOwnPropertyDescriptor( globalThis, 'screen' );
+	Object.defineProperty( globalThis, 'screen', {
+		configurable: true,
+		value: { orientation: { lock: () => Promise.resolve() } }
+	} );
+
+	let lockRequests = 0;
+	let fsRequests = 0;
+	const click = ( dom ) => {
+
+		dom.body.fire( 'mousedown', makeEvent( { button: 0 } ) );
+		dom.window.fire( 'mouseup', makeEvent( { button: 0 } ) );
+
+	};
+	const setup = ( dom ) => {
+
+		touch.Touch_Init( document.body );
+		dom.document.fullscreenElement = null;
+		dom.document.fire( 'fullscreenchange', {} ); // reset state left by other tests
+		lockRequests = 0;
+		fsRequests = 0;
+		dom.body.requestPointerLock = () => { lockRequests ++; };
+		dom.document.documentElement = { requestFullscreen() { fsRequests ++; return Promise.resolve(); } };
+		unbindAll();
+		keys.set_key_dest( keys.key_game );
+
+	};
+	const teardown = ( dom ) => {
+
+		delete dom.body.requestPointerLock;
+		delete dom.document.documentElement;
+		run();
+
+	};
+
+	try {
+
+		// Samsung TV browser: every pointer lock request is refused
+		await withFakeDom( async ( dom ) => {
+
+			setup( dom );
+			try {
+
+				click( dom );
+				assertEqual( lockRequests, 1, 'first click asks for pointer lock' );
+				dom.document.fire( 'pointerlockerror', {} );
+				await flush();
+				assertEqual( fsRequests, 0, 'one refusal may be transient' );
+
+				click( dom );
+				assertEqual( lockRequests, 2, 'second click asks for pointer lock again' );
+				dom.document.fire( 'pointerlockerror', {} );
+				await flush();
+				assertEqual( fsRequests, 1, 'a second refusal falls back to fullscreen' );
+
+				// fullscreenElement stayed null: as if the user left fullscreen
+				click( dom );
+				await flush();
+				assertEqual( lockRequests, 2, 'no more pointer lock requests' );
+				assertEqual( fsRequests, 2, 'a later click asks for fullscreen' );
+
+			} finally {
+
+				teardown( dom );
+
+			}
+
+		} );
+
+		// Desktop: a refusal after a lock has worked (Escape cooldown) is temporary
+		await withFakeDom( async ( dom ) => {
+
+			setup( dom );
+			try {
+
+				dom.document.pointerLockElement = dom.body;
+				dom.document.fire( 'pointerlockchange', {} );
+				keys.set_key_dest( keys.key_console ); // keep the lock-loss Escape out of the menu code
+				dom.document.pointerLockElement = null;
+				dom.document.fire( 'pointerlockchange', {} );
+				keys.set_key_dest( keys.key_game );
+
+				for ( let i = 0; i < 3; i ++ ) {
+
+					click( dom );
+					dom.document.fire( 'pointerlockerror', {} );
+					await flush();
+
+				}
+				assertEqual( fsRequests, 0, 'no fullscreen fallback' );
+				assertEqual( lockRequests, 3, 'each click still asks for pointer lock' );
+
+			} finally {
+
+				teardown( dom );
+
+			}
+
+		} );
+
+	} finally {
+
+		if ( savedScreen ) Object.defineProperty( globalThis, 'screen', savedScreen );
+		else delete globalThis.screen;
+
+	}
+
+} );
+
 Deno.test( 'IN-4: touch joystick run speed in IN_Move', () => {
 
 	withFakeDom( () => {
