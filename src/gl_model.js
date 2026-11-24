@@ -30,7 +30,7 @@ import {
 	MIPLEVELS, MAXLIGHTMAPS, NUM_AMBIENTS,
 	TEX_SPECIAL
 } from './bspfile.js';
-import { gl_subdivide_size, gl_texturemode, GL_RegisterTexture, GL_UnregisterTexture,
+import { gl_subdivide_size, GL_SetTextureFilter, GL_RegisterTexture, GL_UnregisterTexture,
 	GL_ScaledTextureSize, GL_ResampleTexture8 } from './glquake.js';
 
 // ============================================================================
@@ -754,10 +754,7 @@ function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbrig
 
 		fullbrightTexture = new THREE.DataTexture( fbRgba, width, height, THREE.RGBAFormat );
 		fullbrightTexture.name = name + ':fullbright';
-		const fbFilter = gl_texturemode.value ? THREE.LinearFilter : THREE.NearestFilter;
-		const fbMipFilter = gl_texturemode.value ? THREE.LinearMipmapLinearFilter : THREE.NearestMipmapLinearFilter;
-		fullbrightTexture.magFilter = fbFilter;
-		fullbrightTexture.minFilter = mipmap ? fbMipFilter : fbFilter;
+		GL_SetTextureFilter( fullbrightTexture, mipmap );
 		fullbrightTexture.wrapS = THREE.RepeatWrapping;
 		fullbrightTexture.wrapT = THREE.RepeatWrapping;
 		fullbrightTexture.generateMipmaps = mipmap;
@@ -770,11 +767,8 @@ function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbrig
 
 	const texture = new THREE.DataTexture( rgba, width, height, THREE.RGBAFormat );
 	texture.name = name;
-	// Use cvar to determine filter mode: 0 = nearest (pixelated), 1 = linear (smooth)
-	const filter = gl_texturemode.value ? THREE.LinearFilter : THREE.NearestFilter;
-	const mipFilter = gl_texturemode.value ? THREE.LinearMipmapLinearFilter : THREE.NearestMipmapLinearFilter;
-	texture.magFilter = filter;
-	texture.minFilter = mipmap ? mipFilter : filter;
+	// gl_draw.c GL_Upload32: filters from gl_texturemode
+	GL_SetTextureFilter( texture, mipmap );
 	texture.wrapS = THREE.RepeatWrapping;
 	texture.wrapT = THREE.RepeatWrapping;
 	texture.generateMipmaps = mipmap;

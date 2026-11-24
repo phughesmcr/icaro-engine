@@ -15,7 +15,7 @@ import { volume, bgmvolume } from './sound.js';
 import { Cvar_SetValue, Cvar_VariableValue, Cvar_RegisterVariable, Cvar_FindVar } from './cvar.js';
 import { scr_viewsize, scr_con_current, SCR_ModalMessage } from './gl_screen.js';
 import { v_gamma } from './view.js';
-import { gl_texturemode, GL_UpdateTextureFiltering } from './glquake.js';
+import { gl_filter_max, GL_LINEAR } from './glquake.js';
 import { skill, coop, teamplay, svs } from './server.js';
 import { Touch_ExitFullscreen } from './touch.js';
 import { Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
@@ -1706,9 +1706,11 @@ function M_AdjustSliders( dir ) {
 
 	switch ( m_options_cursor ) {
 
-		case 3: // texture filtering
-			Cvar_SetValue( 'gl_texturemode', ! gl_texturemode.value ? 1 : 0 );
-			GL_UpdateTextureFiltering();
+		case 3: // texture filtering (port addition): flips the gl_texturemode
+			// command between GLQuake's default and a nearest-texel mode
+			Cbuf_AddText( gl_filter_max === GL_LINEAR
+				? 'gl_texturemode GL_NEAREST_MIPMAP_LINEAR\n'
+				: 'gl_texturemode GL_LINEAR_MIPMAP_NEAREST\n' );
 			break;
 
 		case 4: // screen size
@@ -1818,7 +1820,7 @@ function M_Options_Draw() {
 	M_Print( 16, 48, '     Reset to defaults' );
 
 	M_Print( 16, 56, '     Texture Filtering' );
-	M_DrawCheckbox( 220, 56, gl_texturemode.value );
+	M_DrawCheckbox( 220, 56, gl_filter_max === GL_LINEAR );
 
 	M_Print( 16, 64, '           Screen size' );
 	let r = ( scr_viewsize.value - 30 ) / ( 120 - 30 );

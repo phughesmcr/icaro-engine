@@ -7,6 +7,11 @@ import { W_GetLumpName } from './wad.js';
 import { d_8to24table as vid_d_8to24table } from './vid.js';
 import { COM_FindFile } from './pak.js';
 import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from './cmd.js';
+import {
+	GL_NEAREST, GL_LINEAR, GL_NEAREST_MIPMAP_NEAREST, GL_LINEAR_MIPMAP_NEAREST,
+	GL_NEAREST_MIPMAP_LINEAR, GL_LINEAR_MIPMAP_LINEAR,
+	gl_filter_min, set_gl_filter, GL_UpdateTextureFiltering
+} from './glquake.js';
 
 /*
 ==============================================================================
@@ -256,16 +261,77 @@ function SCR_UIScaleDown_f() {
 
 }
 
+// gl_draw.c glmode_t modes[]
+const modes = [
+	{ name: 'GL_NEAREST', minimize: GL_NEAREST, maximize: GL_NEAREST },
+	{ name: 'GL_LINEAR', minimize: GL_LINEAR, maximize: GL_LINEAR },
+	{ name: 'GL_NEAREST_MIPMAP_NEAREST', minimize: GL_NEAREST_MIPMAP_NEAREST, maximize: GL_NEAREST },
+	{ name: 'GL_LINEAR_MIPMAP_NEAREST', minimize: GL_LINEAR_MIPMAP_NEAREST, maximize: GL_LINEAR },
+	{ name: 'GL_NEAREST_MIPMAP_LINEAR', minimize: GL_NEAREST_MIPMAP_LINEAR, maximize: GL_NEAREST },
+	{ name: 'GL_LINEAR_MIPMAP_LINEAR', minimize: GL_LINEAR_MIPMAP_LINEAR, maximize: GL_LINEAR }
+];
+
+/*
+===============
+Draw_TextureMode_f
+===============
+*/
+export function Draw_TextureMode_f() {
+
+	let i;
+
+	if ( Cmd_Argc() === 1 ) {
+
+		for ( i = 0; i < 6; i ++ ) {
+
+			if ( gl_filter_min === modes[ i ].minimize ) {
+
+				Con_Printf( '%s\n', modes[ i ].name );
+				return;
+
+			}
+
+		}
+
+		Con_Printf( 'current filter is unknown???\n' );
+		return;
+
+	}
+
+	const arg = Cmd_Argv( 1 ).toLowerCase(); // Q_strcasecmp
+	for ( i = 0; i < 6; i ++ ) {
+
+		if ( modes[ i ].name.toLowerCase() === arg )
+			break;
+
+	}
+
+	if ( i === 6 ) {
+
+		Con_Printf( 'bad filter name\n' );
+		return;
+
+	}
+
+	set_gl_filter( modes[ i ].minimize, modes[ i ].maximize );
+
+	// change all the existing mipmap texture objects
+	GL_UpdateTextureFiltering();
+
+}
+
 /*
 ================
 Draw_InitCommands
 
-Register UI scale console commands.
+Register the 2D drawing console commands. gl_draw.c Draw_Init adds
+gl_texturemode; the UI scale commands are the port's own.
 Called from Draw_Init.
 ================
 */
 function Draw_InitCommands() {
 
+	Cmd_AddCommand( 'gl_texturemode', Draw_TextureMode_f );
 	Cmd_AddCommand( 'scr_conheight', SCR_ConHeight_f );
 	Cmd_AddCommand( 'uiscale+', SCR_UIScaleUp_f );
 	Cmd_AddCommand( 'uiscale-', SCR_UIScaleDown_f );

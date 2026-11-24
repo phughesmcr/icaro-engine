@@ -11,7 +11,7 @@ import { d_lightstylevalue, r_norefresh, r_lightmap,
 	r_mirroralpha, r_wateralpha, r_dynamic, r_novis, r_speeds,
 	gl_clear, gl_texsort, gl_cull, gl_smoothmodels, gl_affinemodels,
 	gl_polyblend, gl_flashblend, gl_playermip, gl_nocolors,
-	gl_keeptjunctions, gl_reporttjunctions, gl_doubleeyes, gl_texturemode,
+	gl_keeptjunctions, gl_reporttjunctions, gl_doubleeyes,
 	gl_mtexable, set_mirrortexturenum,
 	gl_finish, gl_max_size, gl_picmip, gl_ztrick } from './glquake.js';
 import { mod_alias, r_worldentity, R_Init as R_Init_rmain, R_NewMap as R_NewMap_rmain, R_RenderView } from './gl_rmain.js';
@@ -192,8 +192,6 @@ export function R_Init() {
 		_Cvar_RegisterVariable( gl_reporttjunctions );
 
 		_Cvar_RegisterVariable( gl_doubleeyes );
-
-		_Cvar_RegisterVariable( gl_texturemode );
 
 		// C registers these two in Draw_Init (gl_draw.c) and gl_ztrick in
 		// VID_Init (gl_vidnt.c); the port's 2D drawing and video setup don't
