@@ -367,7 +367,12 @@ export function R_MirrorPass( renderer, scene, camera, plane, items, alpha, hide
 
 	}
 
-	// overlay: the mirror surface drawn with the reflection mixed in
+	// overlay: the mirror surface drawn with the reflection mixed in. No
+	// lightmap, as in GLQuake: R_Mirror's overlay loop calls R_RenderBrushPoly,
+	// which draws the texture and only chains the poly onto lightmap_polys.
+	// Both R_BlendLightmaps calls (gl_rsurf.c R_DrawBrushModel :1169 and
+	// R_DrawWorld :1336) have already run for the frame, and the next
+	// R_DrawWorld clears the chains, so the overlay is never lightmapped.
 	_ensureOverlay();
 
 	// there is only ever one mirror texture
