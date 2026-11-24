@@ -367,7 +367,8 @@ export const lightspot = new Float32Array( 3 );
 RecursiveLightPoint
 =============
 */
-export function RecursiveLightPoint( node, start, end, surfaces, depth = 0 ) {
+// Not exported: it reads the trace state that only R_LightPoint resets.
+function RecursiveLightPoint( node, start, end, surfaces, depth = 0 ) {
 
 	if ( ! node || node.contents < 0 )
 		return - 1; // didn't hit anything

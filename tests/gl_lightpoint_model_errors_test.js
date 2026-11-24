@@ -52,21 +52,35 @@ Deno.test( 'a missing model with crash set is a Host_Error, not a Sys_Error', ()
 } );
 
 // A BSP29 with one texture and the lumps Mod_LoadBrushModel needs.
-function buildBspWithTexture( width, height ) {
+// opts: numleafs, clipnodePlanenum, marksurfaces (array of surface numbers)
+function buildBspWithTexture( width, height, opts = {} ) {
 
 	const lumps = [];
+	const numleafs = opts.numleafs !== undefined ? opts.numleafs : 2;
 
 	const planes = new Uint8Array( 20 );
 	new DataView( planes.buffer ).setFloat32( 0, 1, true );
 	lumps[ bspfile.LUMP_PLANES ] = planes;
 
-	const leafs = new Uint8Array( 2 * 28 );
+	const leafs = new Uint8Array( numleafs * 28 );
 	const lv = new DataView( leafs.buffer );
-	lv.setInt32( 0, - 2, true );
-	lv.setInt32( 4, - 1, true );
-	lv.setInt32( 28, - 1, true );
-	lv.setInt32( 32, - 1, true );
+	for ( let i = 0; i < numleafs; i ++ ) {
+
+		lv.setInt32( i * 28, i === 0 ? - 2 : - 1, true );
+		lv.setInt32( i * 28 + 4, - 1, true );
+
+	}
+
 	lumps[ bspfile.LUMP_LEAFS ] = leafs;
+
+	if ( opts.marksurfaces !== undefined ) {
+
+		const marks = new Uint8Array( opts.marksurfaces.length * 2 );
+		const kv = new DataView( marks.buffer );
+		opts.marksurfaces.forEach( ( m, i ) => kv.setUint16( i * 2, m, true ) );
+		lumps[ bspfile.LUMP_MARKSURFACES ] = marks;
+
+	}
 
 	const nodes = new Uint8Array( 24 );
 	const nv = new DataView( nodes.buffer );
@@ -76,6 +90,7 @@ function buildBspWithTexture( width, height ) {
 
 	const clipnodes = new Uint8Array( 8 );
 	const cv = new DataView( clipnodes.buffer );
+	cv.setInt32( 0, opts.clipnodePlanenum !== undefined ? opts.clipnodePlanenum : 0, true );
 	cv.setUint16( 4, 0xffff, true );
 	cv.setUint16( 6, 0xfffe, true );
 	lumps[ bspfile.LUMP_CLIPNODES ] = clipnodes;
@@ -89,7 +104,7 @@ function buildBspWithTexture( width, height ) {
 
 	}
 
-	mv.setInt32( 52, 1, true );
+	mv.setInt32( 52, numleafs - 1, true );
 	lumps[ bspfile.LUMP_MODELS ] = models;
 
 	let pixels = 0;
@@ -153,6 +168,27 @@ Deno.test( 'a texture that is not 16 aligned loads with a warning', () => {
 		assertEqual( mod.textures[ 0 ].height, height, 'texture height' );
 
 	}
+
+} );
+
+let bspSerial = 0;
+
+function loadBsp( bytes ) {
+
+	const name = 'maps/__host_error_' + ( bspSerial ++ ) + '.bsp';
+	COM_AddPack( { files: [ { name: name, filepos: 0, filelen: bytes.length } ], data: bytes.buffer } );
+	return gl_model.Mod_ForName( name, true );
+
+}
+
+Deno.test( 'bad leaf, clipnode and marksurface lumps are Host_Errors', () => {
+
+	assertThrows( () => loadBsp( buildBspWithTexture( 16, 16, { numleafs: bspfile.MAX_MAP_LEAFS + 1 } ) ),
+		/^Host_Error: Mod_LoadLeafs: \d+ leafs exceeds limit/, 'leaf limit' );
+	assertThrows( () => loadBsp( buildBspWithTexture( 16, 16, { clipnodePlanenum: 5 } ) ),
+		/^Host_Error: Mod_LoadClipnodes: planenum out of bounds/, 'clipnode planenum' );
+	assertThrows( () => loadBsp( buildBspWithTexture( 16, 16, { marksurfaces: [ 3 ] } ) ),
+		/^Host_Error: Mod_ParseMarksurfaces: bad surface number/, 'marksurface' );
 
 } );
 

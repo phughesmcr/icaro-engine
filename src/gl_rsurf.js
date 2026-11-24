@@ -54,7 +54,7 @@ have it.
 */
 function R_WarpTime() {
 
-	return cl != null ? cl.time : 0;
+	return cl.time;
 
 }
 
