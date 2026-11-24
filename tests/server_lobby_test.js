@@ -176,10 +176,13 @@ Deno.test( 'quiet logs keep [Heartbeat] lines (SRV-1)', () => {
 } );
 
 // Spawns a fake room server and drives it through a temp file, so it needs
-// --allow-run and --allow-write (`deno task test` grants both; it is
-// skipped when they are missing).
-const canRun = ( await Deno.permissions.query( { name: 'run' } ) ).state === 'granted' &&
-	( await Deno.permissions.query( { name: 'write' } ) ).state === 'granted';
+// run access to the fixture, write access and the FAKE_ROOM_* env vars
+// (`deno task test` grants them; it is skipped when they are missing).
+const fake = new URL( './fixtures/fake_room_server.sh', import.meta.url ).pathname;
+const canRun = ( await Deno.permissions.query( { name: 'run', command: fake } ) ).state === 'granted' &&
+	( await Deno.permissions.query( { name: 'write' } ) ).state === 'granted' &&
+	( await Deno.permissions.query( { name: 'env', variable: 'FAKE_ROOM_PLAYERS_FILE' } ) ).state === 'granted' &&
+	( await Deno.permissions.query( { name: 'env', variable: 'FAKE_ROOM_ARGS_FILE' } ) ).state === 'granted';
 
 async function waitFor( predicate, timeoutMs = 5000 ) {
 	const start = Date.now();
@@ -195,7 +198,6 @@ Deno.test( {
 	sanitizeOps: false,
 	sanitizeResources: false,
 	async fn() {
-		const fake = new URL( './fixtures/fake_room_server.sh', import.meta.url ).pathname;
 		const playersFile = await Deno.makeTempFile();
 		Deno.env.set( 'FAKE_ROOM_PLAYERS_FILE', playersFile );
 		RoomManager_SetConfig( { denoPath: fake } );
@@ -253,7 +255,6 @@ Deno.test( {
 	sanitizeOps: false,
 	sanitizeResources: false,
 	async fn() {
-		const fake = new URL( './fixtures/fake_room_server.sh', import.meta.url ).pathname;
 		const argsFile = await Deno.makeTempFile();
 		Deno.env.set( 'FAKE_ROOM_ARGS_FILE', argsFile );
 		RoomManager_SetConfig( { denoPath: fake, pakPath: '/data/quake/pak0.pak', gameFlags: [ '-rogue', '-evil' ] } );

@@ -28,21 +28,26 @@ process per room. It was forked from mrdoob's three-quake.
 
 ## Commands
 
-- `deno task test`: the whole suite (~190 tests, ~8 s). For one file:
-  `deno test --allow-read --allow-net --allow-env --allow-run --allow-write tests/<file>_test.js`.
-  Narrow further with `--filter`.
-- `server/net_webtransport_server_test.ts` is not part of `deno task test`. Run
-  it directly when you change the server transport.
-- `deno check main.js` and
-  `deno check server/game_server.js server/lobby_server.js server/room_process_manager.ts`.
+- `deno task ci` runs what CI runs: `deno task test`, `deno task lint` and
+  `deno task check`. Run it before calling work done.
+- `deno task test`: the whole suite (~210 tests, ~8 s). Its permissions are
+  scoped: no network, env limited to the `FAKE_ROOM_*` variables, and run
+  limited to `tests/fixtures/fake_room_server.sh`. A test that needs more must
+  widen the task deliberately. For one file:
+  `deno test --allow-read --allow-write tests/<file>_test.js` (add the task's
+  `--allow-env`/`--allow-run` for `server_lobby_test.js`). Narrow further with
+  `--filter`.
+- `deno task check` type-checks `main.js`, the server entry points and
+  `tests/net_webtransport_server_test.ts`.
 - `deno task lobby` and `deno task game` need `server/cert.pem` and
   `server/key.pem` (see `server/README.md`). Both are gitignored.
 - To run the client, serve the repo root with any static file server
   (`python3 -m http.server`) and open `index.html`.
-- CI (`.github/workflows/ci.yml`) runs on PRs to `dev` and `main`: the test
-  suite, `deno task lint` and both `deno check` lines above, on a pinned Deno
-  version. Tests cover logic only: rendering, audio and touch changes need a
-  browser check. If you didn't do one, say so.
+- CI (`.github/workflows/ci.yml`) runs on PRs to `dev` and `main`: test, lint
+  and check, on the Deno version pinned in `.tool-versions`. Actions are
+  pinned by SHA and Dependabot bumps them weekly. Tests cover logic only:
+  rendering, audio and touch changes need a browser check. If you didn't do
+  one, say so.
 
 ### Lint and format
 
