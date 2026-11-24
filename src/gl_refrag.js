@@ -1,7 +1,7 @@
 // Ported from: WinQuake/gl_refrag.c -- entity fragment functions
 
-import { Con_Printf } from './console.js';
 import { CONTENTS_SOLID } from './bspfile.js';
+import { efrag_t } from './client.js';
 
 /*
 ===============================================================================
@@ -157,6 +157,42 @@ export function R_RemoveEfrags( ent ) {
 }
 
 /*
+================
+R_GetEfrag
+
+Deliberate deviation, from QuakeSpasm (gl_refrag.c R_GetEfrag): id stops
+with "Too many efrags!" once its MAX_EFRAGS pool is used up. With
+MAX_STATIC_ENTITIES raised to 4096, grow the free list in batches instead.
+CL_ClearState rebuilds the free list from cl_efrags only, so the extra
+efrags last until the next map, as QuakeSpasm's hunk allocations do.
+================
+*/
+const EXTRA_EFRAGS = 128;
+
+function R_GetEfrag() {
+
+	if ( _cl.free_efrags === null ) {
+
+		let head = null;
+		for ( let i = 0; i < EXTRA_EFRAGS; i ++ ) {
+
+			const ef = new efrag_t();
+			ef.entnext = head;
+			head = ef;
+
+		}
+
+		_cl.free_efrags = head;
+
+	}
+
+	const ef = _cl.free_efrags;
+	_cl.free_efrags = ef.entnext;
+	return ef;
+
+}
+
+/*
 ===================
 R_SplitEntityOnNode
 ===================
@@ -175,15 +211,7 @@ function R_SplitEntityOnNode( node ) {
 		const leaf = node;
 
 		// Grab an efrag off the free list
-		const ef = _cl.free_efrags;
-		if ( ef == null ) {
-
-			Con_Printf( 'Too many efrags!\n' );
-			return;
-
-		}
-
-		_cl.free_efrags = _cl.free_efrags.entnext;
+		const ef = R_GetEfrag();
 
 		ef.entity = r_addent;
 

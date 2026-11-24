@@ -6,10 +6,11 @@ import { MAX_LIGHTSTYLES } from './quakedef.js';
 import { MAXLIGHTMAPS, d_lightstylevalue, r_framecount,
 	gl_flashblend, v_blend, LIGHTMAP_INTENSITY } from './glquake.js';
 import { r_origin } from './render.js';
-import { cl_dlights } from './client.js';
+import { cl_dlights, MAX_DLIGHTS } from './client.js';
 import { isXRActive, XR_SCALE } from './webxr.js';
 
-export const MAX_DLIGHTS = 32;
+// defined in client.js
+export { MAX_DLIGHTS };
 
 // Surface flags
 export const SURF_DRAWTILED = 0x20;

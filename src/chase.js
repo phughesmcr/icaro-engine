@@ -100,6 +100,12 @@ export function Chase_Update() {
 		- right[ i ] * chase_right.value;
 	chase_dest[ 2 ] = r_refdef.vieworg[ 2 ] + chase_up.value;
 
+	// Deliberate deviation, from Ironwail (chase.c Chase_UpdateForDrawing):
+	// id never traces chase_dest, so the camera went through walls. Stop it
+	// at the first wall between the eye and the ideal spot.
+	TraceLine( r_refdef.vieworg, chase_dest, stop );
+	VectorCopy( stop, chase_dest );
+
 	// find the spot the player is looking at
 	VectorMA( r_refdef.vieworg, 4096, forward, dest );
 	TraceLine( r_refdef.vieworg, dest, stop );
