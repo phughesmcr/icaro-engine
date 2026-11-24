@@ -59,18 +59,18 @@ export class gltexture_t {
 }
 
 export let texture_extension_number = 1;
-export let texture_mode = 0; // GL_LINEAR_MIPMAP_NEAREST equivalent
+export const texture_mode = 0; // GL_LINEAR_MIPMAP_NEAREST equivalent
 
-export let gldepthmin = 0;
-export let gldepthmax = 0;
+export const gldepthmin = 0;
+export const gldepthmax = 0;
 
 export let currenttexture = - 1;
-export let cnttextures = [ - 1, - 1 ];
-export let particletexture = 0;
-export let playertextures = 0;
+export const cnttextures = [ - 1, - 1 ];
+export const particletexture = 0;
+export const playertextures = 0;
 
-export let gltextures = [];
-export let numgltextures = 0;
+export const gltextures = [];
+export const numgltextures = 0;
 
 export function setTextureExtensionNumber( n ) {
 
@@ -131,12 +131,12 @@ export class glvert_t {
 
 }
 
-export let glv = new glvert_t();
+export const glv = new glvert_t();
 
-export let glx = 0;
-export let gly = 0;
-export let glwidth = 640;
-export let glheight = 480;
+export const glx = 0;
+export const gly = 0;
+export const glwidth = 640;
+export const glheight = 480;
 
 /*
 ===============================================================================
@@ -181,48 +181,48 @@ RENDER STATE VARIABLES
 ===============================================================================
 */
 
-export let r_worldentity = null; // entity_t
-export let r_cache_thrash = false;
-export let modelorg = new Float32Array( 3 );
-export let r_entorigin = new Float32Array( 3 );
-export let currententity = null;
-export let r_visframecount = 0;
+export const r_worldentity = null; // entity_t
+export const r_cache_thrash = false;
+export const modelorg = new Float32Array( 3 );
+export const r_entorigin = new Float32Array( 3 );
+export const currententity = null;
+export const r_visframecount = 0;
 export let r_framecount = 0;
 export function set_r_framecount( value ) { r_framecount = value; }
 export function inc_r_framecount() { return ++ r_framecount; }
-export let frustum = []; // mplane_t[4]
-export let c_brush_polys = 0;
-export let c_alias_polys = 0;
+export const frustum = []; // mplane_t[4]
+export const c_brush_polys = 0;
+export const c_alias_polys = 0;
 
 // view origin
-export let vup = new Float32Array( 3 );
-export let vpn = new Float32Array( 3 );
-export let vright = new Float32Array( 3 );
-export let r_origin = new Float32Array( 3 );
+export const vup = new Float32Array( 3 );
+export const vpn = new Float32Array( 3 );
+export const vright = new Float32Array( 3 );
+export const r_origin = new Float32Array( 3 );
 
 // screen size info
-export let r_refdef = null; // refdef_t
-export let r_viewleaf = null;
-export let r_oldviewleaf = null;
-export let r_notexture_mip = null;
-export let d_lightstylevalue = new Int32Array( 256 );
+export const r_refdef = null; // refdef_t
+export const r_viewleaf = null;
+export const r_oldviewleaf = null;
+export const r_notexture_mip = null;
+export const d_lightstylevalue = new Int32Array( 256 );
 
-export let envmap = false;
+export const envmap = false;
 
-export let skytexturenum = - 1;
+export const skytexturenum = - 1;
 export let mirrortexturenum = - 1;
 export function set_mirrortexturenum( value ) { mirrortexturenum = value; }
-export let mirror = false;
-export let mirror_plane = null;
+export const mirror = false;
+export const mirror_plane = null;
 
-export let r_world_matrix = new Float32Array( 16 );
+export const r_world_matrix = new Float32Array( 16 );
 
 // GL format constants (mapped to WebGL equivalents conceptually)
-export let gl_lightmap_format = 4; // GL_RGBA
-export let gl_solid_format = 3; // GL_RGB
-export let gl_alpha_format = 4; // GL_RGBA
+export const gl_lightmap_format = 4; // GL_RGBA
+export const gl_solid_format = 3; // GL_RGB
+export const gl_alpha_format = 4; // GL_RGBA
 
-export let gl_mtexable = false;
+export const gl_mtexable = false;
 
 /*
 ===============================================================================
@@ -330,7 +330,7 @@ export function GL_EnableMultitexture() {
 
 }
 
-export function GL_BeginRendering( x, y, width, height ) {
+export function GL_BeginRendering( _x, _y, _width, _height ) {
 
 	// In Three.js, rendering is handled by the renderer
 	// These values are set by the video initialization
@@ -344,4 +344,4 @@ export function GL_EndRendering() {
 }
 
 // v_blend for dynamic light blend effects
-export let v_blend = new Float32Array( 4 );
+export const v_blend = new Float32Array( 4 );

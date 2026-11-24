@@ -1663,7 +1663,7 @@ function CalcSurfaceExtents( s ) {
 
 	for ( let i = 0; i < s.numedges; i ++ ) {
 
-		let e = loadmodel.surfedges[ s.firstedge + i ];
+		const e = loadmodel.surfedges[ s.firstedge + i ];
 		let v;
 		if ( e >= 0 )
 			v = loadmodel.vertexes[ loadmodel.edges[ e ].v[ 0 ] ];
@@ -2385,7 +2385,7 @@ function Mod_FloodFillSkin( skin, skinwidth, skinheight ) {
 	const fifo_y = new Int16Array( FLOODFILL_FIFO_SIZE );
 	let inpt = 0, outpt = 0;
 
-	let filledcolor = 0;
+	const filledcolor = 0;
 	// attempt to find opaque black (simplified; Quake uses d_8to24table)
 	// For now just use 0
 

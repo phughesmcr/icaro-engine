@@ -1,6 +1,6 @@
 ---
 name: pr
-description: Verify the current branch and open a pull request against dev. Covers the base check, tests, lint delta, review agents, signed commit, push, and gh pr create.
+description: Verify the current branch and open a pull request against dev. Covers the base check, tests, lint, review agents, signed commit, push, and gh pr create.
 disable-model-invocation: true
 argument-hint: "[optional PR title or notes]"
 ---
@@ -24,12 +24,9 @@ Stop and report if any step fails. Never merge the PR, and never target `main`.
    `deno test --allow-read --allow-net --allow-env server/net_webtransport_server_test.ts`.
 4. **Type check.** Run `deno check` on each changed entry point (`main.js` or
    the `server/` files).
-5. **Lint delta.** For each changed `.js`/`.ts` file, compare its findings
-   with the `origin/dev` version:
-   `bash .claude/hooks/lint-delta.sh origin/dev <files...>`.
-   (`deno task lint` lints the whole tree but still fails on the existing
-   baseline, so it can't be the gate.)
-   - The goal is zero *new* problems.
+5. **Lint.** Run `deno task lint`. It must pass with zero problems; CI runs
+   the same command.
+   - Keep C-parity parameters with a `_` prefix rather than deleting them.
    - Don't run `deno fmt` (only `--check`).
 6. **Review.**
    - Run the `reviewer` agent on the whole diff. It and `docs-checker` are
@@ -50,7 +47,7 @@ Stop and report if any step fails. Never merge the PR, and never target `main`.
    - **Why**: the problem and the C behaviour being restored, citing the C
      file and function where relevant.
    - **Changes**: each finding as fixed or not fixed, with the reason.
-   - **Verification**: the test count before and after, the lint delta, and
+   - **Verification**: the test count before and after, the lint result, and
      any browser or manual checks.
    - **Not verified**: browser rendering, real phone/headset, live QUIC,
      registered/mission-pack data, whichever apply.

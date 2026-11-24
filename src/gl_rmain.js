@@ -127,13 +127,13 @@ export const frustum = [
 export let c_brush_polys = 0;
 export let c_alias_polys = 0;
 
-export let envmap = false; // true during envmap command capture
+export const envmap = false; // true during envmap command capture
 
 export let currenttexture = - 1; // to avoid unnecessary texture sets
 export const cnttextures = [ - 1, - 1 ]; // cached
 
-export let particletexture = 0; // little dot for particles
-export let playertextures = 0; // up to 16 color translated skins
+export const particletexture = 0; // little dot for particles
+export const playertextures = 0; // up to 16 color translated skins
 
 export let mirror = false;
 export let mirror_plane = null; // mplane_t pointer
@@ -143,7 +143,7 @@ export const r_world_matrix = new Float32Array( 16 );
 export let r_viewleaf = null; // mleaf_t
 export let r_oldviewleaf = null; // mleaf_t
 
-export let r_notexture_mip = null;
+export const r_notexture_mip = null;
 
 // Shared renderer state is imported from glquake.js and re-exported here so
 // gl_rsurf.js keeps its existing dependency without adding a gl_rlight cycle.
@@ -727,8 +727,8 @@ export function R_DrawViewModel() {
 //============================================================================
 
 // Track entity meshes currently in the scene for efficient add/remove
-let _entityMeshesInScene = new Set();
-let _entityMeshesThisFrame = new Set();
+const _entityMeshesInScene = new Set();
+const _entityMeshesThisFrame = new Set();
 const _entityMeshCacheOwners = new Set();
 
 function _disposeEntityGeometry( geometry, geometries ) {
@@ -1025,7 +1025,7 @@ function R_DrawSpriteModel( e ) {
 
 	// Get or create cached geometry and material for this entity
 	let mesh = e._spriteMesh;
-	let positions, posAttr;
+	let positions;
 
 	if ( ! mesh ) {
 
@@ -1080,7 +1080,7 @@ function R_DrawSpriteModel( e ) {
 	_entityMeshCacheOwners.add( e );
 
 	// Update billboard vertex positions every frame
-	posAttr = mesh.geometry.attributes.position;
+	const posAttr = mesh.geometry.attributes.position;
 	positions = posAttr.array;
 
 	const ox = e.origin[ 0 ];

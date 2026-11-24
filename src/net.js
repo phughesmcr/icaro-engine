@@ -199,7 +199,7 @@ export const net_drivers = new Array( MAX_NET_DRIVERS );
 for ( let i = 0; i < MAX_NET_DRIVERS; i ++ )
 	net_drivers[ i ] = new net_driver_t();
 
-export let net_numlandrivers = 0;
+export const net_numlandrivers = 0;
 export const net_landrivers = new Array( MAX_NET_DRIVERS );
 for ( let i = 0; i < MAX_NET_DRIVERS; i ++ )
 	net_landrivers[ i ] = new net_landriver_t();
@@ -215,12 +215,12 @@ export function set_net_driverlevel( v ) { net_driverlevel = v; }
 
 export function set_net_numdrivers( v ) { net_numdrivers = v; }
 
-export let serialAvailable = false;
-export let ipxAvailable = false;
-export let tcpipAvailable = false;
+export const serialAvailable = false;
+export const ipxAvailable = false;
+export const tcpipAvailable = false;
 
-export let my_ipx_address = '';
-export let my_tcpip_address = '';
+export const my_ipx_address = '';
+export const my_tcpip_address = '';
 
 export let net_time = 0;
 export function set_net_time( v ) { net_time = v; }
@@ -229,10 +229,10 @@ export const net_message = new sizebuf_t();
 export let net_activeconnections = 0;
 export function set_net_activeconnections( v ) { net_activeconnections = v; }
 
-export let messagesSent = 0;
-export let messagesReceived = 0;
-export let unreliableMessagesSent = 0;
-export let unreliableMessagesReceived = 0;
+export const messagesSent = 0;
+export const messagesReceived = 0;
+export const unreliableMessagesSent = 0;
+export const unreliableMessagesReceived = 0;
 
 export let hostCacheCount = 0;
 export function set_hostCacheCount( v ) { hostCacheCount = v; }

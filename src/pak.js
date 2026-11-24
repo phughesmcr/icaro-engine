@@ -38,7 +38,7 @@ class pack_t {
 }
 
 // Search paths
-let com_searchpaths = []; // array of { pack, path }
+const com_searchpaths = []; // array of { pack, path }
 
 // Loaded packs
 const loadedPacks = [];

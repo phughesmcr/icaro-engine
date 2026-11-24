@@ -57,7 +57,7 @@ export let scr_disabled_for_loading = false;
 export let scr_drawloading = false;
 let scr_disabled_time = 0;
 
-let block_drawing = false;
+const block_drawing = false;
 
 // Center print
 let scr_centerstring = '';
@@ -99,7 +99,7 @@ let _V_UpdatePalette = null;
 let _GL_BeginRendering = null;
 let _GL_EndRendering = null;
 let _S_StopAllSounds = null;
-let _r_cache_thrash = false;
+const _r_cache_thrash = false;
 
 export function SCR_SetExternals( externals ) {
 

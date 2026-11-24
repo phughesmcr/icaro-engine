@@ -140,8 +140,8 @@ for ( let i = 0; i < MAX_CHANNELS; i ++ )
 
 export let total_channels = 0;
 
-export let fakedma = false;
-export let fakedma_updates = 0;
+export const fakedma = false;
+export const fakedma_updates = 0;
 export let paintedtime = 0;
 
 export const listener_origin = new Float32Array( 3 );

@@ -143,10 +143,10 @@ export const vpn = new Float32Array( 3 ); // view plane normal (forward)
 export const vright = new Float32Array( 3 ); // view right vector
 export const vup = new Float32Array( 3 ); // view up vector
 
-export let r_notexture_mip = null; // texture_t -- fallback texture
+export const r_notexture_mip = null; // texture_t -- fallback texture
 
-export let reinit_surfcache = 0; // if 1, surface cache is currently empty
-export let r_cache_thrash = false; // set if thrashing the surface cache
+export const reinit_surfcache = 0; // if 1, surface cache is currently empty
+export const r_cache_thrash = false; // set if thrashing the surface cache
 
 //============================================================================
 // Refresh function declarations (stubs -- implemented in gl_rmain.js)
@@ -176,13 +176,13 @@ export function R_RenderView() {
 
 }
 
-export function R_ViewChanged( pvrect, lineadj, aspect ) {
+export function R_ViewChanged( _pvrect, _lineadj, _aspect ) {
 
 	// Called whenever r_refdef or vid change
 
 }
 
-export function R_InitSky( mt ) {
+export function R_InitSky( _mt ) {
 
 	// Called at level load
 
@@ -282,7 +282,7 @@ export function R_PushDlights() {
 // Surface cache related
 //============================================================================
 
-export function D_SurfaceCacheForRes( width, height ) {
+export function D_SurfaceCacheForRes( _width, _height ) {
 
 	return 0;
 
@@ -300,13 +300,13 @@ export function D_DeleteSurfaceCache() {
 
 }
 
-export function D_InitCaches( buffer, size ) {
+export function D_InitCaches( _buffer, _size ) {
 
 	// Stub
 
 }
 
-export function R_SetVrect( pvrect, pvrectin, lineadj ) {
+export function R_SetVrect( _pvrect, _pvrectin, _lineadj ) {
 
 	// Stub
 

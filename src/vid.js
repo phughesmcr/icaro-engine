@@ -69,8 +69,8 @@ export const d_8to16table = new Uint16Array( 256 );
 export const d_8to24table = new Uint32Array( 256 );
 
 // menu callback function pointers (stubs for browser)
-export let vid_menudrawfn = null;
-export let vid_menukeyfn = null;
+export const vid_menudrawfn = null;
+export const vid_menukeyfn = null;
 
 //============================================================================
 // Three.js renderer state (replaces raw GL context)
@@ -256,7 +256,7 @@ export function VID_Shutdown() {
 // gl_rmain.js, so this is largely a no-op.
 //============================================================================
 
-export function VID_Update( rects ) {
+export function VID_Update( _rects ) {
 
 	// Three.js handles buffer swaps internally via renderer.render()
 
@@ -269,7 +269,7 @@ export function VID_Update( rects ) {
 // (the base mode) on memory allocation failures.
 //============================================================================
 
-export function VID_SetMode( modenum, palette ) {
+export function VID_SetMode( _modenum, palette ) {
 
 	// In browser, we only have one "mode" - the canvas size
 	if ( palette ) {
@@ -291,7 +291,7 @@ export function VID_SetMode( modenum, palette ) {
 // In browser, we use Pointer Lock API instead.
 //============================================================================
 
-export function VID_HandlePause( pause ) {
+export function VID_HandlePause( _pause ) {
 
 	// Browser: Pointer Lock API handles this naturally
 	// When paused, we can exit pointer lock if desired

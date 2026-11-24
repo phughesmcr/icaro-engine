@@ -2496,7 +2496,7 @@ function M_Credits_Key( key ) {
 
 }
 
-function M_Credits_Touch( vx, vy ) {
+function M_Credits_Touch( _vx, vy ) {
 
 	if ( vy >= 172 ) {
 
@@ -2823,7 +2823,7 @@ export function M_TouchInput( touchX, touchY, screenWidth, screenHeight ) {
 }
 
 // Main menu touch - items at y=32, 20px spacing
-function M_Main_Touch( vx, vy ) {
+function M_Main_Touch( _vx, vy ) {
 
 	const inGame = M_InGame();
 	const itemCount = inGame ? MAIN_ITEMS + 1 : MAIN_ITEMS;
@@ -2844,7 +2844,7 @@ function M_Main_Touch( vx, vy ) {
 }
 
 // Single player menu touch
-function M_SinglePlayer_Touch( vx, vy ) {
+function M_SinglePlayer_Touch( _vx, vy ) {
 
 	if ( vy >= 32 && vy < 32 + SINGLEPLAYER_ITEMS * 20 ) {
 
@@ -2861,7 +2861,7 @@ function M_SinglePlayer_Touch( vx, vy ) {
 }
 
 // Load/Save menu touch - items at y=32, 8px spacing
-function M_LoadSave_Touch( vx, vy ) {
+function M_LoadSave_Touch( _vx, vy ) {
 
 	if ( vy >= 32 && vy < 32 + MAX_SAVEGAMES * 8 ) {
 
@@ -2881,7 +2881,7 @@ function M_LoadSave_Touch( vx, vy ) {
 }
 
 // Multiplayer menu touch
-function M_MultiPlayer_Touch( vx, vy ) {
+function M_MultiPlayer_Touch( _vx, vy ) {
 
 	if ( vy >= 32 && vy < 32 + MULTIPLAYER_ITEMS * 20 ) {
 
@@ -2984,7 +2984,7 @@ function M_Touch_Touch( vx, vy ) {
 
 // Setup menu touch - rows from setup_cursor_table. The name row only takes
 // the cursor: type with the on-screen keyboard button.
-function M_Setup_Touch( vx, vy ) {
+function M_Setup_Touch( _vx, vy ) {
 
 	for ( let i = 0; i < NUM_SETUP_CMDS; i ++ ) {
 
@@ -3001,7 +3001,7 @@ function M_Setup_Touch( vx, vy ) {
 }
 
 // Keys menu touch - items at y=48, 8px spacing
-function M_Keys_Touch( vx, vy ) {
+function M_Keys_Touch( _vx, vy ) {
 
 	if ( vy >= 48 && vy < 48 + NUMCOMMANDS * 8 ) {
 
@@ -3018,7 +3018,7 @@ function M_Keys_Touch( vx, vy ) {
 }
 
 // Quit menu touch - tap top half for yes, bottom half for no
-function M_Quit_Touch( vx, vy ) {
+function M_Quit_Touch( _vx, vy ) {
 
 	if ( vy < 100 ) {
 
@@ -3033,7 +3033,7 @@ function M_Quit_Touch( vx, vy ) {
 }
 
 // LAN Config touch - handle room list selection
-function M_LanConfig_Touch( vx, vy ) {
+function M_LanConfig_Touch( _vx, vy ) {
 
 	// Room list starts at y=52 with 12px spacing
 	if ( slist_rooms.length > 0 && vy >= 52 && vy < 52 + slist_rooms.length * 12 ) {
@@ -3051,7 +3051,7 @@ function M_LanConfig_Touch( vx, vy ) {
 }
 
 // Game Options touch - handle all options
-function M_GameOptions_Touch( vx, vy ) {
+function M_GameOptions_Touch( _vx, vy ) {
 
 	// Find which row was touched based on cursor table
 	for ( let i = 0; i < NUM_GAMEOPTIONS; i ++ ) {

@@ -254,7 +254,7 @@ function ResampleSfx( sfx, inrate, inwidth, data ) {
 
 	const stepscale = inrate / shm.speed; // this is usually 0.5, 1, or 2
 
-	let outcount = Math.floor( sc.length / stepscale );
+	const outcount = Math.floor( sc.length / stepscale );
 	sc.length = outcount;
 	if ( sc.loopstart !== - 1 )
 		sc.loopstart = Math.floor( sc.loopstart / stepscale );

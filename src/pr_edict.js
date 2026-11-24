@@ -16,7 +16,7 @@ import {
 import { PROGHEADER_CRC } from './progdefs.js';
 import { globalvars_t } from './progdefs.js';
 import {
-	progs, pr_functions, pr_strings_data,
+	progs, pr_functions,
 	pr_globaldefs, pr_fielddefs,
 	pr_global_struct, pr_globals, pr_globals_int,
 	type_size,

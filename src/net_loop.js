@@ -44,7 +44,7 @@ export function Loop_Shutdown() {
 Loop_Listen
 =============
 */
-export function Loop_Listen( state ) {
+export function Loop_Listen( _state ) {
 
 }
 
@@ -53,7 +53,7 @@ export function Loop_Listen( state ) {
 Loop_SearchForHosts
 =============
 */
-export function Loop_SearchForHosts( xmit ) {
+export function Loop_SearchForHosts( _xmit ) {
 
 	if ( ! sv.active )
 		return;
@@ -285,7 +285,7 @@ export function Loop_CanSendMessage( sock ) {
 Loop_CanSendUnreliableMessage
 =============
 */
-export function Loop_CanSendUnreliableMessage( sock ) {
+export function Loop_CanSendUnreliableMessage( _sock ) {
 
 	return true;
 
