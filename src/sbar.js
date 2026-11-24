@@ -3,7 +3,8 @@
 import { Cmd_AddCommand } from './cmd.js';
 import { teamplay } from './host.js';
 import { Con_Printf } from './console.js';
-import { Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
+import { Draw_GetVirtualWidth, Draw_GetVirtualHeight, Draw_GetOverlayCanvas } from './gl_draw.js';
+import { scr_sbaralpha } from './gl_screen.js';
 import {
 	IT_SHOTGUN,
 	IT_SHELLS, IT_NAILS, IT_ROCKETS, IT_CELLS,
@@ -355,6 +356,34 @@ function Sbar_DrawPic( x, y, pic ) {
 
 /*
 ================
+Sbar_DrawPicAlpha -- johnfitz
+
+Ported from QuakeSpasm Quake/sbar.c: the status bar backgrounds are drawn
+with scr_sbaralpha
+================
+*/
+function Sbar_DrawPicAlpha( x, y, pic, alpha ) {
+
+	if ( alpha >= 1 ) {
+
+		Sbar_DrawPic( x, y, pic );
+		return;
+
+	}
+
+	const canvas = Draw_GetOverlayCanvas();
+	if ( canvas === null ) return;
+
+	const ctx = canvas.getContext( '2d' );
+	const oldAlpha = ctx.globalAlpha;
+	ctx.globalAlpha = alpha > 0 ? alpha : 0;
+	Sbar_DrawPic( x, y, pic );
+	ctx.globalAlpha = oldAlpha;
+
+}
+
+/*
+================
 Sbar_DrawCharacter
 
 Draws one solid graphics character
@@ -436,13 +465,13 @@ function Sbar_DrawInventory() {
 	if ( _rogue ) {
 
 		if ( _cl.stats[ STAT_ACTIVEWEAPON ] >= RIT_LAVA_NAILGUN )
-			Sbar_DrawPic( 0, - 24, rsb_invbar[ 0 ] );
+			Sbar_DrawPicAlpha( 0, - 24, rsb_invbar[ 0 ], scr_sbaralpha.value ); //johnfitz -- scr_sbaralpha
 		else
-			Sbar_DrawPic( 0, - 24, rsb_invbar[ 1 ] );
+			Sbar_DrawPicAlpha( 0, - 24, rsb_invbar[ 1 ], scr_sbaralpha.value ); //johnfitz -- scr_sbaralpha
 
 	} else {
 
-		Sbar_DrawPic( 0, - 24, sb_ibar );
+		Sbar_DrawPicAlpha( 0, - 24, sb_ibar, scr_sbaralpha.value ); //johnfitz -- scr_sbaralpha
 
 	}
 
@@ -992,13 +1021,13 @@ export function Sbar_Draw() {
 
 	if ( sb_showscores || _cl.stats[ STAT_HEALTH ] <= 0 ) {
 
-		Sbar_DrawPic( 0, 0, sb_scorebar );
+		Sbar_DrawPicAlpha( 0, 0, sb_scorebar, scr_sbaralpha.value ); //johnfitz -- scr_sbaralpha
 		Sbar_DrawScoreboard();
 		sb_updates = 0;
 
 	} else if ( sb_lines > 0 ) {
 
-		Sbar_DrawPic( 0, 0, sb_sbar );
+		Sbar_DrawPicAlpha( 0, 0, sb_sbar, scr_sbaralpha.value ); //johnfitz -- scr_sbaralpha
 
 		// keys (hipnotic only)
 		//MED 01/04/97 moved keys here so they would not be overwritten

@@ -9,7 +9,7 @@ import {
 	K_INS, K_DEL, K_PGDN, K_PGUP, K_HOME, K_END, K_PAUSE,
 	K_MOUSE1, K_MOUSE2, K_MOUSE3,
 	K_MWHEELUP, K_MWHEELDOWN,
-	Key_Event, Key_ClearStates,
+	Key_Event, Key_ClearStates, Key_ModalActive,
 	key_game, key_menu, key_dest
 } from './keys.js';
 import { Cvar_RegisterVariable } from './cvar.js';
@@ -30,7 +30,7 @@ import {
 	Touch_ShowMenu, Touch_HideMenu, Touch_SetMenuCallback, Touch_RequestFullscreen,
 	Touch_RegisterCvars, Touch_Frame, Touch_ShowSysBar, Touch_HideSysBar
 } from './touch.js';
-import { M_TouchInput } from './menu.js';
+import { M_TouchInput, M_Mousemove, ui_mouse } from './menu.js';
 import { Draw_GetOverlayCanvas } from './gl_draw.js';
 import { S_UnlockAudio, S_BlockSound, S_UnblockSound } from './snd_dma.js';
 import { isXRActive, XR_PollInput, XR_UpdateHUD, XR_SetSessionEndCallback, xrInput } from './webxr.js';
@@ -719,7 +719,19 @@ function handleKeyUp( event ) {
 
 function handleMouseMove( event ) {
 
-	if ( ! in_initialized || ! mouseactive ) return;
+	if ( ! in_initialized ) return;
+
+	// Ironwail in_sdl.c: SDL_MOUSEMOTION calls M_Mousemove in menus. The
+	// cursor is free there (IN_Commands drops pointer lock), so pass its
+	// position on the menu surface.
+	if ( key_dest === key_menu && ! pointerLocked && ! touchMode ) {
+
+		IN_MenuMousemove( event );
+		return;
+
+	}
+
+	if ( ! mouseactive ) return;
 
 	// Pointer Lock API gives us movementX/Y directly
 	mx_accum += event.movementX || 0;
@@ -747,6 +759,15 @@ function IN_GetMenuSurface() {
 
 }
 
+// Pass the cursor position on the menu surface to M_Mousemove
+function IN_MenuMousemove( event ) {
+
+	const rect = IN_GetMenuSurface().getBoundingClientRect();
+	if ( rect.width <= 0 || rect.height <= 0 ) return;
+	M_Mousemove( event.clientX - rect.left, event.clientY - rect.top, rect.width, rect.height );
+
+}
+
 function handleMouseDown( event ) {
 
 	if ( ! in_initialized ) return;
@@ -764,6 +785,20 @@ function handleMouseDown( event ) {
 
 	const qkey = mouseButtonToKey( event.button );
 	if ( qkey === 0 ) return;
+
+	// Ironwail: mouse buttons in menus are keys (MOUSE1 selects, MOUSE2
+	// goes back, and both can be bound in Customize Controls). Ironwail's
+	// in_sdl.c also calls M_Mousemove on button events, so the click acts on
+	// the row under the cursor. Touch mode and SCR_ModalMessage keep the tap
+	// path below.
+	if ( key_dest === key_menu && ! touchMode && ! pointerLocked && ui_mouse.value !== 0 && ! Key_ModalActive() ) {
+
+		IN_MenuMousemove( event );
+		mouse_buttonstate |= 1 << ( qkey - K_MOUSE1 );
+		Key_Event( qkey, true );
+		return;
+
+	}
 
 	// Handle mouse clicks in the menu
 	if ( key_dest === key_menu && event.button === 0 ) {
@@ -1286,6 +1321,18 @@ buttons, which must work in menus too (IN_Move only runs once signed on).
 export function IN_Commands() {
 
 	if ( ! in_initialized ) return;
+
+	// Ironwail IN_DeactivateForMenu: free the cursor while a menu is up, so
+	// it can point at menu items. The menu requests the lock again when it
+	// returns to the game. The browser drops the lock itself on Escape,
+	// except under keyboard lock in fullscreen and when a bound key toggles
+	// the menu.
+	if ( key_dest === key_menu && pointerLocked && ui_mouse.value !== 0
+		&& ! isXRActive() && document.exitPointerLock ) {
+
+		document.exitPointerLock();
+
+	}
 
 	if ( isXRActive() ) {
 
