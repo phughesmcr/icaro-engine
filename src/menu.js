@@ -2706,12 +2706,15 @@ export function M_Keydown( key ) {
 	// binding a key (they are bound then). The wheel and MOUSE2 map to the
 	// keys each menu already handles: Ironwail scrolls its list menus with the
 	// wheel, and the port's other menus move the cursor with it.
+	const click = m_mouse_click;
+	m_mouse_click = false;
+
 	if ( bind_grab === false ) {
 
 		switch ( key ) {
 
 			case K_MOUSE1:
-				if ( ui_mouse.value !== 0 && m_mouse_valid === true )
+				if ( ui_mouse.value !== 0 && click === true && m_mouse_valid === true )
 					M_MenuClick( m_mousex, m_mousey );
 				return;
 			case K_MOUSE2:
@@ -2835,6 +2838,9 @@ export const ui_mouse = { name: 'ui_mouse', string: '1', value: 1, archive: true
 let m_mousex = 0;
 let m_mousey = 0;
 let m_mouse_valid = false;
+// Set by M_MouseButton for the mouse key press that follows it. Other
+// senders of K_MOUSE1 (the gamepad's right trigger) carry no position.
+let m_mouse_click = false;
 
 // M_ToMenuSpace result
 let m_vx = 0;
@@ -2992,6 +2998,22 @@ export function M_Mousemove( x, y, w, h ) {
 		return;
 
 	M_UpdateHover();
+
+}
+
+/*
+================
+M_MouseButton
+
+in_web.js calls this with the cursor position just before it sends a mouse
+button key in a menu (Ironwail's in_sdl.c calls M_Mousemove on button
+events). Only a K_MOUSE1 sent this way clicks at the mouse position.
+================
+*/
+export function M_MouseButton( x, y, w, h ) {
+
+	M_Mousemove( x, y, w, h );
+	m_mouse_click = true;
 
 }
 

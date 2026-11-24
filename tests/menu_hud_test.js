@@ -35,7 +35,14 @@ function withMenu( fn ) {
 		const h = draw.Draw_GetVirtualHeight();
 		// Move the mouse to a point in the 320x200 menu space
 		const move = ( vx, vy ) => menu.M_Mousemove( vx + ( w - 320 ) / 2, vy + ( h - 200 ) / 2, w, h );
-		fn( move );
+		// Press a mouse button at a point, as in_web.js does
+		const press = ( vx, vy, key ) => {
+
+			menu.M_MouseButton( vx + ( w - 320 ) / 2, vy + ( h - 200 ) / 2, w, h );
+			menu.M_Keydown( key );
+
+		};
+		fn( move, press );
 
 	} finally {
 
@@ -89,7 +96,7 @@ Deno.test( 'menu hit test maps rows and rejects points outside the menu', () => 
 
 Deno.test( 'hovering moves the cursor and MOUSE1 selects the hovered row', () => {
 
-	withMenu( ( move ) => {
+	withMenu( ( move, press ) => {
 
 		cmd.Cmd_ExecuteString( 'menu_main' );
 		move( 100, 32 + 1 * 20 + 10 ); // Multiplayer
@@ -99,16 +106,19 @@ Deno.test( 'hovering moves the cursor and MOUSE1 selects the hovered row', () =>
 		menu.M_Keydown( keys.K_MOUSE2 );
 		assertEqual( menu.m_state, menu.m_main, 'MOUSE2 goes back' );
 
+		// A MOUSE1 without a mouse click (the gamepad's right trigger) doesn't
+		// click where the mouse last was
 		move( 100, 32 + 2 * 20 + 10 ); // Options
 		menu.M_Keydown( keys.K_MOUSE1 );
+		assertEqual( menu.m_state, menu.m_main, 'MOUSE1 with no click position' );
+
+		press( 100, 32 + 2 * 20 + 10, keys.K_MOUSE1 ); // Options
 		assertEqual( menu.m_state, menu.m_options, 'MOUSE1 selects the row under the mouse' );
 
 		// A click away from any row does nothing; outside the menu goes back
-		move( 100, 196 );
-		menu.M_Keydown( keys.K_MOUSE1 );
+		press( 100, 196, keys.K_MOUSE1 );
 		assertEqual( menu.m_state, menu.m_options, 'click between rows' );
-		move( 330, 100 );
-		menu.M_Keydown( keys.K_MOUSE1 );
+		press( 330, 100, keys.K_MOUSE1 );
 		assertEqual( menu.m_state, menu.m_main, 'click outside the menu goes back' );
 
 		// The wheel moves the cursor in menus without a list to scroll
@@ -123,13 +133,12 @@ Deno.test( 'hovering moves the cursor and MOUSE1 selects the hovered row', () =>
 
 Deno.test( 'ui_mouse 0 ignores the mouse in menus', () => {
 
-	withMenu( ( move ) => {
+	withMenu( ( move, press ) => {
 
 		cmd.Cmd_ExecuteString( 'menu_main' );
 		move( 100, 32 + 10 ); // cursor on Single Player
 		menu.ui_mouse.value = 0;
-		move( 100, 32 + 2 * 20 + 10 ); // Options
-		menu.M_Keydown( keys.K_MOUSE1 );
+		press( 100, 32 + 2 * 20 + 10, keys.K_MOUSE1 ); // Options
 		menu.M_Keydown( keys.K_MOUSE2 );
 		menu.M_Keydown( keys.K_MWHEELDOWN );
 		assertEqual( menu.m_state, menu.m_main, 'mouse keys do nothing' );

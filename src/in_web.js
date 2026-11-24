@@ -30,7 +30,7 @@ import {
 	Touch_ShowMenu, Touch_HideMenu, Touch_SetMenuCallback, Touch_RequestFullscreen,
 	Touch_RegisterCvars, Touch_Frame, Touch_ShowSysBar, Touch_HideSysBar
 } from './touch.js';
-import { M_TouchInput, M_Mousemove, ui_mouse } from './menu.js';
+import { M_TouchInput, M_Mousemove, M_MouseButton } from './menu.js';
 import { Draw_GetOverlayCanvas } from './gl_draw.js';
 import { S_UnlockAudio, S_BlockSound, S_UnblockSound } from './snd_dma.js';
 import { isXRActive, XR_PollInput, XR_UpdateHUD, XR_SetSessionEndCallback, xrInput } from './webxr.js';
@@ -836,7 +836,7 @@ function handleMouseMove( event ) {
 	// position on the menu surface.
 	if ( key_dest === key_menu && ! pointerLocked && ! touchMode ) {
 
-		IN_MenuMousemove( event );
+		IN_MenuMousemove( event, false );
 		return;
 
 	}
@@ -869,12 +869,18 @@ function IN_GetMenuSurface() {
 
 }
 
-// Pass the cursor position on the menu surface to M_Mousemove
-function IN_MenuMousemove( event ) {
+// Pass the cursor position on the menu surface to M_Mousemove, or to
+// M_MouseButton for a button press
+function IN_MenuMousemove( event, button ) {
 
 	const rect = IN_GetMenuSurface().getBoundingClientRect();
 	if ( rect.width <= 0 || rect.height <= 0 ) return;
-	M_Mousemove( event.clientX - rect.left, event.clientY - rect.top, rect.width, rect.height );
+	const x = event.clientX - rect.left;
+	const y = event.clientY - rect.top;
+	if ( button )
+		M_MouseButton( x, y, rect.width, rect.height );
+	else
+		M_Mousemove( x, y, rect.width, rect.height );
 
 }
 
@@ -900,10 +906,10 @@ function handleMouseDown( event ) {
 	// goes back, and both can be bound in Customize Controls). Ironwail's
 	// in_sdl.c also calls M_Mousemove on button events, so the click acts on
 	// the row under the cursor. Touch mode and SCR_ModalMessage keep the tap
-	// path below.
-	if ( key_dest === key_menu && ! touchMode && ! pointerLocked && ui_mouse.value !== 0 && ! Key_ModalActive() ) {
+	// path below. M_Keydown ignores mouse keys when ui_mouse is 0.
+	if ( key_dest === key_menu && ! touchMode && ! pointerLocked && ! Key_ModalActive() ) {
 
-		IN_MenuMousemove( event );
+		IN_MenuMousemove( event, true );
 		mouse_buttonstate |= 1 << ( qkey - K_MOUSE1 );
 		Key_Event( qkey, true );
 		return;
@@ -1450,7 +1456,7 @@ export function IN_Commands() {
 	// returns to the game. The browser drops the lock itself on Escape,
 	// except under keyboard lock in fullscreen and when a bound key toggles
 	// the menu.
-	if ( key_dest === key_menu && pointerLocked && ui_mouse.value !== 0
+	if ( key_dest === key_menu && pointerLocked
 		&& ! isXRActive() && document.exitPointerLock ) {
 
 		document.exitPointerLock();
