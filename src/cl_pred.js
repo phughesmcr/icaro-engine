@@ -1002,7 +1002,7 @@ export function CL_PredictMove() {
 	// The server never says when it has the player in noclip, but a
 	// walking NQ player can never be inside the world (SV_CheckStuck).
 	// Open-air noclip and fly are not detectable; see PM_NQ_PlayerMove.
-	_cl_predmovetype = ( nq && PM_NQ_InSolid( from.playerstate.origin ) )
+	_cl_predmovetype = ( nq && cl.worldmodel != null && PM_NQ_InSolid( from.playerstate.origin ) )
 		? PM_MOVETYPE_NOCLIP : PM_MOVETYPE_WALK;
 
 	// Predict forward from acknowledged state
