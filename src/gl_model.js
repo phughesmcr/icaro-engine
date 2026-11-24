@@ -1273,7 +1273,11 @@ function Mod_LoadTextures( fileofs, filelen ) {
 
 		} else {
 
-			tx.gl_texture = GL_LoadTexture( name, tx.width, tx.height, tx.pixels, true, false, true );
+			// Turbulent ('*') textures are drawn unlit with no emissive map, so
+			// splitting out fullbright pixels would black them out (*lava1 is
+			// entirely fullbright).
+			const splitFullbright = name[ 0 ] !== '*';
+			tx.gl_texture = GL_LoadTexture( name, tx.width, tx.height, tx.pixels, true, false, splitFullbright );
 
 		}
 
