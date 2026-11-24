@@ -990,14 +990,18 @@ Predicts from the newest command's state (last) for the game time that
 hasn't been sent yet (host_netaccum), with the newest command's moves and
 buttons and the angles the next command will send. The next command
 covers that same time, so the view runs on into it rather than snapping.
-Returns false if there is no time to predict.
+With no time to predict, the state is the newest command's.
 ==============
 */
 function CL_PredictPartialMove( last ) {
 
 	const msec = host_netaccum * 1000;
-	if ( msec <= 0 )
-		return false;
+	if ( msec <= 0 ) {
+
+		_partialstate.copyFrom( last.playerstate );
+		return;
+
+	}
 
 	const cmd = _partialcmd;
 	cmd.msec = msec < 255 ? msec : 255;
@@ -1010,7 +1014,6 @@ function CL_PredictPartialMove( last ) {
 	cmd.buttons = last.cmd.buttons;
 
 	CL_PredictUsercmd( last.playerstate, _partialstate, cmd, false );
-	return true;
 
 }
 
@@ -1087,18 +1090,25 @@ export function CL_PredictMove() {
 		lastFrom = to;
 	}
 
-	// Between isolated ticks, run on from the newest command
+	// Between isolated ticks, run on from the newest command. If the server
+	// has acknowledged it already (no command to predict), from the
+	// acknowledged state, whose command is the newest.
 	let partial = false;
-	if ( host_netinterval > 0 && i !== UPDATE_BACKUP - 1 && to !== null
-		&& to.sequence === outgoing_sequence - 1 )
-		partial = CL_PredictPartialMove( to );
+	if ( host_netinterval > 0 && i !== UPDATE_BACKUP - 1 ) {
+
+		const last = to !== null ? to : from;
+		// sequence is -1 in a slot no command has used (after a reset)
+		if ( last.sequence >= 0 && last.sequence === outgoing_sequence - 1 ) {
+
+			CL_PredictPartialMove( last );
+			partial = true;
+
+		}
+
+	}
 
 	pmove.numphysent = oldphysent;
 	_cl_predmovetype = PM_MOVETYPE_WALK;
-
-	// net hasn't delivered packets in a long time...
-	if ( i === UPDATE_BACKUP - 1 || to == null )
-		return;
 
 	if ( partial ) {
 
@@ -1109,6 +1119,10 @@ export function CL_PredictMove() {
 		return;
 
 	}
+
+	// net hasn't delivered packets in a long time...
+	if ( i === UPDATE_BACKUP - 1 || to == null )
+		return;
 
 	// Interpolate some fraction of the final frame
 	let f;

@@ -10,8 +10,8 @@ import {
 } from '../src/host.js';
 import { CL_AccumulateCmd, in_right, in_mlook, in_strafe, cl_yawspeed } from '../src/cl_input.js';
 import {
-	CL_PredictMove, CL_StoreCommand, CL_SetServerState, CL_ResetPrediction,
-	CL_InitPrediction, cl_simorg
+	CL_PredictMove, CL_StoreCommand, CL_SetServerState, CL_ResetPrediction, CL_AcknowledgeCommand,
+	CL_InitPrediction, cl_simorg, cl_prediction_active
 } from '../src/cl_pred.js';
 
 const I = HOST_NETINTERVAL;
@@ -452,6 +452,36 @@ Deno.test( 'isolated prediction moves the view between ticks and runs on into th
 		CL_StoreCommand( forwardCmd( I * 1000 ), 0.5 );
 		const afterTick = predictAt( 0 );
 		assertNear( afterTick, fullTick, 1e-3, 'view across the tick' );
+
+	} );
+
+} );
+
+Deno.test( 'isolated prediction runs on from the server state once every command is acknowledged', () => {
+
+	withIsolatedPrediction( () => {
+
+		setupCommands( 1 );
+		CL_AcknowledgeCommand( 1 ); // the newest command; nothing left to predict
+		CL_SetServerState( new Float32Array( [ 0, 0, 24 ] ), new Float32Array( [ 100, 0, 0 ] ), true );
+		const atAck = predictAt( 0 );
+		const later = predictAt( I / 2 );
+		assertNear( atAck, 0, 0, 'view on the acknowledged state' );
+		if ( ! ( later > atAck ) )
+			throw new Error( `view froze after the acknowledgement: ${atAck} -> ${later}` );
+
+	} );
+
+} );
+
+Deno.test( 'isolated prediction leaves the view alone before any command is stored', () => {
+
+	withIsolatedPrediction( () => {
+
+		CL_SetServerState( new Float32Array( [ 0, 0, 24 ] ), new Float32Array( [ 100, 0, 0 ] ), true );
+		predictAt( I / 2 );
+		if ( cl_prediction_active !== false || cl_simorg[ 0 ] !== 0 )
+			throw new Error( `predicted from an unused frame: active ${cl_prediction_active}, x ${cl_simorg[ 0 ]}` );
 
 	} );
 
