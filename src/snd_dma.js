@@ -43,9 +43,9 @@ for ( let i = 0; i < MAX_SFX; i ++ )
 const _vec3_origin = new Float32Array( 3 );
 
 // Ambient sounds
-let ambient_sfx = new Array( NUM_AMBIENTS ).fill( null );
+const ambient_sfx = new Array( NUM_AMBIENTS ).fill( null );
 let sound_started = false;
-let snd_ambient = true; // whether ambient sounds are enabled
+const snd_ambient = true; // whether ambient sounds are enabled
 
 // Callback for host_frametime (to avoid circular dependency)
 let _getHostFrametime = () => 0;
@@ -437,8 +437,8 @@ export function SND_Spatialize( ch ) {
 	// dot product with normalized source vector gives [-1, 1]
 	const dot = listener_right[ 0 ] * source_vec_0 + listener_right[ 1 ] * source_vec_1 + listener_right[ 2 ] * source_vec_2;
 
-	let rscale = 1.0 + dot;
-	let lscale = 1.0 - dot;
+	const rscale = 1.0 + dot;
+	const lscale = 1.0 - dot;
 
 	// add in distance effect
 	let scale = ( 1.0 - dist ) * rscale;

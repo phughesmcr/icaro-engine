@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Report deno lint problems that a file has now but did not have at a base ref.
-# The repo has a large pre-existing lint baseline, so the bar is "no new
-# problems", not zero. Findings are compared by rule code + message counts, so
-# line shifts from an edit don't count as new problems.
+# Lint is clean on dev (CI runs `deno task lint`), so any finding this reports
+# is one the edit introduced. It gives per-file feedback as you edit. Findings
+# are compared by rule code + message counts, so line shifts from an edit don't
+# count as new problems.
 #
 #   lint-delta.sh <base-ref> <file>...   # e.g. origin/dev src/sv_phys.js
 #   lint-delta.sh --hook                 # PostToolUse: JSON on stdin, base HEAD

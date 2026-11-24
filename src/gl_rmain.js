@@ -4,7 +4,6 @@
 import * as THREE from 'three';
 import { Sys_FloatTime } from './sys.js';
 import { Con_Printf } from './common.js';
-import { cvar_t } from './cvar.js';
 import { vid, renderer } from './vid.js';
 import { r_refdef, r_origin, vpn, vright, vup, entity_t } from './render.js';
 import {
@@ -36,7 +35,7 @@ import { d_lightstylevalue, r_framecount, set_r_framecount, inc_r_framecount,
 	gl_clear, gl_cull, gl_texsort, gl_smoothmodels, gl_affinemodels,
 	gl_polyblend, gl_flashblend, gl_playermip, gl_nocolors,
 	gl_keeptjunctions, gl_reporttjunctions,
-	gl_doubleeyes, gl_max_size
+	gl_doubleeyes, gl_max_size, gl_finish, GL_UpdateCull
 } from './glquake.js';
 export { GL_BuildLightmaps_rsurf as GL_BuildLightmaps };
 export { r_norefresh, r_drawentities, r_drawviewmodel, r_speeds,
@@ -131,8 +130,8 @@ export let c_alias_polys = 0;
 export let currenttexture = - 1; // to avoid unnecessary texture sets
 export const cnttextures = [ - 1, - 1 ]; // cached
 
-export let particletexture = 0; // little dot for particles
-export let playertextures = 0; // up to 16 color translated skins
+export const particletexture = 0; // little dot for particles
+export const playertextures = 0; // up to 16 color translated skins
 
 export let mirror = false;
 export let mirror_plane = null; // mplane_t pointer
@@ -142,7 +141,7 @@ export const r_world_matrix = new Float32Array( 16 );
 export let r_viewleaf = null; // mleaf_t
 export let r_oldviewleaf = null; // mleaf_t
 
-export let r_notexture_mip = null;
+export const r_notexture_mip = null;
 
 // Shared renderer state is imported from glquake.js and re-exported here so
 // gl_rsurf.js keeps its existing dependency without adding a gl_rlight cycle.
@@ -180,8 +179,6 @@ export let camera = null; // THREE.PerspectiveCamera
 
 // Most cvars are defined in glquake.js and imported+re-exported above.
 // They are registered in gl_rmisc.js R_Init().
-// gl_ztrick is unique to gl_rmain (not in glquake.js).
-export const gl_ztrick = new cvar_t( 'gl_ztrick', '1' );
 
 //============================================================================
 // R_CullBox
@@ -311,6 +308,9 @@ export function R_SetupGL() {
 
 	const screenaspect = r_refdef.vrect.width / r_refdef.vrect.height;
 
+	// set drawing parms: glEnable/glDisable(GL_CULL_FACE) from gl_cull
+	GL_UpdateCull();
+
 	// set up Three.js camera to match Quake's perspective
 	if ( camera == null ) {
 
@@ -395,8 +395,10 @@ export function R_SetupGL() {
 	// Build a rotation matrix from the Quake basis vectors.
 	// In Quake: forward = where camera looks, right = camera right, up = camera up.
 	// Three.js camera looks down -Z, X=right, Y=up.
-	// GLQuake uses glCullFace(GL_FRONT) to cull front faces (keeping back faces).
-	// We match this with THREE.BackSide on materials.
+	// GLQuake culls with glCullFace(GL_FRONT) because its polygons wind the
+	// other way; the port's meshes face the camera under Three's default
+	// FrontSide. gl_cull 0 turns culling off (glDisable(GL_CULL_FACE)) by
+	// switching registered materials to DoubleSide in GL_UpdateCull.
 	const forward = _setupgl_forward, right = _setupgl_right, up = _setupgl_up;
 	const m = _setupgl_matrix;
 
@@ -723,8 +725,8 @@ export function R_DrawViewModel() {
 //============================================================================
 
 // Track entity meshes currently in the scene for efficient add/remove
-let _entityMeshesInScene = new Set();
-let _entityMeshesThisFrame = new Set();
+const _entityMeshesInScene = new Set();
+const _entityMeshesThisFrame = new Set();
 const _entityMeshCacheOwners = new Set();
 
 function _disposeEntityGeometry( geometry, geometries ) {
@@ -1021,7 +1023,7 @@ function R_DrawSpriteModel( e ) {
 
 	// Get or create cached geometry and material for this entity
 	let mesh = e._spriteMesh;
-	let positions, posAttr;
+	let positions;
 
 	if ( ! mesh ) {
 
@@ -1076,7 +1078,7 @@ function R_DrawSpriteModel( e ) {
 	_entityMeshCacheOwners.add( e );
 
 	// Update billboard vertex positions every frame
-	posAttr = mesh.geometry.attributes.position;
+	const posAttr = mesh.geometry.attributes.position;
 	positions = posAttr.array;
 
 	const ox = e.origin[ 0 ];
@@ -1254,6 +1256,11 @@ export function R_RenderView() {
 	}
 
 	mirror = false;
+
+	// glFinish blocks until the GPU is done; WebGL's finish() is the same call
+	// (R_TimeRefresh_f uses it too). Only useful for timing, as in GLQuake.
+	if ( gl_finish.value && renderer !== null )
+		renderer.getContext().finish();
 
 	R_Clear();
 

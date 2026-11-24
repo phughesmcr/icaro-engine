@@ -28,7 +28,8 @@ import {
 	MIPLEVELS, MAXLIGHTMAPS, NUM_AMBIENTS,
 	TEX_SPECIAL
 } from './bspfile.js';
-import { gl_subdivide_size, gl_texturemode, GL_RegisterTexture, GL_UnregisterTexture } from './glquake.js';
+import { gl_subdivide_size, gl_texturemode, GL_RegisterTexture, GL_UnregisterTexture,
+	GL_ScaledTextureSize, GL_ResampleTexture8 } from './glquake.js';
 
 // ============================================================================
 // modelgen.h constants
@@ -652,9 +653,21 @@ const decompressed = new Uint8Array( MAX_MAP_LEAFS / 8 );
 // GL_LoadTexture: 8-bit paletted pixels -> THREE.DataTexture. Unlike GLQuake it
 // doesn't dedupe by name: textures are owned per model and disposed in
 // Mod_ClearAll; `name` only labels them for GPU debuggers.
+// gl_picmip and gl_max_size shrink the upload as GL_Upload32 does; like
+// GLQuake they take effect on the next map load. Texture coordinates are
+// normalised by the miptex size, not the upload size, so they are unaffected.
 // ============================================================================
 
 function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbright ) {
+
+	const scaled = GL_ScaledTextureSize( width, height );
+	if ( scaled.width !== width || scaled.height !== height ) {
+
+		data = GL_ResampleTexture8( data, width, height, scaled.width, scaled.height );
+		width = scaled.width;
+		height = scaled.height;
+
+	}
 
 	// Convert 8-bit palette-indexed pixels to RGBA and create a THREE.DataTexture
 	const rgba = new Uint8Array( width * height * 4 );
@@ -1663,7 +1676,7 @@ function CalcSurfaceExtents( s ) {
 
 	for ( let i = 0; i < s.numedges; i ++ ) {
 
-		let e = loadmodel.surfedges[ s.firstedge + i ];
+		const e = loadmodel.surfedges[ s.firstedge + i ];
 		let v;
 		if ( e >= 0 )
 			v = loadmodel.vertexes[ loadmodel.edges[ e ].v[ 0 ] ];
@@ -2385,7 +2398,7 @@ function Mod_FloodFillSkin( skin, skinwidth, skinheight ) {
 	const fifo_y = new Int16Array( FLOODFILL_FIFO_SIZE );
 	let inpt = 0, outpt = 0;
 
-	let filledcolor = 0;
+	const filledcolor = 0;
 	// attempt to find opaque black (simplified; Quake uses d_8to24table)
 	// For now just use 0
 

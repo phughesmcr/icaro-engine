@@ -1322,7 +1322,7 @@ SV_WritePlayersToClient
 QuakeWorld-style player info for client-side prediction
 ==================
 */
-export function SV_WritePlayersToClient( client, clent, pvs, msg ) {
+export function SV_WritePlayersToClient( _client, clent, pvs, msg ) {
 
 	// Find player model index if not cached
 	if ( sv_playermodel === 0 ) {

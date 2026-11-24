@@ -21,6 +21,13 @@ export const SKYMASK = ( SKYSIZE - 1 );
 
 export const BACKFACE_EPSILON = 0.01;
 
+// GLQuake modulates texture by lightmap in display space (glBlendFunc on the
+// gamma-corrected palette colours). Three's Lambert path multiplies in linear
+// space and divides indirect light by PI. Decoding the lightmap as sRGB and
+// reading it at intensity PI gives back texture * lightmap / 255 in display
+// space, within a few levels of GLQuake across the range.
+export const LIGHTMAP_INTENSITY = Math.PI;
+
 // Multitexture
 export const TEXTURE0_SGIS = 0x835E;
 export const TEXTURE1_SGIS = 0x835F;
@@ -59,18 +66,18 @@ export class gltexture_t {
 }
 
 export let texture_extension_number = 1;
-export let texture_mode = 0; // GL_LINEAR_MIPMAP_NEAREST equivalent
+export const texture_mode = 0; // GL_LINEAR_MIPMAP_NEAREST equivalent
 
-export let gldepthmin = 0;
-export let gldepthmax = 0;
+export const gldepthmin = 0;
+export const gldepthmax = 0;
 
 export let currenttexture = - 1;
-export let cnttextures = [ - 1, - 1 ];
-export let particletexture = 0;
-export let playertextures = 0;
+export const cnttextures = [ - 1, - 1 ];
+export const particletexture = 0;
+export const playertextures = 0;
 
-export let gltextures = [];
-export let numgltextures = 0;
+export const gltextures = [];
+export const numgltextures = 0;
 
 export function setTextureExtensionNumber( n ) {
 
@@ -131,12 +138,12 @@ export class glvert_t {
 
 }
 
-export let glv = new glvert_t();
+export const glv = new glvert_t();
 
-export let glx = 0;
-export let gly = 0;
-export let glwidth = 640;
-export let glheight = 480;
+export const glx = 0;
+export const gly = 0;
+export const glwidth = 640;
+export const glheight = 480;
 
 /*
 ===============================================================================
@@ -181,47 +188,47 @@ RENDER STATE VARIABLES
 ===============================================================================
 */
 
-export let r_worldentity = null; // entity_t
-export let r_cache_thrash = false;
-export let modelorg = new Float32Array( 3 );
-export let r_entorigin = new Float32Array( 3 );
-export let currententity = null;
-export let r_visframecount = 0;
+export const r_worldentity = null; // entity_t
+export const r_cache_thrash = false;
+export const modelorg = new Float32Array( 3 );
+export const r_entorigin = new Float32Array( 3 );
+export const currententity = null;
+export const r_visframecount = 0;
 export let r_framecount = 0;
 export function set_r_framecount( value ) { r_framecount = value; }
 export function inc_r_framecount() { return ++ r_framecount; }
-export let frustum = []; // mplane_t[4]
-export let c_brush_polys = 0;
-export let c_alias_polys = 0;
+export const frustum = []; // mplane_t[4]
+export const c_brush_polys = 0;
+export const c_alias_polys = 0;
 
 // view origin
-export let vup = new Float32Array( 3 );
-export let vpn = new Float32Array( 3 );
-export let vright = new Float32Array( 3 );
-export let r_origin = new Float32Array( 3 );
+export const vup = new Float32Array( 3 );
+export const vpn = new Float32Array( 3 );
+export const vright = new Float32Array( 3 );
+export const r_origin = new Float32Array( 3 );
 
 // screen size info
-export let r_refdef = null; // refdef_t
-export let r_viewleaf = null;
-export let r_oldviewleaf = null;
-export let r_notexture_mip = null;
-export let d_lightstylevalue = new Int32Array( 256 );
+export const r_refdef = null; // refdef_t
+export const r_viewleaf = null;
+export const r_oldviewleaf = null;
+export const r_notexture_mip = null;
+export const d_lightstylevalue = new Int32Array( 256 );
 
 
-export let skytexturenum = - 1;
+export const skytexturenum = - 1;
 export let mirrortexturenum = - 1;
 export function set_mirrortexturenum( value ) { mirrortexturenum = value; }
-export let mirror = false;
-export let mirror_plane = null;
+export const mirror = false;
+export const mirror_plane = null;
 
-export let r_world_matrix = new Float32Array( 16 );
+export const r_world_matrix = new Float32Array( 16 );
 
 // GL format constants (mapped to WebGL equivalents conceptually)
-export let gl_lightmap_format = 4; // GL_RGBA
-export let gl_solid_format = 3; // GL_RGB
-export let gl_alpha_format = 4; // GL_RGBA
+export const gl_lightmap_format = 4; // GL_RGBA
+export const gl_solid_format = 3; // GL_RGB
+export const gl_alpha_format = 4; // GL_RGBA
 
-export let gl_mtexable = false;
+export const gl_mtexable = false;
 
 /*
 ===============================================================================
@@ -257,7 +264,14 @@ export const gl_flashblend = { name: 'gl_flashblend', string: '1', value: 1 };
 export const gl_nocolors = { name: 'gl_nocolors', string: '0', value: 0 };
 export const gl_doubleeyes = { name: 'gl_doubleeys', string: '1', value: 1 };
 export const gl_max_size = { name: 'gl_max_size', string: '1024', value: 1024 };
+export const gl_picmip = { name: 'gl_picmip', string: '0', value: 0 };
 export const gl_playermip = { name: 'gl_playermip', string: '0', value: 0 };
+export const gl_finish = { name: 'gl_finish', string: '0', value: 0 };
+// gl_vidnt.c registers gl_ztrick in VID_Init. It alternates the depth range
+// each frame to skip glClear(GL_DEPTH_BUFFER_BIT) on 1990s cards. Obsolete
+// under WebGL/Three.js: the renderer clears depth itself. Kept registered for
+// config compatibility.
+export const gl_ztrick = { name: 'gl_ztrick', string: '1', value: 1 };
 export const gl_subdivide_size = { name: 'gl_subdivide_size', string: '128', value: 128, archive: true };
 // Texture filtering: 0 = nearest (pixelated), 1 = linear (smooth)
 export const gl_texturemode = { name: 'gl_texturemode', string: '0', value: 0, archive: true };
@@ -270,6 +284,153 @@ export function GL_RegisterTexture( texture ) {
 	if ( texture != null && _allGameTextures.includes( texture ) === false ) {
 
 		_allGameTextures.push( texture );
+
+	}
+
+}
+
+/*
+================
+GL_ScaledTextureSize
+
+The size GL_Upload32 (gl_draw.c) uploads a texture at: shifted down by
+gl_picmip, then clamped to gl_max_size. GLQuake first rounds up to a power of
+two; WebGL2 takes any size, so the port skips that and only ever shrinks.
+Never below 1 texel (C has no floor; a huge picmip would upload 0x0).
+Returns the shared _scaledSize scratch object.
+================
+*/
+const _scaledSize = { width: 0, height: 0 };
+
+export function GL_ScaledTextureSize( width, height, mip = gl_picmip.value ) {
+
+	// JS shifts wrap at 32; past 30 every size floors to 1 anyway.
+	const shift = Math.min( 30, Math.max( 0, mip | 0 ) );
+	let scaled_width = width >> shift;
+	let scaled_height = height >> shift;
+
+	if ( scaled_width > gl_max_size.value )
+		scaled_width = gl_max_size.value | 0;
+	if ( scaled_height > gl_max_size.value )
+		scaled_height = gl_max_size.value | 0;
+
+	_scaledSize.width = Math.max( 1, scaled_width );
+	_scaledSize.height = Math.max( 1, scaled_height );
+	return _scaledSize;
+
+}
+
+/*
+================
+GL_ResampleTexture8
+
+GL_ResampleTexture (gl_draw.c) point-samples 32-bit texels; doing the same on
+8-bit palette indices picks the same source texels, so the base and fullbright
+textures split from the result keep matching sizes.
+================
+*/
+export function GL_ResampleTexture8( data, inwidth, inheight, outwidth, outheight ) {
+
+	const out = new Uint8Array( outwidth * outheight );
+	const fracstep = ( inwidth * 0x10000 / outwidth ) | 0;
+
+	for ( let i = 0; i < outheight; i ++ ) {
+
+		const inrow = inwidth * ( ( i * inheight / outheight ) | 0 );
+		let frac = fracstep >> 1;
+
+		for ( let j = 0; j < outwidth; j ++ ) {
+
+			out[ i * outwidth + j ] = data[ inrow + ( frac >> 16 ) ];
+			frac += fracstep;
+
+		}
+
+	}
+
+	return out;
+
+}
+
+/*
+================
+gl_cull
+
+R_SetupGL (gl_rmain.c) enables GL_CULL_FACE only while gl_cull is set. Three.js
+culls per material, so materials that are culled by default register here and
+flip between FrontSide and DoubleSide when the cvar changes. Materials that are
+intrinsically DoubleSide (sky, particles) never register.
+================
+*/
+// Weak references: alias material caches live on model headers that can be
+// dropped without disposing their materials, so the registry must not keep
+// them alive.
+const _cullMaterials = new Set();
+const _cullMaterialRefs = new WeakMap();
+let _cullValue = 1;
+// Materials replaced without dispose() leave dead refs behind; sweep them
+// whenever the set doubles, so it stays proportional to live materials.
+let _cullPruneAt = 256;
+
+function _pruneCullMaterials() {
+
+	for ( const ref of _cullMaterials ) {
+
+		if ( ref.deref() === undefined ) _cullMaterials.delete( ref );
+
+	}
+
+	_cullPruneAt = Math.max( 256, _cullMaterials.size * 2 );
+
+}
+
+function _onCullMaterialDispose( event ) {
+
+	const ref = _cullMaterialRefs.get( event.target );
+	if ( ref !== undefined ) _cullMaterials.delete( ref );
+	_cullMaterialRefs.delete( event.target );
+	event.target.removeEventListener( 'dispose', _onCullMaterialDispose );
+
+}
+
+export function GL_CullSide() {
+
+	return gl_cull.value !== 0 ? THREE.FrontSide : THREE.DoubleSide;
+
+}
+
+export function GL_RegisterCullMaterial( material ) {
+
+	if ( material == null || _cullMaterialRefs.has( material ) ) return material;
+	material.side = GL_CullSide();
+	const ref = new WeakRef( material );
+	_cullMaterialRefs.set( material, ref );
+	_cullMaterials.add( ref );
+	material.addEventListener( 'dispose', _onCullMaterialDispose );
+	if ( _cullMaterials.size >= _cullPruneAt ) _pruneCullMaterials();
+	return material;
+
+}
+
+// Called once per frame from R_SetupGL; only walks the set when gl_cull changes.
+export function GL_UpdateCull() {
+
+	if ( gl_cull.value === _cullValue ) return;
+	_cullValue = gl_cull.value;
+
+	const side = GL_CullSide();
+	for ( const ref of _cullMaterials ) {
+
+		const material = ref.deref();
+		if ( material === undefined ) {
+
+			_cullMaterials.delete( ref );
+			continue;
+
+		}
+
+		material.side = side;
+		material.needsUpdate = true;
 
 	}
 
@@ -329,7 +490,7 @@ export function GL_EnableMultitexture() {
 
 }
 
-export function GL_BeginRendering( x, y, width, height ) {
+export function GL_BeginRendering( _x, _y, _width, _height ) {
 
 	// In Three.js, rendering is handled by the renderer
 	// These values are set by the video initialization
@@ -343,4 +504,4 @@ export function GL_EndRendering() {
 }
 
 // v_blend for dynamic light blend effects
-export let v_blend = new Float32Array( 4 );
+export const v_blend = new Float32Array( 4 );

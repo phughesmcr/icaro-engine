@@ -12,7 +12,8 @@ import { d_lightstylevalue, r_norefresh, r_lightmap,
 	gl_clear, gl_texsort, gl_cull, gl_smoothmodels, gl_affinemodels,
 	gl_polyblend, gl_flashblend, gl_playermip, gl_nocolors,
 	gl_keeptjunctions, gl_reporttjunctions, gl_doubleeyes, gl_texturemode,
-	gl_mtexable, set_mirrortexturenum } from './glquake.js';
+	gl_mtexable, set_mirrortexturenum,
+	gl_finish, gl_max_size, gl_picmip, gl_ztrick } from './glquake.js';
 import { mod_alias, r_worldentity, R_Init as R_Init_rmain, R_NewMap as R_NewMap_rmain, R_RenderView } from './gl_rmain.js';
 import { set_skytexturenum as set_skytexturenum_rsurf } from './gl_rsurf.js';
 import { R_ReadPointFile_f } from './r_part.js';
@@ -173,7 +174,12 @@ export function R_Init() {
 
 		}
 
+		_Cvar_RegisterVariable( gl_finish );
 		_Cvar_RegisterVariable( gl_cull );
+		// gl_smoothmodels picked glShadeModel(GL_SMOOTH) and gl_affinemodels
+		// set GL_PERSPECTIVE_CORRECTION_HINT for alias models. Both are
+		// obsolete under WebGL/Three.js (shaders always interpolate smoothly
+		// and perspective-correct); kept registered for config compatibility.
 		_Cvar_RegisterVariable( gl_smoothmodels );
 		_Cvar_RegisterVariable( gl_affinemodels );
 		_Cvar_RegisterVariable( gl_polyblend );
@@ -182,11 +188,19 @@ export function R_Init() {
 		_Cvar_RegisterVariable( gl_nocolors );
 
 		_Cvar_RegisterVariable( gl_keeptjunctions );
+		// Never read in id's C either; kept registered for config compatibility.
 		_Cvar_RegisterVariable( gl_reporttjunctions );
 
 		_Cvar_RegisterVariable( gl_doubleeyes );
 
 		_Cvar_RegisterVariable( gl_texturemode );
+
+		// C registers these two in Draw_Init (gl_draw.c) and gl_ztrick in
+		// VID_Init (gl_vidnt.c); the port's 2D drawing and video setup don't
+		// own GL cvars, so they are registered with the rest here.
+		_Cvar_RegisterVariable( gl_max_size );
+		_Cvar_RegisterVariable( gl_picmip );
+		_Cvar_RegisterVariable( gl_ztrick );
 
 	}
 
@@ -279,8 +293,16 @@ export function R_TranslatePlayerSkin( playernum ) {
 	for ( let i = 0; i < 256; i ++ )
 		translate32[ i ] = d_8to24table[ translate[ i ] ];
 
-	const scaled_width = Math.min( 512, inwidth );
-	const scaled_height = Math.min( 256, inheight );
+	// gl_rmisc.c clamps to gl_max_size (capped at 512x256) and then shifts by
+	// gl_playermip. It starts from 512x256 and stretches smaller skins up; the
+	// port starts from the skin size and only ever shrinks.
+	let scaled_width = Math.min( inwidth, gl_max_size.value < 512 ? gl_max_size.value : 512 );
+	let scaled_height = Math.min( inheight, gl_max_size.value < 256 ? gl_max_size.value : 256 );
+
+	// allow users to crunch sizes down even more if they want
+	const playermip = Math.max( 0, gl_playermip.value | 0 );
+	scaled_width = Math.max( 1, ( scaled_width | 0 ) >> playermip );
+	scaled_height = Math.max( 1, ( scaled_height | 0 ) >> playermip );
 
 	const pixels = new Uint8Array( scaled_width * scaled_height * 4 );
 	const fracstep = ( inwidth * 0x10000 / scaled_width ) | 0;

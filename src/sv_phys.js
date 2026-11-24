@@ -203,7 +203,7 @@ export let svs = null; // server_static_t
 export let sv_player = null; // edict_t *
 export let pr_global_struct = null;
 export let host_frametime = 0;
-export let pr_strings = '';
+export const pr_strings = '';
 
 export function SV_SetState( _sv, _svs, _pr_global_struct ) {
 

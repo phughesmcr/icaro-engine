@@ -5,10 +5,10 @@ import { Sys_Error } from './sys.js';
 import { DotProduct } from './mathlib.js';
 import { VERTEXSIZE, glpoly_t, gl_subdivide_size } from './glquake.js';
 
-export let skytexturenum = 0;
+export const skytexturenum = 0;
 
-export let solidskytexture = 0;
-export let alphaskytexture = 0;
+export const solidskytexture = 0;
+export const alphaskytexture = 0;
 
 let warpface = null; // msurface_t *
 

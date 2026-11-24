@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { DotProduct, VectorCopy, VectorSubtract, Length } from './mathlib.js';
 import { MAX_LIGHTSTYLES } from './quakedef.js';
 import { MAXLIGHTMAPS, d_lightstylevalue, r_framecount,
-	gl_flashblend, v_blend } from './glquake.js';
+	gl_flashblend, v_blend, LIGHTMAP_INTENSITY } from './glquake.js';
 import { r_origin } from './render.js';
 import { cl_dlights } from './client.js';
 import { isXRActive, XR_SCALE } from './webxr.js';
@@ -110,18 +110,20 @@ Brightness of a dynamic light, matched to the gl_flashblend 0 lightmap path.
 
 R_AddDynamicLights adds ( rad - dist ) light units to a texel. R_BuildLightMap
 turns L units into a lightmap byte of 2L (blocklights >> 7), and the world
-material reads the lightmap with lightMapIntensity 2, so one Quake light unit
-is 2 * 2 / 255 of Three.js irradiance.
+material reads the lightmap with lightMapIntensity LIGHTMAP_INTENSITY, so one
+Quake light unit is 2 * LIGHTMAP_INTENSITY / 255 of Three.js irradiance. (The
+lightmap is decoded as sRGB and a PointLight adds linear irradiance, so this
+matches at full brightness and is only approximate below it.)
 
 Three.js has no linear falloff. With decay 0 a PointLight gives
 intensity * ( 1 - ( d / distance )^4 )^2. Setting distance to the light's
 reach and matching the light delivered over the lit disc,
 	∫ ( 1 - x ) x dx = 1/6  against  ∫ ( 1 - x^4 )^2 x dx = 4/15,
-gives intensity = radius * 2 * 2 / 255 * ( 1/6 ) / ( 4/15 ).
+gives intensity = radius * 2 * LIGHTMAP_INTENSITY / 255 * ( 1/6 ) / ( 4/15 ).
 The radius already shrinks by dl.decay in CL_DecayLights, which is the only
 fade C has; how long the light has left to live plays no part.
 */
-const DLIGHT_IRRADIANCE_PER_UNIT = 2 * 2 / 255;
+const DLIGHT_IRRADIANCE_PER_UNIT = 2 * LIGHTMAP_INTENSITY / 255;
 const DLIGHT_WINDOW_FIT = ( 1 / 6 ) / ( 4 / 15 );
 
 export function R_DlightIntensity( light ) {
@@ -322,7 +324,7 @@ LIGHT SAMPLING
 */
 
 export let lightplane = null;
-export let lightspot = new Float32Array( 3 );
+export const lightspot = new Float32Array( 3 );
 
 /*
 =============

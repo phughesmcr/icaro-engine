@@ -13,7 +13,8 @@ if (typeof performance === 'undefined') {
 
 // Texture stub - server doesn't render textures
 export class DataTexture {
-	constructor() {
+	constructor(data = null, width = 1, height = 1) {
+		this.image = { data, width, height };
 		this.needsUpdate = false;
 	}
 	dispose() {}
@@ -232,8 +233,18 @@ export class Material {
 		this.transparent = false;
 		this.opacity = 1;
 		this.visible = true;
+		this._listeners = {};
 	}
-	dispose() {}
+	addEventListener(type, listener) {
+		(this._listeners[type] ??= []).push(listener);
+	}
+	removeEventListener(type, listener) {
+		const list = this._listeners[type];
+		if (list) this._listeners[type] = list.filter((l) => l !== listener);
+	}
+	dispose() {
+		for (const l of [...(this._listeners.dispose ?? [])]) l({ type: 'dispose', target: this });
+	}
 }
 
 export class MeshBasicMaterial extends Material {

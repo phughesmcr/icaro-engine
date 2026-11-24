@@ -1,6 +1,7 @@
 // Ported from: WinQuake/gl_rsurf.c -- surface-related refresh code
 
 import * as THREE from 'three';
+import { GL_RegisterCullMaterial } from './glquake.js';
 import { Sys_Error } from './sys.js';
 
 /*
@@ -38,7 +39,7 @@ function createQuakeLightmapMaterial( diffuseMap, lightmapTex ) {
 	const matOptions = {
 		map: diffuseMap,
 		lightMap: lightmapTex,
-		lightMapIntensity: 2
+		lightMapIntensity: LIGHTMAP_INTENSITY
 	};
 
 	// Fullbright pixel support: palette indices 224-255 should render at full
@@ -56,7 +57,7 @@ function createQuakeLightmapMaterial( diffuseMap, lightmapTex ) {
 	const material = new THREE.MeshLambertMaterial( matOptions );
 	material.onBeforeCompile = R_PatchLightmapShader;
 	material.customProgramCacheKey = R_LightmapProgramKey;
-	return material;
+	return GL_RegisterCullMaterial( material );
 
 }
 import { cl, cl_dlights, MAX_DLIGHTS, MAX_VISEDICTS, cl_visedicts, cl_numvisedicts, set_cl_numvisedicts } from './client.js';
@@ -87,6 +88,7 @@ import {
 } from './mathlib.js';
 import { Mod_LeafPVS, solidskytexture, alphaskytexture } from './gl_model.js';
 import { realtime } from './host.js';
+import { LIGHTMAP_INTENSITY } from './glquake.js';
 import { MAX_MODELS } from './quakedef.js';
 import { R_MirrorGate } from './gl_rmirror.js';
 import { isXRActive } from './webxr.js';
@@ -201,10 +203,10 @@ const turbsin = new Float32Array( [
 ] );
 
 export let gl_lightmap_format = GL_LUMINANCE;
-export let gl_solid_format = 3;
-export let gl_alpha_format = 4;
+export const gl_solid_format = 3;
+export const gl_alpha_format = 4;
 
-export let gl_mtexable = false;
+export const gl_mtexable = false;
 
 // external references
 let r_pcurrentvertbase = null;
@@ -247,7 +249,7 @@ const _waterMaterialCache = new Map();
 // Defaults to worldGroup, but temporarily swapped to a brush entity group
 // during R_DrawBrushModel (equivalent of glPushMatrix/glPopMatrix).
 let currentRenderGroup = null;
-let brushEntityGroups = []; // per-frame brush entity groups to dispose next frame
+const brushEntityGroups = []; // per-frame brush entity groups to dispose next frame
 
 // Material cache for brush entities - keyed by "diffuseId_lightmapId"
 // Materials are reused across frames to avoid shader recompilation
@@ -343,7 +345,6 @@ function _getWaterMesh( s, geometry, material, renderGroup ) {
 
 export function R_TextureAnimation( base, entityFrame = currententity != null ? currententity.frame : 0 ) {
 
-	let reletive;
 	let count;
 
 	if ( entityFrame != null && entityFrame !== 0 ) {
@@ -358,7 +359,7 @@ export function R_TextureAnimation( base, entityFrame = currententity != null ? 
 
 	// cl.time needs to be connected
 	const time = cl != null ? cl.time : 0;
-	reletive = ( ( time * 10 ) | 0 ) % base.anim_total;
+	const reletive = ( ( time * 10 ) | 0 ) % base.anim_total;
 
 	count = 0;
 	while ( base.anim_min > reletive || base.anim_max <= reletive ) {
@@ -888,9 +889,9 @@ function EmitSkyPolysQuake( fa, speedscale, layer ) {
 		const vy = pos[ i * 3 + 1 ];
 		const vz = pos[ i * 3 + 2 ];
 
-		let dx = vx - r_origin[ 0 ];
-		let dy = vy - r_origin[ 1 ];
-		let dz = ( vz - r_origin[ 2 ] ) * 3; // flatten the sphere
+		const dx = vx - r_origin[ 0 ];
+		const dy = vy - r_origin[ 1 ];
+		const dz = ( vz - r_origin[ 2 ] ) * 3; // flatten the sphere
 
 		let length = Math.sqrt( dx * dx + dy * dy + dz * dz );
 		length = 6 * 63 / length;
@@ -971,7 +972,6 @@ export function R_DrawSequentialPoly( s ) {
 
 export function R_RenderBrushPoly( fa ) {
 
-	let t;
 	let maps;
 
 	inc_c_brush_polys();
@@ -983,7 +983,7 @@ export function R_RenderBrushPoly( fa ) {
 
 	}
 
-	t = R_TextureAnimation( fa.texinfo.texture );
+	const t = R_TextureAnimation( fa.texinfo.texture );
 
 	if ( fa.flags & SURF_DRAWTURB ) {
 
@@ -1278,7 +1278,7 @@ export function R_BuildLightMap( surf, dest, destOffset, stride ) {
 	const smax = ( surf.extents[ 0 ] >> 4 ) + 1;
 	const tmax = ( surf.extents[ 1 ] >> 4 ) + 1;
 	const size = smax * tmax;
-	let lightmap = surf.samples;
+	const lightmap = surf.samples;
 	let lightmapOffset = surf.sampleOffset || 0;
 
 	surf.cached_dlight = ( surf.dlightframe === r_framecount );
@@ -1518,7 +1518,7 @@ export function R_DrawBrushModel( e ) {
 
 					material = ( diffuse != null && lmTex != null )
 						? createQuakeLightmapMaterial( diffuse, lmTex )
-						: new THREE.MeshBasicMaterial( { map: diffuse } );
+						: GL_RegisterCullMaterial( new THREE.MeshBasicMaterial( { map: diffuse } ) );
 					_brushMaterialCache.set( matKey, material );
 
 				}
@@ -1575,7 +1575,7 @@ export function R_DrawBrushModel( e ) {
 
 				material = ( diffuse && anim.lmTex )
 					? createQuakeLightmapMaterial( diffuse, anim.lmTex )
-					: new THREE.MeshBasicMaterial( { map: diffuse } );
+					: GL_RegisterCullMaterial( new THREE.MeshBasicMaterial( { map: diffuse } ) );
 				_brushMaterialCache.set( matKey, material );
 
 			}
@@ -2686,7 +2686,7 @@ function R_BuildWorldMeshes() {
 		const lmTex = lightmapTextures[ group.lmNum ];
 		const material = lmTex
 			? createQuakeLightmapMaterial( diffuse, lmTex )
-			: new THREE.MeshBasicMaterial( { map: diffuse } );
+			: GL_RegisterCullMaterial( new THREE.MeshBasicMaterial( { map: diffuse } ) );
 
 		// Create BatchedMesh with capacity for all geometries in this group
 		const batchedMesh = new THREE.BatchedMesh(
@@ -2964,6 +2964,8 @@ export function GL_BuildLightmaps() {
 		texture.minFilter = THREE.LinearFilter;
 		texture.magFilter = THREE.LinearFilter;
 		texture.flipY = false;
+		// GLQuake's lightmap scales display-space colour; see LIGHTMAP_INTENSITY.
+		texture.colorSpace = THREE.SRGBColorSpace;
 		texture.needsUpdate = true;
 
 		lightmapTextures[ i ] = texture;

@@ -15,13 +15,11 @@ import {
 	STAT_SECRETS, STAT_MONSTERS, STAT_PING,
 	MAX_SCOREBOARD,
 	HIT_PROXIMITY_GUN_BIT, HIT_MJOLNIR_BIT, HIT_LASER_CANNON_BIT,
-	HIT_PROXIMITY_GUN, HIT_MJOLNIR, HIT_LASER_CANNON, HIT_WETSUIT, HIT_EMPATHY_SHIELDS,
-	RIT_SHELLS, RIT_NAILS, RIT_ROCKETS, RIT_CELLS, RIT_AXE,
-	RIT_LAVA_NAILGUN, RIT_LAVA_SUPER_NAILGUN, RIT_MULTI_GRENADE,
-	RIT_MULTI_ROCKET, RIT_PLASMA_GUN,
+	HIT_PROXIMITY_GUN,
+	RIT_SHELLS, RIT_NAILS, RIT_ROCKETS, RIT_CELLS,
+	RIT_LAVA_NAILGUN,
 	RIT_ARMOR1, RIT_ARMOR2, RIT_ARMOR3,
 	RIT_LAVA_NAILS, RIT_PLASMA_AMMO, RIT_MULTI_ROCKETS,
-	RIT_SHIELD, RIT_ANTIGRAV, RIT_SUPERHEALTH,
 } from './quakedef.js';
 
 /*
@@ -45,6 +43,10 @@ const GAME_DEATHMATCH = 1;
 ==============================================================================
 */
 
+// Write-only, kept so the sbar.c reset sites still map 1:1. Its reader, the
+// `sb_updates >= vid.numpages` early-out in Sbar_Draw, is left out: the canvas
+// overlay is cleared every frame, so the HUD must redraw every frame.
+// deno-lint-ignore no-unused-vars
 let sb_updates = 0; // if >= vid.numpages, no update needed
 
 // Pic references (loaded in Sbar_Init)

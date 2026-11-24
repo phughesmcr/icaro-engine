@@ -1359,7 +1359,7 @@ function Host_Loadgame_f() {
 		const braceStart = remaining.indexOf( '{' );
 		if ( braceStart === - 1 ) break;
 
-		let braceEnd = remaining.indexOf( '}', braceStart );
+		const braceEnd = remaining.indexOf( '}', braceStart );
 		if ( braceEnd === - 1 ) break;
 
 		const block = remaining.substring( braceStart, braceEnd + 1 );
