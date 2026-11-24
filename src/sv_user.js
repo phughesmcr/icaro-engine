@@ -1,17 +1,17 @@
 // Ported from: WinQuake/sv_user.c -- server code for moving users
 
 import { Sys_Printf } from './sys.js';
-import { Con_Printf, Con_DPrintf, MSG_ReadFloat, MSG_ReadAngle, MSG_ReadShort,
+import { Con_DPrintf, MSG_ReadFloat, MSG_ReadAngle, MSG_ReadShort,
 	MSG_ReadByte, MSG_ReadChar, MSG_ReadString, MSG_BeginReading,
-	msg_badread, net_message } from './common.js';
-import { vec3_origin, DotProduct, VectorCopy, VectorAdd, VectorSubtract,
-	VectorMA, VectorScale, VectorNormalize, Length, AngleVectors, M_PI } from './mathlib.js';
+	msg_badread } from './common.js';
+import { vec3_origin, DotProduct, VectorCopy, VectorAdd,
+	VectorScale, VectorNormalize, Length, AngleVectors, M_PI } from './mathlib.js';
 import { ON_EPSILON, PITCH, YAW, ROLL } from './quakedef.js';
 import { MOVETYPE_NONE, MOVETYPE_WALK, MOVETYPE_NOCLIP, FL_ONGROUND,
-	FL_WATERJUMP, sv, svs, sv_player, pr_global_struct, host_frametime,
+	FL_WATERJUMP, sv, svs, sv_player, host_frametime,
 	sv_friction, sv_edgefriction, sv_stopspeed, sv_maxspeed, sv_accelerate,
 	sv_idealpitchscale, SV_SetPlayer,
-	SV_Move, SV_LinkEdict, PR_ExecuteProgram, EDICT_TO_PROG } from './sv_phys.js';
+	SV_Move } from './sv_phys.js';
 
 const MAX_FORWARD = 6;
 const NUM_PING_TIMES = 16;

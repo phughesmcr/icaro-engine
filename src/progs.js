@@ -3,11 +3,7 @@
 import { link_t } from './common.js';
 import { entity_state_t } from './quakedef.js';
 import {
-	dprograms_t, dfunction_t, ddef_t, dstatement_t,
-	DEF_SAVEGLOBAL,
-	ev_void, ev_string, ev_float, ev_vector, ev_entity,
-	ev_field, ev_function, ev_pointer,
-	OFS_RETURN, OFS_PARM0,
+	OFS_RETURN,
 } from './pr_comp.js';
 import { entvars_t } from './progdefs.js';
 

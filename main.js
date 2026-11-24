@@ -3,7 +3,7 @@
 
 import { Sys_Init, Sys_Printf, Sys_Error } from './src/sys.js';
 import { COM_InitArgv } from './src/common.js';
-import { Host_Init, Host_Frame, Host_Shutdown } from './src/host.js';
+import { Host_Init, Host_Frame } from './src/host.js';
 import { COM_AddPakSequence } from './src/pak.js';
 import { Cbuf_AddText } from './src/cmd.js';
 import { cls, cl } from './src/client.js';
@@ -69,7 +69,7 @@ async function main() {
 			await Draw_CachePicFromPNG( 'gfx/mainmenu_ext.lmp', 'static/mainmenu.png' );
 			Sys_Printf( 'Loaded custom menu images\\n' );
 
-		} catch ( e ) {
+		} catch {
 
 			Sys_Printf( 'Warning: Could not load custom menu images\\n' );
 

@@ -1,6 +1,6 @@
 // Ported from: WinQuake/client.h -- client structures and definitions
 
-import { MAX_STYLESTRING, MAX_CL_STATS, MAX_SCOREBOARD, MAX_SCOREBOARDNAME,
+import { MAX_CL_STATS,
 	MAX_MODELS, MAX_SOUNDS, MAX_EDICTS, MAX_LIGHTSTYLES, entity_state_t, packet_entities_t } from './quakedef.js';
 import { sizebuf_t } from './common.js';
 

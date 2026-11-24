@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 import { Sys_Error } from './sys.js';
-import { Con_Printf, COM_FileBase } from './common.js';
+import { Con_Printf } from './common.js';
 import { d_8to24table, vid } from './vid.js';
 import { COM_LoadFile } from './pak.js';
 import { DotProduct, VectorCopy, Length } from './mathlib.js';
@@ -615,7 +615,6 @@ export class model_t {
 // ============================================================================
 
 let loadmodel = null;
-let loadname = '';
 
 const mod_novis = new Uint8Array( MAX_MAP_LEAFS / 8 );
 
@@ -907,7 +906,6 @@ export function Mod_PointInLeaf( p, model ) {
 		Sys_Error( 'Mod_PointInLeaf: bad model' );
 
 	let node = model.nodes[ 0 ];
-	let nodeIndex = 0;
 
 	while ( true ) {
 
@@ -1129,7 +1127,6 @@ export function Mod_LoadModel( mod, crash ) {
 	}
 
 	// allocate a new model
-	loadname = COM_FileBase( mod.name );
 
 	loadmodel = mod;
 
@@ -2572,7 +2569,6 @@ function Mod_LoadAllSkins( buf, numskins, offset ) {
 function Mod_LoadAliasModel( mod, buffer ) {
 
 	const view = new DataView( buffer );
-	const bytes = new Uint8Array( buffer );
 
 	// mdl_t header
 	const version = view.getInt32( 4, true );

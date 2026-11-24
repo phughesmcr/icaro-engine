@@ -270,7 +270,7 @@ export async function COM_PreloadLooseFile( filename, url ) {
 
 				data = await Deno.readFile( url );
 
-			} catch ( e ) {
+			} catch {
 
 				return false;
 
@@ -294,7 +294,7 @@ export async function COM_PreloadLooseFile( filename, url ) {
 		virtualFiles.set( filename.toLowerCase(), data );
 		return true;
 
-	} catch ( e ) {
+	} catch {
 
 		return false;
 

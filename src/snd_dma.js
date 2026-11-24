@@ -5,14 +5,14 @@ import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from './cmd.js';
 import { Con_Printf, Con_DPrintf } from './console.js';
 import { Q_atof } from './common.js';
 import {
-	sfx_t, sfxcache_t, channel_t, dma_t,
+	sfx_t,
 	channels, MAX_CHANNELS, MAX_DYNAMIC_CHANNELS, NUM_AMBIENTS,
 	AMBIENT_WATER, AMBIENT_SKY,
 	total_channels, paintedtime, sn, shm,
 	listener_origin, listener_forward, listener_right, listener_up,
 	sound_nominal_clip_dist,
 	loadas8bit, bgmvolume, volume,
-	snd_initialized, snd_blocked,
+	snd_initialized,
 	Sound_SetTotalChannels, Sound_SetPaintedtime, Sound_SetShm, Sound_SetInitialized
 } from './sound.js';
 import { S_LoadSound } from './snd_mem.js';
@@ -1165,7 +1165,7 @@ function _stopWebAudio( chan ) {
 
 			chan._audioSource.stop();
 
-		} catch ( e ) { /* ignore */ }
+		} catch { /* ignore */ }
 
 	}
 

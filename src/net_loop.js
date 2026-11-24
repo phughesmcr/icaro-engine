@@ -5,10 +5,9 @@ import { Sys_Error } from './sys.js';
 import {
 	NET_MAXMESSAGE,
 	net_message,
-	qsocket_t,
 	net_activeconnections,
 	net_driverlevel,
-	hostCacheCount, set_hostCacheCount,
+	set_hostCacheCount,
 	hostcache
 } from './net.js';
 import { NET_NewQSocket, hostname } from './net_main.js';

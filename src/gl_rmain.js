@@ -4,18 +4,17 @@
 import * as THREE from 'three';
 import { Sys_FloatTime } from './sys.js';
 import { Con_Printf } from './common.js';
-import { PITCH, YAW, ROLL } from './quakedef.js';
 import { cvar_t } from './cvar.js';
 import { vid, renderer } from './vid.js';
 import { r_refdef, r_origin, vpn, vright, vup, entity_t } from './render.js';
 import {
-	M_PI, DotProduct, VectorCopy, VectorAdd, VectorSubtract, VectorMA,
-	VectorNormalize, AngleVectors, Length, RotatePointAroundVector, BoxOnPlaneSide
+	M_PI, DotProduct, VectorCopy, VectorAdd, VectorSubtract,
+	AngleVectors, Length, RotatePointAroundVector, BoxOnPlaneSide
 } from './mathlib.js';
 import { R_DrawWorld as R_DrawWorld_impl, R_MarkLeaves as R_MarkLeaves_impl, GL_BuildLightmaps as GL_BuildLightmaps_rsurf, R_DrawBrushModel as R_DrawBrushModel_rsurf, R_DrawWaterSurfaces as R_DrawWaterSurfaces_rsurf, R_CleanupWaterMeshes as R_CleanupWaterMeshes_rsurf, R_GetMirrorItems } from './gl_rsurf.js';
 import { R_MirrorGate, R_MirrorPass, R_MirrorCleanup } from './gl_rmirror.js';
 import { Mod_PointInLeaf, SPR_SINGLE, SPR_ORIENTED } from './gl_model.js';
-import { R_AnimateLight as R_AnimateLight_impl, R_PushDlights as R_PushDlights_impl, R_RenderDlights as R_RenderDlights_impl, R_LightPoint, lightspot } from './gl_rlight.js';
+import { R_AnimateLight as R_AnimateLight_impl, R_RenderDlights as R_RenderDlights_impl, R_LightPoint, lightspot } from './gl_rlight.js';
 import { R_DrawAliasModel as R_DrawAliasModel_mesh, GL_DrawAliasShadow } from './gl_mesh.js';
 import { r_avertexnormal_dots } from './anorm_dots.js';
 import { V_SetContentsColor as V_SetContentsColor_view, V_CalcBlend as V_CalcBlend_view } from './view.js';
@@ -140,7 +139,6 @@ export let mirror = false;
 export let mirror_plane = null; // mplane_t pointer
 
 export const r_world_matrix = new Float32Array( 16 );
-const r_base_world_matrix = new Float32Array( 16 );
 
 export let r_viewleaf = null; // mleaf_t
 export let r_oldviewleaf = null; // mleaf_t
