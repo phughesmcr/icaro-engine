@@ -1,10 +1,12 @@
 // Ported from: WinQuake/console.c, WinQuake/console.h -- developer console
 
-import { Cmd_AddCommand } from './cmd.js';
-import { Cvar_RegisterVariable } from './cvar.js';
+import { Cmd_AddCommand, Cmd_TokenizeString, Cmd_Argc, Cmd_Argv, cmd_functions, cmd_alias } from './cmd.js';
+import { Cvar_RegisterVariable, Cvar_FindVar, cvar_vars } from './cvar.js';
 import { key_dest, set_key_dest, key_game, key_console, key_message,
 	key_lines, edit_line, key_linepos, set_key_linepos, chat_buffer,
-	set_team_message } from './keys.js';
+	set_team_message, MAXCMDLINE, key_insert, shift_down, set_history_line,
+	keybindings, Key_KeynumToString, Key_LineString } from './keys.js';
+import { COM_ListFiles } from './pak.js';
 import { Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
 
 /*
@@ -106,6 +108,8 @@ export function Con_ToggleConsole_f() {
 
 			key_lines[ edit_line ][ 1 ] = 0; // clear any typing
 			set_key_linepos( 1 );
+			set_history_line( edit_line ); // johnfitz -- it should also return you to the bottom of the command history
+			Con_ResetTabComplete();
 
 		} else {
 
@@ -472,6 +476,391 @@ export function Con_SafePrintf( ...args ) {
 /*
 ==============================================================================
 
+TAB COMPLETION
+
+johnfitz/QuakeSpasm, with Ironwail's argument completion. Not in id's
+console.c, whose Tab only completed a command or cvar name. Names match by
+prefix, ignoring case (QS compares case, Ironwail ignores it and matches
+anywhere in the name).
+
+==============================================================================
+*/
+
+let key_tabpartial = ''; // the word being cycled through; empty on the first Tab
+let tab_start = 0; // QS's static c: where that word starts in the edit line
+let tab_argc = 0; // arguments up to the cursor, counting an empty one after a space
+
+// tablist is kept sorted by name
+const tablist = [];
+
+// bash_partial is the string that can be expanded,
+// aka Linux Bash shell. -- S.A.
+let bash_partial = '';
+let bash_singlematch = true;
+
+export function Con_ResetTabComplete() {
+
+	key_tabpartial = '';
+
+}
+
+function Con_Match( str, partial ) {
+
+	return str.length >= partial.length &&
+		str.substring( 0, partial.length ).toLowerCase() === partial.toLowerCase();
+
+}
+
+/*
+============
+Con_AddToTabList -- johnfitz
+
+Adds name to the matches if it starts with partial. type is shown after it in
+the list ('cvar', 'command', a key's binding), or null for none.
+============
+*/
+export function Con_AddToTabList( name, partial, type ) {
+
+	if ( ! Con_Match( name, partial ) )
+		return;
+
+	let insert = 0;
+	for ( ; insert < tablist.length; insert ++ ) {
+
+		if ( tablist[ insert ].name === name )
+			return; // avoid duplicates (Ironwail)
+		if ( name < tablist[ insert ].name )
+			break;
+
+	}
+
+	if ( tablist.length === 0 ) {
+
+		bash_partial = name;
+
+	} else {
+
+		bash_singlematch = false;
+		// find max common between bash_partial and name
+		let n = 0;
+		while ( n < bash_partial.length && n < name.length &&
+			bash_partial.charAt( n ).toLowerCase() === name.charAt( n ).toLowerCase() )
+			n ++;
+		bash_partial = bash_partial.substring( 0, n );
+
+	}
+
+	tablist.splice( insert, 0, { name: name, type: type } );
+
+}
+
+/*
+============
+ParseCommand -- Ironwail
+
+Tokenizes the command the cursor is in, from the last ';' or quote, so the
+argument completions below know which command and argument they are in
+============
+*/
+function ParseCommand() {
+
+	const str = Key_LineString( key_lines[ edit_line ], 1 ).substring( 0, key_linepos - 1 );
+	let ret = 0;
+	let quote = - 1;
+
+	for ( let i = 0; i < str.length; i ++ ) {
+
+		const c = str.charAt( i );
+		if ( c === '"' ) {
+
+			if ( quote === - 1 ) {
+
+				quote = ret; // save previous command boundary
+				ret = i + 1; // new command
+
+			} else {
+
+				ret = quote; // restore saved cursor
+				quote = - 1;
+
+			}
+
+		} else if ( c === ';' ) {
+
+			ret = i + 1;
+
+		} else if ( quote === - 1 && c === '/' && str.charAt( i + 1 ) === '/' ) {
+
+			break;
+
+		}
+
+	}
+
+	while ( str.charAt( ret ) === ' ' )
+		ret ++;
+
+	const buf = str.substring( ret );
+	Cmd_TokenizeString( buf );
+	tab_argc = Cmd_Argc();
+	// last arg should always be the one we're trying to complete,
+	// so we add a new empty one if the command ends with a space
+	if ( buf.length > 0 && buf.charAt( buf.length - 1 ) === ' ' )
+		tab_argc ++;
+
+}
+
+function CompleteFileList( partial, dir, ext, minsize ) {
+
+	const names = COM_ListFiles( dir, ext, minsize );
+	for ( let i = 0; i < names.length; i ++ )
+		Con_AddToTabList( names[ i ], partial, null );
+
+}
+
+// maps over 32k, so not the b_*.bsp item models (Ironwail ExtraMaps_Init)
+function CompleteMaps( partial ) {
+
+	if ( tab_argc < 3 )
+		CompleteFileList( partial, 'maps', 'bsp', 32 * 1024 );
+	return true;
+
+}
+
+function CompleteDemos( partial ) {
+
+	if ( tab_argc < 3 )
+		CompleteFileList( partial, '', 'dem', 0 );
+	return true;
+
+}
+
+function CompleteBindKeys( partial ) {
+
+	// fall back to default tab completion after 1st arg (key name)
+	if ( tab_argc > 2 )
+		return false;
+
+	for ( let i = 0; i < 256; i ++ ) {
+
+		const name = Key_KeynumToString( i );
+		if ( name !== '<UNKNOWN KEYNUM>' )
+			Con_AddToTabList( name, partial, keybindings[ i ] ? keybindings[ i ] : null );
+
+	}
+
+	return true;
+
+}
+
+function CompleteUnbindKeys( partial ) {
+
+	// disable completion after 1st arg (key name)
+	if ( tab_argc > 2 )
+		return true;
+
+	for ( let i = 0; i < 256; i ++ ) {
+
+		if ( keybindings[ i ] ) {
+
+			const name = Key_KeynumToString( i );
+			if ( name !== '<UNKNOWN KEYNUM>' )
+				Con_AddToTabList( name, partial, keybindings[ i ] );
+
+		}
+
+	}
+
+	return true;
+
+}
+
+// Ironwail's table, less game (no mod list here), load and save (the saves
+// are in localStorage) and sky
+const arg_completion_types = [
+	{ command: 'map', fn: CompleteMaps },
+	{ command: 'changelevel', fn: CompleteMaps },
+	{ command: 'record', fn: CompleteDemos },
+	{ command: 'playdemo', fn: CompleteDemos },
+	{ command: 'timedemo', fn: CompleteDemos },
+	{ command: 'bind', fn: CompleteBindKeys },
+	{ command: 'unbind', fn: CompleteUnbindKeys },
+];
+
+/*
+============
+BuildTabList -- johnfitz
+============
+*/
+function BuildTabList( partial ) {
+
+	tablist.length = 0;
+	bash_partial = '';
+	bash_singlematch = true;
+
+	ParseCommand();
+
+	if ( tab_argc >= 2 ) {
+
+		const name = Cmd_Argv( 0 );
+		const cvar = Cvar_FindVar( name );
+		if ( cvar !== null ) {
+
+			// cvars can only have one argument
+			if ( tab_argc === 2 && typeof cvar.completion === 'function' )
+				cvar.completion( cvar, partial );
+			return;
+
+		}
+
+		for ( let i = 0; i < arg_completion_types.length; i ++ ) {
+
+			// arg_completion contains a command we can complete the arguments
+			// for (like "map") and a list of all the maps.
+			if ( name.toLowerCase() === arg_completion_types[ i ].command ) {
+
+				if ( arg_completion_types[ i ].fn( partial ) )
+					return;
+				break;
+
+			}
+
+		}
+
+	}
+
+	if ( partial.length === 0 )
+		return;
+
+	for ( let cvar = cvar_vars; cvar !== null; cvar = cvar.next )
+		Con_AddToTabList( cvar.name, partial, 'cvar' );
+
+	for ( let cmd = cmd_functions; cmd !== null; cmd = cmd.next )
+		Con_AddToTabList( cmd.name, partial, 'command' );
+
+	for ( let alias = cmd_alias; alias !== null; alias = alias.next )
+		Con_AddToTabList( alias.name, partial, 'alias' );
+
+}
+
+function Con_PrintTabList() {
+
+	Con_SafePrintf( '\n' );
+	for ( let i = 0; i < tablist.length; i ++ ) {
+
+		const t = tablist[ i ];
+		Con_SafePrintf( '   ' + t.name + ( t.type !== null ? ' (' + t.type + ')' : '' ) + '\n' );
+
+	}
+
+	Con_SafePrintf( '\n' );
+
+}
+
+/*
+============
+Con_TabComplete -- johnfitz
+
+The first Tab lists every match and extends the word to their longest common
+prefix; further Tabs cycle through the matches (Shift+Tab backwards).
+============
+*/
+export function Con_TabComplete() {
+
+	const line = key_lines[ edit_line ];
+
+	// if editline is empty, return
+	if ( line[ 1 ] === 0 )
+		return;
+
+	// get partial string (space -> cursor)
+	if ( key_tabpartial.length === 0 || tab_start > key_linepos ) {
+
+		// first time through, find new insert point. (Otherwise, use previous.)
+		// work back from cursor until you find a space, quote, semicolon, or prompt
+		let c = key_linepos - 1;
+		while ( c > 0 && line[ c ] !== 32 && line[ c ] !== 34 && line[ c ] !== 59 )
+			c --;
+		tab_start = c + 1;
+
+	}
+
+	let partial = '';
+	for ( let i = tab_start; i < key_linepos; i ++ )
+		partial += String.fromCharCode( line[ i ] );
+
+	// trim trailing space becuase it screws up string comparisons
+	if ( partial.length > 0 && partial.charAt( partial.length - 1 ) === ' ' )
+		partial = partial.substring( 0, partial.length - 1 );
+
+	// find a match
+	let match;
+	if ( key_tabpartial.length === 0 ) {
+
+		// first time through
+		key_tabpartial = partial;
+		BuildTabList( key_tabpartial );
+
+		if ( tablist.length === 0 )
+			return;
+
+		// print list if length > 1
+		if ( tablist.length > 1 )
+			Con_PrintTabList();
+
+		// First time, just show maximum matching chars -- S.A.
+		match = bash_singlematch ? tablist[ 0 ].name : bash_partial;
+
+	} else {
+
+		BuildTabList( key_tabpartial );
+
+		if ( tablist.length === 0 )
+			return;
+
+		// find current match -- can't save a pointer because the list will be rebuilt each time
+		const n = tablist.length;
+		match = shift_down ? tablist[ n - 1 ].name : tablist[ 0 ].name;
+		for ( let i = 0; i < n; i ++ ) {
+
+			if ( tablist[ i ].name.toLowerCase() === partial.toLowerCase() ) {
+
+				match = shift_down ? tablist[ ( i + n - 1 ) % n ].name : tablist[ ( i + 1 ) % n ].name;
+				break;
+
+			}
+
+		}
+
+	}
+
+	// insert new match into edit line, then the chars after the cursor
+	const rest = match + Key_LineString( line, key_linepos );
+	let end = tab_start;
+	for ( let i = 0; i < rest.length && end < MAXCMDLINE - 1; i ++ )
+		line[ end ++ ] = rest.charCodeAt( i );
+	line[ end ] = 0;
+
+	let linepos = Math.min( tab_start + match.length, end ); // set new cursor position
+
+	// if cursor is at end of string, let's append a space to make life easier
+	if ( linepos < MAXCMDLINE - 1 && line[ linepos ] === 0 && bash_singlematch ) {
+
+		line[ linepos ] = 32; // ' '
+		linepos ++;
+		line[ linepos ] = 0;
+		key_tabpartial = ''; // restart cycle (Ironwail)
+		tab_start = linepos;
+
+	}
+
+	set_key_linepos( linepos );
+
+}
+
+/*
+==============================================================================
+
 DRAWING
 
 ==============================================================================
@@ -481,7 +870,12 @@ DRAWING
 ================
 Con_DrawInput
 
-The input line scrolls horizontally if typing goes beyond the right edge
+The input line scrolls horizontally if typing goes beyond the right edge.
+QuakeSpasm draws the text and then the cursor over it, so the cursor can sit
+inside the line; id's version wrote the cursor into key_lines. At the end of
+the line in insert mode the cursor blinks as in id's; elsewhere it is drawn
+over the character on alternate frames, a block in insert mode and an
+underscore in overwrite mode (QS has pictures for these).
 ================
 */
 function Con_DrawInput() {
@@ -492,25 +886,43 @@ function Con_DrawInput() {
 	if ( ! _Draw_Character ) return;
 
 	const text = key_lines[ edit_line ];
-
-	// add the cursor frame
-	text[ key_linepos ] = 10 + ( ( Math.floor( _getRealtime() * con_cursorspeed ) ) & 1 );
-
-	// fill out remainder with spaces
-	for ( let i = key_linepos + 1; i < con_linewidth; i ++ )
-		text[ i ] = 32; // ' '
+	const y = con_vislines - 16;
 
 	// prestep if horizontally scrolling
-	let start = 0;
+	let ofs = 0;
 	if ( key_linepos >= con_linewidth )
-		start = 1 + key_linepos - con_linewidth;
+		ofs = 1 + key_linepos - con_linewidth;
 
-	// draw it
-	for ( let i = 0; i < con_linewidth; i ++ )
-		_Draw_Character( ( i + 1 ) << 3, con_vislines - 16, text[ start + i ] );
+	// draw input string
+	for ( let i = 0; i < con_linewidth && ofs + i < MAXCMDLINE && text[ ofs + i ] !== 0; i ++ )
+		_Draw_Character( ( i + 1 ) << 3, y, text[ ofs + i ] );
 
-	// remove cursor
-	key_lines[ edit_line ][ key_linepos ] = 0;
+	// draw the cursor
+	const blink = Math.floor( _getRealtime() * con_cursorspeed ) & 1;
+	const x = ( key_linepos - ofs + 1 ) << 3;
+	if ( key_insert && text[ key_linepos ] === 0 )
+		_Draw_Character( x, y, 10 + blink );
+	else if ( blink !== 0 )
+		_Draw_Character( x, y, key_insert ? 11 : 95 ); // '_'
+
+}
+
+/*
+================
+Con_Scroll
+
+QuakeSpasm: scrolls the console back (lines > 0) or forward
+================
+*/
+export function Con_Scroll( lines ) {
+
+	let bs = con_backscroll + lines;
+	const maxscroll = con_totallines - ( _vid.height >> 3 ) - 1;
+	if ( bs > maxscroll )
+		bs = maxscroll;
+	if ( bs < 0 )
+		bs = 0;
+	con_backscroll = bs;
 
 }
 

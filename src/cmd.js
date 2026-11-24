@@ -22,7 +22,7 @@ export const src_command = 1; // from the command buffer
 
 const cmd_text = { allowoverflow: false, overflowed: false, data: null, maxsize: 0, cursize: 0 };
 
-let cmd_alias = null;
+export let cmd_alias = null; // read by the console's tab completion
 let cmd_wait = false;
 
 let cmd_argc = 0;
@@ -31,7 +31,7 @@ let cmd_args = null;
 
 export let cmd_source = src_command;
 
-let cmd_functions = null; // linked list of registered commands
+export let cmd_functions = null; // linked list of registered commands
 
 // Callback injection for client state (to avoid circular dependency with client.js)
 let _getClientState = null;
