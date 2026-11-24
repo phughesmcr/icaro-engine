@@ -61,7 +61,7 @@ Test counts are from `deno test --allow-read --allow-net --allow-env tests/` on 
 | Input residuals: Ctrl/Alt chords, Keyboard Lock, numpad mapping, `xr_turnspeed`, touch and XR tests | [#12] | Fixed; stacked on #2 and #7 (77 pass) |
 | Netcode residuals: teleport lock and `punchangle` prediction, `hasAck`, `delta_sequence` age check, entity starvation, moves as datagrams, lobby join reply | [#13] | Fixed; stacked on #8, #9 and #10 (120 pass) |
 
-All twelve fix branches merge into `dev` together without conflicts. With `--allow-run --allow-write` added, the combined tree passes all 169 tests.
+All twelve fix branches merge into `dev` together without conflicts. With `--allow-run --allow-write` added, the combined tree passes all 168 tests.
 
 **Merge order:**
 - #2 to #8 are independent of each other.
