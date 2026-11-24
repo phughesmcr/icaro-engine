@@ -12,7 +12,8 @@ const {
 	svCheckForNewClients,
 	setupServer,
 	drainMessages,
-	message
+	message,
+	svs
 } = await import( './webtransport_test_env.js' );
 const client = await import( '../src/net_webtransport.js' );
 const { qsocket_t } = net;
@@ -441,3 +442,71 @@ Deno.test( 'NET-5: oversized frames and payloads never reach SZ_Write', withClie
 	assertEqual( socket.driverdata.connected, false, 'connection marked dead' );
 
 } ) );
+
+// One room-server tick in WinQuake order (host.c Host_ServerFrame): accept new
+// connections first (SV_CheckForNewClients), then read every client and drop
+// the ones whose connection is gone (SV_RunClients -> SV_DropClient). Returns
+// the slot each new connection got.
+function roomServerTick() {
+
+	const slots = [];
+	for ( const sock of svCheckForNewClients() )
+		slots.push( svs.clients.findIndex( ( c ) => c.netconnection === sock ) );
+
+	for ( const c of svs.clients ) {
+
+		if ( c.active !== true ) continue;
+		if ( drainMessages( c.netconnection ).at( - 1 ) !== - 1 ) continue;
+		server.WT_Close( c.netconnection );
+		c.active = false;
+		c.netconnection = null;
+
+	}
+
+	return slots;
+
+}
+
+Deno.test( 'a reconnect gets the slot the server freed for the previous connection', async () => {
+
+	const teardown = setupServer( { maxclients: 4, sockets: 10 } );
+	try {
+
+		const { sock } = await connectClient();
+		assertEqual( svs.clients.findIndex( ( c ) => c.active ), 0, 'first connection in slot 0' );
+
+		// CL_EstablishConnection: CL_Disconnect closes the old socket, then the
+		// new connection starts straight away (cl_parse.js lazy map fetch).
+		client.WT_Close( sock );
+		let newSock = null;
+		const connecting = client.WT_Connect( 'localhost:4433' ).then( ( s ) => {
+
+			newSock = s;
+
+		} );
+
+		// The room server ticks at sys_ticrate 0.05 (20 Hz).
+		const slots = [];
+		const deadline = performance.now() + 2000;
+		while ( ( newSock === null || slots.length === 0 ) && performance.now() < deadline ) {
+
+			await delay( 50 );
+			slots.push( ...roomServerTick() );
+
+		}
+
+		await connecting;
+		assert( newSock != null, 'client reconnected' );
+		assertEqual( slots.length, 1, 'server accepted one new connection' );
+		assertEqual( slots[ 0 ], 0, 'reconnect slot' );
+		assertEqual( svs.clients.filter( ( c ) => c.active ).length, 1, 'active clients' );
+
+		client.WT_Close( newSock );
+
+	} finally {
+
+		await teardown();
+
+	}
+
+} );

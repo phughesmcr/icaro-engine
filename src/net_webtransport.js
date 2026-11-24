@@ -63,6 +63,11 @@ let USE_CLIENT_OUTBOUND_DATAGRAMS = true;
 // Active connections
 const wt_connections = new Map(); // qsocket_t -> WebTransportConnection
 
+// Closed connections whose graceful close has not finished, and the
+// WT_Connect calls waiting for them (see _WT_WaitForClosingConnections).
+const wt_closing = new Set();
+let wt_closeWaiters = [];
+
 // Connection data structure
 class WebTransportConnection {
 
@@ -955,6 +960,9 @@ export async function WT_Connect( host ) {
 		return null;
 
 	}
+
+	// CL_EstablishConnection has just closed the previous connection.
+	await _WT_WaitForClosingConnections();
 
 	// Parse the host string to build the WebTransport URL
 	let url = host;
@@ -1941,6 +1949,7 @@ function _WT_CloseConnection( conn ) {
 	if ( conn.closing === true ) return;
 	conn.closing = true;
 	conn.connected = false;
+	if ( conn.closeFinished !== true ) wt_closing.add( conn );
 	_WT_WakeReader( conn );
 
 	try {
@@ -2004,11 +2013,48 @@ function _WT_MaybeFinishClose( conn ) {
 
 }
 
+/*
+=============
+_WT_WaitForClosingConnections
+
+Resolves once every connection that is still closing has finished: the server
+dropped the client and sent FIN, or WT_CLOSE_FLUSH_MS passed.
+
+Deliberate deviation: the C client reconnects at once, and the C server frees
+the old slot itself, because _Datagram_CheckNewConnections (net_dgrm.c) closes
+any qsocket from the connecting IP. That rule would also drop other players
+behind the same NAT or in another tab, so the port waits here instead.
+Without the wait, the room server (20 Hz, SV_CheckForNewClients before
+SV_RunClients) can accept the reconnect into a new slot in the same tick that
+it drops the old one.
+=============
+*/
+function _WT_WaitForClosingConnections() {
+
+	if ( wt_closing.size === 0 ) return Promise.resolve();
+	return new Promise( ( resolve ) => {
+
+		wt_closeWaiters.push( resolve );
+
+	} );
+
+}
+
+function _WT_WakeCloseWaiters() {
+
+	if ( wt_closing.size !== 0 ) return;
+	const waiters = wt_closeWaiters;
+	wt_closeWaiters = [];
+	for ( const resolve of waiters ) resolve();
+
+}
+
 function _WT_FinishClose( conn ) {
 
 	if ( conn.closeFinished === true ) return;
 	conn.closeFinished = true;
 	conn.connected = false;
+	if ( wt_closing.delete( conn ) === true ) _WT_WakeCloseWaiters();
 
 	if ( conn.closeTimer !== null ) {
 
