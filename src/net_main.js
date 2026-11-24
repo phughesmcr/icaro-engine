@@ -115,6 +115,7 @@ export function NET_NewQSocket( pendingConnections = 0 ) {
 	sock.sendNext = false;
 	sock.lastMessageTime = net_time;
 	sock.ackSequence = 0;
+	sock.hasAck = false;
 	sock.sendSequence = 0;
 	sock.unreliableSendSequence = 0;
 	sock.sendMessageLength = 0;

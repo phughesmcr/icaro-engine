@@ -29,7 +29,7 @@ import {
 	svc_intermission, svc_finale, svc_cdtrack, svc_sellscreen,
 	svc_cutscene,
 	svc_playerinfo, PF_MSEC, PF_COMMAND, PF_VELOCITY1, PF_VELOCITY2, PF_VELOCITY3,
-	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_DEAD, PF_GIB,
+	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_DEAD, PF_GIB, PF_TELEPORT,
 	CM_ANGLE1, CM_ANGLE2, CM_ANGLE3, CM_FORWARD, CM_SIDE, CM_UP, CM_BUTTONS, CM_IMPULSE,
 	clc_nop,
 	SND_VOLUME, SND_ATTENUATION,
@@ -1047,10 +1047,10 @@ export function CL_ParseClientdata( bits ) {
 		// use the latest transport-level ack from server.
 		if ( cls.netcon != null ) {
 
-			const ackSeq = cls.netcon.ackSequence | 0;
-			if ( ackSeq >= 0 ) {
+			// hasAck, not a sign test: ackSequence is an int32 that wraps
+			if ( cls.netcon.hasAck === true ) {
 
-				CL_AcknowledgeTransportSequence( ackSeq );
+				CL_AcknowledgeTransportSequence( cls.netcon.ackSequence | 0 );
 
 			} else {
 
@@ -1162,8 +1162,13 @@ function CL_ParsePlayerInfo() {
 	if ( flags & PF_WEAPONFRAME )
 		weaponframe = MSG_ReadByte();
 
+	// Read optional teleport_time left (view player), 10 ms units
+	let teleport = 0;
+	if ( flags & PF_TELEPORT )
+		teleport = MSG_ReadByte();
+
 	// Store the player info for prediction and rendering
-	CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, skin, effects, weaponframe, msec, cmd, modelindex );
+	CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, skin, effects, weaponframe, msec, cmd, modelindex, teleport );
 
 }
 

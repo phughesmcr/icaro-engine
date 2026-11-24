@@ -132,6 +132,7 @@ export class client_t {
 		// QW-style delta compression
 		this.delta_sequence = - 1; // -1 = no compression
 		this.outgoing_sequence = 0; // incremented each frame we send to this client
+		this.pe_cursor = 0; // entity number the next packetentities starts at after an overflow
 		this.frames = [];
 		for ( let i = 0; i < PE_UPDATE_BACKUP; i ++ ) {
 

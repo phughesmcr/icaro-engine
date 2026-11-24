@@ -50,11 +50,14 @@ const WT_MAX_PENDING_RELIABLE_WRITES = 64;
 const WT_MAX_UNRELIABLE_ON_RELIABLE = 16;
 const WT_HARD_PENDING_RELIABLE_WRITES = 256;
 
-// Deno's WebTransport datagram receive path can wedge room processes when many
-// rooms/clients send clc_move over datagrams concurrently. Keep client->server
-// traffic on the reliable stream for stability, while still receiving server
-// datagrams for entity updates.
-let USE_CLIENT_OUTBOUND_DATAGRAMS = false;
+// Client moves go out as datagrams, like QW's unreliable usercmds: a lost move
+// is replaced by the next one instead of stalling behind a retransmit. Load
+// test (tests/net_webtransport_move_load_test.js, and 300 real Deno 2.9.8
+// loopback sessions at 60 moves/s): no starvation, no reordering, acks correct.
+// The reliable stream is the fallback: for sessions without datagram support or
+// moves larger than the datagram, and for everyone through
+// WT_SetClientOutboundDatagrams( false ).
+let USE_CLIENT_OUTBOUND_DATAGRAMS = true;
 
 // Active connections
 const wt_connections = new Map(); // qsocket_t -> WebTransportConnection
@@ -168,6 +171,7 @@ function _WT_ParseSequencedPacket( sock, packet, reliable ) {
 
 	if ( conn.peerSequenced !== true || _isNewerSequence( acknowledged, sock.ackSequence | 0 ) )
 		sock.ackSequence = acknowledged;
+	sock.hasAck = true;
 	conn.peerSequenced = true;
 
 	if ( reliable === true ) {
@@ -198,8 +202,8 @@ function _WT_ParseSequencedPacket( sock, packet, reliable ) {
 =============
 WT_SetClientOutboundDatagrams
 
-Send client moves as datagrams instead of on the reliable stream.
-Off by default (see USE_CLIENT_OUTBOUND_DATAGRAMS); exposed for tests.
+Send client moves as datagrams (the default) or, with false, on the reliable
+stream. See USE_CLIENT_OUTBOUND_DATAGRAMS.
 =============
 */
 export function WT_SetClientOutboundDatagrams( enabled ) {
@@ -1105,9 +1109,12 @@ async function _WT_ConnectViaLobby( url, host, roomId, attempt ) {
 
 		}
 
-		// Server responded but didn't redirect - use same-port direct connection
-		Con_Printf( 'Room on same port, reconnecting...\n' );
-		return await _WT_ConnectDirect( url, host, roomId, attempt );
+		// The lobby answers every join with LOBBY_ERROR or a LOBBY_ROOMS reply
+		// carrying the room's port. Anything else is a malformed reply; the lobby
+		// port speaks the lobby protocol, so reconnecting there as a game client
+		// can't work.
+		Con_Printf( 'Lobby reply had no room port\n' );
+		return _WT_FailConnect( 'Server sent an invalid room reply' );
 
 	} catch ( error ) {
 
@@ -1214,6 +1221,7 @@ async function _WT_ConnectDirect( url, originalHost, roomId, attempt ) {
 		sock.receiveSequence = - 1;
 		sock.unreliableReceiveSequence = - 1;
 		sock.ackSequence = - 1;
+		sock.hasAck = false;
 
 		conn.connected = true;
 		conn.sock = sock;
@@ -1845,17 +1853,10 @@ export function WT_SendUnreliableMessage( sock, data ) {
 
 	}
 
-	// Stability fallback: send client commands on reliable stream.
-	if ( USE_CLIENT_OUTBOUND_DATAGRAMS !== true ) {
+	// Reliable-stream fallback: disabled, or a session without datagrams
+	if ( USE_CLIENT_OUTBOUND_DATAGRAMS !== true || conn.datagramWriter == null ) {
 
 		return _WT_SendUnreliableOnReliable( sock, conn, data );
-
-	}
-
-	if ( conn.datagramWriter == null ) {
-
-		Con_DPrintf( 'WT_SendUnreliableMessage: no datagramWriter\n' );
-		return - 1;
 
 	}
 
@@ -1915,7 +1916,7 @@ export function WT_CanSendUnreliableMessage( sock ) {
 	const conn = sock.driverdata;
 	if ( ! conn ) return false;
 
-	if ( USE_CLIENT_OUTBOUND_DATAGRAMS !== true ) {
+	if ( USE_CLIENT_OUTBOUND_DATAGRAMS !== true || conn.datagramWriter == null ) {
 
 		return conn.connected && conn.reliableWriter != null &&
 			conn.pendingReliableWrites < WT_MAX_UNRELIABLE_ON_RELIABLE;

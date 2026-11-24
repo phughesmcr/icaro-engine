@@ -54,6 +54,7 @@ function exerciseReceiveLanes( getMessage, label ) {
 		`${label} datagram receive sequence` );
 	assertEqual( socket.receiveSequence, 0, `${label} reliable receive sequence` );
 	assertEqual( socket.ackSequence, 4, `${label} shared acknowledgment` );
+	assertEqual( socket.hasAck, true, `${label} hasAck once a sequenced packet arrived` );
 
 	const firstDatagram = makeSocket( [
 		{ reliable: false, data: sequencedPacket( 0, 0, new Uint8Array( [ 0x33 ] ) ) }
@@ -90,6 +91,13 @@ function exerciseReceiveLanes( getMessage, label ) {
 		`${label} wrapped receive sequence` );
 	assertEqual( wrapped.ackSequence, - 2147483648,
 		`${label} wrapped acknowledgment` );
+	// a negative ackSequence is a real ack after the int32 wrap; hasAck says so
+	assertEqual( wrapped.hasAck, true, `${label} hasAck after a wrapped ack` );
+
+	const fresh = makeSocket( [] );
+	assertEqual( fresh.hasAck, false, `${label} no ack before any packet` );
+	assertEqual( getMessage( fresh ), 0, `${label} nothing to read` );
+	assertEqual( fresh.hasAck, false, `${label} still no ack` );
 
 }
 

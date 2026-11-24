@@ -144,6 +144,8 @@ export const pmove = {
 	watertype: CONTENTS_EMPTY,
 	roll: 0, // ent->v.angles[ROLL] from the last SV_ClientThink
 	movedir: new Float32Array( 3 ), // ent->v.movedir, set by QC CheckWaterJump
+	teleporttime: 0, // seconds left of ent->v.teleport_time (teleport back-move lock)
+	punchangle: new Float32Array( 3 ), // ent->v.punchangle
 
 	// World state - physics entities to collide with
 	numphysent: 0,
@@ -1431,11 +1433,12 @@ vector is not renormalised, so looking up or down slows the player.
 function PM_NQ_AirMove() {
 	AngleVectors( _nq_angles, forward, right, up );
 
-	const fmove = pmove.cmd.forwardmove;
+	let fmove = pmove.cmd.forwardmove;
 	const smove = pmove.cmd.sidemove;
 
-	// The server's "hack to not let you back into teleporter" needs
-	// ent->v.teleport_time, which the client is never sent.
+	// hack to not let you back into teleporter (sv.time < teleport_time)
+	if ( pmove.teleporttime > 0 && fmove < 0 )
+		fmove = 0;
 
 	const wishvel = _nq_wishvel;
 	for ( let i = 0; i < 3; i++ )
@@ -1477,12 +1480,21 @@ quantised angles the server read from clc_move).
 ===================
 */
 function PM_NQ_ClientThink() {
+	// DropPunchAngle. The start value is the punchangle of the last
+	// svc_clientdata; the QC may set a new one later, which is not predicted.
+	const punch = pmove.punchangle;
+	let punchlen = VectorNormalize( punch );
+	punchlen -= 10 * frametime;
+	if ( punchlen < 0 )
+		punchlen = 0;
+	VectorScale( punch, punchlen, punch );
+
 	// show 1/3 the pitch angle and all the roll angle.
 	// V_CalcRoll reads last frame's ent->v.angles; the previous pitch and
 	// yaw are not kept, so this frame's are used with last frame's roll.
-	// punchangle is not added: the client only knows its latest value.
-	_nq_angles[ PITCH ] = - pmove.angles[ PITCH ] / 3;
-	_nq_angles[ YAW ] = pmove.angles[ YAW ];
+	// v_angle + punchangle, as SV_ClientThink adds it.
+	_nq_angles[ PITCH ] = - ( pmove.angles[ PITCH ] + punch[ PITCH ] ) / 3;
+	_nq_angles[ YAW ] = pmove.angles[ YAW ] + punch[ YAW ];
 	_nq_angles[ ROLL ] = pmove.roll;
 	pmove.roll = PM_NQ_CalcRoll( _nq_angles, pmove.velocity ) * 4;
 	_nq_angles[ ROLL ] = pmove.roll;
@@ -1492,8 +1504,10 @@ function PM_NQ_ClientThink() {
 	if ( pmove.waterjumptime > 0 ) {
 		// SV_WaterJump
 		pmove.waterjumptime -= frametime;
-		if ( pmove.waterjumptime <= 0 || waterlevel === 0 )
+		if ( pmove.waterjumptime <= 0 || waterlevel === 0 ) {
 			pmove.waterjumptime = 0;
+			pmove.teleporttime = 0; // SV_WaterJump clears teleport_time
+		}
 		pmove.velocity[ 0 ] = pmove.movedir[ 0 ];
 		pmove.velocity[ 1 ] = pmove.movedir[ 1 ];
 		return;
@@ -1541,7 +1555,8 @@ function PM_NQ_CheckWaterJump() {
 		trace = PM_NQ_PointMove( start, end );
 		if ( trace.fraction === 1 ) {
 			// open at eye level
-			pmove.waterjumptime = 2; // FL_WATERJUMP, teleport_time = time + 2
+			pmove.waterjumptime = 2; // FL_WATERJUMP
+			pmove.teleporttime = 2; // teleport_time = time + 2
 			pmove.velocity[ 2 ] = 225;
 			pmove.oldbuttons |= BUTTON_JUMP; // clear FL_JUMPRELEASED
 		}
@@ -1919,9 +1934,14 @@ SV_RunClients, then SV_Physics). In: pmove.origin, velocity, angles (v_angle),
 cmd, onground, waterlevel / watertype (-1 = recompute), roll, movedir,
 waterjumptime, oldbuttons, movetype. Out: the same fields.
 
+Also in/out: teleporttime (seconds of teleport_time left) and punchangle.
+They come from svc_playerinfo PF_TELEPORT and svc_clientdata, and tick down
+here as they do on the server.
+
 Not modelled, because the client is never told the inputs:
-	- punchangle in the SV_ClientThink angles
-	- fixangle, teleport_time back-move lock, QC pausetime
+	- QC changes to punchangle or teleport_time made after the last update
+	- fixangle: the server sends it as svc_setangle, which sets the view
+	  angles the next commands carry; nothing is predicted for it
 	- SV_CheckStuck (NudgePosition handles coordinate rounding instead)
 	- touch / impact functions, triggers
 	- dead players: CL_PredictMove does not predict them
@@ -2048,6 +2068,12 @@ export function PlayerMove() {
 
 	if ( pmove.nqphysics === true && pmove.spectator !== true ) {
 		PM_NQ_PlayerMove();
+		// sv.time advances by one frame; teleport_time stays put
+		if ( pmove.teleporttime > 0 ) {
+			pmove.teleporttime -= frametime;
+			if ( pmove.teleporttime < 0 )
+				pmove.teleporttime = 0;
+		}
 		return;
 	}
 

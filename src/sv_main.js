@@ -30,14 +30,14 @@ import {
 	SU_ITEMS, SU_ONGROUND, SU_INWATER, SU_WEAPONFRAME, SU_ARMOR, SU_WEAPON,
 	DEFAULT_VIEWHEIGHT, svc_damage, svc_setangle,
 	svc_playerinfo, PF_MSEC, PF_COMMAND, PF_VELOCITY1, PF_VELOCITY2, PF_VELOCITY3,
-	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_DEAD, PF_GIB, PF_FLY, PF_NOCLIP,
+	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_DEAD, PF_GIB, PF_FLY, PF_NOCLIP, PF_TELEPORT,
 	CM_ANGLE1, CM_ANGLE2, CM_ANGLE3, CM_FORWARD, CM_SIDE, CM_UP, CM_BUTTONS, CM_IMPULSE,
 	svc_packetentities, svc_deltapacketentities, svc_serversequence,
 	PE_ENT_BITS, PE_ENT_MASK, PE_ORIGIN1, PE_ORIGIN2, PE_ORIGIN3,
 	PE_ANGLE2, PE_REMOVE, PE_MOREBITS,
 	PE_FRAME, PE_ANGLE1, PE_ANGLE3, PE_MODEL, PE_COLORMAP, PE_SKIN, PE_EFFECTS, PE_SOLID,
 	PS_BSP, PS_BOX, PS_NOLERP,
-	MAX_PACKET_ENTITIES, PE_UPDATE_MASK
+	MAX_PACKET_ENTITIES, PE_UPDATE_BACKUP, PE_UPDATE_MASK
 } from './protocol.js';
 import {
 	sv, svs, ss_loading, ss_active,
@@ -860,8 +860,8 @@ const MAX_PACKETENTITY_BYTES = 2 + 1 + 5 + 3 * 2 + 3 + 1 + 6 * 2;
 
 // Largest svc_playerinfo SV_WritePlayersToClient can write: svc + num + flags
 // + origin + frame + msec + usercmd (bits, 3 angle16, 3 moves, buttons,
-// impulse) + velocity + model, skin, effects, weaponframe
-const MAX_PLAYERINFO_BYTES = 1 + 1 + 2 + 3 * 2 + 1 + 1 + ( 1 + 3 * 2 + 3 * 2 + 1 + 1 ) + 3 * 2 + 4;
+// impulse) + velocity + model, skin, effects, weaponframe, teleport time
+const MAX_PLAYERINFO_BYTES = 1 + 1 + 2 + 3 * 2 + 1 + 1 + ( 1 + 3 * 2 + 3 * 2 + 1 + 1 ) + 3 * 2 + 4 + 1;
 
 // An empty packetentities: svc_deltapacketentities + sequence + terminator
 const MIN_PACKETENTITIES_BYTES = 2 + 2;
@@ -879,8 +879,20 @@ export function SV_EmitPacketEntities( client, to, msg ) {
 	let from;
 	let oldmax;
 
+	// QW SV_EmitPacketEntities: the frame to delta from must still be in the
+	// client's backup. clc_delta carries the sequence as one byte, so compare
+	// modulo 256 (as CL_ParsePacketEntities does); too old means a full update.
+	let useDelta = client.delta_sequence !== - 1;
+	if ( useDelta ) {
+
+		const age = ( ( client.outgoing_sequence & 255 ) - ( client.delta_sequence & 255 ) ) & 255;
+		if ( age === 0 || age >= PE_UPDATE_BACKUP - 1 ) // 0: the frame being built
+			useDelta = false;
+
+	}
+
 	// this is the frame that we are going to delta update from
-	if ( client.delta_sequence !== - 1 ) {
+	if ( useDelta ) {
 
 		const fromframe = client.frames[ client.delta_sequence & PE_UPDATE_MASK ];
 		from = fromframe.entities;
@@ -898,17 +910,27 @@ export function SV_EmitPacketEntities( client, to, msg ) {
 
 	}
 
-	let newindex = 0;
+	// Entities numbered below `cursor` are deferred this frame: the client keeps
+	// its copy of them and new ones are left out. A frame that overflows sets
+	// the cursor to the first entity it could not send, so the next frame
+	// starts there instead of re-sending the low numbers first. A sweep needs
+	// ceil(entities / capacity) frames at worst, then the cursor returns to 0.
+	const cursor = useDelta ? client.pe_cursor | 0 : 0; // a full update has nothing to defer to
+	const newcount = to.num_entities;
+
+	let newindex = 0; // read position in `to`
+	let outindex = 0; // write position in `to`: deferred new entities leave gaps
 	let oldindex = 0;
 
 	// The last point at which the packet could end: the client would rebuild
 	// at most MAX_PACKET_ENTITIES entities from it (see the overflow case below)
 	let safesize = msg.cursize;
-	let safenew = 0;
+	let safeout = 0;
 	let safeold = 0;
+	let safenum = cursor; // an overflow before the first entry keeps the sweep where it was
 	let overflow = false;
 
-	while ( newindex < to.num_entities || oldindex < oldmax ) {
+	while ( newindex < newcount || oldindex < oldmax ) {
 
 		// sv_main.c SV_WriteEntitiesToClient stops with "packet overflow" when
 		// the next entity might not fit. Keep 2 bytes for the terminator.
@@ -919,21 +941,42 @@ export function SV_EmitPacketEntities( client, to, msg ) {
 
 		}
 
-		const newnum = newindex >= to.num_entities ? 9999 : to.entities[ newindex ].number;
+		const newnum = newindex >= newcount ? 9999 : to.entities[ newindex ].number;
 		const oldnum = oldindex >= oldmax ? 9999 : from.entities[ oldindex ].number;
 
 		if ( newnum === oldnum ) {
 
-			// delta update from old position
-			SV_WriteDelta( from.entities[ oldindex ], to.entities[ newindex ], msg, false );
+			if ( newnum < cursor ) {
+
+				// deferred: the client keeps what it has
+				to.state( outindex ++ ).copyFrom( from.entities[ oldindex ] );
+
+			} else {
+
+				// delta update from old position
+				SV_WriteDelta( from.entities[ oldindex ], to.entities[ newindex ], msg, false );
+				if ( outindex !== newindex )
+					to.state( outindex ).copyFrom( to.entities[ newindex ] );
+				outindex ++;
+
+			}
+
 			oldindex ++;
 			newindex ++;
 
 		} else if ( newnum < oldnum ) {
 
 			// this is a new entity, send it from the baseline
-			const ent = EDICT_NUM( newnum );
-			SV_WriteDelta( ent.baseline, to.entities[ newindex ], msg, true );
+			if ( newnum >= cursor ) {
+
+				const ent = EDICT_NUM( newnum );
+				SV_WriteDelta( ent.baseline, to.entities[ newindex ], msg, true );
+				if ( outindex !== newindex )
+					to.state( outindex ).copyFrom( to.entities[ newindex ] );
+				outindex ++;
+
+			}
+
 			newindex ++;
 
 		} else {
@@ -944,11 +987,13 @@ export function SV_EmitPacketEntities( client, to, msg ) {
 
 		}
 
-		if ( newindex + oldmax - oldindex <= MAX_PACKET_ENTITIES ) {
+		if ( outindex + oldmax - oldindex <= MAX_PACKET_ENTITIES ) {
 
 			safesize = msg.cursize;
-			safenew = newindex;
+			safeout = outindex;
 			safeold = oldindex;
+			safenum = Math.min( newindex >= newcount ? 9999 : to.entities[ newindex ].number,
+				oldindex >= oldmax ? 9999 : from.entities[ oldindex ].number );
 
 		}
 
@@ -962,12 +1007,18 @@ export function SV_EmitPacketEntities( client, to, msg ) {
 		// rest of the old frame unchanged. Rewind to the last point where that
 		// stays within MAX_PACKET_ENTITIES, and make this frame's snapshot match
 		// what the client will hold, so later deltas from it stay in step. The
-		// entities left out are sent on a later frame.
+		// entities left out are sent on a later frame, starting at safenum.
 		msg.cursize = safesize;
-		let n = safenew;
+		let n = safeout;
 		for ( let j = safeold; j < oldmax; j ++, n ++ )
 			to.state( n ).copyFrom( from.entities[ j ] );
 		to.num_entities = n;
+		client.pe_cursor = safenum < 9999 ? safenum : 0;
+
+	} else {
+
+		to.num_entities = outindex;
+		client.pe_cursor = 0;
 
 	}
 
@@ -1354,6 +1405,9 @@ export function SV_WritePlayersToClient( client, clent, pvs, msg ) {
 				pflags |= PF_NOCLIP;
 			else if ( ent.v.movetype === MOVETYPE_FLY )
 				pflags |= PF_FLY;
+			// SV_AirMove's back-move lock after a teleporter, and waterjump
+			if ( ent.v.teleport_time > sv.time )
+				pflags |= PF_TELEPORT;
 
 		}
 
@@ -1425,6 +1479,9 @@ export function SV_WritePlayersToClient( client, clent, pvs, msg ) {
 
 		if ( pflags & PF_WEAPONFRAME )
 			MSG_WriteByte( msg, ent.v.weaponframe );
+
+		if ( pflags & PF_TELEPORT )
+			MSG_WriteByte( msg, Math.min( 255, Math.ceil( ( ent.v.teleport_time - sv.time ) * 100 ) ) );
 
 	}
 

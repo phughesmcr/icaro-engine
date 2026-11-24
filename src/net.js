@@ -64,6 +64,7 @@ export class qsocket_t {
 		this.driverdata = null;
 
 		this.ackSequence = 0;
+		this.hasAck = false; // true once the peer has acknowledged a sequence
 		this.sendSequence = 0;
 		this.unreliableSendSequence = 0;
 		this.sendMessageLength = 0;
