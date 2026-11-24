@@ -1300,8 +1300,12 @@ export function R_RenderView() {
 //============================================================================
 // R_Mirror
 //
-// Only one mirror exists in the entire game (e2m3).
-// Requires render-to-texture with flipped camera — not yet implemented.
+// Only one mirror exists in the entire game (window02_1 in e2m3, registered
+// data only). GLQuake reflects it only when r_mirroralpha is not 1
+// (gl_rsurf.c DrawTextureChains), and r_mirroralpha defaults to 1, so stock
+// GLQuake shows no reflection either. Rendering one would need a second,
+// mirrored render-to-texture pass; until then this stays a stub and only
+// r_mirroralpha < 1 reaches it.
 //============================================================================
 
 let _mirrorWarned = false;

@@ -99,9 +99,42 @@ function _getDlight( index ) {
 
 	if ( _dlightPool[ index ] != null ) return _dlightPool[ index ];
 
-	const light = new THREE.PointLight( 0xffaa44, 1, 300, 1 ); // decay=1 for linear falloff
+	const light = new THREE.PointLight( 0xffaa44, 1, 300, 0 );
 	_dlightPool[ index ] = light;
 	return light;
+
+}
+
+/*
+Brightness of a dynamic light, matched to the gl_flashblend 0 lightmap path.
+
+R_AddDynamicLights adds ( rad - dist ) light units to a texel. R_BuildLightMap
+turns L units into a lightmap byte of 2L (blocklights >> 7), and the world
+material reads the lightmap with lightMapIntensity 2, so one Quake light unit
+is 2 * 2 / 255 of Three.js irradiance.
+
+Three.js has no linear falloff. With decay 0 a PointLight gives
+intensity * ( 1 - ( d / distance )^4 )^2. Setting distance to the light's
+reach and matching the light delivered over the lit disc,
+	∫ ( 1 - x ) x dx = 1/6  against  ∫ ( 1 - x^4 )^2 x dx = 4/15,
+gives intensity = radius * 2 * 2 / 255 * ( 1/6 ) / ( 4/15 ).
+The radius already shrinks by dl.decay in CL_DecayLights, which is the only
+fade C has; how long the light has left to live plays no part.
+*/
+const DLIGHT_IRRADIANCE_PER_UNIT = 2 * 2 / 255;
+const DLIGHT_WINDOW_FIT = ( 1 / 6 ) / ( 4 / 15 );
+
+export function R_DlightIntensity( light ) {
+
+	return light.radius * DLIGHT_IRRADIANCE_PER_UNIT * DLIGHT_WINDOW_FIT;
+
+}
+
+// Reach of a dynamic light: R_AddDynamicLights stops where rad - dist
+// falls to minlight.
+export function R_DlightDistance( light ) {
+
+	return light.radius - light.minlight;
 
 }
 
@@ -125,12 +158,17 @@ export function R_RenderDlight( light, dlightIndex ) {
 	// Position the light in Quake coordinates (same as camera/geometry)
 	pointLight.position.set( light.origin[ 0 ], light.origin[ 1 ], light.origin[ 2 ] );
 
-	// Set intensity and distance based on Quake light radius
-	// Original Quake uses linear falloff: contribution = (radius - distance)
-	// Three.js default is inverse-square (decay=2), so use decay=1 for linear
-	pointLight.intensity = light.radius * 4;
-	pointLight.distance = light.radius * 2;
-	pointLight.decay = 1; // Linear falloff like original Quake
+	// Brightness comes from the radius only (see R_DlightIntensity)
+	pointLight.intensity = R_DlightIntensity( light );
+	pointLight.distance = R_DlightDistance( light );
+	pointLight.decay = 0;
+
+	if ( isXRActive() ) {
+
+		// scene.scale = 1/XR_SCALE: distances are in meters
+		pointLight.distance /= XR_SCALE;
+
+	}
 
 	return pointLight;
 
@@ -156,34 +194,16 @@ export function R_RenderDlights( cl, scene ) {
 		const l = cl_dlights[ i ];
 		const pooledLight = _dlightPool[ i ];
 
-		// Check if this dlight is active
-		const isActive = l != null && l.die >= cl.time && l.radius > 0;
+		// Check if this dlight is active (gl_rlight.c R_RenderDlights:
+		// l->die < cl.time || !l->radius). A light whose radius doesn't
+		// reach past its minlight adds nothing in R_AddDynamicLights.
+		const isActive = l != null && l.die >= cl.time && l.radius > 0 &&
+			R_DlightDistance( l ) > 0;
 
 		if ( isActive ) {
 
-			// Active - update properties
+			// Active - update properties (intensity and reach from the radius)
 			const pointLight = R_RenderDlight( l, i );
-
-			// intensity = time remaining (fades to 0 as light dies)
-			// distance = radius (shrinks via game's decay system)
-			// Clamp timeLeft: client-side prediction can shift cl.time backwards,
-			// inflating timeLeft well beyond the light's intended duration.
-			// 0.5s is the longest dlight duration (explosions).
-			const timeLeft = Math.min( l.die - cl.time, 0.5 );
-
-			if ( isXRActive() ) {
-
-				pointLight.intensity = 10000 * timeLeft / XR_SCALE;
-				pointLight.distance = l.radius / XR_SCALE;
-
-			} else {
-
-				pointLight.intensity = 10000 * timeLeft;
-				pointLight.distance = l.radius;
-
-			}
-
-			pointLight.decay = 1; // Linear falloff
 
 			// Add to scene if not already there
 			if ( scene != null && pointLight.parent == null ) {

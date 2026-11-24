@@ -7,13 +7,13 @@ import {
 	K_ESCAPE, K_ENTER, K_UPARROW, K_DOWNARROW, K_LEFTARROW, K_RIGHTARROW,
 	K_BACKSPACE, K_DEL,
 	key_game, key_console, key_menu, key_dest,
-	keybindings, Key_SetBinding, Key_KeynumToString
+	keybindings, Key_SetBinding, Key_KeynumToString, Key_Event, Key_ModalActive
 } from './keys.js';
 import { cl_forwardspeed, cl_backspeed } from './cl_input.js';
 import { sensitivity, m_pitch, lookspring, lookstrafe, cl_color } from './cl_main.js';
-import { volume } from './sound.js';
+import { volume, bgmvolume } from './sound.js';
 import { Cvar_SetValue, Cvar_VariableValue } from './cvar.js';
-import { scr_viewsize, scr_con_current } from './gl_screen.js';
+import { scr_viewsize, scr_con_current, SCR_ModalMessage } from './gl_screen.js';
 import { v_gamma } from './view.js';
 import { gl_texturemode, GL_UpdateTextureFiltering } from './glquake.js';
 import { skill, coop, teamplay, deathmatch, svs } from './server.js';
@@ -249,7 +249,6 @@ let _Draw_SubPic = null;
 let _S_LocalSound = null;
 let _SCR_BeginLoadingPlaque = null;
 let _SCR_EndLoadingPlaque = null;
-let _SCR_ModalMessage = null;
 let _IN_RequestPointerLock = null;
 let _CL_NextDemo = null;
 
@@ -708,6 +707,21 @@ function M_SinglePlayer_Draw() {
 
 }
 
+// when the last SCR_ModalMessage opened, for M_TouchInput
+let m_modal_time = 0;
+const MODAL_TOUCH_DELAY = 0.5; // seconds
+
+function M_SinglePlayer_NewGame() {
+
+	setKeyDest( key_game );
+	if ( _IN_RequestPointerLock ) _IN_RequestPointerLock();
+	if ( _sv.active )
+		Cbuf_AddText( 'disconnect\n' );
+	Cbuf_AddText( 'maxplayers 1\n' );
+	Cbuf_AddText( 'map start\n' );
+
+}
+
 function M_SinglePlayer_Key( key ) {
 
 	switch ( key ) {
@@ -734,12 +748,20 @@ function M_SinglePlayer_Key( key ) {
 			switch ( m_singleplayer_cursor ) {
 
 				case 0:
-					setKeyDest( key_game );
-					if ( _IN_RequestPointerLock ) _IN_RequestPointerLock();
-					if ( _sv.active )
-						Cbuf_AddText( 'disconnect\n' );
-					Cbuf_AddText( 'maxplayers 1\n' );
-					Cbuf_AddText( 'map start\n' );
+					if ( _sv.active ) {
+
+						m_modal_time = _realtime_get();
+						SCR_ModalMessage( 'Are you sure you want to\nstart a new game?\n', function ( yes ) {
+
+							if ( yes )
+								M_SinglePlayer_NewGame();
+
+						} );
+						break;
+
+					}
+
+					M_SinglePlayer_NewGame();
 					break;
 				case 1:
 					M_Menu_Load_f();
@@ -1545,7 +1567,15 @@ function M_AdjustSliders( dir ) {
 				Cvar_SetValue( 'sensitivity', 11 );
 			break;
 
-		case 7: // sfx volume
+		case 7: // music volume
+			Cvar_SetValue( 'bgmvolume', bgmvolume.value + dir * 0.1 );
+			if ( bgmvolume.value < 0 )
+				Cvar_SetValue( 'bgmvolume', 0 );
+			if ( bgmvolume.value > 1 )
+				Cvar_SetValue( 'bgmvolume', 1 );
+			break;
+
+		case 8: // sfx volume
 			Cvar_SetValue( 'volume', volume.value + dir * 0.1 );
 			if ( volume.value < 0 )
 				Cvar_SetValue( 'volume', 0 );
@@ -1553,7 +1583,7 @@ function M_AdjustSliders( dir ) {
 				Cvar_SetValue( 'volume', 1 );
 			break;
 
-		case 8: // always run
+		case 9: // always run
 			if ( cl_forwardspeed.value > 200 ) {
 
 				Cvar_SetValue( 'cl_forwardspeed', 200 );
@@ -1568,19 +1598,19 @@ function M_AdjustSliders( dir ) {
 
 			break;
 
-		case 9: // invert mouse
+		case 10: // invert mouse
 			Cvar_SetValue( 'm_pitch', - m_pitch.value );
 			break;
 
-		case 10: // lookspring
+		case 11: // lookspring
 			Cvar_SetValue( 'lookspring', ! lookspring.value ? 1 : 0 );
 			break;
 
-		case 11: // lookstrafe
+		case 12: // lookstrafe
 			Cvar_SetValue( 'lookstrafe', ! lookstrafe.value ? 1 : 0 );
 			break;
 
-		case 12: // crosshair
+		case 13: // crosshair
 			Cvar_SetValue( 'crosshair', Cvar_VariableValue( 'crosshair' ) !== 0 ? 0 : 1 );
 			break;
 
@@ -1596,7 +1626,7 @@ function M_AdjustSliders( dir ) {
 ==============================================================================
 */
 
-const OPTIONS_ITEMS = 13;
+const OPTIONS_ITEMS = 14;
 let m_options_cursor = 0;
 
 function M_Menu_Options_f() {
@@ -1634,24 +1664,28 @@ function M_Options_Draw() {
 	r = ( sensitivity.value - 1 ) / 10;
 	M_DrawSlider( 220, 80, r );
 
-	M_Print( 16, 88, '          Sound Volume' );
-	r = volume.value;
+	M_Print( 16, 88, '       CD Music Volume' );
+	r = bgmvolume.value;
 	M_DrawSlider( 220, 88, r );
 
-	M_Print( 16, 96, '            Always Run' );
-	M_DrawCheckbox( 220, 96, cl_forwardspeed.value > 200 );
+	M_Print( 16, 96, '          Sound Volume' );
+	r = volume.value;
+	M_DrawSlider( 220, 96, r );
 
-	M_Print( 16, 104, '          Invert Mouse' );
-	M_DrawCheckbox( 220, 104, m_pitch.value < 0 );
+	M_Print( 16, 104, '            Always Run' );
+	M_DrawCheckbox( 220, 104, cl_forwardspeed.value > 200 );
 
-	M_Print( 16, 112, '            Lookspring' );
-	M_DrawCheckbox( 220, 112, lookspring.value );
+	M_Print( 16, 112, '          Invert Mouse' );
+	M_DrawCheckbox( 220, 112, m_pitch.value < 0 );
 
-	M_Print( 16, 120, '            Lookstrafe' );
-	M_DrawCheckbox( 220, 120, lookstrafe.value );
+	M_Print( 16, 120, '            Lookspring' );
+	M_DrawCheckbox( 220, 120, lookspring.value );
 
-	M_Print( 16, 128, '             Crosshair' );
-	M_DrawCheckbox( 220, 128, Cvar_VariableValue( 'crosshair' ) );
+	M_Print( 16, 128, '            Lookstrafe' );
+	M_DrawCheckbox( 220, 128, lookstrafe.value );
+
+	M_Print( 16, 136, '             Crosshair' );
+	M_DrawCheckbox( 220, 136, Cvar_VariableValue( 'crosshair' ) );
 
 	// cursor
 	M_DrawCharacter( 200, 32 + m_options_cursor * 8, 12 + ( ( Math.floor( _realtime_get() * 4 ) ) & 1 ) );
@@ -1688,7 +1722,7 @@ function M_Options_Key( key ) {
 					Cbuf_AddText( 'cl_forwardspeed 400\n' );
 					Cbuf_AddText( 'cl_backspeed 400\n' );
 					Cbuf_AddText( 'gamma 1\n' );
-					Cbuf_AddText( 'volume 0.4\n' );
+					Cbuf_AddText( 'volume 0.7\n' );
 					break;
 				default:
 					M_AdjustSliders( 1 );
@@ -1881,7 +1915,7 @@ function M_Keys_Key( key ) {
 
 			bind_grab = false;
 
-		} else {
+		} else if ( key !== 96 ) { // '`'
 
 			// Set the binding via Cbuf
 			Cbuf_AddText( 'bind "' + Key_KeynumToString( key ) + '" "' + bindnames[ m_keys_cursor ][ 0 ] + '"\n' );
@@ -2392,6 +2426,21 @@ export function M_TouchInput( touchX, touchY, screenWidth, screenHeight ) {
 	const offsetY = ( _vid.height - 200 ) / 2;
 	const vx = vidX - offsetX;
 	const vy = vidY - offsetY;
+
+	// SCR_ModalMessage is up: no Y key on touch, so tap top half for yes and
+	// bottom half for no, as the quit menu does. Taps right after the dialog
+	// opens are ignored, so a double click on "New Game" can't confirm it.
+	if ( Key_ModalActive() ) {
+
+		if ( _realtime_get() - m_modal_time < MODAL_TOUCH_DELAY )
+			return;
+
+		const k = vy < 100 ? 121 : 110; // 'y' : 'n'
+		Key_Event( k, true );
+		Key_Event( k, false );
+		return;
+
+	}
 
 	// Click outside menu area acts like pressing escape (go back)
 	if ( vx < 0 || vx > 320 || vy < 0 || vy > 200 ) {

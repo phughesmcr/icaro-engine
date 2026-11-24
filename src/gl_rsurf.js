@@ -3,6 +3,32 @@
 import * as THREE from 'three';
 import { Sys_Error } from './sys.js';
 
+/*
+r_lightmap: GLQuake's R_BlendLightmaps draws the lightmaps without blending
+them over the textures, so only the lighting shows. Every lightmapped material
+shares this uniform; the fragment shader swaps the diffuse texture for white
+and drops the fullbright emissive while it is 1.
+*/
+const _lightmapOnly = { value: 0 };
+
+export function R_PatchLightmapShader( shader ) {
+
+	shader.uniforms.quakeLightmapOnly = _lightmapOnly;
+	shader.fragmentShader = shader.fragmentShader
+		.replace( 'uniform vec3 emissive;', 'uniform vec3 emissive;\nuniform float quakeLightmapOnly;' )
+		.replace( '#include <map_fragment>',
+			'#include <map_fragment>\n\tdiffuseColor.rgb = mix( diffuseColor.rgb, vec3( 1.0 ), quakeLightmapOnly );' )
+		.replace( '#include <emissivemap_fragment>',
+			'#include <emissivemap_fragment>\n\ttotalEmissiveRadiance *= 1.0 - quakeLightmapOnly;' );
+
+}
+
+function R_LightmapProgramKey() {
+
+	return 'quake-lightmap';
+
+}
+
 function createQuakeLightmapMaterial( diffuseMap, lightmapTex ) {
 
 	lightmapTex.channel = 1; // Use uv1 for lightmap coordinates
@@ -27,7 +53,10 @@ function createQuakeLightmapMaterial( diffuseMap, lightmapTex ) {
 
 	}
 
-	return new THREE.MeshLambertMaterial( matOptions );
+	const material = new THREE.MeshLambertMaterial( matOptions );
+	material.onBeforeCompile = R_PatchLightmapShader;
+	material.customProgramCacheKey = R_LightmapProgramKey;
+	return material;
 
 }
 import { cl, cl_dlights, MAX_DLIGHTS, MAX_VISEDICTS, cl_visedicts, cl_numvisedicts, set_cl_numvisedicts } from './client.js';
@@ -60,6 +89,7 @@ import {
 } from './mathlib.js';
 import { Mod_LeafPVS, solidskytexture, alphaskytexture } from './gl_model.js';
 import { realtime } from './host.js';
+import { MAX_MODELS } from './quakedef.js';
 
 //============================================================================
 // Constants
@@ -607,8 +637,6 @@ export function DrawGLWaterPoly( p ) {
 	const numverts = p.numverts;
 	const verts = p.verts;
 	const numTriangles = numverts - 2;
-	const realtime = cl ? cl.time : 0;
-
 	const positions = new Float32Array( numTriangles * 3 * 3 );
 	const uvs = new Float32Array( numTriangles * 3 * 2 );
 
@@ -908,7 +936,6 @@ export function R_DrawSequentialPoly( s ) {
 		const renderGroup = currentRenderGroup || worldGroup;
 		if ( s.polys && renderGroup ) {
 
-			const realtime = cl ? cl.time : 0;
 			const geometry = EmitWaterPolysQuake( s, realtime );
 			if ( geometry ) {
 
@@ -966,7 +993,6 @@ export function R_RenderBrushPoly( fa ) {
 		const renderGroup = currentRenderGroup || worldGroup;
 		if ( fa.polys && renderGroup ) {
 
-			const realtime = cl ? cl.time : 0;
 			const geometry = EmitWaterPolysQuake( fa, realtime );
 			if ( geometry ) {
 
@@ -1881,10 +1907,56 @@ export function DrawTextureChains() {
 // R_BlendLightmaps
 //============================================================================
 
+/*
+R_CheckLightmapCvars
+
+GLQuake reads r_fullbright in R_BuildLightMap (fill with full light) and
+r_lightmap in R_BlendLightmaps. Here the lightmaps are textures on the
+materials, so a change of r_fullbright rebuilds every lightmap block and
+r_lightmap flips the shared shader uniform.
+*/
+let _oldFullbright = 0;
+
+function R_CheckLightmapCvars() {
+
+	_lightmapOnly.value = r_lightmap.value ? 1 : 0;
+
+	const fullbright = r_fullbright.value ? 1 : 0;
+	if ( fullbright === _oldFullbright )
+		return;
+	_oldFullbright = fullbright;
+
+	// Same models as GL_BuildLightmaps; inline submodels ('*n') share the
+	// world's surface array.
+	for ( let j = 1; j < MAX_MODELS; j ++ ) {
+
+		const m = cl.model_precache[ j ];
+		if ( m == null )
+			break;
+		if ( m.surfaces == null || ( m.name && m.name.charAt( 0 ) === '*' ) )
+			continue;
+
+		for ( let i = 0; i < m.numsurfaces; i ++ ) {
+
+			const surf = m.surfaces[ i ];
+			if ( surf.flags & ( SURF_DRAWSKY | SURF_DRAWTURB ) )
+				continue;
+
+			const baseOffset = surf.lightmaptexturenum * lightmap_bytes * BLOCK_WIDTH * BLOCK_HEIGHT;
+			const offset = baseOffset + ( surf.light_t * BLOCK_WIDTH + surf.light_s ) * lightmap_bytes;
+			R_BuildLightMap( surf, lightmaps, offset, BLOCK_WIDTH * lightmap_bytes );
+			lightmap_modified[ surf.lightmaptexturenum ] = true;
+
+		}
+
+	}
+
+}
+
 export function R_BlendLightmaps() {
 
-	if ( r_fullbright.value )
-		return;
+	R_CheckLightmapCvars();
+
 	if ( ! gl_texsort.value )
 		return;
 
@@ -1958,7 +2030,6 @@ export function R_DrawWaterSurfaces() {
 
 			if ( s.polys && worldGroup ) {
 
-				const realtime = cl ? cl.time : 0;
 				const geometry = EmitWaterPolysQuake( s, realtime );
 				if ( geometry ) {
 
@@ -1992,7 +2063,6 @@ export function R_DrawWaterSurfaces() {
 
 				if ( s.polys && worldGroup ) {
 
-					const realtime = cl ? cl.time : 0;
 					const geometry = EmitWaterPolysQuake( s, realtime );
 					if ( geometry ) {
 
@@ -2793,7 +2863,6 @@ export function GL_BuildLightmaps() {
 	lightmap_bytes = 1;
 
 	// build lightmaps for all brush models
-	const MAX_MODELS = 256;
 	for ( let j = 1; j < MAX_MODELS; j ++ ) {
 
 		const m = cl_ref.model_precache ? cl_ref.model_precache[ j ] : null;

@@ -275,7 +275,7 @@ export function CL_ParseServerInfo() {
 
 	// seperate the printfs so the server message can have a color
 	Con_Printf( '\n\n\x1d\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1e\x1f\n\n' );
-	Con_Printf( '%s\n', str );
+	Con_Printf( '\x02%s\n', str );
 
 	//
 	// precache models
@@ -1322,6 +1322,7 @@ export function CL_ParseServerMessage() {
 			case svc_setangle:
 				for ( i = 0; i < 3; i ++ )
 					cl.viewangles[ i ] = MSG_ReadAngle();
+				VectorCopy( cl.viewangles, cl.setangles ); // for V_CalcIntermissionRefdef
 				break;
 
 			case svc_setview:
