@@ -6,7 +6,8 @@
 // surface over that image at r_mirroralpha. Here the reflected scene goes into
 // a render target (Reflector-style: a proper-rotation virtual camera plus an
 // oblique near plane), and the mirror surface is redrawn with a shader that
-// mixes the surface texture with the reflection:
+// mixes the surface texture with the reflection in output (gamma) space, as
+// GLQuake's framebuffer blend does:
 //   colour = mix( reflection, texture, r_mirroralpha )
 //
 // Limits: not run under WebXR (stereo views need one reflection per eye), and
@@ -155,12 +156,20 @@ uniform sampler2D reflection;
 uniform float alpha;
 varying vec4 vReflUv;
 varying vec2 vUv;
+// GLQuake blends in the framebuffer, on gamma-encoded colours, so both
+// inputs are taken to output space (exposure, then sRGB) before the mix.
+// The reflection target holds linear colour without tone mapping, as
+// three.js renders into a render target.
+vec3 R_MirrorOutput( vec3 c ) {
+#if defined( TONE_MAPPING )
+	c = toneMapping( c );
+#endif
+	return linearToOutputTexel( vec4( c, 1.0 ) ).rgb;
+}
 void main() {
-	vec3 refl = texture2D( reflection, vReflUv.xy / vReflUv.w ).rgb;
-	vec3 tex = texture2D( map, vUv ).rgb;
+	vec3 refl = R_MirrorOutput( texture2D( reflection, vReflUv.xy / vReflUv.w ).rgb );
+	vec3 tex = R_MirrorOutput( texture2D( map, vUv ).rgb );
 	gl_FragColor = vec4( mix( refl, tex, alpha ), 1.0 );
-	#include <tonemapping_fragment>
-	#include <colorspace_fragment>
 }
 `;
 
