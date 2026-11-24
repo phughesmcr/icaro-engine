@@ -2,11 +2,13 @@
 // command prediction runs between ticks (cl_pred.js)
 
 import { CONTENTS_EMPTY, CONTENTS_SOLID } from '../src/bspfile.js';
-import { cl } from '../src/client.js';
+import { cl, cls, ca_connected, SIGNONS } from '../src/client.js';
 import {
-	Host_NetTickTime, HOST_NETINTERVAL, HOST_NETTICK_SLACK, _Host_FilterTime,
-	host_maxfps, host_netinterval, set_host_netinterval, set_host_netaccum
+	Host_NetTickTime, HOST_NETINTERVAL, HOST_NETTICK_SLACK, _Host_FilterTime, _Host_NetFrame,
+	host_maxfps, host_netinterval, host_netframetime, host_netaccum, host_frametime,
+	set_host_netinterval, set_host_netaccum
 } from '../src/host.js';
+import { CL_AccumulateCmd, in_right, in_mlook, in_strafe, cl_yawspeed } from '../src/cl_input.js';
 import {
 	CL_PredictMove, CL_StoreCommand, CL_SetServerState, CL_ResetPrediction,
 	CL_InitPrediction, cl_simorg
@@ -192,6 +194,147 @@ Deno.test( '_Host_FilterTime renders up to host_maxfps once isolated', () => {
 				throw new Error( `host_maxfps ${maxfps} at ${hz} Hz: ${frames / 10} fps, expected ${expected}` );
 
 		} );
+
+	}
+
+} );
+
+Deno.test( '_Host_NetFrame sends one interval per tick and caps a hitch at 0.1', () => {
+
+	withMaxfps( 0, () => {
+
+		_Host_FilterTime( 1 );
+		_Host_NetFrame(); // a 1 s frame: one capped tick, carry back to an interval
+		let ticks = 0;
+		for ( const dt of frameTimes( 144, 0, 1 ) ) {
+
+			_Host_FilterTime( dt );
+			const before = host_netaccum;
+			const renderframetime = host_frametime;
+			_Host_NetFrame();
+			if ( host_netaccum < before ) {
+
+				ticks ++;
+				assertNear( host_netframetime, I, 1e-12, 'tick length' );
+
+			}
+
+			if ( host_frametime !== renderframetime )
+				throw new Error( 'host_frametime changed by the network frame' );
+
+		}
+
+		if ( Math.abs( ticks - 72 ) > 1 )
+			throw new Error( `${ticks} ticks in a second at 144 Hz` );
+
+		_Host_FilterTime( 0.25 ); // a hitch: Ironwail adds at most 0.2
+		_Host_NetFrame();
+		assertNear( host_netframetime, 0.1, 0, 'hitch tick' );
+		if ( host_netaccum > I + 1e-12 )
+			throw new Error( `carry ${host_netaccum} after the hitch` );
+
+	} );
+
+} );
+
+// Holds +right for one second of 144 Hz frames and returns the yaw turned
+function turnFor( mlook ) {
+
+	const oldState = cls.state;
+	const oldSignon = cls.signon;
+	const oldMoves = cl.movemessages;
+	const oldCmd = cl.cmd;
+	const oldYaw = cl.viewangles[ 1 ];
+	const oldRight = in_right.state;
+	const oldMlook = in_mlook.state;
+	try {
+
+		cls.state = ca_connected;
+		cls.signon = SIGNONS;
+		in_right.state = 1;
+		in_mlook.state = mlook ? 1 : 0;
+		cl.viewangles[ 1 ] = 0;
+		let turned = 0;
+		let elapsed = 0;
+		_Host_FilterTime( 1 );
+		for ( const dt of frameTimes( 144, 0, 1 ) ) {
+
+			_Host_FilterTime( dt );
+			elapsed += host_frametime;
+			const yaw = cl.viewangles[ 1 ];
+			cl.movemessages = 0; // CL_SendMove drops the first two: nothing is sent
+			_Host_NetFrame();
+			let d = yaw - cl.viewangles[ 1 ];
+			if ( d < 0 ) d += 360;
+			turned += d;
+
+		}
+
+		return { turned, elapsed };
+
+	} finally {
+
+		cls.state = oldState;
+		cls.signon = oldSignon;
+		cl.movemessages = oldMoves;
+		cl.cmd = oldCmd;
+		cl.viewangles[ 1 ] = oldYaw;
+		in_right.state = oldRight;
+		in_mlook.state = oldMlook;
+
+	}
+
+}
+
+Deno.test( 'isolated frames turn the view at cl_yawspeed with or without +mlook', () => {
+
+	withMaxfps( 0, () => {
+
+		for ( const mlook of [ true, false ] ) {
+
+			const { turned, elapsed } = turnFor( mlook );
+			// the last frames' turn may wait for a tick that hasn't run yet
+			assertNear( turned, cl_yawspeed.value * elapsed, cl_yawspeed.value * I * 1.1,
+				`yaw turned with mlook ${mlook}` );
+
+		}
+
+	} );
+
+} );
+
+Deno.test( 'CL_AccumulateCmd turns the view only while the mouse turns it', () => {
+
+	const oldState = cls.state;
+	const oldSignon = cls.signon;
+	const oldYaw = cl.viewangles[ 1 ];
+	const oldRight = in_right.state;
+	const oldStrafe = in_strafe.state;
+	const oldMlook = in_mlook.state;
+	try {
+
+		cls.state = ca_connected;
+		cls.signon = SIGNONS;
+		in_right.state = 1;
+		in_mlook.state = 1;
+		cl.viewangles[ 1 ] = 90;
+		if ( CL_AccumulateCmd() !== true || ! ( cl.viewangles[ 1 ] < 90 ) )
+			throw new Error( `+mlook frame did not turn: yaw ${cl.viewangles[ 1 ]}` );
+
+		// +strafe: the mouse moves the player, so wait for CL_SendCmd
+		in_strafe.state = 1;
+		cl.viewangles[ 1 ] = 90;
+		if ( CL_AccumulateCmd() !== false || cl.viewangles[ 1 ] !== 90 )
+			throw new Error( '+strafe frame turned the view' );
+
+	} finally {
+
+		cls.state = oldState;
+		cls.signon = oldSignon;
+		cl.viewangles[ 1 ] = oldYaw;
+		in_right.state = oldRight;
+		in_strafe.state = oldStrafe;
+		in_mlook.state = oldMlook;
 
 	}
 

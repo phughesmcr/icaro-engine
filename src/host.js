@@ -128,6 +128,8 @@ export let host_netframetime = 0;
 export let host_netaccum = 0;
 let host_renderaccum = 0;
 let host_rawframetime = 0;
+// render time since the view last turned (CL_AccumulateCmd)
+let host_lookframetime = 0;
 
 // For tests: the isolation state cl_pred.js reads
 export function set_host_netinterval( v ) {
@@ -715,6 +717,7 @@ function Host_UpdateNetInterval() {
 	host_netinterval = interval;
 	host_netaccum = 0;
 	host_renderaccum = 0;
+	host_lookframetime = 0;
 
 }
 
@@ -786,13 +789,16 @@ Ironwail _Host_Frame's network block, run instead of WinQuake's CL_SendCmd /
 Host_ServerFrame calls while isolation is on. A frame with no tick only
 turns the view (CL_AccumulateCmd).
 
-host_frametime stays the render frame's time during CL_SendCmd, so the
-keyboard, stick and XR turning in CL_BaseMove / IN_Move cover just this
-frame; CL_SendMove sends the tick's length (host_netframetime). The local
-server runs with host_frametime set to the tick's length.
+During CL_SendCmd host_frametime is the render time since the view last
+turned: this frame's, or every frame's since the last tick when
+CL_AccumulateCmd couldn't turn it. So keyboard, stick and XR turning in
+CL_BaseMove / IN_Move cover each frame once. CL_SendMove sends the tick's
+length (host_netframetime). The local server runs with host_frametime set
+to the tick's length.
+(exported for tests)
 ==================
 */
-function _Host_NetFrame() {
+export function _Host_NetFrame() {
 
 	let dt = host_rawframetime;
 	if ( dt < 0 ) dt = 0;
@@ -802,7 +808,10 @@ function _Host_NetFrame() {
 	const tick = Host_NetTickTime( host_netaccum, host_netinterval );
 	if ( tick === 0 ) {
 
-		CL_AccumulateCmd();
+		if ( CL_AccumulateCmd() )
+			host_lookframetime = 0;
+		else
+			host_lookframetime += host_frametime;
 		return;
 
 	}
@@ -821,9 +830,14 @@ function _Host_NetFrame() {
 
 	}
 
+	let lookframetime = host_lookframetime + host_frametime;
+	if ( lookframetime > 0.1 )
+		lookframetime = 0.1;
+	host_lookframetime = 0;
+
 	// if running the server locally, make intentions now
 	if ( sv.active )
-		CL_SendCmd();
+		_Host_SendCmd( lookframetime );
 
 	if ( sv.active ) {
 
@@ -844,7 +858,24 @@ function _Host_NetFrame() {
 	// if running the server remotely, send intentions now after
 	// the incoming messages have been read
 	if ( ! sv.active )
+		_Host_SendCmd( lookframetime );
+
+}
+
+// CL_SendCmd with host_frametime set to lookframetime
+function _Host_SendCmd( lookframetime ) {
+
+	const renderframetime = host_frametime;
+	host_frametime = lookframetime;
+	try {
+
 		CL_SendCmd();
+
+	} finally {
+
+		host_frametime = renderframetime;
+
+	}
 
 }
 

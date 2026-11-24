@@ -393,17 +393,20 @@ Here CL_SendCmd is unchanged and samples the sticks and touch joystick
 itself, so the scratch command's moves are dropped; summing them as
 Ironwail does would multiply stick speed by the frames per tick. Mouse
 motion that moves rather than turns (+strafe, lookstrafe, or no +mlook)
-can't be told apart from those, so then the view waits for the tick and
-CL_SendCmd gets the whole mouse delta, as in WinQuake.
+can't be told apart from those, so then nothing turns until the tick:
+CL_SendCmd gets the whole mouse delta, as in WinQuake, and host.js gives
+it the time since the view last turned for keyboard and stick turning.
+
+Returns true if the view turned.
 =================
 */
 export function CL_AccumulateCmd() {
 
 	if ( cls.state !== ca_connected || cls.signon !== SIGNONS )
-		return;
+		return false;
 
 	if ( ( in_strafe.state & 1 ) || ( in_mlook.state & 1 ) === 0 || lookstrafe.value !== 0 )
-		return;
+		return false;
 
 	// basic keyboard looking
 	CL_AdjustAngles();
@@ -414,6 +417,7 @@ export function CL_AccumulateCmd() {
 	cmd.sidemove = 0;
 	cmd.upmove = 0;
 	IN_Move( cmd );
+	return true;
 
 }
 
