@@ -564,7 +564,12 @@ function updateKeyboardLock() {
 
 		}
 
-		if ( result != null && typeof result.catch === 'function' ) result.catch( () => {} );
+		// A refused lock (Chrome outside fullscreen) must be retried on the next change
+		if ( want && result != null && typeof result.catch === 'function' ) {
+
+			result.catch( () => { if ( keyboardLocked ) keyboardLocked = false; } );
+
+		}
 
 	} catch {
 

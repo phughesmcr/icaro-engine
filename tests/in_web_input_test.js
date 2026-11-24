@@ -685,16 +685,24 @@ Deno.test( 'IN-5: autorepeat keeps one key; keyup of a Cmd-held key still releas
 
 } );
 
-Deno.test( 'IN-1: keyboard lock is requested in game and released in the menu', () => {
+Deno.test( 'IN-1: keyboard lock is requested in game and released in the menu', async () => {
 
-	withFakeDom( ( dom ) => {
+	await withFakeDom( async ( dom ) => {
 
 		const calls = [];
+		let rejectNext = false;
 		Object.defineProperty( globalThis, 'navigator', {
 			configurable: true,
 			value: {
 				keyboard: {
-					lock( codes ) { calls.push( [ 'lock', codes ] ); return Promise.resolve(); },
+					lock( codes ) {
+
+						calls.push( [ 'lock', codes ] );
+						const r = rejectNext ? Promise.reject( new Error( 'no' ) ) : Promise.resolve();
+						rejectNext = false;
+						return r;
+
+					},
 					unlock() { calls.push( [ 'unlock' ] ); }
 				}
 			}
@@ -733,6 +741,15 @@ Deno.test( 'IN-1: keyboard lock is requested in game and released in the menu', 
 			dom.document.fullscreenElement = null;
 			dom.document.fire( 'fullscreenchange', {} );
 			assertEqual( calls.length, 4, 'unlocked on leaving fullscreen' );
+
+			// A rejected lock is retried on the next change
+			rejectNext = true;
+			dom.document.fullscreenElement = dom.body;
+			dom.document.fire( 'fullscreenchange', {} );
+			await flush();
+			assertEqual( calls.length, 5, 'lock attempted' );
+			dom.document.fire( 'fullscreenchange', {} );
+			assertEqual( calls.length, 6, 'retried after the rejection' );
 
 		} finally {
 
