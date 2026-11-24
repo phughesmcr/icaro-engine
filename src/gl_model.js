@@ -2294,15 +2294,14 @@ function Mod_LoadBrushModel( mod, buffer ) {
 
 function Mod_LoadAliasFrame( buf, offset, frame ) {
 
-	const view = new DataView( buf, offset );
-
 	// daliasframe_t: bboxmin (4 bytes), bboxmax (4 bytes), name (16 bytes) = 24 bytes
-	frame.bboxmin.v[ 0 ] = new Uint8Array( buf, offset )[ 0 ];
-	frame.bboxmin.v[ 1 ] = new Uint8Array( buf, offset )[ 1 ];
-	frame.bboxmin.v[ 2 ] = new Uint8Array( buf, offset )[ 2 ];
-	frame.bboxmax.v[ 0 ] = new Uint8Array( buf, offset + 4 )[ 0 ];
-	frame.bboxmax.v[ 1 ] = new Uint8Array( buf, offset + 4 )[ 1 ];
-	frame.bboxmax.v[ 2 ] = new Uint8Array( buf, offset + 4 )[ 2 ];
+	const bytes = new Uint8Array( buf, offset );
+	frame.bboxmin.v[ 0 ] = bytes[ 0 ];
+	frame.bboxmin.v[ 1 ] = bytes[ 1 ];
+	frame.bboxmin.v[ 2 ] = bytes[ 2 ];
+	frame.bboxmax.v[ 0 ] = bytes[ 4 ];
+	frame.bboxmax.v[ 1 ] = bytes[ 5 ];
+	frame.bboxmax.v[ 2 ] = bytes[ 6 ];
 
 	frame.name = readString( new Uint8Array( buf ), offset + 8, 16 );
 
