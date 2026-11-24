@@ -14,7 +14,7 @@ import {
 import { MAX_MODELS, MAX_SOUNDS } from './quakedef.js';
 import {
 	OFS_RETURN, OFS_PARM0, OFS_PARM1, OFS_PARM2, OFS_PARM3,
-	OFS_PARM4, OFS_PARM5, OFS_PARM6, OFS_PARM7,
+	OFS_PARM4,
 } from './pr_comp.js';
 import {
 	progs, pr_functions,
@@ -32,7 +32,6 @@ import {
 } from './progs.js';
 import {
 	ED_Alloc, ED_Free, ED_Print, ED_PrintNum, ED_PrintEdicts,
-	ED_FindFunction, ED_FindField,
 } from './pr_edict.js';
 import { PR_HostError, PR_RunError } from './pr_exec.js';
 import { SV_Move, SV_LinkEdict, SV_PointContents } from './world.js';
