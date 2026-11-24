@@ -143,6 +143,9 @@ export const PF_EFFECTS = ( 1 << 7 );
 export const PF_WEAPONFRAME = ( 1 << 8 ); // only sent for view player
 export const PF_DEAD = ( 1 << 9 ); // don't block movement any more
 export const PF_GIB = ( 1 << 10 ); // offset the view height differently
+// Not in QW: the view player's NQ movetype, for prediction (view player only)
+export const PF_FLY = ( 1 << 11 ); // MOVETYPE_FLY
+export const PF_NOCLIP = ( 1 << 12 ); // MOVETYPE_NOCLIP
 
 // command move bits (for delta compression of usercmd_t)
 export const CM_ANGLE1 = ( 1 << 0 );
@@ -190,9 +193,23 @@ export const PE_MODEL = ( 1 << 3 );
 export const PE_COLORMAP = ( 1 << 4 );
 export const PE_SKIN = ( 1 << 5 );
 export const PE_EFFECTS = ( 1 << 6 );
-export const PE_SOLID = ( 1 << 7 ); // entity should be solid for prediction
+// PE_SOLID: the entity's prediction info changed. QW sends it, without a
+// payload, on every update of a solid entity. Here it is delta'd like the
+// other fields: it is set only when the PS_* byte or the box differs from
+// the state being delta'd from, and it is followed, after the angles, by
+// the PS_* byte and, if PS_BOX is set, the box as 6 coords (mins, maxs).
+export const PE_SOLID = ( 1 << 7 );
+
+// PS_* bits: the byte that follows PE_SOLID (entity_state_t.solid)
+export const PS_BSP = ( 1 << 0 ); // collide with the entity's brush model hull
+export const PS_BOX = ( 1 << 1 ); // collide with the box that follows
+export const PS_NOLERP = ( 1 << 2 ); // MOVETYPE_STEP: don't interpolate (NQ U_NOLERP)
 
 // Packet entities constants
-export const MAX_PACKET_ENTITIES = 64; // max entities in a single packet
+// NetQuake has no entity count cap, only the datagram size, so the cap is
+// the edict limit (MAX_EDICTS in quakedef.js) and never binds: entity
+// numbers are below it and the world and players are not in the packet.
+// The frame arrays grow on demand (packet_entities_t.state).
+export const MAX_PACKET_ENTITIES = 600;
 export const PE_UPDATE_BACKUP = 64; // must be power of 2
 export const PE_UPDATE_MASK = PE_UPDATE_BACKUP - 1;

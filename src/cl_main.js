@@ -10,7 +10,7 @@ import { NET_Connect, NET_SendMessage, NET_SendUnreliableMessage, NET_CanSendMes
 import { cvar_t, Cvar_RegisterVariable, Cvar_VariableValue } from './cvar.js';
 import { Cmd_AddCommand } from './cmd.js';
 import { Cbuf_InsertText } from './cmd.js';
-import { clc_disconnect, clc_stringcmd } from './protocol.js';
+import { clc_disconnect, clc_stringcmd, PS_NOLERP } from './protocol.js';
 import { CL_GetMessage, CL_Record_f, CL_PlayDemo_f, CL_TimeDemo_f, CL_StopPlayback, CL_Stop_f } from './cl_demo.js';
 import { CL_ParseServerMessage } from './cl_parse.js';
 import { SIGNONS, MAX_DLIGHTS, MAX_EFRAGS, MAX_BEAMS, MAX_TEMP_ENTITIES,
@@ -767,6 +767,10 @@ function CL_LinkPacketEntities( frac ) {
 
 		}
 
+		// MOVETYPE_STEP monsters snap to each update, as NQ's U_NOLERP
+		// (cl_parse.c sets forcelink) does: "don't mess up the step animation"
+		const lerp = ( s1.solid & PS_NOLERP ) !== 0 ? 1 : frac;
+
 		// rotate binary objects locally
 		if ( model != null && ( model.flags & 0x0008 ) ) { // EF_ROTATE
 
@@ -777,7 +781,7 @@ function CL_LinkPacketEntities( frac ) {
 		} else {
 
 			// Interpolate angles with short-path wrapping
-			let f = frac;
+			const f = lerp;
 			for ( let i = 0; i < 3; i ++ ) {
 
 				let d = ent.msg_angles[ 0 ][ i ] - ent.msg_angles[ 1 ][ i ];
@@ -794,7 +798,7 @@ function CL_LinkPacketEntities( frac ) {
 		// Interpolate origin with teleport detection
 		{
 
-			let f = frac;
+			let f = lerp;
 			for ( let i = 0; i < 3; i ++ ) {
 
 				_peDelta[ i ] = ent.msg_origins[ 0 ][ i ] - ent.msg_origins[ 1 ][ i ];
@@ -1271,8 +1275,9 @@ export function CL_ReadFromServer() {
 
 	// Client-side prediction (QuakeWorld style)
 	// Predicts local player position for responsive movement with low server tick rates
-	// Skip during demo playback — prediction overwrites cl.time with realtime,
-	// which breaks the demo time gate when transitioning between demos.
+	// Skip during demo playback: the commands CL_SendMove stores then are
+	// the viewer's own input, never sent or acknowledged, and the demo's
+	// playerinfo already places the recorded player every frame.
 	if ( ! sv.active && ! cls.demoplayback ) {
 
 		CL_PredictMove();
