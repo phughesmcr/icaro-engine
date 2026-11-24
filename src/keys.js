@@ -156,9 +156,17 @@ export let key_count = 0; // incremented every key event
 // registers a callback here and Key_Event finishes the loop for it.
 let key_modal_callback = null;
 
+// Deliberate deviation (web-only input): the dialog also offers a YES / NO
+// choice, so a gamepad (A sends Enter, the d-pad sends arrows), an XR
+// controller and touch can answer it, not only the 'y' and 'n' keys. The
+// arrows move the choice and Enter takes it. It starts on NO, so the Enter
+// that opened the dialog can't confirm it.
+let key_modal_yes = false;
+
 export function Key_BeginModal( callback ) {
 
 	key_modal_callback = callback;
+	key_modal_yes = false;
 	key_count = - 1; // wait for a key down and up
 
 }
@@ -166,6 +174,26 @@ export function Key_BeginModal( callback ) {
 export function Key_ModalActive() {
 
 	return key_modal_callback !== null;
+
+}
+
+export function Key_ModalYes() {
+
+	return key_modal_yes;
+
+}
+
+export function Key_SetModalYes( yes ) {
+
+	key_modal_yes = yes;
+
+}
+
+function Key_EndModal( yes ) {
+
+	const callback = key_modal_callback;
+	key_modal_callback = null;
+	callback( yes );
 
 }
 
@@ -1264,6 +1292,7 @@ Should NOT be called during an interrupt!
 */
 export function Key_Event( key, down ) {
 
+	const wasdown = keydown[ key ];
 	keydown[ key ] = down;
 
 	if ( ! down )
@@ -1277,11 +1306,23 @@ export function Key_Event( key, down ) {
 		// SCR_ModalMessage's wait loop
 		if ( key_modal_callback !== null ) {
 
+			// Only a fresh press moves or takes the choice: not a key-up,
+			// not an autorepeat
+			const press = down && wasdown === false;
+
 			if ( key_lastpress === 121 || key_lastpress === 110 || key_lastpress === K_ESCAPE ) { // 'y', 'n'
 
-				const callback = key_modal_callback;
-				key_modal_callback = null;
-				callback( key_lastpress === 121 );
+				Key_EndModal( key_lastpress === 121 );
+
+			} else if ( press && key === K_ENTER ) {
+
+				Key_EndModal( key_modal_yes );
+
+			} else if ( press && ( key === K_LEFTARROW || key === K_RIGHTARROW
+				|| key === K_UPARROW || key === K_DOWNARROW ) ) {
+
+				key_modal_yes = ! key_modal_yes;
+				key_count = - 1;
 
 			} else {
 

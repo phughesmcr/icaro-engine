@@ -10,7 +10,7 @@ import { Draw_Character, Draw_CachePic, Draw_Pic, Draw_FadeScreen, Draw_BeginFra
 	Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
 import { Cvar_RegisterVariable, Cvar_Set, Cvar_SetValue, Cvar_VariableValue } from './cvar.js';
 import { Cmd_AddCommand } from './cmd.js';
-import { key_dest, key_game, key_console, key_message, Key_BeginModal } from './keys.js';
+import { key_dest, key_game, key_console, key_message, Key_BeginModal, Key_ModalYes } from './keys.js';
 import { realtime, host_frametime } from './host.js';
 import { renderer } from './vid.js';
 import { r_refdef as _r_refdef_canonical } from './render.js';
@@ -677,6 +677,86 @@ function SCR_DrawNotifyString() {
 		start ++; // skip the \n
 
 	}
+
+	SCR_DrawYesNo( _vid.width >> 1, SCR_ModalYesNoTop(), Key_ModalYes() );
+
+}
+
+// Top of SCR_DrawNotifyString's YES / NO row: a blank line under the text
+function SCR_ModalYesNoTop() {
+
+	const text = scr_notifystring;
+	let lines = 0;
+	for ( let i = 0; i < text.length; i ++ )
+		if ( text.charCodeAt( i ) === 10 ) lines ++; // '\n'
+	if ( text.length > 0 && text.charCodeAt( text.length - 1 ) !== 10 )
+		lines ++;
+
+	return Math.floor( _vid.height * 0.35 ) + lines * 8 + 8;
+
+}
+
+/*
+==================
+SCR_ModalYesNoAt
+
+Which choice of SCR_ModalMessage's YES / NO row is at a point in _vid
+pixels: 1 for YES, 0 for NO, -1 for neither
+==================
+*/
+export function SCR_ModalYesNoAt( x, y ) {
+
+	return SCR_YesNoHit( x, y, _vid.width >> 1, SCR_ModalYesNoTop() );
+
+}
+
+const YESNO_HIT_WIDTH = 64; // each choice's tap box, either side of x
+
+function SCR_DrawYesNoLabel( x, y, label, selected ) {
+
+	if ( selected )
+		Draw_Character( x - 12, y, 12 + ( Math.floor( realtime * 4 ) & 1 ) );
+
+	for ( let i = 0; i < label.length; i ++ )
+		Draw_Character( x + i * 8, y, label.charCodeAt( i ) + ( selected ? 0 : 128 ) );
+
+}
+
+/*
+==================
+SCR_DrawYesNo
+
+Deliberate deviation (web-only input): draws the YES / NO choice under a
+yes/no prompt (SCR_ModalMessage, the quit menu), with the blinking menu
+cursor and white text on the selected one. x is the centre of the row and
+y its top, in _vid pixels.
+==================
+*/
+export function SCR_DrawYesNo( x, y, yes ) {
+
+	SCR_DrawYesNoLabel( x - 44, y, 'YES', yes );
+	SCR_DrawYesNoLabel( x + 24, y, 'NO', ! yes );
+
+}
+
+/*
+==================
+SCR_YesNoHit
+
+Which choice of a YES / NO row drawn by SCR_DrawYesNo( rowx, rowy ) is at
+the point x, y (same units): 1 for YES, 0 for NO, -1 for neither. Each
+choice's tap box is a little larger than its text.
+==================
+*/
+export function SCR_YesNoHit( x, y, rowx, rowy ) {
+
+	if ( y < rowy - 8 || y >= rowy + 16 )
+		return - 1;
+	if ( x >= rowx - YESNO_HIT_WIDTH && x < rowx )
+		return 1;
+	if ( x >= rowx && x < rowx + YESNO_HIT_WIDTH )
+		return 0;
+	return - 1;
 
 }
 

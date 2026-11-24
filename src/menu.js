@@ -7,13 +7,15 @@ import {
 	K_ESCAPE, K_ENTER, K_UPARROW, K_DOWNARROW, K_LEFTARROW, K_RIGHTARROW,
 	K_BACKSPACE, K_DEL, K_MOUSE1, K_MOUSE2, K_MOUSE3, K_MWHEELUP, K_MWHEELDOWN,
 	key_game, key_console, key_menu, key_dest,
-	keybindings, Key_SetBinding, Key_KeynumToString, Key_Event, Key_ModalActive
+	keybindings, Key_SetBinding, Key_KeynumToString, Key_Event, Key_ModalActive,
+	Key_SetModalYes
 } from './keys.js';
 import { cl_forwardspeed } from './cl_input.js';
 import { sensitivity, m_pitch, lookspring, lookstrafe, cl_color } from './cl_main.js';
 import { volume, bgmvolume } from './sound.js';
 import { Cvar_SetValue, Cvar_VariableValue, Cvar_RegisterVariable, Cvar_FindVar } from './cvar.js';
-import { scr_viewsize, scr_con_current, SCR_ModalMessage } from './gl_screen.js';
+import { scr_viewsize, scr_con_current, SCR_ModalMessage, SCR_DrawYesNo, SCR_YesNoHit,
+	SCR_ModalYesNoAt } from './gl_screen.js';
 import { v_gamma } from './view.js';
 import { gl_texturemode, GL_UpdateTextureFiltering } from './glquake.js';
 import { skill, coop, teamplay, svs } from './server.js';
@@ -859,7 +861,8 @@ function M_SinglePlayer_Draw() {
 
 }
 
-// when the last SCR_ModalMessage opened, for M_TouchInput
+// when the last yes/no prompt (SCR_ModalMessage, the quit menu) opened,
+// for M_TouchInput and M_Quit_Touch
 let m_modal_time = 0;
 const MODAL_TOUCH_DELAY = 0.5; // seconds
 
@@ -2586,11 +2589,20 @@ function M_Credits_Touch( _vx, vy ) {
 ==============================================================================
 */
 
+// Deliberate deviation (web-only input): the quit prompt offers a YES / NO
+// choice like SCR_ModalMessage's (see keys.js Key_BeginModal), so a gamepad
+// or touch can answer it. It starts on NO.
+let m_quit_yes = false;
+const QUIT_YESNO_X = 160; // centre and top of the choice, in menu space
+const QUIT_YESNO_Y = 108; // the text box's last line
+
 function M_Menu_Quit_f() {
 
 	setKeyDest( key_menu );
 	m_state = m_quit;
 	m_entersound = true;
+	m_quit_yes = false;
+	m_modal_time = _realtime_get();
 
 }
 
@@ -2599,6 +2611,25 @@ function M_Quit_Draw() {
 	M_DrawTextBox( 56, 76, 24, 4 );
 	M_Print( 64, 84, '  Are you sure you want' );
 	M_Print( 64, 92, '  to quit? (Y/N)' );
+	SCR_DrawYesNo( QUIT_YESNO_X + ( ( _vid.width - 320 ) >> 1 ), QUIT_YESNO_Y + ( ( _vid.height - 200 ) >> 1 ), m_quit_yes );
+
+}
+
+/*
+================
+M_Quit_Yes
+
+C's M_Quit_Key runs Host_Quit_f, which shuts the engine down. A page can't
+quit, so this is a deliberate deviation: leave the game (disconnect, which
+also shuts down a local server) and go back to the main menu. The title
+screen's demo loop is not a game, so it keeps playing.
+================
+*/
+function M_Quit_Yes() {
+
+	if ( _sv.active || ( _cls.state === 2 && _cls.demoplayback === false ) ) // ca_connected
+		Cbuf_AddText( 'disconnect\n' );
+	M_Menu_Main_f();
 
 }
 
@@ -2614,7 +2645,23 @@ function M_Quit_Key( key ) {
 
 		case 121: // 'y'
 		case 89: // 'Y'
-			M_Menu_Main_f();
+			M_Quit_Yes();
+			break;
+
+		// the YES / NO choice
+		case K_LEFTARROW:
+		case K_RIGHTARROW:
+		case K_UPARROW:
+		case K_DOWNARROW:
+			if ( _S_LocalSound ) _S_LocalSound( 'misc/menu1.wav' );
+			m_quit_yes = ! m_quit_yes;
+			break;
+
+		case K_ENTER:
+			if ( m_quit_yes )
+				M_Quit_Yes();
+			else
+				M_Menu_Main_f();
 			break;
 
 	}
@@ -2722,11 +2769,11 @@ export function M_Keydown( key ) {
 				key = K_ESCAPE;
 				break;
 			case K_MWHEELUP:
-				if ( ui_mouse.value === 0 ) return;
+				if ( ui_mouse.value === 0 || m_state === m_quit ) return; // don't scroll onto YES
 				if ( m_state !== m_keys ) key = K_UPARROW;
 				break;
 			case K_MWHEELDOWN:
-				if ( ui_mouse.value === 0 ) return;
+				if ( ui_mouse.value === 0 || m_state === m_quit ) return;
 				if ( m_state !== m_keys ) key = K_DOWNARROW;
 				break;
 			default:
@@ -2952,6 +2999,14 @@ function M_UpdateHover() {
 	if ( m_mouse_valid === false || bind_grab || ui_mouse.value === 0 )
 		return;
 
+	if ( m_state === m_quit ) {
+
+		const choice = SCR_YesNoHit( m_mousex, m_mousey, QUIT_YESNO_X, QUIT_YESNO_Y );
+		if ( choice >= 0 ) m_quit_yes = choice === 1;
+		return;
+
+	}
+
 	const row = M_MenuRowAt( m_mousex, m_mousey );
 	if ( row < 0 )
 		return;
@@ -2994,8 +3049,19 @@ export function M_Mousemove( x, y, w, h ) {
 	m_mousey = m_vy;
 	m_mouse_valid = true;
 
-	if ( Key_ModalActive() )
+	if ( Key_ModalActive() ) {
+
+		// the choice under the mouse takes the selection
+		if ( ui_mouse.value !== 0 ) {
+
+			const choice = SCR_ModalYesNoAt( m_vx + ( _vid.width - 320 ) / 2, m_vy + ( _vid.height - 200 ) / 2 );
+			if ( choice >= 0 ) Key_SetModalYes( choice === 1 );
+
+		}
+
 		return;
+
+	}
 
 	M_UpdateHover();
 
@@ -3039,15 +3105,19 @@ export function M_TouchInput( touchX, touchY, screenWidth, screenHeight ) {
 	const vx = m_vx;
 	const vy = m_vy;
 
-	// SCR_ModalMessage is up: no Y key on touch, so tap top half for yes and
-	// bottom half for no, as the quit menu does. Taps right after the dialog
+	// SCR_ModalMessage is up: no Y key on touch, so a tap on its YES or NO
+	// answers it and other taps do nothing. Taps right after the dialog
 	// opens are ignored, so a double click on "New Game" can't confirm it.
 	if ( Key_ModalActive() ) {
 
 		if ( _realtime_get() - m_modal_time < MODAL_TOUCH_DELAY )
 			return;
 
-		const k = vy < 100 ? 121 : 110; // 'y' : 'n'
+		const choice = SCR_ModalYesNoAt( vx + ( _vid.width - 320 ) / 2, vy + ( _vid.height - 200 ) / 2 );
+		if ( choice < 0 )
+			return;
+
+		const k = choice === 1 ? 121 : 110; // 'y' : 'n'
 		Key_Event( k, true );
 		Key_Event( k, false );
 		return;
@@ -3279,17 +3349,17 @@ function M_Touch_Touch( vx, i ) {
 
 }
 
-// Quit menu touch - tap top half for yes, bottom half for no
-function M_Quit_Touch( _vx, vy ) {
+// Quit menu touch: a tap on YES or NO answers. Taps right after the menu
+// opens are ignored, so a double tap on "Quit" can't confirm it.
+function M_Quit_Touch( vx, vy ) {
 
-	if ( vy < 100 ) {
+	if ( _realtime_get() - m_modal_time < MODAL_TOUCH_DELAY )
+		return;
 
+	const choice = SCR_YesNoHit( vx, vy, QUIT_YESNO_X, QUIT_YESNO_Y );
+	if ( choice === 1 )
 		M_Quit_Key( 121 ); // 'y'
-
-	} else {
-
+	else if ( choice === 0 )
 		M_Quit_Key( 110 ); // 'n'
-
-	}
 
 }
