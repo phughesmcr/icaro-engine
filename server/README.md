@@ -181,9 +181,9 @@ WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on t
 
 **Tests & utilities:**
 
-- `net_webtransport_server_test.ts` — Unit tests for WebTransport packet sequencing (`deno test server/net_webtransport_server_test.ts`)
+- `../tests/net_webtransport_server_test.ts` — Unit tests for WebTransport packet sequencing (`deno task test` from the repository root)
 - `../tests/net_webtransport_server_lifecycle_test.js` and `../tests/net_webtransport_client_lifecycle_test.js` — Handshake, session-limit, timeout and close-path tests for both drivers, run against in-memory transports (`../tests/fake_webtransport.js`, `../tests/webtransport_test_env.js`)
-- `../tests/server_lobby_test.js` — Lobby and room-manager tests (`deno task test` from the repository root). The room-process test needs `--allow-run --allow-write` and is skipped without them.
+- `../tests/server_lobby_test.js` — Lobby and room-manager tests (`deno task test` from the repository root). The room-process tests need run access to `tests/fixtures/fake_room_server.sh`, write access and the `FAKE_ROOM_*` env vars (the task grants them), and are skipped without them.
 - `test_imports.js` — Smoke check verifying Deno imports of `../src/` modules (`cd server && deno run --allow-read test_imports.js`)
 
 ## Production Deployment

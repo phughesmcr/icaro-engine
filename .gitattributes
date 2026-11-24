@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.pak binary
+*.bsp binary
+*.png binary
+# Third-party map readmes: keep them byte-for-byte (CRLF)
+static/maps/*.txt -text
