@@ -15,6 +15,7 @@ import { d_lightstylevalue, r_norefresh, r_lightmap,
 	gl_mtexable, set_mirrortexturenum } from './glquake.js';
 import { mod_alias, r_worldentity, R_Init as R_Init_rmain, R_NewMap as R_NewMap_rmain, R_RenderView } from './gl_rmain.js';
 import { set_skytexturenum as set_skytexturenum_rsurf } from './gl_rsurf.js';
+import { R_ReadPointFile_f } from './r_part.js';
 import { cl, cl_entities } from './client.js';
 import { d_8to24table, renderer } from './vid.js';
 
@@ -84,31 +85,6 @@ export function R_InitParticleTexture() {
 }
 
 /*
-===============
-R_Envmap_f
-
-Grab six views for environment mapping tests.
-In Three.js, we would use CubeCamera for this.
-===============
-*/
-export function R_Envmap_f( r_refdef, scene, renderer, camera ) {
-
-	if ( ! renderer || ! scene || ! camera )
-		return;
-
-	const cubeRenderTarget = new THREE.WebGLCubeRenderTarget( 256 );
-	const cubeCamera = new THREE.CubeCamera( 1, 10000, cubeRenderTarget );
-	cubeCamera.position.copy( camera.position );
-
-	cubeCamera.update( renderer, scene );
-
-	Con_Printf( 'Environment map captured via CubeCamera\n' );
-
-	return cubeRenderTarget.texture;
-
-}
-
-/*
 ====================
 R_TimeRefresh_f
 
@@ -164,12 +140,12 @@ R_Init
 export function R_Init() {
 
 	// Register commands
-	( Cmd_AddCommand || Cmd_AddCommand_impl )( 'timerefresh', R_TimeRefresh_f );
-	if ( Cmd_AddCommand ) {
-
-		Cmd_AddCommand( 'envmap', R_Envmap_f );
-
-	}
+	const _Cmd_AddCommand = Cmd_AddCommand || Cmd_AddCommand_impl;
+	_Cmd_AddCommand( 'timerefresh', R_TimeRefresh_f );
+	_Cmd_AddCommand( 'pointfile', R_ReadPointFile_f );
+	// envmap (R_Envmap_f) is not ported: it renders six 256x256 views and
+	// writes them to env0.rgb ... env5.rgb with COM_WriteFile, a developer
+	// tool with nowhere to write in the browser.
 
 	// Register cvars
 	const _Cvar_RegisterVariable = Cvar_RegisterVariable || Cvar_RegisterVariable_impl;

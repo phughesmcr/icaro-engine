@@ -32,7 +32,7 @@ import {
 } from './touch.js';
 import { M_TouchInput } from './menu.js';
 import { Draw_GetOverlayCanvas } from './gl_draw.js';
-import { S_UnlockAudio } from './snd_dma.js';
+import { S_UnlockAudio, S_BlockSound, S_UnblockSound } from './snd_dma.js';
 import { isXRActive, XR_PollInput, XR_UpdateHUD, XR_SetSessionEndCallback, xrInput } from './webxr.js';
 
 /*
@@ -899,6 +899,29 @@ function handleBlur() {
 
 }
 
+// gl_vidnt.c AppActivate: enable/disable sound on focus gain/loss. The port
+// uses page visibility rather than window focus, so sound keeps playing while
+// another window is in front but stops when the tab is hidden. C starts
+// sound_active false and unblocks on the first activation, which drives the
+// wave-out snd_blocked to -1; the port starts it true instead.
+let sound_active = true;
+
+export function IN_SoundActivate( active ) {
+
+	if ( active === false && sound_active === true ) {
+
+		S_BlockSound();
+		sound_active = false;
+
+	} else if ( active === true && sound_active === false ) {
+
+		S_UnblockSound();
+		sound_active = true;
+
+	}
+
+}
+
 function handleVisibilityChange() {
 
 	if ( ! in_initialized ) return;
@@ -908,6 +931,8 @@ function handleVisibilityChange() {
 		IN_ClearAllStates();
 
 	}
+
+	IN_SoundActivate( document.visibilityState !== 'hidden' );
 
 }
 
@@ -1151,6 +1176,10 @@ export function IN_Init( element ) {
 	XR_SetSessionEndCallback( IN_XR_ReleaseAll );
 
 	in_initialized = true;
+
+	// a page opened in a background tab starts blocked
+	if ( document.visibilityState === 'hidden' )
+		IN_SoundActivate( false );
 
 	Con_Printf( 'Browser input initialized\n' );
 
