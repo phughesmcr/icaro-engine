@@ -1,0 +1,497 @@
+# Port inventory: every C function, cvar and command vs the JS port
+
+A second, complete pass after [`port-review.md`](port-review.md). That review
+compared behaviour function by function. This one asks a narrower question
+for every C item: **does the port have it at all?** Each item that is missing,
+inert or different was put in one of three groups:
+
+- **(a)** deliberately not ported, or replaced by a web equivalent;
+- **(b)** a real gap that a player, server admin or QuakeC could notice;
+- **(c)** dead or empty in C too.
+
+It lists gaps only. It fixes nothing.
+
+## Snapshot
+
+- Port: `dev` at `06d4414` (after #31–#33).
+- C: [id-Software/Quake](https://github.com/id-Software/Quake) `WinQuake/`
+  at `bf4ac42`, the same tree `docs/port-review.md` used.
+- Script: [`tools/port_inventory.py`](../tools/port_inventory.py) (Python 3,
+  standard library only). To regenerate the raw tables:
+
+  ```bash
+  python3 tools/port_inventory.py <path>/WinQuake . > inventory.tsv
+  python3 tools/port_inventory.py <path>/WinQuake . --platform > platform.tsv
+  ```
+
+## Method
+
+**Files.** The scan covers the GLQuake build's object list
+(`Makefile.linuxi386` `GLQUAKE_OBJS`) minus the platform drivers, plus
+`cd_audio.c`, because `src/cd_audio.js` cites it. That makes 45 files:
+`cl_*`, `chase`, `cmd`, `common`, `console`, `crc`, `cvar`, `gl_*` (not
+`gl_vid*` or `gl_test`), `host*`, `keys`, `menu`, `mathlib`,
+`net_loop`, `net_main`, `pr_*`, `r_part`, `sbar`, `sv_*`, `zone`, `view`,
+`wad`, `world`, `snd_dma`, `snd_mem` and `snd_mix`. The software renderer
+(`r_*` except `r_part`, `d_*`, `draw.c`, `model.c`, `screen.c`) is not in
+GLQuake, so it is out of scope. The Win32 GLQuake drivers (`gl_vidnt`,
+`in_win`, `cd_win`, `snd_win`, `sys_win`, `net_dgrm`, `net_win*`,
+`net_vcr`, `conproc`) were scanned separately for cvars and commands only.
+
+**Matching.** For each C item, the script looks for a same-named counterpart
+in `src/`, `server/` and `main.js`:
+
+- **Functions:** a JS definition. An empty or constant-return body is flagged
+  `stub`, but only when every same-named definition is one.
+- **Cvars:** a `new cvar_t( 'name', ... )` or `{ name: 'name', ... }`. The
+  script also compares:
+  - the default value, the archive flag and the server flag;
+  - whether the cvar is passed to `Cvar_RegisterVariable`;
+  - whether JS ever reads a cvar that C reads.
+- **Commands:** a `Cmd_AddCommand( 'name', handler )`. A handler with a
+  different name is flagged `handler`.
+
+The script also records the preprocessor conditions around each item and
+counts its C call sites. Zero callers, or a `QUAKE2`/`IDGODS` block, is the
+mechanical test for (c). Every non-matching row was then read on both sides.
+The (b) rows were checked against the C source, with file and line.
+
+**Extra checks, not by name:**
+
+- the `pr_builtin` table, entry by entry: all 79 match the C order;
+- every `COM_CheckParm` argument (see below).
+
+**What name matching cannot see:**
+
+- a function that exists but is ported only in part;
+- missing `switch` cases;
+- differences inside a body.
+
+For those, use `port-review.md`.
+
+## Counts (core files)
+
+| Kind | Total | Matched | Not matched | (a) | (b) | (c) |
+|---|---|---|---|---|---|---|
+| functions | 927 | 763 | 164 | 102 | 13 | 49 |
+| cvars | 149 | 124 | 25 | 12 | 8 | 5 |
+| commands | 131 | 118 | 13 | 2 | 9 | 2 |
+
+## Ranked gaps (b)
+
+Ranked by how many players would notice. Each one was checked in the C and
+JS sources cited. None of them is in `port-review.md`. Each could be its
+own fix PR.
+
+### G1 · Submerged walls and floors don't wobble — **medium-high**
+
+- **C:**
+  - `Mod_LoadLeafs` sets `SURF_UNDERWATER` on every surface in a water, slime
+    or lava leaf (`gl_model.c:937`).
+  - `R_RenderBrushPoly` then draws those surfaces with `DrawGLWaterPoly`
+    (`gl_rsurf.c:779`, also `:394` and `:575`). That moves each vertex by up
+    to 8 units: `8*sin(y*0.05+realtime)*sin(z*0.05+realtime)`
+    (`gl_rsurf.c:593`).
+- **JS:**
+  - The flag is set (`src/gl_model.js:1959`), and `DrawGLWaterPoly` is ported
+    (`src/gl_rsurf.js:631`), but nothing calls it.
+  - `R_RenderBrushPoly` and `R_DrawSequentialPoly` (`src/gl_rsurf.js:917`,
+    `:973`) draw those surfaces as normal lightmapped polys.
+- **Seen:** in GLQuake, geometry under water, slime or lava sways. In the
+  port it is still. This affects most maps.
+- **Fix:** the world is one BatchedMesh, so the fix probably needs a
+  vertex-shader path for surfaces with `SURF_UNDERWATER`.
+- **Not affected:** the water surface's own texture warp, and the
+  no-lightmap rule for turbulent surfaces, both match C.
+
+### G2 · Help screens replaced by a credits page — **medium**
+
+- **C:** the main menu's fourth item (`case 3`) and the `help` command open
+  `M_Menu_Help_f`. That screen pages through `gfx/help0.lmp`–`help5.lmp`
+  with the arrow keys (`menu.c:349`, `:1535-1575`, `:3016`).
+- **JS:** both open `M_Menu_Credits_f` instead (`src/menu.js:812`,
+  `:2618`). That is a hand-drawn text box that links to the GitHub repo.
+  `m_help` is declared but has no handler. No comment explains the change.
+- **Seen:** players lose the in-game controls and help pages that ship in
+  `pak0.pak`.
+- **Fix:** either restore Help (it can keep a credits entry elsewhere), or
+  note the deviation in `port-review.md` §7.
+
+### G3 · `gl_texturemode` is a 0/1 cvar, not the C command — **medium**
+
+- **C:** `gl_texturemode` is a command (`gl_draw.c:320-361`, registered
+  at `:390`).
+  - It takes one of the six `GL_NEAREST` … `GL_LINEAR_MIPMAP_LINEAR` names.
+  - It re-filters every loaded mipmapped texture.
+  - With no argument, it prints the current mode.
+  - The default is `GL_LINEAR_MIPMAP_NEAREST`, which looks smooth
+    (`gl_draw.c:54`).
+- **JS:** it is an archived 0/1 cvar that defaults to 0, nearest (pixelated)
+  (`src/glquake.js:277`).
+  - Existing textures are re-filtered only from the Options menu
+    (`src/menu.js:1710`, `GL_UpdateTextureFiltering`). Typing
+    `gl_texturemode 1` affects only textures created afterwards.
+  - A config line like `gl_texturemode GL_LINEAR_MIPMAP_LINEAR` parses as 0.
+- **Seen:**
+  - The default look differs from GLQuake.
+  - The console form doesn't work.
+  - Configs written for GLQuake fall back to nearest.
+- **Fix:** the default may be a deliberate pixel-art choice. If it stays,
+  comment it and note it in `port-review.md` §7.
+
+### G4 · Game Options menu lacks Frag Limit and Time Limit — **medium (multiplayer hosts)**
+
+- **C:** `M_GameOptions_Draw`/`Key` has nine rows, including fraglimit
+  (0–100 in steps of 10) and timelimit (0–60 in steps of 5) (`menu.c:2537`,
+  `:2610-2619`, `:2717-2728`). `maxplayers` goes up to `svs.maxclientslimit`,
+  which is 4 unless `-listen`/`-dedicated` asks for more (`host.c:181-194`).
+- **JS:** it has seven rows (`src/menu.js:139-140`). There are no fraglimit
+  or timelimit rows, so Episode and Level move up 8 px. The maxplayers cap
+  is a hard-coded 4 (`src/menu.js:1470`) rather than `svs.maxclientslimit`,
+  which gives the same result at default settings.
+- **Seen:** a host can set limits only from the console before creating a
+  room.
+- **Fix:** starting the match as a WebTransport room instead of
+  `listen`/`map` is deliberate (port-review §7). The missing rows are not.
+
+### G5 · Crosshair defaults on, isn't saved, and is drawn differently — **low-medium**
+
+- **C:** `crosshair` defaults to `"0"` and is archived (`view.c:61`).
+  `SCR_UpdateScreen` draws `+` at the centre of `scr_vrect`, including
+  during demos (`gl_screen.c:906`).
+- **JS:**
+  - The default is `'1'` and the cvar is not archived (`src/view.js:71`).
+  - The crosshair is drawn at the centre of the screen and offset by
+    `cl_crossx`/`cl_crossy`. In C those two only affect the software
+    renderer (`view.c:1056`, `#ifndef GLQUAKE`).
+  - It is hidden during demo playback (`src/gl_screen.js:884`).
+- **Seen:** a new player gets a crosshair. Turning it off in Options isn't
+  remembered across sessions.
+
+### G6 · 2D UI scale differs from GLQuake's 640-wide console — **low-medium**
+
+- **C:** `gl_vidnt.c:1774-1777` sets `vid.conwidth` to 640 by default (or
+  from `-conwidth`/`-conheight`), and the height follows the window's aspect
+  ratio. The HUD, menus and console are laid out on a 640-wide virtual screen
+  (640×360 at 16:9) stretched to the window.
+- **JS:**
+  - `src/gl_draw.js:78-105` uses an integer scale of
+    `floor(height / 240)`, with a minimum virtual width of 320. At 1080p
+    that gives about 480×270 (scale 4, against C's 3), so 2D elements are
+    about 1.3× larger than in GLQuake.
+  - `scr_conheight` and `uiscale+`/`uiscale-` adjust it, and there is no
+    `-conwidth`.
+- **Seen:** larger HUD and menus. This is probably a deliberate readability
+  choice, but it is not listed in port-review §7.
+
+### G7 · No version string on the console background — **low**
+
+- **C:** `Draw_Init` stamps `(gl 1.00) 1.09` onto `gfx/conback.lmp`, in the
+  bottom-right corner (`gl_draw.c:410-419`, `Draw_CharToConback`).
+- **JS:** `_loadConback` (`src/gl_draw.js:376-405`) uses the picture
+  unchanged.
+
+### G8 · `sv_gravity`, `sv_friction`, `sv_maxspeed` lack the server flag — **low**
+
+- **C:** these three cvars are declared `server` (`sv_phys.c:42`, `:44`;
+  `sv_user.c:167`). `Cvar_Set` therefore broadcasts
+  `"sv_gravity" changed to "200"` to every player (`cvar.c:123-127`).
+- **JS:** the broadcast exists (`src/cvar.js:183`) and the other server
+  cvars use it (`src/host.js:82-87`). These three are created without the
+  flag (`src/sv_phys.js:189-194`).
+- **Seen:** players aren't told when the host or QuakeC changes gravity or
+  speed. This is separate from port-review's "movevars sent once" note
+  (Part 2), which is about prediction.
+- **Fix:** one token per cvar. Every other cvar's default and flags match C.
+
+### G9 · Missing console commands — **low**
+
+- **`version`:** `Host_Version_f` (`host_cmd.c:949`, `:1896`). Typing
+  `version` gives "Unknown command".
+- **`mcache`:** the function exists (`Mod_Print`, `src/gl_model.js:2949`)
+  but is never registered (C: `host_cmd.c:1924`).
+- **`flush`:** `Cache_Flush` (`src/zone.js:262`) exists but is never
+  registered (C: `zone.c:814`). Under GC it would do nothing, so
+  registering it only avoids "Unknown command".
+- **`viewmodel`, `viewframe`, `viewnext`, `viewprev`:** these step through
+  the frames of a `viewthing` entity (`host_cmd.c:1670-1790`). They matter
+  to modders only.
+
+### G10 · Inert debug cvars and parms — **low**
+
+- **`host_speeds` and `serverprofile`:** registered (`src/host.js:77`,
+  `:80`) but never read. In C they print per-frame timings
+  (`host.c:697-720`, `:736-762`).
+- **`-particles <n>`:** ignored. `MAX_PARTICLES` is fixed at 2048
+  (`src/r_part.js:13`), the same as C's default (`r_part.c:50-58`).
+
+## Command-line parms
+
+C's `COM_CheckParm` arguments that JS never checks. The browser builds
+`com_argv` from the URL (`main.js:30-47`: `?game=` → `-rogue`/`-hipnotic`).
+The room server builds it from its own flags (`server/game_server.js:200`).
+
+| Parm | C | Verdict |
+|---|---|---|
+| `-particles` | `r_part.c` | (b) G10 |
+| `-conwidth`, `-conheight` | `gl_vidnt.c` | (b) G6 |
+| `-game`, `-basedir`, `-path`, `-cachedir`, `-proghack` | `common.c` | (a) no filesystem; `?game=` covers the mission packs |
+| `-dedicated` | `host.c`, `sys_win.c` | (a) `game_server.js` is always dedicated, the browser never |
+| `-condebug` | `console.c` | (a) no log file in the browser |
+| `-nosound`, `-simsound` | `snd_dma.c` | (a) the `nosound` cvar replaces the parm |
+| `-record`, `-playback` | `host.c`, `net_main.c` | (a) VCR network debugging |
+| `-minmemory`, `-zone`, `-heapsize` | `host.c`, `zone.c`, `sys_win.c` | (a) GC |
+| `-lm_1` … `-lm_i`, `-nomtex`, `-no8bit`, `-gl11` | `gl_rsurf.c`, `gl_vidnt.c` | (a) GL formats and extensions |
+| `-width`, `-height`, `-bpp`, `-window`, `-mode`, `-current`, `-force`, `-fullsbar`, `-noadjustaspect` | `gl_vidnt.c` | (a) the canvas follows the browser window |
+| `-dinput`, `-nomouse`, `-nojoy`, `-noforcem*` | `in_win.c` | (a) browser input |
+| `-ip`, `-noudp`, `-nolan` | `net_wins.c`, `net_dgrm.c` | (a) WebTransport |
+| `-primarysound`, `-snoforceformat`, `-wavonly` | `snd_win.c` | (a) Web Audio |
+| `-HFILE`, `-HPARENT`, `-HCHILD`, `-starttime` | `sys_win.c` | (a) Win32 |
+
+These are ported: `-rogue`, `-hipnotic`, `-port`, `-udpport`, `-ipxport`,
+`-listen`, `-nocdaudio` and `-gamma`.
+
+## Platform files (cvars and commands only)
+
+All (a):
+
+- **`gl_vidnt.c`:**
+  - `vid_mode`, `_vid_default_mode*`, `vid_wait`, `vid_nopageflip`,
+    `_vid_wait_override`, `vid_config_x`/`_y`, `vid_stretch_by_2` and the
+    `vid_describe*`/`vid_nummodes` commands: the video-mode menu is omitted
+    (port-review §7).
+  - `_windowed_mouse`: replaced by pointer lock.
+  - `gl_ztrick`: registered and commented obsolete (`src/glquake.js:270`).
+- **`in_win.c`:**
+  - the 19 `joy*` cvars and `joyadvancedupdate`: replaced by the Gamepad
+    API in `src/in_web.js`.
+  - `m_filter` is ported.
+  - `force_centerview` is registered with the handler `IN_ForceCenterView`.
+- **`net_dgrm.c`:** `net_stats`, `test`, `test2` and `ban` (`BAN_TEST`):
+  UDP datagram diagnostics and IP bans, with no WebTransport counterpart.
+  The `ban` string in `src/sv_user.js` is the client-command allow-list,
+  as in C `sv_user.c`.
+- **`cd_win.c`:** `cd` is ported.
+
+## Every non-matching item
+
+Rows marked `mentioned` or `string-only` have no definition or registration.
+The name appears only in a comment, a string, or as a different symbol.
+`QUAKE2`, `IDGODS` and `FPS_20` are never defined in the GLQuake build.
+
+### (a) Deliberately not ported or replaced: 116
+
+| Kind | C name | C source | JS status | Reason |
+|---|---|---|---|---|
+| function | `RedBookToSector` | `cd_audio.c:245` | missing | DOS MSCDEX driver code; `cd_audio.js` plays music files instead |
+| function | `CDAudio_Reset` | `cd_audio.c:258` | missing | DOS MSCDEX driver code; `cd_audio.js` plays music files instead |
+| function | `CDAudio_Eject` | `cd_audio.c:282` | missing | DOS MSCDEX driver code; `cd_audio.js` plays music files instead |
+| function | `CDAudio_GetAudioTrackInfo` | `cd_audio.c:306` | missing | DOS MSCDEX driver code; `cd_audio.js` plays music files instead |
+| function | `CDAudio_GetAudioDiskInfo` | `cd_audio.c:343` | missing | DOS MSCDEX driver code; `cd_audio.js` plays music files instead |
+| function | `CDAudio_GetAudioStatus` | `cd_audio.c:393` | missing | DOS MSCDEX driver code; `cd_audio.js` plays music files instead |
+| function | `CDAudio_MediaChange` | `cd_audio.c:421` | missing | DOS MSCDEX driver code; `cd_audio.js` plays music files instead |
+| function | `CDAudio_SetVolume` | `cd_audio.c:449` | missing | DOS MSCDEX driver code; `cd_audio.js` plays music files instead |
+| function | `CopyString` | `cmd.c:332` | missing | C string/memory helpers; JS strings and typed arrays |
+| function | `Q_memset` | `common.c:138` | mentioned (`src/snd_dma.js`) | C string/memory helpers; JS strings and typed arrays |
+| function | `Q_memcpy` | `common.c:154` | missing | C string/memory helpers; JS strings and typed arrays |
+| function | `Q_memcmp` | `common.c:169` | missing | C string/memory helpers; JS strings and typed arrays |
+| function | `Q_strcpy` | `common.c:180` | missing | C string/memory helpers; JS strings and typed arrays |
+| function | `Q_strncpy` | `common.c:189` | missing | C string/memory helpers; JS strings and typed arrays |
+| function | `Q_strlen` | `common.c:199` | missing | C string/memory helpers; JS strings and typed arrays |
+| function | `Q_strrchr` | `common.c:210` | missing | C string/memory helpers; JS strings and typed arrays |
+| function | `Q_strcat` | `common.c:219` | missing | C string/memory helpers; JS strings and typed arrays |
+| function | `Q_strcmp` | `common.c:225` | missing | C string/memory helpers; JS strings and typed arrays |
+| function | `Q_strncmp` | `common.c:240` | missing | C string/memory helpers; JS strings and typed arrays |
+| function | `Q_strcasecmp` | `common.c:287` | missing | C string/memory helpers; JS strings and typed arrays |
+| function | `ShortSwap` | `common.c:443` | missing | byte-order helpers; DataView little-endian reads |
+| function | `ShortNoSwap` | `common.c:453` | missing | byte-order helpers; DataView little-endian reads |
+| function | `LongSwap` | `common.c:458` | missing | byte-order helpers; DataView little-endian reads |
+| function | `LongNoSwap` | `common.c:470` | missing | byte-order helpers; DataView little-endian reads |
+| function | `FloatSwap` | `common.c:475` | missing | byte-order helpers; DataView little-endian reads |
+| function | `FloatNoSwap` | `common.c:492` | missing | byte-order helpers; DataView little-endian reads |
+| command | `path` | `common.c:1153` | mentioned (`src/cl_main.js`) | filesystem/search paths; replaced by fetch + `pak.js` (server: `-pak`), `?game=` replaces `-game` |
+| function | `va` | `common.c:1169` | mentioned (`src/cvar.js`) | C string/memory helpers; JS strings and typed arrays |
+| function | `COM_Path_f` | `common.c:1258` | missing | filesystem/search paths; replaced by fetch + `pak.js` (server: `-pak`), `?game=` replaces `-game` |
+| function | `COM_WriteFile` | `common.c:1281` | mentioned (`src/gl_rmisc.js`) | filesystem/search paths; replaced by fetch + `pak.js` (server: `-pak`), `?game=` replaces `-game` |
+| function | `COM_CreatePath` | `common.c:1308` | missing | filesystem/search paths; replaced by fetch + `pak.js` (server: `-pak`), `?game=` replaces `-game` |
+| function | `COM_CopyFile` | `common.c:1332` | missing | filesystem/search paths; replaced by fetch + `pak.js` (server: `-pak`), `?game=` replaces `-game` |
+| function | `COM_OpenFile` | `common.c:1485` | missing | filesystem/search paths; replaced by fetch + `pak.js` (server: `-pak`), `?game=` replaces `-game` |
+| function | `COM_FOpenFile` | `common.c:1498` | missing | filesystem/search paths; replaced by fetch + `pak.js` (server: `-pak`), `?game=` replaces `-game` |
+| function | `COM_CloseFile` | `common.c:1510` | missing | filesystem/search paths; replaced by fetch + `pak.js` (server: `-pak`), `?game=` replaces `-game` |
+| function | `COM_LoadHunkFile` | `common.c:1581` | missing | filesystem/search paths; replaced by fetch + `pak.js` (server: `-pak`), `?game=` replaces `-game` |
+| function | `COM_LoadTempFile` | `common.c:1586` | missing | filesystem/search paths; replaced by fetch + `pak.js` (server: `-pak`), `?game=` replaces `-game` |
+| function | `COM_LoadCacheFile` | `common.c:1591` | missing | filesystem/search paths; replaced by fetch + `pak.js` (server: `-pak`), `?game=` replaces `-game` |
+| function | `COM_LoadStackFile` | `common.c:1598` | missing | filesystem/search paths; replaced by fetch + `pak.js` (server: `-pak`), `?game=` replaces `-game` |
+| function | `COM_InitFilesystem` | `common.c:1732` | mentioned (`server/game_server.js`) | filesystem/search paths; replaced by fetch + `pak.js` (server: `-pak`), `?game=` replaces `-game` |
+| function | `Con_DebugLog` | `console.c:353` | missing | `-condebug` log file; no filesystem in the browser |
+| cvar | `gl_nobind` | `gl_draw.c:30` | missing | debug cvar that binds the charset to every surface |
+| function | `Scrap_AllocBlock` | `gl_draw.c:109` | missing | GL texture upload/atlas plumbing; Three.js textures, `GL_ResampleTexture8` covers picmip |
+| function | `Scrap_Upload` | `gl_draw.c:152` | missing | GL texture upload/atlas plumbing; Three.js textures, `GL_ResampleTexture8` covers picmip |
+| function | `Draw_AlphaPic` | `gl_draw.c:568` | missing | its one use (`Draw_ConsoleBackground` fade) is done with canvas `globalAlpha` |
+| function | `GL_Set2D` | `gl_draw.c:836` | stub (`src/gl_draw.js`) | GL state; canvas 2D / Three.js (commented in code) |
+| function | `GL_ResampleTexture` | `gl_draw.c:882` | mentioned (`src/glquake.js`) | GL texture upload/atlas plumbing; Three.js textures, `GL_ResampleTexture8` covers picmip |
+| function | `GL_Resample8BitTexture` | `gl_draw.c:912` | missing | GL texture upload/atlas plumbing; Three.js textures, `GL_ResampleTexture8` covers picmip |
+| function | `GL_MipMap` | `gl_draw.c:945` | missing | GL texture upload/atlas plumbing; Three.js textures, `GL_ResampleTexture8` covers picmip |
+| function | `GL_MipMap8Bit` | `gl_draw.c:972` | missing | GL texture upload/atlas plumbing; Three.js textures, `GL_ResampleTexture8` covers picmip |
+| function | `GL_Upload32` | `gl_draw.c:1004` | stub (`src/gl_draw.js`) | GL texture upload/atlas plumbing; Three.js textures, `GL_ResampleTexture8` covers picmip |
+| function | `GL_Upload8_EXT` | `gl_draw.c:1089` | missing | GL texture upload/atlas plumbing; Three.js textures, `GL_ResampleTexture8` covers picmip |
+| function | `GL_LoadPicTexture` | `gl_draw.c:1278` | missing | GL texture upload/atlas plumbing; Three.js textures, `GL_ResampleTexture8` covers picmip |
+| function | `GL_SelectTexture` | `gl_draw.c:1287` | missing | GL texture upload/atlas plumbing; Three.js textures, `GL_ResampleTexture8` covers picmip |
+| cvar | `gl_smoothmodels` | `gl_rmain.c:92` | differs (`src/glquake.js`): C reads it, JS never does | GL hints with no WebGL equivalent; commented obsolete (`gl_rmisc.js`) |
+| cvar | `gl_affinemodels` | `gl_rmain.c:93` | differs (`src/glquake.js`): C reads it, JS never does | GL hints with no WebGL equivalent; commented obsolete (`gl_rmisc.js`) |
+| function | `R_RotateForEntity` | `gl_rmain.c:122` | mentioned (`src/gl_mesh.js`) | Three.js camera and mesh transforms (same near/far 4/4096, same rotation order; Hor+ FOV is listed in port-review §7) |
+| function | `MYgluPerspective` | `gl_rmain.c:844` | missing | Three.js camera and mesh transforms (same near/far 4/4096, same rotation order; Hor+ FOV is listed in port-review §7) |
+| function | `R_Envmap_f` | `gl_rmisc.c:106` | mentioned (`src/gl_rmisc.js`) | removed on purpose in #33 (developer tool that writes files) |
+| command | `envmap` | `gl_rmisc.c:177` | mentioned (`src/gl_rmisc.js`) | removed on purpose in #33 (developer tool that writes files) |
+| function | `GL_DisableMultitexture` | `gl_rsurf.c:286` | stub (`src/glquake.js`) | GL state; canvas 2D / Three.js (commented in code) |
+| function | `GL_EnableMultitexture` | `gl_rsurf.c:295` | stub (`src/glquake.js`) | GL state; canvas 2D / Three.js (commented in code) |
+| function | `EmitWaterPolys` | `gl_warp.c:194` | missing | ported as `EmitWaterPolysQuake`/`EmitSkyPolysQuake` (same turbsin, scale and sky speeds) |
+| function | `EmitSkyPolys` | `gl_warp.c:231` | missing | ported as `EmitWaterPolysQuake`/`EmitSkyPolysQuake` (same turbsin, scale and sky speeds) |
+| function | `EmitBothSkyLayers` | `gl_warp.c:274` | missing | ported as `EmitWaterPolysQuake`/`EmitSkyPolysQuake` (same turbsin, scale and sky speeds) |
+| function | `Host_ClientCommands` | `host.c:322` | missing | inlined into `PF_stuffcmd`, its only caller |
+| function | `Host_FilterTime` | `host.c:501` | mentioned (`src/cl_pred.js`) | folded into `Host_Frame` / `cl_pred.js` timing |
+| function | `Host_GetConsoleCommands` | `host.c:532` | missing | dedicated-server stdin console; room servers are lobby-managed and only watch stdin for EOF (`server/game_server.js`) |
+| function | `_Host_Frame` | `host.c:633` | missing | folded into `Host_Frame` / `cl_pred.js` timing |
+| function | `Host_InitVCR` | `host.c:772` | missing | VCR demo recorder (`-record`/`-playback`) for network debugging |
+| function | `BOPS_Error` | `mathlib.c:174` | missing | assembly helper for `BoxOnPlaneSide` |
+| function | `M_Menu_Net_f` | `menu.c:885` | missing | transport menus; replaced by the WebTransport room list (`M_Menu_LanConfig_f`/`M_FetchRooms`), see port-review §7 |
+| function | `M_Net_Draw` | `menu.c:899` | missing | transport menus; replaced by the WebTransport room list (`M_Menu_LanConfig_f`/`M_FetchRooms`), see port-review §7 |
+| function | `M_Net_Key` | `menu.c:978` | missing | transport menus; replaced by the WebTransport room list (`M_Menu_LanConfig_f`/`M_FetchRooms`), see port-review §7 |
+| function | `M_Menu_SerialConfig_f` | `menu.c:1733` | missing | transport menus; replaced by the WebTransport room list (`M_Menu_LanConfig_f`/`M_FetchRooms`), see port-review §7 |
+| function | `M_SerialConfig_Draw` | `menu.c:1774` | missing | transport menus; replaced by the WebTransport room list (`M_Menu_LanConfig_f`/`M_FetchRooms`), see port-review §7 |
+| function | `M_SerialConfig_Key` | `menu.c:1841` | missing | transport menus; replaced by the WebTransport room list (`M_Menu_LanConfig_f`/`M_FetchRooms`), see port-review §7 |
+| function | `M_Menu_ModemConfig_f` | `menu.c:2017` | missing | transport menus; replaced by the WebTransport room list (`M_Menu_LanConfig_f`/`M_FetchRooms`), see port-review §7 |
+| function | `M_ModemConfig_Draw` | `menu.c:2026` | missing | transport menus; replaced by the WebTransport room list (`M_Menu_LanConfig_f`/`M_FetchRooms`), see port-review §7 |
+| function | `M_ModemConfig_Key` | `menu.c:2067` | missing | transport menus; replaced by the WebTransport room list (`M_Menu_LanConfig_f`/`M_FetchRooms`), see port-review §7 |
+| function | `M_Menu_Search_f` | `menu.c:2842` | missing | transport menus; replaced by the WebTransport room list (`M_Menu_LanConfig_f`/`M_FetchRooms`), see port-review §7 |
+| function | `M_Search_Draw` | `menu.c:2855` | missing | transport menus; replaced by the WebTransport room list (`M_Menu_LanConfig_f`/`M_FetchRooms`), see port-review §7 |
+| function | `M_Search_Key` | `menu.c:2892` | missing | transport menus; replaced by the WebTransport room list (`M_Menu_LanConfig_f`/`M_FetchRooms`), see port-review §7 |
+| function | `M_Menu_ServerList_f` | `menu.c:2902` | missing | transport menus; replaced by the WebTransport room list (`M_Menu_LanConfig_f`/`M_FetchRooms`), see port-review §7 |
+| function | `M_ServerList_Draw` | `menu.c:2914` | missing | transport menus; replaced by the WebTransport room list (`M_Menu_LanConfig_f`/`M_FetchRooms`), see port-review §7 |
+| function | `M_ServerList_Key` | `menu.c:2955` | missing | transport menus; replaced by the WebTransport room list (`M_Menu_LanConfig_f`/`M_FetchRooms`), see port-review §7 |
+| function | `M_ConfigureNetSubsystem` | `menu.c:3219` | missing | transport menus; replaced by the WebTransport room list (`M_Menu_LanConfig_f`/`M_FetchRooms`), see port-review §7 |
+| function | `Loop_Init` | `net_loop.c:29` | stub (`src/net_loop.js`) | trivial in C too; `Loop_Init` always succeeds because the browser is never dedicated (commented) |
+| function | `Loop_Shutdown` | `net_loop.c:37` | stub (`src/net_loop.js`) | trivial in C too; `Loop_Init` always succeeds because the browser is never dedicated (commented) |
+| function | `Loop_Listen` | `net_loop.c:42` | stub (`src/net_loop.js`) | trivial in C too; `Loop_Init` always succeeds because the browser is never dedicated (commented) |
+| function | `Loop_CanSendUnreliableMessage` | `net_loop.c:228` | stub (`src/net_loop.js`) | trivial in C too; `Loop_Init` always succeeds because the browser is never dedicated (commented) |
+| cvar | `_config_com_port` | `net_main.c:70` | missing | serial/modem settings |
+| cvar | `_config_com_irq` | `net_main.c:71` | missing | serial/modem settings |
+| cvar | `_config_com_baud` | `net_main.c:72` | missing | serial/modem settings |
+| cvar | `_config_com_modem` | `net_main.c:73` | missing | serial/modem settings |
+| cvar | `_config_modem_dialtype` | `net_main.c:74` | missing | serial/modem settings |
+| cvar | `_config_modem_clear` | `net_main.c:75` | missing | serial/modem settings |
+| cvar | `_config_modem_init` | `net_main.c:76` | missing | serial/modem settings |
+| cvar | `_config_modem_hangup` | `net_main.c:77` | missing | serial/modem settings |
+| function | `SetMinMaxSize` | `pr_cmds.c:132` | missing | inlined into `PF_setsize`; its `rotate` path is disabled in C (`rotate = false`) |
+| function | `Sbar_DrawTransPic` | `sbar.c:273` | missing | its one use (`Sbar_DrawNum`) calls `Sbar_DrawPic`; same blending under GL |
+| function | `Sbar_itoa` | `sbar.c:314` | mentioned (`src/sbar.js`) | inlined into `Sbar_DrawNum` (commented) |
+| cvar | `_snd_mixahead` | `snd_dma.c:82` | missing | DMA mix-ahead; Web Audio schedules its own |
+| function | `GetSoundtime` | `snd_dma.c:810` | mentioned (`src/snd_dma.js`) | DMA mixing; Web Audio (port-review §7) |
+| function | `S_Update_` | `snd_dma.c:856` | mentioned (`src/snd_dma.js`) | DMA mixing; Web Audio (port-review §7) |
+| function | `Z_ClearZone` | `zone.c:74` | missing | zone/hunk/cache allocator; garbage collection |
+| function | `Z_Free` | `zone.c:99` | stub (`src/zone.js`) | zone/hunk/cache allocator; garbage collection |
+| function | `Z_TagMalloc` | `zone.c:155` | missing | zone/hunk/cache allocator; garbage collection |
+| function | `Z_CheckHeap` | `zone.c:247` | missing | zone/hunk/cache allocator; garbage collection |
+| function | `Hunk_Check` | `zone.c:293` | stub (`src/zone.js`) | zone/hunk/cache allocator; garbage collection |
+| function | `Cache_Move` | `zone.c:575` | missing | zone/hunk/cache allocator; garbage collection |
+| function | `Cache_FreeLow` | `zone.c:606` | missing | zone/hunk/cache allocator; garbage collection |
+| function | `Cache_FreeHigh` | `zone.c:628` | missing | zone/hunk/cache allocator; garbage collection |
+| function | `Cache_UnlinkLRU` | `zone.c:650` | missing | zone/hunk/cache allocator; garbage collection |
+| function | `Cache_MakeLRU` | `zone.c:661` | missing | zone/hunk/cache allocator; garbage collection |
+| function | `Cache_TryAlloc` | `zone.c:680` | missing | zone/hunk/cache allocator; garbage collection |
+
+### (b) Real gaps (ranked list below): 30
+
+| Kind | C name | C source | JS status | Reason |
+|---|---|---|---|---|
+| function | `Draw_CharToConback` | `gl_draw.c:276` | missing | G7: conback version string |
+| function | `Draw_TextureMode_f` | `gl_draw.c:320` | missing | G3: `gl_texturemode` is a 0/1 cvar, not the C command |
+| command | `gl_texturemode` | `gl_draw.c:390` | string-only (`src/glquake.js`) | G3: `gl_texturemode` is a 0/1 cvar, not the C command |
+| function | `DrawGLWaterPolyLightmap` | `gl_rsurf.c:617` | missing | G1: submerged surfaces do not wobble (`DrawGLWaterPoly` is never called) |
+| cvar | `host_speeds` | `host.c:58` | differs (`src/host.js`): C reads it, JS never does | G10: registered but inert |
+| cvar | `serverprofile` | `host.c:61` | differs (`src/host.js`): C reads it, JS never does | G10: registered but inert |
+| cvar | `fraglimit` | `host.c:63` | differs (`src/host.js`): C reads it, JS never does | G4: C reads these only in the Game Options menu, which lacks the rows |
+| cvar | `timelimit` | `host.c:64` | differs (`src/host.js`): C reads it, JS never does | G4: C reads these only in the Game Options menu, which lacks the rows |
+| function | `Host_Version_f` | `host_cmd.c:949` | missing | G9: `version` command |
+| function | `FindViewthing` | `host_cmd.c:1670` | missing | G9: viewthing model-inspection commands |
+| function | `Host_Viewmodel_f` | `host_cmd.c:1690` | missing | G9: viewthing model-inspection commands |
+| function | `Host_Viewframe_f` | `host_cmd.c:1715` | missing | G9: viewthing model-inspection commands |
+| function | `PrintFrameName` | `host_cmd.c:1734` | missing | G9: viewthing model-inspection commands |
+| function | `Host_Viewnext_f` | `host_cmd.c:1752` | missing | G9: viewthing model-inspection commands |
+| function | `Host_Viewprev_f` | `host_cmd.c:1774` | missing | G9: viewthing model-inspection commands |
+| command | `version` | `host_cmd.c:1896` | mentioned (`src/cl_parse.js`) | G9: `version` command |
+| command | `viewmodel` | `host_cmd.c:1919` | mentioned (`src/gl_mesh.js`) | G9: viewthing model-inspection commands |
+| command | `viewframe` | `host_cmd.c:1920` | missing | G9: viewthing model-inspection commands |
+| command | `viewnext` | `host_cmd.c:1921` | missing | G9: viewthing model-inspection commands |
+| command | `viewprev` | `host_cmd.c:1922` | missing | G9: viewthing model-inspection commands |
+| command | `mcache` | `host_cmd.c:1924` | missing | G9: `Mod_Print` exists but is not registered |
+| function | `M_Menu_Help_f` | `menu.c:1535` | missing | G2: help pages replaced by a credits screen |
+| function | `M_Help_Draw` | `menu.c:1545` | missing | G2: help pages replaced by a credits screen |
+| function | `M_Help_Key` | `menu.c:1551` | missing | G2: help pages replaced by a credits screen |
+| command | `help` | `menu.c:3016` | handler (`src/menu.js`): C=M_Menu_Help_f JS=M_Menu_Credits_f | G2: help pages replaced by a credits screen |
+| cvar | `sv_friction` | `sv_phys.c:42` | differs (`src/sv_phys.js`): server C=True JS=False | G8: missing server flag |
+| cvar | `sv_gravity` | `sv_phys.c:44` | differs (`src/sv_phys.js`): server C=True JS=False | G8: missing server flag |
+| cvar | `sv_maxspeed` | `sv_user.c:167` | differs (`src/sv_phys.js`): server C=True JS=False | G8: missing server flag |
+| cvar | `crosshair` | `view.c:61` | differs (`src/view.js`): default C='0' JS='1'; archive C=True JS=False | G5: default and archive flag |
+| command | `flush` | `zone.c:814` | mentioned (`src/gl_screen.js`) | G9: `Cache_Flush` exists but is not registered (no-op under GC) |
+
+### (c) Dead or empty in C too: 56
+
+| Kind | C name | C source | JS status | Reason |
+|---|---|---|---|---|
+| function | `Chase_Reset` | `chase.c:44` | stub (`src/chase.js`) | empty in C too |
+| function | `SetPal` | `cl_main.c:275` | missing | body is `#if 0` |
+| function | `memsearch` | `common.c:1183` | missing | no callers in C |
+| function | `Draw_DebugChar` | `gl_draw.c:559` | missing | no callers in C |
+| function | `Draw_EndDisc` | `gl_draw.c:825` | stub (`src/gl_draw.js`) | empty in C too |
+| function | `D_FlushCaches` | `gl_rmisc.c:451` | stub (`src/gl_rmisc.js`) | empty in C too |
+| function | `SCR_BringDownConsole` | `gl_screen.c:773` | mentioned (`src/cl_main.js`) | only call is commented out in C (`cl_main.c:105`); JS keeps the same comment |
+| function | `LoadPCX` | `gl_warp.c:376` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `fgetLittleShort` | `gl_warp.c:460` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `fgetLittleLong` | `gl_warp.c:470` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `LoadTGA` | `gl_warp.c:488` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `R_LoadSkys` | `gl_warp.c:642` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `DrawSkyPolygon` | `gl_warp.c:717` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `ClipSkyPolygon` | `gl_warp.c:799` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `R_ClearSkyBox` | `gl_warp.c:927` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `MakeSkyVec` | `gl_warp.c:939` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `R_DrawSkyBox` | `gl_warp.c:982` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| cvar | `developer` | `host.c:71` | differs (`src/host.js`): default C='1' JS='0' | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `_Host_ServerFrame` | `host.c:554` | missing | `defined(FPS_20)` (not defined in the GLQuake build) |
+| function | `SaveGamestate` | `host_cmd.c:710` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `LoadGamestate` | `host_cmd.c:761` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `Host_Changelevel2_f` | `host_cmd.c:865` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `Host_Please_f` | `host_cmd.c:956` | missing | `defined(IDGODS)` (not defined in the GLQuake build) |
+| command | `changelevel2` | `host_cmd.c:1890` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| command | `please` | `host_cmd.c:1898` | missing | `defined(IDGODS)` (not defined in the GLQuake build) |
+| function | `_DotProduct` | `mathlib.c:337` | missing | no callers in C |
+| function | `_VectorSubtract` | `mathlib.c:342` | missing | no callers in C |
+| function | `_VectorAdd` | `mathlib.c:349` | missing | no callers in C |
+| function | `_VectorCopy` | `mathlib.c:356` | missing | no callers in C |
+| function | `Invert24To16` | `mathlib.c:576` | missing | no callers in C |
+| cvar | `idgods` | `net_main.c:80` | missing | `defined(IDGODS)` (not defined in the GLQuake build) |
+| function | `IsID` | `net_main.c:985` | missing | `defined(IDGODS)` (not defined in the GLQuake build) |
+| function | `PF_TraceToss` | `pr_cmds.c:641` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `PF_checkpos` | `pr_cmds.c:678` | missing | no callers in C |
+| function | `PF_etos` | `pr_cmds.c:951` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `PF_changepitch` | `pr_cmds.c:1455` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `PF_WaterMove` | `pr_cmds.c:1683` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `PF_sin` | `pr_cmds.c:1808` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `PF_cos` | `pr_cmds.c:1813` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `PF_sqrt` | `pr_cmds.c:1818` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `R_DarkFieldParticles` | `r_part.c:68` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| function | `Sbar_UpdateScoreboard` | `sbar.c:426` | missing | only caller is inside `#if 0` |
+| cvar | `bgmbuffer` | `snd_dma.c:77` | missing | registered but never read in C |
+| function | `S_AmbientOff` | `snd_dma.c:100` | stub (`src/snd_dma.js`) | only toggle `snd_ambient`; nothing in C calls them |
+| function | `S_AmbientOn` | `snd_dma.c:106` | stub (`src/snd_dma.js`) | only toggle `snd_ambient`; nothing in C calls them |
+| function | `S_ClearPrecache` | `snd_dma.c:1004` | stub (`src/snd_dma.js`) | empty in C too |
+| function | `S_BeginPrecaching` | `snd_dma.c:1009` | stub (`src/snd_dma.js`) | empty in C too |
+| function | `S_EndPrecaching` | `snd_dma.c:1014` | stub (`src/snd_dma.js`) | empty in C too |
+| function | `DumpChunks` | `snd_mem.c:227` | missing | no callers in C |
+| function | `SV_Trace_Toss` | `sv_phys.c:1568` | missing | `defined(QUAKE2)` (not defined in the GLQuake build) |
+| cvar | `lcd_x` | `view.c:34` | differs (`src/view.js`): C reads it, JS never does | stereo-glasses code that writes `vid.buffer`; inert under GL |
+| cvar | `lcd_yaw` | `view.c:35` | differs (`src/view.js`): C reads it, JS never does | stereo-glasses code that writes `vid.buffer`; inert under GL |
+| function | `Z_Print` | `zone.c:219` | missing | no callers in C |
+| function | `Hunk_Print` | `zone.c:315` | missing | no callers in C |
+| function | `Cache_Print` | `zone.c:772` | missing | no callers in C |
+| function | `Cache_Compact` | `zone.c:799` | missing | no callers in C |

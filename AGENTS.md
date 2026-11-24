@@ -20,6 +20,10 @@ process per room. It was forked from mrdoob's three-quake.
 - `docs/port-review.md`: a fidelity review of the port against the C source.
   It is a snapshot taken at a past revision, so check its claims against the
   code before relying on them.
+- `docs/port-inventory.md`: every C function, cvar and command checked for a
+  counterpart in the port, with the ranked list of gaps.
+- `tools/`: `port_inventory.py` regenerates that inventory's raw tables
+  (Python, standard library only; not linted or run in CI).
 
 ## Commands
 

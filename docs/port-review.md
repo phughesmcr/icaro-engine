@@ -640,3 +640,5 @@ deno test --allow-read --allow-net --allow-env tests/
 ```
 
 Compare each `src/*.js` file with the C file named on its first line (`// Ported from: …`).
+
+See [`port-inventory.md`](port-inventory.md) for the item-by-item inventory of unported C functions, cvars and commands.
