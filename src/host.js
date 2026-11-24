@@ -11,7 +11,7 @@ import { V_Init } from './view.js';
 import { Chase_Init } from './chase.js';
 import { W_LoadWadFile } from './wad.js';
 import { COM_LoadFile } from './pak.js';
-import { COM_Init, rogue, hipnotic } from './common.js';
+import { COM_Init, COM_CheckParm, com_argv, Q_atof, rogue, hipnotic } from './common.js';
 import { Key_Init, Key_WriteBindings } from './keys.js';
 import { Con_Init, Con_SetExternals, Con_Printf as RealConPrintf, Con_DPrintf as RealConDPrintf } from './console.js';
 import { M_Init, M_SetExternals } from './menu.js';
@@ -303,7 +303,12 @@ export async function Host_Init( parms ) {
 
 	}
 
-	VID_Init( host_basepal );
+	// gl_vidnt.c Check_Gamma reads -gamma itself; vid.js takes it as an argument.
+	// A missing or non-positive value would turn the palette white (pow(x, 0)
+	// is 1; C has the same flaw), so fall back to the default instead.
+	const gammaparm = COM_CheckParm( '-gamma' );
+	const gammaval = gammaparm !== 0 ? Q_atof( com_argv[ gammaparm + 1 ] || '' ) : 0;
+	VID_Init( host_basepal, gammaval > 0 ? gammaval : null );
 
 	// Wire Draw externals before Draw_Init so overlay canvas gets correct size
 	Draw_SetExternals( {

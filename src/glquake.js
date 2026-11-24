@@ -21,6 +21,13 @@ export const SKYMASK = ( SKYSIZE - 1 );
 
 export const BACKFACE_EPSILON = 0.01;
 
+// GLQuake modulates texture by lightmap in display space (glBlendFunc on the
+// gamma-corrected palette colours). Three's Lambert path multiplies in linear
+// space and divides indirect light by PI. Decoding the lightmap as sRGB and
+// reading it at intensity PI gives back texture * lightmap / 255 in display
+// space, within a few levels of GLQuake across the range.
+export const LIGHTMAP_INTENSITY = Math.PI;
+
 // Multitexture
 export const TEXTURE0_SGIS = 0x835E;
 export const TEXTURE1_SGIS = 0x835F;
