@@ -28,9 +28,9 @@ Line numbers refer to `dfef74a`. C references use function names, which are stab
 
 ## Fix status
 
-Every finding has a fix in an open PR against `dev`, and so does every residual the first round of PRs left. Two items are handled by documentation instead: the lobby's own permissions (#4) and two registered-content checks (section 7). No PR is merged yet. Each PR's description has a per-item table.
+Every finding, and every residual the first round of fixes left, is fixed in `dev`: PRs #2 to #13 below are all merged. Two items are handled by documentation instead: the lobby's own permissions (#4) and two registered-content checks (section 7). Each PR's description has a per-item table.
 
-Test counts are from `deno test --allow-read --allow-net --allow-env tests/` on each PR's branch. Nothing has been played in a browser, on a GPU, in a headset or against a live server.
+The test counts in the table were taken on each PR's own branch with `deno test --allow-read --allow-net --allow-env tests/`, before the PRs were merged. The sections below this one still describe the port as it was at `dfef74a`.
 
 [#1]: https://github.com/phughesmcr/icaro-engine/pull/1
 [#2]: https://github.com/phughesmcr/icaro-engine/pull/2
@@ -56,21 +56,21 @@ Test counts are from `deno test --allow-read --allow-net --allow-env tests/` on 
 | PRED-1, PRED-3, PRED-4, PRED-5, IN-3 (movement angles) | [#6] | Fixed (50 pass); residuals fixed in #13 |
 | IN-1, IN-2, IN-3 (rest), IN-4, IN-5 | [#7] | Fixed (48 pass); residuals fixed in #12 |
 | NET-1 to NET-5, PRED-2 | [#8] | Fixed (59 pass); residuals fixed in #13 |
-| `WT_*` no-op stubs, `WT_Listen` failure, server README | [#9] | Fixed; stacked on #4 and #8 (71 pass) |
-| MP-2, MP-5 (`U_NOLERP`), solid monsters for prediction (`PE_SOLID`), movevars 11–12, player movetype, `COM_CheckRegistered`, menu episodes | [#10] | Fixed; stacked on #3, #5 and #6 (76 pass) |
-| Input residuals: Ctrl/Alt chords, Keyboard Lock, `xr_turnspeed`, touch and XR tests; numpad keeps the WinQuake mapping, now tested | [#12] | Fixed; stacked on #2 and #7 (77 pass) |
-| Netcode residuals: teleport lock and `punchangle` prediction, `hasAck`, `delta_sequence` age check, entity starvation, moves as datagrams, lobby join reply | [#13] | Fixed; stacked on #8, #9 and #10 (120 pass) |
+| `WT_*` no-op stubs, `WT_Listen` failure, server README | [#9] | Fixed (71 pass) |
+| MP-2, MP-5 (`U_NOLERP`), solid monsters for prediction (`PE_SOLID`), movevars 11–12, player movetype, `COM_CheckRegistered`, menu episodes | [#10] | Fixed (76 pass) |
+| Input residuals: Ctrl/Alt chords, Keyboard Lock, `xr_turnspeed`, touch and XR tests; numpad keeps the WinQuake mapping, now tested | [#12] | Fixed (77 pass) |
+| Netcode residuals: teleport lock and `punchangle` prediction, `hasAck`, `delta_sequence` age check, entity starvation, moves as datagrams, lobby join reply | [#13] | Fixed (120 pass) |
 
-All twelve fix branches merge into `dev` together without conflicts. With `--allow-run --allow-write` added, the combined tree passes all 168 tests in `tests/`, and 169 with `server/net_webtransport_server_test.ts` included.
+**Wire format:** #10 changed the packet-entity format without bumping `PROTOCOL_VERSION`, which has to stay 15 for the shipped demos, and #13 added a flag and a byte to `svc_playerinfo`. Deploy the client and server together, and make sure clients don't keep a cached bundle from before these changes.
 
-**Merge order:**
-- #2 to #8 are independent of each other.
-- Merge #9 after #4 and #8.
-- Merge #10 after #3, #5 and #6.
-- Merge #11 after #5.
-- Merge #12 after #2 and #7.
-- Merge #13 after #8, #9 and #10.
-- #10 changes the packet-entity wire format without bumping `PROTOCOL_VERSION`, which has to stay 15 for the shipped demos. #13 adds a flag and a byte to `svc_playerinfo`. For both, deploy the client and server together, and make sure clients don't keep a cached bundle across the change.
+### Since the review
+
+Later PRs went beyond the findings above:
+
+- **Fidelity:** registered `pak1.pak` loading (#15), the lava rendering fix (#16), `timerefresh` (#23, #29), the sbar pickup flash (#24), geometric QuakeC string-table growth (#25), mission-pack support for `-rogue` and `-hipnotic` (#27), the GL cvars `gl_picmip`, `gl_max_size`, `gl_playermip`, `gl_cull` and `gl_finish` (#31), GLQuake brightness at gamma 1 and `-gamma` (#32), and `pointfile` plus sound blocking on focus loss (#33). `envmap` is deliberately not ported (#33).
+- **Tooling:** `deno task lint` reports no problems (#22, #30), and GitHub Actions CI runs the tests, lint and type checks on every PR and on pushes to `dev` and `main` (#30).
+
+At `06d4414` (`dev`, after #33), `deno task test` passes 206 tests, and `server/net_webtransport_server_test.ts` passes 1 more.
 
 ### Residuals and follow-ups
 
