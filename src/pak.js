@@ -384,17 +384,30 @@ export function COM_LoadFileAsString( filename ) {
 
 }
 
+// True when buffer starts with the 'PACK' magic
+function isPack( buffer ) {
+
+	if ( buffer.byteLength < 12 ) return false;
+	const b = new Uint8Array( buffer, 0, 4 );
+	return b[ 0 ] === 0x50 && b[ 1 ] === 0x41 && b[ 2 ] === 0x43 && b[ 3 ] === 0x4B;
+
+}
+
 /*
 =================
 COM_FetchPak
 
 Fetches a .pak file from a URL using fetch(), returns a Promise<pack_t>
 In Deno, loads from filesystem. In browser, uses fetch().
+With optional set, a missing file (Deno NotFound, HTTP 404, or a body that
+is not a PACK, such as a web host's index.html fallback) returns null
+without a message, as COM_AddGameDirectory stops quietly at the first
+missing pakN.pak.
 =================
 */
-export async function COM_FetchPak( url, filename, onProgress ) {
+export async function COM_FetchPak( url, filename, onProgress, optional = false ) {
 
-	Sys_Printf( 'Fetching ' + url + '...\\n' );
+	if ( ! optional ) Sys_Printf( 'Fetching ' + url + '...\\n' );
 
 	// Check if running in Deno
 	if ( typeof Deno !== 'undefined' ) {
@@ -403,12 +416,14 @@ export async function COM_FetchPak( url, filename, onProgress ) {
 		try {
 
 			const data = await Deno.readFile( url );
+			if ( optional && ! isPack( data.buffer ) ) return null;
 			if ( onProgress ) onProgress( 1 );
 			return COM_LoadPackFile( filename, data.buffer );
 
 		} catch ( e ) {
 
-			Con_Printf( 'Failed to load ' + url + ': ' + e.message + '\\n' );
+			if ( ! ( optional && e instanceof Deno.errors.NotFound ) )
+				Con_Printf( 'Failed to load ' + url + ': ' + e.message + '\\n' );
 			return null;
 
 		}
@@ -419,7 +434,8 @@ export async function COM_FetchPak( url, filename, onProgress ) {
 	const response = await fetch( url );
 	if ( ! response.ok ) {
 
-		Con_Printf( 'Failed to fetch ' + url + ': ' + response.statusText + '\\n' );
+		if ( ! ( optional && response.status === 404 ) )
+			Con_Printf( 'Failed to fetch ' + url + ': ' + response.statusText + '\\n' );
 		return null;
 
 	}
@@ -462,8 +478,52 @@ export async function COM_FetchPak( url, filename, onProgress ) {
 
 	}
 
+	if ( optional && ! isPack( buffer ) ) return null;
+
 	Sys_Printf( 'Loaded ' + url + ' (' + buffer.byteLength + ' bytes)\\n' );
 
 	return COM_LoadPackFile( filename || url, buffer );
+
+}
+
+/*
+=================
+COM_AddPakSequence
+
+Loads pak0.pak, pak1.pak, ... from the directory of pak0Url and adds each
+one, stopping at the first missing file, as common.c COM_AddGameDirectory
+does. Later paks are searched first, so pak1 (registered) overrides pak0.
+pak0 is required; the rest are optional. Returns the number of paks added.
+Names are lower case: a PAK1.PAK copied from a Windows install must be
+renamed on case-sensitive file systems and web servers. A URL that does
+not end in lower-case pak0.pak is loaded on its own. onProgress runs from
+0 to 1 for each pak in turn, since the total size is not known in advance.
+=================
+*/
+export async function COM_AddPakSequence( pak0Url, onProgress ) {
+
+	const match = /^(.*?)pak0\.pak$/.exec( pak0Url );
+	if ( match === null ) {
+
+		const pak = await COM_FetchPak( pak0Url, 'pak0.pak', onProgress );
+		if ( pak === null ) return 0;
+		COM_AddPack( pak );
+		return 1;
+
+	}
+
+	const dir = match[ 1 ];
+	let count = 0;
+	for ( let i = 0; ; i ++ ) {
+
+		const name = 'pak' + i + '.pak';
+		const pak = await COM_FetchPak( dir + name, name, onProgress, i > 0 );
+		if ( pak === null ) break;
+		COM_AddPack( pak );
+		count ++;
+
+	}
+
+	return count;
 
 }

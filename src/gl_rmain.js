@@ -1304,8 +1304,8 @@ export function R_RenderView() {
 //============================================================================
 // R_Mirror
 //
-// Only one mirror exists in the entire game (window02_1 in e2m3, registered
-// data only). GLQuake reflects it only when r_mirroralpha is not 1
+// The mirror texture is window02_1. It is used in start and e1m5
+// (shareware) and e4m3 (registered). GLQuake reflects it only when r_mirroralpha is not 1
 // (gl_rsurf.c DrawTextureChains), and r_mirroralpha defaults to 1, so with
 // the default nothing here runs: DrawTextureChains never calls R_MirrorChain,
 // `mirror` stays false and this returns at the first test.

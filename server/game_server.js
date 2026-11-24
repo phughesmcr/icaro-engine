@@ -6,7 +6,7 @@
 // which passes scoped --allow-net/--allow-read flags.
 
 import { Sys_Printf, Sys_FloatTime } from '../src/sys.js';
-import { COM_FetchPak, COM_AddPack, COM_SetLooseFileBasePath, COM_EnsureFile } from '../src/pak.js';
+import { COM_AddPakSequence, COM_SetLooseFileBasePath, COM_EnsureFile } from '../src/pak.js';
 import { Cbuf_Init, Cbuf_Execute, Cmd_Init } from '../src/cmd.js';
 import { Host_InitCommands } from '../src/host_cmd.js';
 import { deathmatch, samelevel, noexit, sys_ticrate } from '../src/host.js';
@@ -272,11 +272,10 @@ async function Host_Init_Server() {
 
 	// Load PAK file
 	Sys_Printf('Loading game data...\n');
-	const pak = await COM_FetchPak(CONFIG.pakPath, 'pak0.pak');
-	if (!pak) {
+	// pak0.pak plus any pak1.pak, pak2.pak... next to it (registered data)
+	if (await COM_AddPakSequence(CONFIG.pakPath) === 0) {
 		throw new Error('Failed to load ' + CONFIG.pakPath);
 	}
-	COM_AddPack(pak);
 
 	// Set base path for on-demand loose file loading (custom maps not in PAK)
 	COM_SetLooseFileBasePath(decodeURIComponent(new URL('../static/', import.meta.url).pathname));
