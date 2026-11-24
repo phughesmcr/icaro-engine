@@ -463,3 +463,89 @@ Deno.test( 'grown lightmap blocks upload changed rows and r_fullbright rebuilds'
 	}
 
 } );
+
+// gl_rsurf.c DrawGLWaterPoly: SURF_UNDERWATER vertices move by
+// 8*sin(other*0.05+realtime)*sin(z*0.05+realtime) in x and y, z unchanged.
+Deno.test( 'underwater world materials warp vertices like DrawGLWaterPoly', () => {
+
+	const vertexShader = '#include <common>\nvoid main() {\n#include <begin_vertex>\n}';
+	const fragmentShader = 'uniform vec3 emissive;\n#include <map_fragment>\n#include <emissivemap_fragment>';
+	const lmTex = { channel: 0 };
+
+	const underwater = gl_rsurf.R_CreateWorldMaterial( { _fullbright: null }, lmTex, true );
+	const dry = gl_rsurf.R_CreateWorldMaterial( { _fullbright: null }, lmTex, false );
+	if ( underwater.customProgramCacheKey() === dry.customProgramCacheKey() )
+		throw new Error( 'underwater and dry lightmap materials share a program key' );
+
+	const shader = { uniforms: {}, vertexShader, fragmentShader };
+	underwater.onBeforeCompile( shader );
+	assertEqual( 'quakeWarpTime' in shader.uniforms, true, 'warp uniform' );
+	assertEqual( 'quakeLightmapOnly' in shader.uniforms, true, 'lightmap uniform kept' );
+	for ( const line of [
+		'uniform float quakeWarpTime;',
+		'float quakeWarpZ = sin( position.z * 0.05 + quakeWarpTime );',
+		'transformed.x += 8.0 * sin( position.y * 0.05 + quakeWarpTime ) * quakeWarpZ;',
+		'transformed.y += 8.0 * sin( position.x * 0.05 + quakeWarpTime ) * quakeWarpZ;'
+	] ) {
+
+		assertEqual( shader.vertexShader.includes( line ), true, line );
+
+	}
+
+	assertEqual( shader.vertexShader.includes( 'transformed.z' ), false, 'z is not warped' );
+
+	const dryShader = { uniforms: {}, vertexShader, fragmentShader };
+	dry.onBeforeCompile( dryShader );
+	assertEqual( dryShader.vertexShader, vertexShader, 'dry surfaces do not warp' );
+
+	// no lightmap block: the plain material still warps
+	const basic = gl_rsurf.R_CreateWorldMaterial( {}, null, true );
+	const basicShader = { uniforms: {}, vertexShader, fragmentShader };
+	basic.onBeforeCompile( basicShader );
+	assertEqual( 'quakeWarpTime' in basicShader.uniforms, true, 'unlit warp uniform' );
+
+} );
+
+Deno.test( 'R_WaterWarpTime wraps realtime without changing the sines', () => {
+
+	const period = Math.PI * 2;
+	for ( const t of [ 0, 1.25, period, 1000.5, 86400.123 ] ) {
+
+		const wrapped = gl_rsurf.R_WaterWarpTime( t );
+		if ( wrapped < 0 || wrapped >= period )
+			throw new Error( `R_WaterWarpTime(${t}) = ${wrapped} is outside [0, 2*PI)` );
+		const diff = Math.abs( Math.sin( 3.7 + wrapped ) - Math.sin( 3.7 + t ) );
+		if ( diff > 1e-9 )
+			throw new Error( `sin differs by ${diff} at realtime ${t}` );
+
+	}
+
+} );
+
+Deno.test( 'DrawGLWaterPoly keeps DrawGLPoly\'s geometry for the shader warp', () => {
+
+	const p = {
+		numverts: 4,
+		verts: new Float32Array( [
+			0, 0, 0, 0, 0, 0.1, 0.1,
+			64, 0, 0, 1, 0, 0.9, 0.1,
+			64, 64, 0, 1, 1, 0.9, 0.9,
+			0, 64, 0, 0, 1, 0.1, 0.9
+		] )
+	};
+	const normal = [ 0, 0, 1 ];
+	const water = gl_rsurf.DrawGLWaterPoly( p, normal );
+	const plain = gl_rsurf.DrawGLPoly( p, normal );
+	for ( const name of [ 'position', 'normal', 'uv', 'uv1' ] ) {
+
+		const a = water.getAttribute( name ).array;
+		const b = plain.getAttribute( name ).array;
+		assertEqual( a.length, b.length, `${name} length` );
+		for ( let i = 0; i < a.length; i ++ )
+			assertEqual( a[ i ], b[ i ], `${name}[${i}]` );
+
+	}
+
+	assertEqual( gl_rsurf.DrawGLWaterPoly( null, normal ), undefined, 'no poly' );
+
+} );

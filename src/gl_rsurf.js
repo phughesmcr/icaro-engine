@@ -30,7 +30,61 @@ function R_LightmapProgramKey() {
 
 }
 
-function createQuakeLightmapMaterial( diffuseMap, lightmapTex ) {
+/*
+SURF_UNDERWATER: GLQuake draws surfaces in water, slime or lava leaves with
+DrawGLWaterPoly / DrawGLWaterPolyLightmap (gl_rsurf.c), which move each vertex
+every frame:
+	nv[0] = v[0] + 8*sin(v[1]*0.05+realtime)*sin(v[2]*0.05+realtime);
+	nv[1] = v[1] + 8*sin(v[0]*0.05+realtime)*sin(v[2]*0.05+realtime);
+	nv[2] = v[2];
+The port's world is static BatchedMesh geometry, so the same sum runs in the
+vertex shader on the unmoved Quake-space position. The texture and lightmap
+share one pass here, so both move together as C's two passes do.
+_waterWarpTime holds realtime wrapped to [0, 2*PI): sin(a + t) is unchanged,
+and the small value keeps float32 precision after hours of play.
+*/
+const _waterWarpTime = { value: 0 };
+
+export function R_WaterWarpTime( time ) {
+
+	const period = Math.PI * 2;
+	const t = time % period;
+	return t < 0 ? t + period : t;
+
+}
+
+export function R_PatchWaterWarpVertexShader( shader ) {
+
+	shader.uniforms.quakeWarpTime = _waterWarpTime;
+	shader.vertexShader = shader.vertexShader
+		.replace( '#include <common>', '#include <common>\nuniform float quakeWarpTime;' )
+		.replace( '#include <begin_vertex>', '#include <begin_vertex>\n' +
+			'\tfloat quakeWarpZ = sin( position.z * 0.05 + quakeWarpTime );\n' +
+			'\ttransformed.x += 8.0 * sin( position.y * 0.05 + quakeWarpTime ) * quakeWarpZ;\n' +
+			'\ttransformed.y += 8.0 * sin( position.x * 0.05 + quakeWarpTime ) * quakeWarpZ;' );
+
+}
+
+function R_PatchUnderwaterLightmapShader( shader ) {
+
+	R_PatchLightmapShader( shader );
+	R_PatchWaterWarpVertexShader( shader );
+
+}
+
+function R_UnderwaterLightmapProgramKey() {
+
+	return 'quake-lightmap-underwater';
+
+}
+
+function R_UnderwaterProgramKey() {
+
+	return 'quake-underwater';
+
+}
+
+function createQuakeLightmapMaterial( diffuseMap, lightmapTex, underwater = false ) {
 
 	lightmapTex.channel = 1; // Use uv1 for lightmap coordinates
 
@@ -55,8 +109,8 @@ function createQuakeLightmapMaterial( diffuseMap, lightmapTex ) {
 	}
 
 	const material = new THREE.MeshLambertMaterial( matOptions );
-	material.onBeforeCompile = R_PatchLightmapShader;
-	material.customProgramCacheKey = R_LightmapProgramKey;
+	material.onBeforeCompile = underwater ? R_PatchUnderwaterLightmapShader : R_PatchLightmapShader;
+	material.customProgramCacheKey = underwater ? R_UnderwaterLightmapProgramKey : R_LightmapProgramKey;
 	return GL_RegisterCullMaterial( material );
 
 }
@@ -659,69 +713,16 @@ function _mergeGLPolys( polys, planeNormals ) {
 //============================================================================
 // DrawGLWaterPoly
 //
-// Warp the vertex coordinates for water surfaces
+// Warp the vertex coordinates. GLQuake recomputes the moved vertices on the
+// CPU every frame. The port builds the world once, so this returns the same
+// static geometry as DrawGLPoly, and R_BuildWorldMeshes gives it a material
+// that does the warp in its vertex shader (R_PatchWaterWarpVertexShader). The lightmap UVs ride
+// along, which covers DrawGLWaterPolyLightmap too.
 //============================================================================
 
-export function DrawGLWaterPoly( p ) {
+export function DrawGLWaterPoly( p, planeNormal ) {
 
-	if ( ! p || p.numverts < 3 ) return null;
-
-	const numverts = p.numverts;
-	const verts = p.verts;
-	const numTriangles = numverts - 2;
-	const positions = new Float32Array( numTriangles * 3 * 3 );
-	const uvs = new Float32Array( numTriangles * 3 * 2 );
-
-	// precompute warped positions
-	const warped = new Float32Array( numverts * 3 );
-	for ( let i = 0; i < numverts; i ++ ) {
-
-		const vi = i * VERTEXSIZE;
-		const x = verts[ vi + 0 ];
-		const y = verts[ vi + 1 ];
-		const z = verts[ vi + 2 ];
-
-		warped[ i * 3 + 0 ] = x + 8 * Math.sin( y * 0.05 + realtime ) * Math.sin( z * 0.05 + realtime );
-		warped[ i * 3 + 1 ] = y + 8 * Math.sin( x * 0.05 + realtime ) * Math.sin( z * 0.05 + realtime );
-		warped[ i * 3 + 2 ] = z;
-
-	}
-
-	for ( let i = 0; i < numTriangles; i ++ ) {
-
-		const i0 = 0;
-		const i1 = i + 1;
-		const i2 = i + 2;
-
-		positions[ i * 9 + 0 ] = warped[ i0 * 3 + 0 ];
-		positions[ i * 9 + 1 ] = warped[ i0 * 3 + 1 ];
-		positions[ i * 9 + 2 ] = warped[ i0 * 3 + 2 ];
-
-		positions[ i * 9 + 3 ] = warped[ i1 * 3 + 0 ];
-		positions[ i * 9 + 4 ] = warped[ i1 * 3 + 1 ];
-		positions[ i * 9 + 5 ] = warped[ i1 * 3 + 2 ];
-
-		positions[ i * 9 + 6 ] = warped[ i2 * 3 + 0 ];
-		positions[ i * 9 + 7 ] = warped[ i2 * 3 + 1 ];
-		positions[ i * 9 + 8 ] = warped[ i2 * 3 + 2 ];
-
-		uvs[ i * 6 + 0 ] = verts[ i0 * VERTEXSIZE + 3 ];
-		uvs[ i * 6 + 1 ] = verts[ i0 * VERTEXSIZE + 4 ];
-
-		uvs[ i * 6 + 2 ] = verts[ i1 * VERTEXSIZE + 3 ];
-		uvs[ i * 6 + 3 ] = verts[ i1 * VERTEXSIZE + 4 ];
-
-		uvs[ i * 6 + 4 ] = verts[ i2 * VERTEXSIZE + 3 ];
-		uvs[ i * 6 + 5 ] = verts[ i2 * VERTEXSIZE + 4 ];
-
-	}
-
-	const geometry = new THREE.BufferGeometry();
-	geometry.setAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
-	geometry.setAttribute( 'uv', new THREE.BufferAttribute( uvs, 2 ) );
-	geometry.computeVertexNormals();
-
-	return geometry;
+	return DrawGLPoly( p, planeNormal );
 
 }
 
@@ -995,6 +996,7 @@ export function R_DrawSequentialPoly( s ) {
 
 	//
 	// underwater warped with lightmap
+	// (the warp itself is in the world material: see DrawGLWaterPoly)
 	//
 	R_RenderDynamicLightmaps( s );
 
@@ -1037,6 +1039,10 @@ export function R_RenderBrushPoly( fa ) {
 		return;
 
 	}
+
+	// C draws the texture pass here: DrawGLWaterPoly for SURF_UNDERWATER,
+	// else DrawGLPoly. The port's world geometry is built once in
+	// R_BuildWorldMeshes, which makes that choice per surface.
 
 	// add the poly to the proper lightmap chain
 	if ( fa.polys ) {
@@ -1808,6 +1814,7 @@ export function R_DrawWorld() {
 
 	VectorCopy( r_refdef.vieworg, modelorg );
 	R_UpdateWorldTextureAnimations();
+	_waterWarpTime.value = R_WaterWarpTime( realtime );
 
 	set_currenttexture( - 1 );
 
@@ -2733,20 +2740,27 @@ function R_BuildWorldMeshes() {
 
 		}
 
-		const geom = DrawGLPoly( surf.polys, planeNormal );
+		// gl_rsurf.c R_RenderBrushPoly: SURF_UNDERWATER surfaces take
+		// DrawGLWaterPoly, and their batch gets the warping material
+		const underwater = ( surf.flags & SURF_UNDERWATER ) !== 0;
+		const geom = underwater
+			? DrawGLWaterPoly( surf.polys, planeNormal )
+			: DrawGLPoly( surf.polys, planeNormal );
 		if ( ! geom ) continue;
 
 		// by name: mirrortexturenum is only set after the world meshes are built
 		const isMirrorTexture = R_IsMirrorTexture( t );
 
 		const lmNum = surf.lightmaptexturenum;
-		const texKey = ( t._buildId || ( t._buildId = Math.random() ) ) + '_' + lmNum;
+		const texKey = ( t._buildId || ( t._buildId = Math.random() ) ) + '_' + lmNum +
+			( underwater ? '_underwater' : '' );
 
 		if ( ! batchGroups.has( texKey ) ) {
 
 			batchGroups.set( texKey, {
 				texture: t,
 				lmNum: lmNum,
+				underwater: underwater,
 				totalVerts: 0,
 				totalGeoms: 0,
 				surfaceData: []
@@ -2778,9 +2792,7 @@ function R_BuildWorldMeshes() {
 		const animTex = R_TextureAnimation( t, 0 );
 		const diffuse = animTex != null && animTex.gl_texture != null ? animTex.gl_texture : t.gl_texture;
 		const lmTex = lightmapTextures[ group.lmNum ];
-		const material = lmTex
-			? createQuakeLightmapMaterial( diffuse, lmTex )
-			: GL_RegisterCullMaterial( new THREE.MeshBasicMaterial( { map: diffuse } ) );
+		const material = R_CreateWorldMaterial( diffuse, lmTex, group.underwater );
 
 		// Create BatchedMesh with capacity for all geometries in this group
 		const batchedMesh = new THREE.BatchedMesh(
@@ -2792,7 +2804,7 @@ function R_BuildWorldMeshes() {
 
 		// Name for debugging (texture name + lightmap number)
 		const texName = t.name || '';
-		batchedMesh.name = `world_${texName}_lm${group.lmNum}`;
+		batchedMesh.name = `world_${texName}_lm${group.lmNum}` + ( group.underwater ? '_underwater' : '' );
 
 		// Add each surface's geometry to the batch
 		for ( const surfData of group.surfaceData ) {
@@ -2833,6 +2845,23 @@ function R_BuildWorldMeshes() {
 			worldAnimatedMeshes.push( { mesh: batchedMesh, baseTexture: t } );
 
 	}
+
+}
+
+export function R_CreateWorldMaterial( diffuse, lmTex, underwater ) {
+
+	if ( lmTex )
+		return createQuakeLightmapMaterial( diffuse, lmTex, underwater );
+
+	const material = new THREE.MeshBasicMaterial( { map: diffuse } );
+	if ( underwater ) {
+
+		material.onBeforeCompile = R_PatchWaterWarpVertexShader;
+		material.customProgramCacheKey = R_UnderwaterProgramKey;
+
+	}
+
+	return GL_RegisterCullMaterial( material );
 
 }
 
