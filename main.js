@@ -12,6 +12,7 @@ import { scene, camera } from './src/gl_rmain.js';
 import { renderer } from './src/vid.js';
 import { Draw_CachePicFromPNG } from './src/gl_draw.js';
 import { XR_Init } from './src/webxr.js';
+import { CDAudio_SetTrackURLProvider, CDAudio_TrackURLs } from './src/cd_audio.js';
 
 const parms = {
 	basedir: '.',
@@ -82,6 +83,15 @@ async function main() {
 				Sys_Error( 'static/' + dir + '/pak0.pak not found. -' + dir + ' needs the mission pack\'s pak0.pak there.' );
 
 		}
+
+		// CD tracks play from music/trackNN.ogg or .mp3 (QuakeSpasm/Ironwail
+		// BGM_PlayCDtrack), looked up in the mission pack's directory first,
+		// then in static/ (id1)
+		const musicDirs = [];
+		if ( rogue ) musicDirs.push( 'static/rogue' );
+		if ( hipnotic ) musicDirs.push( 'static/hipnotic' );
+		musicDirs.push( 'static' );
+		CDAudio_SetTrackURLProvider( ( track ) => CDAudio_TrackURLs( track, musicDirs ) );
 
 		await Host_Init( parms );
 

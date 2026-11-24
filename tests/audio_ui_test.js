@@ -70,9 +70,9 @@ Deno.test( 'SP-7: SND_PickChannel picks the channel nearest completion', () => {
 
 	cl.viewentity = 1;
 	fillChannels( 50000 );
-	channels[ FIRST + 9 ].end = 50000 + 5; // about to finish
+	channels[ FIRST + 5 ].end = 50000 + 5; // about to finish
 	channels[ FIRST + 3 ].end = 50000 + 400000; // long sound, still playing
-	assertEqual( snd_dma.SND_PickChannel( 2, 1 ), channels[ FIRST + 9 ], 'least time remaining' );
+	assertEqual( snd_dma.SND_PickChannel( 2, 1 ), channels[ FIRST + 5 ], 'least time remaining' );
 	resetChannels();
 
 } );
@@ -81,10 +81,10 @@ Deno.test( 'SP-7: SND_PickChannel takes an empty channel even when it is the onl
 
 	cl.viewentity = 1;
 	fillChannels( 50000 );
-	channels[ FIRST + 20 ].sfx = null;
-	channels[ FIRST + 20 ]._audioSource = null;
-	channels[ FIRST + 20 ].end = 0;
-	assertEqual( snd_dma.SND_PickChannel( 2, 1 ), channels[ FIRST + 20 ], 'single free channel' );
+	channels[ FIRST + 7 ].sfx = null;
+	channels[ FIRST + 7 ]._audioSource = null;
+	channels[ FIRST + 7 ].end = 0;
+	assertEqual( snd_dma.SND_PickChannel( 2, 1 ), channels[ FIRST + 7 ], 'single free channel' );
 	resetChannels();
 
 } );
@@ -94,9 +94,9 @@ Deno.test( 'SP-7: SND_PickChannel treats a channel with no live source as finish
 	cl.viewentity = 1;
 	fillChannels( 50000 );
 	// player sound whose playback never started: not protected, end counts as 0
-	channels[ FIRST + 12 ].entnum = cl.viewentity;
-	channels[ FIRST + 12 ]._audioSource = null;
-	assertEqual( snd_dma.SND_PickChannel( 2, 1 ), channels[ FIRST + 12 ], 'finished channel' );
+	channels[ FIRST + 2 ].entnum = cl.viewentity;
+	channels[ FIRST + 2 ]._audioSource = null;
+	assertEqual( snd_dma.SND_PickChannel( 2, 1 ), channels[ FIRST + 2 ], 'finished channel' );
 	resetChannels();
 
 } );
@@ -117,9 +117,9 @@ Deno.test( 'SP-7: SND_PickChannel overrides the same entity and channel', () => 
 
 	cl.viewentity = 1;
 	fillChannels( 50000 );
-	channels[ FIRST + 15 ].entnum = 7;
-	channels[ FIRST + 15 ].entchannel = 3;
-	assertEqual( snd_dma.SND_PickChannel( 7, 3 ), channels[ FIRST + 15 ], 'same entity override' );
+	channels[ FIRST + 6 ].entnum = 7;
+	channels[ FIRST + 6 ].entchannel = 3;
+	assertEqual( snd_dma.SND_PickChannel( 7, 3 ), channels[ FIRST + 6 ], 'same entity override' );
 	resetChannels();
 
 } );
