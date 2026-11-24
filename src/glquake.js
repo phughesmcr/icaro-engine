@@ -298,7 +298,8 @@ const _scaledSize = { width: 0, height: 0 };
 
 export function GL_ScaledTextureSize( width, height, mip = gl_picmip.value ) {
 
-	const shift = Math.max( 0, mip | 0 );
+	// JS shifts wrap at 32; past 30 every size floors to 1 anyway.
+	const shift = Math.min( 30, Math.max( 0, mip | 0 ) );
 	let scaled_width = width >> shift;
 	let scaled_height = height >> shift;
 
@@ -361,6 +362,21 @@ intrinsically DoubleSide (sky, particles) never register.
 const _cullMaterials = new Set();
 const _cullMaterialRefs = new WeakMap();
 let _cullValue = 1;
+// Materials replaced without dispose() leave dead refs behind; sweep them
+// whenever the set doubles, so it stays proportional to live materials.
+let _cullPruneAt = 256;
+
+function _pruneCullMaterials() {
+
+	for ( const ref of _cullMaterials ) {
+
+		if ( ref.deref() === undefined ) _cullMaterials.delete( ref );
+
+	}
+
+	_cullPruneAt = Math.max( 256, _cullMaterials.size * 2 );
+
+}
 
 function _onCullMaterialDispose( event ) {
 
@@ -385,6 +401,7 @@ export function GL_RegisterCullMaterial( material ) {
 	_cullMaterialRefs.set( material, ref );
 	_cullMaterials.add( ref );
 	material.addEventListener( 'dispose', _onCullMaterialDispose );
+	if ( _cullMaterials.size >= _cullPruneAt ) _pruneCullMaterials();
 	return material;
 
 }

@@ -84,6 +84,13 @@ Deno.test( 'GL_ScaledTextureSize shifts by gl_picmip, clamps to gl_max_size, flo
 
 	} );
 
+	withCvars( [ [ gl_picmip, 32 ] ], () => {
+
+		const s = GL_ScaledTextureSize( 64, 32 );
+		assertEqual( s.width, 1, 'picmip 32 does not wrap to 0' );
+
+	} );
+
 } );
 
 Deno.test( 'GL_ResampleTexture8 point-samples like GL_ResampleTexture', () => {
