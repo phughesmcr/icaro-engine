@@ -7,6 +7,10 @@ await import( '../src/gl_rsurf.js' );
 const { V_AddPunchAngles, V_UpdatePunchAngles, V_ResetPunchAngles, v_gunkick } = await import( '../src/view.js' );
 const { cl } = await import( '../src/client.js' );
 const { Cvar_RegisterVariable, Cvar_SetValue } = await import( '../src/cvar.js' );
+const { CL_ParseClientdata } = await import( '../src/cl_parse.js' );
+const net = await import( '../src/net.js' );
+const common = await import( '../src/common.js' );
+const { SU_PUNCH1 } = await import( '../src/protocol.js' );
 
 function assertNear( actual, expected, message ) {
 
@@ -57,6 +61,58 @@ Deno.test( 'v_gunkick 0, 1 and 2', () => {
 		Cvar_SetValue( 'v_gunkick', 1 );
 		cl.time = saved.time;
 		cl.punchangle.set( saved.punch );
+		V_ResetPunchAngles();
+
+	}
+
+} );
+
+Deno.test( 'svc_clientdata feeds the lerped kick and V_ResetPunchAngles clears it', () => {
+
+	const saved = {
+		time: cl.time, items: cl.items, stats: Int32Array.from( cl.stats ),
+		punch: Float32Array.from( cl.punchangle ),
+		mvel0: Float32Array.from( cl.mvelocity[ 0 ] ), mvel1: Float32Array.from( cl.mvelocity[ 1 ] ),
+		viewheight: cl.viewheight, idealpitch: cl.idealpitch, onground: cl.onground, inwater: cl.inwater,
+		message: { data: net.net_message.data, maxsize: net.net_message.maxsize, cursize: net.net_message.cursize },
+		commonMessage: common.net_message
+	};
+	try {
+
+		V_ResetPunchAngles();
+		common.COM_SetNetMessage( net.net_message );
+		net.net_message.data = new Uint8Array( 64 );
+		net.net_message.maxsize = 64;
+		// punchangle[0] = -4, then items, health, ammo, four ammo counts, weapon
+		net.net_message.cursize = 17;
+		net.net_message.data[ 0 ] = 256 - 4;
+		common.MSG_BeginReading();
+		cl.time = 7;
+		CL_ParseClientdata( SU_PUNCH1 );
+
+		cl.time = 7.1;
+		assertNear( kick( 2 ), - 4, 'parsed punch reaches v_gunkick 2' );
+
+		V_ResetPunchAngles(); // CL_ClearState
+		assertNear( kick( 2 ), 0, 'reset clears the previous and current punch' );
+
+	} finally {
+
+		Cvar_SetValue( 'v_gunkick', 1 );
+		cl.time = saved.time;
+		cl.items = saved.items;
+		cl.stats.set( saved.stats );
+		cl.punchangle.set( saved.punch );
+		cl.mvelocity[ 0 ].set( saved.mvel0 );
+		cl.mvelocity[ 1 ].set( saved.mvel1 );
+		cl.viewheight = saved.viewheight;
+		cl.idealpitch = saved.idealpitch;
+		cl.onground = saved.onground;
+		cl.inwater = saved.inwater;
+		net.net_message.data = saved.message.data;
+		net.net_message.maxsize = saved.message.maxsize;
+		net.net_message.cursize = saved.message.cursize;
+		common.COM_SetNetMessage( saved.commonMessage );
 		V_ResetPunchAngles();
 
 	}
