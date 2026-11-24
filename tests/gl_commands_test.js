@@ -63,7 +63,7 @@ Deno.test( 'S_BlockSound suspends on the first block and resumes on the last unb
 		}
 
 		createGain() { return { gain: { value: 1 }, connect() {} }; }
-		suspend() { calls.push( 'suspend' ); this.state = 'suspended'; return Promise.resolve(); }
+		suspend() { calls.push( 'suspend' ); if ( ! FakeAudioContext.lazy ) this.state = 'suspended'; return Promise.resolve(); }
 		resume() { calls.push( 'resume' ); this.state = 'running'; return Promise.resolve(); }
 		close() { return Promise.resolve(); }
 
@@ -99,7 +99,19 @@ Deno.test( 'S_BlockSound suspends on the first block and resumes on the last unb
 		snd_dma.S_UnblockSound();
 		assertEqual( calls.join( ',' ), 'suspend,resume', 'new context resumed' );
 
+		// suspend() settles later than it returns: a quick hide/show, while
+		// the state still reads 'running', must still resume
+		snd_dma.S_Shutdown();
+		FakeAudioContext.lazy = true;
+		snd_dma.S_Init();
+		calls.length = 0;
+		snd_dma.S_BlockSound();
+		snd_dma.S_UnblockSound();
+		assertEqual( calls.join( ',' ), 'suspend,resume', 'resumed while suspend was pending' );
+
 	} finally {
+
+		FakeAudioContext.lazy = false;
 
 		snd_dma.S_Shutdown();
 		sound.Sound_SetBlocked( 0 );

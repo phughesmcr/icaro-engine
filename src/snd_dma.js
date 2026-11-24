@@ -227,8 +227,8 @@ export function S_BlockSound() {
 
 	Sound_SetBlocked( snd_blocked + 1 );
 
-	if ( snd_blocked === 1 && audioContext !== null && audioContext.state === 'running' )
-		audioContext.suspend();
+	if ( snd_blocked === 1 && audioContext !== null && audioContext.state !== 'closed' )
+		audioContext.suspend().catch( () => {} );
 
 }
 
@@ -241,8 +241,11 @@ export function S_UnblockSound() {
 
 	Sound_SetBlocked( snd_blocked - 1 );
 
-	if ( snd_blocked <= 0 && audioContext !== null && audioContext.state === 'suspended' )
-		audioContext.resume();
+	// Resume whatever the reported state: suspend() is async, so a page hidden
+	// and shown again quickly can still read 'running' here and then go
+	// suspended, and iOS reports 'interrupted' after a call or backgrounding.
+	if ( snd_blocked <= 0 && audioContext !== null && audioContext.state !== 'closed' )
+		audioContext.resume().catch( () => {} );
 
 }
 

@@ -127,7 +127,6 @@ export const frustum = [
 export let c_brush_polys = 0;
 export let c_alias_polys = 0;
 
-export let envmap = false; // true during envmap command capture
 
 export let currenttexture = - 1; // to avoid unnecessary texture sets
 export const cnttextures = [ - 1, - 1 ]; // cached
@@ -631,9 +630,6 @@ export function R_DrawViewModel() {
 		return;
 
 	if ( chase_active.value !== 0 )
-		return;
-
-	if ( envmap )
 		return;
 
 	if ( r_drawentities.value === 0 )
