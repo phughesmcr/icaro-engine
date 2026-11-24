@@ -57,6 +57,15 @@ export const ALIAS_BASE_SIZE_RATIO = ( 1.0 / 11.0 );
 export const MAX_LBM_HEIGHT = 480;
 
 export const TILE_SIZE = 128;
+
+/*
+gl_farclip, from QuakeSpasm and Ironwail (gl_rmain.c): the far clip
+distance. id's R_SetupGL hard-codes 4096, so that is the default here;
+QuakeSpasm and Ironwail default to 65536 for large custom maps. With
+zNear 4 the far plane barely changes depth precision: a 24-bit depth step
+at distance z is about z * z / ( 4 * 2^24 ) units whatever the far plane.
+*/
+export const gl_farclip = { name: 'gl_farclip', string: '4096', value: 4096, archive: true };
 export const SKYSHIFT = 7;
 export const SKYSIZE = ( 1 << SKYSHIFT );
 export const SKYMASK = ( SKYSIZE - 1 );
@@ -319,7 +328,7 @@ export function R_SetupGL() {
 			r_refdef.fov_y,
 			screenaspect,
 			4, // zNear
-			4096 // zFar
+			gl_farclip.value // zFar
 		);
 
 		// Parent camera to XR rig (if available).
@@ -337,12 +346,12 @@ export function R_SetupGL() {
 		if ( isXRActive() ) {
 
 			camera.near = 4 / XR_SCALE;
-			camera.far = 4096 / XR_SCALE;
+			camera.far = gl_farclip.value / XR_SCALE;
 
 		} else {
 
 			camera.near = 4;
-			camera.far = 4096;
+			camera.far = gl_farclip.value;
 
 		}
 
@@ -1420,6 +1429,8 @@ export function R_Init() {
 	Cvar_RegisterVariable( r_lerpmodels );
 	Cvar_RegisterVariable( r_lerpmove );
 	Cvar_RegisterVariable( r_nolerp_list );
+	// QuakeSpasm and Ironwail register this in gl_rmisc.c R_Init
+	Cvar_RegisterVariable( gl_farclip );
 
 	// create the Three.js scene
 	scene = new THREE.Scene();
