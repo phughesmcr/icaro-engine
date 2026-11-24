@@ -1109,9 +1109,12 @@ async function _WT_ConnectViaLobby( url, host, roomId, attempt ) {
 
 		}
 
-		// Server responded but didn't redirect - use same-port direct connection
-		Con_Printf( 'Room on same port, reconnecting...\n' );
-		return await _WT_ConnectDirect( url, host, roomId, attempt );
+		// The lobby answers every join with LOBBY_ERROR or a LOBBY_ROOMS reply
+		// carrying the room's port. Anything else is a malformed reply; the lobby
+		// port speaks the lobby protocol, so reconnecting there as a game client
+		// can't work.
+		Con_Printf( 'Lobby reply had no room port\n' );
+		return _WT_FailConnect( 'Server sent an invalid room reply' );
 
 	} catch ( error ) {
 
