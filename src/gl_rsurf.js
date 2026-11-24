@@ -223,7 +223,6 @@ let nColinElim = 0;
 
 // Three.js geometry cache for BSP surfaces
 let worldGroup = null; // THREE.Group for world BSP
-let worldMeshesBuilt = false; // true after R_BuildWorldMeshes has run
 
 // PVS visibility using BatchedMesh for efficient rendering
 // instanceVisInfo: Array<{batch: BatchedMesh, instanceId: number, leaves: leaf[]}>
@@ -2774,8 +2773,6 @@ function R_BuildWorldMeshes() {
 
 	}
 
-	worldMeshesBuilt = true;
-
 }
 
 function R_UpdateWorldTextureAnimations() {
@@ -2856,8 +2853,6 @@ export function GL_BuildLightmaps() {
 		}
 
 	}
-
-	worldMeshesBuilt = false;
 
 	// Clear PVS instance visibility info
 	instanceVisInfo.length = 0;
