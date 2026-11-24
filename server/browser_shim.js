@@ -228,6 +228,9 @@ export class BufferAttribute {
 		this.itemSize = itemSize;
 		this.needsUpdate = false;
 	}
+	get count() {
+		return this.array.length / this.itemSize;
+	}
 }
 
 export class Float32BufferAttribute extends BufferAttribute {

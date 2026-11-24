@@ -2701,6 +2701,82 @@ function R_BuildWorldMeshes() {
 	}
 
 	// First pass: collect geometry data per (texture, lightmap)
+	const batchGroups = R_CollectWorldBatchGroups( worldmodel, surfaceToLeaves );
+
+	// Identity matrix for all geometries (already in world space)
+	const identityMatrix = new THREE.Matrix4();
+
+	// Second pass: create BatchedMesh for each (texture, lightmap) group
+	for ( const group of batchGroups.values() ) {
+
+		const t = group.texture;
+		const animTex = R_TextureAnimation( t, 0 );
+		const diffuse = animTex != null && animTex.gl_texture != null ? animTex.gl_texture : t.gl_texture;
+		const lmTex = lightmapTextures[ group.lmNum ];
+		const material = R_CreateWorldMaterial( diffuse, lmTex, group.underwater );
+
+		// Create BatchedMesh with capacity for all geometries in this group
+		const batchedMesh = new THREE.BatchedMesh(
+			group.totalGeoms,
+			group.totalVerts,
+			0, // no indices (non-indexed geometry)
+			material
+		);
+
+		// Name for debugging (texture name + lightmap number); underwater
+		// batches skip frustum culling
+		R_InitWorldBatch( batchedMesh, group );
+
+		// Add each surface's geometry to the batch
+		for ( const surfData of group.surfaceData ) {
+
+			// Add geometry, then create an instance of it
+			const geoId = batchedMesh.addGeometry( surfData.geom );
+			const instanceId = batchedMesh.addInstance( geoId );
+			batchedMesh.setMatrixAt( instanceId, identityMatrix );
+
+			// Store instance with ALL its leaves for visibility updates
+			// Surface is visible if ANY of its leaves is visible
+			instanceVisInfo.push( {
+				batch: batchedMesh,
+				instanceId: instanceId,
+				leaves: surfData.leaves
+			} );
+
+			if ( surfData.mirrorGeom != null ) {
+
+				worldMirrors.set( surfData.surf, {
+					surf: surfData.surf,
+					geom: surfData.mirrorGeom,
+					texture: t.gl_texture,
+					batch: batchedMesh,
+					instanceId: instanceId
+				} );
+
+			}
+
+			// Dispose the temporary geometry (data copied to batch)
+			surfData.geom.dispose();
+
+		}
+
+		worldGroup.add( batchedMesh );
+		worldBatchedMeshes.push( batchedMesh );
+		if ( t.anim_total > 0 )
+			worldAnimatedMeshes.push( { mesh: batchedMesh, baseTexture: t } );
+
+	}
+
+}
+
+/*
+First pass of R_BuildWorldMeshes: group the world's drawn surfaces by
+(texture, lightmap). SURF_UNDERWATER surfaces get their own groups, because
+gl_rsurf.c draws them with DrawGLWaterPoly and here their batch takes the
+warping material.
+*/
+export function R_CollectWorldBatchGroups( worldmodel, surfaceToLeaves ) {
+
 	// Each surface stores its geometry and ALL leaves that contain it
 	// Structure: batchGroups: Map<texKey, { texture, lmNum, totalVerts, totalGeoms, surfaceData: Array<{geom, leaves}> }>
 	const batchGroups = new Map();
@@ -2782,77 +2858,25 @@ function R_BuildWorldMeshes() {
 
 	}
 
-	// Identity matrix for all geometries (already in world space)
-	const identityMatrix = new THREE.Matrix4();
+	return batchGroups;
 
-	// Second pass: create BatchedMesh for each (texture, lightmap) group
-	for ( const group of batchGroups.values() ) {
+}
 
-		const t = group.texture;
-		const animTex = R_TextureAnimation( t, 0 );
-		const diffuse = animTex != null && animTex.gl_texture != null ? animTex.gl_texture : t.gl_texture;
-		const lmTex = lightmapTextures[ group.lmNum ];
-		const material = R_CreateWorldMaterial( diffuse, lmTex, group.underwater );
+/*
+Names a world batch and, for an underwater group, turns off Three.js frustum
+culling: the warp moves vertices up to 8 units past the static bounds Three.js
+culls with, so culling could drop a surface still on screen. C sends every
+visible surface to GL; the PVS (setVisibleAt) still applies.
+*/
+export function R_InitWorldBatch( batchedMesh, group ) {
 
-		// Create BatchedMesh with capacity for all geometries in this group
-		const batchedMesh = new THREE.BatchedMesh(
-			group.totalGeoms,
-			group.totalVerts,
-			0, // no indices (non-indexed geometry)
-			material
-		);
+	const texName = group.texture.name || '';
+	batchedMesh.name = `world_${texName}_lm${group.lmNum}` + ( group.underwater ? '_underwater' : '' );
 
-		// Name for debugging (texture name + lightmap number)
-		const texName = t.name || '';
-		batchedMesh.name = `world_${texName}_lm${group.lmNum}` + ( group.underwater ? '_underwater' : '' );
+	if ( group.underwater ) {
 
-		// The warp moves vertices up to 8 units past the static bounds Three.js
-		// culls with, so culling could drop a surface still on screen. C sends
-		// every visible surface to GL; the PVS (setVisibleAt) still applies.
-		if ( group.underwater ) {
-
-			batchedMesh.frustumCulled = false;
-			batchedMesh.perObjectFrustumCulled = false;
-
-		}
-
-		// Add each surface's geometry to the batch
-		for ( const surfData of group.surfaceData ) {
-
-			// Add geometry, then create an instance of it
-			const geoId = batchedMesh.addGeometry( surfData.geom );
-			const instanceId = batchedMesh.addInstance( geoId );
-			batchedMesh.setMatrixAt( instanceId, identityMatrix );
-
-			// Store instance with ALL its leaves for visibility updates
-			// Surface is visible if ANY of its leaves is visible
-			instanceVisInfo.push( {
-				batch: batchedMesh,
-				instanceId: instanceId,
-				leaves: surfData.leaves
-			} );
-
-			if ( surfData.mirrorGeom != null ) {
-
-				worldMirrors.set( surfData.surf, {
-					surf: surfData.surf,
-					geom: surfData.mirrorGeom,
-					texture: t.gl_texture,
-					batch: batchedMesh,
-					instanceId: instanceId
-				} );
-
-			}
-
-			// Dispose the temporary geometry (data copied to batch)
-			surfData.geom.dispose();
-
-		}
-
-		worldGroup.add( batchedMesh );
-		worldBatchedMeshes.push( batchedMesh );
-		if ( t.anim_total > 0 )
-			worldAnimatedMeshes.push( { mesh: batchedMesh, baseTexture: t } );
+		batchedMesh.frustumCulled = false;
+		batchedMesh.perObjectFrustumCulled = false;
 
 	}
 

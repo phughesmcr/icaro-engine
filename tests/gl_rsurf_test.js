@@ -549,3 +549,110 @@ Deno.test( 'DrawGLWaterPoly keeps DrawGLPoly\'s geometry for the shader warp', (
 	assertEqual( gl_rsurf.DrawGLWaterPoly( null, normal ), undefined, 'no poly' );
 
 } );
+
+function warpTimeUniform() {
+
+	const shader = { uniforms: {}, vertexShader: '', fragmentShader: '' };
+	gl_rsurf.R_PatchWaterWarpVertexShader( shader );
+	return shader.uniforms.quakeWarpTime;
+
+}
+
+// gl_rsurf.c DrawGLWaterPoly reads realtime each frame; R_DrawWorld feeds it
+// to the shader.
+Deno.test( 'R_DrawWorld advances the underwater warp time from realtime', async () => {
+
+	const host = await import( '../src/host.js' );
+	const oldWorldmodel = cl.worldmodel;
+	const oldWorldentity = gl_rmain.r_worldentity;
+	const uniform = warpTimeUniform();
+	const oldValue = uniform.value;
+
+	try {
+
+		gl_rmain.set_r_worldentity( { model: null, frame: 0 } ); // R_Init's entity_t
+
+		host._Host_FilterTime( 7.25 ); // realtime += 7.25
+		const expected = gl_rsurf.R_WaterWarpTime( host.realtime );
+		if ( expected === oldValue )
+			throw new Error( 'realtime did not move the warp time; the test proves nothing' );
+
+		cl.worldmodel = {
+			nodes: [ { contents: - 2 } ], // CONTENTS_SOLID: nothing to recurse into
+			numleafs: 0,
+			leafs: [],
+			firstmodelsurface: 0,
+			nummodelsurfaces: 0,
+			numsurfaces: 0,
+			surfaces: [],
+			numtextures: 0,
+			textures: []
+		};
+		gl_rsurf.R_DrawWorld();
+		assertEqual( uniform.value, expected, 'warp time after R_DrawWorld' );
+
+	} finally {
+
+		uniform.value = oldValue;
+		cl.worldmodel = oldWorldmodel;
+		gl_rmain.set_r_worldentity( oldWorldentity );
+
+	}
+
+} );
+
+// gl_rsurf.c R_RenderBrushPoly: only SURF_UNDERWATER surfaces take
+// DrawGLWaterPoly, so they need batches of their own with the warping material.
+Deno.test( 'underwater surfaces get their own unculled world batches', () => {
+
+	const p = {
+		numverts: 3,
+		verts: new Float32Array( [
+			0, 0, 0, 0, 0, 0.1, 0.1,
+			64, 0, 0, 1, 0, 0.9, 0.1,
+			64, 64, 0, 1, 1, 0.9, 0.9
+		] )
+	};
+	const texture = { name: 'wbrick1_5', anim_total: 0, gl_texture: { id: 1 } };
+	const plane = { normal: new Float32Array( [ 0, 0, 1 ] ) };
+	const makeSurf = ( flags ) => ( {
+		flags: flags,
+		polys: p,
+		plane: plane,
+		texinfo: { texture: texture },
+		lightmaptexturenum: 3
+	} );
+	const dry = makeSurf( 0 );
+	const wet = makeSurf( gl_rmain.SURF_UNDERWATER );
+	const wet2 = makeSurf( gl_rmain.SURF_UNDERWATER );
+	const leaf = { contents: - 3 };
+	const worldmodel = {
+		firstmodelsurface: 0,
+		nummodelsurfaces: 3,
+		numsurfaces: 3,
+		surfaces: [ dry, wet, wet2 ]
+	};
+	const surfaceToLeaves = new Map( [ [ dry, [ leaf ] ], [ wet, [ leaf ] ], [ wet2, [ leaf ] ] ] );
+
+	const groups = [ ...gl_rsurf.R_CollectWorldBatchGroups( worldmodel, surfaceToLeaves ).values() ];
+	assertEqual( groups.length, 2, 'same texture and lightmap split by SURF_UNDERWATER' );
+	const dryGroup = groups.find( ( g ) => g.underwater === false );
+	const wetGroup = groups.find( ( g ) => g.underwater === true );
+	assertEqual( dryGroup.surfaceData.length, 1, 'dry group surfaces' );
+	assertEqual( dryGroup.surfaceData[ 0 ].surf, dry, 'dry group holds the dry surface' );
+	assertEqual( wetGroup.surfaceData.length, 2, 'underwater group surfaces' );
+	assertEqual( wetGroup.totalVerts, 6, 'underwater group vertex count' );
+	assertEqual( wetGroup.lmNum, 3, 'underwater group lightmap' );
+
+	const makeBatch = () => ( { name: '', frustumCulled: true, perObjectFrustumCulled: true } );
+	const dryBatch = makeBatch();
+	const wetBatch = makeBatch();
+	gl_rsurf.R_InitWorldBatch( dryBatch, dryGroup );
+	gl_rsurf.R_InitWorldBatch( wetBatch, wetGroup );
+	assertEqual( dryBatch.frustumCulled, true, 'dry batch frustum culled' );
+	assertEqual( dryBatch.perObjectFrustumCulled, true, 'dry batch per-object culled' );
+	assertEqual( wetBatch.frustumCulled, false, 'underwater batch frustum culled' );
+	assertEqual( wetBatch.perObjectFrustumCulled, false, 'underwater batch per-object culled' );
+	assertEqual( wetBatch.name, 'world_wbrick1_5_lm3_underwater', 'underwater batch name' );
+
+} );

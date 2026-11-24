@@ -295,7 +295,8 @@ export function set_gl_filter( min, max ) {
 
 }
 
-// The GL filter enum as the matching Three.js filter constant.
+// The GL filter enum as the matching Three.js filter constant. Only the
+// modes[] values reach here (Draw_TextureMode_f rejects any other name).
 export function GL_ThreeFilter( filter ) {
 
 	switch ( filter ) {
@@ -309,7 +310,7 @@ export function GL_ThreeFilter( filter ) {
 
 	}
 
-	return THREE.LinearFilter;
+	throw new Error( 'GL_ThreeFilter: unknown GL filter 0x' + Number( filter ).toString( 16 ) );
 
 }
 

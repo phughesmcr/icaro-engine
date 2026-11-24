@@ -122,3 +122,59 @@ Deno.test( 'gl_texturemode ignores a bad filter name and the old 0/1 values', ()
 	} );
 
 } );
+
+// gl_draw.c Draw_TextureMode_f walks every mipmapped texture, alias skins
+// included (Mod_LoadAllSkins uploads them with mipmap true).
+Deno.test( 'gl_texturemode re-filters a loaded alias model skin', async () => {
+
+	const pak = await import( '../src/pak.js' );
+	const common = await import( '../src/common.js' );
+	const gl_model = await import( '../src/gl_model.js' );
+	const oldRegistry = glquake._allGameTextures.slice();
+	const oldMin = glquake.gl_filter_min;
+	const oldMax = glquake.gl_filter_max;
+	const wasModified = common.com_modified;
+
+	try {
+
+		glquake._allGameTextures.length = 0;
+		await pak.COM_AddPakSequence( new URL( '../static/pak0.pak', import.meta.url ).pathname );
+		const player = gl_model.Mod_ForName( 'progs/player.mdl', true );
+		const skin = [ ...player._threeTextures ].find( ( t ) => t.name === 'progs/player.mdl_0' );
+		if ( skin === undefined ) throw new Error( 'player.mdl skin 0 was not loaded' );
+		assertEqual( skin.generateMipmaps, true, 'alias skin is mipmapped' );
+		assertEqual( skin.minFilter, THREE.LinearMipmapNearestFilter, 'skin loads with the current mode' );
+		assertEqual( glquake._allGameTextures.includes( skin ), true, 'skin registered for re-filtering' );
+
+		skin.needsUpdate = false;
+		run( 'gl_texturemode GL_NEAREST_MIPMAP_LINEAR' );
+		assertEqual( skin.minFilter, THREE.NearestMipmapLinearFilter, 'skin min filter' );
+		assertEqual( skin.magFilter, THREE.NearestFilter, 'skin mag filter' );
+		assertEqual( skin.needsUpdate, true, 'skin re-uploaded' );
+
+	} finally {
+
+		glquake._allGameTextures.splice( 0, glquake._allGameTextures.length, ...oldRegistry );
+		glquake.set_gl_filter( oldMin, oldMax );
+		common.COM_SetModified( wasModified );
+
+	}
+
+} );
+
+Deno.test( 'GL_ThreeFilter rejects a value outside gl_draw.c modes[]', () => {
+
+	let threw = false;
+	try {
+
+		glquake.GL_ThreeFilter( 0x1234 );
+
+	} catch ( _e ) {
+
+		threw = true;
+
+	}
+
+	assertEqual( threw, true, 'unknown GL filter throws' );
+
+} );
