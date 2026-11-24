@@ -2,14 +2,19 @@
 // New module for browser-based WebTransport client connections
 
 import { Con_Printf, Con_DPrintf, SZ_Clear, SZ_Write } from './common.js';
-import { NET_NewQSocket, NET_FreeQSocket } from './net_main.js';
+import { NET_NewQSocket } from './net_main.js';
 import {
-	NET_MAXMESSAGE,
 	net_message,
 	net_driverlevel,
-	hostCacheCount, set_hostCacheCount,
-	hostcache
+	WT_PACKET_MAGIC,
+	WT_PACKET_HEADER_BYTES,
+	WT_MAX_FRAME_PAYLOAD,
+	WT_PROTOCOL_VERSION,
+	WT_HANDSHAKE_REJECT,
+	WT_BuildHelloFrame,
+	WT_ParseHandshakeReply
 } from './net.js';
+import { clc_disconnect } from './protocol.js';
 import { M_ConnectionError, M_Menu_Main_f } from './menu.js';
 import { set_key_dest, key_menu } from './keys.js';
 
@@ -21,19 +26,38 @@ let wt_initialized = false;
 const ROOM_JOIN_TIMEOUT_MS = 10000; // 10 seconds
 const LOBBY_IO_TIMEOUT_MS = 10000; // 10 seconds
 
+// Whole-connect deadline enforced by the driver. It is shorter than the 30 s
+// CL_Connect timeout, so a connect never completes after its caller has given
+// up on it (which would leave an unowned socket and a ghost server client).
+let WT_CONNECT_TIMEOUT_MS = 25000;
+// Wait for the server's handshake reply after sending the hello.
+let WT_HANDSHAKE_TIMEOUT_MS = 10000;
+// Bounded wait for the final reliable frames (clc_disconnect) on close.
+let WT_CLOSE_FLUSH_MS = 1000;
+
+// Inbound queue: the reliable reader pauses at this many queued messages (QUIC
+// flow control then throttles the server) and resumes below the lower mark.
+// Consecutive unreliable messages are coalesced, so a hidden tab cannot grow
+// the queue without bound.
+const WT_MAX_PENDING_MESSAGES = 1024;
+const WT_RESUME_PENDING_MESSAGES = 512;
+
+// Outbound reliable backpressure. WT_CanSendMessage reports false at the soft
+// limit; unreliable traffic sent on the reliable stream is dropped past its
+// own lower limit; the hard limit means the stream is stuck and the
+// connection is treated as dead.
+const WT_MAX_PENDING_RELIABLE_WRITES = 64;
+const WT_MAX_UNRELIABLE_ON_RELIABLE = 16;
+const WT_HARD_PENDING_RELIABLE_WRITES = 256;
+
 // Deno's WebTransport datagram receive path can wedge room processes when many
 // rooms/clients send clc_move over datagrams concurrently. Keep client->server
 // traffic on the reliable stream for stability, while still receiving server
 // datagrams for entity updates.
-const USE_CLIENT_OUTBOUND_DATAGRAMS = false;
-const WT_PACKET_MAGIC = 0x71;
-const WT_PACKET_HEADER_BYTES = 9; // [magic:u8][sequence:u32][acknowledged:u32]
+let USE_CLIENT_OUTBOUND_DATAGRAMS = false;
 
 // Active connections
 const wt_connections = new Map(); // qsocket_t -> WebTransportConnection
-
-// Pending incoming connections (for server mode - not used in browser client)
-const wt_pendingConnections = [];
 
 // Connection data structure
 class WebTransportConnection {
@@ -55,6 +79,30 @@ class WebTransportConnection {
 		this.pendingMessages = []; // { reliable: boolean, data: Uint8Array }
 		this.connected = false;
 		this.error = null;
+		this.sock = null;
+
+		// Inbound backpressure
+		this.readResume = null;
+
+		// Outbound backpressure
+		this.pendingReliableWrites = 0;
+
+		// Graceful close
+		this.closing = false;
+		this.closeFinished = false;
+		this.closeFlushed = false;
+		this.reliableReaderEnded = false;
+		this.closeTimer = null;
+
+		// Sequencing state (explicit flags instead of negative-sequence sentinels)
+		this.peerSequenced = false;
+		this.reliableSequenceValid = false;
+		this.unreliableSequenceValid = false;
+		this.hasReceivedSequence = false;
+		this.highestReceivedSequence = - 1;
+
+		this.oversizedLogged = false;
+		this.oversizedDatagramLogged = false;
 
 	}
 
@@ -66,9 +114,22 @@ function _isNewerSequence( sequence, current ) {
 
 }
 
+// Highest sequence received on either lane. Both lanes share the peer's
+// sendSequence counter, so the ack covers datagrams as well as the reliable
+// stream (PRED-2).
+function _WT_AckSequence( sock, conn ) {
+
+	if ( conn != null && conn.hasReceivedSequence === true )
+		return conn.highestReceivedSequence | 0;
+
+	return sock.receiveSequence | 0;
+
+}
+
 function _WT_BuildSequencedPacket( sock, data, dataLength, forceHeader = false ) {
 
-	if ( forceHeader !== true && ( sock.receiveSequence | 0 ) < 0 ) {
+	const conn = sock.driverdata;
+	if ( forceHeader !== true && ( conn == null || conn.peerSequenced !== true ) ) {
 
 		const legacyPacket = new Uint8Array( dataLength );
 		legacyPacket.set( data.subarray( 0, dataLength ), 0 );
@@ -80,7 +141,7 @@ function _WT_BuildSequencedPacket( sock, data, dataLength, forceHeader = false )
 	const view = new DataView( packet.buffer, packet.byteOffset, packet.byteLength );
 
 	const sequence = sock.sendSequence | 0;
-	const acknowledged = sock.receiveSequence | 0;
+	const acknowledged = _WT_AckSequence( sock, conn );
 
 	packet[ 0 ] = WT_PACKET_MAGIC;
 	view.setUint32( 1, sequence >>> 0, true );
@@ -98,19 +159,66 @@ function _WT_ParseSequencedPacket( sock, packet, reliable ) {
 	if ( packet.length < WT_PACKET_HEADER_BYTES || packet[ 0 ] !== WT_PACKET_MAGIC )
 		return packet;
 
+	const conn = sock.driverdata;
 	const view = new DataView( packet.buffer, packet.byteOffset, packet.byteLength );
 	const sequence = view.getUint32( 1, true ) | 0;
 	const acknowledged = view.getUint32( 5, true ) | 0;
 
-	if ( _isNewerSequence( acknowledged, sock.ackSequence | 0 ) )
+	if ( conn.peerSequenced !== true || _isNewerSequence( acknowledged, sock.ackSequence | 0 ) )
 		sock.ackSequence = acknowledged;
+	conn.peerSequenced = true;
 
-	const receiveKey = reliable === true ? 'receiveSequence' : 'unreliableReceiveSequence';
-	if ( _isNewerSequence( sequence, sock[ receiveKey ] | 0 ) === false )
-		return null;
+	if ( reliable === true ) {
 
-	sock[ receiveKey ] = sequence;
+		if ( conn.reliableSequenceValid === true && _isNewerSequence( sequence, sock.receiveSequence | 0 ) === false )
+			return null;
+		sock.receiveSequence = sequence;
+		conn.reliableSequenceValid = true;
+
+	} else {
+
+		if ( conn.unreliableSequenceValid === true && _isNewerSequence( sequence, sock.unreliableReceiveSequence | 0 ) === false )
+			return null;
+		sock.unreliableReceiveSequence = sequence;
+		conn.unreliableSequenceValid = true;
+
+	}
+
+	if ( conn.hasReceivedSequence !== true || _isNewerSequence( sequence, conn.highestReceivedSequence | 0 ) )
+		conn.highestReceivedSequence = sequence;
+	conn.hasReceivedSequence = true;
+
 	return packet.subarray( WT_PACKET_HEADER_BYTES );
+
+}
+
+/*
+=============
+WT_SetClientOutboundDatagrams
+
+Send client moves as datagrams instead of on the reliable stream.
+Off by default (see USE_CLIENT_OUTBOUND_DATAGRAMS); exposed for tests.
+=============
+*/
+export function WT_SetClientOutboundDatagrams( enabled ) {
+
+	USE_CLIENT_OUTBOUND_DATAGRAMS = enabled === true;
+
+}
+
+/*
+=============
+WT_SetTimeouts
+
+Shorten the connect, handshake and close-flush timeouts (tests use this).
+Values that are not positive numbers leave the current setting.
+=============
+*/
+export function WT_SetTimeouts( { connectMs, handshakeMs, closeFlushMs } = {} ) {
+
+	if ( connectMs > 0 ) WT_CONNECT_TIMEOUT_MS = connectMs;
+	if ( handshakeMs > 0 ) WT_HANDSHAKE_TIMEOUT_MS = handshakeMs;
+	if ( closeFlushMs > 0 ) WT_CLOSE_FLUSH_MS = closeFlushMs;
 
 }
 
@@ -131,20 +239,23 @@ export function WT_Init() {
 
 	}
 
-	wt_initialized = true;
-	Con_Printf( 'WebTransport driver initialized\n' );
+	if ( wt_initialized === false && typeof window !== 'undefined' ) {
 
-	// Send clean disconnect when page unloads (browser only)
-	if ( typeof window !== 'undefined' ) {
-
+		// Send clean disconnect when page unloads (browser only)
 		window.addEventListener( 'pagehide', _onPageHide );
 		window.addEventListener( 'beforeunload', _onPageHide );
 
 	}
 
+	wt_initialized = true;
+	Con_Printf( 'WebTransport driver initialized\n' );
+
 	return 0;
 
 }
+
+// Reused for the page-hide clc_disconnect
+const _pageHideMessage = { data: new Uint8Array( [ clc_disconnect ] ), cursize: 1 };
 
 /**
  * Handle page unload - send clean disconnect to server
@@ -155,20 +266,12 @@ function _onPageHide() {
 
 		try {
 
-			// Send clc_disconnect message before closing
-			if ( conn.reliableWriter != null ) {
+			// Same framing and sequencing as every other reliable message
+			if ( conn.connected === true && conn.reliableWriter != null )
+				WT_QSendMessage( sock, _pageHideMessage );
 
-				const msg = new Uint8Array( 4 );
-				msg[ 0 ] = 1; // frame type: game message
-				msg[ 1 ] = 1; // length low byte
-				msg[ 2 ] = 0; // length high byte
-				msg[ 3 ] = 2; // clc_disconnect
-				conn.reliableWriter.write( msg );
-
-			}
-
-			// Close the transport (sends QUIC CONNECTION_CLOSE)
-			conn.transport.close();
+			// Flush, send FIN, then close the transport
+			_WT_CloseConnection( conn );
 
 		} catch ( e ) {
 
@@ -196,7 +299,7 @@ export function WT_Shutdown() {
 
 		try {
 
-			conn.transport.close();
+			_WT_CloseConnection( conn );
 
 		} catch ( e ) {
 
@@ -683,6 +786,148 @@ async function _readExact( reader, n ) {
 
 }
 
+
+/*
+=============
+Connect helpers
+
+One WTConnectAttempt covers a whole connect, lobby redirect included. Its
+deadline closes every transport the attempt opened and rejects whatever the
+connect is waiting on, so the connect always settles (with null) before the
+caller's own timeout and never hands back a socket nobody owns.
+=============
+*/
+class WTConnectAttempt {
+
+	constructor( timeoutMs ) {
+
+		this.aborted = false;
+		this.transports = new Set();
+		this._reject = null;
+		this.abortPromise = new Promise( ( _, reject ) => {
+
+			this._reject = reject;
+
+		} );
+		this.abortPromise.catch( () => {} );
+		this._timer = setTimeout( () => {
+
+			this._timer = null;
+			this.abort( new Error( 'Connection timed out' ) );
+
+		}, timeoutMs );
+
+	}
+
+	abort( error ) {
+
+		if ( this.aborted === true ) return;
+		this.aborted = true;
+
+		for ( const transport of this.transports ) {
+
+			try { transport.close(); } catch ( e ) { /* ignore */ }
+
+		}
+
+		this.transports.clear();
+		this._reject( error );
+
+	}
+
+	wait( promise ) {
+
+		if ( promise != null && typeof promise.catch === 'function' )
+			promise.catch( () => {} );
+
+		return Promise.race( [ promise, this.abortPromise ] );
+
+	}
+
+	untrack( transport ) {
+
+		this.transports.delete( transport );
+
+	}
+
+	finish() {
+
+		if ( this._timer !== null ) {
+
+			clearTimeout( this._timer );
+			this._timer = null;
+
+		}
+
+	}
+
+}
+
+function _WT_OpenTransport( url, attempt ) {
+
+	const transport = new WebTransport( url );
+	// Rejections are handled by the code that owns the transport.
+	transport.ready.catch( () => {} );
+	transport.closed.catch( () => {} );
+	attempt.transports.add( transport );
+	return transport;
+
+}
+
+function _WT_CloseTransport( transport, attempt ) {
+
+	attempt.untrack( transport );
+	try { transport.close(); } catch ( e ) { /* ignore */ }
+
+}
+
+// Resolves to timeoutValue if promise has not settled within timeoutMs.
+function _WT_WithTimeout( promise, timeoutMs, timeoutValue ) {
+
+	let timer = null;
+	const timeout = new Promise( ( resolve ) => {
+
+		timer = setTimeout( () => resolve( timeoutValue ), timeoutMs );
+
+	} );
+
+	promise.catch( () => {} );
+	return Promise.race( [ promise, timeout ] ).finally( () => clearTimeout( timer ) );
+
+}
+
+function _WT_ClearRoomFromUrl() {
+
+	// Clear room from URL so refresh doesn't retry
+	if ( typeof history !== 'undefined' && typeof window !== 'undefined' ) {
+
+		const cleanUrl = window.location.origin + window.location.pathname;
+		history.replaceState( null, '', cleanUrl );
+
+	}
+
+}
+
+// Return to the Join Game menu with a reason the player can read.
+function _WT_FailConnect( reason ) {
+
+	_WT_ClearRoomFromUrl();
+	set_key_dest( key_menu );
+	M_ConnectionError( reason );
+	return null;
+
+}
+
+// Generic failure: back to the main menu, as before.
+function _WT_FailConnectToMainMenu() {
+
+	_WT_ClearRoomFromUrl();
+	M_Menu_Main_f();
+	set_key_dest( key_menu );
+	return null;
+
+}
+
 /*
 =============
 WT_Connect
@@ -747,171 +992,135 @@ export async function WT_Connect( host ) {
 
 	Con_Printf( 'WebTransport connecting to ' + url + ( roomId ? ' (room: ' + roomId + ')' : '' ) + '\n' );
 
-	// Direct room server connection (no lobby join parameter) should not
-	// open an initial throwaway transport. Doing so creates a ghost server
-	// client that times out later and can wedge unreliable datagram sends.
-	if ( roomId == null ) {
-
-		Con_Printf( 'No room ID, using direct connection\n' );
-		return await _WT_ConnectDirect( url, host );
-
-	}
+	const attempt = new WTConnectAttempt( WT_CONNECT_TIMEOUT_MS );
 
 	try {
 
-		// Create the WebTransport connection
-		const transport = new WebTransport( url );
+		// Direct room server connection (no lobby join parameter) should not
+		// open an initial throwaway transport. Doing so creates a ghost server
+		// client that times out later and can wedge unreliable datagram sends.
+		if ( roomId == null ) {
 
-		// Wait for connection to be ready
-		await transport.ready;
+			Con_Printf( 'No room ID, using direct connection\n' );
+			return await _WT_ConnectDirect( url, host, null, attempt );
+
+		}
+
+		return await _WT_ConnectViaLobby( url, host, roomId, attempt );
+
+	} finally {
+
+		attempt.finish();
+
+	}
+
+}
+
+/*
+=============
+_WT_ConnectViaLobby
+
+Ask the lobby which room server hosts roomId, then connect to it directly.
+The lobby exchange needs no qsocket.
+=============
+*/
+async function _WT_ConnectViaLobby( url, host, roomId, attempt ) {
+
+	let transport = null;
+
+	try {
+
+		transport = _WT_OpenTransport( url, attempt );
+		await attempt.wait( transport.ready );
 
 		Con_Printf( 'WebTransport connection established\n' );
 
-		// Create a new socket
-		const sock = NET_NewQSocket();
-		if ( ! sock ) {
-
-			Con_Printf( 'WT_Connect: no free sockets\n' );
-			transport.close();
-			return null;
-
-		}
-
-		sock.address = host;
-		sock.driver = net_driverlevel;
-
-		// Create connection data
-		const conn = new WebTransportConnection( transport );
-		conn.connected = true;
-
 		// Create bidirectional stream for lobby protocol
-		conn.reliableStream = await transport.createBidirectionalStream();
-		conn.reliableWriter = conn.reliableStream.writable.getWriter();
-		conn.reliableReader = conn.reliableStream.readable.getReader();
+		const stream = await attempt.wait( transport.createBidirectionalStream() );
+		const writer = stream.writable.getWriter();
+		const reader = stream.readable.getReader();
 
-		// If joining a room, send LOBBY_JOIN message first
-		if ( roomId ) {
+		Con_Printf( 'Sending LOBBY_JOIN for room: ' + roomId + '\n' );
+		const roomData = new TextEncoder().encode( roomId );
+		const request = new Uint8Array( 3 + roomData.length );
+		request[ 0 ] = LOBBY_JOIN;
+		request[ 1 ] = roomData.length & 0xff;
+		request[ 2 ] = ( roomData.length >> 8 ) & 0xff;
+		request.set( roomData, 3 );
+		await attempt.wait( writer.write( request ) );
+		Con_Printf( 'LOBBY_JOIN sent\n' );
 
-			Con_Printf( 'Sending LOBBY_JOIN for room: ' + roomId + '\n' );
-			const roomData = new TextEncoder().encode( roomId );
-			const request = new Uint8Array( 3 + roomData.length );
-			request[ 0 ] = LOBBY_JOIN;
-			request[ 1 ] = roomData.length & 0xff;
-			request[ 2 ] = ( roomData.length >> 8 ) & 0xff;
-			request.set( roomData, 3 );
-			await conn.reliableWriter.write( request );
-			Con_Printf( 'LOBBY_JOIN sent\n' );
+		// Read first framed message - could be LOBBY_ERROR, LOBBY_ROOMS (redirect), or game data
+		// Use a race with timeout in case server is slow
+		const firstMsg = await attempt.wait( _WT_WithTimeout(
+			_WT_ReadFramedMessageWithType( reader ), ROOM_JOIN_TIMEOUT_MS, null ) );
 
-			// Read first framed message - could be LOBBY_ERROR, LOBBY_ROOMS (redirect), or game data
-			// Use a race with timeout in case server is slow
-			const firstMsg = await Promise.race( [
-				_WT_ReadFramedMessageWithType( conn.reliableReader ),
-				new Promise( resolve => setTimeout( () => resolve( null ), ROOM_JOIN_TIMEOUT_MS ) )
-			] );
+		// The lobby connection is finished with in every case below
+		_WT_CloseTransport( transport, attempt );
+		transport = null;
 
-			// Handle timeout - server didn't respond in time
-			if ( firstMsg === null ) {
+		// Handle timeout - server didn't respond in time
+		if ( firstMsg === null ) {
 
-				Con_Printf( 'Room join timed out after %d seconds\n', ROOM_JOIN_TIMEOUT_MS / 1000 );
-				transport.close();
-				NET_FreeQSocket( sock );
-
-				// Clear room from URL so refresh doesn't retry
-				if ( typeof history !== 'undefined' ) {
-
-					const cleanUrl = window.location.origin + window.location.pathname;
-					history.replaceState( null, '', cleanUrl );
-
-				}
-
-				// Return to Join Game menu with error message
-				set_key_dest( key_menu );
-				M_ConnectionError( 'Connection timed out - server may be offline' );
-
-				return null;
-
-			}
-
-			if ( firstMsg.type === LOBBY_ERROR ) {
-
-				const errMsg = new TextDecoder().decode( firstMsg.data );
-				Con_Printf( 'Join failed: ' + errMsg + '\n' );
-				transport.close();
-				NET_FreeQSocket( sock );
-
-				// Clear room from URL so refresh doesn't retry
-				if ( typeof history !== 'undefined' ) {
-
-					const cleanUrl = window.location.origin + window.location.pathname;
-					history.replaceState( null, '', cleanUrl );
-
-				}
-
-				// Return to Join Game menu with error message
-				set_key_dest( key_menu );
-				M_ConnectionError( errMsg );
-
-				return null;
-
-			}
-
-			// Check if lobby is redirecting us to a room server
-			if ( firstMsg.type === LOBBY_ROOMS && firstMsg.data && firstMsg.data.length > 0 ) {
-
-				try {
-
-					const roomInfo = JSON.parse( new TextDecoder().decode( firstMsg.data ) );
-					if ( roomInfo.port ) {
-
-						// Close lobby connection and redirect to room server
-						Con_Printf( 'Redirecting to room server on port ' + roomInfo.port + '\n' );
-						transport.close();
-						NET_FreeQSocket( sock );
-
-						// Build new URL with room's port (no room parameter - direct connection)
-						const urlObj = new URL( url );
-						urlObj.port = String( roomInfo.port );
-						const roomUrl = urlObj.toString();
-
-						// Connect directly to room server
-						return await _WT_ConnectDirect( roomUrl, host, roomId );
-
-					}
-
-				} catch ( e ) {
-
-					Con_Printf( 'Failed to parse room redirect: ' + e.message + '\n' );
-
-				}
-
-			}
-
-			// Server responded but didn't redirect - use same-port direct connection
-			// Close lobby connection and reconnect with game transport protocol
-			Con_Printf( 'Room on same port, reconnecting...\n' );
-			transport.close();
-			NET_FreeQSocket( sock );
-			return await _WT_ConnectDirect( url, host, roomId );
+			Con_Printf( 'Room join timed out after %d seconds\n', ROOM_JOIN_TIMEOUT_MS / 1000 );
+			return _WT_FailConnect( 'Connection timed out - server may be offline' );
 
 		}
 
-		} catch ( error ) {
+		if ( firstMsg.type === LOBBY_ERROR ) {
+
+			const errMsg = new TextDecoder().decode( firstMsg.data );
+			Con_Printf( 'Join failed: ' + errMsg + '\n' );
+			return _WT_FailConnect( errMsg );
+
+		}
+
+		// Check if lobby is redirecting us to a room server
+		let roomPort = null;
+		if ( firstMsg.type === LOBBY_ROOMS && firstMsg.data && firstMsg.data.length > 0 ) {
+
+			try {
+
+				const roomInfo = JSON.parse( new TextDecoder().decode( firstMsg.data ) );
+				if ( roomInfo.port )
+					roomPort = roomInfo.port;
+
+			} catch ( e ) {
+
+				Con_Printf( 'Failed to parse room redirect: ' + e.message + '\n' );
+
+			}
+
+		}
+
+		if ( roomPort != null ) {
+
+			// Build new URL with room's port (no room parameter - direct connection)
+			Con_Printf( 'Redirecting to room server on port ' + roomPort + '\n' );
+			const urlObj = new URL( url );
+			urlObj.port = String( roomPort );
+			return await _WT_ConnectDirect( urlObj.toString(), host, roomId, attempt );
+
+		}
+
+		// Server responded but didn't redirect - use same-port direct connection
+		Con_Printf( 'Room on same port, reconnecting...\n' );
+		return await _WT_ConnectDirect( url, host, roomId, attempt );
+
+	} catch ( error ) {
+
+		if ( transport !== null )
+			_WT_CloseTransport( transport, attempt );
+
+		if ( attempt.aborted === true ) {
+
+			Con_Printf( 'WebTransport connect timed out after %d seconds\n', WT_CONNECT_TIMEOUT_MS / 1000 );
+			return _WT_FailConnect( 'Connection timed out - server may be offline' );
+
+		}
 
 		Con_Printf( 'WebTransport connect failed: ' + error.message + '\n' );
-
-		// Clear room from URL so refresh doesn't retry
-		if ( typeof history !== 'undefined' ) {
-
-			const cleanUrl = window.location.origin + window.location.pathname;
-			history.replaceState( null, '', cleanUrl );
-
-		}
-
-		// Return to main menu
-		M_Menu_Main_f();
-		set_key_dest( key_menu );
-
-		return null;
+		return _WT_FailConnectToMainMenu();
 
 	}
 
@@ -928,45 +1137,28 @@ Transport protocol:
 - Reliable stream: [length:2][transport_packet]
 - Unreliable datagrams: transport_packet
   transport_packet: [magic:1][sequence:4][ack:4][quake_payload...]
+- The first reliable frame each way is the connect handshake
+  (WT_BuildHelloFrame / WT_BuildHandshakeReplyFrame in net.js)
 =============
 */
-async function _WT_ConnectDirect( url, originalHost, roomId = null ) {
+async function _WT_ConnectDirect( url, originalHost, roomId, attempt ) {
 
 	Con_Printf( 'WebTransport connecting directly to ' + url + '\n' );
 
+	let transport = null;
+	let conn = null;
+
 	try {
 
-		// Create the WebTransport connection
-		const transport = new WebTransport( url );
-
-		// Wait for connection to be ready
-		await transport.ready;
+		transport = _WT_OpenTransport( url, attempt );
+		await attempt.wait( transport.ready );
 
 		Con_Printf( 'WebTransport direct connection established\n' );
 
-		// Create a new socket
-		const sock = NET_NewQSocket();
-		if ( ! sock ) {
-
-			Con_Printf( '_WT_ConnectDirect: no free sockets\n' );
-			transport.close();
-			return null;
-
-		}
-
-		sock.address = originalHost;
-		sock.driver = net_driverlevel;
-		sock.sendSequence = 0;
-		sock.receiveSequence = - 1;
-		sock.unreliableReceiveSequence = - 1;
-		sock.ackSequence = - 1;
-
-		// Create connection data
-		const conn = new WebTransportConnection( transport );
-		conn.connected = true;
+		conn = new WebTransportConnection( transport );
 
 		// Reliable stream: signon messages, stringcmds
-		conn.reliableStream = await transport.createBidirectionalStream();
+		conn.reliableStream = await attempt.wait( transport.createBidirectionalStream() );
 		conn.reliableWriter = conn.reliableStream.writable.getWriter();
 		conn.reliableReader = conn.reliableStream.readable.getReader();
 		Con_Printf( 'Reliable stream ready\n' );
@@ -987,9 +1179,45 @@ async function _WT_ConnectDirect( url, originalHost, roomId = null ) {
 		}
 		Con_Printf( 'Datagram channel ready\n' );
 
-		// Store connection
+		// Connect handshake: the server assigns a client slot or says why not
+		await attempt.wait( conn.reliableWriter.write( WT_BuildHelloFrame() ) );
+		const reply = await attempt.wait( _WT_WithTimeout(
+			_WT_ReadHandshakeReply( conn.reliableReader ), WT_HANDSHAKE_TIMEOUT_MS, null ) );
+
+		if ( reply === null )
+			throw new Error( 'no handshake reply from server' );
+
+		if ( reply.status === WT_HANDSHAKE_REJECT ) {
+
+			const reason = reply.reason.length > 0 ? reply.reason : 'Connection refused';
+			Con_Printf( 'Server refused connection: ' + reason + '\n' );
+			attempt.untrack( transport );
+			_WT_CloseConnection( conn );
+			return _WT_FailConnect( reason );
+
+		}
+
+		if ( attempt.aborted === true )
+			throw new Error( 'Connection timed out' );
+
+		// No await from here on: the socket is either handed to the caller or
+		// never allocated, so a failed connect cannot leak it.
+		const sock = NET_NewQSocket();
+		if ( ! sock )
+			throw new Error( 'no free sockets' );
+
+		sock.address = originalHost;
+		sock.driver = net_driverlevel;
+		sock.sendSequence = 0;
+		sock.receiveSequence = - 1;
+		sock.unreliableReceiveSequence = - 1;
+		sock.ackSequence = - 1;
+
+		conn.connected = true;
+		conn.sock = sock;
 		sock.driverdata = conn;
 		wt_connections.set( sock, conn );
+		attempt.untrack( transport );
 
 		// Start background stream readers
 		_WT_StartBackgroundReaders( sock, conn );
@@ -998,18 +1226,23 @@ async function _WT_ConnectDirect( url, originalHost, roomId = null ) {
 		// Per original Quake design: don't set sock.disconnected here
 		// Only set conn.connected = false, which makes WT_QGetMessage return -1
 		// This triggers proper cleanup via Host_Error -> CL_Disconnect -> NET_Close
+		// The handler only touches this connection object, never the (pooled) socket.
 		transport.closed.then( () => {
 
-			Con_Printf( 'WebTransport connection closed\n' );
+			if ( conn.closing !== true )
+				Con_Printf( 'WebTransport connection closed\n' );
 			conn.connected = false;
-			// Note: Don't set sock.disconnected - that's only set by NET_FreeQSocket
+			if ( conn.closing === true )
+				_WT_FinishClose( conn );
 
 		} ).catch( ( error ) => {
 
-			Con_Printf( 'WebTransport connection error: ' + error.message + '\n' );
+			if ( conn.closing !== true )
+				Con_Printf( 'WebTransport connection error: ' + error.message + '\n' );
 			conn.connected = false;
 			conn.error = error;
-			// Note: Don't set sock.disconnected - that's only set by NET_FreeQSocket
+			if ( conn.closing === true )
+				_WT_FinishClose( conn );
 
 		} );
 
@@ -1025,23 +1258,85 @@ async function _WT_ConnectDirect( url, originalHost, roomId = null ) {
 
 	} catch ( error ) {
 
-		Con_Printf( 'WebTransport direct connect failed: ' + error.message + '\n' );
+		if ( transport !== null )
+			attempt.untrack( transport );
 
-		// Clear room from URL so refresh doesn't retry
-		if ( typeof history !== 'undefined' ) {
+		if ( conn !== null )
+			_WT_CloseConnection( conn );
+		else if ( transport !== null )
+			_WT_CloseTransport( transport, attempt );
 
-			const cleanUrl = window.location.origin + window.location.pathname;
-			history.replaceState( null, '', cleanUrl );
+		if ( attempt.aborted === true ) {
+
+			Con_Printf( 'WebTransport connect timed out after %d seconds\n', WT_CONNECT_TIMEOUT_MS / 1000 );
+			return _WT_FailConnect( 'Connection timed out - server may be offline' );
 
 		}
 
-		// Return to main menu
-		M_Menu_Main_f();
-		set_key_dest( key_menu );
-
-		return null;
+		Con_Printf( 'WebTransport direct connect failed: ' + error.message + '\n' );
+		return _WT_FailConnectToMainMenu();
 
 	}
+
+}
+
+/*
+=============
+_WT_ReadHandshakeReply
+
+Read the server's first reliable frame and parse it as a handshake reply
+=============
+*/
+async function _WT_ReadHandshakeReply( reader ) {
+
+	const header = await _WT_ReadExact( reader, 2 );
+	if ( header === null )
+		throw new Error( 'server closed the connection during the handshake' );
+
+	const length = header[ 0 ] | ( header[ 1 ] << 8 );
+	if ( length > 1024 )
+		throw new Error( 'invalid handshake reply (server may be running an older version)' );
+
+	const payload = await _WT_ReadExact( reader, length );
+	if ( payload === null )
+		throw new Error( 'server closed the connection during the handshake' );
+
+	const reply = WT_ParseHandshakeReply( payload );
+	if ( reply === null )
+		throw new Error( 'invalid handshake reply (server may be running an older version)' );
+
+	if ( reply.version !== WT_PROTOCOL_VERSION )
+		Con_DPrintf( 'Server protocol version ' + reply.version + ', client ' + WT_PROTOCOL_VERSION + '\n' );
+
+	return reply;
+
+}
+
+function _WT_WakeReader( conn ) {
+
+	const resume = conn.readResume;
+	if ( resume != null ) {
+
+		conn.readResume = null;
+		resume();
+
+	}
+
+}
+
+function _WT_PushPendingMessage( conn, reliable, data ) {
+
+	const queue = conn.pendingMessages;
+	// Only the newest of consecutive unreliable messages is ever delivered
+	// (see WT_QGetMessage), so replace instead of growing the queue.
+	if ( reliable === false && queue.length > 0 && queue[ queue.length - 1 ].reliable === false ) {
+
+		queue[ queue.length - 1 ].data = data;
+		return;
+
+	}
+
+	queue.push( { reliable, data } );
 
 }
 
@@ -1055,37 +1350,102 @@ Start background readers for reliable stream + unreliable datagrams
 function _WT_StartBackgroundReaders( sock, conn ) {
 
 	Con_Printf( 'Starting reliable stream and datagram readers...\n' );
+	conn.readersStarted = true;
 
 	// Reliable stream reader
 	( async () => {
 
-		let buffer = new Uint8Array( 0 );
+		const reader = conn.reliableReader;
+
+		// Growable receive buffer; [start, end) holds unparsed bytes.
+		let buffer = new Uint8Array( 16384 );
+		let start = 0;
+		let end = 0;
+
+		const append = ( bytes ) => {
+
+			if ( end + bytes.length > buffer.length ) {
+
+				const used = end - start;
+				if ( used + bytes.length > buffer.length ) {
+
+					let size = buffer.length * 2;
+					while ( size < used + bytes.length ) size *= 2;
+					const grown = new Uint8Array( size );
+					grown.set( buffer.subarray( start, end ), 0 );
+					buffer = grown;
+
+				} else {
+
+					buffer.copyWithin( 0, start, end );
+
+				}
+
+				start = 0;
+				end = used;
+
+			}
+
+			buffer.set( bytes, end );
+			end += bytes.length;
+
+		};
+
+		// Bytes the handshake read already pulled off the stream
+		const leftover = _getWTReaderBuffer( reader );
+		if ( leftover.data !== null && leftover.offset < leftover.data.length )
+			append( leftover.data.subarray( leftover.offset ) );
+		leftover.data = null;
+		leftover.offset = 0;
+
+		let cleanEnd = false;
 
 		try {
 
-			while ( conn.connected && conn.reliableReader ) {
-
-				const { value, done } = await conn.reliableReader.read();
-				if ( done || value === undefined || value.length === 0 ) break;
-
-				// Append to buffer
-				const newBuffer = new Uint8Array( buffer.length + value.length );
-				newBuffer.set( buffer );
-				newBuffer.set( value, buffer.length );
-				buffer = newBuffer;
+			while ( conn.connected && conn.reliableReader === reader ) {
 
 				// Process complete frames: [length:2][data...]
-				while ( buffer.length >= 2 ) {
+				while ( end - start >= 2 ) {
 
-					const length = buffer[ 0 ] | ( buffer[ 1 ] << 8 );
-					if ( buffer.length < 2 + length ) break;
+					const length = buffer[ start ] | ( buffer[ start + 1 ] << 8 );
+					if ( length > WT_MAX_FRAME_PAYLOAD )
+						throw new Error( 'oversized reliable frame (' + length + ' bytes)' );
+					if ( end - start < 2 + length ) break;
 
-					const data = buffer.subarray( 2, 2 + length );
-					buffer = buffer.subarray( 2 + length );
-
-					conn.pendingMessages.push( { reliable: true, data: new Uint8Array( data ) } );
+					_WT_PushPendingMessage( conn, true, buffer.slice( start + 2, start + 2 + length ) );
+					start += 2 + length;
 
 				}
+
+				if ( start === end ) {
+
+					start = 0;
+					end = 0;
+
+				}
+
+				// Backpressure: stop reading until the game loop catches up
+				if ( conn.pendingMessages.length >= WT_MAX_PENDING_MESSAGES ) {
+
+					await new Promise( ( resolve ) => {
+
+						conn.readResume = resolve;
+
+					} );
+					continue;
+
+				}
+
+				const { value, done } = await reader.read();
+				if ( done || value == null ) {
+
+					cleanEnd = true;
+					break;
+
+				}
+
+				if ( value.length > 0 )
+					append( value );
 
 			}
 
@@ -1093,26 +1453,52 @@ function _WT_StartBackgroundReaders( sock, conn ) {
 
 			if ( conn.connected ) {
 
-				Con_DPrintf( 'Reliable reader error: ' + error.message + '\n' );
+				Con_Printf( 'Reliable reader error: ' + error.message + '\n' );
+				conn.error = error;
 
 			}
 
 		}
+
+		if ( conn.connected ) {
+
+			if ( cleanEnd )
+				Con_DPrintf( 'Server closed the reliable stream\n' );
+			conn.connected = false;
+
+		}
+
+		conn.reliableReaderEnded = true;
+		_WT_MaybeFinishClose( conn );
 
 	} )();
 
 	// Unreliable datagram reader
 	( async () => {
 
+		const reader = conn.datagramReader;
+
 		try {
 
-			while ( conn.connected && conn.datagramReader ) {
+			while ( conn.connected && conn.datagramReader === reader ) {
 
-				const { value, done } = await conn.datagramReader.read();
+				const { value, done } = await reader.read();
 				if ( done ) break;
-				if ( value === undefined || value.length === 0 ) continue;
+				if ( value == null || value.length === 0 ) continue;
 
-				conn.pendingMessages.push( { reliable: false, data: new Uint8Array( value ) } );
+				if ( value.length > WT_MAX_FRAME_PAYLOAD ) {
+
+					if ( conn.oversizedLogged !== true ) {
+
+						conn.oversizedLogged = true;
+						Con_Printf( 'Dropping oversized datagram (' + value.length + ' bytes)\n' );
+
+					}
+					continue;
+
+				}
+
+				_WT_PushPendingMessage( conn, false, new Uint8Array( value ) );
 
 			}
 
@@ -1132,34 +1518,10 @@ function _WT_StartBackgroundReaders( sock, conn ) {
 
 /*
 =============
-_WT_ReadFramedMessage
-
-Read a framed message from the reliable stream
-Frame format: [type:1][length:2][data:N]
-=============
-*/
-async function _WT_ReadFramedMessage( reader ) {
-
-	// Read header (3 bytes: type + length)
-	const header = await _WT_ReadExact( reader, 3 );
-	if ( ! header ) return null;
-
-	const type = header[ 0 ];
-	const length = header[ 1 ] | ( header[ 2 ] << 8 );
-
-	if ( length === 0 ) return new Uint8Array( 0 );
-
-	// Read message data
-	const data = await _WT_ReadExact( reader, length );
-	return data;
-
-}
-
-/*
-=============
 _WT_ReadFramedMessageWithType
 
-Read a framed message and return both type and data
+Read a lobby framed message and return both type and data
+Frame format: [type:1][length:2][data:N]
 =============
 */
 async function _WT_ReadFramedMessageWithType( reader ) {
@@ -1233,7 +1595,7 @@ async function _WT_ReadExact( reader, n ) {
 	while ( offset < n ) {
 
 		const { value, done } = await reader.read();
-		if ( done ) return null;
+		if ( done || value == null ) return null;
 
 		const bytesToCopy = Math.min( value.length, n - offset );
 		result.set( value.subarray( 0, bytesToCopy ), offset );
@@ -1316,9 +1678,35 @@ export function WT_QGetMessage( sock ) {
 
 		}
 
+		if ( conn.readResume != null && conn.pendingMessages.length <= WT_RESUME_PENDING_MESSAGES )
+			_WT_WakeReader( conn );
+
 		const payload = _WT_ParseSequencedPacket( sock, msg.data, msg.reliable );
 		if ( payload == null )
 			continue;
+
+		// Never let a server-sized payload overflow net_message (SZ_Write
+		// would call Sys_Error and kill the tab).
+		if ( payload.length > net_message.maxsize ) {
+
+			if ( msg.reliable === false ) {
+
+				if ( conn.oversizedLogged !== true ) {
+
+					conn.oversizedLogged = true;
+					Con_Printf( 'Dropping oversized message from server (' + payload.length + ' bytes)\n' );
+
+				}
+				continue;
+
+			}
+
+			Con_Printf( 'Oversized reliable message from server (' + payload.length + ' bytes), disconnecting\n' );
+			conn.connected = false;
+			conn.pendingMessages.length = 0;
+			return - 1;
+
+		}
 
 		// Copy to net_message
 		SZ_Clear( net_message );
@@ -1334,6 +1722,28 @@ export function WT_QGetMessage( sock ) {
 		return 0;
 
 	return - 1;
+
+}
+
+function _WT_WriteReliableFrame( conn, frame ) {
+
+	conn.pendingReliableWrites ++;
+	conn.reliableWriter.write( frame ).then( () => {
+
+		conn.pendingReliableWrites --;
+
+	}, ( error ) => {
+
+		conn.pendingReliableWrites --;
+		if ( conn.closing !== true ) {
+
+			Con_Printf( 'WT_QSendMessage error: ' + error.message + '\n' );
+			conn.connected = false;
+			conn.error = error;
+
+		}
+
+	} );
 
 }
 
@@ -1367,6 +1777,17 @@ export function WT_QSendMessage( sock, data ) {
 
 	}
 
+	// The stream has not accepted anything for a long time: treat it as dead
+	// rather than buffering without limit.
+	if ( conn.pendingReliableWrites >= WT_HARD_PENDING_RELIABLE_WRITES ) {
+
+		Con_Printf( 'WT_QSendMessage: reliable stream stalled, disconnecting\n' );
+		conn.connected = false;
+		conn.error = new Error( 'reliable stream stalled' );
+		return - 1;
+
+	}
+
 	// Frame the message: [length:2][data...]
 	const packet = _WT_BuildSequencedPacket( sock, data.data, data.cursize, true );
 	const frame = new Uint8Array( 2 + packet.length );
@@ -1375,15 +1796,25 @@ export function WT_QSendMessage( sock, data ) {
 	frame.set( packet, 2 );
 
 	// Send asynchronously - QUIC handles reliability
-	conn.reliableWriter.write( frame ).catch( ( error ) => {
-
-		Con_Printf( 'WT_QSendMessage error: ' + error.message + '\n' );
-		conn.connected = false;
-		conn.error = error;
-
-	} );
+	_WT_WriteReliableFrame( conn, frame );
 
 	return 1;
+
+}
+
+// Send unreliable data on the reliable stream, or drop it when the stream is
+// backed up. A dropped message still uses up a sequence number, so commands
+// stored for prediction keep distinct sequences.
+function _WT_SendUnreliableOnReliable( sock, conn, data ) {
+
+	if ( conn.pendingReliableWrites >= WT_MAX_UNRELIABLE_ON_RELIABLE ) {
+
+		sock.sendSequence = ( sock.sendSequence + 1 ) | 0;
+		return 1;
+
+	}
+
+	return WT_QSendMessage( sock, data );
 
 }
 
@@ -1415,7 +1846,7 @@ export function WT_SendUnreliableMessage( sock, data ) {
 	// Stability fallback: send client commands on reliable stream.
 	if ( USE_CLIENT_OUTBOUND_DATAGRAMS !== true ) {
 
-		return WT_QSendMessage( sock, data );
+		return _WT_SendUnreliableOnReliable( sock, conn, data );
 
 	}
 
@@ -1426,14 +1857,21 @@ export function WT_SendUnreliableMessage( sock, data ) {
 
 	}
 
-	const packet = _WT_BuildSequencedPacket( sock, data.data, data.cursize, true );
+	if ( conn.maxDatagramSize > 0 && WT_PACKET_HEADER_BYTES + data.cursize > conn.maxDatagramSize ) {
 
-	if ( conn.maxDatagramSize > 0 && packet.length > conn.maxDatagramSize ) {
+		// Too large for the current path MTU: use the reliable stream instead.
+		if ( conn.oversizedDatagramLogged !== true ) {
 
-		// Datagram too large for current path MTU — drop unreliable payload.
-		return 1;
+			conn.oversizedDatagramLogged = true;
+			Con_Printf( 'WT_SendUnreliableMessage: ' + ( WT_PACKET_HEADER_BYTES + data.cursize ) +
+				'-byte message exceeds max datagram size ' + conn.maxDatagramSize + '; using reliable stream\n' );
+
+		}
+		return _WT_SendUnreliableOnReliable( sock, conn, data );
 
 	}
+
+	const packet = _WT_BuildSequencedPacket( sock, data.data, data.cursize, true );
 
 	// Send via unreliable datagrams
 	conn.datagramWriter.write( packet ).catch( () => {
@@ -1458,7 +1896,8 @@ export function WT_CanSendMessage( sock ) {
 	const conn = sock.driverdata;
 	if ( ! conn ) return false;
 
-	return conn.connected && conn.reliableWriter != null;
+	return conn.connected && conn.reliableWriter != null &&
+		conn.pendingReliableWrites < WT_MAX_PENDING_RELIABLE_WRITES;
 
 }
 
@@ -1476,7 +1915,8 @@ export function WT_CanSendUnreliableMessage( sock ) {
 
 	if ( USE_CLIENT_OUTBOUND_DATAGRAMS !== true ) {
 
-		return WT_CanSendMessage( sock );
+		return conn.connected && conn.reliableWriter != null &&
+			conn.pendingReliableWrites < WT_MAX_UNRELIABLE_ON_RELIABLE;
 
 	}
 
@@ -1486,40 +1926,26 @@ export function WT_CanSendUnreliableMessage( sock ) {
 
 /*
 =============
-WT_Close
+_WT_CloseConnection
 
-Close a connection
+Graceful close: stop delivering messages, let the writes already queued on
+the reliable stream (clc_disconnect) go out, send FIN, then close the
+transport once the server has reacted or WT_CLOSE_FLUSH_MS has passed.
 =============
 */
-export function WT_Close( sock ) {
+function _WT_CloseConnection( conn ) {
 
-	const conn = sock.driverdata;
-	if ( ! conn ) return;
-
+	if ( conn.closing === true ) return;
+	conn.closing = true;
 	conn.connected = false;
+	_WT_WakeReader( conn );
 
 	try {
-
-		// Cancel stream readers first to unblock pending reads
-		if ( conn.reliableReader ) {
-
-			conn.reliableReader.cancel().catch( () => {} );
-			conn.reliableReader = null;
-
-		}
 
 		if ( conn.datagramReader ) {
 
 			conn.datagramReader.cancel().catch( () => {} );
 			conn.datagramReader = null;
-
-		}
-
-		// Release stream writers
-		if ( conn.reliableWriter ) {
-
-			conn.reliableWriter.close().catch( () => {} );
-			conn.reliableWriter = null;
 
 		}
 
@@ -1530,7 +1956,75 @@ export function WT_Close( sock ) {
 
 		}
 
-		// Close the transport
+	} catch ( error ) {
+
+		// Ignore errors during close
+
+	}
+
+	const writer = conn.reliableWriter;
+	conn.reliableWriter = null;
+
+	if ( writer == null || conn.error != null ) {
+
+		_WT_FinishClose( conn );
+		return;
+
+	}
+
+	conn.closeTimer = setTimeout( () => {
+
+		conn.closeTimer = null;
+		_WT_FinishClose( conn );
+
+	}, WT_CLOSE_FLUSH_MS );
+
+	// close() completes after every write queued before it, then sends FIN
+	writer.close().then( () => {
+
+		conn.closeFlushed = true;
+		_WT_MaybeFinishClose( conn );
+
+	}, () => {
+
+		_WT_FinishClose( conn );
+
+	} );
+
+}
+
+function _WT_MaybeFinishClose( conn ) {
+
+	if ( conn.closing === true && conn.closeFlushed === true &&
+		( conn.reliableReaderEnded === true || conn.readersStarted !== true ) )
+		_WT_FinishClose( conn );
+
+}
+
+function _WT_FinishClose( conn ) {
+
+	if ( conn.closeFinished === true ) return;
+	conn.closeFinished = true;
+	conn.connected = false;
+
+	if ( conn.closeTimer !== null ) {
+
+		clearTimeout( conn.closeTimer );
+		conn.closeTimer = null;
+
+	}
+
+	_WT_WakeReader( conn );
+
+	try {
+
+		if ( conn.reliableReader ) {
+
+			conn.reliableReader.cancel().catch( () => {} );
+			conn.reliableReader = null;
+
+		}
+
 		conn.transport.close();
 
 	} catch ( error ) {
@@ -1539,7 +2033,25 @@ export function WT_Close( sock ) {
 
 	}
 
+}
+
+/*
+=============
+WT_Close
+
+Close a connection. The socket is detached at once (NET_Close frees it
+straight after); the final reliable frames are flushed in the background.
+=============
+*/
+export function WT_Close( sock ) {
+
+	const conn = sock.driverdata;
+	if ( ! conn ) return;
+
+	_WT_CloseConnection( conn );
+
 	wt_connections.delete( sock );
+	conn.sock = null;
 	sock.driverdata = null;
 
 }
