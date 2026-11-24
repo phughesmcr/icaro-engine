@@ -650,7 +650,9 @@ let mod_base = null;
 const decompressed = new Uint8Array( MAX_MAP_LEAFS / 8 );
 
 // ============================================================================
-// Stub functions for GL operations not yet ported
+// GL_LoadTexture: 8-bit paletted pixels -> THREE.DataTexture. Unlike GLQuake it
+// doesn't dedupe by name: textures are owned per model and disposed in
+// Mod_ClearAll; `name` only labels them for GPU debuggers.
 // ============================================================================
 
 function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbright ) {
@@ -718,6 +720,7 @@ function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbrig
 		}
 
 		fullbrightTexture = new THREE.DataTexture( fbRgba, width, height, THREE.RGBAFormat );
+		fullbrightTexture.name = name + ':fullbright';
 		const fbFilter = gl_texturemode.value ? THREE.LinearFilter : THREE.NearestFilter;
 		const fbMipFilter = gl_texturemode.value ? THREE.LinearMipmapLinearFilter : THREE.NearestMipmapLinearFilter;
 		fullbrightTexture.magFilter = fbFilter;
@@ -733,6 +736,7 @@ function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbrig
 	}
 
 	const texture = new THREE.DataTexture( rgba, width, height, THREE.RGBAFormat );
+	texture.name = name;
 	// Use cvar to determine filter mode: 0 = nearest (pixelated), 1 = linear (smooth)
 	const filter = gl_texturemode.value ? THREE.LinearFilter : THREE.NearestFilter;
 	const mipFilter = gl_texturemode.value ? THREE.LinearMipmapLinearFilter : THREE.NearestMipmapLinearFilter;
