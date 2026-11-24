@@ -253,6 +253,7 @@ Deno.test( 'ambient_level 0 stops the ambient loops, and they come back at their
 			const first = water._audioSource;
 			if ( first === null || first === undefined )
 				throw new Error( 'water ambient did not start' );
+			assertEqual( first.loopEnd, 400 / 11025, 'loop end in seconds at the cache rate' );
 			const level = water.master_vol;
 			assertEqual( Math.round( level ), 77, 'faded up to ambient_level * 255' );
 
@@ -300,6 +301,7 @@ class FakeAudio {
 		this.currentTime = 0;
 		this.onerror = null;
 		this.onended = null;
+		this.error = null;
 		this.plays = [];
 		this.pauses = 0;
 		// what the next play() does: 'ok', 'blocked' or 'missing'
@@ -400,6 +402,39 @@ Deno.test( 'CD tracks fall through missing files and retry autoplay on a user ge
 		const pauses = el.pauses;
 		cd_audio.CDAudio_Pause();
 		assertEqual( el.pauses, pauses, 'not playing after the last candidate failed' );
+
+		// paused while the candidates fail: Resume has nothing to restart, and
+		// the same track can be asked for again
+		el.next = 'ok';
+		cd_audio.CDAudio_Play( 8, true );
+		cd_audio.CDAudio_Pause();
+		const plays = el.plays.length;
+		for ( let i = 0; i < 4; i ++ )
+			el.onerror();
+		assertEqual( el.plays.length, plays, 'no play() while paused' );
+		cd_audio.CDAudio_Resume();
+		assertEqual( el.plays.length, plays, 'Resume after every candidate failed does nothing' );
+		cd_audio.CDAudio_Pause();
+		assertEqual( el.pauses, pauses + 1, 'still not playing' );
+
+		// Stop drops a pending gesture retry
+		el.next = 'blocked';
+		cd_audio.CDAudio_Play( 9, true );
+		await settle();
+		cd_audio.CDAudio_Stop();
+		el.next = 'ok';
+		const stopped = el.plays.length;
+		snd_dma.S_UnlockAudio();
+		assertEqual( el.plays.length, stopped, 'no retry after Stop' );
+
+		// a network error isn't remembered as a missing file
+		cd_audio.CDAudio_Play( 10, true );
+		el.error = { code: 2 };
+		el.onerror();
+		el.error = null;
+		cd_audio.CDAudio_Stop();
+		cd_audio.CDAudio_Play( 10, true );
+		assertEqual( el.src, 'static/rogue/music/track10.ogg', 'retried after a network error' );
 
 	} finally {
 

@@ -43,7 +43,8 @@ let playAttempt = 0;
 // user gesture (S_UnlockAudio)
 let gestureRetry = false;
 // URLs that failed to load (missing file or a codec the browser can't play),
-// so a track isn't fetched again on every level change
+// so a track isn't fetched again on every level change. Network errors aren't
+// recorded, so a track that exists is retried next time.
 const missingURLs = new Set();
 
 // QuakeSpasm/Ironwail bgmusic.c music_handlers order, limited to the codecs
@@ -128,14 +129,16 @@ function CDAudio_StartElement( attempt ) {
 		if ( attempt !== playAttempt )
 			return;
 
-		if ( e !== null && e !== undefined && e.name === 'NotAllowedError' ) {
+		// a DOMException from the browser
+		const err = ( e !== null && typeof e === 'object' ) ? e : { name: '', message: '' };
+		if ( err.name === 'NotAllowedError' ) {
 
 			gestureRetry = true;
 			Con_DPrintf( 'CDAudio: music waits for a click or key press\n' );
 
 		} else {
 
-			Con_DPrintf( 'CDAudio_Play: playback failed: %s\n', e !== null && e !== undefined ? e.message : '' );
+			Con_DPrintf( 'CDAudio_Play: playback failed: %s\n', err.message );
 
 		}
 
@@ -163,6 +166,7 @@ function CDAudio_PlayURL( urls, index, attempt ) {
 		// quiet about a missing CD.
 		Con_DPrintf( 'Couldn\'t find a cdrip for track %d\n', playTrack );
 		playing = false;
+		wasPlaying = false; // nothing for CDAudio_Resume to restart
 		gestureRetry = false;
 		return;
 
@@ -175,7 +179,10 @@ function CDAudio_PlayURL( urls, index, attempt ) {
 		if ( attempt !== playAttempt )
 			return;
 
-		missingURLs.add( url );
+		// MEDIA_ERR_NETWORK may be transient; anything else is the file
+		const error = musicElement.error;
+		if ( error === null || error === undefined || error.code !== 2 )
+			missingURLs.add( url );
 		CDAudio_PlayURL( urls, index + 1, attempt );
 
 	};
@@ -521,6 +528,7 @@ export function CDAudio_Shutdown() {
 	}
 
 	musicElement = null;
+	missingURLs.clear();
 	initialized = false;
 
 }
