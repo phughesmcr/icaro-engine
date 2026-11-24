@@ -77,6 +77,8 @@ Deno.test( 'touch menus: Touch Controls page, slider taps and Setup rows', async
 		menu.M_Init();
 		if ( cvar.Cvar_FindVar( 'touch_sensitivity' ) === null ) touch.Touch_RegisterCvars();
 		if ( cvar.Cvar_FindVar( 'volume' ) === null ) cvar.Cvar_RegisterVariable( sound.volume );
+		for ( const [ name, value ] of [ [ 'viewsize', '100' ], [ 'sensitivity', '3' ] ] )
+			if ( cvar.Cvar_FindVar( name ) === null ) cvar.Cvar_RegisterVariable( { name, string: value, value: Number( value ) } );
 
 		// Tap at a point in the 320x200 menu space
 		const w = draw.Draw_GetVirtualWidth();
@@ -112,6 +114,14 @@ Deno.test( 'touch menus: Touch Controls page, slider taps and Setup rows', async
 		near( sound.volume.value, 0, 'volume at the left end' );
 		tap( 256, 32 + 8 * 8 + 4 );
 		near( sound.volume.value, 0.5, 'volume in the middle' );
+
+		// Screen size (row 4) and mouse speed (row 6) have their own ranges
+		tap( 292, 32 + 4 * 8 + 4 );
+		near( cvar.Cvar_FindVar( 'viewsize' ).value, 120, 'screen size at the right end' );
+		tap( 220, 32 + 4 * 8 + 4 );
+		near( cvar.Cvar_FindVar( 'viewsize' ).value, 30, 'screen size at the left end' );
+		tap( 256, 32 + 6 * 8 + 4 );
+		near( cvar.Cvar_FindVar( 'sensitivity' ).value, 6, 'mouse speed in the middle' );
 
 		// Setup: the name row only takes the cursor, Accept Changes leaves the menu
 		cmd.Cmd_ExecuteString( 'menu_setup' );

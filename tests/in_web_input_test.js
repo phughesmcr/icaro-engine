@@ -611,6 +611,101 @@ Deno.test( 'touch: gyro integrates rotationRate in screen axes', () => {
 
 } );
 
+Deno.test( 'touch: iOS motion permission is asked once, from a menu tap', async () => {
+
+	const savedScreen = Object.getOwnPropertyDescriptor( globalThis, 'screen' );
+	const savedDME = Object.getOwnPropertyDescriptor( globalThis, 'DeviceMotionEvent' );
+	let asked = 0;
+	const DME = function () {};
+	DME.requestPermission = () => {
+
+		asked ++;
+		return Promise.resolve( 'granted' );
+
+	};
+	Object.defineProperty( globalThis, 'screen', { configurable: true, value: { orientation: { angle: 0 } } } );
+	Object.defineProperty( globalThis, 'DeviceMotionEvent', { configurable: true, value: DME } );
+
+	try {
+
+		await withFakeDom( async () => {
+
+			touch.Touch_Init( document.body );
+			const menu = byId( 'touch-menu-controls' );
+			const tap = ( id, type = 'touchend' ) => {
+
+				const ev = ( t ) => ( { type: t, changedTouches: [ { identifier: id, clientX: 50, clientY: 50 } ], preventDefault() {} } );
+				menu.fire( 'touchstart', ev( 'touchstart' ) );
+				menu.fire( type, ev( type ) );
+
+			};
+			const motion = ( t ) => windowTarget.fire( 'devicemotion', { timeStamp: t, rotationRate: { alpha: 0, beta: 0, gamma: 20 } } );
+			const setGyro = ( v ) => {
+
+				touch.touch_gyro.value = v;
+				touch.touch_gyro.string = String( v );
+
+			};
+
+			touch.Touch_SetMenuCallback( () => {}, () => null );
+			touch.Touch_ShowMenu();
+
+			// Off: a tap asks nothing
+			setGyro( 0 );
+			tap( 1 );
+			assertEqual( asked, 0, 'not asked while gyro is off' );
+
+			// On, but outside a gesture: entering the game does not ask
+			setGyro( 1 );
+			touch.Touch_HideMenu();
+			touch.Touch_Enable();
+			touch.Touch_Frame();
+			assertEqual( asked, 0, 'not asked outside a gesture' );
+			touch.Touch_Disable();
+			touch.Touch_ShowMenu();
+
+			// A cancelled touch is not a user activation
+			tap( 2, 'touchcancel' );
+			assertEqual( asked, 0, 'not asked on touchcancel' );
+
+			// The tap that turns gyro aiming on asks, once; later taps do not
+			setGyro( 0 );
+			touch.Touch_SetMenuCallback( () => setGyro( 1 ), () => null );
+			tap( 3 );
+			assertEqual( asked, 1, 'asked by the tap that turned it on' );
+			tap( 4 );
+			assertEqual( asked, 1, 'not asked again while pending' );
+			await Promise.resolve();
+			tap( 5 );
+			assertEqual( asked, 1, 'not asked again once granted' );
+
+			// Granted: the game controls listen to the gyro
+			touch.Touch_HideMenu();
+			touch.Touch_Enable();
+			touch.Touch_GetLookDelta();
+			motion( 1000 );
+			motion( 1100 );
+			assertEqual( Math.abs( touch.Touch_GetLookDelta().yaw - 2 ) < 1e-9, true, 'gyro on after permission' );
+
+			setGyro( 0 );
+			touch.Touch_Frame();
+			touch.Touch_Disable();
+
+		} );
+
+	} finally {
+
+		for ( const [ name, desc ] of [ [ 'screen', savedScreen ], [ 'DeviceMotionEvent', savedDME ] ] ) {
+
+			if ( desc ) Object.defineProperty( globalThis, name, desc );
+			else delete globalThis[ name ];
+
+		}
+
+	}
+
+} );
+
 Deno.test( 'touch: on-screen keyboard input is forwarded as Quake keys', () => {
 
 	withFakeDom( () => {
