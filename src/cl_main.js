@@ -28,7 +28,7 @@ import { SCR_EndLoadingPlaque, SCR_BeginLoadingPlaque } from './gl_screen.js';
 import { S_StopAllSounds } from './snd_dma.js';
 import { M_ConnectionError, M_ShouldReturnOnError } from './menu.js';
 import { key_menu, set_key_dest } from './keys.js';
-import { V_UsePrediction, V_ResetEffects } from './view.js';
+import { V_UsePrediction, V_ResetEffects, V_ResetPunchAngles } from './view.js';
 import { Sys_PageURL } from './sys.js';
 import { CL_InitPrediction, CL_ResetPrediction, CL_PredictMove,
 	CL_GetPredictedPlayer, CL_SetUpPlayerPrediction,
@@ -103,6 +103,7 @@ export function CL_ClearState() {
 	cl.mvelocity[ 1 ].fill( 0 );
 	cl.velocity.fill( 0 );
 	cl.punchangle.fill( 0 );
+	V_ResetPunchAngles(); //johnfitz -- v_punchangles
 	cl.idealpitch = 0;
 	cl.pitchvel = 0;
 	cl.nodrift = false;

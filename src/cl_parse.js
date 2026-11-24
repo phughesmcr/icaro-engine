@@ -53,7 +53,7 @@ import {
 	cl, cls, cl_entities, cl_static_entities, cl_lightstyle,
 	scoreboard_t } from './client.js';
 import { VectorCopy } from './mathlib.js';
-import { V_ParseDamage, V_StopPitchDrift } from './view.js';
+import { V_ParseDamage, V_StopPitchDrift, V_UpdatePunchAngles } from './view.js';
 import { Mod_ForName } from './gl_model.js';
 import { CL_SetServerState, CL_AcknowledgeCommand, CL_AcknowledgeTransportSequence,
 	CL_FindAcknowledgedSequence,
@@ -1011,6 +1011,9 @@ export function CL_ParseClientdata( bits ) {
 			cl.mvelocity[ 0 ][ i ] = 0;
 
 	}
+
+	//johnfitz -- update v_punchangles (Ironwail, for v_gunkick 2)
+	V_UpdatePunchAngles();
 
 	// [always sent]  if (bits & SU_ITEMS)
 	let i = MSG_ReadLong();

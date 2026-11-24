@@ -75,6 +75,16 @@ export const cl_crossy = new cvar_t( 'cl_crossy', '0', false );
 
 const gl_cshiftpercent = new cvar_t( 'gl_cshiftpercent', '100', false );
 
+// FitzQuake/Ironwail v_gunkick: 0 no kick, 1 id's kick, 2 kick lerped
+// between server updates. Ironwail defaults to 2; 1 keeps id's behaviour.
+export const v_gunkick = new cvar_t( 'v_gunkick', '1', true ); //johnfitz
+
+//johnfitz -- copied from cl.punchangle. 0 is current, 1 is previous value.
+// Never the same unless the map just loaded. v_punchtime is Ironwail's
+// cl.punchtime, kept here because client_state_t lives in client.js.
+const v_punchangles = [ new Float32Array( 3 ), new Float32Array( 3 ) ];
+let v_punchtime = 0;
+
 let v_dmg_time = 0;
 let v_dmg_roll = 0;
 let v_dmg_pitch = 0;
@@ -229,6 +239,64 @@ export function V_StartPitchDrift() {
 		cl.driftmove = 0;
 
 	}
+
+}
+
+/*
+===============
+V_UpdatePunchAngles
+
+From Ironwail (cl_parse.c CL_ParseClientdata): remember the previous
+punchangle and when it changed, for v_gunkick 2.
+===============
+*/
+export function V_UpdatePunchAngles() {
+
+	const cur = v_punchangles[ 0 ];
+	if ( cur[ 0 ] !== cl.punchangle[ 0 ] || cur[ 1 ] !== cl.punchangle[ 1 ] || cur[ 2 ] !== cl.punchangle[ 2 ] ) {
+
+		v_punchangles[ 1 ].set( cur );
+		cur.set( cl.punchangle );
+		v_punchtime = cl.time;
+
+	}
+
+}
+
+/*
+===============
+V_AddPunchAngles
+
+The weapon kick from Ironwail's V_CalcRefdef (johnfitz v_gunkick)
+===============
+*/
+export function V_AddPunchAngles( angles ) {
+
+	if ( v_gunkick.value === 1 ) { // original quake kick
+
+		VectorAdd( angles, cl.punchangle, angles );
+
+	} else if ( v_gunkick.value === 2 ) { // lerped kick
+
+		let punchblend = ( cl.time - v_punchtime ) / 0.1;
+		if ( punchblend < 0 ) punchblend = 0;
+		if ( punchblend > 1 ) punchblend = 1;
+
+		const prev = v_punchangles[ 1 ];
+		const cur = v_punchangles[ 0 ];
+		for ( let i = 0; i < 3; i ++ )
+			angles[ i ] += prev[ i ] + ( cur[ i ] - prev[ i ] ) * punchblend;
+
+	}
+
+}
+
+// Ironwail clears these with client_state_t in CL_ClearState
+export function V_ResetPunchAngles() {
+
+	v_punchangles[ 0 ].fill( 0 );
+	v_punchangles[ 1 ].fill( 0 );
+	v_punchtime = 0;
 
 }
 
@@ -1000,7 +1068,7 @@ export function V_CalcRefdef() {
 
 	// set up the refresh position (no weapon kick in WebXR)
 	if ( xr === false )
-		VectorAdd( r_refdef.viewangles, cl.punchangle, r_refdef.viewangles );
+		V_AddPunchAngles( r_refdef.viewangles );
 
 	// smooth out stair step ups
 	// QuakeWorld uses predicted onground state
@@ -1113,6 +1181,7 @@ export function V_Init() {
 	Cvar_RegisterVariable( v_kickpitch );
 
 	Cvar_RegisterVariable( crosshair );
+	Cvar_RegisterVariable( v_gunkick ); //johnfitz
 	Cvar_RegisterVariable( cl_crossx );
 	Cvar_RegisterVariable( cl_crossy );
 
