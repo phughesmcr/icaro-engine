@@ -275,9 +275,9 @@ Deno.test( 'game options menu: hipnotic and rogue episode and level lists, rogue
 		menu.M_Init();
 		assertEqual( menu.M_NumEpisodes(), 6, 'hipnotic episodes' );
 		assertEqual( menu.M_StartLevel().name, 'start', 'hipnotic starts at Command HQ' );
-		// cursor to Episode (row 5), one episode on, then one level on
+		// cursor to Episode (row 7), one episode on, then one level on
 		gameOptionsKeys( keys.K_DOWNARROW, keys.K_DOWNARROW, keys.K_DOWNARROW, keys.K_DOWNARROW, keys.K_DOWNARROW,
-			keys.K_RIGHTARROW, keys.K_DOWNARROW, keys.K_RIGHTARROW );
+			keys.K_DOWNARROW, keys.K_DOWNARROW, keys.K_RIGHTARROW, keys.K_DOWNARROW, keys.K_RIGHTARROW );
 		assertEqual( menu.M_StartLevel().name, 'hip1m2', 'Fortress of the Dead, second level' );
 		menu.M_Keydown( keys.K_UPARROW );
 		menu.M_Keydown( keys.K_LEFTARROW );
@@ -292,8 +292,7 @@ Deno.test( 'game options menu: hipnotic and rogue episode and level lists, rogue
 
 		// up to Teamplay (row 3); one step left from Off wraps to the last mode
 		cvar.Cvar_SetValue( 'teamplay', 0 );
-		menu.M_Keydown( keys.K_UPARROW );
-		menu.M_Keydown( keys.K_UPARROW );
+		for ( let i = 0; i < 4; i ++ ) menu.M_Keydown( keys.K_UPARROW );
 		menu.M_Keydown( keys.K_LEFTARROW );
 		assertEqual( host.teamplay.value, 6, 'rogue wraps to Three Team CTF' );
 

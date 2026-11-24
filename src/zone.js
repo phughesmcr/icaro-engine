@@ -6,6 +6,7 @@
 
 import { Sys_Error } from './sys.js';
 import { Con_Printf, Con_DPrintf } from './common.js';
+import { Cmd_AddCommand } from './cmd.js';
 
 /*
 Memory layout in original Quake (for reference):
@@ -249,6 +250,12 @@ function Cache_Init() {
 
 	cache_entries.clear();
 	cache_lru.length = 0;
+
+	// zone.c registers "flush" here. Nothing in the port allocates from this
+	// cache (models and sounds are kept as GC objects), so Cache_Flush has
+	// nothing to free; the command exists so configs and players get the C
+	// command rather than "Unknown command".
+	Cmd_AddCommand( 'flush', Cache_Flush );
 
 }
 

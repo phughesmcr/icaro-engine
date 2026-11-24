@@ -136,8 +136,8 @@ async function M_FetchRooms() {
 */
 
 let gameoptions_cursor = 0;
-const gameoptions_cursor_table = [ 40, 56, 64, 72, 80, 104, 112 ];
-const NUM_GAMEOPTIONS = 7;
+const gameoptions_cursor_table = [ 40, 56, 64, 72, 80, 88, 96, 112, 120 ];
+const NUM_GAMEOPTIONS = 9;
 
 let maxplayers = 4;
 let startepisode = 2; // Default to Deathmatch Arena
@@ -717,36 +717,24 @@ function M_Main_Draw() {
 	const p = _Draw_CachePic( 'gfx/ttl_main.lmp' );
 	M_DrawPic( ( 320 - ( p ? p.width : 0 ) ) / 2, 4, p );
 
-	// Use the extended menu image (Continue + 5 items) if available, otherwise fall back to PAK images
-	const extPic = _Draw_CachePic( 'gfx/mainmenu_ext.lmp' );
+	// menu.c M_Main_Draw draws gfx/mainmenu.lmp. The port adds a Continue row
+	// above it while in a game. Only that row comes from the custom image
+	// (static/mainmenu.png, first 21 px); the five C rows always come from the
+	// PAK, whose fourth row reads HELP, because it opens M_Menu_Help_f.
+	const mainPic = _Draw_CachePic( 'gfx/mainmenu.lmp' );
 
-	if ( extPic != null ) {
+	if ( inGame ) {
 
-		if ( inGame ) {
-
-			// Draw full image (Continue + 5 items)
-			M_DrawTransPic( 72, 32, extPic );
-
-		} else {
-
-			// Skip the Continue row (first 21px), draw only the 5 regular items
-			M_DrawSubPic( 72, 32, extPic, 21, 112 );
-
-		}
+		const extPic = _Draw_CachePic( 'gfx/mainmenu_ext.lmp' );
+		if ( extPic != null )
+			M_DrawSubPic( 72, 32, extPic, 0, 21 );
+		else
+			M_DrawTransPic( 72, 32, _Draw_CachePic( 'gfx/continue.lmp' ) );
+		M_DrawTransPic( 72, 52, mainPic );
 
 	} else {
 
-		// Fallback to original PAK images
-		if ( inGame ) {
-
-			M_DrawTransPic( 72, 32, _Draw_CachePic( 'gfx/continue.lmp' ) );
-			M_DrawTransPic( 72, 52, _Draw_CachePic( 'gfx/mainmenu.lmp' ) );
-
-		} else {
-
-			M_DrawTransPic( 72, 32, _Draw_CachePic( 'gfx/mainmenu.lmp' ) );
-
-		}
+		M_DrawTransPic( 72, 32, mainPic );
 
 	}
 
@@ -1378,9 +1366,9 @@ function M_Menu_GameOptions_f() {
 	m_entersound = true;
 
 	if ( maxplayers === 0 )
-		maxplayers = svs.maxclients || 4;
+		maxplayers = svs.maxclients;
 	if ( maxplayers < 2 )
-		maxplayers = 4;
+		maxplayers = svs.maxclientslimit;
 
 }
 
@@ -1446,15 +1434,32 @@ function M_GameOptions_Draw() {
 		skillMsg = 'Nightmare difficulty';
 	M_Print( 160, 80, skillMsg );
 
+	// Frag limit and time limit. The engine reads these cvars only here;
+	// QuakeC reads them with cvar(). Like Game Type, Teamplay and Skill, they
+	// set the local cvars: the room request carries only map and maxplayers.
+	const fraglimit = Cvar_VariableValue( 'fraglimit' );
+	M_Print( 0, 88, '       Frag Limit' );
+	if ( fraglimit === 0 )
+		M_Print( 160, 88, 'none' );
+	else
+		M_Print( 160, 88, Math.trunc( fraglimit ) + ' frags' );
+
+	const timelimit = Cvar_VariableValue( 'timelimit' );
+	M_Print( 0, 96, '       Time Limit' );
+	if ( timelimit === 0 )
+		M_Print( 160, 96, 'none' );
+	else
+		M_Print( 160, 96, Math.trunc( timelimit ) + ' minutes' );
+
 	// Episode
-	M_Print( 0, 104, '         Episode' );
-	M_Print( 160, 104, M_GameEpisodes()[ startepisode ].description );
+	M_Print( 0, 112, '         Episode' );
+	M_Print( 160, 112, M_GameEpisodes()[ startepisode ].description );
 
 	// Level
-	M_Print( 0, 112, '           Level' );
+	M_Print( 0, 120, '           Level' );
 	const level = M_StartLevel();
-	M_Print( 160, 112, level.description );
-	M_Print( 160, 120, level.name );
+	M_Print( 160, 120, level.description );
+	M_Print( 160, 128, level.name );
 
 	// Cursor
 	M_DrawCharacter( 144, gameoptions_cursor_table[ gameoptions_cursor ], 12 + ( ( Math.floor( _realtime_get() * 4 ) ) & 1 ) );
@@ -1466,9 +1471,12 @@ function M_NetStart_Change( dir ) {
 	switch ( gameoptions_cursor ) {
 
 		case 1: // Max players
+			// menu.c also shows a "see techinfo.txt" box when the cap is hit.
+			// It points at command-line parms the browser has no way to pass,
+			// so it is left out.
 			maxplayers += dir;
-			if ( maxplayers > 4 )
-				maxplayers = 4;
+			if ( maxplayers > svs.maxclientslimit )
+				maxplayers = svs.maxclientslimit;
 			if ( maxplayers < 2 )
 				maxplayers = 2;
 			break;
@@ -1498,7 +1506,23 @@ function M_NetStart_Change( dir ) {
 				Cvar_SetValue( 'skill', 3 );
 			break;
 
-		case 5: { // Episode
+		case 5: // Frag limit
+			Cvar_SetValue( 'fraglimit', Cvar_VariableValue( 'fraglimit' ) + dir * 10 );
+			if ( Cvar_VariableValue( 'fraglimit' ) > 100 )
+				Cvar_SetValue( 'fraglimit', 0 );
+			if ( Cvar_VariableValue( 'fraglimit' ) < 0 )
+				Cvar_SetValue( 'fraglimit', 100 );
+			break;
+
+		case 6: // Time limit
+			Cvar_SetValue( 'timelimit', Cvar_VariableValue( 'timelimit' ) + dir * 5 );
+			if ( Cvar_VariableValue( 'timelimit' ) > 60 )
+				Cvar_SetValue( 'timelimit', 0 );
+			if ( Cvar_VariableValue( 'timelimit' ) < 0 )
+				Cvar_SetValue( 'timelimit', 60 );
+			break;
+
+		case 7: { // Episode
 			startepisode += dir;
 
 			const numEpisodes = M_NumEpisodes();
@@ -1511,7 +1535,7 @@ function M_NetStart_Change( dir ) {
 			break;
 		}
 
-		case 6: { // Level
+		case 8: { // Level
 			startlevel += dir;
 			const count = M_GameEpisodes()[ startepisode ].levels;
 			if ( startlevel < 0 )
