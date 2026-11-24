@@ -83,7 +83,7 @@ export class cvar_t {
 
 }
 
-let cvar_vars = null;
+export let cvar_vars = null; // read by the console's tab completion
 
 /*
 ============
@@ -156,6 +156,21 @@ export function Cvar_CompleteVariable( partial ) {
 	}
 
 	return null;
+
+}
+
+/*
+============
+Cvar_SetCompletion
+
+Ironwail: sets the function that lists a cvar's values for console tab
+completion. It is called as func( var, partial ) and adds each value with
+Con_AddToTabList. Not in id's cvar.c.
+============
+*/
+export function Cvar_SetCompletion( variable, func ) {
+
+	variable.completion = func;
 
 }
 

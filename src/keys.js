@@ -1,9 +1,9 @@
 // Ported from: WinQuake/keys.c, WinQuake/keys.h -- keyboard input handling
 
 import { Cbuf_AddText } from './cmd.js';
-import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv, Cmd_CompleteCommand } from './cmd.js';
-import { Cvar_CompleteVariable } from './cvar.js';
-import { Con_Printf, con_forcedup, con_backscroll, Con_SetBackscroll, con_totallines } from './console.js';
+import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from './cmd.js';
+import { Con_Printf, con_forcedup, Con_SetBackscroll, con_totallines, con_vislines,
+	Con_Scroll, Con_TabComplete, Con_ResetTabComplete } from './console.js';
 import { M_Keydown, M_ToggleMenu_f } from './menu.js';
 import { SCR_UpdateScreen } from './gl_screen.js';
 import { Sys_Error } from './sys.js';
@@ -125,11 +125,12 @@ export const key_menu = 3;
 ==============================================================================
 */
 
-const MAXCMDLINE = 256;
+export const MAXCMDLINE = 256;
+const CMDLINES = 32;
 
-// key_lines[32][MAXCMDLINE]
+// key_lines[CMDLINES][MAXCMDLINE]
 export const key_lines = [];
-for ( let i = 0; i < 32; i ++ ) {
+for ( let i = 0; i < CMDLINES; i ++ ) {
 
 	key_lines[ i ] = new Array( MAXCMDLINE ).fill( 0 );
 
@@ -138,6 +139,7 @@ for ( let i = 0; i < 32; i ++ ) {
 export let key_linepos = 1;
 export let shift_down = false;
 export let key_lastpress = 0;
+export let key_insert = 1; // johnfitz -- insert key toggle (for editing)
 
 export let edit_line = 0;
 export let history_line = 0;
@@ -145,6 +147,7 @@ export let history_line = 0;
 export let key_dest = key_game;
 export function set_key_dest( v ) { key_dest = v; }
 export function set_key_linepos( v ) { key_linepos = v; }
+export function set_history_line( v ) { history_line = v; }
 
 export let key_count = 0; // incremented every key event
 
@@ -296,188 +299,653 @@ export let team_message = false;
 export function set_team_message( v ) { team_message = v; }
 
 /*
-====================
-Key_Console
+==============================================================================
 
-Interactive line editing and console scrollback
+			CONSOLE LINE EDITING
+
+QuakeSpasm/Ironwail additions, not in id's keys.c: a cursor within the line,
+insert mode, word jumps, history that survives a reload, and clipboard paste.
+
+==============================================================================
+*/
+
+// strlen() of a key_lines entry
+function Key_LineLength( line ) {
+
+	let len = 0;
+	while ( len < MAXCMDLINE && line[ len ] !== 0 )
+		len ++;
+	return len;
+
+}
+
+// The characters of line from start up to its terminator
+export function Key_LineString( line, start ) {
+
+	let s = '';
+	for ( let i = start; i < MAXCMDLINE && line[ i ] !== 0; i ++ )
+		s += String.fromCharCode( line[ i ] );
+	return s;
+
+}
+
+// strcpy() between key_lines entries; returns the length copied
+function Key_CopyLine( dst, src ) {
+
+	const len = Key_LineLength( src );
+	for ( let i = 0; i < len; i ++ )
+		dst[ i ] = src[ i ];
+	if ( len < MAXCMDLINE )
+		dst[ len ] = 0;
+	return len;
+
+}
+
+function Key_LinesEqual( a, b ) {
+
+	for ( let i = 0; i < MAXCMDLINE; i ++ ) {
+
+		if ( a[ i ] !== b[ i ] ) return false;
+		if ( a[ i ] === 0 ) return true;
+
+	}
+
+	return true;
+
+}
+
+// QuakeSpasm's static "current" in Key_Console: the line being typed before
+// Up recalled history, restored by Down
+const key_current = new Array( MAXCMDLINE ).fill( 0 );
+
+/*
+====================
+Key_IsWordSeparator, Key_FindWordBoundary
+
+QuakeSpasm: Ctrl+Left/Right and Ctrl+Backspace/Delete jump over words
 ====================
 */
-function Key_Console( key ) {
+function Key_IsWordSeparator( c ) {
 
-	if ( key === K_ENTER ) {
+	return c === 32 || c === 95 || c === 9 || c === 59; // ' ', '_', '\t', ';'
 
-		// skip the > prompt character
-		let line = '';
-		for ( let i = 1; i < MAXCMDLINE; i ++ ) {
+}
 
-			if ( key_lines[ edit_line ][ i ] === 0 ) break;
-			line += String.fromCharCode( key_lines[ edit_line ][ i ] );
+function Key_FindWordBoundary( dir ) {
 
-		}
+	const workline = key_lines[ edit_line ];
+	const len = Key_LineLength( workline );
+	let pos = key_linepos;
 
-		Cbuf_AddText( line );
-		Cbuf_AddText( '\n' );
+	if ( dir < 0 ) {
 
-		let displayLine = '';
-		for ( let i = 0; i < MAXCMDLINE; i ++ ) {
+		while ( pos > 1 && Key_IsWordSeparator( workline[ pos - 1 ] ) )
+			pos --;
+		while ( pos > 1 && ! Key_IsWordSeparator( workline[ pos - 1 ] ) )
+			pos --;
 
-			if ( key_lines[ edit_line ][ i ] === 0 ) break;
-			displayLine += String.fromCharCode( key_lines[ edit_line ][ i ] );
+	} else {
 
-		}
+		while ( pos < len && ! Key_IsWordSeparator( workline[ pos ] ) )
+			pos ++;
+		while ( pos < len && Key_IsWordSeparator( workline[ pos ] ) )
+			pos ++;
 
-		Con_Printf( displayLine + '\n' );
-		edit_line = ( edit_line + 1 ) & 31;
-		history_line = edit_line;
-		key_lines[ edit_line ][ 0 ] = 93; // ']'
-		key_lines[ edit_line ][ 1 ] = 0;
-		key_linepos = 1;
+	}
 
-		// force an update if disconnected
-		if ( _cls.state === 0 ) // ca_disconnected
-			SCR_UpdateScreen();
+	return pos;
+
+}
+
+/*
+====================
+History_Init, History_Save
+
+QuakeSpasm keeps the command history in history.txt; the browser keeps it in
+localStorage. QS writes the file at shutdown, which a page never gets
+reliably, so it is saved after every command instead.
+====================
+*/
+const HISTORY_STORAGE_KEY = 'quake_history';
+
+// undefined means the default store
+let key_history_storage = undefined;
+
+// Tests pass a fake store; null turns persistence off, undefined restores the default
+export function Key_SetHistoryStorage( storage ) {
+
+	key_history_storage = storage;
+
+}
+
+function Key_GetHistoryStorage() {
+
+	if ( key_history_storage !== undefined )
+		return key_history_storage;
+
+	// Deno has a localStorage too: the server and the tests must not keep a
+	// history on disk
+	if ( typeof Deno !== 'undefined' )
+		return null;
+
+	try {
+
+		return typeof localStorage !== 'undefined' ? localStorage : null;
+
+	} catch {
+
+		return null; // storage blocked by the browser's privacy settings
+
+	}
+
+}
+
+export function History_Init() {
+
+	for ( let i = 0; i < CMDLINES; i ++ ) {
+
+		key_lines[ i ][ 0 ] = 93; // ']'
+		key_lines[ i ][ 1 ] = 0;
+
+	}
+
+	key_linepos = 1;
+	edit_line = 0;
+	history_line = 0;
+	key_current[ 0 ] = 93;
+	key_current[ 1 ] = 0;
+
+	const storage = Key_GetHistoryStorage();
+	if ( storage === null )
+		return;
+
+	let text = null;
+	try {
+
+		text = storage.getItem( HISTORY_STORAGE_KEY );
+
+	} catch {
 
 		return;
 
 	}
 
-	if ( key === K_TAB ) {
+	if ( typeof text !== 'string' )
+		return;
 
-		// command completion
-		let partial = '';
-		for ( let i = 1; i < MAXCMDLINE; i ++ ) {
+	// one command per line; the last slot is left for the edit line
+	const lines = text.split( /[\r\n]+/ );
+	for ( let l = 0; l < lines.length && edit_line < CMDLINES - 1; l ++ ) {
 
-			if ( key_lines[ edit_line ][ i ] === 0 ) break;
-			partial += String.fromCharCode( key_lines[ edit_line ][ i ] );
+		const src = lines[ l ];
+		const line = key_lines[ edit_line ];
+		let i = 1;
+		for ( let j = 0; j < src.length && i < MAXCMDLINE - 1; j ++ ) {
+
+			const c = src.charCodeAt( j );
+			if ( c >= 32 && c <= 126 )
+				line[ i ++ ] = c;
 
 		}
 
-		let cmd = Cmd_CompleteCommand( partial );
-		if ( ! cmd )
-			cmd = Cvar_CompleteVariable( partial );
+		line[ i ] = 0;
+		if ( i > 1 )
+			edit_line ++;
 
-		if ( cmd ) {
+	}
 
-			for ( let i = 0; i < cmd.length; i ++ )
-				key_lines[ edit_line ][ i + 1 ] = cmd.charCodeAt( i );
+	history_line = edit_line;
+	key_lines[ edit_line ][ 0 ] = 93; // ']'
+	key_lines[ edit_line ][ 1 ] = 0;
 
-			key_linepos = cmd.length + 1;
-			key_lines[ edit_line ][ key_linepos ] = 32; // ' '
-			key_linepos ++;
-			key_lines[ edit_line ][ key_linepos ] = 0;
+}
+
+// QuakeSpasm History_Shutdown. QS stops at the first empty line, which drops
+// every command typed after an empty Enter; this skips empty lines instead.
+function History_Save() {
+
+	const storage = Key_GetHistoryStorage();
+	if ( storage === null )
+		return;
+
+	let text = '';
+	for ( let i = ( edit_line + 1 ) & ( CMDLINES - 1 ); i !== edit_line; i = ( i + 1 ) & ( CMDLINES - 1 ) ) {
+
+		if ( key_lines[ i ][ 1 ] !== 0 )
+			text += Key_LineString( key_lines[ i ], 1 ) + '\n';
+
+	}
+
+	try {
+
+		storage.setItem( HISTORY_STORAGE_KEY, text );
+
+	} catch {
+
+		// storage full or blocked: the history just isn't kept
+
+	}
+
+}
+
+/*
+====================
+PasteToConsole
+
+QuakeSpasm: inserts text at the cursor, up to the first line break and cut to
+the line length. Tabs become spaces, and characters the Quake charset has no
+glyph for (other control characters, non-ASCII) are dropped, where QS copies
+the clipboard bytes as they are.
+====================
+*/
+export function PasteToConsole( text ) {
+
+	if ( key_linepos === MAXCMDLINE - 1 )
+		return;
+
+	if ( typeof text !== 'string' )
+		return;
+
+	let cbd = '';
+	for ( let i = 0; i < text.length; i ++ ) {
+
+		const c = text.charCodeAt( i );
+		if ( c === 10 || c === 13 || c === 8 ) // '\n', '\r', '\b'
+			break;
+		if ( c === 9 )
+			cbd += ' ';
+		else if ( c >= 32 && c <= 126 )
+			cbd += text.charAt( i );
+
+	}
+
+	let inslen = cbd.length;
+	if ( inslen + key_linepos > MAXCMDLINE - 1 )
+		inslen = MAXCMDLINE - 1 - key_linepos;
+	if ( inslen <= 0 )
+		return;
+
+	const workline = key_lines[ edit_line ];
+	let mvlen = Key_LineLength( workline ) - key_linepos;
+	if ( mvlen + inslen + key_linepos > MAXCMDLINE - 1 ) {
+
+		mvlen = MAXCMDLINE - 1 - key_linepos - inslen;
+		if ( mvlen < 0 ) mvlen = 0;
+
+	}
+
+	// insert the string
+	if ( mvlen !== 0 )
+		workline.copyWithin( key_linepos + inslen, key_linepos, key_linepos + mvlen );
+	for ( let i = 0; i < inslen; i ++ )
+		workline[ key_linepos + i ] = cbd.charCodeAt( i );
+	workline[ key_linepos + inslen + mvlen ] = 0;
+	key_linepos += inslen;
+
+	Con_ResetTabComplete();
+
+}
+
+/*
+Clipboard paste in the browser.
+
+Ctrl+V and Shift+Ins reach Key_Console, but Cmd+V never does: in_web.js leaves
+Cmd shortcuts to the browser. Both make the browser fire a paste event (the
+console doesn't prevent the default action), and that event carries the text
+without asking for permission, so it is the main route. It is listened for
+from Key_Init, never at import time.
+
+navigator.clipboard.readText() is the fallback for a Ctrl+V or Shift+Ins that
+brings no paste event. It runs after the key event has finished, when the
+paste event would already have arrived, and only if none did, because Firefox
+and Safari show a "Paste" prompt for every readText(). A refused permission
+or an empty clipboard is ignored.
+*/
+let key_paste_events = 0;
+let key_paste_document = null;
+
+function Key_ConsoleActive() {
+
+	return key_dest === key_console || ( key_dest === key_game && con_forcedup );
+
+}
+
+function Key_PasteEvent( event ) {
+
+	if ( ! Key_ConsoleActive() )
+		return;
+
+	// text fields (the touch keyboard's input) take their own pastes
+	const target = event.target;
+	if ( target !== null && target !== undefined &&
+		( target.isContentEditable === true || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' ) )
+		return;
+
+	const data = event.clipboardData;
+	if ( data === null || data === undefined )
+		return;
+
+	key_paste_events ++;
+	event.preventDefault();
+	PasteToConsole( data.getData( 'text/plain' ) );
+
+}
+
+function Key_InitPaste() {
+
+	if ( typeof document === 'undefined' || document === null || typeof document.addEventListener !== 'function' )
+		return;
+	if ( key_paste_document === document )
+		return;
+
+	key_paste_document = document;
+	document.addEventListener( 'paste', Key_PasteEvent );
+
+}
+
+function Key_PasteFromClipboard() {
+
+	const events = key_paste_events;
+
+	setTimeout( () => {
+
+		if ( key_paste_events !== events )
+			return; // the paste event brought it
+
+		if ( typeof navigator === 'undefined' || navigator === null )
+			return;
+		const clipboard = navigator.clipboard;
+		if ( clipboard === null || clipboard === undefined || typeof clipboard.readText !== 'function' )
+			return;
+
+		let request = null;
+		try {
+
+			request = clipboard.readText();
+
+		} catch {
+
 			return;
 
 		}
 
-	}
+		Promise.resolve( request ).then( ( text ) => {
 
-	if ( key === K_BACKSPACE || key === K_LEFTARROW ) {
+			if ( key_paste_events !== events || ! Key_ConsoleActive() )
+				return;
+			PasteToConsole( text );
 
-		if ( key_linepos > 1 )
-			key_linepos --;
-		return;
+		}, () => {} ); // permission denied: paste nothing
 
-	}
+	}, 0 );
 
-	if ( key === K_UPARROW ) {
+}
 
-		do {
+/*
+====================
+Key_Console -- johnfitz -- heavy revision
 
-			history_line = ( history_line - 1 ) & 31;
+Interactive line editing and console scrollback. Follows QuakeSpasm, which
+moved Home/End to the cursor: Ctrl+Home/End now scroll the console to the
+top and bottom, where vanilla used plain Home/End.
+====================
+*/
+function Key_Console( key ) {
 
-		} while ( history_line !== edit_line
-				&& ! key_lines[ history_line ][ 1 ] );
+	const workline = key_lines[ edit_line ];
+	const ctrl = keydown[ K_CTRL ];
 
-		if ( history_line === edit_line )
-			history_line = ( edit_line + 1 ) & 31;
+	switch ( key ) {
 
-		for ( let i = 0; i < MAXCMDLINE; i ++ )
-			key_lines[ edit_line ][ i ] = key_lines[ history_line ][ i ];
+		case K_ENTER: {
 
-		// calculate length
-		key_linepos = 0;
-		while ( key_lines[ edit_line ][ key_linepos ] !== 0 && key_linepos < MAXCMDLINE )
-			key_linepos ++;
+			Con_ResetTabComplete();
+			Cbuf_AddText( Key_LineString( workline, 1 ) ); // skip the prompt
+			Cbuf_AddText( '\n' );
+			Con_Printf( Key_LineString( workline, 0 ) + '\n' );
 
-		return;
+			// If the last two lines are identical, skip storing this line in history
+			// by not incrementing edit_line
+			if ( ! Key_LinesEqual( workline, key_lines[ ( edit_line - 1 ) & ( CMDLINES - 1 ) ] ) )
+				edit_line = ( edit_line + 1 ) & ( CMDLINES - 1 );
 
-	}
-
-	if ( key === K_DOWNARROW ) {
-
-		if ( history_line === edit_line ) return;
-
-		do {
-
-			history_line = ( history_line + 1 ) & 31;
-
-		} while ( history_line !== edit_line
-			&& ! key_lines[ history_line ][ 1 ] );
-
-		if ( history_line === edit_line ) {
-
+			history_line = edit_line;
 			key_lines[ edit_line ][ 0 ] = 93; // ']'
+			key_lines[ edit_line ][ 1 ] = 0; // johnfitz -- otherwise old history items show up in the new edit line
 			key_linepos = 1;
+			History_Save();
 
-		} else {
-
-			for ( let i = 0; i < MAXCMDLINE; i ++ )
-				key_lines[ edit_line ][ i ] = key_lines[ history_line ][ i ];
-
-			key_linepos = 0;
-			while ( key_lines[ edit_line ][ key_linepos ] !== 0 && key_linepos < MAXCMDLINE )
-				key_linepos ++;
+			// force an update, because the command may take some time
+			if ( _cls.state === 0 ) // ca_disconnected
+				SCR_UpdateScreen();
+			return;
 
 		}
 
-		return;
+		case K_TAB:
+			Con_TabComplete();
+			return;
+
+		case K_BACKSPACE:
+			Con_ResetTabComplete();
+			if ( key_linepos > 1 ) {
+
+				const numchars = ctrl ? key_linepos - Key_FindWordBoundary( - 1 ) : 1;
+				const len = Key_LineLength( workline );
+				workline.copyWithin( key_linepos - numchars, key_linepos, len + 1 );
+				key_linepos -= numchars;
+
+			}
+
+			return;
+
+		case K_DEL:
+			Con_ResetTabComplete();
+			if ( workline[ key_linepos ] !== 0 ) {
+
+				const numchars = ctrl ? Key_FindWordBoundary( 1 ) - key_linepos : 1;
+				const len = Key_LineLength( workline );
+				workline.copyWithin( key_linepos, key_linepos + numchars, len + 1 );
+
+			}
+
+			return;
+
+		case K_HOME:
+			if ( ctrl )
+				Con_SetBackscroll( Math.max( 0, con_totallines - ( _vid.height >> 3 ) - 1 ) );
+			else
+				key_linepos = 1;
+			Con_ResetTabComplete();
+			return;
+
+		case K_END:
+			if ( ctrl )
+				Con_SetBackscroll( 0 );
+			else
+				key_linepos = Key_LineLength( workline );
+			Con_ResetTabComplete();
+			return;
+
+		case K_PGUP:
+		case K_MWHEELUP:
+			Con_Scroll( ctrl ? ( con_vislines >> 3 ) - 4 : 2 );
+			return;
+
+		case K_PGDN:
+		case K_MWHEELDOWN:
+			Con_Scroll( ctrl ? - ( ( con_vislines >> 3 ) - 4 ) : - 2 );
+			return;
+
+		case K_LEFTARROW:
+			if ( key_linepos > 1 ) {
+
+				if ( ctrl )
+					key_linepos = Key_FindWordBoundary( - 1 );
+				else
+					key_linepos --;
+				Con_ResetTabComplete();
+
+			}
+
+			return;
+
+		case K_RIGHTARROW: {
+
+			const len = Key_LineLength( workline );
+			if ( len === key_linepos ) {
+
+				// at the end, take the next character of the previous command
+				const prev = key_lines[ ( edit_line + ( CMDLINES - 1 ) ) & ( CMDLINES - 1 ) ];
+				if ( Key_LineLength( prev ) <= key_linepos )
+					return; // no character to get
+				workline[ key_linepos ] = prev[ key_linepos ];
+				workline[ key_linepos + 1 ] = 0;
+				key_linepos ++;
+
+			} else {
+
+				if ( ctrl )
+					key_linepos = Key_FindWordBoundary( 1 );
+				else
+					key_linepos ++;
+
+			}
+
+			Con_ResetTabComplete();
+			return;
+
+		}
+
+		case K_UPARROW: {
+
+			if ( history_line === edit_line )
+				Key_CopyLine( key_current, workline );
+
+			const history_line_last = history_line;
+			do {
+
+				history_line = ( history_line - 1 ) & ( CMDLINES - 1 );
+
+			} while ( history_line !== edit_line && key_lines[ history_line ][ 1 ] === 0 );
+
+			if ( history_line === edit_line ) {
+
+				history_line = history_line_last;
+				return;
+
+			}
+
+			Con_ResetTabComplete();
+			key_linepos = Key_CopyLine( workline, key_lines[ history_line ] );
+			return;
+
+		}
+
+		case K_DOWNARROW:
+			if ( history_line === edit_line )
+				return;
+
+			Con_ResetTabComplete();
+
+			do {
+
+				history_line = ( history_line + 1 ) & ( CMDLINES - 1 );
+
+			} while ( history_line !== edit_line && key_lines[ history_line ][ 1 ] === 0 );
+
+			// vanilla only reset the prompt here and left the recalled
+			// command in the buffer; QS brings back what was being typed
+			if ( history_line === edit_line )
+				key_linepos = Key_CopyLine( workline, key_current );
+			else
+				key_linepos = Key_CopyLine( workline, key_lines[ history_line ] );
+			return;
+
+		case K_INS:
+			if ( keydown[ K_SHIFT ] ) // Shift+Ins paste
+				Key_PasteFromClipboard();
+			else if ( ! ctrl ) // Ctrl+Ins copies a mouse selection in Ironwail; there is none here
+				key_insert ^= 1;
+			Con_ResetTabComplete();
+			return;
+
+		case 118: // 'v'
+		case 86: // 'V'
+			if ( ctrl ) { // Ctrl+V paste
+
+				Key_PasteFromClipboard();
+				return;
+
+			}
+
+			break;
+
+		case 99: // 'c'
+		case 67: // 'C'
+			if ( ctrl ) { // Ctrl+C: abort the line -- S.A
+
+				Con_Printf( Key_LineString( workline, 0 ) + '\n' );
+				workline[ 0 ] = 93; // ']'
+				workline[ 1 ] = 0;
+				key_linepos = 1;
+				history_line = edit_line;
+				Con_ResetTabComplete();
+				return;
+
+			}
+
+			break;
 
 	}
 
-	if ( key === K_PGUP || key === K_MWHEELUP ) {
-
-		let bs = con_backscroll + 2;
-		if ( bs > con_totallines - ( _vid.height >> 3 ) - 1 )
-			bs = con_totallines - ( _vid.height >> 3 ) - 1;
-		Con_SetBackscroll( bs );
+	// QuakeSpasm types from text input events, which Ctrl chords don't send
+	if ( ctrl )
 		return;
 
-	}
-
-	if ( key === K_PGDN || key === K_MWHEELDOWN ) {
-
-		let bs = con_backscroll - 2;
-		if ( bs < 0 )
-			bs = 0;
-		Con_SetBackscroll( bs );
-		return;
-
-	}
-
-	if ( key === K_HOME ) {
-
-		Con_SetBackscroll( con_totallines - ( _vid.height >> 3 ) - 1 );
-		return;
-
-	}
-
-	if ( key === K_END ) {
-
-		Con_SetBackscroll( 0 );
-		return;
-
-	}
-
-	if ( key < 32 || key > 127 )
+	if ( key < 32 || key > 126 )
 		return; // non printable
 
-	if ( key_linepos < MAXCMDLINE - 1 ) {
+	Char_Console( key );
 
-		key_lines[ edit_line ][ key_linepos ] = key;
-		key_linepos ++;
-		key_lines[ edit_line ][ key_linepos ] = 0;
+}
+
+/*
+====================
+Char_Console
+
+QuakeSpasm: types a character at the cursor, pushing the rest of the line
+right in insert mode or replacing the character under the cursor otherwise
+====================
+*/
+function Char_Console( key ) {
+
+	if ( key_linepos >= MAXCMDLINE - 1 )
+		return;
+
+	const workline = key_lines[ edit_line ];
+	const endpos = workline[ key_linepos ] === 0;
+
+	Con_ResetTabComplete(); // johnfitz
+
+	if ( key_insert && ! endpos ) {
+
+		// if inserting, move the text to the right
+		workline[ MAXCMDLINE - 2 ] = 0;
+		const len = Key_LineLength( workline );
+		workline.copyWithin( key_linepos + 1, key_linepos, len + 1 );
+		workline[ key_linepos ] = key;
+
+	} else {
+
+		workline[ key_linepos ] = key;
+		// null terminate if at the end
+		if ( endpos )
+			workline[ key_linepos + 1 ] = 0;
 
 	}
+
+	key_linepos ++;
 
 }
 
@@ -716,14 +1184,8 @@ Key_Init
 */
 export function Key_Init() {
 
-	for ( let i = 0; i < 32; i ++ ) {
-
-		key_lines[ i ][ 0 ] = 93; // ']'
-		key_lines[ i ][ 1 ] = 0;
-
-	}
-
-	key_linepos = 1;
+	History_Init();
+	Key_InitPaste();
 
 	//
 	// init ascii characters in console mode
@@ -738,6 +1200,11 @@ export function Key_Init() {
 	consolekeys[ K_UPARROW ] = true;
 	consolekeys[ K_DOWNARROW ] = true;
 	consolekeys[ K_BACKSPACE ] = true;
+	consolekeys[ K_CTRL ] = true; // QuakeSpasm: Ctrl, Ins, Del, Home and End edit the line
+	consolekeys[ K_INS ] = true;
+	consolekeys[ K_DEL ] = true;
+	consolekeys[ K_HOME ] = true;
+	consolekeys[ K_END ] = true;
 	consolekeys[ K_PGUP ] = true;
 	consolekeys[ K_PGDN ] = true;
 	consolekeys[ K_SHIFT ] = true;
@@ -834,7 +1301,10 @@ export function Key_Event( key, down ) {
 		key_repeats[ key ] ++;
 		if ( key !== K_BACKSPACE && key !== K_PAUSE && key_repeats[ key ] > 1 ) {
 
-			return; // ignore most autorepeats
+			// QuakeSpasm lets keys repeat outside the game; here only the
+			// console's own keys do, so held arrows and Delete repeat
+			if ( ! ( consolekeys[ key ] && Key_ConsoleActive() ) )
+				return; // ignore most autorepeats
 
 		}
 

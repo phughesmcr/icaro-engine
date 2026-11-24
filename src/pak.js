@@ -213,6 +213,50 @@ export function COM_FindFile( filename ) {
 
 /*
 =================
+COM_ListFiles
+
+Not in id's common.c. Returns the sorted, unique base names (no directory, no
+extension) of the files directly in dir ('maps', or '' for the root) with the
+given extension, from the loaded packs and the preloaded loose files. Files
+of minsize bytes or fewer are skipped. Console tab completion uses it like
+Ironwail's ExtraMaps_Init (maps over 32k, so not the b_*.bsp item models) and
+DemoList_Init.
+=================
+*/
+export function COM_ListFiles( dir, ext, minsize ) {
+
+	const prefix = dir.length > 0 ? dir.toLowerCase() + '/' : '';
+	const suffix = '.' + ext.toLowerCase();
+	const names = new Set();
+
+	const add = ( name, size ) => {
+
+		if ( size <= minsize ) return;
+		if ( ! name.startsWith( prefix ) || ! name.endsWith( suffix ) ) return;
+		const base = name.substring( prefix.length, name.length - suffix.length );
+		if ( base.length === 0 || base.includes( '/' ) ) return; // no subdirectories
+		names.add( base );
+
+	};
+
+	for ( let i = 0; i < com_searchpaths.length; i ++ ) {
+
+		const pack = com_searchpaths[ i ].pack;
+		if ( ! pack ) continue;
+		for ( let j = 0; j < pack.files.length; j ++ )
+			add( pack.files[ j ].name, pack.files[ j ].filelen );
+
+	}
+
+	for ( const [ name, data ] of virtualFiles )
+		add( name, data.length );
+
+	return [ ...names ].sort();
+
+}
+
+/*
+=================
 COM_SetLooseFileBasePath
 
 Sets the base path for on-demand loose file fetching.
