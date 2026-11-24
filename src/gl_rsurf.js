@@ -2169,6 +2169,13 @@ export function R_MarkLeaves() {
 // R_MirrorChain
 //============================================================================
 
+// GLQuake's R_NewMap picks the mirror texture by this name prefix.
+export function R_IsMirrorTexture( t ) {
+
+	return t != null && typeof t.name === 'string' && t.name.substring( 0, 10 ) === 'window02_1';
+
+}
+
 export function R_MirrorChain( s ) {
 
 	if ( mirror )
@@ -2669,8 +2676,8 @@ function R_BuildWorldMeshes() {
 		const geom = DrawGLPoly( surf.polys, planeNormal );
 		if ( ! geom ) continue;
 
-		const isMirrorTexture = mirrortexturenum >= 0 &&
-			t === worldmodel.textures[ mirrortexturenum ];
+		// by name: mirrortexturenum is only set after the world meshes are built
+		const isMirrorTexture = R_IsMirrorTexture( t );
 
 		const lmNum = surf.lightmaptexturenum;
 		const texKey = ( t._buildId || ( t._buildId = Math.random() ) ) + '_' + lmNum;

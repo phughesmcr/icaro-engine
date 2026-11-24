@@ -263,3 +263,11 @@ Deno.test( 'r_mirroralpha below 1 flags the mirror and clears the chain', () => 
 	} );
 
 } );
+
+Deno.test( 'mirror texture is recognised by name, independent of mirrortexturenum', () => {
+
+	assertEqual( gl_rsurf.R_IsMirrorTexture( { name: 'window02_1' } ), true, 'window02_1' );
+	assertEqual( gl_rsurf.R_IsMirrorTexture( { name: 'window02_2' } ), false, 'other window' );
+	assertEqual( gl_rsurf.R_IsMirrorTexture( null ), false, 'null' );
+
+} );
