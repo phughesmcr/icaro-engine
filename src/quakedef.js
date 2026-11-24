@@ -131,7 +131,7 @@ export class entity_state_t {
 	constructor() {
 
 		this.number = 0; // entity number (QW delta compression)
-		this.flags = 0; // PE_SOLID etc. (QW delta compression)
+		this.flags = 0; // PE_* delta bits (QW delta compression); PE_SOLID is carried by solid
 		this.origin = new Float32Array( 3 );
 		this.angles = new Float32Array( 3 );
 		this.modelindex = 0;

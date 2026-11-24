@@ -455,7 +455,8 @@ export function CL_StoreCommand( cmd, senttime, netsequence = - 1 ) {
 	return sequence;
 }
 
-// Movetype for the local prediction run (noclip when detected)
+// Movetype for the local prediction run: the view player's movetype from its
+// last playerinfo (PF_NOCLIP / PF_FLY)
 let _cl_predmovetype = PM_MOVETYPE_WALK;
 // The view player's movetype from its last playerinfo (PF_NOCLIP / PF_FLY)
 let _cl_servermovetype = PM_MOVETYPE_WALK;
