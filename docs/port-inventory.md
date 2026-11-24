@@ -410,8 +410,8 @@ The name appears only in a comment, a string, or as a different symbol.
 | function | `DrawGLWaterPolyLightmap` | `gl_rsurf.c:617` | missing | G1: submerged surfaces do not wobble (`DrawGLWaterPoly` is never called) |
 | cvar | `host_speeds` | `host.c:58` | differs (`src/host.js`): C reads it, JS never does | G10: registered but inert |
 | cvar | `serverprofile` | `host.c:61` | differs (`src/host.js`): C reads it, JS never does | G10: registered but inert |
-| cvar | `fraglimit` | `host.c:63` | differs (`src/host.js`): C reads it, JS never does | G4: C reads these only in the Game Options menu, which lacks the rows |
-| cvar | `timelimit` | `host.c:64` | differs (`src/host.js`): C reads it, JS never does | G4: C reads these only in the Game Options menu, which lacks the rows |
+| cvar | `fraglimit` | `host.c:63` | differs (`src/host.js`): C reads it, JS never does | G4: the C engine reads these only in the Game Options menu, which lacks the rows (QuakeC reads them through `cvar()` in both) |
+| cvar | `timelimit` | `host.c:64` | differs (`src/host.js`): C reads it, JS never does | G4: the C engine reads these only in the Game Options menu, which lacks the rows (QuakeC reads them through `cvar()` in both) |
 | function | `Host_Version_f` | `host_cmd.c:949` | missing | G9: `version` command |
 | function | `FindViewthing` | `host_cmd.c:1670` | missing | G9: viewthing model-inspection commands |
 | function | `Host_Viewmodel_f` | `host_cmd.c:1690` | missing | G9: viewthing model-inspection commands |
