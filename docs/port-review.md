@@ -28,7 +28,7 @@ Line numbers refer to `dfef74a`. C references use function names, which are stab
 
 ## Fix status
 
-Every finding has a fix in an open PR against `dev`, and so does every residual the first round of PRs left. No PR is merged yet. Each PR's description has a per-item table.
+Every finding has a fix in an open PR against `dev`, and so does every residual the first round of PRs left. Two items are handled by documentation instead: the lobby's own permissions (#4) and two registered-content checks (section 7). No PR is merged yet. Each PR's description has a per-item table.
 
 Test counts are from `deno test --allow-read --allow-net --allow-env tests/` on each PR's branch. Nothing has been played in a browser, on a GPU, in a headset or against a live server.
 
@@ -58,10 +58,10 @@ Test counts are from `deno test --allow-read --allow-net --allow-env tests/` on 
 | NET-1 to NET-5, PRED-2 | [#8] | Fixed (59 pass); residuals fixed in #13 |
 | `WT_*` no-op stubs, `WT_Listen` failure, server README | [#9] | Fixed; stacked on #4 and #8 (71 pass) |
 | MP-2, MP-5 (`U_NOLERP`), solid monsters for prediction (`PE_SOLID`), movevars 11–12, player movetype, `COM_CheckRegistered`, menu episodes | [#10] | Fixed; stacked on #3, #5 and #6 (76 pass) |
-| Input residuals: Ctrl/Alt chords, Keyboard Lock, numpad mapping, `xr_turnspeed`, touch and XR tests | [#12] | Fixed; stacked on #2 and #7 (77 pass) |
+| Input residuals: Ctrl/Alt chords, Keyboard Lock, `xr_turnspeed`, touch and XR tests; numpad keeps the WinQuake mapping, now tested | [#12] | Fixed; stacked on #2 and #7 (77 pass) |
 | Netcode residuals: teleport lock and `punchangle` prediction, `hasAck`, `delta_sequence` age check, entity starvation, moves as datagrams, lobby join reply | [#13] | Fixed; stacked on #8, #9 and #10 (120 pass) |
 
-All twelve fix branches merge into `dev` together without conflicts. With `--allow-run --allow-write` added, the combined tree passes all 168 tests.
+All twelve fix branches merge into `dev` together without conflicts. With `--allow-run --allow-write` added, the combined tree passes all 168 tests in `tests/`, and 169 with `server/net_webtransport_server_test.ts` included.
 
 **Merge order:**
 - #2 to #8 are independent of each other.
@@ -88,6 +88,7 @@ What the PRs above leave open, on purpose or because it can't be checked here.
 - **Input ([#12]):** browsers reserve some shortcuts (Ctrl+W, Ctrl+T, Cmd+Q and others). Keyboard Lock captures them only in fullscreen on Chrome and Edge; Firefox and Safari have no Keyboard Lock.
 - **Transport ([#13]):** moves now travel as datagrams. The load test ran on one machine over loopback; `WT_SetClientOutboundDatagrams( false )` restores the reliable stream.
 - **Mirrors ([#11]):** the render-target pass has never run on a GPU. Check it with registered data on e2m3 and `r_mirroralpha 0.5`.
+- **Lobby permissions ([#4]):** the lobby process's own Deno permissions are documented, not enforced.
 - **Registered content ([#10]):** `COM_FindFile`'s loose-file rule and the `WINDED` dedicated-server check are intentional deviations; see section 7.
 
 ---
