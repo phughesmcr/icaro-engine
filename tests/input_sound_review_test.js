@@ -155,6 +155,44 @@ Deno.test( 'menus let held arrow keys repeat but not Enter', () => {
 
 } );
 
+Deno.test( 'a held arrow just bound in the keys menu does not repeat into the list', () => {
+
+	const oldBindings = keys.keybindings.slice();
+	keys.Key_ClearStates();
+	cmd.Cmd_ExecuteString( 'menu_keys' );
+	assertEqual( menu.m_state, menu.m_keys, 'keys menu open' );
+
+	try {
+
+		keys.Key_Event( K_ENTER, true ); // start the grab
+		keys.Key_Event( K_ENTER, false );
+
+		localSounds = 0;
+		keys.Key_Event( K_UPARROW, true ); // bound
+		keys.Key_Event( K_UPARROW, true ); // held past the repeat delay
+		keys.Key_Event( K_UPARROW, true );
+		assertEqual( localSounds, 1, 'only the grab itself' );
+		keys.Key_Event( K_UPARROW, false );
+		cmd.Cbuf_Execute();
+		assertEqual( keys.keybindings[ K_UPARROW ], '+attack', 'Up bound to the first action' );
+
+		// A fresh press of the same key navigates and repeats again
+		localSounds = 0;
+		keys.Key_Event( K_UPARROW, true );
+		keys.Key_Event( K_UPARROW, true );
+		keys.Key_Event( K_UPARROW, false );
+		assertEqual( localSounds, 2, 'press and repeat both move the cursor' );
+
+	} finally {
+
+		keys.keybindings.splice( 0, keys.keybindings.length, ...oldBindings );
+		keys.Key_ClearStates();
+		keys.set_key_dest( keys.key_game );
+
+	}
+
+} );
+
 /*
 ==============================================================================
 
@@ -359,10 +397,14 @@ Deno.test( 'an identical sound started twice in one frame starts the second one 
 			assertEqual( ch.pos, skip, 'pos holds the skip' );
 			assertEqual( ch.end, sound.paintedtime + 2000 - skip, 'end moves in by the skip' );
 
+			// A different sound in the same frame is not offset
+			snd_dma.S_StartSound( 4, 1, snd_dma.S_PrecacheSound( 'review/ok16.wav' ), origin, 1, 0 );
+			assertEqual( started[ 2 ].offset, 0, 'another sfx starts at 0' );
+
 			// Next frame: the earlier ones count as mixed, no offset
 			snd_dma.S_Update( zero, fwd, right, up );
 			snd_dma.S_StartSound( 3, 1, sfx, origin, 1, 0 );
-			assertEqual( started[ 2 ].offset, 0, 'a later frame starts at 0' );
+			assertEqual( started[ 3 ].offset, 0, 'a later frame starts at 0' );
 
 		} finally {
 

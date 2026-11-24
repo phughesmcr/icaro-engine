@@ -4,7 +4,7 @@ import { Cbuf_AddText } from './cmd.js';
 import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from './cmd.js';
 import { Con_Printf, con_forcedup, Con_SetBackscroll, con_totallines, con_vislines,
 	Con_Scroll, Con_TabComplete, Con_ResetTabComplete } from './console.js';
-import { M_Keydown, M_ToggleMenu_f } from './menu.js';
+import { M_Keydown, M_KeyRepeats, M_ToggleMenu_f } from './menu.js';
 import { SCR_UpdateScreen } from './gl_screen.js';
 import { Sys_Error } from './sys.js';
 import { Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
@@ -1284,20 +1284,6 @@ export function Key_Init() {
 
 /*
 ===================
-Key_MenuKeyRepeats
-
-Ironwail M_Keydown: only a few navigational keys repeat in menus
-===================
-*/
-function Key_MenuKeyRepeats( key ) {
-
-	return key === K_UPARROW || key === K_DOWNARROW
-		|| key === K_LEFTARROW || key === K_RIGHTARROW;
-
-}
-
-/*
-===================
 Key_Event
 
 Called by the system between frames for both key up and key down events
@@ -1367,11 +1353,9 @@ export function Key_Event( key, down ) {
 			// QuakeSpasm lets keys repeat outside the game; here only the
 			// console's own keys do, so held arrows and Delete repeat.
 			// Menus let the arrow keys repeat, for scrolling through lists
-			// (Ironwail M_Keydown; id ignored all repeats in menus). Unlike
-			// Ironwail, Escape doesn't repeat: holding it would back out of
-			// every menu level and then close the menu.
+			// (Ironwail M_Keydown; id ignored all repeats in menus)
 			if ( ! ( consolekeys[ key ] && Key_ConsoleActive() )
-				&& ! ( key_dest === key_menu && Key_MenuKeyRepeats( key ) ) )
+				&& ! ( key_dest === key_menu && M_KeyRepeats( key ) ) )
 				return; // ignore most autorepeats
 
 		}
