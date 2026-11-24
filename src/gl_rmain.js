@@ -1333,7 +1333,9 @@ function R_Mirror() {
 	// gl_rmain.c: the player is added to the entity list for the reflected
 	// view (cl_visedicts[cl_numvisedicts++] = &cl_entities[cl.viewentity]).
 	// Here its mesh joins the scene for the reflection pass only, unless the
-	// chase camera has already drawn it this frame.
+	// chase camera has already drawn it this frame. It is drawn at the view
+	// entity's origin, the server's (CL_LinkPlayers): with client prediction
+	// the reflection trails the predicted camera by about one round trip.
 	const ent = cl != null ? cl_entities[ cl.viewentity ] : null;
 	let playerMesh = null;
 	let shadowMesh = null;

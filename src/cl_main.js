@@ -1024,8 +1024,10 @@ function CL_LinkPlayers() {
 		if ( isView && chase === false )
 			continue;
 
+		// object list is full. QW breaks here; continue so a view entity in
+		// a later slot is still filled in for R_Mirror.
 		if ( cl_numvisedicts >= MAX_VISEDICTS )
-			break; // object list is full
+			continue;
 
 		cl_visedicts[ cl_numvisedicts ] = ent;
 		set_cl_numvisedicts( cl_numvisedicts + 1 );
