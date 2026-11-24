@@ -19,11 +19,9 @@ Stop and report if any step fails. Never merge the PR, and never target `main`.
    - Make sure nothing unrelated is in the diff: no registered paks, `*.pem`
      files, or `.claude/` scratch files.
    - If parallel sessions own other files, check that you only touched yours.
-3. **Tests.** Run `NO_COLOR=1 deno task test` and record the pass count. If you
-   changed `server/net_webtransport_server.ts`, also run
-   `deno test --allow-read --allow-net --allow-env server/net_webtransport_server_test.ts`.
-4. **Type check.** Run `deno check` on each changed entry point (`main.js` or
-   the `server/` files).
+3. **Tests.** Run `NO_COLOR=1 deno task test` and record the pass count.
+4. **Type check.** Run `deno task check`. It covers the client and server
+   entry points and the TypeScript test.
 5. **Lint.** Run `deno task lint`. It must pass with zero problems; CI runs
    the same command.
    - Keep C-parity parameters with a `_` prefix rather than deleting them.
