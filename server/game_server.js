@@ -45,20 +45,23 @@ import { NET_NewQSocket, NET_FreeQSocket } from '../src/net_main.js';
 import { formatRoomStatusLine, MAX_PLAYERS_LIMIT, DEFAULT_MAX_PLAYERS } from './room_process_manager.ts';
 
 // Server configuration
-const CONFIG = {
-	pakPath: '../static/pak0.pak',
-	port: 4433,
-	certFile: 'cert.pem',
-	keyFile: 'key.pem',
-	maxClients: 4,
-	defaultMap: 'start',
-	roomId: null,        // Room ID if spawned by lobby server
-	directMode: false,   // Skip lobby protocol, accept connections directly
-	idleTimeout: 300,    // Seconds to wait before exiting when empty (room mode)
-	statusNonce: null,   // Token for structured status lines to the lobby (room mode)
-	parentWatch: false,  // Exit when stdin closes (the lobby holds the other end)
-	gameFlags: [],       // -rogue and/or -hipnotic: load <pak dir>/rogue or hipnotic too
-};
+export function createConfig() {
+	return {
+		pakPath: '../static/pak0.pak',
+		port: 4433,
+		certFile: 'cert.pem',
+		keyFile: 'key.pem',
+		maxClients: 4,
+		defaultMap: 'start',
+		roomId: null,        // Room ID if spawned by lobby server
+		directMode: false,   // Skip lobby protocol, accept connections directly
+		idleTimeout: 300,    // Seconds to wait before exiting when empty (room mode)
+		statusNonce: null,   // Token for structured status lines to the lobby (room mode)
+		parentWatch: false,  // Exit when stdin closes (the lobby holds the other end)
+		gameFlags: [],       // -rogue and/or -hipnotic: load <pak dir>/rogue or hipnotic too
+	};
+}
+const CONFIG = createConfig();
 
 /**
  * Clamp -maxclients to 1..MAX_PLAYERS_LIMIT (MAX_SCOREBOARD), like
@@ -70,39 +73,53 @@ function clampMaxClients(value) {
 	return Math.max(1, Math.min(MAX_PLAYERS_LIMIT, n));
 }
 
-// Parse command line arguments
-function parseArgs() {
-	const args = Deno.args;
+// Parse command line arguments into config (exported for tests)
+export function parseArgs(args = Deno.args, config = CONFIG) {
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i];
 		if (arg === '-port' && args[i + 1]) {
-			CONFIG.port = parseInt(args[++i], 10);
+			config.port = parseInt(args[++i], 10);
 		} else if (arg === '-maxclients' && args[i + 1]) {
-			CONFIG.maxClients = clampMaxClients(args[++i]);
+			config.maxClients = clampMaxClients(args[++i]);
 		} else if (arg === '-map' && args[i + 1]) {
-			CONFIG.defaultMap = args[++i];
+			config.defaultMap = args[++i];
 		} else if (arg === '-pak' && args[i + 1]) {
-			CONFIG.pakPath = args[++i];
+			config.pakPath = args[++i];
 		} else if (arg === '-cert' && args[i + 1]) {
-			CONFIG.certFile = args[++i];
+			config.certFile = args[++i];
 		} else if (arg === '-key' && args[i + 1]) {
-			CONFIG.keyFile = args[++i];
+			config.keyFile = args[++i];
 		} else if (arg === '-room' && args[i + 1]) {
-			CONFIG.roomId = args[++i];
-			CONFIG.directMode = true; // Room servers use direct mode
+			config.roomId = args[++i];
+			config.directMode = true; // Room servers use direct mode
 		} else if (arg === '-direct') {
-			CONFIG.directMode = true;
+			config.directMode = true;
 		} else if (arg === '-idletimeout' && args[i + 1]) {
 			const t = parseInt(args[++i], 10);
-			if (Number.isFinite(t)) CONFIG.idleTimeout = t;
+			if (Number.isFinite(t)) config.idleTimeout = t;
 		} else if (arg === '-statusnonce' && args[i + 1]) {
-			CONFIG.statusNonce = args[++i];
+			config.statusNonce = args[++i];
 		} else if (arg === '-parentwatch') {
-			CONFIG.parentWatch = true;
+			config.parentWatch = true;
 		} else if (arg === '-rogue' || arg === '-hipnotic') {
-			CONFIG.gameFlags.push(arg);
+			config.gameFlags.push(arg);
 		}
 	}
+	return config;
+}
+
+/**
+ * common.c COM_InitFilesystem: <basedir>/rogue, then <basedir>/hipnotic, after
+ * id1. basedir is the directory holding the -pak file; either separator is
+ * accepted so a Windows-style path works too.
+ */
+export function gameDirectories(pakPath, isRogue, isHipnotic) {
+	const cut = Math.max(pakPath.lastIndexOf('/'), pakPath.lastIndexOf('\\'));
+	const basedir = cut >= 0 ? pakPath.slice(0, cut) : '.';
+	const dirs = [];
+	if (isRogue) dirs.push(basedir + '/rogue');
+	if (isHipnotic) dirs.push(basedir + '/hipnotic');
+	return dirs;
 }
 
 // Globals for game loop
@@ -285,13 +302,9 @@ async function Host_Init_Server() {
 		throw new Error('Failed to load ' + CONFIG.pakPath);
 	}
 
-	// common.c COM_InitFilesystem: <basedir>/rogue or hipnotic after id1,
-	// where basedir is the directory holding the -pak file
-	const basedir = CONFIG.pakPath.includes('/') ? CONFIG.pakPath.slice(0, CONFIG.pakPath.lastIndexOf('/')) : '.';
-	for (const dir of [rogue ? 'rogue' : null, hipnotic ? 'hipnotic' : null]) {
-		if (dir === null) continue;
-		if (await COM_AddGameDirectory(basedir + '/' + dir) === 0) {
-			throw new Error('-' + dir + ' needs ' + basedir + '/' + dir + '/pak0.pak');
+	for (const dir of gameDirectories(CONFIG.pakPath, rogue, hipnotic)) {
+		if (await COM_AddGameDirectory(dir) === 0) {
+			throw new Error('-' + dir.slice(dir.lastIndexOf('/') + 1) + ' needs ' + dir + '/pak0.pak');
 		}
 	}
 

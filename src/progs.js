@@ -282,10 +282,12 @@ export function G_FUNCTION( o ) {
 
 export function PR_GetString( ofs ) {
 
-	if ( ofs < 0 || ofs >= pr_strings_data.length ) return '';
+	// Bound by the bytes in use, not the buffer: PR_AppendString leaves zeroed
+	// spare capacity past pr_strings_size.
+	if ( ofs < 0 || ofs >= pr_strings_size ) return '';
 
 	let s = '';
-	for ( let i = ofs; i < pr_strings_data.length; i ++ ) {
+	for ( let i = ofs; i < pr_strings_size; i ++ ) {
 
 		if ( pr_strings_data[ i ] === 0 ) break;
 		s += String.fromCharCode( pr_strings_data[ i ] );
