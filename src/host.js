@@ -304,8 +304,11 @@ export async function Host_Init( parms ) {
 	}
 
 	// gl_vidnt.c Check_Gamma reads -gamma itself; vid.js takes it as an argument.
+	// A missing or non-positive value would turn the palette white (pow(x, 0)
+	// is 1; C has the same flaw), so fall back to the default instead.
 	const gammaparm = COM_CheckParm( '-gamma' );
-	VID_Init( host_basepal, gammaparm !== 0 ? Q_atof( com_argv[ gammaparm + 1 ] || '' ) : null );
+	const gammaval = gammaparm !== 0 ? Q_atof( com_argv[ gammaparm + 1 ] || '' ) : 0;
+	VID_Init( host_basepal, gammaval > 0 ? gammaval : null );
 
 	// Wire Draw externals before Draw_Init so overlay canvas gets correct size
 	Draw_SetExternals( {
