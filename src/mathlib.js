@@ -1,6 +1,7 @@
 // Ported from: WinQuake/mathlib.c -- math primitives
 
 import { PITCH, YAW, ROLL } from './quakedef.js';
+import { Sys_Error } from './sys.js';
 
 export const M_PI = 3.14159265358979323846;
 
