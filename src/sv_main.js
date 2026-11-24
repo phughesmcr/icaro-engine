@@ -293,8 +293,28 @@ export function SV_SendServerinfo( client ) {
 	MSG_WriteShort( client.message, clientnum + 1 );
 
 	// send movevars for client-side prediction (matches QW sv_user.c:98-108)
-	MSG_WriteByte( client.message, svc_stufftext );
-	MSG_WriteString( client.message, '_movevars'
+	SV_WriteMovevars( client.message );
+
+	MSG_WriteByte( client.message, svc_signonnum );
+	MSG_WriteByte( client.message, 1 );
+
+	client.sendsignon = true;
+	client.spawned = false; // need prespawn, spawn, etc
+
+}
+
+/*
+================
+SV_WriteMovevars
+
+Writes the _movevars stufftext that feeds client-side prediction. Not in
+NetQuake: it carries the values QuakeWorld sends in svc_serverdata.
+================
+*/
+function SV_WriteMovevars( msg ) {
+
+	MSG_WriteByte( msg, svc_stufftext );
+	MSG_WriteString( msg, '_movevars'
 		+ ' ' + sv_gravity.value
 		+ ' ' + sv_stopspeed.value
 		+ ' ' + sv_maxspeed.value
@@ -307,11 +327,40 @@ export function SV_SendServerinfo( client ) {
 		+ ' ' + 1.0 // entgravity
 		+ '\n' );
 
-	MSG_WriteByte( client.message, svc_signonnum );
-	MSG_WriteByte( client.message, 1 );
+}
 
-	client.sendsignon = true;
-	client.spawned = false; // need prespawn, spawn, etc
+// Movevar cvar values last sent to all clients
+const _movevars_sent = new Float64Array( 5 );
+
+function SV_SnapshotMovevars() {
+
+	_movevars_sent[ 0 ] = sv_gravity.value;
+	_movevars_sent[ 1 ] = sv_stopspeed.value;
+	_movevars_sent[ 2 ] = sv_maxspeed.value;
+	_movevars_sent[ 3 ] = sv_accelerate.value;
+	_movevars_sent[ 4 ] = sv_friction.value;
+
+}
+
+/*
+================
+SV_CheckMovevars
+
+Re-sends _movevars on the reliable stream when one of the cvars it carries
+changes mid-game, so prediction keeps using the server's values.
+================
+*/
+function SV_CheckMovevars() {
+
+	if ( _movevars_sent[ 0 ] === sv_gravity.value
+		&& _movevars_sent[ 1 ] === sv_stopspeed.value
+		&& _movevars_sent[ 2 ] === sv_maxspeed.value
+		&& _movevars_sent[ 3 ] === sv_accelerate.value
+		&& _movevars_sent[ 4 ] === sv_friction.value )
+		return;
+
+	SV_SnapshotMovevars();
+	SV_WriteMovevars( sv.reliable_datagram );
 
 }
 
@@ -512,6 +561,8 @@ SV_UpdateToReliableMessages
 =======================
 */
 function SV_UpdateToReliableMessages() {
+
+	SV_CheckMovevars();
 
 	// check for changes to be sent over the reliable streams
 	for ( let i = 0; i < svs.maxclients; i ++ ) {
@@ -720,6 +771,18 @@ function SV_WriteDelta( from, to, msg, force ) {
 
 }
 
+// Largest single entry SV_WriteDelta can write: short + morebits byte
+// + model, frame, colormap, skin, effects + 3 coords + 3 angles
+const MAX_PACKETENTITY_BYTES = 2 + 1 + 5 + 3 * 2 + 3;
+
+// Largest svc_playerinfo SV_WritePlayersToClient can write: svc + num + flags
+// + origin + frame + msec + usercmd (bits, 3 angle16, 3 moves, buttons,
+// impulse) + velocity + model, skin, effects, weaponframe
+const MAX_PLAYERINFO_BYTES = 1 + 1 + 2 + 3 * 2 + 1 + 1 + ( 1 + 3 * 2 + 3 * 2 + 1 + 1 ) + 3 * 2 + 4;
+
+// An empty packetentities: svc_deltapacketentities + sequence + terminator
+const MIN_PACKETENTITIES_BYTES = 2 + 2;
+
 /*
 =============
 SV_EmitPacketEntities
@@ -728,7 +791,7 @@ Writes a delta update of a packet_entities_t to the message.
 Ported from: QW/server/sv_ents.c
 =============
 */
-function SV_EmitPacketEntities( client, to, msg ) {
+export function SV_EmitPacketEntities( client, to, msg ) {
 
 	let from;
 	let oldmax;
@@ -755,7 +818,23 @@ function SV_EmitPacketEntities( client, to, msg ) {
 	let newindex = 0;
 	let oldindex = 0;
 
+	// The last point at which the packet could end: the client would rebuild
+	// at most MAX_PACKET_ENTITIES entities from it (see the overflow case below)
+	let safesize = msg.cursize;
+	let safenew = 0;
+	let safeold = 0;
+	let overflow = false;
+
 	while ( newindex < to.num_entities || oldindex < oldmax ) {
+
+		// sv_main.c SV_WriteEntitiesToClient stops with "packet overflow" when
+		// the next entity might not fit. Keep 2 bytes for the terminator.
+		if ( msg.maxsize - msg.cursize < MAX_PACKETENTITY_BYTES + 2 ) {
+
+			overflow = true;
+			break;
+
+		}
 
 		const newnum = newindex >= to.num_entities ? 9999 : to.entities[ newindex ].number;
 		const oldnum = oldindex >= oldmax ? 9999 : from.entities[ oldindex ].number;
@@ -766,28 +845,46 @@ function SV_EmitPacketEntities( client, to, msg ) {
 			SV_WriteDelta( from.entities[ oldindex ], to.entities[ newindex ], msg, false );
 			oldindex ++;
 			newindex ++;
-			continue;
 
-		}
-
-		if ( newnum < oldnum ) {
+		} else if ( newnum < oldnum ) {
 
 			// this is a new entity, send it from the baseline
 			const ent = EDICT_NUM( newnum );
 			SV_WriteDelta( ent.baseline, to.entities[ newindex ], msg, true );
 			newindex ++;
-			continue;
 
-		}
-
-		if ( newnum > oldnum ) {
+		} else {
 
 			// the old entity isn't present in the new message
 			MSG_WriteShort( msg, oldnum | PE_REMOVE );
 			oldindex ++;
-			continue;
 
 		}
+
+		if ( newindex + oldmax - oldindex <= MAX_PACKET_ENTITIES ) {
+
+			safesize = msg.cursize;
+			safenew = newindex;
+			safeold = oldindex;
+
+		}
+
+	}
+
+	if ( overflow ) {
+
+		Con_Printf( 'packet overflow\n' );
+
+		// On the terminator the client keeps what it has read and copies the
+		// rest of the old frame unchanged. Rewind to the last point where that
+		// stays within MAX_PACKET_ENTITIES, and make this frame's snapshot match
+		// what the client will hold, so later deltas from it stay in step. The
+		// entities left out are sent on a later frame.
+		msg.cursize = safesize;
+		let n = safenew;
+		for ( let j = safeold; j < oldmax; j ++, n ++ )
+			to.entities[ n ].copyFrom( from.entities[ j ] );
+		to.num_entities = n;
 
 	}
 
@@ -1096,7 +1193,7 @@ SV_WritePlayersToClient
 QuakeWorld-style player info for client-side prediction
 ==================
 */
-function SV_WritePlayersToClient( client, clent, pvs, msg ) {
+export function SV_WritePlayersToClient( client, clent, pvs, msg ) {
 
 	// Find player model index if not cached
 	if ( sv_playermodel === 0 ) {
@@ -1130,6 +1227,15 @@ function SV_WritePlayersToClient( client, clent, pvs, msg ) {
 
 			if ( i === ent.num_leafs )
 				continue; // not visible
+
+		}
+
+		// leave room for this player and an empty packetentities after it;
+		// C has no playerinfo, so this mirrors its per-entity overflow check
+		if ( msg.maxsize - msg.cursize < MAX_PLAYERINFO_BYTES + MIN_PACKETENTITIES_BYTES ) {
+
+			Con_Printf( 'packet overflow\n' );
+			return;
 
 		}
 
@@ -1759,6 +1865,9 @@ export function SV_SpawnServer( server ) {
 
 	// all setup is completed, any further precache statements are errors
 	sv.state = ss_active;
+
+	// clients get the current movevars in serverinfo
+	SV_SnapshotMovevars();
 
 	// run two frames to allow everything to settle
 	set_host_frametime( 0.1 );

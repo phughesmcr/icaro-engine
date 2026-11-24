@@ -42,7 +42,10 @@ const _quietLogAllowPatterns = [
 	/^Unhandled promise rejection:/,
 	/^WebTransport server listening /,
 	/^WebTransport server driver initialized/,
-	/^NET_Init complete/
+	/^NET_Init complete/,
+	/^\[Heartbeat\]/,
+	/^Host_Error/,
+	/^Room .* (shutting down|exiting)/
 ];
 
 function _isDenoRuntime() {

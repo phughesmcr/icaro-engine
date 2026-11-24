@@ -247,3 +247,123 @@ export let slistLocal = true;
 export function set_slistInProgress( v ) { slistInProgress = v; }
 export function set_slistSilent( v ) { slistSilent = v; }
 export function set_slistLocal( v ) { slistLocal = v; }
+
+//============================================================================
+// WebTransport wire protocol (shared by src/net_webtransport.js and
+// server/net_webtransport_server.ts)
+//
+// Reliable stream frames: [length:u16le][payload]
+// Game packets:           [magic:u8][sequence:u32le][ack:u32le][quake payload]
+//
+// Connect handshake: the first reliable frame in each direction.
+//   client -> server: "ICARO" [version:u8]
+//   server -> client: "ICARO" [version:u8] [status:u8] [reason: utf-8]
+// The server allocates a client slot only after a valid hello, and rejects
+// with a reason (for example "Server is full") instead of dropping the session.
+//============================================================================
+
+export const WT_PACKET_MAGIC = 0x71;
+export const WT_PACKET_HEADER_BYTES = 9; // [magic:u8][sequence:u32][acknowledged:u32]
+
+// Largest reliable frame payload either side accepts: one full game message
+// plus the sequencing header. Anything larger is a protocol violation.
+export const WT_MAX_FRAME_PAYLOAD = NET_MAXMESSAGE + WT_PACKET_HEADER_BYTES;
+
+export const WT_PROTOCOL_VERSION = 1;
+export const WT_HANDSHAKE_ACCEPT = 0;
+export const WT_HANDSHAKE_REJECT = 1;
+const WT_HANDSHAKE_MAGIC = [ 0x49, 0x43, 0x41, 0x52, 0x4f ]; // "ICARO"
+const WT_HANDSHAKE_MAGIC_BYTES = 5;
+const WT_HANDSHAKE_MAX_REASON = 200;
+
+function _WT_FrameBytes( payload ) {
+
+	const frame = new Uint8Array( 2 + payload.length );
+	frame[ 0 ] = payload.length & 0xff;
+	frame[ 1 ] = ( payload.length >> 8 ) & 0xff;
+	frame.set( payload, 2 );
+	return frame;
+
+}
+
+function _WT_HasHandshakeMagic( payload ) {
+
+	if ( payload == null || payload.length < WT_HANDSHAKE_MAGIC_BYTES + 1 )
+		return false;
+
+	for ( let i = 0; i < WT_HANDSHAKE_MAGIC_BYTES; i ++ ) {
+
+		if ( payload[ i ] !== WT_HANDSHAKE_MAGIC[ i ] )
+			return false;
+
+	}
+
+	return true;
+
+}
+
+/**
+ * Client hello, already framed for the reliable stream.
+ * @returns {Uint8Array}
+ */
+export function WT_BuildHelloFrame() {
+
+	const payload = new Uint8Array( WT_HANDSHAKE_MAGIC_BYTES + 1 );
+	payload.set( WT_HANDSHAKE_MAGIC, 0 );
+	payload[ WT_HANDSHAKE_MAGIC_BYTES ] = WT_PROTOCOL_VERSION;
+	return _WT_FrameBytes( payload );
+
+}
+
+/**
+ * Parse a client hello payload (the frame body, without the length prefix).
+ * @param {Uint8Array} payload
+ * @returns {number} the client's protocol version, or -1 if it is not a hello
+ */
+export function WT_ParseHello( payload ) {
+
+	if ( _WT_HasHandshakeMagic( payload ) === false )
+		return - 1;
+
+	return payload[ WT_HANDSHAKE_MAGIC_BYTES ];
+
+}
+
+/**
+ * Server reply to a hello, already framed for the reliable stream.
+ * @param {number} status WT_HANDSHAKE_ACCEPT or WT_HANDSHAKE_REJECT
+ * @param {string} reason shown to the player on reject
+ * @returns {Uint8Array}
+ */
+export function WT_BuildHandshakeReplyFrame( status, reason = '' ) {
+
+	let reasonBytes = new TextEncoder().encode( reason );
+	if ( reasonBytes.length > WT_HANDSHAKE_MAX_REASON )
+		reasonBytes = reasonBytes.subarray( 0, WT_HANDSHAKE_MAX_REASON );
+
+	const payload = new Uint8Array( WT_HANDSHAKE_MAGIC_BYTES + 2 + reasonBytes.length );
+	payload.set( WT_HANDSHAKE_MAGIC, 0 );
+	payload[ WT_HANDSHAKE_MAGIC_BYTES ] = WT_PROTOCOL_VERSION;
+	payload[ WT_HANDSHAKE_MAGIC_BYTES + 1 ] = status;
+	payload.set( reasonBytes, WT_HANDSHAKE_MAGIC_BYTES + 2 );
+	return _WT_FrameBytes( payload );
+
+}
+
+/**
+ * Parse a server handshake reply payload (the frame body).
+ * @param {Uint8Array} payload
+ * @returns {{ version: number, status: number, reason: string } | null}
+ */
+export function WT_ParseHandshakeReply( payload ) {
+
+	if ( _WT_HasHandshakeMagic( payload ) === false || payload.length < WT_HANDSHAKE_MAGIC_BYTES + 2 )
+		return null;
+
+	return {
+		version: payload[ WT_HANDSHAKE_MAGIC_BYTES ],
+		status: payload[ WT_HANDSHAKE_MAGIC_BYTES + 1 ],
+		reason: new TextDecoder().decode( payload.subarray( WT_HANDSHAKE_MAGIC_BYTES + 2 ) )
+	};
+
+}

@@ -12,7 +12,8 @@ import {
 	M_PI, DotProduct, VectorCopy, VectorAdd, VectorSubtract, VectorMA,
 	VectorNormalize, AngleVectors, Length, RotatePointAroundVector, BoxOnPlaneSide
 } from './mathlib.js';
-import { R_DrawWorld as R_DrawWorld_impl, R_MarkLeaves as R_MarkLeaves_impl, GL_BuildLightmaps as GL_BuildLightmaps_rsurf, R_DrawBrushModel as R_DrawBrushModel_rsurf, R_DrawWaterSurfaces as R_DrawWaterSurfaces_rsurf, R_CleanupWaterMeshes as R_CleanupWaterMeshes_rsurf } from './gl_rsurf.js';
+import { R_DrawWorld as R_DrawWorld_impl, R_MarkLeaves as R_MarkLeaves_impl, GL_BuildLightmaps as GL_BuildLightmaps_rsurf, R_DrawBrushModel as R_DrawBrushModel_rsurf, R_DrawWaterSurfaces as R_DrawWaterSurfaces_rsurf, R_CleanupWaterMeshes as R_CleanupWaterMeshes_rsurf, R_GetMirrorItems } from './gl_rsurf.js';
+import { R_MirrorGate, R_MirrorPass, R_MirrorCleanup } from './gl_rmirror.js';
 import { Mod_PointInLeaf, SPR_SINGLE, SPR_ORIENTED } from './gl_model.js';
 import { R_AnimateLight as R_AnimateLight_impl, R_PushDlights as R_PushDlights_impl, R_RenderDlights as R_RenderDlights_impl, R_LightPoint, lightspot } from './gl_rlight.js';
 import { R_DrawAliasModel as R_DrawAliasModel_mesh, GL_DrawAliasShadow } from './gl_mesh.js';
@@ -1277,6 +1278,9 @@ export function R_RenderView() {
 
 	}
 
+	R_MirrorCleanup();
+	mirror = false;
+
 	// Draw screen blend overlay AFTER main scene (damage flash, powerups, underwater tint)
 	// Skip in XR mode — the 2D ortho overlay doesn't work with stereo rendering
 	if ( isXRActive() === false ) {
@@ -1300,23 +1304,32 @@ export function R_RenderView() {
 //============================================================================
 // R_Mirror
 //
-// Only one mirror exists in the entire game (e2m3).
-// Requires render-to-texture with flipped camera — not yet implemented.
+// Only one mirror exists in the entire game (window02_1 in e2m3, registered
+// data only). GLQuake reflects it only when r_mirroralpha is not 1
+// (gl_rsurf.c DrawTextureChains), and r_mirroralpha defaults to 1, so with
+// the default nothing here runs: DrawTextureChains never calls R_MirrorChain,
+// `mirror` stays false and this returns at the first test.
+//
+// Otherwise the scene is rendered again from the reflected viewpoint into a
+// render target and the mirror surface is redrawn mixing that image with its
+// texture at r_mirroralpha (see gl_rmirror.js). Not done under WebXR.
 //============================================================================
-
-let _mirrorWarned = false;
 
 function R_Mirror() {
 
 	if ( mirror === false )
 		return;
 
-	if ( _mirrorWarned === false ) {
+	if ( renderer == null || scene == null || camera == null )
+		return;
 
-		Con_Printf( 'R_Mirror: mirror rendering not yet implemented\n' );
-		_mirrorWarned = true;
+	if ( R_MirrorGate( r_mirroralpha.value, isXRActive() ) === false )
+		return;
 
-	}
+	const alpha = Math.max( 0, r_mirroralpha.value );
+	const viewmodel = cl && cl.viewent ? cl.viewent._aliasMesh : null;
+
+	R_MirrorPass( renderer, scene, camera, mirror_plane, R_GetMirrorItems(), alpha, [ viewmodel ] );
 
 }
 

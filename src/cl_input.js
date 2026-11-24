@@ -10,7 +10,7 @@ import { clc_move, clc_delta, PE_UPDATE_BACKUP } from './protocol.js';
 import { SIGNONS,
 	kbutton_t, usercmd_t,
 	cl, cls, cl_entities } from './client.js';
-import { anglemod, VectorCopy } from './mathlib.js';
+import { anglemod } from './mathlib.js';
 import { host_frametime, realtime } from './host.js';
 import { V_StartPitchDrift, V_StopPitchDrift } from './view.js';
 import { lookspring, CL_Disconnect } from './cl_main.js';
@@ -357,6 +357,23 @@ export function CL_BaseMove( cmd ) {
 
 /*
 ==============
+CL_QuantizeAngle
+
+The angle the server gets back from MSG_WriteAngle / MSG_ReadAngle:
+truncated to whole degrees, then to 1/256 of a turn, as a signed char.
+==============
+*/
+export function CL_QuantizeAngle( f ) {
+
+	let b = ( ( f | 0 ) * 256 / 360 ) & 255;
+	if ( b > 127 )
+		b -= 256;
+	return b * ( 360.0 / 256 );
+
+}
+
+/*
+==============
 CL_SendMove
 ==============
 */
@@ -376,16 +393,18 @@ export function CL_SendMove( cmd ) {
 	MSG_WriteFloat( buf, cl.mtime[ 0 ] ); // so server can get ping times
 
 	// In XR mode, send controller aim direction instead of head direction
-	// so weapons fire where the controller points
-	if ( isXRActive() && XR_GetAimAngles( _xrAimAngles ) ) {
+	// so weapons fire where the controller points. The server also moves
+	// the player along these angles, so prediction must use the same ones
+	// (IN-3).
+	let angles = cl.viewangles;
+	if ( isXRActive() && XR_GetAimAngles( _xrAimAngles ) )
+		angles = _xrAimAngles;
 
-		for ( let i = 0; i < 3; i ++ )
-			MSG_WriteAngle( buf, _xrAimAngles[ i ] );
+	for ( let i = 0; i < 3; i ++ ) {
 
-	} else {
-
-		for ( let i = 0; i < 3; i ++ )
-			MSG_WriteAngle( buf, cl.viewangles[ i ] );
+		MSG_WriteAngle( buf, angles[ i ] );
+		// what the server's MSG_ReadAngle will get back
+		_sendmove_predAngles[ i ] = CL_QuantizeAngle( angles[ i ] );
 
 	}
 
@@ -415,12 +434,14 @@ export function CL_SendMove( cmd ) {
 	// Store command for client-side prediction (QuakeWorld style)
 	// Build a prediction command structure
 	//
-	_sendmove_predCmd.msec = Math.min( 255, Math.floor( host_frametime * 1000 ) );
+	// clc_move has no msec: the server moves the player by its own
+	// host_frametime, which isn't floored to whole milliseconds. Keep the
+	// fraction so prediction doesn't fall 4-6% short (PRED-3).
+	_sendmove_predCmd.msec = Math.min( 255, host_frametime * 1000 );
 	_sendmove_predCmd.forwardmove = cmd.forwardmove;
 	_sendmove_predCmd.sidemove = cmd.sidemove;
 	_sendmove_predCmd.upmove = cmd.upmove;
 	_sendmove_predCmd.buttons = bits;
-	VectorCopy( cl.viewangles, _sendmove_predAngles );
 	const netSequence = cls.netcon != null ? ( cls.netcon.sendSequence | 0 ) : - 1;
 	CL_StoreCommand( _sendmove_predCmd, realtime, netSequence );
 

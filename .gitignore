@@ -1,0 +1,25 @@
+# TLS certificates and keys (server/README.md generates cert.pem/key.pem)
+*.pem
+*.key
+*.crt
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Environment and logs
+.env
+.env.*
+*.log
+
+# Tooling
+node_modules/
+coverage/
+.claude/worktrees/
+.claude/settings.local.json

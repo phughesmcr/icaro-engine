@@ -22,7 +22,9 @@ import { R_PushDlights } from './gl_rlight.js';
 import { con_forcedup } from './console.js';
 import { VID_UpdateGamma } from './vid.js';
 import { scr_viewsize } from './gl_screen.js';
-import { cl_simorg, cl_simvel, cl_simangles, cl_simonground, cl_nopred, cl_prediction_active } from './cl_pred.js';
+import { cl_simorg, cl_simvel, cl_simangles, cl_simonground, cl_nopred, cl_prediction_active,
+	CL_GetValidSequence } from './cl_pred.js';
+import { isXRActive } from './webxr.js';
 import { v_blend } from './glquake.js';
 
 export { v_blend };
@@ -123,6 +125,23 @@ export function V_CalcRoll( angles, velocity ) {
 
 /*
 ===============
+V_UsePrediction
+
+True when the view should follow the QuakeWorld-style predicted state
+(cl_simorg/cl_simangles/cl_simvel). Those are only written by
+CL_PredictMove, which doesn't run with a local server or during demo
+playback; there the view uses cl_entities[cl.viewentity] and cl state,
+as WinQuake's view.c does.
+===============
+*/
+export function V_UsePrediction() {
+
+	return ( sv.active === false ) && ( cls.demoplayback === false ) && ( cl_nopred.value === 0 ) && cl_prediction_active;
+
+}
+
+/*
+===============
 V_CalcBob
 
 ===============
@@ -131,6 +150,29 @@ let _bobtime = 0;
 let _bob = 0;
 
 export function V_CalcBob() {
+
+	if ( V_UsePrediction() === false ) {
+
+		// WinQuake view.c V_CalcBob: phase from cl.time, server velocity,
+		// keeps bobbing while airborne
+		let cycle = cl.time - ( ( cl.time / cl_bobcycle.value ) | 0 ) * cl_bobcycle.value;
+		cycle /= cl_bobcycle.value;
+		if ( cycle < cl_bobup.value )
+			cycle = M_PI * cycle / cl_bobup.value;
+		else
+			cycle = M_PI + M_PI * ( cycle - cl_bobup.value ) / ( 1.0 - cl_bobup.value );
+
+		// bob is proportional to velocity in the xy plane
+		// (don't count Z, or jumping messes it up)
+		let bob = Math.sqrt( cl.velocity[ 0 ] * cl.velocity[ 0 ] + cl.velocity[ 1 ] * cl.velocity[ 1 ] ) * cl_bob.value;
+		bob = bob * 0.3 + bob * 0.7 * Math.sin( cycle );
+		if ( bob > 4 )
+			bob = 4;
+		else if ( bob < - 7 )
+			bob = - 7;
+		return bob;
+
+	}
 
 	// QuakeWorld: return 0 if spectator
 	if ( cl.spectator )
@@ -383,17 +425,20 @@ export function V_ParseDamage() {
 
 	//
 	// calculate view angle kicks
-	// QuakeWorld uses predicted origin and angles for accurate damage kick
+	// QuakeWorld uses predicted origin and angles; WinQuake uses
+	// cl_entities[cl.viewentity] (the only valid state without prediction)
 	//
+	const usePrediction = V_UsePrediction();
+	const ent = cl_entities[ cl.viewentity ];
 
-	VectorSubtract( from, cl_simorg, from );
+	VectorSubtract( from, usePrediction ? cl_simorg : ent.origin, from );
 	VectorNormalize( from );
 
 	// Use cached buffers to avoid per-call allocations (Golden Rule #4)
 	const forward = _damage_forward;
 	const right = _damage_right;
 	const up = _damage_up;
-	AngleVectors( cl_simangles, forward, right, up );
+	AngleVectors( usePrediction ? cl_simangles : ent.angles, forward, right, up );
 
 	let side = DotProduct( from, right );
 	v_dmg_roll = count * side * v_kickroll.value;
@@ -735,19 +780,36 @@ Roll is induced by movement and damage
 */
 export function V_CalcViewRoll() {
 
-	// QuakeWorld uses predicted angles and velocity for roll calculation
-	const side = V_CalcRoll( cl_simangles, cl_simvel );
-	r_refdef.viewangles[ ROLL ] += side;
+	// In WebXR the headset owns the view orientation: rolling or kicking the
+	// rig is a comfort problem, so skip strafe roll, damage kick and the dead
+	// roll (the kick timer still runs down).
+	const xr = isXRActive();
+
+	// QuakeWorld uses predicted angles and velocity for roll calculation;
+	// WinQuake uses cl_entities[cl.viewentity].angles and cl.velocity
+	if ( xr === false ) {
+
+		const side = V_UsePrediction()
+			? V_CalcRoll( cl_simangles, cl_simvel )
+			: V_CalcRoll( cl_entities[ cl.viewentity ].angles, cl.velocity );
+		r_refdef.viewangles[ ROLL ] += side;
+
+	}
 
 	if ( v_dmg_time > 0 ) {
 
-		r_refdef.viewangles[ ROLL ] += v_dmg_time / v_kicktime.value * v_dmg_roll;
-		r_refdef.viewangles[ PITCH ] += v_dmg_time / v_kicktime.value * v_dmg_pitch;
+		if ( xr === false ) {
+
+			r_refdef.viewangles[ ROLL ] += v_dmg_time / v_kicktime.value * v_dmg_roll;
+			r_refdef.viewangles[ PITCH ] += v_dmg_time / v_kicktime.value * v_dmg_pitch;
+
+		}
+
 		v_dmg_time -= host_frametime;
 
 	}
 
-	if ( cl.stats[ STAT_HEALTH ] <= 0 ) {
+	if ( xr === false && cl.stats[ STAT_HEALTH ] <= 0 ) {
 
 		r_refdef.viewangles[ ROLL ] = 80; // dead view angle
 		return;
@@ -772,16 +834,25 @@ export function V_CalcIntermissionRefdef() {
 
 	// Use entity origin (server moves player to intermission camera position)
 	VectorCopy( ent.origin, r_refdef.vieworg );
-	// Use cl.viewangles (server sends svc_setangle via fixangle=TRUE in QuakeC)
-	// This is more reliable than ent.angles which may have interpolation issues
-	VectorCopy( cl.viewangles, r_refdef.viewangles );
+	// C uses ent->angles: the server's player angles, which QuakeC sets to the
+	// intermission camera's mangle (MOVETYPE_NONE keeps them there).
+	// cl.viewangles can't be used: the mouse still moves them.
+	// On the NQ entity path ent.angles holds those server angles. On the
+	// packet-entity path players carry no angles and V_CalcRefdef rewrites
+	// ent.angles from cl.viewangles, so use the angles of the last
+	// svc_setangle, which QuakeC sends with the same mangle (fixangle).
+	VectorCopy( CL_GetValidSequence() === 0 ? ent.angles : cl.setangles, r_refdef.viewangles );
 	view.model = null;
 
-	// allways idle in intermission
-	const old = v_idlescale.value;
-	v_idlescale.value = 1;
-	V_AddIdle();
-	v_idlescale.value = old;
+	// allways idle in intermission (not in WebXR: no swaying the headset view)
+	if ( isXRActive() === false ) {
+
+		const old = v_idlescale.value;
+		v_idlescale.value = 1;
+		V_AddIdle();
+		v_idlescale.value = old;
+
+	}
 
 }
 
@@ -804,15 +875,17 @@ export function V_CalcRefdef() {
 
 	// Use predicted position for local player when running remotely (QuakeWorld-style prediction)
 	// Use server-interpolated position when running locally, during demos, or if prediction is disabled
-	const usePrediction = ( sv.active === false ) && ( cls.demoplayback === false ) && ( cl_nopred.value === 0 ) && cl_prediction_active;
+	const usePrediction = V_UsePrediction();
 	const playerorg = usePrediction ? cl_simorg : ent.origin;
+	const xr = isXRActive();
 
 	// transform the view offset by the model's matrix to get the offset from
 	// model origin for the view
 	ent.angles[ YAW ] = cl.viewangles[ YAW ]; // the model should face the view dir
 	ent.angles[ PITCH ] = - cl.viewangles[ PITCH ]; // the model should face the view dir
 
-	const bob = V_CalcBob();
+	// no view bob in WebXR (comfort)
+	const bob = xr ? 0 : V_CalcBob();
 
 	// refresh position
 	VectorCopy( playerorg, r_refdef.vieworg );
@@ -827,7 +900,8 @@ export function V_CalcRefdef() {
 
 	VectorCopy( cl.viewangles, r_refdef.viewangles );
 	V_CalcViewRoll();
-	V_AddIdle();
+	if ( xr === false )
+		V_AddIdle();
 
 	// offsets - QuakeWorld uses simangles for prediction
 	const forward = _calcrefdef_forward;
@@ -886,8 +960,9 @@ export function V_CalcRefdef() {
 	view.frame = cl.stats[ STAT_WEAPONFRAME ];
 	view.colormap = null; // vid.colormap
 
-	// set up the refresh position
-	VectorAdd( r_refdef.viewangles, cl.punchangle, r_refdef.viewangles );
+	// set up the refresh position (no weapon kick in WebXR)
+	if ( xr === false )
+		VectorAdd( r_refdef.viewangles, cl.punchangle, r_refdef.viewangles );
 
 	// smooth out stair step ups
 	// QuakeWorld uses predicted onground state
