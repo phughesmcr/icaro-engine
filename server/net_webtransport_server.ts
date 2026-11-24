@@ -19,17 +19,6 @@ let serverPort = 4433;
 let certFile = "cert.pem";
 let keyFile = "key.pem";
 
-// DEPRECATED: These functions are no longer used with multi-process architecture
-// Kept for backwards compatibility with game_server.js but they do nothing
-export function WT_SetDirectMode(_enabled: boolean): void {}
-export function WT_SetMapCallbacks(
-  _changeMap: (mapName: string) => Promise<void>,
-  _getCurrentMap: () => string,
-): void {}
-export function WT_SetMaxClientsCallback(
-  _setMaxClients: (maxClients: number) => void,
-): void {}
-
 // Minimal structural types so tests can drive the driver with in-memory fakes.
 interface BidiStream {
   readable: ReadableStream<Uint8Array>;
