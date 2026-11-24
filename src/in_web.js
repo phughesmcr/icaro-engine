@@ -9,26 +9,30 @@ import {
 	K_INS, K_DEL, K_PGDN, K_PGUP, K_HOME, K_END, K_PAUSE,
 	K_MOUSE1, K_MOUSE2, K_MOUSE3,
 	K_MWHEELUP, K_MWHEELDOWN,
-	Key_Event,
+	Key_Event, Key_ClearStates,
 	key_game, key_menu, key_dest
 } from './keys.js';
 import { Cvar_RegisterVariable } from './cvar.js';
-import { Cmd_AddCommand } from './cmd.js';
+import { Cmd_AddCommand, Cbuf_AddText } from './cmd.js';
 import { Con_Printf } from './console.js';
 import { cl, cls, ca_connected } from './client.js';
 import { sensitivity, m_pitch, m_yaw, m_forward, m_side, lookstrafe } from './cl_main.js';
-import { in_mlook, in_strafe, cl_forwardspeed, cl_sidespeed, cl_yawspeed, cl_pitchspeed } from './cl_input.js';
+import {
+	in_mlook, in_strafe, in_speed,
+	cl_forwardspeed, cl_backspeed, cl_sidespeed, cl_yawspeed, cl_pitchspeed, cl_movespeedkey
+} from './cl_input.js';
 import { V_StopPitchDrift } from './view.js';
 import { host_frametime } from './host.js';
 import { PITCH, YAW } from './quakedef.js';
 import {
-	Touch_IsMobile, Touch_Init, Touch_Enable, Touch_Disable, Touch_IsEnabled,
-	Touch_GetMoveInput, Touch_GetLookDelta,
+	Touch_IsMobile, Touch_IsTouchCapable, Touch_Init, Touch_Enable, Touch_Disable, Touch_IsEnabled,
+	Touch_GetMoveInput, Touch_GetLookDelta, Touch_ReleaseButtons,
 	Touch_ShowMenu, Touch_HideMenu, Touch_SetMenuCallback, Touch_RequestFullscreen
 } from './touch.js';
 import { M_TouchInput } from './menu.js';
+import { Draw_GetOverlayCanvas } from './gl_draw.js';
 import { S_UnlockAudio } from './snd_dma.js';
-import { isXRActive, XR_PollInput, xrInput } from './webxr.js';
+import { isXRActive, XR_PollInput, XR_UpdateHUD, XR_SetSessionEndCallback, xrInput } from './webxr.js';
 
 /*
 ===========================================================================
@@ -40,6 +44,24 @@ Maps DOM event.code / event.key values to Quake K_* constants.
 */
 
 let codeToQuakeKey = {}; // built in IN_Init to avoid circular dep in Deno
+
+// US-layout characters for the physical punctuation keys. Used when the
+// layout produces a character outside printable ASCII (e.g. 'ö', '²' or a
+// dead key) so the key still maps to a bindable Quake key.
+const codeToUSChar = {
+	'Backquote': '`',
+	'Minus': '-',
+	'Equal': '=',
+	'BracketLeft': '[',
+	'BracketRight': ']',
+	'Backslash': '\\',
+	'IntlBackslash': '\\',
+	'Semicolon': ';',
+	'Quote': '\'',
+	'Comma': ',',
+	'Period': '.',
+	'Slash': '/'
+};
 
 /*
 ===========================================================================
@@ -56,23 +78,54 @@ let old_mouse_x = 0;
 let old_mouse_y = 0;
 let mx_accum = 0;
 let my_accum = 0;
+const _mouseMove = { mx: 0, my: 0 }; // returned by IN_MouseMove (no per-frame allocation)
 
-let mouseinitialized = false;
 let mouseactive = false;
+
+// Mouse buttons we have sent down (bit 0 = K_MOUSE1, 1 = K_MOUSE2, 2 = K_MOUSE3).
+// Replaces mouse_oldbuttonstate from in_win.c.
+let mouse_buttonstate = 0;
 
 // Pointer lock state
 let pointerLocked = false;
 let targetElement = null;
+let eventWindow = null; // window, or targetElement when there is no window (Deno tests)
 
-// Mobile/touch state
-let isMobile = false;
+// Set when we drop pointer lock ourselves (switching to touch), so the
+// pointerlockchange handler does not open the menu.
+let suppressLockEscape = false;
+
+// Quake key sent down for each physical key (event.code), so keyup releases
+// the same Quake key even if Shift or the layout changed event.key meanwhile.
+const keyForCode = new Map();
+
+// Touch state. touchMode follows the last pointer used: a touch or pen
+// pointerdown switches to touch controls, mouse movement switches back to
+// pointer lock and mouse look. Touchscreen laptops start in mouse mode.
+let touchMode = false;
 
 // Meta Quest — disables pointer lock and fullscreen
 let isQuest = false;
 
-// XR trigger edge detection
-let _xrPrevLeftTrigger = false;
-let _xrPrevRightTrigger = false;
+// XR controller state. Each button slot holds the Quake key it sent down
+// (0 = up, -1 = held but mapped to nothing), so a held button keeps its key
+// even if key_dest changes, and sends nothing new until it is pressed again.
+// Buttons that send the same key share it: it goes up when the last is released.
+const _xrKeys = {
+	leftTrigger: 0,
+	rightTrigger: 0,
+	a: 0,
+	b: 0,
+	y: 0,
+	up: 0,
+	down: 0,
+	left: 0,
+	right: 0
+};
+let _xrUseHeld = false;
+let _xrWeaponNext = false;
+let _xrWeaponPrev = false;
+let _xrSnapArmed = true;
 
 // Gamepad button edge detection (standard mapping)
 let _gpPrev = null;
@@ -97,9 +150,13 @@ function GP_ReleaseAll() {
 
 function requestPointerLock() {
 
-	if ( pointerLocked || isQuest || targetElement == null ) return;
+	if ( pointerLocked || isQuest || touchMode || targetElement == null ) return;
+	if ( targetElement.requestPointerLock == null ) return;
 
-	targetElement.requestPointerLock();
+	// Chrome returns a promise that rejects if the request is refused
+	// (e.g. no user activation, or the user just pressed Escape).
+	const result = targetElement.requestPointerLock();
+	if ( result != null && typeof result.catch === 'function' ) result.catch( () => {} );
 
 }
 
@@ -275,8 +332,65 @@ const m_filter = { name: 'm_filter', string: '0', value: 0 };
 // Defaults keep yaw/pitch even and slower than the prior hardcoded multiplier.
 const gp_look_yaw = { name: 'gp_look_yaw', string: '1', value: 1 };
 const gp_look_pitch = { name: 'gp_look_pitch', string: '1', value: 1 };
+// XR turning: 0 = smooth turn with the right stick, otherwise snap by this many degrees
+const xr_snapturn = { name: 'xr_snapturn', string: '0', value: 0, archive: true };
 
 let in_initialized = false;
+
+/*
+===========================================================================
+
+			STATE CLEARING (vid_win.c ClearAllStates / in_win.c IN_ClearStates)
+
+===========================================================================
+*/
+
+/*
+===================
+IN_ClearStates
+===================
+*/
+function IN_ClearStates() {
+
+	mx_accum = 0;
+	my_accum = 0;
+	old_mouse_x = 0;
+	old_mouse_y = 0;
+	mouse_buttonstate = 0;
+
+}
+
+/*
+================
+IN_ClearAllStates
+
+Called when the page loses focus, is hidden, or loses pointer lock.
+vid_win.c ClearAllStates: send an up event for each key, to make sure
+the server clears them all, then clear key and mouse state.
+================
+*/
+export function IN_ClearAllStates() {
+
+	for ( let i = 0; i < 256; i ++ ) {
+
+		Key_Event( i, false );
+
+	}
+
+	Key_ClearStates();
+	IN_ClearStates();
+
+	keyForCode.clear();
+
+	// Touch buttons and XR commands bypass Key_Event, release them too.
+	// The loop above already sent the XR keys up.
+	Touch_ReleaseButtons();
+	IN_XR_ReleaseAll( false );
+
+	// The gamepad edge state now matches "everything up"
+	_gpPrev = null;
+
+}
 
 /*
 ===========================================================================
@@ -296,27 +410,41 @@ function mapBrowserKeyToQuake( event ) {
 	}
 
 	// For letter keys, map by code (e.g. 'KeyA' -> 97 'a')
-	if ( event.code && event.code.startsWith( 'Key' ) ) {
+	if ( event.code && event.code.startsWith( 'Key' ) && event.code.length === 4 ) {
 
 		return event.code.charCodeAt( 3 ) + 32; // 'A'(65) + 32 = 'a'(97)
 
 	}
 
 	// For digit keys
-	if ( event.code && event.code.startsWith( 'Digit' ) ) {
+	if ( event.code && event.code.startsWith( 'Digit' ) && event.code.length === 6 ) {
 
 		return event.code.charCodeAt( 5 ); // '0'-'9' ascii
 
 	}
 
-	// Punctuation and other keys - use the key value
+	// Punctuation and other keys - use the key value, but only printable
+	// ASCII: 128-255 are Quake's special keys (arrows, F-keys, K_PAUSE...)
 	if ( event.key && event.key.length === 1 ) {
 
 		const code = event.key.charCodeAt( 0 );
-		// Lowercase letters for quake
-		if ( code >= 65 && code <= 90 )
-			return code + 32;
-		return code;
+		if ( code >= 32 && code <= 126 ) {
+
+			// Lowercase letters for quake
+			if ( code >= 65 && code <= 90 )
+				return code + 32;
+			return code;
+
+		}
+
+	}
+
+	// Non-ASCII character or dead key on a punctuation key: fall back to
+	// the US character for that physical key
+	const usChar = codeToUSChar[ event.code ];
+	if ( usChar !== undefined ) {
+
+		return usChar.charCodeAt( 0 );
 
 	}
 
@@ -324,16 +452,101 @@ function mapBrowserKeyToQuake( event ) {
 
 }
 
+function isEditableTarget( target ) {
+
+	if ( target == null ) return false;
+	if ( target.isContentEditable ) return true;
+	const tag = target.tagName;
+	return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+}
+
+function isMetaKey( event ) {
+
+	return event.code === 'MetaLeft' || event.code === 'MetaRight' ||
+		event.code === 'OSLeft' || event.code === 'OSRight' || event.key === 'Meta';
+
+}
+
+// Ctrl+Shift+I/J/C and Cmd+Opt+I/J/C open the developer tools: keep them working
+function isDevToolsShortcut( event ) {
+
+	const c = event.code;
+	if ( c !== 'KeyI' && c !== 'KeyJ' && c !== 'KeyC' ) return false;
+	return ( event.ctrlKey && event.shiftKey ) || ( event.metaKey && event.altKey );
+
+}
+
+/*
+Which keys keep their browser behaviour:
+- Escape leaves pointer lock and fullscreen.
+- F12 and the developer tools shortcuts.
+- Cmd/Meta shortcuts, except while pointer lock is held in game.
+Everything else that maps to a Quake key is the game's, including Ctrl/Alt
+combinations (Ctrl is +attack and Alt +strafe by default; Ctrl+S, Ctrl+F,
+Ctrl+D, Alt+letter would otherwise open dialogs or the menu bar and steal
+focus), F1-F11, Tab, Space, Backspace, arrows and '/' or '\'' (Firefox quick find).
+Browsers do not let pages block some shortcuts (Ctrl+W, Ctrl+T, Cmd+Q, Cmd+Tab);
+the blur handler clears key state when those take focus away.
+*/
+function shouldPreventDefault( event, qkey ) {
+
+	if ( event.code === 'Escape' || event.code === 'F12' ) return false;
+	if ( isDevToolsShortcut( event ) ) return false;
+	if ( event.metaKey ) return pointerLocked;
+	if ( event.ctrlKey || event.altKey ) return true;
+	return qkey !== 0;
+
+}
+
 function handleKeyDown( event ) {
 
 	if ( ! in_initialized ) return;
+	if ( isEditableTarget( event.target ) ) return;
 
 	// Unlock audio on first user gesture
 	S_UnlockAudio();
 
+	// macOS does not send keyup for keys released while Cmd is held, so
+	// anything down when Cmd goes down could stick. Cmd is not a Quake key.
+	if ( isMetaKey( event ) ) {
+
+		IN_ClearAllStates();
+		return;
+
+	}
+
+	// Cmd+key is a browser/OS shortcut: don't press the key in the game
+	if ( event.metaKey ) {
+
+		if ( shouldPreventDefault( event, 0 ) ) event.preventDefault();
+		return;
+
+	}
+
 	const prevKeyDest = key_dest;
 
-	const qkey = mapBrowserKeyToQuake( event );
+	// Autorepeat keeps sending the key that went down; a fresh press of a key
+	// we think is still down (lost keyup) releases the old mapping first
+	let qkey = 0;
+	const held = keyForCode.get( event.code );
+	if ( held !== undefined && event.repeat ) {
+
+		qkey = held;
+
+	} else {
+
+		qkey = mapBrowserKeyToQuake( event );
+		if ( held !== undefined && held !== qkey ) Key_Event( held, false );
+		if ( event.code ) {
+
+			if ( qkey ) keyForCode.set( event.code, qkey );
+			else keyForCode.delete( event.code );
+
+		}
+
+	}
+
 	if ( qkey ) {
 
 		Key_Event( qkey, true );
@@ -345,12 +558,12 @@ function handleKeyDown( event ) {
 	// Only do this when actually playing, not during demo playback
 	if ( key_dest === key_game && prevKeyDest !== key_game && ! cls.demoplayback ) {
 
-		if ( isMobile ) {
+		if ( touchMode ) {
 
 			Touch_Enable();
 			mouseactive = true;
 
-		} else if ( ! Touch_IsMobile() ) {
+		} else {
 
 			requestPointerLock();
 
@@ -358,17 +571,9 @@ function handleKeyDown( event ) {
 
 	}
 
-	// Prevent browser defaults for game keys
-	if ( event.code === 'Tab' || event.code === 'Escape' ||
-		event.code === 'Space' || event.code === 'F5' ||
-		event.code === 'F11' || event.code === 'F12' ) {
+	if ( shouldPreventDefault( event, qkey ) ) {
 
-		// Allow escape to exit pointer lock
-		if ( event.code !== 'Escape' ) {
-
-			event.preventDefault();
-
-		}
+		event.preventDefault();
 
 	}
 
@@ -377,11 +582,32 @@ function handleKeyDown( event ) {
 function handleKeyUp( event ) {
 
 	if ( ! in_initialized ) return;
+	if ( isEditableTarget( event.target ) ) return;
+	if ( isMetaKey( event ) ) return;
 
-	const qkey = mapBrowserKeyToQuake( event );
+	let qkey = keyForCode.get( event.code );
+	if ( qkey !== undefined ) {
+
+		keyForCode.delete( event.code );
+
+	} else {
+
+		// Pressed with Cmd held, or before we were listening
+		if ( event.metaKey ) return;
+		qkey = mapBrowserKeyToQuake( event );
+
+	}
+
 	if ( qkey ) {
 
 		Key_Event( qkey, false );
+
+	}
+
+	// Alt keyup shows the menu bar in Firefox on Windows
+	if ( shouldPreventDefault( event, qkey ) ) {
+
+		event.preventDefault();
 
 	}
 
@@ -397,28 +623,49 @@ function handleMouseMove( event ) {
 
 }
 
+function mouseButtonToKey( button ) {
+
+	switch ( button ) {
+
+		case 0: return K_MOUSE1;
+		case 2: return K_MOUSE2;
+		case 1: return K_MOUSE3;
+		default: return 0;
+
+	}
+
+}
+
+// Element whose box the 2D menu is drawn into
+function IN_GetMenuSurface() {
+
+	return Draw_GetOverlayCanvas() || targetElement;
+
+}
+
 function handleMouseDown( event ) {
 
 	if ( ! in_initialized ) return;
 
+	// Back/forward buttons would navigate away from the game
+	if ( event.button === 3 || event.button === 4 ) {
+
+		event.preventDefault();
+		return;
+
+	}
+
 	// Unlock audio on first user gesture
 	S_UnlockAudio();
 
-	let qkey;
-	switch ( event.button ) {
-
-		case 0: qkey = K_MOUSE1; break;
-		case 2: qkey = K_MOUSE2; break;
-		case 1: qkey = K_MOUSE3; break;
-		default: return;
-
-	}
+	const qkey = mouseButtonToKey( event.button );
+	if ( qkey === 0 ) return;
 
 	// Handle mouse clicks in the menu
 	if ( key_dest === key_menu && event.button === 0 ) {
 
-		// Get click position relative to target element
-		const rect = targetElement.getBoundingClientRect();
+		// Get click position relative to the menu surface
+		const rect = IN_GetMenuSurface().getBoundingClientRect();
 		const x = event.clientX - rect.left;
 		const y = event.clientY - rect.top;
 
@@ -435,9 +682,10 @@ function handleMouseDown( event ) {
 
 	}
 
-	// On mobile, request fullscreen + landscape and enable touch controls
+	// In touch mode this is the compatibility mousedown that follows a tap:
+	// request fullscreen + landscape and enable touch controls.
 	// Only when actually playing, not during demo playback
-	if ( isMobile ) {
+	if ( touchMode ) {
 
 		// Request fullscreen only when actually playing a map (not menu, demo, or idle state)
 		if ( key_dest === key_game && cls.state === ca_connected && ! cls.demoplayback ) {
@@ -455,8 +703,8 @@ function handleMouseDown( event ) {
 
 	} else {
 
-		// Request pointer lock only when in-game (not menu/console or demos), and not on mobile
-		if ( key_dest === key_game && ! cls.demoplayback && ! Touch_IsMobile() ) {
+		// Request pointer lock only when in-game (not menu/console or demos)
+		if ( key_dest === key_game && ! cls.demoplayback ) {
 
 			requestPointerLock();
 
@@ -464,24 +712,30 @@ function handleMouseDown( event ) {
 
 	}
 
+	mouse_buttonstate |= 1 << ( qkey - K_MOUSE1 );
 	Key_Event( qkey, true );
 
 }
 
+// Bound on window so a button released outside the canvas is still seen
 function handleMouseUp( event ) {
 
 	if ( ! in_initialized ) return;
 
-	let qkey;
-	switch ( event.button ) {
+	if ( event.button === 3 || event.button === 4 ) {
 
-		case 0: qkey = K_MOUSE1; break;
-		case 2: qkey = K_MOUSE2; break;
-		case 1: qkey = K_MOUSE3; break;
-		default: return;
+		event.preventDefault();
+		return;
 
 	}
 
+	const qkey = mouseButtonToKey( event.button );
+	if ( qkey === 0 ) return;
+
+	const bit = 1 << ( qkey - K_MOUSE1 );
+	if ( ( mouse_buttonstate & bit ) === 0 ) return; // went down in a menu, or before a clear
+
+	mouse_buttonstate &= ~ bit;
 	Key_Event( qkey, false );
 
 }
@@ -489,6 +743,9 @@ function handleMouseUp( event ) {
 function handleWheel( event ) {
 
 	if ( ! in_initialized ) return;
+
+	// Stop page scrolling and Ctrl+wheel page zoom
+	event.preventDefault();
 
 	if ( event.deltaY < 0 ) {
 
@@ -515,17 +772,27 @@ function handlePointerLockChange() {
 
 	} else {
 
-		mouseactive = false;
+		mouseactive = touchMode && Touch_IsEnabled();
 
-		// Show the menu when pointer lock is lost while in-game,
-		// but only if we actually had pointer lock before (not on failed requests)
-		// Skip this on mobile - touch controls handle menu via pause button
-		if ( ! isMobile && wasLocked && key_dest === key_game ) {
+		// Unless we dropped the lock ourselves to switch to touch controls
+		// (IN_SetTouchMode has already cleared the keys)
+		if ( wasLocked && ! suppressLockEscape ) {
 
-			Key_Event( K_ESCAPE, true );
-			Key_Event( K_ESCAPE, false );
+			// Focus moved away from the game (Escape, alt-tab, a browser
+			// dialog): nothing may stay held, as on Win32 focus loss
+			IN_ClearAllStates();
+
+			// Show the menu when pointer lock is lost while in-game
+			if ( key_dest === key_game ) {
+
+				Key_Event( K_ESCAPE, true );
+				Key_Event( K_ESCAPE, false );
+
+			}
 
 		}
+
+		suppressLockEscape = false;
 
 	}
 
@@ -537,9 +804,100 @@ function handleContextMenu( event ) {
 
 }
 
+function handleBlur() {
+
+	if ( ! in_initialized ) return;
+
+	IN_ClearAllStates();
+
+}
+
 function handleVisibilityChange() {
 
-	// Placeholder for visibility change handling (wake lock is in touch.js for mobile)
+	if ( ! in_initialized ) return;
+
+	if ( document.visibilityState === 'hidden' ) {
+
+		IN_ClearAllStates();
+
+	}
+
+}
+
+function IN_InitTouch() {
+
+	// Always append touch UI to document.body for consistent positioning
+	Touch_Init( document.body );
+	Touch_SetMenuCallback( M_TouchInput, IN_GetMenuSurface );
+
+}
+
+/*
+===========
+IN_SetTouchMode
+
+Switch between touch controls and mouse/pointer-lock controls.
+===========
+*/
+function IN_SetTouchMode( on ) {
+
+	if ( on === touchMode ) return;
+
+	touchMode = on;
+
+	if ( on ) {
+
+		// Leaving pointer lock to use the touchscreen is not a pause. Clear
+		// what the mouse held now: the lock change arrives later, when a
+		// finger may already be on the touch controls.
+		if ( pointerLocked && document.exitPointerLock ) {
+
+			IN_ClearAllStates();
+			suppressLockEscape = true;
+			document.exitPointerLock();
+
+		}
+
+		IN_InitTouch();
+
+		// IN_UpdateTouch shows the right overlay on the next frame
+
+	} else {
+
+		if ( Touch_IsEnabled() ) Touch_Disable();
+		Touch_HideMenu();
+		mouseactive = pointerLocked;
+
+	}
+
+}
+
+// Decide touch vs mouse per input event (IN-2)
+function handlePointerDown( event ) {
+
+	if ( ! in_initialized ) return;
+
+	if ( event.pointerType === 'touch' || event.pointerType === 'pen' ) {
+
+		IN_SetTouchMode( true );
+
+	} else if ( event.pointerType === 'mouse' ) {
+
+		IN_SetTouchMode( false );
+
+	}
+
+}
+
+function handlePointerMove( event ) {
+
+	if ( ! in_initialized || ! touchMode ) return;
+
+	if ( event.pointerType === 'mouse' && ( event.movementX || event.movementY ) ) {
+
+		IN_SetTouchMode( false );
+
+	}
 
 }
 
@@ -550,18 +908,25 @@ function handleTouchStart( event ) {
 	// Unlock audio on first user gesture
 	S_UnlockAudio();
 
-	// On mobile, request fullscreen only when actually playing a map (not menu, demo, or idle state)
-	if ( isMobile && key_dest === key_game && cls.state === ca_connected && ! cls.demoplayback ) {
-
-		requestFullscreen();
-
-	}
-
 	// During demo playback, tap to show menu
 	if ( key_dest === key_game && cls.demoplayback ) {
 
 		event.preventDefault();
 		M_TouchInput( 0, 0, 1, 1 ); // Coordinates don't matter, just triggers menu toggle
+
+	}
+
+}
+
+// touchend is a user activation (touchstart is not in Chrome), so request
+// fullscreen here. Only when actually playing a map.
+function handleTouchEnd() {
+
+	if ( ! in_initialized ) return;
+
+	if ( touchMode && key_dest === key_game && cls.state === ca_connected && ! cls.demoplayback ) {
+
+		requestFullscreen();
 
 	}
 
@@ -583,6 +948,7 @@ IN_Init
 export function IN_Init( element ) {
 
 	targetElement = element || document.body;
+	eventWindow = typeof window !== 'undefined' ? window : targetElement;
 
 	// Build key mapping (deferred from module scope to avoid circular dep in Deno)
 	codeToQuakeKey = {
@@ -620,12 +986,30 @@ export function IN_Init( element ) {
 		'Home': K_HOME,
 		'End': K_END,
 		'Pause': K_PAUSE,
+		// Numpad, as vid_win.c scantokey maps it (NumLock state ignored)
+		'Numpad7': K_HOME,
+		'Numpad8': K_UPARROW,
+		'Numpad9': K_PGUP,
+		'NumpadSubtract': 45, // '-'
+		'Numpad4': K_LEFTARROW,
+		'Numpad5': 53, // '5'
+		'Numpad6': K_RIGHTARROW,
+		'NumpadAdd': 43, // '+'
+		'Numpad1': K_END,
+		'Numpad2': K_DOWNARROW,
+		'Numpad3': K_PGDN,
+		'Numpad0': K_INS,
+		'NumpadDecimal': K_DEL,
+		'NumpadEnter': K_ENTER,
+		'NumpadDivide': 47, // '/'
+		'NumpadMultiply': 42, // '*'
 	};
 
 	// Register cvars
 	Cvar_RegisterVariable( m_filter );
 	Cvar_RegisterVariable( gp_look_yaw );
 	Cvar_RegisterVariable( gp_look_pitch );
+	Cvar_RegisterVariable( xr_snapturn );
 
 	// Register commands
 	Cmd_AddCommand( 'force_centerview', IN_ForceCenterView );
@@ -636,32 +1020,40 @@ export function IN_Init( element ) {
 
 	targetElement.addEventListener( 'mousemove', handleMouseMove );
 	targetElement.addEventListener( 'mousedown', handleMouseDown );
-	targetElement.addEventListener( 'mouseup', handleMouseUp );
-	targetElement.addEventListener( 'wheel', handleWheel );
+	eventWindow.addEventListener( 'mouseup', handleMouseUp );
+	targetElement.addEventListener( 'wheel', handleWheel, { passive: false } );
 	targetElement.addEventListener( 'contextmenu', handleContextMenu );
 
 	document.addEventListener( 'pointerlockchange', handlePointerLockChange );
 
+	// Pointer type decides touch vs mouse controls; capture so overlays can't hide it
+	document.addEventListener( 'pointerdown', handlePointerDown, true );
+	document.addEventListener( 'pointermove', handlePointerMove, true );
+
 	// Add global touch handler for showing menu during demos
 	targetElement.addEventListener( 'touchstart', handleTouchStart, { passive: false } );
+	targetElement.addEventListener( 'touchend', handleTouchEnd );
 
-	// Initialize touch controls for mobile
-	isMobile = Touch_IsMobile();
-	isQuest = /OculusBrowser|Quest/i.test( navigator.userAgent );
+	// Focus loss: release everything (vid_win.c AppActivate -> ClearAllStates)
+	eventWindow.addEventListener( 'blur', handleBlur );
+	document.addEventListener( 'visibilitychange', handleVisibilityChange );
 
-	if ( isMobile ) {
+	// Initialize touch controls. Start in touch mode only on touch-first
+	// devices; touchscreen laptops start with the mouse and switch on touch.
+	const ua = typeof navigator !== 'undefined' ? ( navigator.userAgent || '' ) : '';
+	isQuest = /OculusBrowser|Quest/i.test( ua );
+	const touchCapable = Touch_IsTouchCapable();
+	touchMode = Touch_IsMobile();
 
-		// Always append touch UI to document.body for consistent positioning
-		Touch_Init( document.body );
-		Touch_SetMenuCallback( M_TouchInput );
-		Con_Printf( 'Mobile device detected - touch controls available\n' );
+	if ( touchCapable || touchMode ) {
+
+		IN_InitTouch();
+		if ( touchMode ) Con_Printf( 'Mobile device detected - touch controls available\n' );
 
 	}
 
-	// Listen for visibility changes to re-acquire wake lock when tab becomes visible
-	document.addEventListener( 'visibilitychange', handleVisibilityChange );
+	XR_SetSessionEndCallback( IN_XR_ReleaseAll );
 
-	mouseinitialized = true;
 	in_initialized = true;
 
 	Con_Printf( 'Browser input initialized\n' );
@@ -684,13 +1076,23 @@ export function IN_Shutdown() {
 
 		targetElement.removeEventListener( 'mousemove', handleMouseMove );
 		targetElement.removeEventListener( 'mousedown', handleMouseDown );
-		targetElement.removeEventListener( 'mouseup', handleMouseUp );
-		targetElement.removeEventListener( 'wheel', handleWheel );
+		targetElement.removeEventListener( 'wheel', handleWheel, { passive: false } );
 		targetElement.removeEventListener( 'contextmenu', handleContextMenu );
+		targetElement.removeEventListener( 'touchstart', handleTouchStart, { passive: false } );
+		targetElement.removeEventListener( 'touchend', handleTouchEnd );
+
+	}
+
+	if ( eventWindow ) {
+
+		eventWindow.removeEventListener( 'mouseup', handleMouseUp );
+		eventWindow.removeEventListener( 'blur', handleBlur );
 
 	}
 
 	document.removeEventListener( 'pointerlockchange', handlePointerLockChange );
+	document.removeEventListener( 'pointerdown', handlePointerDown, true );
+	document.removeEventListener( 'pointermove', handlePointerMove, true );
 	document.removeEventListener( 'visibilitychange', handleVisibilityChange );
 
 	if ( pointerLocked && document.exitPointerLock ) {
@@ -699,8 +1101,9 @@ export function IN_Shutdown() {
 
 	}
 
+	XR_SetSessionEndCallback( null );
+
 	mouseactive = false;
-	mouseinitialized = false;
 	in_initialized = false;
 
 }
@@ -709,12 +1112,157 @@ export function IN_Shutdown() {
 ===========
 IN_Commands
 
-Joystick button events in original. Not needed for browser.
+in_win.c reads joystick buttons here. The browser port polls XR controller
+buttons, which must work in menus too (IN_Move only runs once signed on).
 ===========
 */
 export function IN_Commands() {
 
-	// No joystick handling needed in browser
+	if ( ! in_initialized ) return;
+
+	if ( isXRActive() ) {
+
+		XR_PollInput();
+		XR_UpdateHUD();
+		IN_XR_Buttons();
+
+	}
+
+}
+
+/*
+===========
+IN_XR_KeyEdge
+
+Press quakeKey when the button goes down; release the key that was pressed
+when it goes up.
+===========
+*/
+function IN_XR_KeyHeldByOther( slot, quakeKey ) {
+
+	for ( const other in _xrKeys ) {
+
+		if ( other !== slot && _xrKeys[ other ] === quakeKey ) return true;
+
+	}
+
+	return false;
+
+}
+
+function IN_XR_KeyEdge( slot, isDown, quakeKey ) {
+
+	const held = _xrKeys[ slot ];
+
+	if ( isDown && held === 0 ) {
+
+		_xrKeys[ slot ] = quakeKey !== 0 ? quakeKey : - 1;
+		if ( quakeKey !== 0 && ! IN_XR_KeyHeldByOther( slot, quakeKey ) ) Key_Event( quakeKey, true );
+
+	} else if ( ! isDown && held !== 0 ) {
+
+		_xrKeys[ slot ] = 0;
+		if ( held > 0 && ! IN_XR_KeyHeldByOther( slot, held ) ) Key_Event( held, false );
+
+	}
+
+}
+
+// Stick direction as a button, with hysteresis
+function IN_XR_StickDown( slot, value ) {
+
+	return _xrKeys[ slot ] !== 0 ? value > 0.3 : value > 0.6;
+
+}
+
+/*
+===========
+IN_XR_Buttons
+
+Game:    right trigger attack, left trigger / A jump, B next weapon,
+         X previous weapon, either grip +use, Y menu.
+Menu:    either stick navigates, trigger / A select, B / Y back.
+Demo:    trigger, A, B or Y opens the menu.
+Console: B / Y opens the menu.
+Exported for tests; IN_Commands calls it while XR is active.
+===========
+*/
+export function IN_XR_Buttons() {
+
+	const inGame = key_dest === key_game && ! cls.demoplayback;
+	const inMenu = key_dest === key_menu;
+	const inDemo = key_dest === key_game && cls.demoplayback;
+
+	const leftDown = xrInput.leftTrigger > 0.5;
+	const rightDown = xrInput.rightTrigger > 0.5;
+
+	let selectKey = 0;
+	if ( inMenu ) selectKey = K_ENTER;
+	else if ( inDemo ) selectKey = K_ESCAPE;
+
+	IN_XR_KeyEdge( 'rightTrigger', rightDown, inGame ? K_MOUSE1 : selectKey );
+	IN_XR_KeyEdge( 'leftTrigger', leftDown, inGame ? K_SPACE : selectKey );
+	IN_XR_KeyEdge( 'a', xrInput.buttonA, inGame ? K_SPACE : selectKey );
+	IN_XR_KeyEdge( 'b', xrInput.buttonB, inGame ? 0 : K_ESCAPE );
+	IN_XR_KeyEdge( 'y', xrInput.buttonY, K_ESCAPE );
+
+	// Weapon switch: impulse 10 / 12 (cycle next / previous)
+	if ( inGame && xrInput.buttonB && ! _xrWeaponNext ) Cbuf_AddText( 'impulse 10\n' );
+	_xrWeaponNext = xrInput.buttonB;
+	if ( inGame && xrInput.buttonX && ! _xrWeaponPrev ) Cbuf_AddText( 'impulse 12\n' );
+	_xrWeaponPrev = xrInput.buttonX;
+
+	// +use on either grip
+	const useDown = inGame && ( xrInput.leftSqueeze || xrInput.rightSqueeze );
+	if ( useDown !== _xrUseHeld ) {
+
+		Cbuf_AddText( useDown ? '+use\n' : '-use\n' );
+		_xrUseHeld = useDown;
+
+	}
+
+	// Menu navigation with either stick (stick Y is negative when pushed forward)
+	const sx = Math.abs( xrInput.moveX ) > Math.abs( xrInput.lookX ) ? xrInput.moveX : xrInput.lookX;
+	const sy = Math.abs( xrInput.moveY ) > Math.abs( xrInput.lookY ) ? xrInput.moveY : xrInput.lookY;
+	IN_XR_KeyEdge( 'up', inMenu && IN_XR_StickDown( 'up', - sy ), K_UPARROW );
+	IN_XR_KeyEdge( 'down', inMenu && IN_XR_StickDown( 'down', sy ), K_DOWNARROW );
+	IN_XR_KeyEdge( 'left', inMenu && IN_XR_StickDown( 'left', - sx ), K_LEFTARROW );
+	IN_XR_KeyEdge( 'right', inMenu && IN_XR_StickDown( 'right', sx ), K_RIGHTARROW );
+
+}
+
+/*
+===========
+IN_XR_ReleaseAll
+
+Release everything the XR controllers hold. Called when the XR session ends
+(webxr.js) and on focus loss.
+===========
+*/
+function IN_XR_ReleaseAll( sendKeyUps = true ) {
+
+	for ( const slot in _xrKeys ) {
+
+		const held = _xrKeys[ slot ];
+		if ( held !== 0 ) {
+
+			_xrKeys[ slot ] = 0;
+			if ( sendKeyUps && held > 0 && ! IN_XR_KeyHeldByOther( slot, held ) ) Key_Event( held, false );
+
+		}
+
+	}
+
+	if ( _xrUseHeld ) {
+
+		Cbuf_AddText( '-use\n' );
+		_xrUseHeld = false;
+
+	}
+
+	_xrWeaponNext = false;
+	_xrWeaponPrev = false;
+	_xrSnapArmed = true;
 
 }
 
@@ -742,7 +1290,9 @@ export function IN_MouseMove() {
 
 	if ( ! mouseactive ) {
 
-		return { mx: 0, my: 0 };
+		_mouseMove.mx = 0;
+		_mouseMove.my = 0;
+		return _mouseMove;
 
 	}
 
@@ -771,7 +1321,9 @@ export function IN_MouseMove() {
 	mouse_x *= sensitivity.value;
 	mouse_y *= sensitivity.value;
 
-	return { mx: mouse_x, my: mouse_y };
+	_mouseMove.mx = mouse_x;
+	_mouseMove.my = mouse_y;
+	return _mouseMove;
 
 }
 
@@ -785,7 +1337,9 @@ In the original, this called IN_MouseMove and IN_JoyMove.
 */
 export function IN_Move( cmd ) {
 
-	let { mx, my } = IN_MouseMove();
+	const mouseMove = IN_MouseMove();
+	const mx = mouseMove.mx;
+	const my = mouseMove.my;
 
 	if ( ! cmd ) return;
 
@@ -807,11 +1361,15 @@ export function IN_Move( cmd ) {
 
 		}
 
-		// Add touch joystick movement
+		// Add touch joystick movement. Past the run threshold the stick
+		// acts like +speed (cl_movespeedkey), unless +speed is already held
+		// (CL_BaseMove has then scaled the keyboard part, not ours).
 		const touchMove = Touch_GetMoveInput();
+		const speed = ( touchMove.run || ( in_speed.state & 1 ) ) ? cl_movespeedkey.value : 1;
+		const forwardspeed = touchMove.forward >= 0 ? cl_forwardspeed.value : cl_backspeed.value;
 
-		cmd.forwardmove += cl_forwardspeed.value * touchMove.forward;
-		cmd.sidemove += cl_sidespeed.value * touchMove.right;
+		cmd.forwardmove += forwardspeed * touchMove.forward * speed;
+		cmd.sidemove += cl_sidespeed.value * touchMove.right * speed;
 
 	}
 
@@ -838,48 +1396,56 @@ export function IN_Move( cmd ) {
 
 	}
 
-	// XR controller input
+	// XR controller movement (polled in IN_Commands this frame; buttons are
+	// handled there). Only while actually playing.
 	if ( isXRActive() ) {
 
-		XR_PollInput();
+		if ( key_dest === key_game && ! cls.demoplayback ) IN_XR_Move( cmd );
 
-		// Left thumbstick → movement
-		// Apply deadzone to avoid drift
-		const deadzone = 0.15;
-		const stickX = Math.abs( xrInput.moveX ) > deadzone ? xrInput.moveX : 0;
-		const stickY = Math.abs( xrInput.moveY ) > deadzone ? xrInput.moveY : 0;
+	} else {
 
-		cmd.forwardmove -= cl_forwardspeed.value * stickY;
-		cmd.sidemove += cl_sidespeed.value * stickX;
-
-		// Right thumbstick → horizontal look (yaw)
-		const lookX = Math.abs( xrInput.lookX ) > deadzone ? xrInput.lookX : 0;
-		cl.viewangles[ YAW ] -= lookX * cl_yawspeed.value * host_frametime * 2;
-
-		// Left trigger → jump (K_SPACE)
-		const leftDown = xrInput.leftTrigger > 0.5;
-		if ( leftDown !== _xrPrevLeftTrigger ) {
-
-			Key_Event( K_SPACE, leftDown );
-			_xrPrevLeftTrigger = leftDown;
-
-		}
-
-		// Right trigger → attack (K_MOUSE1)
-		const rightDown = xrInput.rightTrigger > 0.5;
-		if ( rightDown !== _xrPrevRightTrigger ) {
-
-			Key_Event( K_MOUSE1, rightDown );
-			_xrPrevRightTrigger = rightDown;
-
-		}
+		// Standard Gamepad API input (non-XR)
+		GP_Poll( cmd );
 
 	}
 
-	// Standard Gamepad API input (non-XR)
-	if ( ! isXRActive() ) {
+}
 
-		GP_Poll( cmd );
+function IN_XR_Move( cmd ) {
+
+	// Left thumbstick → movement
+	// Apply deadzone to avoid drift
+	const deadzone = 0.15;
+	const stickX = Math.abs( xrInput.moveX ) > deadzone ? xrInput.moveX : 0;
+	const stickY = Math.abs( xrInput.moveY ) > deadzone ? xrInput.moveY : 0;
+
+	// Stick Y is negative when pushed forward
+	cmd.forwardmove -= ( stickY <= 0 ? cl_forwardspeed.value : cl_backspeed.value ) * stickY;
+	cmd.sidemove += cl_sidespeed.value * stickX;
+
+	// Right thumbstick → horizontal look (yaw), smooth or snap
+	const lookX = xrInput.lookX;
+
+	if ( xr_snapturn.value > 0 ) {
+
+		if ( Math.abs( lookX ) > 0.7 ) {
+
+			if ( _xrSnapArmed ) {
+
+				cl.viewangles[ YAW ] -= Math.sign( lookX ) * xr_snapturn.value;
+				_xrSnapArmed = false;
+
+			}
+
+		} else if ( Math.abs( lookX ) < 0.3 ) {
+
+			_xrSnapArmed = true;
+
+		}
+
+	} else if ( Math.abs( lookX ) > deadzone ) {
+
+		cl.viewangles[ YAW ] -= lookX * cl_yawspeed.value * host_frametime * 2;
 
 	}
 
@@ -903,12 +1469,12 @@ export function IN_IsPointerLocked() {
 IN_RequestPointerLock
 
 Request pointer lock from a user gesture context (e.g. menu selection).
-Only applies on desktop; mobile uses fullscreen instead.
+Only applies with mouse controls; touch mode uses fullscreen instead.
 ===========
 */
 export function IN_RequestPointerLock() {
 
-	if ( ! isMobile ) {
+	if ( ! touchMode ) {
 
 		requestPointerLock();
 
@@ -920,12 +1486,12 @@ export function IN_RequestPointerLock() {
 ===========
 IN_IsMobile
 
-Returns true if running on a mobile device
+Returns true while touch controls are in use
 ===========
 */
 export function IN_IsMobile() {
 
-	return isMobile;
+	return touchMode;
 
 }
 
@@ -939,7 +1505,7 @@ Should be called each frame.
 */
 export function IN_UpdateTouch() {
 
-	if ( ! isMobile ) return;
+	if ( ! touchMode ) return;
 
 	if ( key_dest === key_game && cls.state === ca_connected && ! cls.demoplayback ) {
 
@@ -956,7 +1522,7 @@ export function IN_UpdateTouch() {
 	} else if ( key_dest === key_game && cls.demoplayback ) {
 
 		// Demo playback - hide game controls, show menu overlay
-		// Tapping will trigger menu via M_TouchInput which sends Escape
+		// Tapping calls M_TouchInput, which toggles the menu directly
 		if ( Touch_IsEnabled() ) {
 
 			Touch_Disable();

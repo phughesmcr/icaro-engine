@@ -3,6 +3,7 @@
 import { Cvar_RegisterVariable } from './cvar.js';
 import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from './cmd.js';
 import { Con_Printf, Con_DPrintf } from './console.js';
+import { Q_atof } from './common.js';
 import {
 	sfx_t, sfxcache_t, channel_t, dma_t,
 	channels, MAX_CHANNELS, MAX_DYNAMIC_CHANNELS, NUM_AMBIENTS,
@@ -300,62 +301,37 @@ export function SND_PickChannel( entnum, entchannel ) {
 
 	// Check for replacement sound, or find the best one to replace
 	let first_to_die = - 1;
-	let first_empty = - 1;
-	let first_finished = - 1;
 	let life_left = 0x7fffffff;
 
 	for ( let ch_idx = NUM_AMBIENTS; ch_idx < NUM_AMBIENTS + MAX_DYNAMIC_CHANNELS; ch_idx ++ ) {
 
-		// Always override sound from same entity on same channel
-		if ( entchannel !== 0 &&
-			channels[ ch_idx ].entnum === entnum &&
-			( channels[ ch_idx ].entchannel === entchannel || entchannel === - 1 ) ) {
+		const ch = channels[ ch_idx ];
 
+		// channel 0 never overrides
+		if ( entchannel !== 0 &&
+			ch.entnum === entnum &&
+			( ch.entchannel === entchannel || entchannel === - 1 ) ) {
+
+			// allways override sound from same entity
 			first_to_die = ch_idx;
 			break;
 
 		}
 
-		// Track empty channels (never used or fully cleared)
-		if ( ! channels[ ch_idx ].sfx && first_empty === - 1 ) {
+		// In C the mixer clears sfx when a sound runs out. Here a channel whose
+		// Web Audio source never started (or has gone) is silent, so treat it
+		// as finished: not protected, and end = 0 so it wins like an empty one.
+		const playing = ch.sfx != null && ch._audioSource != null;
 
-			first_empty = ch_idx;
+		// don't let monster sounds override player sounds
+		if ( ch.entnum === cl.viewentity && entnum !== cl.viewentity && playing )
 			continue;
 
-		}
+		const end = playing ? ch.end : 0;
+		if ( end - paintedtime < life_left ) {
 
-		// Track channels where audio has finished playing (Web Audio onended fired)
-		if ( channels[ ch_idx ].sfx && ! channels[ ch_idx ]._audioSource && first_finished === - 1 ) {
-
-			first_finished = ch_idx;
-			continue;
-
-		}
-
-		// Don't let monster sounds override player sounds
-		if ( channels[ ch_idx ].entnum === cl.viewentity && entnum !== cl.viewentity && channels[ ch_idx ].sfx )
-			continue;
-
-		// Track channel with least time remaining (fallback)
-		if ( channels[ ch_idx ].end - paintedtime < life_left ) {
-
-			life_left = channels[ ch_idx ].end - paintedtime;
+			life_left = end - paintedtime;
 			first_to_die = ch_idx;
-
-		}
-
-	}
-
-	// Priority: same entity/channel > empty channel > finished channel > oldest channel
-	if ( first_to_die === - 1 ) {
-
-		if ( first_empty !== - 1 ) {
-
-			first_to_die = first_empty;
-
-		} else if ( first_finished !== - 1 ) {
-
-			first_to_die = first_finished;
 
 		}
 
@@ -377,19 +353,7 @@ export function SND_PickChannel( entnum, entchannel ) {
 		channels[ first_to_die ].sfx = null;
 
 	// Stop any existing Web Audio source on this channel
-	if ( channels[ first_to_die ]._audioSource ) {
-
-		try {
-
-			channels[ first_to_die ]._audioSource.stop();
-
-		} catch ( e ) { /* ignore */ }
-
-		channels[ first_to_die ]._audioSource = null;
-		channels[ first_to_die ]._gainNode = null;
-		channels[ first_to_die ]._panNode = null;
-
-	}
+	_stopWebAudio( channels[ first_to_die ] );
 
 	return channels[ first_to_die ];
 
@@ -520,20 +484,7 @@ export function S_StopSound( entnum, entchannel ) {
 
 			channels[ i ].end = 0;
 			channels[ i ].sfx = null;
-
-			if ( channels[ i ]._audioSource ) {
-
-				try {
-
-					channels[ i ]._audioSource.stop();
-
-				} catch ( e ) { /* ignore */ }
-
-				channels[ i ]._audioSource = null;
-				channels[ i ]._gainNode = null;
-				channels[ i ]._panNode = null;
-
-			}
+			_stopWebAudio( channels[ i ] );
 
 			return;
 
@@ -558,15 +509,7 @@ export function S_StopAllSounds( clear ) {
 	for ( let i = 0; i < MAX_CHANNELS; i ++ ) {
 
 		// Stop any playing Web Audio source before zeroing
-		if ( channels[ i ]._audioSource ) {
-
-			try {
-
-				channels[ i ]._audioSource.stop();
-
-			} catch ( e ) { /* ignore */ }
-
-		}
+		_stopWebAudio( channels[ i ] );
 
 		// Q_memset(channels, 0, MAX_CHANNELS * sizeof(channel_t)) -- zero ALL fields
 		channels[ i ].sfx = null;
@@ -582,9 +525,6 @@ export function S_StopAllSounds( clear ) {
 		channels[ i ].origin[ 2 ] = 0;
 		channels[ i ].dist_mult = 0;
 		channels[ i ].master_vol = 0;
-		channels[ i ]._audioSource = null;
-		channels[ i ]._gainNode = null;
-		channels[ i ]._panNode = null;
 
 	}
 
@@ -740,6 +680,9 @@ export function S_Update( origin, forward, right, up ) {
 	// Update general area ambient sound sources
 	S_UpdateAmbientSounds();
 
+	// advance the play clock (S_Update_ -> GetSoundtime / S_PaintChannels)
+	S_UpdatePaintedtime();
+
 	// Update master volume
 	if ( masterGain ) {
 
@@ -747,8 +690,9 @@ export function S_Update( origin, forward, right, up ) {
 
 	}
 
-	// Update spatialization for all active channels
-	for ( let i = 0; i < total_channels; i ++ ) {
+	// update spatialization for static and dynamic sounds
+	// (ambients are handled by S_UpdateAmbientSounds)
+	for ( let i = NUM_AMBIENTS; i < total_channels; i ++ ) {
 
 		const ch = channels[ i ];
 
@@ -794,6 +738,41 @@ export function S_Update( origin, forward, right, up ) {
 			_updateWebAudioSpatial( ch );
 
 		}
+
+	}
+
+}
+
+/*
+=================
+S_UpdatePaintedtime
+
+The port has no mixer, so paintedtime (in shm->speed sample frames, the same
+units as sfxcache_t.length after ResampleSfx) is taken from the AudioContext
+clock. Looping channels get their end pushed on, as S_PaintChannels does when
+it wraps a sound back to loopstart.
+=================
+*/
+function S_UpdatePaintedtime() {
+
+	if ( ! audioContext || ! shm )
+		return;
+
+	Sound_SetPaintedtime( Math.floor( audioContext.currentTime * shm.speed ) );
+
+	for ( let i = NUM_AMBIENTS; i < NUM_AMBIENTS + MAX_DYNAMIC_CHANNELS; i ++ ) {
+
+		const ch = channels[ i ];
+		if ( ! ch.sfx || ! ch._audioSource || ch.end > paintedtime )
+			continue;
+
+		const sc = ch.sfx.cache;
+		if ( sc == null || sc.loopstart < 0 || sc.length - sc.loopstart <= 0 )
+			continue;
+
+		// ch->pos = sc->loopstart; ch->end = ltime + sc->length - ch->pos;
+		const looplen = sc.length - sc.loopstart;
+		ch.end += Math.ceil( ( paintedtime - ch.end + 1 ) / looplen ) * looplen;
 
 	}
 
@@ -946,6 +925,9 @@ export function S_AmbientOn() {
 ==============================================================================
 */
 
+let s_play_hash = 345; // static int hash=345; in S_Play
+let s_playvol_hash = 543; // static int hash=543; in S_PlayVol
+
 function S_Play() {
 
 	for ( let i = 1; i < Cmd_Argc(); i ++ ) {
@@ -955,7 +937,7 @@ function S_Play() {
 			name += '.wav';
 
 		const sfx = S_PrecacheSound( name );
-		S_StartSound( 0, 0, sfx, listener_origin, 1.0, 1.0 );
+		S_StartSound( s_play_hash ++, 0, sfx, listener_origin, 1.0, 1.0 );
 
 	}
 
@@ -970,8 +952,8 @@ function S_PlayVol() {
 			name += '.wav';
 
 		const sfx = S_PrecacheSound( name );
-		const vol = parseFloat( Cmd_Argv( i + 1 ) ) || 1.0;
-		S_StartSound( 0, 0, sfx, listener_origin, vol, 1.0 );
+		const vol = Q_atof( Cmd_Argv( i + 1 ) );
+		S_StartSound( s_playvol_hash ++, 0, sfx, listener_origin, vol, 1.0 );
 
 	}
 
@@ -1082,41 +1064,25 @@ function _playWebAudio( sc, chan ) {
 
 		}
 
-		// Volume (master gain already applies volume.value, so only use channel volume here)
-		const gainNode = audioContext.createGain();
-		const vol = Math.max( chan.leftvol, chan.rightvol ) / 255.0;
-		gainNode.gain.value = vol;
+		// Volume (master gain already applies volume.value, so only use channel volume here).
+		// One gain per side into a merger, as the C mixer scales each side on its own.
+		const leftGain = audioContext.createGain();
+		const rightGain = audioContext.createGain();
+		const merger = audioContext.createChannelMerger( 2 );
+		leftGain.gain.value = SND_ChannelGain( chan.leftvol );
+		rightGain.gain.value = SND_ChannelGain( chan.rightvol );
 
-		// Stereo panning
-		let panNode = null;
-		if ( audioContext.createStereoPanner ) {
-
-			panNode = audioContext.createStereoPanner();
-			if ( chan.leftvol + chan.rightvol > 0 ) {
-
-				panNode.pan.value = ( chan.rightvol - chan.leftvol ) / ( chan.leftvol + chan.rightvol );
-
-			}
-
-		}
-
-		// Connect: source -> gain -> pan -> master
-		source.connect( gainNode );
-		if ( panNode ) {
-
-			gainNode.connect( panNode );
-			panNode.connect( masterGain );
-
-		} else {
-
-			gainNode.connect( masterGain );
-
-		}
+		// Connect: source -> left/right gain -> merger -> master
+		source.connect( leftGain );
+		source.connect( rightGain );
+		leftGain.connect( merger, 0, 0 );
+		rightGain.connect( merger, 0, 1 );
+		merger.connect( masterGain );
 
 		// Store references for updating and stopping
 		chan._audioSource = source;
-		chan._gainNode = gainNode;
-		chan._panNode = panNode;
+		chan._leftGain = leftGain;
+		chan._rightGain = rightGain;
 
 		// Handle sound completion for non-looping sounds
 		if ( ! source.loop ) {
@@ -1127,8 +1093,8 @@ function _playWebAudio( sc, chan ) {
 				if ( chan._audioSource === source ) {
 
 					chan._audioSource = null;
-					chan._gainNode = null;
-					chan._panNode = null;
+					chan._leftGain = null;
+					chan._rightGain = null;
 					chan.sfx = null;
 					chan.end = 0;
 
@@ -1150,26 +1116,62 @@ function _playWebAudio( sc, chan ) {
 
 /*
 =================
+SND_ChannelGain
+
+Per-side channel gain. SND_PaintChannelFrom8/16 clamp leftvol and rightvol
+to 255 independently before scaling the sample.
+=================
+*/
+export function SND_ChannelGain( vol ) {
+
+	if ( vol > 255 )
+		vol = 255;
+	if ( vol < 0 )
+		vol = 0;
+
+	return vol / 255.0;
+
+}
+
+/*
+=================
 _updateWebAudioSpatial
 
-Updates volume and panning for a playing sound based on current spatialization
+Updates the per-side volumes of a playing sound from its current spatialization
 =================
 */
 function _updateWebAudioSpatial( chan ) {
 
-	if ( ! chan._gainNode )
+	if ( ! chan._leftGain )
 		return;
 
-	// Update volume
-	const vol = Math.max( chan.leftvol, chan.rightvol ) / 255.0;
-	chan._gainNode.gain.value = vol;
+	chan._leftGain.gain.value = SND_ChannelGain( chan.leftvol );
+	chan._rightGain.gain.value = SND_ChannelGain( chan.rightvol );
 
-	// Update panning
-	if ( chan._panNode && ( chan.leftvol + chan.rightvol ) > 0 ) {
+}
 
-		chan._panNode.pan.value = ( chan.rightvol - chan.leftvol ) / ( chan.leftvol + chan.rightvol );
+/*
+=================
+_stopWebAudio
+
+Stops and drops the Web Audio nodes of a channel
+=================
+*/
+function _stopWebAudio( chan ) {
+
+	if ( chan._audioSource ) {
+
+		try {
+
+			chan._audioSource.stop();
+
+		} catch ( e ) { /* ignore */ }
 
 	}
+
+	chan._audioSource = null;
+	chan._leftGain = null;
+	chan._rightGain = null;
 
 }
 

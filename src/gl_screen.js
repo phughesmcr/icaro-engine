@@ -8,9 +8,9 @@ import { M_Draw } from './menu.js';
 import { Draw_Character, Draw_CachePic, Draw_Pic, Draw_FadeScreen, Draw_BeginFrame,
 	GL_Set2D, Draw_TileClear, Draw_PicFromWad, Draw_GetUIScale,
 	Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
-import { Cvar_RegisterVariable, Cvar_Set, Cvar_VariableValue } from './cvar.js';
+import { Cvar_RegisterVariable, Cvar_Set, Cvar_SetValue, Cvar_VariableValue } from './cvar.js';
 import { Cmd_AddCommand } from './cmd.js';
-import { key_dest, key_game, key_console, key_message } from './keys.js';
+import { key_dest, key_game, key_console, key_message, Key_BeginModal } from './keys.js';
 import { realtime, host_frametime } from './host.js';
 import { renderer } from './vid.js';
 import { r_refdef as _r_refdef_canonical } from './render.js';
@@ -376,9 +376,7 @@ Keybinding command
 */
 function SCR_SizeUp_f() {
 
-	scr_viewsize.value += 10;
-	if ( scr_viewsize.value > 120 )
-		scr_viewsize.value = 120;
+	Cvar_SetValue( 'viewsize', scr_viewsize.value + 10 );
 	_vid.recalc_refdef = true;
 
 }
@@ -392,9 +390,7 @@ Keybinding command
 */
 function SCR_SizeDown_f() {
 
-	scr_viewsize.value -= 10;
-	if ( scr_viewsize.value < 30 )
-		scr_viewsize.value = 30;
+	Cvar_SetValue( 'viewsize', scr_viewsize.value - 10 );
 	_vid.recalc_refdef = true;
 
 }
@@ -607,6 +603,40 @@ function SCR_DrawConsole() {
 			Con_DrawNotify(); // only draw notify in game
 
 	}
+
+}
+
+/*
+==================
+SCR_ModalMessage
+
+Displays a text string in the center of the screen and waits for a Y or N
+keypress. C blocks and returns the answer; here the answer goes to callback
+once Key_Event sees 'y', 'n' or escape.
+==================
+*/
+export function SCR_ModalMessage( text, callback ) {
+
+	if ( _cls.state === 0 ) { // ca_dedicated
+
+		callback( true );
+		return;
+
+	}
+
+	scr_notifystring = text;
+
+	// draw a fresh screen
+	scr_fullupdate = 0;
+	scr_drawdialog = true;
+
+	Key_BeginModal( function ( yes ) {
+
+		scr_drawdialog = false;
+		scr_fullupdate = 0;
+		callback( yes );
+
+	} );
 
 }
 
