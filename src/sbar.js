@@ -446,11 +446,8 @@ function Sbar_DrawInventory() {
 
 	}
 
-	// As in sbar.c, flashon is shared by the whole function: the items and
-	// sigils loops below reuse whatever the last owned weapon left in it, so
-	// a fresh pickup is hidden for up to 2 seconds only while that weapon is
-	// selected or itself flashing. (C leaves it uninitialised if no weapon is
-	// owned; 0 here.)
+	// flashon is function-scope as in sbar.c; the weapons loops set it and
+	// the items loops below reset it first (sbar.c: flashon = 0 before items).
 	let flashon = 0;
 
 	// weapons
@@ -584,6 +581,9 @@ function Sbar_DrawInventory() {
 
 	}
 
+	// As in sbar.c, items never flash: flashon is reset here, so the flash
+	// test below is always false and new items are drawn at once.
+	flashon = 0;
 	// items
 	for ( let i = 0; i < 6; i ++ ) {
 

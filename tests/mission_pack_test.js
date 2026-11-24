@@ -171,6 +171,23 @@ Deno.test( 'Sbar: id1 draws ibar, keys in the inventory and sigils', () => {
 
 } );
 
+Deno.test( 'Sbar: fresh items and sigils are drawn at once while the active weapon is lit', () => {
+
+	// The weapons loop leaves flashon = 1 for the selected shotgun; sbar.c
+	// resets it before the items loop, so a key or sigil picked up 0.5 s ago
+	// is drawn rather than hidden for its 2 s pickup window.
+	const item_gettime = new Float32Array( 32 );
+	item_gettime[ 17 ] = 99.5; // IT_KEY1
+	item_gettime[ 28 ] = 99.5; // IT_SIGIL1
+	const { pics } = drawSbar( null, {
+		items: q.IT_SHOTGUN | q.IT_KEY1 | q.IT_SIGIL1,
+		item_gettime,
+		statValues: { [ q.STAT_ACTIVEWEAPON ]: q.IT_SHOTGUN }
+	} );
+	assertDrawn( pics, [ 'inv2_shotgun@0,-16', 'sb_key1@192,-16', 'sb_sigil1@288,-16' ], 'flashon reset' );
+
+} );
+
 Deno.test( 'Sbar: rogue invbar, powered-up weapon, items, armour and ammo icons, no sigils', () => {
 
 	const { pics } = drawSbar( 'rogue', {
