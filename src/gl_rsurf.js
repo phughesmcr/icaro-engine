@@ -112,7 +112,11 @@ export function set_skytexturenum( v ) { skytexturenum = v; }
 
 let lightmap_bytes = 1; // 1, 2, or 4
 
-const blocklights = new Uint32Array( 18 * 18 );
+// Deliberate deviation: GLQuake's 18*18 only fits 256-unit extents (WinQuake's
+// limit), not GLQuake's own 512, and writes past it were dropped. Size it for
+// one whole lightmap block as QuakeSpasm does: 2000-unit extents (gl_model.js
+// MAX_SURFACE_EXTENTS) give at most 126x126 luxels.
+const blocklights = new Uint32Array( BLOCK_WIDTH * BLOCK_HEIGHT );
 
 // Cached buffers for R_AddDynamicLights (Golden Rule #4)
 const _dlight_impact = new Float32Array( 3 );

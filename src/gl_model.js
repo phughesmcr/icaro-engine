@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 import { Sys_Error } from './sys.js';
-import { Con_Printf } from './common.js';
+import { Con_Printf, Con_DPrintf } from './common.js';
 import { d_8to24table, vid } from './vid.js';
 import { COM_LoadFile } from './pak.js';
 import { DotProduct, VectorCopy, Length } from './mathlib.js';
@@ -138,9 +138,15 @@ export const EF_TRACER3 = 128;		// purple trail
 // ============================================================================
 
 export const MAX_SKINS = 32;
-export const MAXALIASVERTS = 1024;
-export const MAXALIASFRAMES = 256;
-export const MAXALIASTRIS = 2048;
+// Deliberate deviation: QuakeSpasm's limits, were 1024, 256 and 2048 in
+// GLQuake. gl_mesh.js sizes its BuildTris buffers from MAXALIASTRIS and keeps
+// its own copy of it (import cycle), so change both together.
+export const MAXALIASVERTS = 2400;
+export const MAXALIASFRAMES = 1024;
+export const MAXALIASTRIS = 4096;
+
+// Deliberate deviation: QuakeSpasm's surface extents limit, 512 in GLQuake
+export const MAX_SURFACE_EXTENTS = 2000;
 
 // ============================================================================
 // In-memory model structures (m*_t)
@@ -323,7 +329,10 @@ export class dclipnode_t {
 	constructor() {
 
 		this.planenum = 0;
-		this.children = new Int16Array( 2 );
+		// Deliberate deviation (QuakeSpasm mclipnode_t): int children, so
+		// clipnode and hull 0 node indices past 32767 don't wrap. dclipnode_t
+		// holds short children.
+		this.children = new Int32Array( 2 );
 
 	}
 
@@ -600,6 +609,7 @@ export class model_t {
 		this.textures = null;		// array of texture_t
 
 		this.visdata = null;		// Uint8Array
+		this.viswarn = false;		// QuakeSpasm: Mod_DecompressVis warned once
 		this.lightdata = null;		// Uint8Array
 		this.entities = null;		// string
 
@@ -617,7 +627,10 @@ export class model_t {
 
 let loadmodel = null;
 
-const mod_novis = new Uint8Array( MAX_MAP_LEAFS / 8 );
+// Deliberate deviation (QuakeSpasm Mod_NoVisPVS / Mod_DecompressVis): the C
+// sizes both PVS rows at MAX_MAP_LEAFS/8. Here they grow to fit the loaded
+// model's leaf count in Mod_LoadLeafs (Mod_AllocVisBuffers), never per frame.
+let mod_novis = new Uint8Array( 0 );
 
 const MAX_MOD_KNOWN = 512;
 const mod_known = [];
@@ -646,8 +659,8 @@ let r_notexture_mip = null;
 // mod_base: Uint8Array - the raw file bytes of the BSP currently being loaded
 let mod_base = null;
 
-// Decompressed visibility buffer (reused)
-const decompressed = new Uint8Array( MAX_MAP_LEAFS / 8 );
+// Decompressed visibility buffer (reused; sized by Mod_AllocVisBuffers)
+let decompressed = new Uint8Array( 0 );
 
 // ============================================================================
 // GL_LoadTexture: 8-bit paletted pixels -> THREE.DataTexture. Unlike GLQuake it
@@ -822,6 +835,28 @@ export function Mod_Init() {
 }
 
 // ============================================================================
+// Mod_AllocVisBuffers
+//
+// Grows mod_novis and decompressed to hold one PVS row for numleafs leafs.
+// The rows only grow, so a row handed out for an earlier model stays valid
+// in length. Called at load time from Mod_LoadLeafs.
+// ============================================================================
+
+export function Mod_AllocVisBuffers( numleafs ) {
+
+	const row = ( numleafs + 7 ) >> 3;
+	if ( row > decompressed.length )
+		decompressed = new Uint8Array( row );
+	if ( row > mod_novis.length ) {
+
+		mod_novis = new Uint8Array( row );
+		mod_novis.fill( 0xff );
+
+	}
+
+}
+
+// ============================================================================
 // R_InitTextures
 // ============================================================================
 
@@ -952,6 +987,9 @@ export function Mod_DecompressVis( _in, inOffset, model ) {
 	const row = ( model.numleafs + 7 ) >> 3;
 	let outIdx = 0;
 
+	if ( row > decompressed.length )
+		Mod_AllocVisBuffers( model.numleafs );	// model built without Mod_LoadLeafs
+
 	if ( _in === null ) {
 
 		// no vis info, so make all visible
@@ -962,8 +1000,27 @@ export function Mod_DecompressVis( _in, inOffset, model ) {
 	}
 
 	let pos = inOffset;
+	const inend = _in.length;
 
 	while ( outIdx < row ) {
+
+		// Deliberate deviation: C reads on past the end of the vis lump. A
+		// typed array returns undefined there and this loop never advanced,
+		// so truncated vis data hung the client and server. Stop at the end
+		// of the data and leave the rest of the row not visible.
+		if ( pos >= inend ) {
+
+			if ( model.viswarn !== true ) {
+
+				model.viswarn = true;
+				Con_Printf( 'Mod_DecompressVis: input underrun on model "' + model.name + '"\n' );
+
+			}
+
+			decompressed.fill( 0, outIdx, row );
+			break;
+
+		}
 
 		if ( _in[ pos ] ) {
 
@@ -974,8 +1031,25 @@ export function Mod_DecompressVis( _in, inOffset, model ) {
 
 		}
 
-		const c = _in[ pos + 1 ];
+		// a zero run past the end of the data counts as an empty run
+		let c = pos + 1 < inend ? _in[ pos + 1 ] : 0;
 		pos += 2;
+
+		// QuakeSpasm: a run past the end of the row is an output overrun;
+		// stop there rather than write past the row.
+		if ( c > row - outIdx ) {
+
+			if ( model.viswarn !== true ) {
+
+				model.viswarn = true;
+				Con_Printf( 'Mod_DecompressVis: output overrun on model "' + model.name + '"\n' );
+
+			}
+
+			c = row - outIdx;
+
+		}
+
 		for ( let j = 0; j < c; j ++ ) {
 
 			decompressed[ outIdx ] = 0;
@@ -995,8 +1069,13 @@ export function Mod_DecompressVis( _in, inOffset, model ) {
 
 export function Mod_LeafPVS( leaf, model ) {
 
-	if ( leaf === model.leafs[ 0 ] )
+	if ( leaf === model.leafs[ 0 ] ) {
+
+		if ( ( ( model.numleafs + 7 ) >> 3 ) > mod_novis.length )
+			Mod_AllocVisBuffers( model.numleafs );	// model built without Mod_LoadLeafs
 		return mod_novis;
+
+	}
 	return Mod_DecompressVis( leaf.compressed_vis, leaf.compressed_vis_offset, model );
 
 }
@@ -1234,7 +1313,18 @@ function Mod_LoadTextures( fileofs, filelen ) {
 
 	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
 
+	// miptex header size is 16 (name) + 4 (width) + 4 (height) + 4*4 (offsets) = 40
+	const SIZEOF_MIPTEX = 40;
+
+	// Deliberate deviation: the C trusts the counts and offsets in the lump
+	// and reads past it on a bad map. A typed array throws a RangeError or
+	// reads undefined instead, so reject a lump too short for its own
+	// directory and drop miptexes whose header lies outside the lump.
+	if ( filelen < 4 )
+		Sys_Error( 'Mod_LoadTextures: funny lump size in ' + loadmodel.name );
 	const nummiptex = view.getInt32( 0, true );
+	if ( nummiptex < 0 || 4 + nummiptex * 4 > filelen )
+		Sys_Error( 'Mod_LoadTextures: bad miptex count ' + nummiptex + ' in ' + loadmodel.name );
 
 	loadmodel.numtextures = nummiptex;
 	loadmodel.textures = new Array( nummiptex );
@@ -1249,9 +1339,17 @@ function Mod_LoadTextures( fileofs, filelen ) {
 
 		}
 
+		if ( dataofs < 0 || dataofs + SIZEOF_MIPTEX > filelen ) {
+
+			Con_Printf( 'Mod_LoadTextures: miptex ' + i + ' offset ' + dataofs + ' outside lump in ' + loadmodel.name + '\n' );
+			loadmodel.textures[ i ] = null;	// drawn as r_notexture_mip
+			continue;
+
+		}
+
 		// miptex_t at mod_base + fileofs + dataofs
 		const mtOfs = fileofs + dataofs;
-		const mtView = new DataView( mod_base.buffer, mod_base.byteOffset + mtOfs );
+		const mtView = new DataView( mod_base.buffer, mod_base.byteOffset + mtOfs, SIZEOF_MIPTEX );
 
 		const name = readString( mod_base, mtOfs, 16 );
 		const width = mtView.getUint32( 16, true );
@@ -1262,6 +1360,16 @@ function Mod_LoadTextures( fileofs, filelen ) {
 
 		if ( ( width & 15 ) || ( height & 15 ) )
 			Sys_Error( 'Texture ' + name + ' is not 16 aligned' );
+
+		// Deliberate deviation (QuakeSpasm): a zero sized texture is skipped
+		// with a warning.
+		if ( width === 0 || height === 0 ) {
+
+			Con_Printf( 'Zero sized texture ' + name + ' in ' + loadmodel.name + '!\n' );
+			loadmodel.textures[ i ] = null;	// drawn as r_notexture_mip
+			continue;
+
+		}
 
 		const pixels = ( width * height / 64 ) * 85;
 
@@ -1275,10 +1383,19 @@ function Mod_LoadTextures( fileofs, filelen ) {
 			tx.offsets[ j ] = offsets[ j ];
 
 		// Copy the pixel data (follows the miptex header in the file)
-		// miptex header size is 16 (name) + 4 (width) + 4 (height) + 4*4 (offsets) = 40
-		const SIZEOF_MIPTEX = 40;
 		tx.pixels = new Uint8Array( pixels );
-		for ( let j = 0; j < pixels; j ++ )
+
+		// Deliberate deviation (QuakeSpasm, ericw): pixels running past the
+		// end of the lump are copied up to the lump's end; the rest stay 0.
+		let copy = pixels;
+		if ( dataofs + SIZEOF_MIPTEX + pixels > filelen ) {
+
+			Con_DPrintf( 'Texture ' + name + ' extends past end of lump\n' );
+			copy = Math.max( 0, filelen - ( dataofs + SIZEOF_MIPTEX ) );
+
+		}
+
+		for ( let j = 0; j < copy; j ++ )
 			tx.pixels[ j ] = mod_base[ mtOfs + SIZEOF_MIPTEX + j ];
 
 		if ( name.substring( 0, 3 ) === 'sky' ) {
@@ -1705,7 +1822,10 @@ function CalcSurfaceExtents( s ) {
 
 		s.texturemins[ i ] = bmins * 16;
 		s.extents[ i ] = ( bmaxs - bmins ) * 16;
-		if ( ! ( tex.flags & TEX_SPECIAL ) && s.extents[ i ] > 512 )
+		// Deliberate deviation (QuakeSpasm/Ironwail): was 512 in GLQuake.
+		// 2000 gives at most 126 luxels a side, which still fits one
+		// BLOCK_WIDTH x BLOCK_HEIGHT lightmap and blocklights (gl_rsurf.js).
+		if ( ! ( tex.flags & TEX_SPECIAL ) && s.extents[ i ] > MAX_SURFACE_EXTENTS )
 			Sys_Error( 'Bad surface extents' );
 
 	}
@@ -1846,17 +1966,27 @@ function Mod_LoadNodes( fileofs, filelen ) {
 
 		for ( let j = 0; j < 2; j ++ ) {
 
-			const child = view.getInt16( base + 4 + j * 2, true );
-			if ( child >= 0 ) {
+			// Deliberate deviation (QuakeSpasm Mod_LoadNodes_S): read the child
+			// unsigned so maps with more than 32767 nodes, or leafs past
+			// 32767, load. The C reads a signed short.
+			let p = view.getUint16( base + 4 + j * 2, true );
+			node._childIndex = node._childIndex || [];
+			if ( p < count ) {
 
 				node.children[ j ] = null; // will be resolved after all nodes created
-				node._childIndex = node._childIndex || [];
-				node._childIndex[ j ] = { type: 'node', index: child };
+				node._childIndex[ j ] = { type: 'node', index: p };
 
 			} else {
 
-				node._childIndex = node._childIndex || [];
-				node._childIndex[ j ] = { type: 'leaf', index: - 1 - child };
+				p = 65535 - p; // note this uses 65535 intentionally, -1 is leaf 0
+				if ( p >= loadmodel.numleafs ) {
+
+					Con_Printf( 'Mod_LoadNodes: invalid leaf index ' + p + ' (file has only ' + loadmodel.numleafs + ' leafs)\n' );
+					p = 0; // map it to the solid leaf
+
+				}
+
+				node._childIndex[ j ] = { type: 'leaf', index: p };
 
 			}
 
@@ -1906,8 +2036,15 @@ function Mod_LoadLeafs( fileofs, filelen ) {
 	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
 	const out = new Array( count );
 
+	// Deliberate deviation: QuakeSpasm's BSP29 limit check (the C has none)
+	if ( count > MAX_MAP_LEAFS )
+		Sys_Error( 'Mod_LoadLeafs: ' + count + ' leafs exceeds limit of ' + MAX_MAP_LEAFS + '.' );
+
 	loadmodel.leafs = out;
 	loadmodel.numleafs = count;
+
+	// size the PVS rows now so Mod_LeafPVS never allocates per frame
+	Mod_AllocVisBuffers( count );
 
 	for ( let i = 0; i < count; i ++ ) {
 
@@ -2016,8 +2153,20 @@ function Mod_LoadClipnodes( fileofs, filelen ) {
 		const base = i * SIZEOF_DCLIPNODE;
 
 		cn.planenum = view.getInt32( base, true );
-		cn.children[ 0 ] = view.getInt16( base + 4, true );
-		cn.children[ 1 ] = view.getInt16( base + 6, true );
+
+		// Deliberate deviation (QuakeSpasm Mod_LoadClipnodes): bounds check
+		if ( cn.planenum < 0 || cn.planenum >= loadmodel.numplanes )
+			Sys_Error( 'Mod_LoadClipnodes: planenum out of bounds' );
+
+		// Deliberate deviation (QuakeSpasm): read the children unsigned so
+		// maps with more than 32767 clipnodes load; values at or past count
+		// are contents (-1 to -15) once 65536 is taken off.
+		cn.children[ 0 ] = view.getUint16( base + 4, true );
+		cn.children[ 1 ] = view.getUint16( base + 6, true );
+		if ( cn.children[ 0 ] >= count )
+			cn.children[ 0 ] -= 65536;
+		if ( cn.children[ 1 ] >= count )
+			cn.children[ 1 ] -= 65536;
 
 		out[ i ] = cn;
 
@@ -2044,20 +2193,37 @@ function Mod_MakeHull0() {
 	hull.lastclipnode = count - 1;
 	hull.planes = loadmodel.planes;
 
+	// C gets these indices by pointer subtraction (in->plane - planes,
+	// child - nodes). indexOf per node is quadratic, which a map near the
+	// raised limits makes slow, so look them up from maps built once.
+	const planenums = new Map();
+	for ( let i = 0; i < loadmodel.planes.length; i ++ )
+		planenums.set( loadmodel.planes[ i ], i );
+	const nodenums = new Map();
+	for ( let i = 0; i < count; i ++ )
+		nodenums.set( _in[ i ], i );
+
 	for ( let i = 0; i < count; i ++ ) {
 
 		const cn = new dclipnode_t();
 		const node = _in[ i ];
 
-		cn.planenum = loadmodel.planes.indexOf( node.plane );
+		const planenum = planenums.get( node.plane );
+		cn.planenum = planenum !== undefined ? planenum : - 1;
 
 		for ( let j = 0; j < 2; j ++ ) {
 
 			const child = node.children[ j ];
-			if ( child.contents < 0 )
+			if ( child.contents < 0 ) {
+
 				cn.children[ j ] = child.contents;
-			else
-				cn.children[ j ] = loadmodel.nodes.indexOf( child );
+
+			} else {
+
+				const nodenum = nodenums.get( child );
+				cn.children[ j ] = nodenum !== undefined ? nodenum : - 1;
+
+			}
 
 		}
 
@@ -2159,6 +2325,7 @@ export function RadiusFromBounds( mins, maxs ) {
 function Mod_LoadBrushModel( mod, buffer ) {
 
 	loadmodel.type = mod_brush;
+	loadmodel.viswarn = false;
 
 	const bytes = new Uint8Array( buffer );
 	const view = new DataView( buffer );
@@ -2322,6 +2489,10 @@ function Mod_LoadAliasFrame( buf, offset, frame ) {
 	frame.firstpose = posenum;
 	frame.numposes = 1;
 
+	// Deliberate deviation (QuakeSpasm): the C has no check
+	if ( posenum >= MAXALIASFRAMES )
+		Sys_Error( 'posenum >= MAXALIASFRAMES' );
+
 	// trivertx_t data follows the header
 	const SIZEOF_DALIASFRAME = 24; // bboxmin(4) + bboxmax(4) + name(16)
 	const pinframe = offset + SIZEOF_DALIASFRAME;
@@ -2370,6 +2541,10 @@ function Mod_LoadAliasGroup( buf, offset, frame ) {
 	const SIZEOF_TRIVERTX = 4;
 
 	for ( let i = 0; i < numframes; i ++ ) {
+
+		// Deliberate deviation (QuakeSpasm): the C has no check
+		if ( posenum >= MAXALIASFRAMES )
+			Sys_Error( 'posenum >= MAXALIASFRAMES' );
 
 		poseverts[ posenum ] = { buffer: buf, offset: ptemp + SIZEOF_DALIASFRAME };
 		posenum ++;
@@ -2638,6 +2813,10 @@ function Mod_LoadAliasModel( mod, buffer ) {
 		Sys_Error( 'model ' + mod.name + ' has too many vertices' );
 	if ( pheader.numtris <= 0 )
 		Sys_Error( 'model ' + mod.name + ' has no triangles' );
+	// Deliberate deviation (QuakeSpasm): the C has no check, and the
+	// triangles array (and gl_mesh.js's BuildTris buffers) hold MAXALIASTRIS
+	if ( pheader.numtris > MAXALIASTRIS )
+		Sys_Error( 'model ' + mod.name + ' has too many triangles' );
 	if ( pheader.numframes < 1 )
 		Sys_Error( 'Mod_LoadAliasModel: Invalid # of frames: ' + pheader.numframes );
 
