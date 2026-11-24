@@ -23,7 +23,7 @@ process per room. It was forked from mrdoob's three-quake.
 
 ## Commands
 
-- `deno task test`: the whole suite (~180 tests, ~8 s). For one file:
+- `deno task test`: the whole suite (~190 tests, ~8 s). For one file:
   `deno test --allow-read --allow-net --allow-env --allow-run --allow-write tests/<file>_test.js`.
   Narrow further with `--filter`.
 - `server/net_webtransport_server_test.ts` is not part of `deno task test`. Run
@@ -39,10 +39,11 @@ process per room. It was forked from mrdoob's three-quake.
 
 ### Lint and format baseline
 
-- `deno lint` already reports ~580 problems on `dev`. Most are unused
-  parameters kept for C-signature parity, plus `prefer-const` and `window`
-  use. The bar is **no new problems in the files you touched**, not zero.
-  Compare against the base version of each file.
+- `deno task lint` (config in root `deno.json`: `main.js`, `src/`, `server/`,
+  `tests/`; `no-window` rules off) still reports ~160 problems on `dev`, so it
+  exits non-zero. Most are unused parameters kept for C-signature parity, plus
+  `prefer-const`. The bar is **no new problems in the files you touched**, not
+  zero. Compare against the base version of each file.
 - Never run `deno fmt` without `--check`. The code doesn't follow its style, so
   it would rewrite every file.
 
@@ -97,14 +98,17 @@ process per room. It was forked from mrdoob's three-quake.
 - `src/` touches `window` and `document`. Code reached from `server/` or
   `tests/` must not touch them at import time.
 - Mission-pack flags (`rogue`, `hipnotic`, `standard_quake`) are `export let`
-  in `common.js` and are set during startup, not by importers.
+  in `common.js` and are set by `COM_InitArgv` (from `?game=` in `main.js`,
+  or the server flags), not by importers.
 
 ## Game data
 
 `static/pak0.pak` is the shareware Episode 1 pak and is committed. Registered
-or commercial data (`pak1.pak`, mission-pack paks) must **never** be committed
-or deployed publicly. Keep it in `static/` and make sure `.gitignore` covers
-it. If the data isn't present, test that the shareware game is unchanged and
+or commercial data (`static/pak1.pak`, and the mission packs in
+`static/hipnotic/` and `static/rogue/`) must **never** be committed or deployed
+publicly; `.gitignore` covers those paths. The client loads a mission pack with
+`?game=hipnotic` or `?game=rogue`; the servers take `-hipnotic` or `-rogue`.
+If the data isn't present, test that the shareware game is unchanged and
 list manual test steps in the PR.
 
 ## Git workflow

@@ -14,7 +14,8 @@ set -uo pipefail
 command -v deno >/dev/null || exit 0
 command -v jq >/dev/null || exit 0
 
-root=$(cd "$(git rev-parse --show-toplevel 2>/dev/null)" && pwd -P) || exit 0
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+root=$(cd "$root" && pwd -P) || exit 0
 
 # Absolute, symlink-resolved path (relative paths are taken from the caller's cwd).
 resolve() {
@@ -36,10 +37,14 @@ fi
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/lint-delta.XXXXXX") || exit 0
 trap 'rm -rf "$tmp"' EXIT
 
-# Lint stdin, emit one "code<TAB>message<TAB>line" row per finding.
+# Lint stdin, emit one "code<TAB>message<TAB>line" row per finding. Parse
+# errors come back in .errors, not .diagnostics; report them as "syntax-error"
+# so a broken edit isn't mistaken for a clean one.
 lint() {
 	NO_COLOR=1 deno lint --json --ext="$1" - 2>/dev/null |
-		jq -r '.diagnostics[]? | [.code, .message, (.range.start.line|tostring)] | @tsv'
+		jq -r '(.diagnostics[]? | [.code, .message, (.range.start.line|tostring)]),
+			(.errors[]? | ["syntax-error", (.message | split("\n")[0]), ((.message | capture(":(?<l>[0-9]+):[0-9]+$").l) // "?")])
+			| @tsv'
 }
 
 files=()

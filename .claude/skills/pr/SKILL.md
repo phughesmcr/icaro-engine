@@ -27,6 +27,8 @@ Stop and report if any step fails. Never merge the PR, and never target `main`.
 5. **Lint delta.** For each changed `.js`/`.ts` file, compare its findings
    with the `origin/dev` version:
    `bash .claude/hooks/lint-delta.sh origin/dev <files...>`.
+   (`deno task lint` lints the whole tree but still fails on the existing
+   baseline, so it can't be the gate.)
    - The goal is zero *new* problems.
    - Don't run `deno fmt` (only `--check`).
 6. **Review.**
