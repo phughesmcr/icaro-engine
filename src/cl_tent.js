@@ -150,7 +150,7 @@ export function CL_ParseTEnt() {
 				S_StartSound( - 1, 0, cl_sfx_tink1, pos, 1, 1 );
 			else {
 
-				const rnd = Math.random() * 3 | 0;
+				const rnd = Math.random() * 4 | 0; // rand() & 3: ric3 on 0 and 3
 				if ( rnd === 1 )
 					S_StartSound( - 1, 0, cl_sfx_ric1, pos, 1, 1 );
 				else if ( rnd === 2 )
@@ -171,7 +171,7 @@ export function CL_ParseTEnt() {
 				S_StartSound( - 1, 0, cl_sfx_tink1, pos, 1, 1 );
 			else {
 
-				const rnd = Math.random() * 3 | 0;
+				const rnd = Math.random() * 4 | 0; // rand() & 3: ric3 on 0 and 3
 				if ( rnd === 1 )
 					S_StartSound( - 1, 0, cl_sfx_ric1, pos, 1, 1 );
 				else if ( rnd === 2 )
