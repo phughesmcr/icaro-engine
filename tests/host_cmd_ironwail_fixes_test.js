@@ -17,7 +17,6 @@ const gl_model = await import( '../src/gl_model.js' );
 const server = await import( '../src/server.js' );
 const client = await import( '../src/client.js' );
 const demo = await import( '../src/cl_demo.js' );
-const net = await import( '../src/net.js' );
 const { svc_setangle } = await import( '../src/protocol.js' );
 const consolejs = await import( '../src/console.js' );
 
@@ -240,7 +239,6 @@ Deno.test( 'a demo message with a negative or oversized length is a Host_Error, 
 
 	}
 
-	void net;
 
 } );
 
