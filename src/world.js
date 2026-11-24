@@ -199,6 +199,12 @@ Offset is filled in to contain the adjustment that must be added to the
 testing object's origin to get a point to use with the returned hull.
 ================
 */
+// Scratch vectors for SV_HullForEntity (Golden Rule #4). SV_HullForBox
+// copies the bounds into box_planes, so reusing them across calls is safe.
+const hull_size = new Float32Array( 3 );
+const hull_hullmins = new Float32Array( 3 );
+const hull_hullmaxs = new Float32Array( 3 );
+
 export function SV_HullForEntity( ent, mins, maxs, offset ) {
 
 	let hull;
@@ -217,7 +223,7 @@ export function SV_HullForEntity( ent, mins, maxs, offset ) {
 		if ( ! model || model.type !== 0 ) // mod_brush = 0
 			Host_Error( 'MOVETYPE_PUSH with a non bsp model' );
 
-		const size = new Float32Array( 3 );
+		const size = hull_size;
 		VectorSubtract( maxs, mins, size );
 		if ( size[ 0 ] < 3 )
 			hull = model.hulls[ 0 ];
@@ -233,8 +239,8 @@ export function SV_HullForEntity( ent, mins, maxs, offset ) {
 	} else {
 
 		// create a temp hull from bounding box sizes
-		const hullmins = new Float32Array( 3 );
-		const hullmaxs = new Float32Array( 3 );
+		const hullmins = hull_hullmins;
+		const hullmaxs = hull_hullmaxs;
 		VectorSubtract( ent.v.mins, maxs, hullmins );
 		VectorSubtract( ent.v.maxs, mins, hullmaxs );
 		hull = SV_HullForBox( hullmins, hullmaxs );
@@ -852,23 +858,36 @@ SV_ClipMoveToEntity
 
 Handles selection or creation of a clipping hull, and offseting (and
 eventually rotation) of the end points
+
+C returns the trace_t by value. Here the caller passes the trace to fill
+in, so no trace_t is allocated per entity clipped (Golden Rule #4).
 ==================
 */
-export function SV_ClipMoveToEntity( ent, start, mins, maxs, end ) {
+const clip_offset = new Float32Array( 3 );
+const clip_start_l = new Float32Array( 3 );
+const clip_end_l = new Float32Array( 3 );
 
-	const trace = new trace_t();
+export function SV_ClipMoveToEntity( ent, start, mins, maxs, end, trace ) {
 
-	// fill in a default trace
-	trace.fraction = 1;
+	// fill in a default trace (C: memset to 0, then these)
 	trace.allsolid = true;
+	trace.startsolid = false;
+	trace.inopen = false;
+	trace.inwater = false;
+	trace.fraction = 1;
 	VectorCopy( end, trace.endpos );
+	trace.plane.normal[ 0 ] = 0;
+	trace.plane.normal[ 1 ] = 0;
+	trace.plane.normal[ 2 ] = 0;
+	trace.plane.dist = 0;
+	trace.ent = null;
 
 	// get the clipping hull
-	const offset = new Float32Array( 3 );
+	const offset = clip_offset;
 	const hull = SV_HullForEntity( ent, mins, maxs, offset );
 
-	const start_l = new Float32Array( 3 );
-	const end_l = new Float32Array( 3 );
+	const start_l = clip_start_l;
+	const end_l = clip_end_l;
 	VectorSubtract( start, offset, start_l );
 	VectorSubtract( end, offset, end_l );
 
@@ -884,6 +903,25 @@ export function SV_ClipMoveToEntity( ent, start, mins, maxs, end ) {
 		trace.ent = ent;
 
 	return trace;
+
+}
+
+// Scratch trace for SV_ClipToLinks. SV_Move never runs QuakeC, so it is not
+// re-entered while this is in use.
+const clip_touch_trace = new trace_t();
+
+// C's struct assignment ( a = b ) for trace_t
+function TraceCopy( src, dst ) {
+
+	dst.allsolid = src.allsolid;
+	dst.startsolid = src.startsolid;
+	dst.inopen = src.inopen;
+	dst.inwater = src.inwater;
+	dst.fraction = src.fraction;
+	VectorCopy( src.endpos, dst.endpos );
+	VectorCopy( src.plane.normal, dst.plane.normal );
+	dst.plane.dist = src.plane.dist;
+	dst.ent = src.ent;
 
 }
 
@@ -980,23 +1018,24 @@ function SV_ClipToLinks( node, clip ) {
 
 		}
 
-		let trace;
+		const trace = clip_touch_trace;
 		if ( ( touch.v.flags | 0 ) & FL_MONSTER )
-			trace = SV_ClipMoveToEntity( touch, clip.start, clip.mins2, clip.maxs2, clip.end );
+			SV_ClipMoveToEntity( touch, clip.start, clip.mins2, clip.maxs2, clip.end, trace );
 		else
-			trace = SV_ClipMoveToEntity( touch, clip.start, clip.mins, clip.maxs, clip.end );
+			SV_ClipMoveToEntity( touch, clip.start, clip.mins, clip.maxs, clip.end, trace );
 
 		if ( trace.allsolid || trace.startsolid || trace.fraction < clip.trace.fraction ) {
 
 			trace.ent = touch;
+			// C assigns the struct by value; copy out of the scratch trace
 			if ( clip.trace.startsolid ) {
 
-				clip.trace = trace;
+				TraceCopy( trace, clip.trace );
 				clip.trace.startsolid = true;
 
 			} else {
 
-				clip.trace = trace;
+				TraceCopy( trace, clip.trace );
 
 			}
 
@@ -1053,12 +1092,16 @@ function SV_MoveBounds( start, mins, maxs, end, boxmins, boxmaxs ) {
 SV_Move
 ==================
 */
+// SV_Move never runs QuakeC, so one moveclip_t serves every call
+const sv_move_clip = new moveclip_t();
+
 export function SV_Move( start, mins, maxs, end, type, passedict ) {
 
-	const clip = new moveclip_t();
+	const clip = sv_move_clip;
 
-	// clip to world
-	clip.trace = SV_ClipMoveToEntity( sv.edicts[ 0 ], start, mins, maxs, end );
+	// clip to world. C returns the trace by value, and callers keep it
+	// across later SV_Move calls, so this one trace_t is still new each call.
+	clip.trace = SV_ClipMoveToEntity( sv.edicts[ 0 ], start, mins, maxs, end, new trace_t() );
 
 	clip.start = start;
 	clip.end = end;

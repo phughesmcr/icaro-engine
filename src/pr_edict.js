@@ -190,7 +190,10 @@ ED_FieldAtOfs
 */
 export function ED_FieldAtOfs( ofs ) {
 
-	for ( let i = 0; i < progs.numfielddefs; i ++ ) {
+	// Deviation from id's C, which started at 0: fielddef 0 is the null def
+	// with ofs 0, so .modelindex (also ofs 0) was never found. Ironwail
+	// commit fe459b4 starts at 1.
+	for ( let i = 1; i < progs.numfielddefs; i ++ ) {
 
 		const def = pr_fielddefs[ i ];
 		if ( def.ofs === ofs )
@@ -777,7 +780,8 @@ export function ED_ParseEpair( accessor, key, s ) {
 			break;
 
 		case ev_float:
-			accessor.setFloat( ofs, parseFloat( s ) );
+			// atof() gives 0 where parseFloat gives NaN (e.g. "wait" "")
+			accessor.setFloat( ofs, parseFloat( s ) || 0 );
 			break;
 
 		case ev_vector: {
@@ -901,7 +905,11 @@ export function ED_ParseEdict( data, ent ) {
 		const key = ED_FindField( keyname );
 		if ( ! key ) {
 
-			Con_Printf( '\'%s\' is not a field\n', keyname );
+			// Deviation from id's C (Con_Printf): Ironwail/FitzQuake print this
+			// only with developer set, and stay silent for the sky, fog and
+			// alpha keys that map editors add but defs.qc may not declare.
+			if ( ! keyname.startsWith( 'sky' ) && keyname !== 'fog' && keyname !== 'alpha' )
+				Con_DPrintf( '\'%s\' is not a field\n', keyname );
 			continue;
 
 		}
