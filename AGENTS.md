@@ -39,7 +39,7 @@ process per room. It was forked from mrdoob's three-quake.
   version. Tests cover logic only: rendering, audio and touch changes need a
   browser check. If you didn't do one, say so.
 
-### Lint and format baseline
+### Lint and format
 
 - `deno task lint` (config in root `deno.json`: `main.js`, `src/`, `server/`,
   `tests/`; `no-window` rules off) passes with zero problems. The bar is
@@ -47,8 +47,6 @@ process per room. It was forked from mrdoob's three-quake.
 - Unused parameters kept for C-signature parity get a `_` prefix
   (`Z_Free( _ptr )`). Use a line-level `// deno-lint-ignore no-unused-vars`
   with a reason only for C-parity state that has no reader in the port.
-- Never run `deno fmt` without `--check`. The code doesn't follow its style, so
-  it would rewrite every file.
 - Never run `deno fmt` without `--check`. The code doesn't follow its style, so
   it would rewrite every file.
 
