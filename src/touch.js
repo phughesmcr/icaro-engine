@@ -941,7 +941,10 @@ export async function Touch_RequestFullscreen() {
 
 		}
 
-		fullscreenActivated = true;
+		// The user may have left fullscreen while the awaits above were pending
+		// (fullscreenchange already ran): only latch the state that is true now
+		fullscreenActivated = ! container.requestFullscreen && ! container.webkitRequestFullscreen ||
+			!! ( document.fullscreenElement || document.webkitFullscreenElement );
 
 	} catch ( e ) {
 
