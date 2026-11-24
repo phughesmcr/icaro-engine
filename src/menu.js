@@ -5,14 +5,14 @@ import { Cmd_AddCommand } from './cmd.js';
 import { Con_Printf, Con_ToggleConsole_f } from './console.js';
 import {
 	K_ESCAPE, K_ENTER, K_UPARROW, K_DOWNARROW, K_LEFTARROW, K_RIGHTARROW,
-	K_BACKSPACE, K_DEL,
+	K_BACKSPACE, K_DEL, K_MOUSE1, K_MOUSE2, K_MOUSE3, K_MWHEELUP, K_MWHEELDOWN,
 	key_game, key_console, key_menu, key_dest,
 	keybindings, Key_SetBinding, Key_KeynumToString, Key_Event, Key_ModalActive
 } from './keys.js';
 import { cl_forwardspeed } from './cl_input.js';
 import { sensitivity, m_pitch, lookspring, lookstrafe, cl_color } from './cl_main.js';
 import { volume, bgmvolume } from './sound.js';
-import { Cvar_SetValue, Cvar_VariableValue } from './cvar.js';
+import { Cvar_SetValue, Cvar_VariableValue, Cvar_RegisterVariable, Cvar_FindVar } from './cvar.js';
 import { scr_viewsize, scr_con_current, SCR_ModalMessage } from './gl_screen.js';
 import { v_gamma } from './view.js';
 import { gl_texturemode, GL_UpdateTextureFiltering } from './glquake.js';
@@ -2068,11 +2068,24 @@ function M_Touch_Key( key ) {
 */
 
 let m_keys_cursor = 0;
+let m_keys_scroll = 0; // first row shown
 let bind_grab = false;
 
+// QS/Ironwail add the previous-weapon row (impulse 12) and Ironwail the
+// weapon rows (impulse 1-8) to id's list. Labels stop before the cursor at
+// x 130, so the launchers are shortened.
 const bindnames = [
 	[ '+attack', 'attack' ],
-	[ 'impulse 10', 'change weapon' ],
+	[ 'impulse 10', 'next weapon' ],
+	[ 'impulse 12', 'prev weapon' ],
+	[ 'impulse 1', 'axe' ],
+	[ 'impulse 2', 'shotgun' ],
+	[ 'impulse 3', 'super shotgun' ],
+	[ 'impulse 4', 'nailgun' ],
+	[ 'impulse 5', 'super nailgun' ],
+	[ 'impulse 6', 'grenades' ],
+	[ 'impulse 7', 'rockets' ],
+	[ 'impulse 8', 'thunderbolt' ],
 	[ '+jump', 'jump / swim up' ],
 	[ '+forward', 'walk forward' ],
 	[ '+back', 'backpedal' ],
@@ -2093,17 +2106,24 @@ const bindnames = [
 
 const NUMCOMMANDS = bindnames.length;
 
+// Rows from y 48 to 192 fit the 320x200 menu, with room for the "more"
+// rows above (y 40) and below (y 192) the list. Ironwail sizes its list to
+// the screen; the port keeps the menu inside 320x200 like the other menus.
+const KEYS_TOP = 48;
+const KEYS_VIEWSIZE = 18;
+
 /*
 ===============
 M_FindKeysForCommand
 
-Finds up to two keys bound to a command
+Finds up to two keys bound to a command. id compares the first strlen
+(command) characters, so "impulse 1" would also find "impulse 10" and
+"impulse 12"; Ironwail (Key_GetKeysForCommand) compares the whole binding.
 ===============
 */
 function M_FindKeysForCommand( command ) {
 
 	const twokeys = [ - 1, - 1 ];
-	const l = command.length;
 	let count = 0;
 
 	for ( let j = 0; j < 256; j ++ ) {
@@ -2111,7 +2131,7 @@ function M_FindKeysForCommand( command ) {
 		const b = keybindings[ j ];
 		if ( b == null )
 			continue;
-		if ( b.substring( 0, l ) === command ) {
+		if ( b === command ) {
 
 			twokeys[ count ] = j;
 			count ++;
@@ -2130,19 +2150,17 @@ function M_FindKeysForCommand( command ) {
 ===============
 M_UnbindCommand
 
-Unbinds all keys for a command
+Unbinds all keys for a command (whole-binding match, as in Ironwail)
 ===============
 */
 function M_UnbindCommand( command ) {
-
-	const l = command.length;
 
 	for ( let j = 0; j < 256; j ++ ) {
 
 		const b = keybindings[ j ];
 		if ( b == null )
 			continue;
-		if ( b.substring( 0, l ) === command )
+		if ( b === command )
 			Key_SetBinding( j, '' );
 
 	}
@@ -2154,6 +2172,29 @@ function M_Menu_Keys_f() {
 	setKeyDest( key_menu );
 	m_state = m_keys;
 	m_entersound = true;
+
+}
+
+// Ironwail M_List_AutoScroll: keep the cursor row on screen
+function M_Keys_AutoScroll() {
+
+	if ( m_keys_cursor < m_keys_scroll )
+		m_keys_scroll = m_keys_cursor;
+	else if ( m_keys_cursor >= m_keys_scroll + KEYS_VIEWSIZE )
+		m_keys_scroll = m_keys_cursor - KEYS_VIEWSIZE + 1;
+
+}
+
+// Ironwail M_List_Key wheel scrolling (3 rows) and M_List_UpdateMouseSelection:
+// the row under the mouse takes the cursor, else the cursor stays on screen
+function M_Keys_Scroll( rows ) {
+
+	m_keys_scroll = Math.min( Math.max( m_keys_scroll + rows, 0 ), NUMCOMMANDS - KEYS_VIEWSIZE );
+	M_UpdateHover();
+	if ( m_keys_cursor < m_keys_scroll )
+		m_keys_cursor = m_keys_scroll;
+	else if ( m_keys_cursor >= m_keys_scroll + KEYS_VIEWSIZE )
+		m_keys_cursor = m_keys_scroll + KEYS_VIEWSIZE - 1;
 
 }
 
@@ -2169,9 +2210,16 @@ function M_Keys_Draw() {
 	else
 		M_Print( 18, 32, 'Enter to change, backspace to clear' );
 
-	for ( let i = 0; i < NUMCOMMANDS; i ++ ) {
+	// Ironwail M_DrawEllipsisBar: more rows above or below
+	if ( m_keys_scroll > 0 )
+		M_DrawEllipsisBar( 0, KEYS_TOP - 8, 40 );
+	if ( m_keys_scroll + KEYS_VIEWSIZE < NUMCOMMANDS )
+		M_DrawEllipsisBar( 0, KEYS_TOP + KEYS_VIEWSIZE * 8, 40 );
 
-		const y = 48 + 8 * i;
+	for ( let row = 0; row < KEYS_VIEWSIZE && m_keys_scroll + row < NUMCOMMANDS; row ++ ) {
+
+		const i = m_keys_scroll + row;
+		const y = KEYS_TOP + 8 * row;
 		M_Print( 16, y, bindnames[ i ][ 1 ] );
 
 		// Find keys bound to this command
@@ -2198,13 +2246,26 @@ function M_Keys_Draw() {
 	}
 
 	// cursor
+	const cursorY = KEYS_TOP + ( m_keys_cursor - m_keys_scroll ) * 8;
 	if ( bind_grab ) {
 
-		M_DrawCharacter( 130, 48 + m_keys_cursor * 8, 61 ); // '='
+		M_DrawCharacter( 130, cursorY, 61 ); // '='
 
 	} else {
 
-		M_DrawCharacter( 130, 48 + m_keys_cursor * 8, 12 + ( ( Math.floor( _realtime_get() * 4 ) ) & 1 ) );
+		M_DrawCharacter( 130, cursorY, 12 + ( ( Math.floor( _realtime_get() * 4 ) ) & 1 ) );
+
+	}
+
+}
+
+function M_DrawEllipsisBar( x, y, cols ) {
+
+	while ( cols > 0 ) {
+
+		M_DrawCharacter( x, y, 46 | 128 ); // '.'
+		cols -= 2;
+		x += 16;
 
 	}
 
@@ -2243,6 +2304,7 @@ function M_Keys_Key( key ) {
 			m_keys_cursor --;
 			if ( m_keys_cursor < 0 )
 				m_keys_cursor = NUMCOMMANDS - 1;
+			M_Keys_AutoScroll();
 			break;
 		case K_DOWNARROW:
 		case K_RIGHTARROW:
@@ -2250,6 +2312,13 @@ function M_Keys_Key( key ) {
 			m_keys_cursor ++;
 			if ( m_keys_cursor >= NUMCOMMANDS )
 				m_keys_cursor = 0;
+			M_Keys_AutoScroll();
+			break;
+		case K_MWHEELUP:
+			M_Keys_Scroll( - 3 );
+			break;
+		case K_MWHEELDOWN:
+			M_Keys_Scroll( 3 );
 			break;
 		case K_ENTER: {
 
@@ -2605,6 +2674,9 @@ export function M_Init() {
 
 	}
 
+	if ( Cvar_FindVar( ui_mouse.name ) === null )
+		Cvar_RegisterVariable( ui_mouse );
+
 	Cmd_AddCommand( 'togglemenu', M_ToggleMenu_f );
 	Cmd_AddCommand( 'menu_main', M_Menu_Main_f );
 	Cmd_AddCommand( 'menu_singleplayer', M_Menu_SinglePlayer_f );
@@ -2629,6 +2701,41 @@ M_Keydown
 ================
 */
 export function M_Keydown( key ) {
+
+	// Ironwail M_Keydown: mouse keys only work with ui_mouse, except while
+	// binding a key (they are bound then). The wheel and MOUSE2 map to the
+	// keys each menu already handles: Ironwail scrolls its list menus with the
+	// wheel, and the port's other menus move the cursor with it.
+	const click = m_mouse_click;
+	m_mouse_click = false;
+
+	if ( bind_grab === false ) {
+
+		switch ( key ) {
+
+			case K_MOUSE1:
+				if ( ui_mouse.value !== 0 && click === true && m_mouse_valid === true )
+					M_MenuClick( m_mousex, m_mousey );
+				return;
+			case K_MOUSE2:
+				if ( ui_mouse.value === 0 ) return;
+				key = K_ESCAPE;
+				break;
+			case K_MWHEELUP:
+				if ( ui_mouse.value === 0 ) return;
+				if ( m_state !== m_keys ) key = K_UPARROW;
+				break;
+			case K_MWHEELDOWN:
+				if ( ui_mouse.value === 0 ) return;
+				if ( m_state !== m_keys ) key = K_DOWNARROW;
+				break;
+			default:
+				if ( key >= K_MOUSE1 && key <= K_MOUSE3 ) return;
+				break;
+
+		}
+
+	}
 
 	switch ( m_state ) {
 
@@ -2710,11 +2817,212 @@ export function M_Draw() {
 }
 
 /*
+==============================================================================
+
+			MENU MOUSE AND TOUCH
+
+Ironwail (menu.c M_Mousemove, M_UpdateCursor): the mouse moves the menu
+cursor and MOUSE1 selects. Touch taps and mouse clicks share one hit test:
+a tap or click on a row selects it, as before. Ironwail's M_UpdateCursor
+clamps the mouse to the nearest row, and MOUSE1 then activates the cursor
+row wherever the mouse is; here hover and clicks only act on the row under
+the pointer, and a click outside the 320x200 menu goes back, as taps do.
+
+==============================================================================
+*/
+
+// Ironwail ui_mouse: 0 ignores the mouse in menus
+export const ui_mouse = { name: 'ui_mouse', string: '1', value: 1, archive: true };
+
+// Last mouse position in the 320x200 menu space (Ironwail m_mousex/m_mousey)
+let m_mousex = 0;
+let m_mousey = 0;
+let m_mouse_valid = false;
+// Set by M_MouseButton for the mouse key press that follows it. Other
+// senders of K_MOUSE1 (the gamepad's right trigger) carry no position.
+let m_mouse_click = false;
+
+// M_ToMenuSpace result
+let m_vx = 0;
+let m_vy = 0;
+
+/*
+================
+M_ToMenuSpace
+
+Maps a point on the element the menu is drawn into (CSS pixels, w x h) to
+the 320x200 menu space. The menu is drawn centred in _vid, so
+drawing x = menu x + (_vid.width - 320) / 2, and the same for y.
+================
+*/
+function M_ToMenuSpace( x, y, w, h ) {
+
+	m_vx = ( x / w ) * _vid.width - ( _vid.width - 320 ) / 2;
+	m_vy = ( y / h ) * _vid.height - ( _vid.height - 200 ) / 2;
+
+}
+
+// Row of an evenly spaced list under menu y, or -1
+function M_RowAt( vy, top, height, count ) {
+
+	if ( vy < top || vy >= top + count * height )
+		return - 1;
+	return Math.floor( ( vy - top ) / height );
+
+}
+
+// Row of a cursor table (setup, game options) under menu y, or -1
+function M_TableRowAt( vy, table, count ) {
+
+	for ( let i = 0; i < count; i ++ ) {
+
+		if ( vy >= table[ i ] - 4 && vy < table[ i ] + 12 )
+			return i;
+
+	}
+
+	return - 1;
+
+}
+
+const LAN_MAX_VISIBLE = 8; // rooms M_LanConfig_Draw shows
+
+/*
+================
+M_MenuRowAt
+
+The cursor row of the current menu under a point in menu space, or -1.
+Rows are the values the menu's cursor takes.
+================
+*/
+export function M_MenuRowAt( vx, vy ) {
+
+	if ( vx < 0 || vx > 320 )
+		return - 1;
+
+	switch ( m_state ) {
+
+		case m_main:
+			return M_RowAt( vy, 32, 20, M_InGame() ? MAIN_ITEMS + 1 : MAIN_ITEMS );
+		case m_singleplayer:
+			return M_RowAt( vy, 32, 20, SINGLEPLAYER_ITEMS );
+		case m_load:
+		case m_save:
+			return M_RowAt( vy, 32, 8, MAX_SAVEGAMES );
+		case m_multiplayer:
+			return M_RowAt( vy, 32, 20, MULTIPLAYER_ITEMS );
+		case m_options:
+			return M_RowAt( vy, 32, 8, OPTIONS_ITEMS );
+		case m_touch:
+			return M_RowAt( vy, TOUCH_TOP, 8, TOUCH_ITEMS );
+		case m_setup:
+			return M_TableRowAt( vy, setup_cursor_table, NUM_SETUP_CMDS );
+		case m_gameoptions:
+			return M_TableRowAt( vy, gameoptions_cursor_table, NUM_GAMEOPTIONS );
+		case m_keys: {
+
+			const row = M_RowAt( vy, KEYS_TOP, 8, Math.min( KEYS_VIEWSIZE, NUMCOMMANDS - m_keys_scroll ) );
+			return row < 0 ? - 1 : m_keys_scroll + row;
+
+		}
+		case m_lanconfig: {
+
+			// Room list at y 52, 12px apart, scrolled as M_LanConfig_Draw does
+			const start = Math.max( 0, slist_cursor - LAN_MAX_VISIBLE + 1 );
+			const row = M_RowAt( vy, 52, 12, Math.min( LAN_MAX_VISIBLE, slist_rooms.length - start ) );
+			return row < 0 ? - 1 : start + row;
+
+		}
+		default:
+			return - 1;
+
+	}
+
+}
+
+/*
+================
+M_UpdateHover
+
+Ironwail M_<menu>_Mousemove: the row under the mouse takes the cursor
+================
+*/
+function M_UpdateHover() {
+
+	if ( m_mouse_valid === false || bind_grab || ui_mouse.value === 0 )
+		return;
+
+	const row = M_MenuRowAt( m_mousex, m_mousey );
+	if ( row < 0 )
+		return;
+
+	switch ( m_state ) {
+
+		case m_main: m_main_cursor = row; break;
+		case m_singleplayer: m_singleplayer_cursor = row; break;
+		case m_load:
+		case m_save: load_cursor = row; break;
+		case m_multiplayer: m_multiplayer_cursor = row; break;
+		case m_options: m_options_cursor = row; break;
+		case m_touch: m_touch_cursor = row; break;
+		case m_setup: setup_cursor = row; break;
+		case m_gameoptions: gameoptions_cursor = row; break;
+		case m_keys: m_keys_cursor = row; break;
+		case m_lanconfig:
+			// The list scrolls with the cursor, so hovering a scrolled list
+			// would move it under the mouse; clicks still select
+			if ( slist_rooms.length <= LAN_MAX_VISIBLE ) slist_cursor = row;
+			break;
+
+	}
+
+}
+
+/*
+================
+M_Mousemove
+
+Ironwail M_Mousemove. in_web.js calls this while a menu is up and the
+pointer is not locked: x, y are relative to the element the menu is drawn
+into, which is w x h CSS pixels.
+================
+*/
+export function M_Mousemove( x, y, w, h ) {
+
+	M_ToMenuSpace( x, y, w, h );
+	m_mousex = m_vx;
+	m_mousey = m_vy;
+	m_mouse_valid = true;
+
+	if ( Key_ModalActive() )
+		return;
+
+	M_UpdateHover();
+
+}
+
+/*
+================
+M_MouseButton
+
+in_web.js calls this with the cursor position just before it sends a mouse
+button key in a menu (Ironwail's in_sdl.c calls M_Mousemove on button
+events). Only a K_MOUSE1 sent this way clicks at the mouse position.
+================
+*/
+export function M_MouseButton( x, y, w, h ) {
+
+	M_Mousemove( x, y, w, h );
+	m_mouse_click = true;
+
+}
+
+/*
 ================
 M_TouchInput
 
-Handle touch input for menu selection.
-Converts screen coordinates to virtual 320x200 space and selects menu items.
+Touch tap (or, while SCR_ModalMessage is up, mouse click) on the menu.
+Converts element coordinates to the 320x200 menu space and selects there.
 ================
 */
 export function M_TouchInput( touchX, touchY, screenWidth, screenHeight ) {
@@ -2727,21 +3035,9 @@ export function M_TouchInput( touchX, touchY, screenWidth, screenHeight ) {
 
 	}
 
-	// Convert screen/element coordinates to _vid space (menu drawing coordinates)
-	// screenWidth/Height are the CSS dimensions of the element clicked on
-	// _vid is the logical rendering size the menu uses
-
-	// Map click position proportionally from element space to _vid space
-	const vidX = ( touchX / screenWidth ) * _vid.width;
-	const vidY = ( touchY / screenHeight ) * _vid.height;
-
-	// Menu is drawn centered: drawing X = menuX + (_vid.width - 320) / 2
-	//                         drawing Y = menuY + (_vid.height - 200) / 2
-	// So to convert click to menu space: menuX = vidX - offsetX, menuY = vidY - offsetY
-	const offsetX = ( _vid.width - 320 ) / 2;
-	const offsetY = ( _vid.height - 200 ) / 2;
-	const vx = vidX - offsetX;
-	const vy = vidY - offsetY;
+	M_ToMenuSpace( touchX, touchY, screenWidth, screenHeight );
+	const vx = m_vx;
+	const vy = m_vy;
 
 	// SCR_ModalMessage is up: no Y key on touch, so tap top half for yes and
 	// bottom half for no, as the quit menu does. Taps right after the dialog
@@ -2758,6 +3054,40 @@ export function M_TouchInput( touchX, touchY, screenWidth, screenHeight ) {
 
 	}
 
+	M_MenuClick( vx, vy );
+
+}
+
+/*
+================
+M_MenuClick
+
+A tap or MOUSE1 at a point in menu space
+================
+*/
+function M_MenuClick( vx, vy ) {
+
+	// Keys menu: the "more" rows above and below the list scroll it a page
+	// (touch has no wheel)
+	if ( m_state === m_keys && vx >= 0 && vx <= 320 ) {
+
+		if ( vy >= KEYS_TOP - 8 && vy < KEYS_TOP && m_keys_scroll > 0 ) {
+
+			M_Keys_Scroll( - KEYS_VIEWSIZE );
+			return;
+
+		}
+
+		const bottom = KEYS_TOP + KEYS_VIEWSIZE * 8;
+		if ( vy >= bottom && vy < bottom + 8 && m_keys_scroll + KEYS_VIEWSIZE < NUMCOMMANDS ) {
+
+			M_Keys_Scroll( KEYS_VIEWSIZE );
+			return;
+
+		}
+
+	}
+
 	// Click outside menu area acts like pressing escape (go back)
 	if ( vx < 0 || vx > 320 || vy < 0 || vy > 200 ) {
 
@@ -2766,32 +3096,82 @@ export function M_TouchInput( touchX, touchY, screenWidth, screenHeight ) {
 
 	}
 
+	const row = M_MenuRowAt( vx, vy );
+
 	// Handle based on current menu state
 	switch ( m_state ) {
 
 		case m_main:
-			M_Main_Touch( vx, vy );
+			if ( row >= 0 ) {
+
+				m_main_cursor = row;
+				M_Main_Key( K_ENTER );
+
+			}
+
 			break;
 
 		case m_singleplayer:
-			M_SinglePlayer_Touch( vx, vy );
+			if ( row >= 0 ) {
+
+				m_singleplayer_cursor = row;
+				M_SinglePlayer_Key( K_ENTER );
+
+			}
+
 			break;
 
 		case m_load:
 		case m_save:
-			M_LoadSave_Touch( vx, vy );
+			if ( row >= 0 ) {
+
+				load_cursor = row;
+				if ( m_state === m_load )
+					M_Load_Key( K_ENTER );
+				else
+					M_Save_Key( K_ENTER );
+
+			}
+
 			break;
 
 		case m_multiplayer:
-			M_MultiPlayer_Touch( vx, vy );
+			if ( row >= 0 ) {
+
+				m_multiplayer_cursor = row;
+				M_MultiPlayer_Key( K_ENTER );
+
+			}
+
 			break;
 
 		case m_options:
-			M_Options_Touch( vx, vy );
+			if ( row >= 0 ) {
+
+				m_options_cursor = row;
+
+				// Tapping on a slider sets it there (Enter only ever raises it)
+				if ( row >= 4 && row <= 8 && vx >= SLIDER_TAP_LEFT ) {
+
+					M_Options_SetSlider( row, M_SliderTapFraction( vx ) );
+					break;
+
+				}
+
+				M_Options_Key( K_ENTER );
+
+			}
+
 			break;
 
 		case m_keys:
-			M_Keys_Touch( vx, vy );
+			if ( row >= 0 ) {
+
+				m_keys_cursor = row;
+				M_Keys_Key( K_ENTER );
+
+			}
+
 			break;
 
 		case m_credits:
@@ -2803,121 +3183,41 @@ export function M_TouchInput( touchX, touchY, screenWidth, screenHeight ) {
 			break;
 
 		case m_lanconfig:
-			M_LanConfig_Touch( vx, vy );
-			break;
+			if ( row >= 0 ) {
 
-		case m_gameoptions:
-			M_GameOptions_Touch( vx, vy );
-			break;
-
-		case m_setup:
-			M_Setup_Touch( vx, vy );
-			break;
-
-		case m_touch:
-			M_Touch_Touch( vx, vy );
-			break;
-
-	}
-
-}
-
-// Main menu touch - items at y=32, 20px spacing
-function M_Main_Touch( _vx, vy ) {
-
-	const inGame = M_InGame();
-	const itemCount = inGame ? MAIN_ITEMS + 1 : MAIN_ITEMS;
-
-	// Menu items start at y=32, each item is ~20px tall
-	if ( vy >= 32 && vy < 32 + itemCount * 20 ) {
-
-		const item = Math.floor( ( vy - 32 ) / 20 );
-		if ( item >= 0 && item < itemCount ) {
-
-			m_main_cursor = item;
-			M_Main_Key( K_ENTER );
-
-		}
-
-	}
-
-}
-
-// Single player menu touch
-function M_SinglePlayer_Touch( _vx, vy ) {
-
-	if ( vy >= 32 && vy < 32 + SINGLEPLAYER_ITEMS * 20 ) {
-
-		const item = Math.floor( ( vy - 32 ) / 20 );
-		if ( item >= 0 && item < SINGLEPLAYER_ITEMS ) {
-
-			m_singleplayer_cursor = item;
-			M_SinglePlayer_Key( K_ENTER );
-
-		}
-
-	}
-
-}
-
-// Load/Save menu touch - items at y=32, 8px spacing
-function M_LoadSave_Touch( _vx, vy ) {
-
-	if ( vy >= 32 && vy < 32 + MAX_SAVEGAMES * 8 ) {
-
-		const item = Math.floor( ( vy - 32 ) / 8 );
-		if ( item >= 0 && item < MAX_SAVEGAMES ) {
-
-			load_cursor = item;
-			if ( m_state === m_load )
-				M_Load_Key( K_ENTER );
-			else
-				M_Save_Key( K_ENTER );
-
-		}
-
-	}
-
-}
-
-// Multiplayer menu touch
-function M_MultiPlayer_Touch( _vx, vy ) {
-
-	if ( vy >= 32 && vy < 32 + MULTIPLAYER_ITEMS * 20 ) {
-
-		const item = Math.floor( ( vy - 32 ) / 20 );
-		if ( item >= 0 && item < MULTIPLAYER_ITEMS ) {
-
-			m_multiplayer_cursor = item;
-			M_MultiPlayer_Key( K_ENTER );
-
-		}
-
-	}
-
-}
-
-// Options menu touch - items at y=32, 8px spacing
-function M_Options_Touch( vx, vy ) {
-
-	if ( vy >= 32 && vy < 32 + OPTIONS_ITEMS * 8 ) {
-
-		const item = Math.floor( ( vy - 32 ) / 8 );
-		if ( item >= 0 && item < OPTIONS_ITEMS ) {
-
-			m_options_cursor = item;
-
-			// Tapping on a slider sets it there (Enter only ever raises it)
-			if ( item >= 4 && item <= 8 && vx >= SLIDER_TAP_LEFT ) {
-
-				M_Options_SetSlider( item, M_SliderTapFraction( vx ) );
-				return;
+				slist_cursor = row;
+				M_LanConfig_Key( K_ENTER );
 
 			}
 
-			M_Options_Key( K_ENTER );
+			break;
 
-		}
+		case m_gameoptions:
+			if ( row >= 0 ) {
+
+				gameoptions_cursor = row;
+				M_GameOptions_Key( K_ENTER );
+
+			}
+
+			break;
+
+		case m_setup:
+			// The name row only takes the cursor: type with the on-screen
+			// keyboard button
+			if ( row >= 0 ) {
+
+				setup_cursor = row;
+				M_Setup_Key( K_ENTER );
+
+			}
+
+			break;
+
+		case m_touch:
+			if ( row >= 0 )
+				M_Touch_Touch( vx, row );
+			break;
 
 	}
 
@@ -2960,12 +3260,9 @@ function M_Options_SetSlider( item, r ) {
 
 }
 
-// Touch Controls menu touch - items at TOUCH_TOP, 8px spacing
-function M_Touch_Touch( vx, vy ) {
+// Touch Controls menu: tap or click on row i
+function M_Touch_Touch( vx, i ) {
 
-	if ( vy < TOUCH_TOP || vy >= TOUCH_TOP + TOUCH_ITEMS * 8 ) return;
-
-	const i = Math.floor( ( vy - TOUCH_TOP ) / 8 );
 	const item = touchItems[ i ];
 	m_touch_cursor = i;
 
@@ -2982,41 +3279,6 @@ function M_Touch_Touch( vx, vy ) {
 
 }
 
-// Setup menu touch - rows from setup_cursor_table. The name row only takes
-// the cursor: type with the on-screen keyboard button.
-function M_Setup_Touch( _vx, vy ) {
-
-	for ( let i = 0; i < NUM_SETUP_CMDS; i ++ ) {
-
-		if ( vy >= setup_cursor_table[ i ] - 4 && vy < setup_cursor_table[ i ] + 12 ) {
-
-			setup_cursor = i;
-			M_Setup_Key( K_ENTER );
-			return;
-
-		}
-
-	}
-
-}
-
-// Keys menu touch - items at y=48, 8px spacing
-function M_Keys_Touch( _vx, vy ) {
-
-	if ( vy >= 48 && vy < 48 + NUMCOMMANDS * 8 ) {
-
-		const item = Math.floor( ( vy - 48 ) / 8 );
-		if ( item >= 0 && item < NUMCOMMANDS ) {
-
-			m_keys_cursor = item;
-			M_Keys_Key( K_ENTER );
-
-		}
-
-	}
-
-}
-
 // Quit menu touch - tap top half for yes, bottom half for no
 function M_Quit_Touch( _vx, vy ) {
 
@@ -3027,42 +3289,6 @@ function M_Quit_Touch( _vx, vy ) {
 	} else {
 
 		M_Quit_Key( 110 ); // 'n'
-
-	}
-
-}
-
-// LAN Config touch - handle room list selection
-function M_LanConfig_Touch( _vx, vy ) {
-
-	// Room list starts at y=52 with 12px spacing
-	if ( slist_rooms.length > 0 && vy >= 52 && vy < 52 + slist_rooms.length * 12 ) {
-
-		const item = Math.floor( ( vy - 52 ) / 12 );
-		if ( item >= 0 && item < slist_rooms.length ) {
-
-			slist_cursor = item;
-			M_LanConfig_Key( K_ENTER );
-
-		}
-
-	}
-
-}
-
-// Game Options touch - handle all options
-function M_GameOptions_Touch( _vx, vy ) {
-
-	// Find which row was touched based on cursor table
-	for ( let i = 0; i < NUM_GAMEOPTIONS; i ++ ) {
-
-		if ( vy >= gameoptions_cursor_table[ i ] - 4 && vy < gameoptions_cursor_table[ i ] + 12 ) {
-
-			gameoptions_cursor = i;
-			M_GameOptions_Key( K_ENTER );
-			return;
-
-		}
 
 	}
 

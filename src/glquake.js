@@ -243,7 +243,9 @@ export const r_drawentities = { name: 'r_drawentities', string: '1', value: 1 };
 export const r_drawworld = { name: 'r_drawworld', string: '1', value: 1 };
 export const r_drawviewmodel = { name: 'r_drawviewmodel', string: '1', value: 1 };
 export const r_speeds = { name: 'r_speeds', string: '0', value: 0 };
-export const r_waterwarp = { name: 'r_waterwarp', string: '1', value: 1 };
+// Registered by gl_screenwarp.js (GLQuake never registered it). Fitz, QS and
+// Ironwail default to 1 and archive it; 0 keeps GLQuake's unwarped view.
+export const r_waterwarp = { name: 'r_waterwarp', string: '0', value: 0, archive: true };
 export const r_fullbright = { name: 'r_fullbright', string: '0', value: 0 };
 export const r_lightmap = { name: 'r_lightmap', string: '0', value: 0 };
 export const r_shadows = { name: 'r_shadows', string: '0', value: 0 };

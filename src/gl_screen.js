@@ -14,6 +14,8 @@ import { key_dest, key_game, key_console, key_message, Key_BeginModal } from './
 import { realtime, host_frametime } from './host.js';
 import { renderer } from './vid.js';
 import { r_refdef as _r_refdef_canonical } from './render.js';
+import { r_framecount } from './glquake.js';
+import { R_WaterWarp_Init, R_WarpScreen } from './gl_screenwarp.js';
 
 /*
 ==============================================================================
@@ -29,6 +31,7 @@ let scr_conlines = 0; // lines of console to display
 
 let oldfov = 0;
 let oldscreensize = 0;
+let oldsbaralpha = 1;
 
 export const scr_viewsize = { name: 'viewsize', string: '100', value: 100, archive: true };
 const scr_fov = { name: 'fov', string: '90', value: 90 };
@@ -39,6 +42,11 @@ const scr_showturtle = { name: 'showturtle', string: '0', value: 0 };
 const scr_showpause = { name: 'showpause', string: '1', value: 1 };
 const scr_printspeed = { name: 'scr_printspeed', string: '8', value: 8 };
 const gl_triplebuffer = { name: 'gl_triplebuffer', string: '1', value: 1, archive: true };
+// FitzQuake/QuakeSpasm cvars (QS gl_screen.c)
+export const scr_showfps = { name: 'scr_showfps', string: '0', value: 0 };
+export const scr_clock = { name: 'scr_clock', string: '0', value: 0 };
+// QS defaults scr_sbaralpha to 0.75; 1 keeps the opaque WinQuake status bar
+export const scr_sbaralpha = { name: 'scr_sbaralpha', string: '1', value: 1, archive: true };
 
 export let scr_initialized = false;
 
@@ -296,6 +304,13 @@ function SCR_CalcRefdef() {
 		sb_lines = 24 + 16 + 8;
 	Sbar_set_sb_lines( sb_lines );
 
+	// QS SCR_CalcRefdef: a translucent status bar takes no lines from the
+	// view, which extends under it. The status bar keeps its own lines
+	// (sbar.js still needs them to choose what to draw); this copy sizes the
+	// view and SCR_TileClear.
+	if ( scr_sbaralpha.value < 1 )
+		sb_lines = 0;
+
 	let full = false;
 	if ( scr_viewsize.value >= 100.0 ) {
 
@@ -400,6 +415,10 @@ export function SCR_Init() {
 	Cvar_RegisterVariable( scr_centertime );
 	Cvar_RegisterVariable( scr_printspeed );
 	Cvar_RegisterVariable( gl_triplebuffer );
+	Cvar_RegisterVariable( scr_showfps );
+	Cvar_RegisterVariable( scr_clock );
+	Cvar_RegisterVariable( scr_sbaralpha );
+	R_WaterWarp_Init();
 
 	//
 	// register our commands
@@ -662,6 +681,118 @@ function SCR_DrawNotifyString() {
 }
 
 /*
+==============
+SCR_FormatFPS, SCR_FormatClock
+
+The strings QS's SCR_DrawFPS ("%4.0f fps") and SCR_DrawClock ("%i:%i%i")
+print
+==============
+*/
+export function SCR_FormatFPS( fps ) {
+
+	return String( Math.round( fps ) ).padStart( 4, ' ' ) + ' fps';
+
+}
+
+export function SCR_FormatClock( time ) {
+
+	const minutes = Math.trunc( time / 60 );
+	const seconds = Math.trunc( time ) % 60;
+	return minutes + ':' + Math.trunc( seconds / 10 ) + ( seconds % 10 );
+
+}
+
+// Draws str right-aligned against the bottom-right corner of the screen,
+// line lines up from the bottom (QS draws on CANVAS_BOTTOMRIGHT)
+function SCR_DrawBottomRight( str, line ) {
+
+	const x = _vid.width - str.length * 8;
+	const y = _vid.height - 8 - line * 8;
+	for ( let i = 0; i < str.length; i ++ )
+		Draw_Character( x + i * 8, y, str.charCodeAt( i ) );
+
+}
+
+/*
+==============
+SCR_DrawFPS -- johnfitz
+
+Ported from QuakeSpasm Quake/gl_screen.c. Frames are counted with
+r_framecount, so the rate is of 3D frames, as in QS.
+==============
+*/
+let fps_oldtime = 0;
+let fps_lastfps = 0;
+let fps_oldframecount = 0;
+let fps_string = '';
+let fps_string_value = - 1;
+
+function SCR_DrawFPS() {
+
+	const elapsed_time = realtime - fps_oldtime;
+	const frames = r_framecount - fps_oldframecount;
+
+	if ( elapsed_time < 0 || frames < 0 ) {
+
+		fps_oldtime = realtime;
+		fps_oldframecount = r_framecount;
+		return;
+
+	}
+
+	// update value every 3/4 second
+	if ( elapsed_time > 0.75 ) {
+
+		fps_lastfps = frames / elapsed_time;
+		fps_oldtime = realtime;
+		fps_oldframecount = r_framecount;
+
+	}
+
+	if ( scr_showfps.value !== 0 ) {
+
+		// The string only changes every 0.75 s: build it then
+		if ( fps_string_value !== fps_lastfps ) {
+
+			fps_string_value = fps_lastfps;
+			fps_string = SCR_FormatFPS( fps_lastfps );
+
+		}
+
+		SCR_DrawBottomRight( fps_string, scr_clock.value !== 0 ? 1 : 0 ); // make room for clock
+
+	}
+
+}
+
+/*
+==============
+SCR_DrawClock -- johnfitz
+
+Ported from QuakeSpasm Quake/gl_screen.c
+==============
+*/
+let clock_string = '';
+let clock_seconds = - 1;
+
+function SCR_DrawClock() {
+
+	if ( scr_clock.value !== 1 )
+		return;
+
+	const seconds = Math.trunc( _cl.time );
+	if ( seconds !== clock_seconds ) {
+
+		clock_seconds = seconds;
+		clock_string = SCR_FormatClock( _cl.time );
+
+	}
+
+	SCR_DrawBottomRight( clock_string, 0 );
+
+}
+
+/*
 ==================
 SCR_TileClear
 ==================
@@ -842,6 +973,14 @@ export function SCR_UpdateScreen() {
 
 	}
 
+	// QS: scr_sbaralpha has a callback that recalculates the refdef
+	if ( oldsbaralpha !== scr_sbaralpha.value ) {
+
+		oldsbaralpha = scr_sbaralpha.value;
+		_vid.recalc_refdef = true;
+
+	}
+
 	if ( _vid.recalc_refdef )
 		SCR_CalcRefdef();
 
@@ -851,6 +990,9 @@ export function SCR_UpdateScreen() {
 	SCR_SetUpToDrawConsole();
 
 	if ( _V_RenderView ) _V_RenderView();
+
+	// Fitz/QS r_waterwarp 1: warp the 3D view while underwater
+	R_WarpScreen( _cl.time );
 
 	GL_Set2D();
 
@@ -891,6 +1033,8 @@ export function SCR_UpdateScreen() {
 		SCR_DrawPause();
 		SCR_CheckDrawCenterString();
 		Sbar_Draw();
+		SCR_DrawFPS(); //johnfitz
+		SCR_DrawClock(); //johnfitz
 		SCR_DrawConsole();
 		M_Draw();
 
