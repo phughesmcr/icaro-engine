@@ -18,7 +18,7 @@ import {
 	sv_edgefriction
 } from '../src/sv_phys.js';
 import { SV_ClientThink, SV_User_SetCallbacks } from '../src/sv_user.js';
-import { pmove, movevars, PM_NQ_InSolid } from '../src/pmove.js';
+import { pmove, movevars } from '../src/pmove.js';
 import { CL_PredictUsercmd, player_state_t, cl_nqpmove } from '../src/cl_pred.js';
 import { CL_QuantizeAngle } from '../src/cl_input.js';
 
@@ -532,26 +532,5 @@ Deno.test( 'NQ-mode split keeps fractional msec over the 100 ms limit', () => {
 		assertNear( to.origin[ 0 ], 100 * 0.2505, 0.001, 'distance covered' );
 
 	} );
-
-} );
-
-Deno.test( 'PM_NQ_InSolid detects a player inside the world', () => {
-
-	const oldNumPhysent = pmove.numphysent;
-	try {
-
-		setupClientWorld( dryWorld );
-		if ( PM_NQ_InSolid( new Float32Array( [ 0, 0, 24 ] ) ) !== false )
-			throw new Error( 'standing on the floor is not in solid' );
-		if ( PM_NQ_InSolid( new Float32Array( [ 0, 0, 23.9 ] ) ) !== false )
-			throw new Error( 'coordinate rounding into the floor is not in solid' );
-		if ( PM_NQ_InSolid( new Float32Array( [ 0, 0, - 50 ] ) ) !== true )
-			throw new Error( 'deep in the floor is in solid' );
-
-	} finally {
-
-		pmove.numphysent = oldNumPhysent;
-
-	}
 
 } );

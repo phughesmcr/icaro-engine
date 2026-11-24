@@ -131,7 +131,7 @@ export class entity_state_t {
 	constructor() {
 
 		this.number = 0; // entity number (QW delta compression)
-		this.flags = 0; // PE_SOLID etc. (QW delta compression)
+		this.flags = 0; // PE_* delta bits (QW delta compression); PE_SOLID is carried by solid
 		this.origin = new Float32Array( 3 );
 		this.angles = new Float32Array( 3 );
 		this.modelindex = 0;
@@ -139,6 +139,9 @@ export class entity_state_t {
 		this.colormap = 0;
 		this.skin = 0;
 		this.effects = 0;
+		this.solid = 0; // PS_* bits, sent with PE_SOLID
+		this.mins = new Float32Array( 3 ); // box for PS_BOX
+		this.maxs = new Float32Array( 3 );
 
 	}
 
@@ -157,6 +160,40 @@ export class entity_state_t {
 		this.colormap = other.colormap;
 		this.skin = other.skin;
 		this.effects = other.effects;
+		this.solid = other.solid;
+		this.mins[ 0 ] = other.mins[ 0 ];
+		this.mins[ 1 ] = other.mins[ 1 ];
+		this.mins[ 2 ] = other.mins[ 2 ];
+		this.maxs[ 0 ] = other.maxs[ 0 ];
+		this.maxs[ 1 ] = other.maxs[ 1 ];
+		this.maxs[ 2 ] = other.maxs[ 2 ];
+
+	}
+
+}
+
+//
+// packet_entities_t - QW-style delta compressed entity snapshot
+// Ported from: QW/client/protocol.h. QW preallocates MAX_PACKET_ENTITIES
+// states; this grows on demand, since the cap is the edict limit and each
+// client keeps PE_UPDATE_BACKUP of these on the server.
+//
+export class packet_entities_t {
+
+	constructor() {
+
+		this.num_entities = 0;
+		this.entities = [];
+
+	}
+
+	// entities[ i ], allocating the states up to it on first use
+	state( i ) {
+
+		const entities = this.entities;
+		while ( entities.length <= i )
+			entities.push( new entity_state_t() );
+		return entities[ i ];
 
 	}
 

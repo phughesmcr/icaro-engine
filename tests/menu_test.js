@@ -39,3 +39,23 @@ Deno.test( 'customize controls binds printable and named keys', () => {
 	}
 
 } );
+
+Deno.test( 'the game options menu offers the registered episodes only when registered', async () => {
+
+	const common = await import( '../src/common.js' );
+	common.COM_Init(); // creates the registered cvar
+	const old = common.registered.value;
+	try {
+
+		common.registered.value = 0;
+		assertEqual( menu.M_NumEpisodes(), 3, 'shareware: Welcome, Doomed Dimension, Deathmatch Arena' );
+		common.registered.value = 1;
+		assertEqual( menu.M_NumEpisodes(), 8, 'registered adds E2-E4, the end and the id1 DM maps' );
+
+	} finally {
+
+		common.registered.value = old;
+
+	}
+
+} );

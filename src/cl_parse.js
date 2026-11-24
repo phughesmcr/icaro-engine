@@ -46,7 +46,7 @@ import {
 	PE_ENT_BITS, PE_ENT_MASK, PE_ORIGIN1, PE_ORIGIN2, PE_ORIGIN3,
 	PE_ANGLE2, PE_REMOVE, PE_MOREBITS,
 	PE_FRAME, PE_ANGLE1, PE_ANGLE3, PE_MODEL, PE_COLORMAP, PE_SKIN, PE_EFFECTS, PE_SOLID,
-	MAX_PACKET_ENTITIES, PE_UPDATE_BACKUP, PE_UPDATE_MASK
+	PS_BOX, MAX_PACKET_ENTITIES, PE_UPDATE_BACKUP, PE_UPDATE_MASK
 } from './protocol.js';
 import {
 	SIGNONS, MAX_STATIC_ENTITIES, MAX_DLIGHTS,
@@ -448,6 +448,21 @@ function CL_ParseDelta( from, to, bits ) {
 	if ( bits & PE_ANGLE3 )
 		to.angles[ 2 ] = MSG_ReadAngle();
 
+	// prediction info, delta'd (see PE_SOLID in protocol.js)
+	if ( bits & PE_SOLID ) {
+
+		to.solid = MSG_ReadByte();
+		if ( to.solid & PS_BOX ) {
+
+			for ( let i = 0; i < 3; i ++ )
+				to.mins[ i ] = MSG_ReadCoord();
+			for ( let i = 0; i < 3; i ++ )
+				to.maxs[ i ] = MSG_ReadCoord();
+
+		}
+
+	}
+
 }
 
 /*
@@ -579,7 +594,7 @@ function CL_ParsePacketEntities( delta ) {
 
 				}
 
-				newp.entities[ newindex ].copyFrom( oldp.entities[ oldindex ] );
+				newp.state( newindex ).copyFrom( oldp.entities[ oldindex ] );
 				newindex ++;
 				oldindex ++;
 
@@ -611,7 +626,7 @@ function CL_ParsePacketEntities( delta ) {
 
 			}
 
-			newp.entities[ newindex ].copyFrom( oldp.entities[ oldindex ] );
+			newp.state( newindex ).copyFrom( oldp.entities[ oldindex ] );
 			newindex ++;
 			oldindex ++;
 			oldnum = oldindex >= oldp.num_entities ? 9999 : oldp.entities[ oldindex ].number;
@@ -643,7 +658,7 @@ function CL_ParsePacketEntities( delta ) {
 
 			}
 
-			CL_ParseDelta( cl_entities[ newnum ].baseline, newp.entities[ newindex ], word );
+			CL_ParseDelta( cl_entities[ newnum ].baseline, newp.state( newindex ), word );
 			newindex ++;
 			continue;
 
@@ -673,7 +688,7 @@ function CL_ParsePacketEntities( delta ) {
 
 			}
 
-			CL_ParseDelta( oldp.entities[ oldindex ], newp.entities[ newindex ], word );
+			CL_ParseDelta( oldp.entities[ oldindex ], newp.state( newindex ), word );
 			newindex ++;
 			oldindex ++;
 

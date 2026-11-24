@@ -6,11 +6,12 @@ import { Q_atof } from './common.js';
 import { cvar_t, Cvar_RegisterVariable } from './cvar.js';
 import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from './cmd.js';
 import { pmove, movevars, PlayerMove, PM_GetOnGround, Pmove_Init,
-	PM_GetWaterType, PM_NQ_CheckGround, PM_NQ_InSolid,
-	PM_MOVETYPE_WALK, PM_MOVETYPE_NOCLIP, player_mins, player_maxs } from './pmove.js';
+	PM_GetWaterType, PM_NQ_CheckGround,
+	PM_MOVETYPE_WALK, PM_MOVETYPE_FLY, PM_MOVETYPE_NOCLIP, player_mins, player_maxs } from './pmove.js';
 import { CONTENTS_EMPTY } from './bspfile.js';
 import { cl, cl_entities, packet_entities_t } from './client.js';
 import { STAT_HEALTH } from './quakedef.js';
+import { PS_BSP, PS_BOX, PF_FLY, PF_NOCLIP } from './protocol.js';
 import { realtime, sv } from './host.js';
 
 // CVars
@@ -454,8 +455,11 @@ export function CL_StoreCommand( cmd, senttime, netsequence = - 1 ) {
 	return sequence;
 }
 
-// Movetype for the local prediction run (noclip when detected)
+// Movetype for the local prediction run: the view player's movetype from its
+// last playerinfo (PF_NOCLIP / PF_FLY)
 let _cl_predmovetype = PM_MOVETYPE_WALK;
+// The view player's movetype from its last playerinfo (PF_NOCLIP / PF_FLY)
+let _cl_servermovetype = PM_MOVETYPE_WALK;
 
 // Temporary player state for other-player prediction
 const _predFrom = new player_state_t();
@@ -596,27 +600,23 @@ function CL_SetPhysentsWorld() {
 	CL_SetSolidEntities();
 }
 
-// id1 QuakeC entities that use a box model but are SOLID_BBOX on the
-// server (misc_explobox / misc_explobox2 in misc.qc), with their setsize
-// bounds. Other external .bsp models (item boxes) are SOLID_TRIGGER.
-const _boxsolid_models = {
-	'maps/b_explob.bsp': [ new Float32Array( [ 0, 0, 0 ] ), new Float32Array( [ 32, 32, 64 ] ) ],
-	'maps/b_exbox2.bsp': [ new Float32Array( [ 0, 0, 0 ] ), new Float32Array( [ 32, 32, 32 ] ) ]
-};
-
 /*
 =================
 CL_SetSolidEntities
 
-Add brush entities (doors, platforms, lifts) as collision objects for prediction.
+Add solid entities (doors, platforms, lifts, monsters) as collision
+objects for prediction.
 Ported from QuakeWorld cl_ents.c
 
-The QW test (hull 1 has a non-zero headnode) selects the map's inline
-"*N" submodels, which are SOLID_BSP on the server. Item boxes
-(maps/b_*.bsp) have hull-1 headnode 0, so they are already skipped;
-func_illusionary is a static entity and never in the packet. Monsters
-(SOLID_SLIDEBOX) are not added: the client is never told an entity's
-solid type or size, and corpses keep their model but are SOLID_NOT.
+QW guesses from the model (hull 1 has a non-zero headnode) because its
+server never sets U_SOLID. Here the server sends each entity's solidity
+with PE_SOLID (sv_main.js SV_SetStateSolid): PS_BSP for SOLID_BSP brush
+entities, which collide with the model's hulls as in QW, and PS_BOX with
+the entity's v.mins/v.maxs for SOLID_BBOX and SOLID_SLIDEBOX (monsters,
+exploding boxes). Corpses are SOLID_NOT, so they are not sent as solid.
+
+Brush entities go in first, so a crowd of monsters can't push a door or
+lift out of a full physents list.
 =================
 */
 function CL_SetSolidEntities() {
@@ -634,29 +634,11 @@ function CL_SetSolidEntities() {
 	// authoritative frame data rather than potentially stale cl_entities.
 	for ( let i = 0; i < pak.num_entities; i++ ) {
 		const state = pak.entities[ i ];
-		if ( state.modelindex === 0 )
+		if ( ( state.solid & PS_BSP ) === 0 || state.modelindex === 0 )
 			continue;
 
 		const model = cl.model_precache[ state.modelindex ];
-		if ( model == null )
-			continue;
-
-		if ( pmove.numphysent >= pmove.physents.length )
-			break;
-
-		const box = _boxsolid_models[ model.name ];
-		if ( box !== undefined ) {
-			const pent = pmove.physents[ pmove.numphysent ];
-			pent.model = null; // SOLID_BBOX: box collision
-			VectorCopy( state.origin, pent.origin );
-			VectorCopy( box[ 0 ], pent.mins );
-			VectorCopy( box[ 1 ], pent.maxs );
-			pent.info = state.number;
-			pmove.numphysent++;
-			continue;
-		}
-
-		if ( model.hulls == null )
+		if ( model == null || model.hulls == null )
 			continue;
 
 		const hull = model.hulls[ 1 ];
@@ -666,9 +648,29 @@ function CL_SetSolidEntities() {
 		if ( ! hull.firstclipnode && ! model.clipbox )
 			continue;
 
+		if ( pmove.numphysent >= pmove.physents.length )
+			return;
+
 		const pent = pmove.physents[ pmove.numphysent ];
 		pent.model = model;
 		VectorCopy( state.origin, pent.origin );
+		pent.info = state.number;
+		pmove.numphysent++;
+	}
+
+	for ( let i = 0; i < pak.num_entities; i++ ) {
+		const state = pak.entities[ i ];
+		if ( ( state.solid & PS_BOX ) === 0 )
+			continue;
+
+		if ( pmove.numphysent >= pmove.physents.length )
+			return;
+
+		const pent = pmove.physents[ pmove.numphysent ];
+		pent.model = null; // SOLID_BBOX / SOLID_SLIDEBOX: box collision
+		VectorCopy( state.origin, pent.origin );
+		VectorCopy( state.mins, pent.mins );
+		VectorCopy( state.maxs, pent.maxs );
 		pent.info = state.number;
 		pmove.numphysent++;
 	}
@@ -765,6 +767,11 @@ export function CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, ski
 	pplayer.active = true;
 	pplayer.msgtime = realtime - msec * 0.001;
 	pplayer.serverSequence = server_sequence;
+
+	if ( playernum + 1 === cl.viewentity ) {
+		_cl_servermovetype = ( flags & PF_NOCLIP ) !== 0 ? PM_MOVETYPE_NOCLIP
+			: ( flags & PF_FLY ) !== 0 ? PM_MOVETYPE_FLY : PM_MOVETYPE_WALK;
+	}
 
 	VectorCopy( origin, pplayer.state_origin );
 	VectorCopy( velocity, pplayer.state_velocity );
@@ -998,11 +1005,8 @@ export function CL_PredictMove() {
 	const oldphysent = pmove.numphysent;
 	CL_SetSolidPlayers( cl.viewentity - 1 );
 
-	// The server never says when it has the player in noclip, but a
-	// walking NQ player can never be inside the world (SV_CheckStuck).
-	// Open-air noclip and fly are not detectable; see PM_NQ_PlayerMove.
-	_cl_predmovetype = ( nq && cl.worldmodel != null && PM_NQ_InSolid( from.playerstate.origin ) )
-		? PM_MOVETYPE_NOCLIP : PM_MOVETYPE_WALK;
+	// The server sends the view player's movetype with its playerinfo
+	_cl_predmovetype = _cl_servermovetype;
 
 	// Predict forward from acknowledged state
 	let to = null;
@@ -1110,6 +1114,7 @@ export function CL_ResetPrediction() {
 	cls_latency = 0;
 	cl_predtime = 0;
 	_cl_predmovetype = PM_MOVETYPE_WALK;
+	_cl_servermovetype = PM_MOVETYPE_WALK;
 
 	cl_simorg.fill( 0 );
 	cl_simvel.fill( 0 );
