@@ -1,9 +1,9 @@
 // Ported from: WinQuake/cl_demo.c -- demo recording and playback
 
 import { MAX_MSGLEN } from './quakedef.js';
-import { Con_Printf, Con_DPrintf, SZ_Clear,
-	MSG_WriteByte, MSG_WriteString,
-	LittleLong, LittleFloat,
+import { Con_Printf, SZ_Clear,
+	MSG_WriteByte,
+	LittleLong,
 	net_message, COM_DefaultExtension } from './common.js';
 import { Sys_Error } from './sys.js';
 import { Cmd_Argc, Cmd_Argv, Cmd_ExecuteString, cmd_source, src_command } from './cmd.js';

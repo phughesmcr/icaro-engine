@@ -2,27 +2,27 @@
 
 import * as THREE from 'three';
 import { Con_Printf } from './common.js';
+import { Cmd_AddCommand as Cmd_AddCommand_impl } from './cmd.js';
+import { Sys_FloatTime } from './sys.js';
+import { r_refdef } from './render.js';
 import { Cvar_RegisterVariable as Cvar_RegisterVariable_impl, Cvar_SetValue as Cvar_SetValue_impl } from './cvar.js';
-import { d_lightstylevalue, r_viewleaf, r_norefresh, r_lightmap,
+import { d_lightstylevalue, r_norefresh, r_lightmap,
 	r_fullbright, r_drawentities, r_drawviewmodel, r_shadows,
 	r_mirroralpha, r_wateralpha, r_dynamic, r_novis, r_speeds,
 	gl_clear, gl_texsort, gl_cull, gl_smoothmodels, gl_affinemodels,
 	gl_polyblend, gl_flashblend, gl_playermip, gl_nocolors,
 	gl_keeptjunctions, gl_reporttjunctions, gl_doubleeyes, gl_texturemode,
-	gl_mtexable, skytexturenum, mirrortexturenum, set_mirrortexturenum,
-	getTextureExtensionNumber, particletexture, playertextures,
-	envmap } from './glquake.js';
-import { mod_alias, r_worldentity, R_Init as R_Init_rmain, R_NewMap as R_NewMap_rmain } from './gl_rmain.js';
+	gl_mtexable, set_mirrortexturenum } from './glquake.js';
+import { mod_alias, r_worldentity, R_Init as R_Init_rmain, R_NewMap as R_NewMap_rmain, R_RenderView } from './gl_rmain.js';
 import { set_skytexturenum as set_skytexturenum_rsurf } from './gl_rsurf.js';
 import { cl, cl_entities } from './client.js';
-import { d_8to24table } from './vid.js';
+import { d_8to24table, renderer } from './vid.js';
 
 // External function stubs (set by engine)
 let Cmd_AddCommand = null;
 let Cvar_RegisterVariable = null;
 let Cvar_SetValue = null;
 let R_InitParticles = null;
-let R_RenderView = null;
 
 export function R_Misc_SetCallbacks( callbacks ) {
 
@@ -30,7 +30,6 @@ export function R_Misc_SetCallbacks( callbacks ) {
 	if ( callbacks.Cvar_RegisterVariable ) Cvar_RegisterVariable = callbacks.Cvar_RegisterVariable;
 	if ( callbacks.Cvar_SetValue ) Cvar_SetValue = callbacks.Cvar_SetValue;
 	if ( callbacks.R_InitParticles ) R_InitParticles = callbacks.R_InitParticles;
-	if ( callbacks.R_RenderView ) R_RenderView = callbacks.R_RenderView;
 
 }
 
@@ -110,6 +109,45 @@ export function R_Envmap_f( r_refdef, scene, renderer, camera ) {
 }
 
 /*
+====================
+R_TimeRefresh_f
+
+For program optimization: renders 128 frames spinning the view through
+360 degrees and reports the time taken.
+====================
+*/
+function R_TimeRefresh_f() {
+
+	// WebGL is asynchronous; finish() plus a 1-pixel readback stands in for
+	// glFinish() so the timing covers the GPU work, not just command submission.
+	const gl = renderer ? renderer.getContext() : null;
+	const pixel = new Uint8Array( 4 );
+	const finish = () => {
+
+		if ( gl === null ) return;
+		gl.finish();
+		gl.readPixels( 0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel );
+
+	};
+
+	finish();
+
+	const start = Sys_FloatTime();
+	for ( let i = 0; i < 128; i ++ ) {
+
+		r_refdef.viewangles[ 1 ] = i / 128.0 * 360.0;
+		R_RenderView();
+
+	}
+
+	finish();
+	const stop = Sys_FloatTime();
+	const time = stop - start;
+	Con_Printf( time.toFixed( 6 ) + ' seconds (' + ( 128 / time ).toFixed( 6 ) + ' fps)\n' );
+
+}
+
+/*
 ===============
 R_Init
 ===============
@@ -117,6 +155,7 @@ R_Init
 export function R_Init() {
 
 	// Register commands
+	( Cmd_AddCommand || Cmd_AddCommand_impl )( 'timerefresh', R_TimeRefresh_f );
 	if ( Cmd_AddCommand ) {
 
 		Cmd_AddCommand( 'envmap', R_Envmap_f );

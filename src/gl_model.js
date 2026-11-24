@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 import { Sys_Error } from './sys.js';
-import { Con_Printf, COM_FileBase } from './common.js';
+import { Con_Printf } from './common.js';
 import { d_8to24table, vid } from './vid.js';
 import { COM_LoadFile } from './pak.js';
 import { DotProduct, VectorCopy, Length } from './mathlib.js';
@@ -615,7 +615,6 @@ export class model_t {
 // ============================================================================
 
 let loadmodel = null;
-let loadname = '';
 
 const mod_novis = new Uint8Array( MAX_MAP_LEAFS / 8 );
 
@@ -650,7 +649,9 @@ let mod_base = null;
 const decompressed = new Uint8Array( MAX_MAP_LEAFS / 8 );
 
 // ============================================================================
-// Stub functions for GL operations not yet ported
+// GL_LoadTexture: 8-bit paletted pixels -> THREE.DataTexture. Unlike GLQuake it
+// doesn't dedupe by name: textures are owned per model and disposed in
+// Mod_ClearAll; `name` only labels them for GPU debuggers.
 // ============================================================================
 
 function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbright ) {
@@ -718,6 +719,7 @@ function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbrig
 		}
 
 		fullbrightTexture = new THREE.DataTexture( fbRgba, width, height, THREE.RGBAFormat );
+		fullbrightTexture.name = name + ':fullbright';
 		const fbFilter = gl_texturemode.value ? THREE.LinearFilter : THREE.NearestFilter;
 		const fbMipFilter = gl_texturemode.value ? THREE.LinearMipmapLinearFilter : THREE.NearestMipmapLinearFilter;
 		fullbrightTexture.magFilter = fbFilter;
@@ -733,6 +735,7 @@ function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbrig
 	}
 
 	const texture = new THREE.DataTexture( rgba, width, height, THREE.RGBAFormat );
+	texture.name = name;
 	// Use cvar to determine filter mode: 0 = nearest (pixelated), 1 = linear (smooth)
 	const filter = gl_texturemode.value ? THREE.LinearFilter : THREE.NearestFilter;
 	const mipFilter = gl_texturemode.value ? THREE.LinearMipmapLinearFilter : THREE.NearestMipmapLinearFilter;
@@ -903,7 +906,6 @@ export function Mod_PointInLeaf( p, model ) {
 		Sys_Error( 'Mod_PointInLeaf: bad model' );
 
 	let node = model.nodes[ 0 ];
-	let nodeIndex = 0;
 
 	while ( true ) {
 
@@ -1125,7 +1127,6 @@ export function Mod_LoadModel( mod, crash ) {
 	}
 
 	// allocate a new model
-	loadname = COM_FileBase( mod.name );
 
 	loadmodel = mod;
 
@@ -2294,15 +2295,14 @@ function Mod_LoadBrushModel( mod, buffer ) {
 
 function Mod_LoadAliasFrame( buf, offset, frame ) {
 
-	const view = new DataView( buf, offset );
-
 	// daliasframe_t: bboxmin (4 bytes), bboxmax (4 bytes), name (16 bytes) = 24 bytes
-	frame.bboxmin.v[ 0 ] = new Uint8Array( buf, offset )[ 0 ];
-	frame.bboxmin.v[ 1 ] = new Uint8Array( buf, offset )[ 1 ];
-	frame.bboxmin.v[ 2 ] = new Uint8Array( buf, offset )[ 2 ];
-	frame.bboxmax.v[ 0 ] = new Uint8Array( buf, offset + 4 )[ 0 ];
-	frame.bboxmax.v[ 1 ] = new Uint8Array( buf, offset + 4 )[ 1 ];
-	frame.bboxmax.v[ 2 ] = new Uint8Array( buf, offset + 4 )[ 2 ];
+	const bytes = new Uint8Array( buf, offset );
+	frame.bboxmin.v[ 0 ] = bytes[ 0 ];
+	frame.bboxmin.v[ 1 ] = bytes[ 1 ];
+	frame.bboxmin.v[ 2 ] = bytes[ 2 ];
+	frame.bboxmax.v[ 0 ] = bytes[ 4 ];
+	frame.bboxmax.v[ 1 ] = bytes[ 5 ];
+	frame.bboxmax.v[ 2 ] = bytes[ 6 ];
 
 	frame.name = readString( new Uint8Array( buf ), offset + 8, 16 );
 
@@ -2569,7 +2569,6 @@ function Mod_LoadAllSkins( buf, numskins, offset ) {
 function Mod_LoadAliasModel( mod, buffer ) {
 
 	const view = new DataView( buffer );
-	const bytes = new Uint8Array( buffer );
 
 	// mdl_t header
 	const version = view.getInt32( 4, true );

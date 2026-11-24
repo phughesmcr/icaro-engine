@@ -13,9 +13,8 @@ import {
 } from './protocol.js';
 import {
 	MAX_TEMP_ENTITIES, MAX_BEAMS, MAX_VISEDICTS,
-	cl, cls, cl_entities, cl_temp_entities, cl_beams,
-	cl_numvisedicts, cl_visedicts, set_cl_numvisedicts,
-	entity_t, beam_t
+	cl, cl_entities, cl_temp_entities, cl_beams,
+	cl_numvisedicts, cl_visedicts, set_cl_numvisedicts
 } from './client.js';
 import { CL_AllocDlight } from './cl_main.js';
 import { VectorCopy, VectorSubtract, VectorNormalize, vec3_origin, M_PI } from './mathlib.js';

@@ -1039,7 +1039,7 @@ export function Draw_PicFromWad( name ) {
 
 		lump = W_GetLumpName( name );
 
-	} catch ( e ) {
+	} catch {
 
 		Con_Printf( 'Draw_PicFromWad: ' + name + ' not found\n' );
 		return null;

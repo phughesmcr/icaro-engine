@@ -280,7 +280,7 @@ function _onPageHide() {
 			// Flush, send FIN, then close the transport
 			_WT_CloseConnection( conn );
 
-		} catch ( e ) {
+		} catch {
 
 			// Ignore errors during shutdown
 
@@ -308,7 +308,7 @@ export function WT_Shutdown() {
 
 			_WT_CloseConnection( conn );
 
-		} catch ( e ) {
+		} catch {
 
 			// Ignore errors during shutdown
 
@@ -489,7 +489,7 @@ export async function WT_QueryRooms( serverUrl ) {
 		Con_Printf( 'WT_QueryRooms error: ' + e.message + '\n' );
 		if ( transport ) {
 
-			try { transport.close(); } catch ( e2 ) { /* ignore */ }
+			try { transport.close(); } catch { /* ignore */ }
 
 		}
 
@@ -656,7 +656,7 @@ export async function WT_CreateRoom( serverUrl, config ) {
 		Con_Printf( 'WT_CreateRoom error: ' + e.message + '\n' );
 		if ( transport ) {
 
-			try { transport.close(); } catch ( e2 ) { /* ignore */ }
+			try { transport.close(); } catch { /* ignore */ }
 
 		}
 
@@ -833,7 +833,7 @@ class WTConnectAttempt {
 
 		for ( const transport of this.transports ) {
 
-			try { transport.close(); } catch ( e ) { /* ignore */ }
+			try { transport.close(); } catch { /* ignore */ }
 
 		}
 
@@ -884,7 +884,7 @@ function _WT_OpenTransport( url, attempt ) {
 function _WT_CloseTransport( transport, attempt ) {
 
 	attempt.untrack( transport );
-	try { transport.close(); } catch ( e ) { /* ignore */ }
+	try { transport.close(); } catch { /* ignore */ }
 
 }
 
@@ -991,7 +991,7 @@ export async function WT_Connect( host ) {
 
 		}
 
-	} catch ( e ) {
+	} catch {
 
 		// URL parsing failed, continue without room extraction
 
@@ -1959,7 +1959,7 @@ function _WT_CloseConnection( conn ) {
 
 		}
 
-	} catch ( error ) {
+	} catch {
 
 		// Ignore errors during close
 
@@ -2030,7 +2030,7 @@ function _WT_FinishClose( conn ) {
 
 		conn.transport.close();
 
-	} catch ( error ) {
+	} catch {
 
 		// Ignore errors during close
 

@@ -1,18 +1,16 @@
 // Ported from: WinQuake/sbar.c, WinQuake/sbar.h -- status bar / HUD code
 
 import { Cmd_AddCommand } from './cmd.js';
-import { realtime, teamplay } from './host.js';
+import { teamplay } from './host.js';
 import { Con_Printf } from './console.js';
 import { Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
 import {
-	IT_SHOTGUN, IT_SUPER_SHOTGUN, IT_NAILGUN, IT_SUPER_NAILGUN,
-	IT_GRENADE_LAUNCHER, IT_ROCKET_LAUNCHER, IT_LIGHTNING, IT_SUPER_LIGHTNING,
-	IT_SHELLS, IT_NAILS, IT_ROCKETS, IT_CELLS, IT_AXE,
-	IT_ARMOR1, IT_ARMOR2, IT_ARMOR3, IT_SUPERHEALTH,
-	IT_KEY1, IT_KEY2, IT_INVISIBILITY, IT_INVULNERABILITY, IT_SUIT, IT_QUAD,
-	IT_SIGIL1, IT_SIGIL2, IT_SIGIL3, IT_SIGIL4,
-	STAT_HEALTH, STAT_FRAGS, STAT_WEAPON, STAT_AMMO, STAT_ARMOR,
-	STAT_SHELLS, STAT_NAILS, STAT_ROCKETS, STAT_CELLS,
+	IT_SHOTGUN,
+	IT_SHELLS, IT_NAILS, IT_ROCKETS, IT_CELLS,
+	IT_ARMOR1, IT_ARMOR2, IT_ARMOR3,
+	IT_KEY1, IT_KEY2, IT_INVISIBILITY, IT_INVULNERABILITY, IT_QUAD,
+	STAT_HEALTH, STAT_AMMO, STAT_ARMOR,
+	STAT_SHELLS,
 	STAT_ACTIVEWEAPON, STAT_TOTALSECRETS, STAT_TOTALMONSTERS,
 	STAT_SECRETS, STAT_MONSTERS, STAT_PING,
 	MAX_SCOREBOARD,
@@ -93,11 +91,6 @@ const hsb_items = new Array( 2 ).fill( null );
 
 // Scoreboard state
 const fragsort = new Array( MAX_SCOREBOARD ).fill( 0 );
-const scoreboardtext = [];
-for ( let i = 0; i < MAX_SCOREBOARD; i ++ ) scoreboardtext[ i ] = '';
-const scoreboardtop = new Array( MAX_SCOREBOARD ).fill( 0 );
-const scoreboardbottom = new Array( MAX_SCOREBOARD ).fill( 0 );
-const scoreboardcount = new Array( MAX_SCOREBOARD ).fill( 0 );
 let scoreboardlines = 0;
 
 /*
@@ -359,22 +352,6 @@ function Sbar_DrawPic( x, y, pic ) {
 }
 
 /*
-=============
-Sbar_DrawTransPic
-=============
-*/
-function Sbar_DrawTransPic( x, y, pic ) {
-
-	if ( ! _Draw_TransPic || ! pic ) return;
-
-	if ( _cl.gametype === GAME_DEATHMATCH )
-		_Draw_TransPic( x, y + ( _vid.height - SBAR_HEIGHT ), pic );
-	else
-		_Draw_TransPic( x + ( ( _vid.width - 320 ) >> 1 ), y + ( _vid.height - SBAR_HEIGHT ), pic );
-
-}
-
-/*
 ================
 Sbar_DrawCharacter
 
@@ -467,13 +444,20 @@ function Sbar_DrawInventory() {
 
 	}
 
+	// As in sbar.c, flashon is shared by the whole function: the items and
+	// sigils loops below reuse whatever the last owned weapon left in it, so
+	// a fresh pickup is hidden for up to 2 seconds only while that weapon is
+	// selected or itself flashing. (C leaves it uninitialised if no weapon is
+	// owned; 0 here.)
+	let flashon = 0;
+
 	// weapons
 	for ( let i = 0; i < 7; i ++ ) {
 
 		if ( _cl.items & ( IT_SHOTGUN << i ) ) {
 
 			const time = _cl.item_gettime[ i ];
-			let flashon = Math.floor( ( _cl.time - time ) * 10 );
+			flashon = Math.floor( ( _cl.time - time ) * 10 );
 			if ( flashon >= 10 ) {
 
 				if ( _cl.stats[ STAT_ACTIVEWEAPON ] === ( IT_SHOTGUN << i ) )
@@ -506,7 +490,7 @@ function Sbar_DrawInventory() {
 			if ( _cl.items & ( 1 << hipweapons[ i ] ) ) {
 
 				const time = _cl.item_gettime[ hipweapons[ i ] ];
-				let flashon = Math.floor( ( _cl.time - time ) * 10 );
+				flashon = Math.floor( ( _cl.time - time ) * 10 );
 				if ( flashon >= 10 ) {
 
 					if ( _cl.stats[ STAT_ACTIVEWEAPON ] === ( 1 << hipweapons[ i ] ) )
@@ -599,7 +583,6 @@ function Sbar_DrawInventory() {
 	}
 
 	// items
-	let flashon = 0;
 	for ( let i = 0; i < 6; i ++ ) {
 
 		if ( _cl.items & ( 1 << ( 17 + i ) ) ) {
@@ -827,40 +810,6 @@ function Sbar_ColorForMap( m ) {
 
 /*
 ===============
-Sbar_UpdateScoreboard
-===============
-*/
-function Sbar_UpdateScoreboard() {
-
-	Sbar_SortFrags();
-
-	// draw the text
-	for ( let i = 0; i < MAX_SCOREBOARD; i ++ ) {
-
-		scoreboardtext[ i ] = '';
-
-	}
-
-	for ( let i = 0; i < scoreboardlines; i ++ ) {
-
-		const k = fragsort[ i ];
-		const s = _cl.scores[ k ];
-
-		// format: " %3i %s" (frags + name)
-		const fragStr = String( s.frags ).padStart( 3, ' ' );
-		scoreboardtext[ i ] = ' ' + fragStr + ' ' + ( s.name || '' );
-
-		const top = s.colors & 0xf0;
-		const bottom = ( s.colors & 15 ) << 4;
-		scoreboardtop[ i ] = Sbar_ColorForMap( top );
-		scoreboardbottom[ i ] = Sbar_ColorForMap( bottom );
-
-	}
-
-}
-
-/*
-===============
 Sbar_SoloScoreboard
 ===============
 */
@@ -1018,17 +967,6 @@ function Sbar_DrawFace() {
 	}
 
 	Sbar_DrawPic( 112, 0, sb_faces[ f ][ anim ] );
-
-}
-
-/*
-===============
-Sbar_DrawAmmo
-===============
-*/
-function Sbar_DrawAmmo() {
-
-	Sbar_DrawNum( 248, 0, _cl.stats[ STAT_AMMO ], 3, _cl.stats[ STAT_AMMO ] <= 10 ? 1 : 0 );
 
 }
 
@@ -1259,7 +1197,6 @@ export function Sbar_MiniDeathmatchOverlay() {
 	Sbar_SortFrags();
 
 	// draw the text
-	const l = scoreboardlines;
 	let y = _vid.height - sb_lines;
 	const numlines = Math.floor( sb_lines / 8 );
 	if ( numlines < 3 )

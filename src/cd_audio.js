@@ -146,7 +146,7 @@ export function CDAudio_Play( track, looping ) {
 				musicSource.connect( musicGainNode );
 				musicGainNode.connect( audioContext.destination );
 
-			} catch ( e ) {
+			} catch {
 
 				// Fallback: direct playback without Web Audio routing
 				Con_DPrintf( 'CDAudio: Web Audio routing failed, using direct playback\n' );
@@ -206,7 +206,7 @@ export function CDAudio_Stop() {
 			musicElement.pause();
 			musicElement.currentTime = 0;
 
-		} catch ( e ) { /* ignore */ }
+		} catch { /* ignore */ }
 
 	}
 
@@ -234,7 +234,7 @@ export function CDAudio_Pause() {
 
 			musicElement.pause();
 
-		} catch ( e ) { /* ignore */ }
+		} catch { /* ignore */ }
 
 	}
 
@@ -262,7 +262,7 @@ export function CDAudio_Resume() {
 
 			musicElement.play().catch( function () {} );
 
-		} catch ( e ) { /* ignore */ }
+		} catch { /* ignore */ }
 
 	}
 
@@ -353,7 +353,7 @@ export function CDAudio_Shutdown() {
 
 			musicSource.disconnect();
 
-		} catch ( e ) { /* ignore */ }
+		} catch { /* ignore */ }
 
 		musicSource = null;
 
@@ -365,7 +365,7 @@ export function CDAudio_Shutdown() {
 
 			musicGainNode.disconnect();
 
-		} catch ( e ) { /* ignore */ }
+		} catch { /* ignore */ }
 
 		musicGainNode = null;
 

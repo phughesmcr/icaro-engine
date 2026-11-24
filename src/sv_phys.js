@@ -4,9 +4,8 @@ import { Sys_Error } from './sys.js';
 import { Con_Printf, Con_DPrintf } from './common.js';
 import { cvar_t } from './cvar.js';
 import { vec3_origin, DotProduct, VectorCopy, VectorAdd, VectorSubtract, VectorMA,
-	VectorScale, VectorCompare, VectorNormalize, CrossProduct, Length, AngleVectors,
-	M_PI, anglemod } from './mathlib.js';
-import { MAX_EDICTS, YAW } from './quakedef.js';
+	VectorScale, CrossProduct, AngleVectors } from './mathlib.js';
+import { MAX_EDICTS } from './quakedef.js';
 import { PR_GetString } from './progs.js';
 
 /*
@@ -88,7 +87,6 @@ export const CONTENTS_SLIME = - 4;
 export const CONTENTS_LAVA = - 5;
 export const CONTENTS_SKY = - 6;
 
-const MOVE_EPSILON = 0.01;
 const STOP_EPSILON = 0.1;
 const MAX_CLIP_PLANES = 5;
 const STEPSIZE = 18;

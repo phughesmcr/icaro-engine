@@ -1,13 +1,13 @@
 // Ported from: WinQuake/sv_move.c -- monster movement
 
-import { vec3_origin, DotProduct, VectorCopy, VectorAdd, VectorSubtract,
-	VectorNormalize, M_PI, anglemod } from './mathlib.js';
+import { vec3_origin, VectorCopy, VectorAdd,
+	M_PI, anglemod } from './mathlib.js';
 import { YAW } from './quakedef.js';
-import { MOVETYPE_FLY, MOVETYPE_WALK, FL_FLY, FL_SWIM, FL_ONGROUND,
+import { FL_FLY, FL_SWIM, FL_ONGROUND,
 	FL_PARTIALGROUND, CONTENTS_EMPTY, CONTENTS_SOLID,
-	sv, svs, pr_global_struct, sv_player,
-	SV_Move, SV_TestEntityPosition, SV_LinkEdict, SV_PointContents,
-	PR_ExecuteProgram, EDICT_TO_PROG, PROG_TO_EDICT } from './sv_phys.js';
+	sv, pr_global_struct,
+	SV_Move, SV_LinkEdict, SV_PointContents,
+	EDICT_TO_PROG, PROG_TO_EDICT } from './sv_phys.js';
 
 const STEPSIZE = 18;
 

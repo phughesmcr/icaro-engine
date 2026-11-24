@@ -2,13 +2,13 @@
 
 import { Sys_Error } from './sys.js';
 import {
-	Con_Printf, Con_DPrintf, SZ_Clear, SZ_Write, SZ_Alloc,
+	Con_Printf, Con_DPrintf, SZ_Clear, SZ_Write,
 	MSG_WriteByte, MSG_WriteChar, MSG_WriteShort, MSG_WriteLong,
 	MSG_WriteFloat, MSG_WriteString, MSG_WriteCoord, MSG_WriteAngle,
 	MSG_WriteAngle16,
 	standard_quake
 } from './common.js';
-import { Cmd_AddCommand, Cmd_ExecuteString, Cbuf_InsertText } from './cmd.js';
+import { Cmd_ExecuteString, Cbuf_InsertText } from './cmd.js';
 import { cvar_t, Cvar_RegisterVariable, Cvar_Set, Cvar_SetValue } from './cvar.js';
 import {
 	MAX_MODELS, MAX_SOUNDS, MAX_DATAGRAM, MAX_EDICTS, MAX_MSGLEN,
@@ -23,17 +23,14 @@ import {
 	svc_time, svc_particle, svc_sound, svc_clientdata, svc_updatestat, svc_updatefrags,
 	svc_stufftext, svc_nop, svc_spawnbaseline, svc_disconnect,
 	svc_updatename, svc_updatecolors,
-	U_MOREBITS, U_ORIGIN1, U_ORIGIN2, U_ORIGIN3,
-	U_ANGLE1, U_ANGLE2, U_ANGLE3,
-	U_NOLERP, U_FRAME, U_SIGNAL, U_MODEL, U_COLORMAP, U_SKIN, U_EFFECTS, U_LONGENTITY,
 	SU_VIEWHEIGHT, SU_IDEALPITCH, SU_PUNCH1, SU_VELOCITY1,
 	SU_ITEMS, SU_ONGROUND, SU_INWATER, SU_WEAPONFRAME, SU_ARMOR, SU_WEAPON,
 	DEFAULT_VIEWHEIGHT, svc_damage, svc_setangle,
-	svc_playerinfo, PF_MSEC, PF_COMMAND, PF_VELOCITY1, PF_VELOCITY2, PF_VELOCITY3,
+	svc_playerinfo, PF_MSEC, PF_COMMAND, PF_VELOCITY1,
 	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_DEAD, PF_GIB, PF_FLY, PF_NOCLIP, PF_TELEPORT,
 	CM_ANGLE1, CM_ANGLE2, CM_ANGLE3, CM_FORWARD, CM_SIDE, CM_UP, CM_BUTTONS, CM_IMPULSE,
 	svc_packetentities, svc_deltapacketentities, svc_serversequence,
-	PE_ENT_BITS, PE_ENT_MASK, PE_ORIGIN1, PE_ORIGIN2, PE_ORIGIN3,
+	PE_ENT_MASK, PE_ORIGIN1, PE_ORIGIN2, PE_ORIGIN3,
 	PE_ANGLE2, PE_REMOVE, PE_MOREBITS,
 	PE_FRAME, PE_ANGLE1, PE_ANGLE3, PE_MODEL, PE_COLORMAP, PE_SKIN, PE_EFFECTS, PE_SOLID,
 	PS_BSP, PS_BOX, PS_NOLERP,
@@ -41,16 +38,14 @@ import {
 } from './protocol.js';
 import {
 	sv, svs, ss_loading, ss_active,
-	server_t, client_t, NUM_PING_TIMES,
+	client_t, NUM_PING_TIMES,
 	host_client, set_host_client,
-	host_time,
 	MOVETYPE_PUSH, MOVETYPE_STEP, MOVETYPE_FLY, MOVETYPE_NOCLIP,
-	SOLID_BSP, SOLID_NOT, SOLID_TRIGGER, SOLID_BBOX, SOLID_SLIDEBOX,
-	FL_ITEM, FL_ONGROUND, FL_MONSTER,
+	SOLID_BSP, SOLID_BBOX, SOLID_SLIDEBOX,
+	FL_ONGROUND,
 	EF_MUZZLEFLASH,
 	NUM_SPAWN_PARMS,
-	deathmatch, coop, skill,
-	fraglimit, timelimit, teamplay
+	deathmatch, coop, skill
 } from './server.js';
 import { hostname } from './net_main.js';
 import {
@@ -63,7 +58,7 @@ import { COM_LoadFile } from './pak.js';
 import { VectorCopy, VectorAdd, DotProduct } from './mathlib.js';
 import { Mod_ForName, Mod_LeafPVS } from './gl_model.js';
 import { PR_LoadProgs, PR_AllocEdicts, ED_ClearEdict, ED_LoadFromFile, ED_NewString, GetEdictFieldValue, PR_SetCurrentSkill, PR_SetDeathmatch } from './pr_edict.js';
-import { pr_global_struct, pr_strings, pr_edict_size, progs, pr_crc, EDICT_NUM, NUM_FOR_EDICT, PR_SetSV, PR_SetSVS, EDICT_TO_PROG, PROG_TO_EDICT, NEXT_EDICT, PR_GetString } from './progs.js';
+import { pr_global_struct, progs, pr_crc, EDICT_NUM, NUM_FOR_EDICT, PR_SetSV, PR_SetSVS, EDICT_TO_PROG, PROG_TO_EDICT, NEXT_EDICT, PR_GetString } from './progs.js';
 import { SV_ClearWorld, SV_Move, SV_TestEntityPosition, SV_LinkEdict, SV_PointContents } from './world.js';
 import { SV_Physics, SV_SetState, SV_SetCallbacks,
 	sv_maxvelocity, sv_gravity, sv_nostep, sv_friction, sv_edgefriction,
@@ -219,17 +214,17 @@ export function SV_StartSound( entity, channel, sample, volume, attenuation ) {
 	channel = ( ent << 3 ) | channel;
 
 	let field_mask = 0;
-	if ( volume !== 255 ) // DEFAULT_SOUND_PACKET_VOLUME
-		field_mask |= 1; // SND_VOLUME
-	if ( attenuation !== 1.0 ) // DEFAULT_SOUND_PACKET_ATTENUATION
-		field_mask |= 2; // SND_ATTENUATION
+	if ( volume !== DEFAULT_SOUND_PACKET_VOLUME )
+		field_mask |= SND_VOLUME;
+	if ( attenuation !== DEFAULT_SOUND_PACKET_ATTENUATION )
+		field_mask |= SND_ATTENUATION;
 
 	// directed messages go only to the entity they are targeted on
 	MSG_WriteByte( sv.datagram, svc_sound );
 	MSG_WriteByte( sv.datagram, field_mask );
-	if ( field_mask & 1 ) // SND_VOLUME
+	if ( field_mask & SND_VOLUME )
 		MSG_WriteByte( sv.datagram, volume );
-	if ( field_mask & 2 ) // SND_ATTENUATION
+	if ( field_mask & SND_ATTENUATION )
 		MSG_WriteByte( sv.datagram, ( attenuation * 64 ) | 0 );
 	MSG_WriteShort( sv.datagram, channel );
 	MSG_WriteByte( sv.datagram, sound_num );
@@ -401,7 +396,6 @@ export function SV_ConnectClient( clientnum ) {
 	}
 
 	// clear the client
-	const oldName = client.name;
 	Object.assign( client, new client_t() );
 	client.netconnection = netconnection;
 

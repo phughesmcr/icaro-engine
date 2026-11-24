@@ -4,7 +4,7 @@ import { ClearLink, InsertLinkBefore, link_t, COM_Init, COM_InitArgv, COM_SetMod
 import { COM_AddPack, COM_LoadPackFile } from '../src/pak.js';
 import { OFS_PARM0, OFS_PARM1, OFS_PARM2, OFS_RETURN } from '../src/pr_comp.js';
 import {
-	pr_builtins, pr_strings_data, pr_globals_int, sv as progs_sv,
+	pr_builtins, pr_strings_data, pr_strings_size, pr_globals_int, sv as progs_sv,
 	PR_SetSV, PR_SetStringsData, PR_SetGlobalsInt, PR_GetString,
 } from '../src/progs.js';
 import { PR_InitBuiltins, PF_Format5_1f } from '../src/pr_cmds.js';
@@ -102,7 +102,44 @@ Deno.test( 'MOD-3: ED_NewString keeps bytes >= 0x80 as single bytes', () => {
 		const gold = '\xc7\xef\xec\xe4\\nx';
 		const ofs = ED_NewString( gold );
 		assertEqual( PR_GetString( ofs ), '\xc7\xef\xec\xe4\nx', 'round trip' );
-		assertEqual( pr_strings_data.length, 1 + 6 + 1, 'one byte per character' );
+		assertEqual( pr_strings_size, 1 + 6 + 1, 'one byte per character' );
+
+	} finally {
+
+		PR_SetStringsData( oldStrings );
+
+	}
+
+} );
+
+Deno.test( 'ED_NewString grows the string table geometrically and keeps earlier offsets', () => {
+
+	const oldStrings = pr_strings_data;
+
+	try {
+
+		PR_SetStringsData( new Uint8Array( [ 0, 0x41, 0 ] ) );
+		const offsets = [];
+		let reallocations = 0;
+		let buffer = pr_strings_data;
+		for ( let i = 0; i < 1000; i ++ ) {
+
+			offsets.push( ED_NewString( 'str' + i ) );
+			if ( pr_strings_data !== buffer ) {
+
+				reallocations ++;
+				buffer = pr_strings_data;
+
+			}
+
+		}
+
+		assertEqual( PR_GetString( 1 ), 'A', 'original strings survive growth' );
+		for ( let i = 0; i < offsets.length; i ++ )
+			assertEqual( PR_GetString( offsets[ i ] ), 'str' + i, 'string ' + i );
+		assertEqual( offsets[ 1 ], offsets[ 0 ] + 'str0'.length + 1, 'strings are packed' );
+		assertEqual( reallocations <= 14, true, 'reallocations are logarithmic, got ' + reallocations );
+		assertEqual( PR_GetString( pr_strings_size ), '', 'spare capacity reads as empty' );
 
 	} finally {
 

@@ -15,7 +15,6 @@ ALIAS MODEL DISPLAY LIST GENERATION
 =================================================================
 */
 
-let aliasmodel = null; // model_t *
 let paliashdr = null; // aliashdr_t *
 
 const used = new Uint8Array( 8192 );
@@ -304,7 +303,6 @@ we instead build indexed triangle geometry.
 */
 export function GL_MakeAliasModelDisplayLists( m, hdr ) {
 
-	aliasmodel = m;
 	paliashdr = hdr;
 	pheader = hdr;
 	triangles = hdr.triangles;

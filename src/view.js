@@ -14,7 +14,7 @@ import { r_refdef } from './render.js';
 import {
 	CSHIFT_CONTENTS, CSHIFT_DAMAGE, CSHIFT_BONUS, CSHIFT_POWERUP,
 	NUM_CSHIFTS,
-	cl, cls, cl_entities, entity_t
+	cl, cls, cl_entities
 } from './client.js';
 import { cl_forwardspeed } from './cl_input.js';
 import { R_RenderView } from './gl_rmain.js';
@@ -330,9 +330,6 @@ export const v_gamma = new cvar_t( 'gamma', '1', true );
 
 const gammatable = new Uint8Array( 256 );
 
-// GLQUAKE
-const ramps = [ new Uint8Array( 256 ), new Uint8Array( 256 ), new Uint8Array( 256 ) ];
-
 function BuildGammaTable( g ) {
 
 	if ( g === 1.0 ) {
@@ -489,7 +486,6 @@ Underwater, lava, etc each has a color shift
 */
 const CONTENTS_EMPTY = - 1;
 const CONTENTS_SOLID = - 2;
-const CONTENTS_WATER = - 3;
 const CONTENTS_SLIME = - 4;
 const CONTENTS_LAVA = - 5;
 

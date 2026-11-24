@@ -14,15 +14,14 @@ import {
 import { MAX_MODELS, MAX_SOUNDS } from './quakedef.js';
 import {
 	OFS_RETURN, OFS_PARM0, OFS_PARM1, OFS_PARM2, OFS_PARM3,
-	OFS_PARM4, OFS_PARM5, OFS_PARM6, OFS_PARM7,
+	OFS_PARM4,
 } from './pr_comp.js';
 import {
-	progs, pr_functions,
-	pr_global_struct, pr_globals_float, pr_globals_int,
-	pr_argc, pr_trace, pr_xfunction,
+	pr_global_struct,
+	pr_argc, pr_xfunction,
 	PR_GetString, PR_SetTrace, PR_SetXFunction,
 	G_FLOAT, G_FLOAT_SET, G_INT, G_INT_SET, G_VECTOR, G_STRING, G_EDICT, G_EDICTNUM,
-	EDICT_NUM, NUM_FOR_EDICT, NEXT_EDICT,
+	EDICT_NUM, NUM_FOR_EDICT,
 	EDICT_TO_PROG, PROG_TO_EDICT,
 	RETURN_EDICT,
 	E_STRING,
@@ -32,7 +31,6 @@ import {
 } from './progs.js';
 import {
 	ED_Alloc, ED_Free, ED_Print, ED_PrintNum, ED_PrintEdicts,
-	ED_FindFunction, ED_FindField,
 } from './pr_edict.js';
 import { PR_HostError, PR_RunError } from './pr_exec.js';
 import { SV_Move, SV_LinkEdict, SV_PointContents } from './world.js';
@@ -43,7 +41,7 @@ import { Cvar_VariableValue, Cvar_Set } from './cvar.js';
 import { FL_ONGROUND, FL_FLY, FL_SWIM, svs, ss_loading, ss_active, teamplay } from './server.js';
 import { Mod_ForName, Mod_PointInLeaf, Mod_LeafPVS } from './gl_model.js';
 import {
-	svc_sound, svc_print, svc_centerprint, svc_stufftext, svc_lightstyle,
+	svc_print, svc_centerprint, svc_stufftext, svc_lightstyle,
 	svc_spawnstatic, svc_spawnstaticsound,
 } from './protocol.js';
 
@@ -533,7 +531,8 @@ function PF_break() {
 
 	Con_Printf( 'break statement\n' );
 	// In C this dumps to debugger; in JS we just log
-	debugger; // eslint-disable-line no-debugger
+	// deno-lint-ignore no-debugger
+	debugger;
 
 }
 
@@ -567,20 +566,6 @@ function PF_traceline() {
 		pr_global_struct.trace_ent = EDICT_TO_PROG( sv.edicts[ 0 ] );
 	pr_global_struct.trace_inopen = trace.inopen ? 1 : 0;
 	pr_global_struct.trace_inwater = trace.inwater ? 1 : 0;
-
-}
-
-/*
-=================
-PF_checkpos
-
-Returns true if the given entity can move to the given position from its
-current position by walking or rolling.
-Not implemented in original Quake either (dead code in id's source).
-scalar checkpos (entity, vector)
-=================
-*/
-function PF_checkpos() {
 
 }
 
