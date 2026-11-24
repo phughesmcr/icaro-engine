@@ -1328,9 +1328,44 @@ function R_Mirror() {
 		return;
 
 	const alpha = Math.max( 0, r_mirroralpha.value );
-	const viewmodel = cl && cl.viewent ? cl.viewent._aliasMesh : null;
+	_mirrorHide[ 0 ] = cl && cl.viewent ? cl.viewent._aliasMesh : null;
 
-	R_MirrorPass( renderer, scene, camera, mirror_plane, R_GetMirrorItems(), alpha, [ viewmodel ] );
+	// gl_rmain.c: the player is added to the entity list for the reflected
+	// view (cl_visedicts[cl_numvisedicts++] = &cl_entities[cl.viewentity]).
+	// Here its mesh joins the scene for the reflection pass only, unless the
+	// chase camera has already drawn it this frame.
+	const ent = cl != null ? cl_entities[ cl.viewentity ] : null;
+	let playerMesh = null;
+	let shadowMesh = null;
+	if ( r_drawentities.value && ent != null && ent.model != null && ent.model.type === mod_alias &&
+		( ent._aliasMesh == null || _entityMeshesThisFrame.has( ent._aliasMesh ) === false ) ) {
+
+		currententity = ent;
+		R_DrawAliasModel( ent );
+		playerMesh = ent._aliasMesh;
+		shadowMesh = ent._aliasShadowMesh;
+
+	}
+
+	R_MirrorPass( renderer, scene, camera, mirror_plane, R_GetMirrorItems(), alpha, _mirrorHide );
+
+	_mirrorHide[ 0 ] = null;
+	_R_MirrorRemovePlayerMesh( playerMesh );
+	_R_MirrorRemovePlayerMesh( shadowMesh );
+
+}
+
+const _mirrorHide = [ null ];
+
+// Take a mesh R_Mirror drew for the reflection out of the main view.
+function _R_MirrorRemovePlayerMesh( mesh ) {
+
+	if ( mesh == null || _entityMeshesThisFrame.has( mesh ) === false )
+		return;
+
+	if ( mesh.parent !== null ) mesh.parent.remove( mesh );
+	_entityMeshesInScene.delete( mesh );
+	_entityMeshesThisFrame.delete( mesh );
 
 }
 

@@ -89,3 +89,65 @@ Deno.test( 'CL_LinkPacketEntities snaps PS_NOLERP entities', () => {
 	}
 
 } );
+
+// R_Mirror draws cl_entities[cl.viewentity] in reflections, so CL_LinkPlayers
+// fills it in from svc_playerinfo even though it doesn't add it to the
+// visedicts list (cl_main.c CL_RelinkEntities does the same).
+Deno.test( 'CL_LinkPlayers fills in the view entity without drawing it', async () => {
+
+	const client = await import( '../src/client.js' );
+	const { CL_SetPlayerInfo } = await import( '../src/cl_pred.js' );
+	const old = {
+		active: sv.active, maxclients: cl.maxclients, num: cl.num_entities, view: cl.viewentity,
+		model: cl.model_precache[ 1 ], m0: cl.mtime[ 0 ], demo: cls.demoplayback
+	};
+	const ent = cl_entities[ 1 ];
+	const oldEnt = { model: ent.model, frame: ent.frame, origin: Array.from( ent.origin ) };
+
+	try {
+
+		CL_ResetPrediction();
+		sv.active = false;
+		cls.demoplayback = false;
+		cl.maxclients = 1;
+		cl.viewentity = 1;
+		cl.num_entities = 2;
+		cl.mtime[ 0 ] = 1.0;
+		const player = { name: 'progs/player.mdl', flags: 0, synctype: 0 };
+		cl.model_precache[ 1 ] = player;
+
+		CL_SetServerSequence( 1 );
+		CL_SetValidSequence( 1 );
+		CL_GetEntityFrame( 1 ).packet_entities.num_entities = 0;
+		CL_SetPlayerInfo( 0, [ 100, 0, 0 ], [ 0, 0, 0 ], 3, 0, 0, 0, 0, 0, null, 1, 0 );
+		CL_RelinkEntities();
+
+		if ( ent.model !== player ) throw new Error( 'view entity model not set' );
+		if ( ent.frame !== 3 ) throw new Error( `view entity frame: expected 3, got ${ent.frame}` );
+		if ( client.cl_numvisedicts !== 0 ) throw new Error( 'view entity added to cl_visedicts' );
+
+		CL_SetServerSequence( 2 );
+		CL_SetValidSequence( 2 );
+		CL_GetEntityFrame( 2 ).packet_entities.num_entities = 0;
+		CL_SetPlayerInfo( 0, [ 100, 0, 0 ], [ 0, 0, 0 ], 3, 0, 0, 0, 0, 0, null, 0, 0 );
+		CL_RelinkEntities();
+
+		if ( ent.model !== null ) throw new Error( 'view entity model kept after modelindex 0' );
+
+	} finally {
+
+		CL_ResetPrediction();
+		sv.active = old.active;
+		cl.maxclients = old.maxclients;
+		cl.num_entities = old.num;
+		cl.viewentity = old.view;
+		cl.model_precache[ 1 ] = old.model;
+		cl.mtime[ 0 ] = old.m0;
+		cls.demoplayback = old.demo;
+		ent.model = oldEnt.model;
+		ent.frame = oldEnt.frame;
+		ent.origin.set( oldEnt.origin );
+
+	}
+
+} );

@@ -903,14 +903,19 @@ function CL_LinkPlayers() {
 
 	for ( let j = 0; j < cl.maxclients; j ++ ) {
 
-		const pplayer = CL_GetPredictedPlayer( j );
-		if ( pplayer == null )
-			continue;
-
 		const isView = j + 1 === cl.viewentity;
 
 		// Use the cl_entities entry for this player slot so Three.js mesh caching works
 		const ent = cl_entities[ j + 1 ];
+
+		const pplayer = CL_GetPredictedPlayer( j );
+		if ( pplayer == null ) {
+
+			if ( isView )
+				ent.model = null; // nothing for R_Mirror to draw
+			continue;
+
+		}
 
 		// CL_SetUpPlayerPrediction gives the local player cl_simorg, which is
 		// only valid while CL_PredictMove runs. Otherwise (local server, demo
@@ -977,13 +982,13 @@ function CL_LinkPlayers() {
 
 		}
 
-		// the player object never gets added (the local player is the camera),
-		// unless the chase camera is on (cl_main.c: i == cl.viewentity && !chase_active.value)
-		if ( isView && chase === false )
+		if ( pplayer.modelindex <= 0 ) {
+
+			if ( isView )
+				ent.model = null;
 			continue;
 
-		if ( pplayer.modelindex <= 0 )
-			continue;
+		}
 
 		// grab an entity to fill in
 		if ( cl_numvisedicts >= MAX_VISEDICTS )
@@ -1001,8 +1006,11 @@ function CL_LinkPlayers() {
 		// (NQ cl_parse.c: ent->colormap = cl.scores[i-1].translations)
 		ent.colormap = cl.scores != null ? cl.scores[ j ].translations : null;
 
-		// Set origin from predicted/server position
-		if ( origin !== ent.origin )
+		// Set origin from predicted/server position. Unless it is drawn here
+		// (chase camera), the view entity keeps the server origin that
+		// CL_SetPlayerInfo gave it: V_CalcIntermissionRefdef and the beams in
+		// cl_tent.js read it.
+		if ( origin !== ent.origin && ( isView === false || chase ) )
 			VectorCopy( origin, ent.origin );
 
 		// Set angles from movement command (like QW CL_LinkPlayers).
@@ -1012,6 +1020,13 @@ function CL_LinkPlayers() {
 
 		// Mark as updated
 		ent.msgtime = cl.mtime[ 0 ];
+
+		// the player object never gets added (the local player is the camera),
+		// unless the chase camera is on (cl_main.c: i == cl.viewentity && !chase_active.value).
+		// As in cl_main.c CL_RelinkEntities, the view entity is filled in
+		// first: R_Mirror (gl_rmain.c) draws it in the reflection.
+		if ( isView && chase === false )
+			continue;
 
 		cl_visedicts[ cl_numvisedicts ] = ent;
 		set_cl_numvisedicts( cl_numvisedicts + 1 );
