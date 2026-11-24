@@ -127,7 +127,7 @@ WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on t
 - **Lobby protocol (`lobby_server.js`)**: Single bidirectional stream per request using `[type:1][length:2][payload:N]` frames (`LOBBY_LIST`, `LOBBY_JOIN`, `LOBBY_CREATE`, `LOBBY_ROOMS`, `LOBBY_ERROR`). Requests over 4 KB are rejected.
 - **Lobby limits** (`LIMITS` in `lobby_server.js`):
   - 64 concurrent lobby sessions, 8 per client IP.
-  - Room creation (including re-creating a shared room on join) is limited to 3 per minute per IP and 10 per minute overall.
+  - Room creation (including re-creating a shared room on join) is limited to 3 per minute per IP and 10 per minute overall. Attempts whose room fails to start still count.
   - Each IP may have at most 3 live rooms.
   - `maxPlayers` is clamped to an integer from 1 to 16; `hostName` has control characters stripped and is capped at 32 UTF-8 bytes; map names must match `[A-Za-z0-9_]{1,32}`.
 - **Game transport (`net_webtransport_server.ts`)**:
@@ -150,7 +150,7 @@ WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on t
 - A room counts as started once it has bound its port and spawned its map. A missing map or a port that is already in use fails room creation instead of listing a dead room.
 - The lobby reaps rooms that have reported no players for 5 minutes, and rooms whose watchdog stops. Rooms that report players are never reaped as idle.
 - A room exits by itself after `-idletimeout` seconds with no players (whether or not anyone ever joined), when its server shuts down after a `Host_Error`, or when the lobby goes away (its stdin pipe closes).
-- On SIGINT, SIGTERM or SIGHUP the lobby terminates all rooms before exiting. A room that ignores SIGTERM is killed after 5 seconds. A room's port is only reused once its process has exited.
+- On SIGINT, SIGTERM or SIGHUP the lobby sends SIGTERM to all rooms and exits; rooms that don't stop on SIGTERM still exit when their stdin closes. A room the lobby terminates while running (idle, wedged or failed startup) is killed with SIGKILL if it hasn't exited 5 seconds after SIGTERM. A room's port is only reused once its process has exited.
 - The lobby logs its own operational lines unfiltered. Room processes keep the quiet allowlist (`__ICARO_QUIET_LOGS`), and the lobby relays what they print, except status and watchdog lines.
 
 ### Files
@@ -168,7 +168,7 @@ WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on t
 **Tests & utilities:**
 
 - `net_webtransport_server_test.ts` — Unit tests for WebTransport packet sequencing (`deno test server/net_webtransport_server_test.ts`)
-- `../tests/server_lobby_test.js` — Lobby and room-manager tests. The room-process test needs `--allow-run --allow-write` and is skipped otherwise.
+- `../tests/server_lobby_test.js` — Lobby and room-manager tests (`deno task test` from the repository root). The room-process test needs `--allow-run --allow-write` and is skipped without them.
 - `test_imports.js` — Smoke check verifying Deno imports of `../src/` modules (`cd server && deno run --allow-read test_imports.js`)
 
 ## Production Deployment
@@ -187,7 +187,7 @@ deno run --unstable-net \
   -pak /opt/icaro-engine/static/pak0.pak
 ```
 
-Rooms need to read the pak and the cert and key, so the user running the lobby must be able to read all three.
+Rooms need to read `static/`, the pak, and the cert and key, so the user running the lobby must be able to read all of them.
 
 ## License
 

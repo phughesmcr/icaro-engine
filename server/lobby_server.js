@@ -15,6 +15,8 @@ import {
 	RoomManager_CleanupUnhealthyRooms,
 	RoomManager_ShutdownAll,
 	RoomManager_CountRoomsByOwner,
+	RoomManager_GetRoomCount,
+	RoomManager_HasRoom,
 	RoomManager_ClampMaxPlayers,
 	RoomManager_SanitizeHostName,
 	RoomManager_SanitizeMapName,
@@ -33,7 +35,7 @@ const CONFIG = {
 };
 
 // Abuse limits. Room creation (LOBBY_CREATE, and LOBBY_JOIN on an unknown
-// id, which auto-creates the room) is rate limited per client IP and
+// but well-formed six-character id, which re-creates the room) is rate limited per client IP and
 // globally, and each IP may own a few live rooms at most.
 export const LIMITS = {
 	maxSessions: 64,            // Concurrent lobby sessions, all clients
@@ -80,15 +82,20 @@ export function createRateLimiter( limit, windowMs ) {
 	}
 
 	return {
+		// True if `key` may act now (does not record a hit)
+		canTake( key, now = Date.now() ) {
+			prune( now );
+			const times = hits.get( key );
+			return times === undefined || times.length < limit;
+		},
 		// True if `key` may act now (and records the hit)
 		tryTake( key, now = Date.now() ) {
-			prune( now );
+			if ( this.canTake( key, now ) === false ) return false;
 			let times = hits.get( key );
 			if ( times === undefined ) {
 				times = [];
 				hits.set( key, times );
 			}
-			if ( times.length >= limit ) return false;
 			times.push( now );
 			return true;
 		},
@@ -104,20 +111,24 @@ const globalCreateLimiter = createRateLimiter( LIMITS.createsGlobalPerWindow, LI
 /**
  * Check every room-creation limit for client `ip`. Returns null if allowed
  * (and consumes rate-limit budget), else an error message for the client.
+ * Budget is spent on every allowed attempt, including ones whose room then
+ * fails to start: the spawn cost is paid either way.
  */
-function checkCreateAllowed( ip ) {
-	if ( RoomManager_ListRooms().length >= MAX_ROOMS ) {
+export function checkCreateAllowed( ip, now = Date.now() ) {
+	if ( RoomManager_GetRoomCount() >= MAX_ROOMS ) {
 		return 'Server room limit reached (' + MAX_ROOMS + ' rooms). Try again later.';
 	}
 	if ( RoomManager_CountRoomsByOwner( ip ) >= LIMITS.maxRoomsPerIp ) {
 		return 'You already have ' + LIMITS.maxRoomsPerIp + ' rooms open. Close one first.';
 	}
-	if ( perIpCreateLimiter.tryTake( ip ) === false ) {
+	if ( perIpCreateLimiter.canTake( ip, now ) === false ) {
 		return 'Too many rooms created. Wait a minute and try again.';
 	}
-	if ( globalCreateLimiter.tryTake( '*' ) === false ) {
+	if ( globalCreateLimiter.canTake( '*', now ) === false ) {
 		return 'Server is busy creating rooms. Try again shortly.';
 	}
+	perIpCreateLimiter.tryTake( ip, now );
+	globalCreateLimiter.tryTake( '*', now );
 	return null;
 }
 
@@ -388,7 +399,10 @@ async function handleSession( wt, address, ip ) {
 
 				// A valid room id link to an expired room re-creates it, under
 				// the same limits as LOBBY_CREATE.
-				if ( room === null && ROOM_ID_PATTERN.test( roomId ) ) {
+				if ( room === null && ROOM_ID_PATTERN.test( roomId ) && RoomManager_HasRoom( roomId ) ) {
+					// Another join is re-creating this room right now
+					errorMsg = 'Room is starting. Try again in a moment.';
+				} else if ( room === null && ROOM_ID_PATTERN.test( roomId ) ) {
 					const denied = checkCreateAllowed( ip );
 					if ( denied !== null ) {
 						errorMsg = denied;
@@ -404,8 +418,10 @@ async function handleSession( wt, address, ip ) {
 						// Re-check room either way: create may have raced with
 						// another join that created it first.
 						room = RoomManager_GetRoom( roomId );
-						if ( room === null && created === null ) {
-							errorMsg = 'Unable to create room right now. Please try again.';
+						if ( room === null ) {
+							errorMsg = created === null && RoomManager_HasRoom( roomId )
+								? 'Room is starting. Try again in a moment.'
+								: 'Unable to create room right now. Please try again.';
 						}
 					}
 				}

@@ -46,6 +46,7 @@ interface RoomProcess {
 	lastActiveTime: number;  // Last time room had players (for idle cleanup)
 	lastOutputTime: number;  // Last stdout/stderr line seen from room process
 	lastWatchdogTime: number; // Last watchdog tick seen from room stderr
+	ready: boolean;          // Startup finished; only ready rooms are listed or joinable
 	exited: boolean;
 	killTimer: ReturnType<typeof setTimeout> | null;
 }
@@ -432,6 +433,7 @@ export async function RoomManager_CreateRoom( config: {
 		lastActiveTime: now,  // Initialize to creation time
 		lastOutputTime: now,
 		lastWatchdogTime: now,
+		ready: false,
 		exited: false,
 		killTimer: null,
 	};
@@ -550,6 +552,7 @@ export async function RoomManager_CreateRoom( config: {
 		clearTimeout( timeoutId );
 	}
 
+	roomInfo.ready = true;
 	Sys_Printf( 'Room %s created successfully on port %d\n', id, port );
 
 	return { id, port };
@@ -570,7 +573,7 @@ export function RoomManager_GetRoom( id: string ): {
 	RoomManager_CleanupUnhealthyRooms();
 
 	const room = roomProcesses.get( id.toUpperCase() );
-	if ( room == null ) return null;
+	if ( room == null || room.ready === false ) return null;
 	if ( isRoomResponsive( room, Date.now() ) === false ) return null;
 
 	return {
@@ -608,7 +611,7 @@ export function RoomManager_ListRooms(): Array<{
 	}> = [];
 
 	for ( const room of roomProcesses.values() ) {
-		if ( isRoomResponsive( room, now ) === false ) {
+		if ( room.ready === false || isRoomResponsive( room, now ) === false ) {
 			continue;
 		}
 
@@ -717,7 +720,14 @@ export function RoomManager_CleanupIdleRooms( maxIdleMs: number = 5 * 60 * 1000 
 }
 
 /**
- * Get room count
+ * Whether a room with this id exists, including one that is still starting.
+ */
+export function RoomManager_HasRoom( id: string ): boolean {
+	return roomProcesses.has( id.toUpperCase() );
+}
+
+/**
+ * Get room count (including rooms that are still starting)
  */
 export function RoomManager_GetRoomCount(): number {
 	return roomProcesses.size;

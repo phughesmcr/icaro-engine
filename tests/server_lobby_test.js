@@ -7,6 +7,8 @@ import {
 	encodeFrame,
 	parseCreateConfig,
 	createRateLimiter,
+	checkCreateAllowed,
+	LIMITS,
 	MAX_FRAME_PAYLOAD,
 } from '../server/lobby_server.js';
 import {
@@ -19,6 +21,7 @@ import {
 	RoomManager_SetConfig,
 	RoomManager_CreateRoom,
 	RoomManager_GetRoom,
+	RoomManager_HasRoom,
 	RoomManager_CleanupIdleRooms,
 	RoomManager_TerminateRoom,
 	RoomManager_ShutdownAll,
@@ -105,6 +108,28 @@ Deno.test( 'rate limiter enforces a sliding window per key (SRV-2)', () => {
 	assert.equal( limiter.tryTake( 'a', 1005 ), false );
 	limiter.tryTake( 'c', 5000 ); // prunes expired keys
 	assert.equal( limiter.size(), 1 );
+	assert.equal( limiter.canTake( 'c', 5000 ), true );
+	assert.equal( limiter.canTake( 'c', 5000 ), true ); // canTake records nothing
+} );
+
+Deno.test( 'room creation is limited per IP and globally (SRV-2)', () => {
+	const t = 1e12; // fixed clock, far from other tests' hits
+	for ( let i = 0; i < LIMITS.createsPerIpPerWindow; i++ ) {
+		assert.equal( checkCreateAllowed( '10.0.0.1', t ), null );
+	}
+	assert.match( checkCreateAllowed( '10.0.0.1', t ), /Too many rooms created/ );
+	// Fill the global budget from other IPs
+	let n = LIMITS.createsPerIpPerWindow;
+	for ( let ip = 2; n < LIMITS.createsGlobalPerWindow; ip++ ) {
+		assert.equal( checkCreateAllowed( '10.0.0.' + ip, t ), null );
+		n++;
+	}
+	assert.match( checkCreateAllowed( '10.0.0.99', t ), /busy/ );
+	// A global rejection must not spend the IP's own budget
+	const later = t + LIMITS.createWindowMs;
+	for ( let i = 0; i < LIMITS.createsPerIpPerWindow; i++ ) {
+		assert.equal( checkCreateAllowed( '10.0.0.99', later ), null );
+	}
 } );
 
 Deno.test( 'line splitter handles split lines and split UTF-8 (SRV-5)', () => {
@@ -151,9 +176,8 @@ Deno.test( 'quiet logs keep [Heartbeat] lines (SRV-1)', () => {
 } );
 
 // Spawns a fake room server and drives it through a temp file, so it needs
-// --allow-run and --allow-write (not in the default `deno task test`
-// permissions; it is skipped there). Run with:
-//   deno test --allow-read --allow-net --allow-env --allow-run --allow-write tests/server_lobby_test.js
+// --allow-run and --allow-write (`deno task test` grants both; it is
+// skipped when they are missing).
 const canRun = ( await Deno.permissions.query( { name: 'run' } ) ).state === 'granted' &&
 	( await Deno.permissions.query( { name: 'write' } ) ).state === 'granted';
 
@@ -179,7 +203,11 @@ Deno.test( {
 		console.log = () => {};
 		try {
 			await Deno.writeTextFile( playersFile, '2' );
-			const a = await RoomManager_CreateRoom( { map: 'e1m1', maxPlayers: 99, hostName: 'host', specificId: 'TEST01' } );
+			const pending = RoomManager_CreateRoom( { map: 'e1m1', maxPlayers: 99, hostName: 'host', specificId: 'TEST01' } );
+			// Not joinable or listed until it has started
+			assert.equal( RoomManager_HasRoom( 'TEST01' ), true );
+			assert.equal( RoomManager_GetRoom( 'TEST01' ), null );
+			const a = await pending;
 			assert.ok( a !== null, 'room should start' );
 			assert.equal( RoomManager_GetRoom( 'TEST01' ).maxPlayers, 16 );
 			await waitFor( () => RoomManager_GetRoom( 'TEST01' ).playerCount === 2 );
@@ -197,6 +225,12 @@ Deno.test( {
 			assert.notEqual( b.port, a.port );
 			await new Promise( ( r ) => setTimeout( r, 600 ) );
 			assert.ok( RoomManager_GetRoom( 'TEST01' ) !== null, 'new room survives old exit handler' );
+
+			// The old room's port is free again once its process has exited
+			const c = await RoomManager_CreateRoom( { map: 'e1m1', maxPlayers: 4, hostName: 'host', specificId: 'TEST02' } );
+			assert.ok( c !== null );
+			assert.equal( c.port, a.port );
+			assert.equal( RoomManager_TerminateRoom( 'TEST02' ), true );
 
 			// With zero players the room is reaped
 			await Deno.writeTextFile( playersFile, '0' );
