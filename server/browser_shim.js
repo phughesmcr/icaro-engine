@@ -133,6 +133,26 @@ export class Matrix4 {
 	compose() { return this; }
 	decompose() { return this; }
 	setPosition() { return this; }
+	invert() { return this; }
+}
+
+// Vector4 - renderer.getViewport target in gl_rmirror.js
+export class Vector4 {
+	constructor(x = 0, y = 0, z = 0, w = 1) {
+		this.x = x;
+		this.y = y;
+		this.z = z;
+		this.w = w;
+	}
+	set(x, y, z, w) {
+		this.x = x;
+		this.y = y;
+		this.z = z;
+		this.w = w;
+		return this;
+	}
+	get width() { return this.z; }
+	get height() { return this.w; }
 }
 
 // Euler - used for rotations
@@ -247,6 +267,13 @@ export class Material {
 	}
 }
 
+export class ShaderMaterial extends Material {
+	constructor(params = {}) {
+		super();
+		Object.assign(this, params);
+	}
+}
+
 export class MeshBasicMaterial extends Material {
 	constructor(params = {}) {
 		super();
@@ -346,6 +373,31 @@ export class Scene extends Object3D {
 	constructor() {
 		super();
 	}
+}
+
+export class PerspectiveCamera extends Object3D {
+	constructor(fov = 50, aspect = 1, near = 0.1, far = 2000) {
+		super();
+		this.fov = fov;
+		this.aspect = aspect;
+		this.near = near;
+		this.far = far;
+		this.matrixWorldInverse = new Matrix4();
+		this.projectionMatrix = new Matrix4();
+		this.projectionMatrixInverse = new Matrix4();
+	}
+	updateProjectionMatrix() {}
+}
+
+// Render-target stub (gl_rmirror.js); there is no GPU here
+export class WebGLRenderTarget {
+	constructor(width = 1, height = 1, options = {}) {
+		this.width = width;
+		this.height = height;
+		this.options = options;
+		this.texture = new Texture();
+	}
+	dispose() {}
 }
 
 // Color

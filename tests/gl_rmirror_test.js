@@ -271,3 +271,108 @@ Deno.test( 'mirror texture is recognised by name, independent of mirrortexturenu
 	assertEqual( gl_rsurf.R_IsMirrorTexture( null ), false, 'null' );
 
 } );
+
+// Golden Rule #4: after the first frame, the pass reuses its scratch objects.
+// The shim has no GPU, so the renderer is a stub that only counts calls.
+Deno.test( 'R_MirrorPass and R_MirrorCleanup reuse their objects across frames', async () => {
+
+	const THREE = await import( 'three' );
+
+	const renderer = {
+		renders: 0,
+		viewports: [],
+		target: null,
+		getViewport( v ) {
+
+			this.viewports.push( v );
+			return v.set( 0, 0, 320, 200 );
+
+		},
+		getPixelRatio() { return 1; },
+		getRenderTarget() { return this.target; },
+		setRenderTarget( t ) { this.target = t; },
+		clear() {},
+		render() { this.renders ++; }
+	};
+
+	const scene = new THREE.Scene();
+	const camera = new THREE.PerspectiveCamera( 90, 1.6, 4, 4096 );
+	// eye 64 units in front of the plane x = 0
+	camera.matrixWorld.elements.set( [ 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 64, 0, 0, 1 ] );
+
+	function makeBatch() {
+
+		const vis = [ true, true, true ];
+		return {
+			getVisibleAt( id ) { return vis[ id ]; },
+			setVisibleAt( id, v ) { vis[ id ] = v; },
+			vis
+		};
+
+	}
+
+	const batch = makeBatch();
+	const geoms = [ new THREE.BufferGeometry(), new THREE.BufferGeometry(), new THREE.BufferGeometry() ];
+	const texture = new THREE.Texture();
+	const items = [
+		{ geom: geoms[ 0 ], texture, batch, instanceId: 0 },
+		{ geom: geoms[ 1 ], texture, batch, instanceId: 1 }
+	];
+	const plane = { normal: [ 1, 0, 0 ], dist: 0 };
+	const weapon = new THREE.Object3D();
+	const hide = [ weapon, null ];
+
+	let group = null;
+	let meshes = null;
+	let material = null;
+	let textureMatrix = null;
+
+	for ( let frame = 0; frame < 4; frame ++ ) {
+
+		// frame 3 has fewer surfaces than before: the spare mesh is hidden
+		const frameItems = frame === 3 ? items.slice( 0, 1 ) : items;
+		const drawn = gl_rmirror.R_MirrorPass( renderer, scene, camera, plane, frameItems, 0.5, hide );
+		assertEqual( drawn, true, `frame ${frame} drawn` );
+		assertEqual( weapon.visible, true, `frame ${frame} weapon shown again after the reflection` );
+		assertEqual( batch.vis[ 0 ], false, `frame ${frame} real mirror surface hidden in the main view` );
+
+		const g = scene.children.find( ( c ) => c.name === 'quake_mirror' );
+		if ( group === null ) {
+
+			group = g;
+			meshes = g.children.slice();
+			material = meshes[ 0 ].material;
+			textureMatrix = material.uniforms.textureMatrix.value;
+
+		}
+
+		assertEqual( g, group, `frame ${frame} same overlay group` );
+		assertEqual( g.children.length, 2, `frame ${frame} no new overlay meshes` );
+		assertEqual( g.children[ 0 ], meshes[ 0 ], `frame ${frame} mesh 0 reused` );
+		assertEqual( g.children[ 1 ], meshes[ 1 ], `frame ${frame} mesh 1 reused` );
+		assertEqual( g.children[ 0 ].material, material, `frame ${frame} same material` );
+		assertEqual( material.uniforms.textureMatrix.value, textureMatrix, `frame ${frame} same texture matrix` );
+		assertEqual( meshes[ 0 ].geometry, geoms[ 0 ], `frame ${frame} mesh 0 geometry` );
+		assertEqual( meshes[ 1 ].visible, frame !== 3, `frame ${frame} spare mesh visibility` );
+
+		gl_rmirror.R_MirrorCleanup();
+		assertEqual( scene.children.indexOf( group ), - 1, `frame ${frame} overlay removed after the frame` );
+		assertEqual( batch.vis[ 0 ], true, `frame ${frame} mirror surface visibility restored` );
+		assertEqual( batch.vis[ 1 ], true, `frame ${frame} second surface visibility restored` );
+
+	}
+
+	// a new map: geometries replaced, meshes kept
+	const newItems = [ { geom: geoms[ 2 ], texture, batch, instanceId: 2 } ];
+	gl_rmirror.R_MirrorPass( renderer, scene, camera, plane, newItems, 0.5, hide );
+	assertEqual( meshes[ 0 ].geometry, geoms[ 2 ], 'mesh takes the new map geometry' );
+	gl_rmirror.R_MirrorCleanup();
+
+	assertEqual( renderer.renders, 5, 'one reflection render per frame' );
+	for ( let i = 1; i < renderer.viewports.length; i ++ )
+		assertEqual( renderer.viewports[ i ], renderer.viewports[ 0 ], `viewport scratch reused (call ${i})` );
+
+	// nothing to undo: a second cleanup is a no-op
+	gl_rmirror.R_MirrorCleanup();
+
+} );

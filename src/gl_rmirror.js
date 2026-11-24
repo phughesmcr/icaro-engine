@@ -60,11 +60,20 @@ export function R_ReflectVector( out, v, normal ) {
 // forward x up to keep a proper rotation (the image comes out flipped, which
 // the projective texture lookup in the mirror shader undoes).
 // cam is a column-major camera world matrix: x = right, y = up, z = -forward.
+// Scratch for R_MirrorCameraWorld (reflected in place: R_ReflectPoint and
+// R_ReflectVector read the input before writing the output).
+const _mcPos = new Float64Array( 3 );
+const _mcUp = new Float64Array( 3 );
+const _mcFwd = new Float64Array( 3 );
+
 export function R_MirrorCameraWorld( out, cam, normal, dist ) {
 
-	const pos = R_ReflectPoint( [ 0, 0, 0 ], [ cam[ 12 ], cam[ 13 ], cam[ 14 ] ], normal, dist );
-	const up = R_ReflectVector( [ 0, 0, 0 ], [ cam[ 4 ], cam[ 5 ], cam[ 6 ] ], normal );
-	const fwd = R_ReflectVector( [ 0, 0, 0 ], [ - cam[ 8 ], - cam[ 9 ], - cam[ 10 ] ], normal );
+	_mcPos[ 0 ] = cam[ 12 ]; _mcPos[ 1 ] = cam[ 13 ]; _mcPos[ 2 ] = cam[ 14 ];
+	_mcUp[ 0 ] = cam[ 4 ]; _mcUp[ 1 ] = cam[ 5 ]; _mcUp[ 2 ] = cam[ 6 ];
+	_mcFwd[ 0 ] = - cam[ 8 ]; _mcFwd[ 1 ] = - cam[ 9 ]; _mcFwd[ 2 ] = - cam[ 10 ];
+	const pos = R_ReflectPoint( _mcPos, _mcPos, normal, dist );
+	const up = R_ReflectVector( _mcUp, _mcUp, normal );
+	const fwd = R_ReflectVector( _mcFwd, _mcFwd, normal );
 
 	// right = forward x up
 	const rx = fwd[ 1 ] * up[ 2 ] - fwd[ 2 ] * up[ 1 ];
@@ -173,11 +182,35 @@ void main() {
 }
 `;
 
+
+// Everything the pass needs per frame is allocated once here or on first use
+// (Golden Rule #4): R_MirrorPass and R_MirrorCleanup allocate nothing after
+// the first frame, except when a map has more visible mirror surfaces than
+// any frame before it, which grows the pools below.
 let _target = null;
 let _material = null;
 let _group = null;
 let _virtualCamera = null;
-let _restore = null; // undo list for the frame in progress
+let _viewport = null; // THREE.Vector4 for renderer.getViewport
+const _textureMatrix = new THREE.Matrix4(); // the overlay's textureMatrix uniform
+const _keepNormal = new Float64Array( 3 );
+const _clipPlane = new Float64Array( 4 );
+
+// Overlay meshes, one per visible mirror surface, kept in _group. Their
+// geometry is reassigned every frame: R_ClearMirrors disposes the mirror
+// geometries on a map change.
+const _meshes = [];
+
+// Undo list for the frame in progress: mirror instances hidden in the world
+// batches, with their previous visibility. _restoreCount is -1 when there is
+// nothing to undo.
+const _restoreBatch = [];
+const _restoreId = [];
+const _restoreVisible = [];
+let _restoreCount = - 1;
+
+// Objects hidden for the reflection render only.
+const _hidden = [];
 
 function _ensureTarget( w, h ) {
 
@@ -203,6 +236,32 @@ function _ensureTarget( w, h ) {
 
 }
 
+function _ensureOverlay() {
+
+	if ( _material === null ) {
+
+		_material = new THREE.ShaderMaterial( {
+			uniforms: {
+				map: { value: null },
+				reflection: { value: null },
+				alpha: { value: 1 },
+				textureMatrix: { value: _textureMatrix }
+			},
+			vertexShader: MIRROR_VERTEX,
+			fragmentShader: MIRROR_FRAGMENT
+		} );
+
+	}
+
+	if ( _group === null ) {
+
+		_group = new THREE.Group();
+		_group.name = 'quake_mirror';
+
+	}
+
+}
+
 // Render the reflected scene and put the mirror overlay into the scene.
 // items: [ { geom, texture, batch, instanceId } ] for the visible mirror
 // surfaces on `plane` ({ normal, dist }). hide: objects to hide in the
@@ -222,7 +281,9 @@ export function R_MirrorPass( renderer, scene, camera, plane, items, alpha, hide
 		return false; // eye on the plane, nothing sensible to reflect
 
 	const sgn = side > 0 ? 1 : - 1;
-	const keepNormal = [ plane.normal[ 0 ] * sgn, plane.normal[ 1 ] * sgn, plane.normal[ 2 ] * sgn ];
+	_keepNormal[ 0 ] = plane.normal[ 0 ] * sgn;
+	_keepNormal[ 1 ] = plane.normal[ 1 ] * sgn;
+	_keepNormal[ 2 ] = plane.normal[ 2 ] * sgn;
 	const keepDist = plane.dist * sgn;
 
 	// virtual camera
@@ -239,49 +300,55 @@ export function R_MirrorPass( renderer, scene, camera, plane, items, alpha, hide
 	vc.matrixAutoUpdate = false;
 	vc.matrixWorldAutoUpdate = false;
 	const world = vc.matrixWorld.elements;
-	R_MirrorCameraWorld( world, cam, keepNormal, keepDist );
+	R_MirrorCameraWorld( world, cam, _keepNormal, keepDist );
 	R_RigidInverse( vc.matrixWorldInverse.elements, world );
 
 	// projective texture matrix: bias * projection * view, before the
 	// oblique modification
-	const textureMatrix = new THREE.Matrix4();
-	textureMatrix.set(
+	_textureMatrix.set(
 		0.5, 0.0, 0.0, 0.5,
 		0.0, 0.5, 0.0, 0.5,
 		0.0, 0.0, 0.5, 0.5,
 		0.0, 0.0, 0.0, 1.0
 	);
-	textureMatrix.multiply( vc.projectionMatrix );
-	textureMatrix.multiply( vc.matrixWorldInverse );
+	_textureMatrix.multiply( vc.projectionMatrix );
+	_textureMatrix.multiply( vc.matrixWorldInverse );
 
-	const clipPlane = R_PlaneToCameraSpace( [ 0, 0, 0, 0 ], keepNormal, keepDist, vc.matrixWorldInverse.elements );
-	R_ObliqueProjection( vc.projectionMatrix.elements, clipPlane );
+	R_PlaneToCameraSpace( _clipPlane, _keepNormal, keepDist, vc.matrixWorldInverse.elements );
+	R_ObliqueProjection( vc.projectionMatrix.elements, _clipPlane );
 	vc.projectionMatrixInverse.copy( vc.projectionMatrix ).invert();
 
 	// render target at the size of the main viewport
-	const vp = renderer.getViewport( new THREE.Vector4() );
+	if ( _viewport === null )
+		_viewport = new THREE.Vector4();
+
+	const vp = renderer.getViewport( _viewport );
 	const ratio = renderer.getPixelRatio();
 	const w = Math.max( 1, Math.min( 4096, Math.round( vp.width * ratio ) ) );
 	const h = Math.max( 1, Math.min( 4096, Math.round( vp.height * ratio ) ) );
 	const target = _ensureTarget( w, h );
 
 	// hide the real mirror surfaces and the objects that don't belong in a reflection
-	_restore = [];
 	for ( let i = 0; i < items.length; i ++ ) {
 
 		const it = items[ i ];
-		_restore.push( { batch: it.batch, id: it.instanceId, visible: it.batch.getVisibleAt( it.instanceId ) } );
+		_restoreBatch[ i ] = it.batch;
+		_restoreId[ i ] = it.instanceId;
+		_restoreVisible[ i ] = it.batch.getVisibleAt( it.instanceId );
 		it.batch.setVisibleAt( it.instanceId, false );
 
 	}
 
-	const hidden = [];
+	_restoreCount = items.length;
+
+	let numHidden = 0;
 	for ( let i = 0; i < hide.length; i ++ ) {
 
-		if ( hide[ i ] != null && hide[ i ].visible === true ) {
+		const o = hide[ i ];
+		if ( o !== null && o !== undefined && o.visible === true ) {
 
-			hide[ i ].visible = false;
-			hidden.push( hide[ i ] );
+			o.visible = false;
+			_hidden[ numHidden ++ ] = o;
 
 		}
 
@@ -293,45 +360,40 @@ export function R_MirrorPass( renderer, scene, camera, plane, items, alpha, hide
 	renderer.render( scene, vc );
 	renderer.setRenderTarget( prevTarget );
 
-	for ( let i = 0; i < hidden.length; i ++ )
-		hidden[ i ].visible = true;
+	for ( let i = 0; i < numHidden; i ++ ) {
 
-	// overlay: the mirror surface drawn with the reflection mixed in
-	if ( _material === null ) {
-
-		_material = new THREE.ShaderMaterial( {
-			uniforms: {
-				map: { value: null },
-				reflection: { value: null },
-				alpha: { value: 1 },
-				textureMatrix: { value: new THREE.Matrix4() }
-			},
-			vertexShader: MIRROR_VERTEX,
-			fragmentShader: MIRROR_FRAGMENT
-		} );
+		_hidden[ i ].visible = true;
+		_hidden[ i ] = null;
 
 	}
+
+	// overlay: the mirror surface drawn with the reflection mixed in
+	_ensureOverlay();
 
 	// there is only ever one mirror texture
 	_material.uniforms.map.value = items[ 0 ].texture;
 	_material.uniforms.reflection.value = target.texture;
 	_material.uniforms.alpha.value = alpha;
-	_material.uniforms.textureMatrix.value.copy( textureMatrix );
-
-	if ( _group === null ) {
-
-		_group = new THREE.Group();
-		_group.name = 'quake_mirror';
-
-	}
 
 	for ( let i = 0; i < items.length; i ++ ) {
 
-		const mesh = new THREE.Mesh( items[ i ].geom, _material );
-		mesh.frustumCulled = false;
-		_group.add( mesh );
+		let mesh = _meshes[ i ];
+		if ( mesh === undefined ) {
+
+			mesh = new THREE.Mesh( items[ i ].geom, _material );
+			mesh.frustumCulled = false;
+			_meshes[ i ] = mesh;
+			_group.add( mesh );
+
+		}
+
+		mesh.geometry = items[ i ].geom;
+		mesh.visible = true;
 
 	}
+
+	for ( let i = items.length; i < _meshes.length; i ++ )
+		_meshes[ i ].visible = false;
 
 	scene.add( _group );
 	return true;
@@ -341,23 +403,19 @@ export function R_MirrorPass( renderer, scene, camera, plane, items, alpha, hide
 // Undo R_MirrorPass after the main render. Safe to call every frame.
 export function R_MirrorCleanup() {
 
-	if ( _restore === null )
+	if ( _restoreCount < 0 )
 		return;
 
-	for ( let i = 0; i < _restore.length; i ++ ) {
+	for ( let i = 0; i < _restoreCount; i ++ ) {
 
-		const r = _restore[ i ];
-		r.batch.setVisibleAt( r.id, r.visible );
-
-	}
-
-	_restore = null;
-
-	if ( _group !== null ) {
-
-		if ( _group.parent ) _group.parent.remove( _group );
-		_group.clear(); // geometries belong to the world mirror list
+		_restoreBatch[ i ].setVisibleAt( _restoreId[ i ], _restoreVisible[ i ] );
+		_restoreBatch[ i ] = null;
 
 	}
+
+	_restoreCount = - 1;
+
+	if ( _group !== null && _group.parent !== null )
+		_group.parent.remove( _group );
 
 }
