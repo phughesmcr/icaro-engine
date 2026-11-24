@@ -11,6 +11,7 @@ import { d_8to24table, vid } from './vid.js';
 import { COM_LoadFile } from './pak.js';
 import { DotProduct, VectorCopy, Length } from './mathlib.js';
 import { Cvar_RegisterVariable } from './cvar.js';
+import { MAX_DLIGHTS } from './client.js';
 import { R_InitSky as R_InitSky_warp, GL_SubdivideSurface as GL_SubdivideSurface_warp, GL_Warp_SetLoadmodel } from './gl_warp.js';
 import { GL_MakeAliasModelDisplayLists as GL_MakeAliasModelDisplayLists_mesh } from './gl_mesh.js';
 
@@ -262,7 +263,8 @@ export class msurface_t {
 
 		// lighting info
 		this.dlightframe = 0;
-		this.dlightbits = 0;
+		// QuakeSpasm: one bit per dynamic light, in 32-bit words
+		this.dlightbits = new Uint32Array( ( MAX_DLIGHTS + 31 ) >> 5 );
 
 		this.lightmaptexturenum = 0;
 		this.styles = new Uint8Array( MAXLIGHTMAPS );

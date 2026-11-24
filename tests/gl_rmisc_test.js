@@ -343,7 +343,7 @@ Deno.test( 'map teardown invalidates cached brush entity groups', () => {
 		styles: new Uint8Array( [ 255, 255, 255, 255 ] ),
 		cached_light: new Int32Array( 4 ),
 		dlightframe: - 1,
-		dlightbits: 0,
+		dlightbits: new Uint32Array( 2 ),
 		cached_dlight: false,
 		polys: poly,
 		lightmaptexturenum: 0,

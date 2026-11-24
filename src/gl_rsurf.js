@@ -99,7 +99,13 @@ import { isXRActive } from './webxr.js';
 
 export const BLOCK_WIDTH = 128;
 export const BLOCK_HEIGHT = 128;
+// Deliberate deviation, from QuakeSpasm r_brush.c: GLQuake had a fixed 64
+// blocks and Sys_Error'd "AllocBlock: full" past them, which maps with many
+// large surfaces hit now that extents go to 2000 (gl_model.js). AllocBlock
+// adds blocks on demand up to MAX_SANITY_LIGHTMAPS. MAX_LIGHTMAPS is only how
+// many blocks are allocated at start-up, so id-sized maps allocate none.
 export const MAX_LIGHTMAPS = 64;
+const MAX_SANITY_LIGHTMAPS = 1 << 20;
 
 const GL_LUMINANCE = 0x1909;
 
@@ -144,26 +150,49 @@ class glRect_t {
 
 }
 
-const lightmap_polys = new Array( MAX_LIGHTMAPS ).fill( null );
-const lightmap_modified = new Array( MAX_LIGHTMAPS ).fill( false );
+// Per-block state, indexed by lightmap block number. Each array holds at
+// least lightmap_count blocks; GL_GrowLightmaps adds more (QuakeSpasm's
+// realloc of lightmaps[] in AllocBlock).
+const lightmap_polys = [];
+const lightmap_modified = [];
 const lightmap_rectchange = [];
-for ( let i = 0; i < MAX_LIGHTMAPS; i ++ ) {
-
-	lightmap_rectchange.push( new glRect_t() );
-
-}
-
-// allocated[texnum][column] = height used so far
-const allocated = [];
-for ( let i = 0; i < MAX_LIGHTMAPS; i ++ ) {
-
-	allocated.push( new Int32Array( BLOCK_WIDTH ) );
-
-}
 
 // the lightmap texture data needs to be kept in main memory
-// so texsubimage can update properly
-const lightmaps = new Uint8Array( 4 * MAX_LIGHTMAPS * BLOCK_WIDTH * BLOCK_HEIGHT );
+// so texsubimage can update properly. One array per block, as QuakeSpasm's
+// lightmaps[i].data, so adding a block never moves the others.
+const lightmaps = [];
+
+// Blocks in use by the current map (QuakeSpasm lightmap_count).
+export let lightmap_count = 0;
+
+// QuakeSpasm: AllocBlock only fills the newest block, so one column-height
+// array is enough (allocated[column] = height used so far).
+const allocated = new Int32Array( BLOCK_WIDTH );
+let last_lightmap_allocated = 0;
+
+/*
+================
+GL_GrowLightmaps
+
+Makes sure the per-block arrays hold at least count blocks. Runs at start-up
+for MAX_LIGHTMAPS blocks and again from AllocBlock at map load if a map
+needs more, never per frame.
+================
+*/
+function GL_GrowLightmaps( count ) {
+
+	while ( lightmaps.length < count ) {
+
+		lightmap_polys.push( null );
+		lightmap_modified.push( false );
+		lightmap_rectchange.push( new glRect_t() );
+		lightmaps.push( new Uint8Array( 4 * BLOCK_WIDTH * BLOCK_HEIGHT ) );
+
+	}
+
+}
+
+GL_GrowLightmaps( MAX_LIGHTMAPS );
 
 // For gl_texsort 0
 let skychain = null; // msurface_t
@@ -1049,9 +1078,8 @@ export function R_RenderBrushPoly( fa ) {
 				if ( ( theRect.h + theRect.t ) < ( fa.light_t + tmax ) )
 					theRect.h = ( fa.light_t - theRect.t ) + tmax;
 
-				const baseOffset = fa.lightmaptexturenum * lightmap_bytes * BLOCK_WIDTH * BLOCK_HEIGHT;
-				const offset = baseOffset + fa.light_t * BLOCK_WIDTH * lightmap_bytes + fa.light_s * lightmap_bytes;
-				R_BuildLightMap( fa, lightmaps, offset, BLOCK_WIDTH * lightmap_bytes );
+				const offset = fa.light_t * BLOCK_WIDTH * lightmap_bytes + fa.light_s * lightmap_bytes;
+				R_BuildLightMap( fa, lightmaps[ fa.lightmaptexturenum ], offset, BLOCK_WIDTH * lightmap_bytes );
 
 			}
 
@@ -1091,9 +1119,8 @@ export function R_RenderBrushPoly( fa ) {
 			if ( ( theRect.h + theRect.t ) < ( fa.light_t + tmax ) )
 				theRect.h = ( fa.light_t - theRect.t ) + tmax;
 
-			const baseOffset = fa.lightmaptexturenum * lightmap_bytes * BLOCK_WIDTH * BLOCK_HEIGHT;
-			const offset = baseOffset + fa.light_t * BLOCK_WIDTH * lightmap_bytes + fa.light_s * lightmap_bytes;
-			R_BuildLightMap( fa, lightmaps, offset, BLOCK_WIDTH * lightmap_bytes );
+			const offset = fa.light_t * BLOCK_WIDTH * lightmap_bytes + fa.light_s * lightmap_bytes;
+			R_BuildLightMap( fa, lightmaps[ fa.lightmaptexturenum ], offset, BLOCK_WIDTH * lightmap_bytes );
 
 		}
 
@@ -1153,9 +1180,8 @@ export function R_RenderDynamicLightmaps( fa ) {
 				if ( ( theRect.h + theRect.t ) < ( fa.light_t + tmax ) )
 					theRect.h = ( fa.light_t - theRect.t ) + tmax;
 
-				const baseOffset = fa.lightmaptexturenum * lightmap_bytes * BLOCK_WIDTH * BLOCK_HEIGHT;
-				const offset = baseOffset + fa.light_t * BLOCK_WIDTH * lightmap_bytes + fa.light_s * lightmap_bytes;
-				R_BuildLightMap( fa, lightmaps, offset, BLOCK_WIDTH * lightmap_bytes );
+				const offset = fa.light_t * BLOCK_WIDTH * lightmap_bytes + fa.light_s * lightmap_bytes;
+				R_BuildLightMap( fa, lightmaps[ fa.lightmaptexturenum ], offset, BLOCK_WIDTH * lightmap_bytes );
 
 			}
 
@@ -1194,9 +1220,8 @@ export function R_RenderDynamicLightmaps( fa ) {
 			if ( ( theRect.h + theRect.t ) < ( fa.light_t + tmax ) )
 				theRect.h = ( fa.light_t - theRect.t ) + tmax;
 
-			const baseOffset = fa.lightmaptexturenum * lightmap_bytes * BLOCK_WIDTH * BLOCK_HEIGHT;
-			const offset = baseOffset + fa.light_t * BLOCK_WIDTH * lightmap_bytes + fa.light_s * lightmap_bytes;
-			R_BuildLightMap( fa, lightmaps, offset, BLOCK_WIDTH * lightmap_bytes );
+			const offset = fa.light_t * BLOCK_WIDTH * lightmap_bytes + fa.light_s * lightmap_bytes;
+			R_BuildLightMap( fa, lightmaps[ fa.lightmaptexturenum ], offset, BLOCK_WIDTH * lightmap_bytes );
 
 		}
 
@@ -1216,9 +1241,9 @@ export function R_AddDynamicLights( surf ) {
 	const tmax = ( surf.extents[ 1 ] >> 4 ) + 1;
 	const tex = surf.texinfo;
 
-	for ( let lnum = 0; lnum < 32 /* MAX_DLIGHTS */; lnum ++ ) {
+	for ( let lnum = 0; lnum < MAX_DLIGHTS; lnum ++ ) {
 
-		if ( ! ( surf.dlightbits & ( 1 << lnum ) ) )
+		if ( ! ( surf.dlightbits[ lnum >> 5 ] & ( 1 << ( lnum & 31 ) ) ) )
 			continue; // not lit by this light
 
 		const dl = cl_dlights[ lnum ];
@@ -1393,7 +1418,7 @@ export function R_DrawBrushModel( e ) {
 			if ( light.die < cl.time || light.radius === 0 )
 				continue;
 
-			R_MarkLights( light, 1 << k, root, clmodel.surfaces );
+			R_MarkLights( light, k, root, clmodel.surfaces );
 
 		}
 
@@ -1786,7 +1811,7 @@ export function R_DrawWorld() {
 	set_currenttexture( - 1 );
 
 	// clear lightmap polys
-	for ( let i = 0; i < MAX_LIGHTMAPS; i ++ )
+	for ( let i = 0; i < lightmap_count; i ++ )
 		lightmap_polys[ i ] = null;
 
 	// create world group if needed
@@ -1942,9 +1967,8 @@ function R_CheckLightmapCvars() {
 			if ( surf.flags & ( SURF_DRAWSKY | SURF_DRAWTURB ) )
 				continue;
 
-			const baseOffset = surf.lightmaptexturenum * lightmap_bytes * BLOCK_WIDTH * BLOCK_HEIGHT;
-			const offset = baseOffset + ( surf.light_t * BLOCK_WIDTH + surf.light_s ) * lightmap_bytes;
-			R_BuildLightMap( surf, lightmaps, offset, BLOCK_WIDTH * lightmap_bytes );
+			const offset = ( surf.light_t * BLOCK_WIDTH + surf.light_s ) * lightmap_bytes;
+			R_BuildLightMap( surf, lightmaps[ surf.lightmaptexturenum ], offset, BLOCK_WIDTH * lightmap_bytes );
 			lightmap_modified[ surf.lightmaptexturenum ] = true;
 
 		}
@@ -1964,7 +1988,7 @@ export function R_BlendLightmaps() {
 	// rather than blended separately. This function handles the
 	// lightmap texture updates.
 
-	for ( let i = 0; i < MAX_LIGHTMAPS; i ++ ) {
+	for ( let i = 0; i < lightmap_count; i ++ ) {
 
 		// Check if this lightmap was modified (by world or brush entity surfaces)
 		// Don't require lightmap_polys[i] to be set - brush entities may use
@@ -1978,13 +2002,13 @@ export function R_BlendLightmaps() {
 			const tex = lightmapTextures[ i ];
 			if ( tex && tex.image && tex.image.data ) {
 
-				const srcOffset = i * BLOCK_WIDTH * BLOCK_HEIGHT * lightmap_bytes;
+				const src = lightmaps[ i ];
 				const dstData = tex.image.data;
 				const pixelCount = BLOCK_WIDTH * BLOCK_HEIGHT;
 
 				for ( let p = 0; p < pixelCount; p ++ ) {
 
-					const val = 255 - lightmaps[ srcOffset + p ];
+					const val = 255 - src[ p ];
 					dstData[ p * 4 ] = val;
 					dstData[ p * 4 + 1 ] = val;
 					dstData[ p * 4 + 2 ] = val;
@@ -2343,7 +2367,26 @@ function R_DrawSkyChain( s ) {
 
 export function AllocBlock( w, h, outX, outY ) {
 
-	for ( let texnum = 0; texnum < MAX_LIGHTMAPS; texnum ++ ) {
+	// ericw (QuakeSpasm) -- rather than searching starting at lightmap 0 every
+	// time, start at the last lightmap we allocated a surface in. This makes
+	// AllocBlock much faster on large levels, at a cost of not quite packing
+	// lightmaps as tightly (uses ~5% more lightmaps).
+	for ( let texnum = last_lightmap_allocated; texnum < MAX_SANITY_LIGHTMAPS; texnum ++ ) {
+
+		if ( texnum === lightmap_count ) {
+
+			lightmap_count ++;
+			GL_GrowLightmaps( lightmap_count );
+			// QuakeSpasm callocs each new block; blocks here are reused
+			// across maps, so clear the old map's state instead.
+			lightmaps[ texnum ].fill( 0 );
+			lightmap_polys[ texnum ] = null;
+			lightmap_modified[ texnum ] = false;
+			// as we're only tracking one texture, we don't need multiple
+			// copies of allocated any more.
+			allocated.fill( 0 );
+
+		}
 
 		let best = BLOCK_HEIGHT;
 
@@ -2354,10 +2397,10 @@ export function AllocBlock( w, h, outX, outY ) {
 
 			for ( j = 0; j < w; j ++ ) {
 
-				if ( allocated[ texnum ][ i + j ] >= best )
+				if ( allocated[ i + j ] >= best )
 					break;
-				if ( allocated[ texnum ][ i + j ] > best2 )
-					best2 = allocated[ texnum ][ i + j ];
+				if ( allocated[ i + j ] > best2 )
+					best2 = allocated[ i + j ];
 
 			}
 
@@ -2375,8 +2418,9 @@ export function AllocBlock( w, h, outX, outY ) {
 			continue;
 
 		for ( let i = 0; i < w; i ++ )
-			allocated[ texnum ][ outX.value + i ] = best + h;
+			allocated[ outX.value + i ] = best + h;
 
+		last_lightmap_allocated = texnum;
 		return texnum;
 
 	}
@@ -2528,9 +2572,8 @@ export function GL_CreateSurfaceLightmap( surf ) {
 	surf.light_s = outX.value;
 	surf.light_t = outY.value;
 
-	const baseOffset = surf.lightmaptexturenum * lightmap_bytes * BLOCK_WIDTH * BLOCK_HEIGHT;
-	const offset = baseOffset + ( surf.light_t * BLOCK_WIDTH + surf.light_s ) * lightmap_bytes;
-	R_BuildLightMap( surf, lightmaps, offset, BLOCK_WIDTH * lightmap_bytes );
+	const offset = ( surf.light_t * BLOCK_WIDTH + surf.light_s ) * lightmap_bytes;
+	R_BuildLightMap( surf, lightmaps[ surf.lightmaptexturenum ], offset, BLOCK_WIDTH * lightmap_bytes );
 
 }
 
@@ -2885,9 +2928,9 @@ export function GL_BuildLightmaps() {
 
 	lightmapTextures.length = 0;
 
-	// clear allocation
-	for ( let i = 0; i < MAX_LIGHTMAPS; i ++ )
-		allocated[ i ].fill( 0 );
+	// clear allocation (QuakeSpasm: blocks are added again by AllocBlock)
+	last_lightmap_allocated = 0;
+	lightmap_count = 0;
 
 	set_r_framecount( 1 ); // no dlightcache
 
@@ -2930,10 +2973,7 @@ export function GL_BuildLightmaps() {
 	}
 
 	// upload all lightmaps that were filled as Three.js DataTextures
-	for ( let i = 0; i < MAX_LIGHTMAPS; i ++ ) {
-
-		if ( ! allocated[ i ][ 0 ] )
-			break; // no more used
+	for ( let i = 0; i < lightmap_count; i ++ ) {
 
 		lightmap_modified[ i ] = false;
 		lightmap_rectchange[ i ].l = BLOCK_WIDTH;
@@ -2945,12 +2985,12 @@ export function GL_BuildLightmaps() {
 		// R_BuildLightMap stores 255-brightness (Quake subtractive format).
 		// Three.js lightMap is multiplicative, so invert to get brightness.
 		// Use RGBA format — LuminanceFormat is not supported in WebGL 2.
-		const offset = i * BLOCK_WIDTH * BLOCK_HEIGHT * lightmap_bytes;
+		const src = lightmaps[ i ];
 		const pixelCount = BLOCK_WIDTH * BLOCK_HEIGHT;
 		const data = new Uint8Array( pixelCount * 4 );
 		for ( let p = 0; p < pixelCount; p ++ ) {
 
-			const val = 255 - lightmaps[ offset + p ];
+			const val = 255 - src[ p ];
 			data[ p * 4 ] = val;
 			data[ p * 4 + 1 ] = val;
 			data[ p * 4 + 2 ] = val;

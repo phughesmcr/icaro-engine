@@ -10,10 +10,10 @@ export const SIGNONS = 4; // signon messages to receive before connected
 
 // The one definition of MAX_DLIGHTS and MAX_VISEDICTS: gl_rmain.js and
 // gl_rlight.js re-export these.
-// Still 32, as in id: surf.dlightbits is a single 32-bit mask, so more lights
-// need it widened to an array, as QuakeSpasm does (gl_rlight.js R_MarkLights,
-// gl_rsurf.js R_AddDynamicLights and R_DrawBrushModel).
-export const MAX_DLIGHTS = 32;
+// Deliberate deviation: 64 as in QuakeSpasm/Ironwail (id: 32). msurface_t
+// dlightbits is a word array sized from this (gl_model.js), so lights 32 and
+// up get their own bits (gl_rlight.js R_MarkLights).
+export const MAX_DLIGHTS = 64;
 // Deliberate deviation: the limits below are raised to Ironwail's values
 // (id: MAX_BEAMS 24, MAX_TEMP_ENTITIES 64, MAX_STATIC_ENTITIES 128,
 // MAX_VISEDICTS 256) so larger maps don't drop entities.

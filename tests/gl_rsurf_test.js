@@ -204,3 +204,86 @@ Deno.test( 'cached water materials track fractional opacity changes', () => {
 	}
 
 } );
+
+// A surface whose lightmap fills a whole 128x128 block (2000-unit extents give
+// 126x126 luxels), so each one needs a block of its own.
+function makeBlockSizedSurface() {
+
+	return {
+		flags: 0,
+		numedges: 0,
+		firstedge: 0,
+		polys: null,
+		extents: new Int16Array( [ 2000, 2000 ] ),
+		styles: new Uint8Array( [ 255, 255, 255, 255 ] ),
+		cached_light: new Int32Array( 4 ),
+		cached_dlight: false,
+		dlightframe: - 1,
+		dlightbits: new Uint32Array( 2 ),
+		samples: null,
+		lightmaptexturenum: 0,
+		light_s: 0,
+		light_t: 0
+	};
+
+}
+
+Deno.test( 'lightmap blocks grow past MAX_LIGHTMAPS at map load', () => {
+
+	const oldFrame = gl_rmain.r_framecount;
+	const oldModel = cl.model_precache[ 1 ];
+	const oldNext = cl.model_precache[ 2 ];
+	const oldWorldmodel = cl.worldmodel;
+	const count = gl_rsurf.MAX_LIGHTMAPS + 6;
+
+	try {
+
+		const surfaces = [];
+		for ( let i = 0; i < count; i ++ ) surfaces.push( makeBlockSizedSurface() );
+		cl.worldmodel = null;
+		cl.model_precache[ 1 ] = {
+			name: 'maps/big.bsp',
+			numsurfaces: count,
+			surfaces: surfaces,
+			vertexes: [],
+			edges: [],
+			surfedges: []
+		};
+		cl.model_precache[ 2 ] = null;
+
+		gl_rsurf.GL_BuildLightmaps();
+
+		assertEqual( gl_rsurf.lightmap_count, count, 'blocks in use' );
+		assertEqual( gl_rsurf.lightmapTextures.length, count, 'one texture per block' );
+		const last = surfaces[ count - 1 ];
+		assertEqual( last.lightmaptexturenum, count - 1, 'last surface block' );
+		assertEqual( last.light_s, 0, 'last surface s' );
+		assertEqual( last.light_t, 0, 'last surface t' );
+
+		// The unlit surface writes 255 (no light) into its own 126x126 rect;
+		// the upload inverts that to 0. Texels outside it stay cleared (255).
+		const data = gl_rsurf.lightmapTextures[ count - 1 ].image.data;
+		const BW = gl_rsurf.BLOCK_WIDTH;
+		assertEqual( data[ 0 ], 0, 'surface texel in the grown block' );
+		assertEqual( data[ ( 125 * BW + 125 ) * 4 ], 0, 'last surface texel' );
+		assertEqual( data[ 126 * 4 ], 255, 'texel right of the surface' );
+		assertEqual( data[ ( 126 * BW ) * 4 ], 255, 'texel below the surface' );
+
+		// The next map starts again from block 0 and reuses the grown blocks.
+		cl.model_precache[ 1 ].numsurfaces = 1;
+		cl.model_precache[ 1 ].surfaces = [ makeBlockSizedSurface() ];
+		gl_rsurf.GL_BuildLightmaps();
+		assertEqual( gl_rsurf.lightmap_count, 1, 'blocks in use on the next map' );
+		assertEqual( gl_rsurf.lightmapTextures.length, 1, 'textures on the next map' );
+
+	} finally {
+
+		cl.model_precache[ 1 ] = oldModel;
+		cl.model_precache[ 2 ] = oldNext;
+		cl.worldmodel = oldWorldmodel;
+		gl_rsurf.GL_BuildLightmaps();
+		gl_rmain.set_r_framecount( oldFrame );
+
+	}
+
+} );
