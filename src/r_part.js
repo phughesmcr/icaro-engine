@@ -66,6 +66,48 @@ let pointsMaterial = null;
 let pointsMesh = null;
 let particleTexture = null;
 
+/*
+Particle size, from gl_rmisc.c R_DrawParticles:
+
+	scale = (p->org - r_origin) . vpn;
+	if (scale < 20) scale = 1; else scale = 1 + scale * 0.004;
+
+Each particle is a triangle with 1.5 * scale legs, textured so the 4x4 dot in
+the 8x8 texture covers half of each leg. A point sprite of world size
+1.5 * scale shows the same dot. Three.js attenuates point size as
+size * scale / depth, which ignores the projection, so the vertex shader is
+patched to give the sprite a world size instead.
+*/
+const PARTICLE_SIZE = 1.5;
+// Quake units per scene unit: 1, or XR_SCALE while scene.scale = 1/XR_SCALE
+const _particleUnits = { value: 1 };
+
+const _particleSizeChunk = /* glsl */`
+	#ifdef USE_SIZEATTENUATION
+
+		bool isPerspective = isPerspectiveMatrix( projectionMatrix );
+
+		if ( isPerspective ) {
+
+			// R_DrawParticles: depth along vpn, in Quake units
+			float qdepth = - mvPosition.z * quakeUnits;
+			float qscale = qdepth < 20.0 ? 1.0 : 1.0 + qdepth * 0.004;
+			gl_PointSize *= qscale * projectionMatrix[ 1 ][ 1 ] * scale / - mvPosition.z;
+
+		}
+
+	#endif
+`;
+
+export function R_PatchParticleShader( shader ) {
+
+	shader.uniforms.quakeUnits = _particleUnits;
+	shader.vertexShader = shader.vertexShader
+		.replace( 'uniform float scale;', 'uniform float scale;\nuniform float quakeUnits;' )
+		.replace( /#ifdef USE_SIZEATTENUATION[\s\S]*?#endif/, _particleSizeChunk );
+
+}
+
 const positionArray = new Float32Array( MAX_PARTICLES * 3 );
 const colorArray = new Float32Array( MAX_PARTICLES * 3 );
 
@@ -797,13 +839,15 @@ export function R_DrawParticles() {
 		pointsGeometry.setAttribute( 'color', new THREE.BufferAttribute( colorArray, 3 ) );
 
 		pointsMaterial = new THREE.PointsMaterial( {
-			size: 3, // Original Quake uses 1.5 world unit triangle (spans 1.5 in up + right)
+			size: PARTICLE_SIZE,
 			sizeAttenuation: true,
 			vertexColors: true,
 			depthWrite: false,
 			transparent: true,
 			map: particleTexture
 		} );
+		pointsMaterial.onBeforeCompile = R_PatchParticleShader;
+		pointsMaterial.customProgramCacheKey = () => 'quake-particles';
 
 		pointsMesh = new THREE.Points( pointsGeometry, pointsMaterial );
 		pointsMesh.frustumCulled = false;
@@ -811,8 +855,19 @@ export function R_DrawParticles() {
 	}
 
 	// In XR mode, scene.scale = 1/XR_SCALE but PointsMaterial.size is not
-	// affected by parent scale. Divide size to match meter-space distances.
-	pointsMaterial.size = isXRActive() ? 3 / XR_SCALE : 3;
+	// affected by parent scale. Divide size to match meter-space distances,
+	// and tell the shader how to get depth back in Quake units.
+	if ( isXRActive() ) {
+
+		pointsMaterial.size = PARTICLE_SIZE / XR_SCALE;
+		_particleUnits.value = XR_SCALE;
+
+	} else {
+
+		pointsMaterial.size = PARTICLE_SIZE;
+		_particleUnits.value = 1;
+
+	}
 
 	pointsGeometry.attributes.position.needsUpdate = true;
 	pointsGeometry.attributes.color.needsUpdate = true;
