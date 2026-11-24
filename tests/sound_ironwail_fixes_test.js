@@ -246,7 +246,7 @@ Deno.test( 'ambient_level 0 stops the ambient loops, and they come back at their
 
 		withSound( () => {
 
-			snd_dma.S_Startup(); // precaches ambience/water1.wav and wind2.wav
+			// S_Init precached ambience/water1.wav and wind2.wav
 			const water = sound.channels[ sound.AMBIENT_WATER ];
 
 			snd_dma.S_Update( v, v, v, v );

@@ -139,6 +139,11 @@ export function S_Init() {
 
 	Con_Printf( 'Sound sampling rate: %d\n', sn.speed );
 
+	// The end of C's S_Init. This was in S_Startup, which nothing calls, so the
+	// water and wind ambients were never loaded.
+	ambient_sfx[ AMBIENT_WATER ] = S_PrecacheSound( 'ambience/water1.wav' );
+	ambient_sfx[ AMBIENT_SKY ] = S_PrecacheSound( 'ambience/wind2.wav' );
+
 }
 
 /*
@@ -183,10 +188,6 @@ export function S_Startup() {
 	}
 
 	sound_started = true;
-
-	// Precache ambient sounds
-	ambient_sfx[ AMBIENT_WATER ] = S_PrecacheSound( 'ambience/water1.wav' );
-	ambient_sfx[ AMBIENT_SKY ] = S_PrecacheSound( 'ambience/wind2.wav' );
 
 }
 
