@@ -1,7 +1,7 @@
 // Touch controls for mobile devices
-// Provides virtual joystick on left, look area on right with tap-to-jump
+// Provides virtual joystick on left, look area on right, FIRE/JUMP/pause buttons
 
-import { K_ESCAPE, Key_Event } from './keys.js';
+import { K_ESCAPE, K_UPARROW, K_DOWNARROW, K_LEFTARROW, K_RIGHTARROW, Key_Event } from './keys.js';
 import { in_attack, in_jump } from './cl_input.js';
 import { S_UnlockAudio } from './snd_dma.js';
 
@@ -10,26 +10,46 @@ let enabled = false;
 let initialized = false;
 let menuOverlay = null;
 let menuTouchCallback = null;
+let menuSurfaceGetter = null; // returns the element the menu is drawn into
 let fullscreenActivated = false;
+let fullscreenPending = false;
 let wakeLock = null;
+let wakeLockPending = false;
+
+// Buttons held by touch (they write kbutton state directly, not via Key_Event)
+let fireHeld = false;
+let jumpHeld = false;
 
 // Movement joystick (left side)
 let moveTouch = null;
-let joystickOrigin = { x: 0, y: 0 };
-let joystickCurrent = { x: 0, y: 0 };
+const joystickOrigin = { x: 0, y: 0 };
+const joystickCurrent = { x: 0, y: 0 };
+const JOYSTICK_RADIUS = 50; // px
+const JOYSTICK_DEADZONE = 0.15; // fraction of the radius
+const JOYSTICK_RUN_THRESHOLD = 0.9; // past this the stick runs (+speed)
 
 // Look area (right side)
 let lookTouch = null;
-let lastLookPos = { x: 0, y: 0 };
-let lookTouchOrigin = { x: 0, y: 0 };
-let lookTouchDist = 0;
+const lastLookPos = { x: 0, y: 0 };
+
+// Menu touch (tap to select, drag to send arrow keys)
+const MENU_DRAG_STEP = 24; // px of drag per arrow key
+let menuTouch = null;
+let menuDragging = false;
+let menuDragAxis = 0; // 0 = undecided, 1 = horizontal, 2 = vertical
+const menuTouchStart = { x: 0, y: 0 };
+const menuTouchStep = { x: 0, y: 0 };
 
 // Accumulated values for IN_Move
 let moveForward = 0;
 let moveRight = 0;
+let moveRun = false;
 let lookDeltaX = 0;
 let lookDeltaY = 0;
-let jumpImpulse = false;
+
+// Returned by the getters (no per-frame allocation)
+const _moveInput = { forward: 0, right: 0, run: false };
+const _lookDelta = { x: 0, y: 0 };
 
 // Gyroscope state
 let gyroEnabled = false;
@@ -53,13 +73,37 @@ let pauseButton = null;
 =================
 Touch_IsMobile
 
-Detect if we're on a mobile device
+True on touch-first devices: the primary pointer is coarse and there is no
+fine pointer (mouse, trackpad) at all. Touchscreen laptops and tablets with a
+trackpad return false; in_web.js switches to touch controls when they are
+actually touched.
 =================
 */
 export function Touch_IsMobile() {
 
-	return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test( navigator.userAgent ) ||
-		( navigator.maxTouchPoints && navigator.maxTouchPoints > 2 );
+	if ( typeof matchMedia === 'function' ) {
+
+		return matchMedia( '(pointer: coarse)' ).matches &&
+			! matchMedia( '(any-pointer: fine)' ).matches;
+
+	}
+
+	if ( typeof navigator === 'undefined' ) return false;
+	return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test( navigator.userAgent || '' );
+
+}
+
+/*
+=================
+Touch_IsTouchCapable
+
+True if the device has a touchscreen at all
+=================
+*/
+export function Touch_IsTouchCapable() {
+
+	if ( typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0 ) return true;
+	return typeof window !== 'undefined' && 'ontouchstart' in window;
 
 }
 
@@ -129,7 +173,7 @@ function Touch_CreateUI( container ) {
 	joystickBase.appendChild( joystickKnob );
 	joystickArea.appendChild( joystickBase );
 
-	// Right side - look area (tap to jump, drag to look)
+	// Right side - look area (drag to look)
 	lookArea = document.createElement( 'div' );
 	lookArea.style.cssText = `
 		position: absolute;
@@ -244,31 +288,143 @@ function Touch_CreateMenuUI( container ) {
 		touch-action: none;
 	`;
 
-	menuOverlay.addEventListener( 'touchstart', ( e ) => {
+	menuOverlay.addEventListener( 'touchstart', onMenuTouchStart, { passive: false } );
+	menuOverlay.addEventListener( 'touchmove', onMenuTouchMove, { passive: false } );
+	menuOverlay.addEventListener( 'touchend', onMenuTouchEnd, { passive: false } );
+	menuOverlay.addEventListener( 'touchcancel', onMenuTouchEnd, { passive: false } );
 
-		e.preventDefault();
+	container.appendChild( menuOverlay );
 
-		// Unlock audio on first user gesture
-		S_UnlockAudio();
+}
 
-		if ( e.touches.length > 0 ) {
+/*
+=================
+Menu touch handlers
 
-			const touch = e.touches[ 0 ];
-			const x = touch.clientX;
-			const y = touch.clientY;
+A tap (released without dragging) selects the menu item under the finger.
+Dragging sends arrow keys, one per MENU_DRAG_STEP pixels along the first
+axis moved: up/down moves the cursor, left/right adjusts sliders and
+options. menu.js only takes taps, so drags go through Key_Event.
+=================
+*/
 
-			// Call the menu touch handler if set
-			if ( menuTouchCallback ) {
+function findTouch( list, id ) {
 
-				menuTouchCallback( x, y, window.innerWidth, window.innerHeight );
+	for ( let i = 0; i < list.length; i ++ ) {
 
-			}
+		if ( list[ i ].identifier === id ) return list[ i ];
+
+	}
+
+	return null;
+
+}
+
+function pressKey( key ) {
+
+	Key_Event( key, true );
+	Key_Event( key, false );
+
+}
+
+function onMenuTouchStart( e ) {
+
+	e.preventDefault();
+
+	// Unlock audio on first user gesture
+	S_UnlockAudio();
+
+	if ( menuTouch !== null || e.changedTouches.length === 0 ) return;
+
+	const touch = e.changedTouches[ 0 ];
+	menuTouch = touch.identifier;
+	menuDragging = false;
+	menuDragAxis = 0;
+	menuTouchStart.x = touch.clientX;
+	menuTouchStart.y = touch.clientY;
+	menuTouchStep.x = touch.clientX;
+	menuTouchStep.y = touch.clientY;
+
+}
+
+function onMenuTouchMove( e ) {
+
+	e.preventDefault();
+
+	if ( menuTouch === null ) return;
+	const touch = findTouch( e.changedTouches, menuTouch );
+	if ( touch === null ) return;
+
+	if ( menuDragAxis === 0 ) {
+
+		const dx = Math.abs( touch.clientX - menuTouchStart.x );
+		const dy = Math.abs( touch.clientY - menuTouchStart.y );
+		if ( dx < MENU_DRAG_STEP && dy < MENU_DRAG_STEP ) return;
+		menuDragAxis = dx >= dy ? 1 : 2;
+		menuDragging = true;
+
+	}
+
+	if ( menuDragAxis === 1 ) {
+
+		while ( touch.clientX - menuTouchStep.x >= MENU_DRAG_STEP ) {
+
+			pressKey( K_RIGHTARROW );
+			menuTouchStep.x += MENU_DRAG_STEP;
 
 		}
 
-	}, { passive: false } );
+		while ( menuTouchStep.x - touch.clientX >= MENU_DRAG_STEP ) {
 
-	container.appendChild( menuOverlay );
+			pressKey( K_LEFTARROW );
+			menuTouchStep.x -= MENU_DRAG_STEP;
+
+		}
+
+	} else {
+
+		while ( touch.clientY - menuTouchStep.y >= MENU_DRAG_STEP ) {
+
+			pressKey( K_DOWNARROW );
+			menuTouchStep.y += MENU_DRAG_STEP;
+
+		}
+
+		while ( menuTouchStep.y - touch.clientY >= MENU_DRAG_STEP ) {
+
+			pressKey( K_UPARROW );
+			menuTouchStep.y -= MENU_DRAG_STEP;
+
+		}
+
+	}
+
+}
+
+function onMenuTouchEnd( e ) {
+
+	e.preventDefault();
+
+	if ( menuTouch === null ) return;
+	const touch = findTouch( e.changedTouches, menuTouch );
+	if ( touch === null ) return;
+
+	menuTouch = null;
+
+	if ( menuDragging || e.type === 'touchcancel' || menuTouchCallback == null ) return;
+
+	// Tap: pass coordinates relative to the surface the menu is drawn into
+	const surface = menuSurfaceGetter ? menuSurfaceGetter() : null;
+	if ( surface != null && surface.getBoundingClientRect ) {
+
+		const rect = surface.getBoundingClientRect();
+		menuTouchCallback( touch.clientX - rect.left, touch.clientY - rect.top, rect.width, rect.height );
+
+	} else {
+
+		menuTouchCallback( touch.clientX, touch.clientY, window.innerWidth, window.innerHeight );
+
+	}
 
 }
 
@@ -312,23 +468,22 @@ function onTouchStart( e ) {
 
 		} else if ( target === lookArea && lookTouch === null ) {
 
-			// Start look (also tracks tap for jump)
+			// Start look
 			lookTouch = touch.identifier;
 			lastLookPos.x = touch.clientX;
 			lastLookPos.y = touch.clientY;
-			lookTouchOrigin.x = touch.clientX;
-			lookTouchOrigin.y = touch.clientY;
-			lookTouchDist = 0;
 
 		} else if ( target === fireButton ) {
 
-			in_attack.state |= 1 + 2; // down + impulse down
+			if ( ! fireHeld ) in_attack.state |= 1 + 2; // down + impulse down
+			fireHeld = true;
 			fireButton.style.background = 'rgba(255, 100, 100, 0.2)';
 			if ( typeof navigator.vibrate === 'function' ) navigator.vibrate( 100 );
 
 		} else if ( target === jumpButton ) {
 
-			in_jump.state |= 1 + 2; // down + impulse down
+			if ( ! jumpHeld ) in_jump.state |= 1 + 2; // down + impulse down
+			jumpHeld = true;
 			jumpButton.style.background = 'rgba(100, 150, 255, 0.2)';
 			if ( typeof navigator.vibrate === 'function' ) navigator.vibrate( 100 );
 
@@ -361,15 +516,14 @@ function onTouchMove( e ) {
 			const dy = joystickCurrent.y - joystickOrigin.y;
 
 			// Clamp to max radius
-			const maxRadius = 50;
 			const dist = Math.sqrt( dx * dx + dy * dy );
 			let clampedX = dx;
 			let clampedY = dy;
 
-			if ( dist > maxRadius ) {
+			if ( dist > JOYSTICK_RADIUS ) {
 
-				clampedX = ( dx / dist ) * maxRadius;
-				clampedY = ( dy / dist ) * maxRadius;
+				clampedX = ( dx / dist ) * JOYSTICK_RADIUS;
+				clampedY = ( dy / dist ) * JOYSTICK_RADIUS;
 
 			}
 
@@ -377,10 +531,7 @@ function onTouchMove( e ) {
 			joystickKnob.style.left = `calc(50% + ${clampedX}px)`;
 			joystickKnob.style.top = `calc(50% + ${clampedY}px)`;
 
-			// Convert to normalized input (-1 to 1)
-			// Note: Y is inverted (up = forward = positive)
-			moveRight = clampedX / maxRadius;
-			moveForward = - clampedY / maxRadius;
+			Touch_SetJoystick( clampedX / JOYSTICK_RADIUS, clampedY / JOYSTICK_RADIUS );
 
 		} else if ( touch.identifier === lookTouch ) {
 
@@ -393,11 +544,6 @@ function onTouchMove( e ) {
 
 			lastLookPos.x = touch.clientX;
 			lastLookPos.y = touch.clientY;
-
-			// Track total distance from origin (for tap detection)
-			const totalDx = touch.clientX - lookTouchOrigin.x;
-			const totalDy = touch.clientY - lookTouchOrigin.y;
-			lookTouchDist = Math.sqrt( totalDx * totalDx + totalDy * totalDy );
 
 		}
 
@@ -415,33 +561,124 @@ function onTouchEnd( e ) {
 
 		if ( touch.identifier === moveTouch ) {
 
-			// Reset joystick
-			moveTouch = null;
-			moveForward = 0;
-			moveRight = 0;
-			joystickBase.style.display = 'none';
-			joystickKnob.style.left = '50%';
-			joystickKnob.style.top = '50%';
+			Touch_ResetJoystick();
 
 		} else if ( touch.identifier === lookTouch ) {
 
 			lookTouch = null;
 
-		} else if ( target === fireButton ) {
+		} else if ( target === fireButton || target === jumpButton ) {
 
-			in_attack.state &= ~1; // up
-			in_attack.state |= 4; // impulse up
-			fireButton.style.background = 'transparent';
-
-		} else if ( target === jumpButton ) {
-
-			in_jump.state &= ~1; // up
-			in_jump.state |= 4; // impulse up
-			jumpButton.style.background = 'transparent';
+			// Another finger may still be on the button
+			if ( e.targetTouches && e.targetTouches.length > 0 ) continue;
+			if ( target === fireButton ) Touch_ReleaseFire();
+			else Touch_ReleaseJump();
 
 		}
 
 	}
+
+	// touchend is a user activation (touchstart is not in Chrome), and these
+	// controls are only shown while playing a map
+	if ( e.type === 'touchend' ) Touch_RequestFullscreen();
+
+}
+
+/*
+=================
+Touch_SetJoystick
+
+x, y: knob offset as a fraction of the radius (screen axes, y down).
+Applies the deadzone (rescaled so movement starts at zero) and the run
+threshold (full deflection in that direction, flagged as running).
+=================
+*/
+function Touch_SetJoystick( x, y ) {
+
+	const mag = Math.sqrt( x * x + y * y );
+
+	if ( mag < JOYSTICK_DEADZONE ) {
+
+		moveRight = 0;
+		moveForward = 0;
+		moveRun = false;
+		return;
+
+	}
+
+	// Rescale so speed rises from 0 past the deadzone to 1 at the run
+	// threshold, then stays at full deflection while running
+	moveRun = mag >= JOYSTICK_RUN_THRESHOLD;
+	const scale = moveRun ? 1 / mag : ( mag - JOYSTICK_DEADZONE ) / ( JOYSTICK_RUN_THRESHOLD - JOYSTICK_DEADZONE ) / mag;
+
+	// Note: Y is inverted (up = forward = positive)
+	moveRight = x * scale;
+	moveForward = - y * scale;
+
+}
+
+function Touch_ResetJoystick() {
+
+	moveTouch = null;
+	moveForward = 0;
+	moveRight = 0;
+	moveRun = false;
+
+	if ( joystickBase !== null ) {
+
+		joystickBase.style.display = 'none';
+		joystickKnob.style.left = '50%';
+		joystickKnob.style.top = '50%';
+
+	}
+
+}
+
+function Touch_ReleaseFire() {
+
+	if ( fireHeld ) {
+
+		in_attack.state &= ~ 1; // up
+		in_attack.state |= 4; // impulse up
+		fireHeld = false;
+
+	}
+
+	if ( fireButton !== null ) fireButton.style.background = 'transparent';
+
+}
+
+function Touch_ReleaseJump() {
+
+	if ( jumpHeld ) {
+
+		in_jump.state &= ~ 1; // up
+		in_jump.state |= 4; // impulse up
+		jumpHeld = false;
+
+	}
+
+	if ( jumpButton !== null ) jumpButton.style.background = 'transparent';
+
+}
+
+/*
+=================
+Touch_ReleaseButtons
+
+Release FIRE/JUMP if touch is holding them, reset the joystick and look
+tracking. Called by Touch_Disable and on focus loss.
+=================
+*/
+export function Touch_ReleaseButtons() {
+
+	Touch_ReleaseFire();
+	Touch_ReleaseJump();
+	Touch_ResetJoystick();
+	lookTouch = null;
+	lookDeltaX = 0;
+	lookDeltaY = 0;
+	menuTouch = null;
 
 }
 
@@ -577,25 +814,41 @@ Wake Lock - prevents screen from dimming while playing
 
 async function Touch_RequestWakeLock() {
 
-	if ( wakeLock !== null ) return;
+	if ( wakeLock !== null || wakeLockPending ) return;
+	if ( typeof navigator === 'undefined' || ! ( 'wakeLock' in navigator ) ) return;
 
-	if ( 'wakeLock' in navigator ) {
+	// The request is refused while the page is hidden; the visibilitychange
+	// handler retries when it comes back
+	if ( document.visibilityState !== 'visible' ) return;
 
-		try {
+	wakeLockPending = true;
 
-			wakeLock = await navigator.wakeLock.request( 'screen' );
+	try {
 
-			wakeLock.addEventListener( 'release', () => {
+		const lock = await navigator.wakeLock.request( 'screen' );
 
-				wakeLock = null;
+		// Controls were disabled while the request was pending
+		if ( ! enabled ) {
 
-			} );
-
-		} catch ( err ) {
-
-			console.log( 'Wake Lock request failed:', err.message );
+			lock.release().catch( () => {} );
+			return;
 
 		}
+
+		wakeLock = lock;
+		lock.addEventListener( 'release', () => {
+
+			if ( wakeLock === lock ) wakeLock = null;
+
+		} );
+
+	} catch ( err ) {
+
+		console.log( 'Wake Lock request failed:', err.message );
+
+	} finally {
+
+		wakeLockPending = false;
 
 	}
 
@@ -605,8 +858,31 @@ function Touch_ReleaseWakeLock() {
 
 	if ( wakeLock !== null ) {
 
-		wakeLock.release();
+		const lock = wakeLock;
 		wakeLock = null;
+		lock.release().catch( () => {} );
+
+	}
+
+}
+
+// The browser releases the wake lock when the page is hidden: take it back
+function onVisibilityChange() {
+
+	if ( enabled && document.visibilityState === 'visible' ) {
+
+		Touch_RequestWakeLock();
+
+	}
+
+}
+
+// Reset when the user leaves fullscreen, so the next tap can enter it again
+function onFullscreenChange() {
+
+	if ( ! document.fullscreenElement && ! document.webkitFullscreenElement ) {
+
+		fullscreenActivated = false;
 
 	}
 
@@ -621,7 +897,19 @@ Request fullscreen and lock to landscape orientation on mobile
 */
 export async function Touch_RequestFullscreen() {
 
-	if ( fullscreenActivated ) return;
+	if ( fullscreenActivated || fullscreenPending ) return;
+
+	// Meta Quest browser has no page fullscreen (as in in_web.js)
+	if ( typeof navigator !== 'undefined' && /OculusBrowser|Quest/i.test( navigator.userAgent || '' ) ) return;
+
+	if ( document.fullscreenElement || document.webkitFullscreenElement ) {
+
+		fullscreenActivated = true;
+		return;
+
+	}
+
+	fullscreenPending = true;
 
 	try {
 
@@ -658,6 +946,10 @@ export async function Touch_RequestFullscreen() {
 	} catch ( e ) {
 
 		console.log( 'Could not enter fullscreen:', e.message );
+
+	} finally {
+
+		fullscreenPending = false;
 
 	}
 
@@ -715,6 +1007,10 @@ export function Touch_Init( container ) {
 	if ( initialized ) return;
 
 	Touch_CreateUI( container || document.body );
+
+	document.addEventListener( 'visibilitychange', onVisibilityChange );
+	document.addEventListener( 'fullscreenchange', onFullscreenChange );
+	document.addEventListener( 'webkitfullscreenchange', onFullscreenChange );
 
 	initialized = true;
 
@@ -809,14 +1105,8 @@ export function Touch_Disable() {
 	// Release wake lock when not playing
 	Touch_ReleaseWakeLock();
 
-	// Reset state
-	moveTouch = null;
-	lookTouch = null;
-	moveForward = 0;
-	moveRight = 0;
-	lookDeltaX = 0;
-	lookDeltaY = 0;
-	jumpImpulse = false;
+	// Release FIRE/JUMP (their touchend will never arrive), reset joystick UI
+	Touch_ReleaseButtons();
 
 }
 
@@ -840,7 +1130,10 @@ Returns normalized movement input from joystick
 */
 export function Touch_GetMoveInput() {
 
-	return { forward: moveForward, right: moveRight };
+	_moveInput.forward = moveForward;
+	_moveInput.right = moveRight;
+	_moveInput.run = moveRun;
+	return _moveInput;
 
 }
 
@@ -853,30 +1146,11 @@ Returns accumulated look delta and clears it
 */
 export function Touch_GetLookDelta() {
 
-	const delta = { x: lookDeltaX, y: lookDeltaY };
+	_lookDelta.x = lookDeltaX;
+	_lookDelta.y = lookDeltaY;
 	lookDeltaX = 0;
 	lookDeltaY = 0;
-	return delta;
-
-}
-
-/*
-=================
-Touch_CheckJump
-
-Returns true if jump was triggered (tap on right side)
-=================
-*/
-export function Touch_CheckJump() {
-
-	if ( jumpImpulse ) {
-
-		jumpImpulse = false;
-		return true;
-
-	}
-
-	return false;
+	return _lookDelta;
 
 }
 
@@ -915,11 +1189,13 @@ export function Touch_HideMenu() {
 Touch_SetMenuCallback
 
 Set the callback function for menu touch events
-Callback receives (touchX, touchY, screenWidth, screenHeight)
+Callback receives (touchX, touchY, surfaceWidth, surfaceHeight), relative to
+the element returned by getSurface (the canvas the menu is drawn into)
 =================
 */
-export function Touch_SetMenuCallback( callback ) {
+export function Touch_SetMenuCallback( callback, getSurface ) {
 
 	menuTouchCallback = callback;
+	menuSurfaceGetter = getSurface || null;
 
 }

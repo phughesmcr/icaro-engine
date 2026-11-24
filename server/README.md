@@ -24,34 +24,55 @@ cd server
 openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes -subj "/CN=localhost"
 ```
 
+The repository's `.gitignore` excludes `*.pem`, so these files are never committed. Don't rename them to something it doesn't cover.
+
 ### 2. Run a Standalone Game Server
 
-From the `server/` directory:
+From the repository root:
 
 ```bash
-deno run --allow-net --allow-read --unstable-net --config ../deno.json \
-  game_server.js -cert cert.pem -key key.pem -pak ../static/pak0.pak -map start
+deno task game
 ```
 
-Or from the repository root:
+which runs:
 
 ```bash
-deno run --allow-net --allow-read --unstable-net --config deno.json \
+deno run --allow-net=0.0.0.0:4433 --allow-read=static,server/cert.pem,server/key.pem --unstable-net \
   server/game_server.js -cert server/cert.pem -key server/key.pem -pak static/pak0.pak -map start
 ```
 
-The `--config` flag maps `"three"` to `server/browser_shim.js` so the engine modules in `src/` can run headlessly in Deno.
+Running from the repository root picks up the root `deno.json`, which maps `"three"` to `server/browser_shim.js` so the engine modules in `src/` can run headlessly in Deno. (Pass `--config deno.json` if you run it from elsewhere.)
 
 ### 3. Run the Lobby Server (Multi-Room)
 
+From the repository root:
+
 ```bash
-deno run --allow-net --allow-read --allow-run --unstable-net \
-  server/lobby_server.js -port 4433 -cert server/cert.pem -key server/key.pem -pak static/pak0.pak
+deno task lobby
 ```
 
-The lobby server listens on port `4433` and spawns `game_server.js` child processes on ports `4434`–`4443` (up to 10 concurrent rooms).
+which runs:
 
-> **Note:** `room_process_manager.ts` defaults its Deno binary path (`denoPath`) to `/root/.deno/bin/deno` for production Linux deployments. For local runs where `deno` lives elsewhere, adjust `denoPath` or configure it via `RoomManager_SetConfig`.
+```bash
+deno run --allow-net=0.0.0.0:4433 --allow-read=server/cert.pem,server/key.pem --allow-run=deno --unstable-net \
+  server/lobby_server.js -cert server/cert.pem -key server/key.pem -pak static/pak0.pak
+```
+
+The lobby server listens on port `4433` and spawns `game_server.js` child processes on ports `4434`–`4443` (up to 10 concurrent rooms), using the same Deno binary as the lobby (`Deno.execPath()`, override with `-deno <path>`).
+
+### Permissions
+
+The lobby and the rooms run with scoped permissions:
+
+| Process | Flag | Scope | Why |
+|---------|------|-------|-----|
+| Lobby | `--allow-net` | `0.0.0.0:<lobby port>` | QUIC listener |
+| Lobby | `--allow-read` | the cert and key files | TLS |
+| Lobby | `--allow-run` | the Deno binary | Spawning room processes |
+| Room | `--allow-net` | `0.0.0.0:<room port>` | QUIC listener |
+| Room | `--allow-read` | `static/`, the pak, the cert and key | Game data and TLS |
+
+The lobby builds the room flags itself (`room_process_manager.ts`). If you change `-port` or the cert/key paths, change the lobby's flags to match. `--allow-run=deno` resolves `deno` on `PATH` at startup; if that is a version-manager shim rather than the real binary, Deno will refuse to spawn rooms. Pass the binary's real path instead (`deno eval 'console.log(Deno.execPath())'`).
 
 ## Command Line Options
 
@@ -63,24 +84,27 @@ The lobby server listens on port `4433` and spawns `game_server.js` child proces
 | `-cert <path>` | `cert.pem` | TLS certificate file (forwarded to room servers) |
 | `-key <path>` | `key.pem` | TLS private key file (forwarded to room servers) |
 | `-pak <path>` | `../static/pak0.pak` | Path to `pak0.pak` (forwarded to room servers) |
+| `-deno <path>` | `Deno.execPath()` | Deno binary used to spawn room servers |
 
 ### `game_server.js`
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `-port <port>` | `4433` | WebTransport port |
-| `-maxclients <num>` | `4` | Maximum players |
+| `-maxclients <num>` | `4` | Maximum players (clamped to 1–16) |
 | `-map <name>` | `start` | Starting map |
 | `-pak <path>` | `../static/pak0.pak` | Path to `pak0.pak` |
 | `-cert <path>` | `cert.pem` | TLS certificate file |
 | `-key <path>` | `key.pem` | TLS private key file |
 | `-room <id>` | `null` | Room ID assigned by `lobby_server.js` (enables room idle-exit tracking) |
-| `-direct` | `false` | Direct connection mode flag |
-| `-idletimeout <sec>` | `300` | Seconds empty before a room server exits (after at least one player has joined) |
+| `-direct` | `false` | Direct connection mode flag (no effect; kept for compatibility) |
+| `-idletimeout <sec>` | `300` | Room mode: seconds with no players before the server exits, counted from startup or from when the last player left |
+| `-statusnonce <token>` | none | Room mode: emit `@@ICARO_STATUS <token> {...}` status lines on stdout for the lobby |
+| `-parentwatch` | off | Exit when stdin closes. The lobby passes this so rooms exit when the lobby dies |
 
 ## Connecting from Browser
 
-- **Multiplayer menu (lobby mode):** Queries `lobby_server.js` on port `4433` to list, create, or join rooms, then connects directly to the assigned room's `game_server.js` port (`4434`–`4443`). Joining a valid 6-character shared room code for an expired room auto-creates it.
+- **Multiplayer menu (lobby mode):** Queries `lobby_server.js` on port `4433` to list, create, or join rooms, then connects directly to the assigned room's `game_server.js` port (`4434`–`4443`). Joining a valid 6-character shared room code for an expired room re-creates it, subject to the same limits as creating a room.
 - **Direct console connection:** In the Icaro Engine console, connect directly to a `game_server.js` instance:
 
 ```text
@@ -100,7 +124,12 @@ WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on t
 ### Transport & Protocol
 
 - **WebTransport over HTTP/3 (QUIC)** via `Deno.QuicEndpoint` and `Deno.upgradeWebTransport`.
-- **Lobby protocol (`lobby_server.js`)**: Single bidirectional stream per request using `[type:1][length:2][payload:N]` frames (`LOBBY_LIST`, `LOBBY_JOIN`, `LOBBY_CREATE`, `LOBBY_ROOMS`, `LOBBY_ERROR`).
+- **Lobby protocol (`lobby_server.js`)**: Single bidirectional stream per request using `[type:1][length:2][payload:N]` frames (`LOBBY_LIST`, `LOBBY_JOIN`, `LOBBY_CREATE`, `LOBBY_ROOMS`, `LOBBY_ERROR`). Requests over 4 KB are rejected.
+- **Lobby limits** (`LIMITS` in `lobby_server.js`):
+  - 64 concurrent lobby sessions, 8 per client IP.
+  - Room creation (including re-creating a shared room on join) is limited to 3 per minute per IP and 10 per minute overall. Attempts whose room fails to start still count.
+  - Each IP may have at most 3 live rooms.
+  - `maxPlayers` is clamped to an integer from 1 to 16; `hostName` has control characters stripped and is capped at 32 UTF-8 bytes; map names must match `[A-Za-z0-9_]{1,32}`.
 - **Game transport (`net_webtransport_server.ts`)**:
   - **Bidirectional stream** (length-prefixed frames) for reliable Quake messages (signon data, string commands, score/name updates).
   - **WebTransport datagrams** (with serialized outbound writes and reliable-stream fallback on timeout/error) for unreliable messages (entity updates, clientdata, `clc_move`).
@@ -114,7 +143,15 @@ WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on t
   - Full Quake client/server protocol (`SV_SpawnServer`, `SV_RunClients`, `SV_SendClientMessages`)
 - Runs at `sys_ticrate` (default `0.05`s / 20 Hz) with `deathmatch 1`, `samelevel 2`, and `noexit 1`.
 - Loads `pak0.pak` from disk and supports on-demand loose map files via `COM_EnsureFile`.
-- Emits `[Heartbeat]` logs every 30s and `[WATCHDOG]` stderr ticks every 5s so `room_process_manager.ts` can track player counts, hide or terminate wedged processes, and reap idle rooms.
+- In room mode, reports its player count to the lobby on a structured stdout status line (`@@ICARO_STATUS`), on every change and every 5s. It also emits `[Heartbeat]` log lines every 30s and `[WATCHDOG]` stderr ticks every 5s, which `room_process_manager.ts` uses to hide or terminate wedged processes.
+
+### Room lifecycle
+
+- A room counts as started once it has bound its port and spawned its map. A missing map or a port that is already in use fails room creation instead of listing a dead room.
+- The lobby reaps rooms that have reported no players for 5 minutes, and rooms whose watchdog stops. Rooms that report players are never reaped as idle.
+- A room exits by itself after `-idletimeout` seconds with no players (whether or not anyone ever joined), when its server shuts down after a `Host_Error`, or when the lobby goes away (its stdin pipe closes).
+- On SIGINT, SIGTERM or SIGHUP the lobby sends SIGTERM to all rooms and exits; rooms that don't stop on SIGTERM still exit when their stdin closes. A room the lobby terminates while running (idle, wedged or failed startup) is killed with SIGKILL if it hasn't exited 5 seconds after SIGTERM. A room's port is only reused once its process has exited.
+- The lobby logs its own operational lines unfiltered. Room processes keep the quiet allowlist (`__ICARO_QUIET_LOGS`), and the lobby relays what they print, except status and watchdog lines.
 
 ### Files
 
@@ -126,28 +163,31 @@ WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on t
 - `net_webtransport_server.ts` — Deno WebTransport server network driver
 - `browser_shim.js` — Minimal `three` stubs mapped via `deno.json` for headless execution
 - `sys_server.ts` — Deno system utilities and production log filtering (`__ICARO_QUIET_LOGS`)
+- `deno.json` — Maps `"three"` to `browser_shim.js` when running from `server/` (the root `deno.json` does the same from the repository root)
 
 **Tests & utilities:**
 
 - `net_webtransport_server_test.ts` — Unit tests for WebTransport packet sequencing (`deno test server/net_webtransport_server_test.ts`)
-- `test_imports.js` — Smoke check verifying Deno imports of `../src/` modules
-
-**Legacy prototype (not used by the live server):**
-
-- `main.ts`, `host_server.ts`, `pak_server.ts`, `mod_server.ts`, `rooms.ts`, `sys_deno.js` — Earlier standalone TypeScript server prototype superseded by `lobby_server.js` and `game_server.js`
+- `../tests/server_lobby_test.js` — Lobby and room-manager tests (`deno task test` from the repository root). The room-process test needs `--allow-run --allow-write` and is skipped without them.
+- `test_imports.js` — Smoke check verifying Deno imports of `../src/` modules (`cd server && deno run --allow-read test_imports.js`)
 
 ## Production Deployment
 
 Use valid TLS certificates (e.g. Let's Encrypt) and open UDP ports `4433` (lobby) and `4434`–`4443` (room servers):
 
 ```bash
-deno run --allow-net --allow-read --allow-run --unstable-net \
+deno run --unstable-net \
+  --allow-net=0.0.0.0:4433 \
+  --allow-read=/etc/letsencrypt/live/your-domain.com/fullchain.pem,/etc/letsencrypt/live/your-domain.com/privkey.pem \
+  --allow-run="$(command -v deno)" \
   /opt/icaro-engine/server/lobby_server.js \
   -port 4433 \
   -cert /etc/letsencrypt/live/your-domain.com/fullchain.pem \
   -key /etc/letsencrypt/live/your-domain.com/privkey.pem \
   -pak /opt/icaro-engine/static/pak0.pak
 ```
+
+Rooms need to read `static/`, the pak, and the cert and key, so the user running the lobby must be able to read all of them.
 
 ## License
 

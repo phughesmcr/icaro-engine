@@ -24,6 +24,9 @@ const _quietLogAllowPatterns: RegExp[] = [
 	/^WebTransport server listening /,
 	/^WebTransport server driver initialized/,
 	/^NET_Init complete/,
+	/^\[Heartbeat\]/,
+	/^Host_Error/,
+	/^Failed to start WebTransport listener/,
 ];
 
 function _shouldPrintLine(line: string): boolean {
@@ -45,10 +48,13 @@ export function Sys_Printf(fmt: string, ...args: unknown[]): void {
 	let result: string;
 	if (args.length > 0) {
 		// Simple printf-style formatting
-		result = fmt;
-		for (const arg of args) {
-			result = result.replace(/%[sdif]/, String(arg));
-		}
+		// Use a replacement function: a string replacement would expand `$&`,
+		// `$'` etc. inside user-supplied arguments.
+		let index = 0;
+		result = fmt.replace(/%[sdif]/g, (spec) => {
+			if (index >= args.length) return spec;
+			return String(args[index++]);
+		});
 	} else {
 		result = fmt;
 	}
@@ -57,7 +63,8 @@ export function Sys_Printf(fmt: string, ...args: unknown[]): void {
 		return;
 	}
 
-	console.log(result);
+	// console.log adds its own newline
+	console.log(result.endsWith('\n') ? result.slice(0, -1) : result);
 }
 
 export function Sys_Quit(): void {
