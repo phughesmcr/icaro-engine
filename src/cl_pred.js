@@ -12,7 +12,8 @@ import { CONTENTS_EMPTY } from './bspfile.js';
 import { cl, cl_entities, packet_entities_t } from './client.js';
 import { STAT_HEALTH } from './quakedef.js';
 import { PS_BSP, PS_BOX, PF_FLY, PF_NOCLIP, PF_TELEPORT } from './protocol.js';
-import { realtime, sv } from './host.js';
+import { realtime, sv, host_netinterval, host_netaccum } from './host.js';
+import { CL_MoveAngles, CL_QuantizeAngle } from './cl_input.js';
 
 // CVars
 export const cl_nopred = new cvar_t( 'cl_nopred', '0' );
@@ -965,6 +966,54 @@ function CL_Movevars_f() {
 		movevars.maxvelocity = Q_atof( Cmd_Argv( 12 ) );
 }
 
+// Renderer/network isolation: the partial command CL_PredictMove runs
+// between ticks, and the state it predicts
+const _partialcmd = {
+	msec: 0,
+	angles: new Float32Array( 3 ),
+	forwardmove: 0,
+	sidemove: 0,
+	upmove: 0,
+	buttons: 0
+};
+const _partialstate = new player_state_t();
+
+/*
+==============
+CL_PredictPartialMove
+
+Renderer/network isolation (host.js): render frames run between the 72 Hz
+commands, and without this the view would stay on the last command's
+state until the next one. Not in QW, which sends a command every frame.
+
+Predicts from the newest command's state (last) for the game time that
+hasn't been sent yet (host_netaccum), with the newest command's moves and
+buttons and the angles the next command will send. The next command
+covers that same time, so the view runs on into it rather than snapping.
+Returns false if there is no time to predict.
+==============
+*/
+function CL_PredictPartialMove( last ) {
+
+	const msec = host_netaccum * 1000;
+	if ( msec <= 0 )
+		return false;
+
+	const cmd = _partialcmd;
+	cmd.msec = msec < 255 ? msec : 255;
+	const angles = CL_MoveAngles();
+	for ( let i = 0; i < 3; i ++ )
+		cmd.angles[ i ] = CL_QuantizeAngle( angles[ i ] );
+	cmd.forwardmove = last.cmd.forwardmove;
+	cmd.sidemove = last.cmd.sidemove;
+	cmd.upmove = last.cmd.upmove;
+	cmd.buttons = last.cmd.buttons;
+
+	CL_PredictUsercmd( last.playerstate, _partialstate, cmd, false );
+	return true;
+
+}
+
 /*
 ==============
 CL_PredictMove
@@ -1038,12 +1087,28 @@ export function CL_PredictMove() {
 		lastFrom = to;
 	}
 
+	// Between isolated ticks, run on from the newest command
+	let partial = false;
+	if ( host_netinterval > 0 && i !== UPDATE_BACKUP - 1 && to !== null
+		&& to.sequence === outgoing_sequence - 1 )
+		partial = CL_PredictPartialMove( to );
+
 	pmove.numphysent = oldphysent;
 	_cl_predmovetype = PM_MOVETYPE_WALK;
 
 	// net hasn't delivered packets in a long time...
 	if ( i === UPDATE_BACKUP - 1 || to == null )
 		return;
+
+	if ( partial ) {
+
+		VectorCopy( _partialstate.velocity, cl_simvel );
+		VectorCopy( _partialstate.origin, cl_simorg );
+		cl_simonground = _partialstate.onground ? 0 : -1;
+		cl_prediction_active = true;
+		return;
+
+	}
 
 	// Interpolate some fraction of the final frame
 	let f;

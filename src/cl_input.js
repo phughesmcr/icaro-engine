@@ -6,13 +6,14 @@ import { Con_Printf, Q_atoi,
 import { Cmd_AddCommand, Cmd_Argv } from './cmd.js';
 import { cvar_t } from './cvar.js';
 import { clc_move, clc_delta, PE_UPDATE_BACKUP } from './protocol.js';
-import { SIGNONS,
+import { SIGNONS, ca_connected,
 	kbutton_t,
 	cl, cls } from './client.js';
 import { anglemod } from './mathlib.js';
-import { host_frametime, realtime } from './host.js';
+import { host_frametime, host_netframetime, realtime } from './host.js';
 import { V_StartPitchDrift, V_StopPitchDrift } from './view.js';
-import { lookspring, CL_Disconnect } from './cl_main.js';
+import { lookspring, lookstrafe, CL_Disconnect } from './cl_main.js';
+import { IN_Move } from './in_web.js';
 import { NET_SendUnreliableMessage } from './net_main.js';
 import { CL_StoreCommand, CL_GetValidSequence, CL_GetServerSequence } from './cl_pred.js';
 import { isXRActive, XR_GetAimAngles } from './webxr.js';
@@ -37,6 +38,14 @@ const _sendmove_predCmd = {
 	sidemove: 0,
 	upmove: 0,
 	buttons: 0
+};
+
+// Scratch command for CL_AccumulateCmd; its moves are thrown away
+const _accumulate_cmd = {
+	viewangles: new Float32Array( 3 ),
+	forwardmove: 0,
+	sidemove: 0,
+	upmove: 0
 };
 
 // WebTransport game servers parse QuakeWorld-style clc_delta requests.
@@ -372,6 +381,60 @@ export function CL_QuantizeAngle( f ) {
 }
 
 /*
+=================
+CL_AccumulateCmd
+
+Ironwail CL_AccumulateCmd (Spike: split from CL_SendCmd): turns the view
+on a render frame that runs no network tick, so mouse look follows every
+frame (host.js _Host_NetFrame). A tick frame turns it in CL_SendCmd.
+
+Ironwail adds IN_Move's moves to cl.pendingcmd, which CL_SendCmd sends.
+Here CL_SendCmd is unchanged and samples the sticks and touch joystick
+itself, so the scratch command's moves are dropped; summing them as
+Ironwail does would multiply stick speed by the frames per tick. Mouse
+motion that moves rather than turns (+strafe, lookstrafe, or no +mlook)
+can't be told apart from those, so then the view waits for the tick and
+CL_SendCmd gets the whole mouse delta, as in WinQuake.
+=================
+*/
+export function CL_AccumulateCmd() {
+
+	if ( cls.state !== ca_connected || cls.signon !== SIGNONS )
+		return;
+
+	if ( ( in_strafe.state & 1 ) || ( in_mlook.state & 1 ) === 0 || lookstrafe.value !== 0 )
+		return;
+
+	// basic keyboard looking
+	CL_AdjustAngles();
+
+	// mouse, touch, gamepad and XR stick looking
+	const cmd = _accumulate_cmd;
+	cmd.forwardmove = 0;
+	cmd.sidemove = 0;
+	cmd.upmove = 0;
+	IN_Move( cmd );
+
+}
+
+/*
+==============
+CL_MoveAngles
+
+The angles CL_SendMove sends: the view angles, or in XR the controller's
+aim, so weapons fire where it points. The server also moves the player
+along them, so prediction must use the same ones (IN-3).
+==============
+*/
+export function CL_MoveAngles() {
+
+	if ( isXRActive() && XR_GetAimAngles( _xrAimAngles ) )
+		return _xrAimAngles;
+	return cl.viewangles;
+
+}
+
+/*
 ==============
 CL_SendMove
 ==============
@@ -391,13 +454,8 @@ export function CL_SendMove( cmd ) {
 
 	MSG_WriteFloat( buf, cl.mtime[ 0 ] ); // so server can get ping times
 
-	// In XR mode, send controller aim direction instead of head direction
-	// so weapons fire where the controller points. The server also moves
-	// the player along these angles, so prediction must use the same ones
-	// (IN-3).
-	let angles = cl.viewangles;
-	if ( isXRActive() && XR_GetAimAngles( _xrAimAngles ) )
-		angles = _xrAimAngles;
+	// In XR mode, the controller's aim rather than the head's direction
+	const angles = CL_MoveAngles();
 
 	// Deliberate deviation from WinQuake's MSG_WriteAngle (8 bits, ~1.4 deg
 	// steps): 16-bit angles, as FitzQuake's protocol sends them
@@ -439,8 +497,10 @@ export function CL_SendMove( cmd ) {
 	//
 	// clc_move has no msec: the server moves the player by its own
 	// host_frametime, which isn't floored to whole milliseconds. Keep the
-	// fraction so prediction doesn't fall 4-6% short (PRED-3).
-	_sendmove_predCmd.msec = Math.min( 255, host_frametime * 1000 );
+	// fraction so prediction doesn't fall 4-6% short (PRED-3). With
+	// renderer/network isolation this is the tick's length, not the
+	// render frame's (host_netframetime equals host_frametime without it).
+	_sendmove_predCmd.msec = Math.min( 255, host_netframetime * 1000 );
 	_sendmove_predCmd.forwardmove = cmd.forwardmove;
 	_sendmove_predCmd.sidemove = cmd.sidemove;
 	_sendmove_predCmd.upmove = cmd.upmove;
