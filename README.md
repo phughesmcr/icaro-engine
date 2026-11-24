@@ -36,3 +36,4 @@ Code: GPL v2
 
 - Original game by id Software ([source](https://github.com/id-Software/Quake))
 - Original Three.js port (`three-quake`) by [@mrdoob](https://github.com/mrdoob) with [@claude](https://github.com/claude)
+- Engine fixes and limit raises ported from [Ironwail](https://github.com/andrei-drexler/ironwail) by Andrei Drexler, and its ancestors [QuakeSpasm](https://sourceforge.net/projects/quakespasm/) and FitzQuake (GPL v2 or later)
