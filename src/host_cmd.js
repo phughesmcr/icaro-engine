@@ -1580,9 +1580,9 @@ function PrintFrameName( m, frame ) {
 	if ( m.type !== mod_alias )
 		return;
 
+	// C's "if (!hdr) return;" is left out: Mod_Extradata returns the data or
+	// calls Sys_Error.
 	const hdr = Mod_Extradata( m );
-	if ( ! hdr )
-		return;
 	const pframedesc = hdr.frames[ frame ];
 
 	Con_Printf( 'frame %i: %s\n', frame, pframedesc.name );

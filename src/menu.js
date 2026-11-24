@@ -1818,7 +1818,7 @@ function M_AdjustSliders( dir ) {
 ==============================================================================
 */
 
-const OPTIONS_ITEMS = 15;
+const OPTIONS_ITEMS = 16;
 let m_options_cursor = 0;
 
 function M_Menu_Options_f() {
@@ -1881,6 +1881,11 @@ function M_Options_Draw() {
 
 	M_Print( 16, 144, '        Touch controls' );
 
+	// Port addition: the main menu's fourth row is C's Help again, so the
+	// credits screen (attribution and source link) is reached from here,
+	// which mouse and touch players can use without the console.
+	M_Print( 16, 152, '               Credits' );
+
 	// cursor
 	M_DrawCharacter( 200, 32 + m_options_cursor * 8, 12 + ( ( Math.floor( _realtime_get() * 4 ) ) & 1 ) );
 
@@ -1906,6 +1911,9 @@ function M_Options_Key( key ) {
 					break;
 				case 14:
 					M_Menu_Touch_f();
+					break;
+				case 15:
+					M_Menu_Credits_f();
 					break;
 				case 2:
 					Cbuf_AddText( 'exec default.cfg\n' );
@@ -2635,7 +2643,7 @@ function M_Credits_Key( key ) {
 	switch ( key ) {
 
 		case K_ESCAPE:
-			M_Menu_Main_f();
+			M_Menu_Options_f(); // reached from the Options menu
 			break;
 		case K_ENTER:
 			M_OpenCreditsSource();

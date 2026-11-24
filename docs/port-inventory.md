@@ -120,8 +120,9 @@ own fix PR.
 - **Status: fixed.** Main menu row 4 and `help` open `M_Menu_Help_f` again
   (`src/menu.js`). The main menu draws the PAK's `gfx/mainmenu.lmp`, which
   reads HELP. The custom `static/mainmenu.png` supplies only the in-game
-  Continue row. The credits screen stays reachable with `menu_credits`. On
-  touch, a tap turns the page.
+  Continue row. The credits screen moved to a new last row of the Options
+  menu (a port addition), and `menu_credits` still opens it. On touch, a
+  tap turns the page.
 
 ### G3 · `gl_texturemode` is a 0/1 cvar, not the C command — **medium**
 

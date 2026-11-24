@@ -127,6 +127,17 @@ Deno.test( 'G9: the view* commands step a viewthing through its model frames', (
 			'Can\'t load progs/nosuch.mdl\n', 'viewmodel with a missing model' );
 		assertEqual( thing.v.frame, 1, 'frame unchanged on failure' );
 
+		// viewmodel: swaps the viewthing's precache slot and resets its frame
+		const mdl = gl_model.Mod_FindName( 'progs/viewtest.mdl' );
+		mdl.needload = false;
+		mdl.type = gl_model.mod_alias;
+		mdl.numframes = 2;
+		mdl.cache.data = { frames: [ { name: 'pose1' }, { name: 'pose2' } ] };
+		cmd.Cmd_ExecuteString( 'viewmodel progs/viewtest.mdl' );
+		assertEqual( client.cl.model_precache[ 3 ], mdl, 'model_precache[ modelindex ] is the new model' );
+		assertEqual( thing.v.frame, 0, 'frame reset to 0' );
+		assertEqual( output( () => cmd.Cmd_ExecuteString( 'viewnext' ) ), 'frame 1: pose2\n', 'steps the new model' );
+
 		// a brush model has no alias frames: the frame moves, no name is printed
 		client.cl.model_precache[ 3 ] = { type: 0, numframes: 2, cache: { data: null } };
 		assertEqual( output( () => cmd.Cmd_ExecuteString( 'viewnext' ) ), '', 'no frame name for a brush model' );
@@ -138,6 +149,35 @@ Deno.test( 'G9: the view* commands step a viewthing through its model frames', (
 		progs.PR_SetStringsData( oldStrings );
 		server.sv.num_edicts = oldNumEdicts;
 		client.cl.model_precache[ 3 ] = oldPrecache;
+
+	}
+
+} );
+
+Deno.test( 'G10: host_speeds prints the frame timings each frame (host.c _Host_Frame)', () => {
+
+	if ( cvar.Cvar_FindVar( 'host_speeds' ) === null ) cvar.Cvar_RegisterVariable( host.host_speeds );
+	try {
+
+		// 0.1 s frames pass _Host_FilterTime, so each call runs a whole frame
+		cvar.Cvar_Set( 'host_speeds', '0' );
+		assertEqual( output( () => host.Host_Frame( 0.1 ) ), '', 'off: nothing printed' );
+
+		cvar.Cvar_Set( 'host_speeds', '1' );
+		const lines = output( () => {
+
+			host.Host_Frame( 0.1 );
+			host.Host_Frame( 0.1 );
+
+		} ).split( '\n' );
+		assertEqual( lines.length, 3, 'one line per frame' );
+		for ( const line of lines.slice( 0, 2 ) )
+			if ( /^[ \d]{2}\d tot [ \d]{2}\d server [ \d]{2}\d gfx [ \d]{2}\d snd$/.test( line ) !== true )
+				throw new Error( '"%3i tot %3i server %3i gfx %3i snd", got ' + JSON.stringify( line ) );
+
+	} finally {
+
+		cvar.Cvar_Set( 'host_speeds', '0' );
 
 	}
 

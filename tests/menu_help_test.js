@@ -113,6 +113,15 @@ Deno.test( 'G2: the main menu fourth item and the help command open the Help pag
 		cmd.Cmd_ExecuteString( 'menu_credits' );
 		assertEqual( menu.m_state, menu.m_credits, 'the credits screen stays on menu_credits' );
 
+		// Port addition: Credits is the last Options row, so mouse and touch
+		// players can still reach it
+		cmd.Cmd_ExecuteString( 'menu_options' );
+		menu.M_Keydown( keys.K_UPARROW ); // the cursor starts on row 0, so this wraps to the last row
+		menu.M_Keydown( keys.K_ENTER );
+		assertEqual( menu.m_state, menu.m_credits, 'Options last row opens Credits' );
+		menu.M_Keydown( keys.K_ESCAPE );
+		assertEqual( menu.m_state, menu.m_options, 'Escape returns to Options' );
+
 	} finally {
 
 		menu.M_SetExternals( { sv: { active: false } } );
