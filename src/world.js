@@ -12,8 +12,8 @@ import { Sys_Error } from './sys.js';
 import { Con_DPrintf, link_t, ClearLink, RemoveLink, InsertLinkBefore } from './common.js';
 import { VectorCopy, VectorAdd, VectorSubtract, DotProduct, vec3_origin, BoxOnPlaneSide } from './mathlib.js';
 import {
-	sv, svs,
-	SOLID_NOT, SOLID_TRIGGER, SOLID_BBOX, SOLID_SLIDEBOX, SOLID_BSP,
+	sv,
+	SOLID_NOT, SOLID_TRIGGER, SOLID_BSP,
 	MOVETYPE_PUSH,
 	FL_ITEM, FL_MONSTER
 } from './server.js';
@@ -944,6 +944,8 @@ function SV_ClipToLinks( node, clip ) {
 
 			}
 
+		// Unreachable, as in world.c SV_ClipToLinks; kept to mirror the C.
+		// deno-lint-ignore no-dupe-else-if
 		} else if ( trace.startsolid ) {
 
 			clip.trace.startsolid = true;

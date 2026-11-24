@@ -2,8 +2,8 @@
 // Master for refresh, status bar, console, chat, notify, etc
 
 import { Con_Printf, Con_CheckResize, Con_DrawConsole, Con_DrawNotify, Con_ClearNotify,
-	con_forcedup, Con_SetForcedup, con_initialized } from './console.js';
-import { Sbar_Draw, Sbar_Changed, Sbar_IntermissionOverlay, Sbar_FinaleOverlay, SBAR_HEIGHT, set_sb_lines as Sbar_set_sb_lines } from './sbar.js';
+	Con_SetForcedup, con_initialized } from './console.js';
+import { Sbar_Draw, Sbar_Changed, Sbar_IntermissionOverlay, Sbar_FinaleOverlay, set_sb_lines as Sbar_set_sb_lines } from './sbar.js';
 import { M_Draw } from './menu.js';
 import { Draw_Character, Draw_CachePic, Draw_Pic, Draw_FadeScreen, Draw_BeginFrame,
 	GL_Set2D, Draw_TileClear, Draw_PicFromWad, Draw_GetUIScale,
@@ -23,13 +23,6 @@ import { r_refdef as _r_refdef_canonical } from './render.js';
 ==============================================================================
 */
 
-let glx = 0;
-let gly = 0;
-let glwidth = 640;
-let glheight = 480;
-
-let scr_copytop = 0;
-let scr_copyeverything = 0;
 
 export let scr_con_current = 0;
 let scr_conlines = 0; // lines of console to display
@@ -49,11 +42,9 @@ const gl_triplebuffer = { name: 'gl_triplebuffer', string: '1', value: 1, archiv
 
 export let scr_initialized = false;
 
-let scr_ram = null;
 let scr_net = null;
 let scr_turtle = null;
 
-let scr_fullupdate = 0;
 
 let clearconsole = 0;
 let clearnotify = 0;
@@ -74,7 +65,6 @@ let scr_centertime_start = 0;
 let scr_centertime_off = 0;
 let scr_center_lines = 0;
 let scr_erase_lines = 0;
-let scr_erase_center = 0;
 
 // Modal dialog
 let scr_notifystring = '';
@@ -165,7 +155,6 @@ function SCR_DrawCenterString() {
 	else
 		remaining = 9999;
 
-	scr_erase_center = 0;
 
 	let start = 0;
 	let y;
@@ -213,7 +202,6 @@ function SCR_DrawCenterString() {
 
 function SCR_CheckDrawCenterString() {
 
-	scr_copytop = 1;
 
 	if ( scr_center_lines > scr_erase_lines )
 		scr_erase_lines = scr_center_lines;
@@ -275,7 +263,6 @@ Internal use only
 */
 function SCR_CalcRefdef() {
 
-	scr_fullupdate = 0; // force a background redraw
 	_vid.recalc_refdef = false;
 	_r_refdef.vrectScale = Draw_GetUIScale();
 
@@ -421,7 +408,6 @@ export function SCR_Init() {
 	Cmd_AddCommand( 'sizeup', SCR_SizeUp_f );
 	Cmd_AddCommand( 'sizedown', SCR_SizeDown_f );
 
-	scr_ram = Draw_PicFromWad( 'ram' );
 	scr_net = Draw_PicFromWad( 'net' );
 	scr_turtle = Draw_PicFromWad( 'turtle' );
 
@@ -593,7 +579,6 @@ function SCR_DrawConsole() {
 
 	if ( scr_con_current ) {
 
-		scr_copyeverything = 1;
 		Con_DrawConsole( scr_con_current, true );
 		clearconsole = 0;
 
@@ -627,13 +612,11 @@ export function SCR_ModalMessage( text, callback ) {
 	scr_notifystring = text;
 
 	// draw a fresh screen
-	scr_fullupdate = 0;
 	scr_drawdialog = true;
 
 	Key_BeginModal( function ( yes ) {
 
 		scr_drawdialog = false;
-		scr_fullupdate = 0;
 		callback( yes );
 
 	} );
@@ -778,14 +761,12 @@ export function SCR_BeginLoadingPlaque() {
 	scr_con_current = 0;
 
 	scr_drawloading = true;
-	scr_fullupdate = 0;
 	Sbar_Changed();
 	SCR_UpdateScreen();
 	scr_drawloading = false;
 
 	scr_disabled_for_loading = true;
 	scr_disabled_time = realtime;
-	scr_fullupdate = 0;
 
 }
 
@@ -797,7 +778,6 @@ SCR_EndLoadingPlaque
 export function SCR_EndLoadingPlaque() {
 
 	scr_disabled_for_loading = false;
-	scr_fullupdate = 0;
 	Con_ClearNotify();
 
 }
@@ -820,8 +800,6 @@ export function SCR_UpdateScreen() {
 
 	_vid.numpages = 2 + gl_triplebuffer.value;
 
-	scr_copytop = 0;
-	scr_copyeverything = 0;
 
 	if ( scr_disabled_for_loading ) {
 
@@ -886,7 +864,6 @@ export function SCR_UpdateScreen() {
 		Sbar_Draw();
 		Draw_FadeScreen();
 		SCR_DrawNotifyString();
-		scr_copyeverything = 1;
 
 	} else if ( scr_drawloading ) {
 

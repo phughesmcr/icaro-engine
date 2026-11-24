@@ -5,19 +5,18 @@ import { Con_Printf } from './common.js';
 import { PR_GlobalString, PR_GlobalStringNoContents } from './pr_edict.js';
 import {
 	progs, pr_functions, pr_strings_data,
-	pr_globaldefs, pr_fielddefs, pr_statements,
-	pr_global_struct, pr_globals, pr_globals_float, pr_globals_int,
-	type_size,
+	pr_statements,
+	pr_global_struct, pr_globals_float, pr_globals_int,
 	PR_GetString,
-	EDICT_NUM, NUM_FOR_EDICT, EDICT_TO_PROG, PROG_TO_EDICT,
+	PROG_TO_EDICT,
 	sv,
 	pr_builtins, pr_numbuiltins,
-	pr_argc, PR_SetArgc,
+	PR_SetArgc,
 	pr_trace, pr_xfunction, pr_xstatement,
 	PR_SetTrace, PR_SetXFunction, PR_SetXStatement,
 } from './progs.js';
 import {
-	OFS_NULL, OFS_RETURN, OFS_PARM0,
+	OFS_RETURN, OFS_PARM0,
 	OP_DONE, OP_MUL_F, OP_MUL_V, OP_MUL_FV, OP_MUL_VF,
 	OP_DIV_F, OP_ADD_F, OP_ADD_V, OP_SUB_F, OP_SUB_V,
 	OP_EQ_F, OP_EQ_V, OP_EQ_S, OP_EQ_E, OP_EQ_FNC,
@@ -198,45 +197,6 @@ export function PR_StackTrace() {
 		}
 
 	}
-
-}
-
-/*
-============
-PR_Profile_f
-============
-*/
-export function PR_Profile_f() {
-
-	let num = 0;
-
-	do {
-
-		let max = 0;
-		let best = null;
-
-		for ( let i = 0; i < progs.numfunctions; i ++ ) {
-
-			const f = pr_functions[ i ];
-			if ( f.profile > max ) {
-
-				max = f.profile;
-				best = f;
-
-			}
-
-		}
-
-		if ( best ) {
-
-			if ( num < 10 )
-				Con_Printf( '%7i %s\n', best.profile, PR_GetString( best.s_name ) );
-			num ++;
-			best.profile = 0;
-
-		}
-
-	} while ( best );
 
 }
 

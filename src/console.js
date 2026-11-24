@@ -17,8 +17,6 @@ import { Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
 
 const CON_TEXTSIZE = 16384;
 const NUM_CON_TIMES = 4;
-const MAXPRINTMSG = 4096;
-const MAXCMDLINE = 256;
 
 /*
 ==============================================================================
@@ -45,8 +43,6 @@ const con_notifytime = { name: 'con_notifytime', string: '3', value: 3 }; // sec
 const con_times = new Float32Array( NUM_CON_TIMES ); // realtime time the line was generated
 
 export let con_vislines = 0;
-
-let con_debuglog = false;
 
 export let con_initialized = false;
 

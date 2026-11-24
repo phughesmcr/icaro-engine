@@ -17,12 +17,11 @@ import {
 	OFS_PARM4, OFS_PARM5, OFS_PARM6, OFS_PARM7,
 } from './pr_comp.js';
 import {
-	progs, pr_functions,
-	pr_global_struct, pr_globals_float, pr_globals_int,
-	pr_argc, pr_trace, pr_xfunction,
+	pr_global_struct,
+	pr_argc, pr_xfunction,
 	PR_GetString, PR_SetTrace, PR_SetXFunction,
 	G_FLOAT, G_FLOAT_SET, G_INT, G_INT_SET, G_VECTOR, G_STRING, G_EDICT, G_EDICTNUM,
-	EDICT_NUM, NUM_FOR_EDICT, NEXT_EDICT,
+	EDICT_NUM, NUM_FOR_EDICT,
 	EDICT_TO_PROG, PROG_TO_EDICT,
 	RETURN_EDICT,
 	E_STRING,
@@ -43,7 +42,7 @@ import { Cvar_VariableValue, Cvar_Set } from './cvar.js';
 import { FL_ONGROUND, FL_FLY, FL_SWIM, svs, ss_loading, ss_active, teamplay } from './server.js';
 import { Mod_ForName, Mod_PointInLeaf, Mod_LeafPVS } from './gl_model.js';
 import {
-	svc_sound, svc_print, svc_centerprint, svc_stufftext, svc_lightstyle,
+	svc_print, svc_centerprint, svc_stufftext, svc_lightstyle,
 	svc_spawnstatic, svc_spawnstaticsound,
 } from './protocol.js';
 
@@ -533,7 +532,8 @@ function PF_break() {
 
 	Con_Printf( 'break statement\n' );
 	// In C this dumps to debugger; in JS we just log
-	debugger; // eslint-disable-line no-debugger
+	// deno-lint-ignore no-debugger
+	debugger;
 
 }
 
@@ -567,20 +567,6 @@ function PF_traceline() {
 		pr_global_struct.trace_ent = EDICT_TO_PROG( sv.edicts[ 0 ] );
 	pr_global_struct.trace_inopen = trace.inopen ? 1 : 0;
 	pr_global_struct.trace_inwater = trace.inwater ? 1 : 0;
-
-}
-
-/*
-=================
-PF_checkpos
-
-Returns true if the given entity can move to the given position from its
-current position by walking or rolling.
-Not implemented in original Quake either (dead code in id's source).
-scalar checkpos (entity, vector)
-=================
-*/
-function PF_checkpos() {
 
 }
 

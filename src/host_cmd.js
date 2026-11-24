@@ -1217,7 +1217,7 @@ function Host_Savegame_f() {
 
 		localStorage.setItem( SAVE_STORAGE_PREFIX + name, saveData );
 
-	} catch ( e ) {
+	} catch {
 
 		Con_Printf( 'ERROR: couldn\'t save (localStorage full?).\n' );
 		return;
@@ -1256,7 +1256,7 @@ function Host_Loadgame_f() {
 
 		saveData = localStorage.getItem( SAVE_STORAGE_PREFIX + name );
 
-	} catch ( e ) {
+	} catch {
 
 		// ignore
 	}

@@ -2,16 +2,13 @@
 
 import * as THREE from 'three';
 import { Sys_Error } from './sys.js';
-import { DotProduct, VectorCopy, VectorAdd, VectorSubtract, M_PI,
-	vec3_origin } from './mathlib.js';
-import { VERTEXSIZE, glpoly_t, gl_subdivide_size, r_origin,
-	GL_Bind, GL_DisableMultitexture, d_lightstylevalue } from './glquake.js';
+import { DotProduct } from './mathlib.js';
+import { VERTEXSIZE, glpoly_t, gl_subdivide_size } from './glquake.js';
 
 export let skytexturenum = 0;
 
 export let solidskytexture = 0;
 export let alphaskytexture = 0;
-let speedscale = 0; // for top sky and bottom sky
 
 let warpface = null; // msurface_t *
 
@@ -60,8 +57,6 @@ export const turbsin = new Float32Array( [
 	- 3.06147, - 2.87916, - 2.69512, - 2.50945, - 2.32228, - 2.1337, - 1.94384, - 1.75281,
 	- 1.56072, - 1.3677, - 1.17384, - 0.979285, - 0.784137, - 0.588517, - 0.392541, - 0.19633,
 ] );
-
-const TURBSCALE = ( 256.0 / ( 2 * M_PI ) );
 
 /*
 =============
@@ -243,202 +238,6 @@ export function GL_SubdivideSurface( fa ) {
 	const arr = new Float32Array( ( numverts + 1 ) * 3 );
 	for ( let i = 0; i < numverts * 3; i ++ ) arr[ i ] = verts[ i ];
 	SubdividePolygon( numverts, arr );
-
-}
-
-/*
-=============
-EmitWaterPolys
-
-Does a water warp on the pre-fragmented glpoly_t chain.
-For Three.js, builds geometry with warped UVs.
-=============
-*/
-// NOTE: Dead code — the cached version EmitWaterPolysQuake in gl_rsurf.js is used instead.
-function EmitWaterPolys( fa, realtime ) {
-
-	const positions = [];
-	const uvs = [];
-	const indices = [];
-	let vertexCount = 0;
-
-	for ( let p = fa.polys; p; p = p.next ) {
-
-		const startVert = vertexCount;
-
-		for ( let i = 0; i < p.numverts; i ++ ) {
-
-			const v = p.verts[ i ];
-			const os = v[ 3 ];
-			const ot = v[ 4 ];
-
-			let s = os + turbsin[ ( ( ot * 0.125 + realtime ) * TURBSCALE | 0 ) & 255 ];
-			s *= ( 1.0 / 64 );
-
-			let t = ot + turbsin[ ( ( os * 0.125 + realtime ) * TURBSCALE | 0 ) & 255 ];
-			t *= ( 1.0 / 64 );
-
-			// Quake -> Three.js coordinate conversion
-			positions.push( v[ 0 ], v[ 2 ], - v[ 1 ] );
-			uvs.push( s, t );
-			vertexCount ++;
-
-		}
-
-		// Fan triangulation
-		for ( let i = 2; i < p.numverts; i ++ ) {
-
-			indices.push( startVert, startVert + i - 1, startVert + i );
-
-		}
-
-	}
-
-	if ( positions.length === 0 )
-		return null;
-
-	const geometry = new THREE.BufferGeometry();
-	geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( positions, 3 ) );
-	geometry.setAttribute( 'uv', new THREE.Float32BufferAttribute( uvs, 2 ) );
-	geometry.setIndex( indices );
-	geometry.computeVertexNormals();
-
-	return geometry;
-
-}
-
-/*
-=============
-EmitSkyPolys
-
-For Three.js, builds sky geometry with computed UVs.
-=============
-*/
-// NOTE: Dead code — the cached version EmitSkyPolysQuake in gl_rsurf.js is used instead.
-function EmitSkyPolys( fa, realtime ) {
-
-	const positions = [];
-	const uvs = [];
-	const indices = [];
-	let vertexCount = 0;
-	const dir = new Float32Array( 3 );
-
-	for ( let p = fa.polys; p; p = p.next ) {
-
-		const startVert = vertexCount;
-
-		for ( let i = 0; i < p.numverts; i ++ ) {
-
-			const v = p.verts[ i ];
-
-			VectorSubtract( v, r_origin, dir );
-			dir[ 2 ] *= 3; // flatten the sphere
-
-			let length = dir[ 0 ] * dir[ 0 ] + dir[ 1 ] * dir[ 1 ] + dir[ 2 ] * dir[ 2 ];
-			length = Math.sqrt( length );
-			length = 6 * 63 / length;
-
-			dir[ 0 ] *= length;
-			dir[ 1 ] *= length;
-
-			const s = ( speedscale + dir[ 0 ] ) * ( 1.0 / 128 );
-			const t = ( speedscale + dir[ 1 ] ) * ( 1.0 / 128 );
-
-			// Quake -> Three.js coordinate conversion
-			positions.push( v[ 0 ], v[ 2 ], - v[ 1 ] );
-			uvs.push( s, t );
-			vertexCount ++;
-
-		}
-
-		// Fan triangulation
-		for ( let i = 2; i < p.numverts; i ++ ) {
-
-			indices.push( startVert, startVert + i - 1, startVert + i );
-
-		}
-
-	}
-
-	if ( positions.length === 0 )
-		return null;
-
-	const geometry = new THREE.BufferGeometry();
-	geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( positions, 3 ) );
-	geometry.setAttribute( 'uv', new THREE.Float32BufferAttribute( uvs, 2 ) );
-	geometry.setIndex( indices );
-	geometry.computeVertexNormals();
-
-	return geometry;
-
-}
-
-/*
-===============
-EmitBothSkyLayers
-
-Does a sky warp on the pre-fragmented glpoly_t chain
-This will be called for brushmodels, the world
-will have them chained together.
-===============
-*/
-// NOTE: Dead code — R_DrawSkyChain in gl_rsurf.js handles sky rendering.
-function EmitBothSkyLayers( fa, realtime ) {
-
-	GL_DisableMultitexture();
-
-	GL_Bind( solidskytexture );
-	speedscale = realtime * 8;
-	speedscale -= ( speedscale | 0 ) & ~127;
-
-	const solidGeo = EmitSkyPolys( fa, realtime );
-
-	GL_Bind( alphaskytexture );
-	speedscale = realtime * 16;
-	speedscale -= ( speedscale | 0 ) & ~127;
-
-	const alphaGeo = EmitSkyPolys( fa, realtime );
-
-	return { solidGeometry: solidGeo, alphaGeometry: alphaGeo };
-
-}
-
-/*
-=================
-R_DrawSkyChain
-=================
-*/
-// NOTE: Dead code — R_DrawSkyChain in gl_rsurf.js is used instead.
-function R_DrawSkyChain( s, realtime ) {
-
-	GL_DisableMultitexture();
-
-	// used when gl_texsort is on
-	GL_Bind( solidskytexture );
-	speedscale = realtime * 8;
-	speedscale -= ( speedscale | 0 ) & ~127;
-
-	const solidGeometries = [];
-	for ( let fa = s; fa; fa = fa.texturechain ) {
-
-		const geo = EmitSkyPolys( fa, realtime );
-		if ( geo ) solidGeometries.push( geo );
-
-	}
-
-	GL_Bind( alphaskytexture );
-	speedscale = realtime * 16;
-	speedscale -= ( speedscale | 0 ) & ~127;
-
-	const alphaGeometries = [];
-	for ( let fa = s; fa; fa = fa.texturechain ) {
-
-		const geo = EmitSkyPolys( fa, realtime );
-		if ( geo ) alphaGeometries.push( geo );
-
-	}
-
-	return { solidGeometries, alphaGeometries };
 
 }
 

@@ -9,14 +9,14 @@ import {
 	key_game, key_console, key_menu, key_dest,
 	keybindings, Key_SetBinding, Key_KeynumToString, Key_Event, Key_ModalActive
 } from './keys.js';
-import { cl_forwardspeed, cl_backspeed } from './cl_input.js';
+import { cl_forwardspeed } from './cl_input.js';
 import { sensitivity, m_pitch, lookspring, lookstrafe, cl_color } from './cl_main.js';
 import { volume, bgmvolume } from './sound.js';
 import { Cvar_SetValue, Cvar_VariableValue } from './cvar.js';
 import { scr_viewsize, scr_con_current, SCR_ModalMessage } from './gl_screen.js';
 import { v_gamma } from './view.js';
 import { gl_texturemode, GL_UpdateTextureFiltering } from './glquake.js';
-import { skill, coop, teamplay, deathmatch, svs } from './server.js';
+import { skill, coop, teamplay, svs } from './server.js';
 import { Touch_ExitFullscreen } from './touch.js';
 import { Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
 import { SAVEGAME_COMMENT_LENGTH } from './quakedef.js';
@@ -621,7 +621,6 @@ function M_Main_Draw() {
 	if ( ! _Draw_CachePic ) return;
 
 	const inGame = M_InGame();
-	const itemCount = inGame ? MAIN_ITEMS + 1 : MAIN_ITEMS;
 
 	M_DrawTransPic( 16, 4, _Draw_CachePic( 'gfx/qplaque.lmp' ) );
 	const p = _Draw_CachePic( 'gfx/ttl_main.lmp' );
@@ -692,7 +691,7 @@ function M_Main_Key( key ) {
 				m_main_cursor = itemCount - 1;
 			break;
 
-		case K_ENTER:
+		case K_ENTER: {
 			m_entersound = true;
 
 			// Adjust cursor for menu action - if in-game, cursor 0 is Continue
@@ -730,6 +729,7 @@ function M_Main_Key( key ) {
 			}
 
 			break;
+		}
 
 	}
 
@@ -874,7 +874,7 @@ function M_ScanSaves() {
 		if ( typeof localStorage === 'undefined' ) return;
 		storage = localStorage;
 
-	} catch ( e ) {
+	} catch {
 
 		return;
 
@@ -887,7 +887,7 @@ function M_ScanSaves() {
 
 			saveData = storage.getItem( SAVE_STORAGE_PREFIX + 's' + i );
 
-		} catch ( e ) {
+		} catch {
 
 			return;
 
@@ -1390,7 +1390,7 @@ function M_NetStart_Change( dir ) {
 				Cvar_SetValue( 'skill', 3 );
 			break;
 
-		case 5: // Episode
+		case 5: { // Episode
 			startepisode += dir;
 
 			const numEpisodes = M_NumEpisodes();
@@ -1401,8 +1401,9 @@ function M_NetStart_Change( dir ) {
 
 			startlevel = 0;
 			break;
+		}
 
-		case 6: // Level
+		case 6: { // Level
 			startlevel += dir;
 			const count = episodes[ startepisode ].levels;
 			if ( startlevel < 0 )
@@ -1410,6 +1411,7 @@ function M_NetStart_Change( dir ) {
 			if ( startlevel >= count )
 				startlevel = 0;
 			break;
+		}
 
 	}
 

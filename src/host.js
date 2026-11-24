@@ -34,7 +34,7 @@ import { CDAudio_Init, CDAudio_Update, CDAudio_Shutdown } from './cd_audio.js';
 import { Sbar_Init, Sbar_SetExternals } from './sbar.js';
 import { CL_Init, CL_SendCmd, CL_ReadFromServer, CL_DecayLights, CL_Disconnect, CL_NextDemo, cl_name } from './cl_main.js';
 import { IN_Init, IN_Commands, IN_Shutdown, IN_UpdateTouch, IN_RequestPointerLock } from './in_web.js';
-import { cls, cl, SIGNONS, ca_connected, ca_dedicated } from './client.js';
+import { cls, cl, SIGNONS, ca_connected } from './client.js';
 import { key_dest, key_game, Key_SetExternals, set_key_dest } from './keys.js';
 import { r_origin, vpn, vright, vup } from './render.js';
 import { vec3_origin } from './mathlib.js';
@@ -224,6 +224,8 @@ function Host_FindMaxClients() {
 Host_Init
 ====================
 */
+// Kept async: main.js awaits Host_Init.
+// deno-lint-ignore require-await
 export async function Host_Init( parms ) {
 
 	host_parms = parms;
@@ -428,7 +430,7 @@ export async function Host_Init( parms ) {
 
 		}
 
-	} catch ( e ) {
+	} catch {
 
 		// localStorage may be unavailable
 	}
@@ -795,7 +797,7 @@ export function Host_WriteConfiguration() {
 
 		localStorage.setItem( CONFIG_STORAGE_KEY, config );
 
-	} catch ( e ) {
+	} catch {
 
 		Con_Printf( 'Couldn\'t save config.\n' );
 

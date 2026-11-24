@@ -1,9 +1,6 @@
 // Ported from: WinQuake/cl_main.c -- client main loop
 
-import { MAX_MODELS, MAX_SOUNDS, MAX_EDICTS, MAX_LIGHTSTYLES,
-	STAT_HEALTH, STAT_FRAGS, STAT_WEAPON, STAT_AMMO, STAT_ARMOR,
-	STAT_WEAPONFRAME, STAT_SHELLS, STAT_ACTIVEWEAPON, STAT_MONSTERS,
-	STAT_SECRETS } from './quakedef.js';
+import { MAX_EDICTS, MAX_LIGHTSTYLES } from './quakedef.js';
 import { Con_Printf, Con_DPrintf, SZ_Alloc, SZ_Clear,
 	MSG_WriteByte, MSG_WriteString } from './common.js';
 import { NET_Connect, NET_SendMessage, NET_SendUnreliableMessage, NET_CanSendMessage, NET_Close } from './net_main.js';
@@ -19,8 +16,8 @@ import { SIGNONS, MAX_DLIGHTS, MAX_EFRAGS, MAX_BEAMS, MAX_TEMP_ENTITIES,
 	cl, cls, cl_efrags, cl_entities,
 	cl_lightstyle, cl_dlights, cl_temp_entities, cl_beams,
 	cl_numvisedicts, cl_visedicts, set_cl_numvisedicts,
-	dlight_t, entity_t, efrag_t, lightstyle_t, beam_t,
-	client_state_t, usercmd_t, cshift_t,
+	dlight_t, entity_t, lightstyle_t, beam_t,
+	usercmd_t,
 	NUM_CSHIFTS } from './client.js';
 import { anglemod, VectorCopy, VectorMA, AngleVectors } from './mathlib.js';
 import { R_RocketTrail, R_RemoveEfrags, R_EntityParticles } from './render.js';
@@ -342,7 +339,7 @@ export async function CL_EstablishConnection( host ) {
 
 			}
 
-		} catch ( e ) {
+		} catch {
 
 			// Ignore URL parsing errors
 

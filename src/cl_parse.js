@@ -2,7 +2,7 @@
 
 import { MAX_MODELS, MAX_SOUNDS, MAX_EDICTS, MAX_LIGHTSTYLES,
 	MAX_CL_STATS, MAX_SCOREBOARD,
-	STAT_HEALTH, STAT_FRAGS, STAT_WEAPON, STAT_AMMO, STAT_ARMOR,
+	STAT_HEALTH, STAT_WEAPON, STAT_AMMO, STAT_ARMOR,
 	STAT_WEAPONFRAME, STAT_SHELLS, STAT_ACTIVEWEAPON, STAT_MONSTERS,
 	STAT_SECRETS, entity_state_t } from './quakedef.js';
 import { Con_Printf, Con_DPrintf, SZ_Clear,
@@ -19,7 +19,7 @@ import { Cmd_ExecuteString } from './cmd.js';
 import { src_command } from './cmd.js';
 import {
 	PROTOCOL_VERSION,
-	svc_bad, svc_nop, svc_disconnect, svc_updatestat, svc_version,
+	svc_nop, svc_disconnect, svc_updatestat, svc_version,
 	svc_setview, svc_sound, svc_time, svc_print, svc_stufftext,
 	svc_setangle, svc_serverinfo, svc_lightstyle, svc_updatename,
 	svc_updatefrags, svc_clientdata, svc_stopsound, svc_updatecolors,
@@ -29,13 +29,13 @@ import {
 	svc_intermission, svc_finale, svc_cdtrack, svc_sellscreen,
 	svc_cutscene,
 	svc_playerinfo, PF_MSEC, PF_COMMAND, PF_VELOCITY1, PF_VELOCITY2, PF_VELOCITY3,
-	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_DEAD, PF_GIB, PF_TELEPORT,
+	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_TELEPORT,
 	CM_ANGLE1, CM_ANGLE2, CM_ANGLE3, CM_FORWARD, CM_SIDE, CM_UP, CM_BUTTONS, CM_IMPULSE,
 	clc_nop,
 	SND_VOLUME, SND_ATTENUATION,
 	DEFAULT_VIEWHEIGHT,
 	SU_VIEWHEIGHT, SU_IDEALPITCH, SU_PUNCH1, SU_VELOCITY1,
-	SU_ITEMS, SU_ONGROUND, SU_INWATER, SU_WEAPONFRAME,
+	SU_ONGROUND, SU_INWATER, SU_WEAPONFRAME,
 	SU_ARMOR, SU_WEAPON,
 	U_MOREBITS, U_ORIGIN1, U_ORIGIN2, U_ORIGIN3,
 	U_ANGLE1, U_ANGLE2, U_ANGLE3,
@@ -43,24 +43,22 @@ import {
 	U_LONGENTITY, U_NOLERP,
 	DEFAULT_SOUND_PACKET_VOLUME, DEFAULT_SOUND_PACKET_ATTENUATION,
 	svc_packetentities, svc_deltapacketentities, svc_serversequence,
-	PE_ENT_BITS, PE_ENT_MASK, PE_ORIGIN1, PE_ORIGIN2, PE_ORIGIN3,
+	PE_ENT_MASK, PE_ORIGIN1, PE_ORIGIN2, PE_ORIGIN3,
 	PE_ANGLE2, PE_REMOVE, PE_MOREBITS,
 	PE_FRAME, PE_ANGLE1, PE_ANGLE3, PE_MODEL, PE_COLORMAP, PE_SKIN, PE_EFFECTS, PE_SOLID,
-	PS_BOX, MAX_PACKET_ENTITIES, PE_UPDATE_BACKUP, PE_UPDATE_MASK
+	PS_BOX, MAX_PACKET_ENTITIES, PE_UPDATE_BACKUP
 } from './protocol.js';
 import {
-	SIGNONS, MAX_STATIC_ENTITIES, MAX_DLIGHTS,
-	ca_connected,
+	SIGNONS, MAX_STATIC_ENTITIES,
 	cl, cls, cl_entities, cl_static_entities, cl_lightstyle,
-	entity_t, scoreboard_t, lightstyle_t, packet_entities_t } from './client.js';
+	scoreboard_t } from './client.js';
 import { VectorCopy } from './mathlib.js';
 import { V_ParseDamage } from './view.js';
 import { Mod_ForName } from './gl_model.js';
 import { CL_SetServerState, CL_AcknowledgeCommand, CL_AcknowledgeTransportSequence,
 	CL_FindAcknowledgedSequence,
 	CL_SetValidSequence, CL_SetPlayerInfo,
-	CL_GetServerSequence, CL_SetServerSequence, CL_GetFrame, CL_GetEntityFrame,
-	CL_GetValidSequence } from './cl_pred.js';
+	CL_GetServerSequence, CL_SetServerSequence, CL_GetEntityFrame } from './cl_pred.js';
 import { R_TranslatePlayerSkin } from './gl_rmisc.js';
 
 // QuakeWorld model precache indices (set during CL_ParseServerInfo)

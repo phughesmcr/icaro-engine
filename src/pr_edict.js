@@ -12,25 +12,22 @@ import {
 	DEF_SAVEGLOBAL, MAX_PARMS, PROG_VERSION,
 	ev_void, ev_string, ev_float, ev_vector, ev_entity,
 	ev_field, ev_function, ev_pointer,
-	OFS_RETURN, OFS_PARM0,
 } from './pr_comp.js';
 import { PROGHEADER_CRC } from './progdefs.js';
-import { globalvars_t, entvars_t } from './progdefs.js';
+import { globalvars_t } from './progdefs.js';
 import {
-	progs, pr_functions, pr_strings, pr_strings_data,
-	pr_globaldefs, pr_fielddefs, pr_statements,
-	pr_global_struct, pr_globals, pr_globals_float, pr_globals_int,
-	pr_edict_size, pr_crc, type_size,
-	PR_SetProgs, PR_SetFunctions, PR_SetStrings, PR_SetStringsData,
+	progs, pr_functions, pr_strings_data,
+	pr_globaldefs, pr_fielddefs,
+	pr_global_struct, pr_globals, pr_globals_int,
+	type_size,
+	PR_SetProgs, PR_SetFunctions, PR_SetStringsData,
 	PR_SetGlobalDefs, PR_SetFieldDefs, PR_SetStatements,
 	PR_SetGlobalStruct, PR_SetGlobals, PR_SetGlobalsFloat, PR_SetGlobalsInt,
 	PR_SetEdictSize, PR_SetCRC, PR_SetStringTempOfs,
 	EdictFieldAccessor, edict_t,
-	PR_GetString, G_FLOAT, G_INT, G_STRING, G_EDICT, G_EDICTNUM,
-	EDICT_NUM, NUM_FOR_EDICT, EDICT_TO_PROG, PROG_TO_EDICT,
-	E_STRING, E_INT, E_FLOAT,
-	sv, svs, PR_SetSV,
-	RETURN_EDICT,
+	PR_GetString,
+	EDICT_NUM, NUM_FOR_EDICT, EDICT_TO_PROG,
+	sv, svs,
 } from './progs.js';
 import { PR_ExecuteProgram } from './pr_exec.js';
 import { SV_UnlinkEdict } from './world.js';

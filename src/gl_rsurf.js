@@ -63,29 +63,27 @@ import { cl, cl_dlights, MAX_DLIGHTS, MAX_VISEDICTS, cl_visedicts, cl_numvisedic
 import { R_StoreEfrags } from './gl_refrag.js';
 import { R_MarkLights } from './gl_rlight.js';
 import {
-	r_refdef, r_origin, vpn, vright, vup
+	r_refdef, r_origin
 } from './render.js';
 import {
-	BACKFACE_EPSILON, VERTEXSIZE, PLANE_X, PLANE_Y, PLANE_Z,
+	VERTEXSIZE, PLANE_X, PLANE_Y, PLANE_Z,
 	SURF_PLANEBACK, SURF_DRAWSKY, SURF_DRAWTURB, SURF_UNDERWATER,
-	SURF_DRAWTILED, MAXLIGHTMAPS,
-	modelorg, r_entorigin, currententity, r_worldentity,
-	r_visframecount, r_framecount, frustum,
-	c_brush_polys, c_alias_polys,
-	currenttexture, mirror, mirrortexturenum, mirror_plane,
-	d_lightstylevalue, r_world_matrix,
-	r_norefresh, r_drawentities, r_drawworld, r_fullbright,
+	MAXLIGHTMAPS,
+	modelorg, currententity, r_worldentity,
+	r_visframecount, r_framecount,
+	mirror, mirrortexturenum, mirror_plane,
+	d_lightstylevalue,
+	r_fullbright,
 	r_lightmap, r_dynamic, r_wateralpha, r_mirroralpha, r_novis,
 	gl_texsort, gl_flashblend, gl_keeptjunctions,
-	R_CullBox, scene, gldepthmin, gldepthmax,
+	R_CullBox, scene,
 	r_viewleaf, r_oldviewleaf,
 	inc_r_visframecount, set_r_framecount, set_currententity,
 	inc_c_brush_polys, set_currenttexture,
 	set_r_oldviewleaf, set_mirror, set_mirror_plane
 } from './gl_rmain.js';
 import {
-	DotProduct, VectorCopy, VectorSubtract, VectorAdd, VectorNormalize,
-	AngleVectors, Length
+	DotProduct, VectorCopy, VectorAdd, VectorNormalize
 } from './mathlib.js';
 import { Mod_LeafPVS, solidskytexture, alphaskytexture } from './gl_model.js';
 import { realtime } from './host.js';
@@ -102,10 +100,6 @@ export const BLOCK_HEIGHT = 128;
 export const MAX_LIGHTMAPS = 64;
 
 const GL_LUMINANCE = 0x1909;
-const GL_ALPHA = 0x1906;
-const GL_INTENSITY = 0x8049;
-const GL_RGBA = 0x1908;
-const GL_RGBA4 = 0;
 
 //============================================================================
 // Module-level state
@@ -115,7 +109,6 @@ export let skytexturenum = - 1; // index in cl.loadmodel, not gl texture object
 export function set_skytexturenum( v ) { skytexturenum = v; }
 
 let lightmap_bytes = 1; // 1, 2, or 4
-let lightmap_textures = 0;
 
 const blocklights = new Uint32Array( 18 * 18 );
 
@@ -130,7 +123,6 @@ const _colinear_v2 = new Float32Array( 3 );
 // Flag to track if PVS changed and visibility needs update
 let _visibilityNeedsUpdate = true;
 
-let active_lightmaps = 0;
 
 // glRect_t equivalent
 class glRect_t {
@@ -212,8 +204,6 @@ export let gl_lightmap_format = GL_LUMINANCE;
 export let gl_solid_format = 3;
 export let gl_alpha_format = 4;
 
-// multitexture state (not used in Three.js path, kept for algorithm fidelity)
-let mtexenabled = false;
 export let gl_mtexable = false;
 
 // external references
@@ -2551,29 +2541,6 @@ export function GL_CreateSurfaceLightmap( surf ) {
 export const lightmapTextures = []; // THREE.DataTexture array
 
 //============================================================================
-// concatFloat32Arrays
-//
-// Concatenate an array of Float32Array into a single Float32Array.
-//============================================================================
-
-function concatFloat32Arrays( arrays ) {
-
-	let totalLen = 0;
-	for ( const a of arrays ) totalLen += a.length;
-	const result = new Float32Array( totalLen );
-	let offset = 0;
-	for ( const a of arrays ) {
-
-		result.set( a, offset );
-		offset += a.length;
-
-	}
-
-	return result;
-
-}
-
-//============================================================================
 // R_BuildWorldMeshes
 //
 // Builds world geometry using BatchedMesh for efficient PVS culling.
@@ -2712,7 +2679,7 @@ function R_BuildWorldMeshes() {
 	const identityMatrix = new THREE.Matrix4();
 
 	// Second pass: create BatchedMesh for each (texture, lightmap) group
-	for ( const [ texKey, group ] of batchGroups ) {
+	for ( const group of batchGroups.values() ) {
 
 		const t = group.texture;
 		const animTex = R_TextureAnimation( t, 0 );

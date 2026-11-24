@@ -1,25 +1,24 @@
 // Ported from: WinQuake/net_main.c -- network main module
 
 import { Sys_Error, Sys_FloatTime } from './sys.js';
-import { Con_Printf, Con_DPrintf, SZ_Alloc, COM_CheckParm, com_argc, com_argv, Q_atoi, COM_SetNetMessage } from './common.js';
+import { Con_Printf, SZ_Alloc, COM_CheckParm, com_argc, com_argv, Q_atoi, COM_SetNetMessage } from './common.js';
 import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv, Cbuf_AddText } from './cmd.js';
 import { cvar_t, Cvar_RegisterVariable, Cvar_Set } from './cvar.js';
 import {
-	NET_NAMELEN, NET_MAXMESSAGE, MAX_NET_DRIVERS,
+	NET_MAXMESSAGE,
 	qsocket_t,
 	net_activeSockets, net_freeSockets, net_numsockets,
 	set_net_activeSockets, set_net_freeSockets, set_net_numsockets,
 	net_numdrivers, set_net_numdrivers,
 	net_drivers,
-	net_numlandrivers, net_landrivers,
 	DEFAULTnet_hostport, net_hostport,
 	set_DEFAULTnet_hostport, set_net_hostport,
 	net_driverlevel, set_net_driverlevel,
 	net_time, set_net_time,
 	net_message,
-	net_activeconnections, set_net_activeconnections,
+	net_activeconnections,
 	hostCacheCount, set_hostCacheCount,
-	hostcache, HOSTCACHESIZE,
+	hostcache,
 	slistInProgress, slistSilent, slistLocal,
 	set_slistInProgress, set_slistSilent, set_slistLocal,
 	PollProcedure
@@ -56,8 +55,6 @@ let slistLastShown = 0;
 
 const net_messagetimeout = new cvar_t( 'net_messagetimeout', '300' );
 export const hostname = new cvar_t( 'hostname', 'UNNAMED' );
-
-let configRestored = false;
 
 let pollProcedureList = null;
 
@@ -983,8 +980,6 @@ NET_Poll
 ===================
 */
 export function NET_Poll() {
-
-	configRestored = true;
 
 	SetNetTime();
 

@@ -42,7 +42,7 @@ function Cvar_SaveToStorage( _var ) {
 
 		localStorage.setItem( CVAR_STORAGE_PREFIX + _var.name, _var.string );
 
-	} catch ( e ) {
+	} catch {
 
 		// localStorage might be full or disabled
 		Con_Printf( 'Warning: Could not save cvar ' + _var.name + ' to localStorage\n' );
@@ -60,7 +60,7 @@ function Cvar_LoadFromStorage( name ) {
 
 		return localStorage.getItem( CVAR_STORAGE_PREFIX + name );
 
-	} catch ( e ) {
+	} catch {
 
 		return null;
 
