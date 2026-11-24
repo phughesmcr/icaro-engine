@@ -32,7 +32,7 @@ On phones and tablets the game shows touch controls. Play in landscape.
 
 - **Render scale:** add `?scale=0.5` to the URL to draw the 3D view at half the screen resolution (a quarter of the pixels) and stretch it to fill the page. Values from 0.25 to 1 work; menus and the status bar stay at full resolution. This is a web-only option with no GLQuake equivalent.
 - **Fullscreen without pointer lock:** browsers that refuse pointer lock (Samsung TV browsers, for example) go fullscreen instead: click in the game twice (the first refusal might be temporary). Look around with a gamepad or the arrow keys.
-- **Back button:** once you have pressed a key, clicked or tapped, the browser's Back (a TV remote's Back key, Android's back gesture, Alt+Left) opens the menu, like Escape, instead of leaving the page. To leave, use the address bar or close the tab. This is a web-only addition.
+- **Back button:** once you have clicked, tapped or pressed a key (other than Escape or a modifier), the browser's Back (a TV remote's Back key, Android's back gesture, Alt+Left) acts as Escape instead of leaving the page: it opens the menu in game and goes back a level in menus. To leave, use the address bar or close the tab. This is a web-only addition.
 - **Gamepads:** controllers that report the browser's `standard` mapping work as they are. Paired to a Samsung TV, a DualSense works in its browser.
 
 ### License

@@ -202,10 +202,16 @@ history.forward() restores the guard entry as it was, including any room
 URL that replaceState wrote into it (cl_main.js, menu.js). Its own popstate
 carries no marker and is ignored.
 
+Two marked entries sit under the guard, so a second Back that arrives before
+the asynchronous forward() lands (a double press, an auto-repeating remote)
+reaches the other marked entry instead of leaving the page.
+
 Arming waits for a key, mouse button or touch because Chrome's Back button
-skips history entries pushed without user activation; gamepad presses don't
-count as activation. The entries cannot be removed again, so IN_Shutdown
-only stops listening.
+skips history entries pushed without user activation; gamepad presses,
+Escape and modifier keys don't count as activation, so where the browser
+reports navigator.userActivation we wait until it is active. The entries
+cannot be removed again, so IN_Shutdown only stops listening, and each page
+load arms once (a reload adds entries under the old ones).
 ===========================================================================
 */
 
@@ -229,11 +235,15 @@ function IN_ArmBackGuard( event ) {
 	if ( typeof history === 'undefined' || history.pushState == null ) return;
 	// Escape is not a user activation in Chrome
 	if ( event != null && event.key === 'Escape' ) return;
+	// Neither are modifier keys; ask the browser where it can tell us
+	const activation = typeof navigator !== 'undefined' ? navigator.userActivation : undefined;
+	if ( activation != null && activation.isActive === false ) return;
 
 	backGuardArmed = true;
 	try {
 
 		history.replaceState( BACK_GUARD_STATE, '' );
+		history.pushState( BACK_GUARD_STATE, '' );
 		history.pushState( null, '' );
 
 	} catch ( e ) {
@@ -258,9 +268,12 @@ function handlePopState( event ) {
 
 	history.forward();
 
-	// The gamepad poll sends (or already sent) Escape for a held B/Back/Start
+	// The gamepad poll sends (or already sent) Escape for a held B/Back/Start.
+	// Our own Escape counts too: after a double Back, forward() lands on the
+	// middle marked entry again, and that is not a new press.
 	if ( IN_Now() - lastEscapeTime < BACK_GUARD_DEDUP_MS || GP_EscapeHeld() ) return;
 
+	lastEscapeTime = IN_Now();
 	Key_Event( K_ESCAPE, true );
 	Key_Event( K_ESCAPE, false );
 	updateKeyboardLock();
@@ -1281,6 +1294,7 @@ export function IN_Init( element ) {
 	document.addEventListener( 'visibilitychange', handleVisibilityChange );
 
 	// Browser Back opens the menu once the user has interacted (web-only)
+	backGuardArmed = false;
 	lastEscapeTime = - Infinity;
 	eventWindow.addEventListener( 'popstate', handlePopState );
 	document.addEventListener( 'keydown', IN_ArmBackGuard, true );
