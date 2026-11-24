@@ -56,7 +56,9 @@ Cbuf_Init
 */
 export function Cbuf_Init() {
 
-	SZ_Alloc( cmd_text, 8192 ); // space for commands and script files
+	// space for commands and script files. id's 8192; QuakeSpasm/Ironwail
+	// (Spike) raise it for large configs full of comments
+	SZ_Alloc( cmd_text, 1 << 18 );
 
 }
 
@@ -106,8 +108,11 @@ export function Cbuf_InsertText( text ) {
 
 	}
 
-	// add the entire text of the file
+	// add the entire text of the file. QuakeSpasm adds the \n that id's
+	// comment promises, so a file whose last line has no newline doesn't run
+	// into the next command.
 	Cbuf_AddText( text );
+	SZ_Write( cmd_text, '\n', 1 );
 
 	// add the copied off data
 	if ( templen ) {
@@ -128,15 +133,24 @@ export function Cbuf_Execute() {
 	while ( cmd_text.cursize ) {
 
 		// find a \n or ; line break
+		// Ironwail: a ; after a // comment doesn't end the line. Deviation:
+		// Ironwail takes any //; here it must be outside quotes and start a
+		// token, where COM_Parse sees a comment, so an unquoted
+		// "connect wts://host/x; cmd" still splits.
+		const text = cmd_text.data;
 		let quotes = 0;
+		let comment = false;
 		let i;
 		for ( i = 0; i < cmd_text.cursize; i ++ ) {
 
-			if ( cmd_text.data[ i ] === 0x22 ) // '"'
+			if ( text[ i ] === 0x22 ) // '"'
 				quotes ++;
-			if ( ! ( quotes & 1 ) && cmd_text.data[ i ] === 0x3B ) // ';'
+			if ( ! ( quotes & 1 ) && text[ i ] === 0x2F && i + 1 < cmd_text.cursize && text[ i + 1 ] === 0x2F // '//'
+				&& ( i === 0 || text[ i - 1 ] <= 32 ) )
+				comment = true;
+			if ( ! ( quotes & 1 ) && ! comment && text[ i ] === 0x3B ) // ';'
 				break; // don't break if inside a quoted string
-			if ( cmd_text.data[ i ] === 0x0A ) // '\n'
+			if ( text[ i ] === 0x0A ) // '\n'
 				break;
 
 		}
@@ -144,7 +158,7 @@ export function Cbuf_Execute() {
 		// extract the line as a string
 		let line = '';
 		for ( let j = 0; j < i; j ++ )
-			line += String.fromCharCode( cmd_text.data[ j ] );
+			line += String.fromCharCode( text[ j ] );
 
 		// delete the text from the command buffer and move remaining commands down
 		if ( i === cmd_text.cursize ) {
