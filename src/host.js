@@ -33,6 +33,8 @@ import { S_Init, S_Update, S_Shutdown, S_StopAllSounds, S_SetCallbacks } from '.
 import { CDAudio_Init, CDAudio_Update, CDAudio_Shutdown } from './cd_audio.js';
 import { Sbar_Init, Sbar_SetExternals } from './sbar.js';
 import { CL_Init, CL_SendCmd, CL_ReadFromServer, CL_DecayLights, CL_Disconnect, CL_NextDemo, cl_name } from './cl_main.js';
+import { CL_AccumulateCmd } from './cl_input.js';
+import { isXRActive } from './webxr.js';
 import { IN_Init, IN_Commands, IN_Shutdown, IN_UpdateTouch, IN_RequestPointerLock } from './in_web.js';
 import { cls, cl, SIGNONS, ca_connected } from './client.js';
 import { key_dest, key_game, Key_SetExternals, set_key_dest } from './keys.js';
@@ -74,6 +76,10 @@ export let host_basepal = null;
 export let host_colormap = null;
 
 const host_framerate = new cvar_t( 'host_framerate', '0' ); // set for slow motion
+// QuakeSpasm/Ironwail: render frame cap. Values above 72, or 0 (uncapped),
+// turn on renderer/network isolation (see _Host_FilterTime). Ironwail's
+// default is 250; 72 keeps WinQuake's single 72 Hz loop.
+export const host_maxfps = new cvar_t( 'host_maxfps', '72', true );
 const host_speeds = new cvar_t( 'host_speeds', '0' ); // set for running times
 
 export const sys_ticrate = new cvar_t( 'sys_ticrate', '0.05' );
@@ -104,6 +110,40 @@ export function set_host_frametime( v ) {
 	SV_SetFrametime( v );
 
 }
+
+/*
+Renderer/network isolation (QuakeSpasm/Ironwail host_netinterval, Max_Fps_f).
+When it is on, render frames run at up to host_maxfps while CL_SendCmd and
+the local server frame run at their own 72 Hz tick.
+
+host_netinterval: the tick length, or 0 when off (WinQuake's single loop)
+host_netframetime: the length of this frame's tick, which CL_SendMove sends
+	as msec. It equals host_frametime when isolation is off.
+host_netaccum: game time not yet ticked. Client prediction runs a partial
+	command of this length so the view moves between ticks.
+*/
+export const HOST_NETINTERVAL = 1.0 / 72.0;
+export let host_netinterval = 0;
+export let host_netframetime = 0;
+export let host_netaccum = 0;
+let host_renderaccum = 0;
+let host_rawframetime = 0;
+// render time since the view last turned (CL_AccumulateCmd)
+let host_lookframetime = 0;
+
+// For tests: the isolation state cl_pred.js reads
+export function set_host_netinterval( v ) {
+
+	host_netinterval = v;
+
+}
+
+export function set_host_netaccum( v ) {
+
+	host_netaccum = v;
+
+}
+
 // set_host_client is imported and re-exported from server.js
 export { set_host_client } from './server.js';
 // sv is the server state, re-exported for client-side prediction
@@ -168,6 +208,7 @@ function Host_InitLocal() {
 	Host_InitCommands();
 
 	Cvar_RegisterVariable( host_framerate );
+	Cvar_RegisterVariable( host_maxfps );
 	Cvar_RegisterVariable( host_speeds );
 	Cvar_RegisterVariable( sys_ticrate );
 	Cvar_RegisterVariable( serverprofile );
@@ -553,29 +594,39 @@ function _Host_Frame_Internal( time ) {
 
 	NET_Poll();
 
-	// if running the server locally, make intentions now
-	if ( sv.active )
-		CL_SendCmd();
+	if ( host_netinterval === 0 ) {
 
-	//-------------------
-	//
-	// server operations
-	//
-	//-------------------
+		host_netframetime = host_frametime;
 
-	if ( sv.active )
-		Host_ServerFrame();
+		// if running the server locally, make intentions now
+		if ( sv.active )
+			CL_SendCmd();
 
-	//-------------------
-	//
-	// client operations
-	//
-	//-------------------
+		//-------------------
+		//
+		// server operations
+		//
+		//-------------------
 
-	// if running the server remotely, send intentions now after
-	// the incoming messages have been read
-	if ( ! sv.active )
-		CL_SendCmd();
+		if ( sv.active )
+			Host_ServerFrame();
+
+		//-------------------
+		//
+		// client operations
+		//
+		//-------------------
+
+		// if running the server remotely, send intentions now after
+		// the incoming messages have been read
+		if ( ! sv.active )
+			CL_SendCmd();
+
+	} else {
+
+		_Host_NetFrame();
+
+	}
 
 	host_time += host_frametime;
 
@@ -609,21 +660,107 @@ function _Host_Frame_Internal( time ) {
 
 /*
 ==================
+Host_NetTickTime
+
+Renderer/network isolation: how much of the untimed game time accum (in
+seconds, this frame's time included) to run as this frame's tick, or 0 for
+no tick. The caller subtracts the result from accum. At most one tick runs
+per frame.
+
+Ironwail (_Host_Frame) runs one tick of all of accum once it reaches the
+interval. On a 90 Hz display that is a 45 Hz tick, and with frame-time
+jitter around 72 Hz it drops a tick and then runs a double one. Deliberate
+deviation: a tick is one interval, so a display at 72 Hz or faster keeps a
+72 Hz average, with the remainder carried; a tick that comes up to 1 ms
+early still runs, which absorbs timer jitter. When frames are slower than
+the interval the tick takes all but one interval, so a 60 Hz display
+settles at one 1/60 s tick per frame and the carry never grows past one
+interval. The total of all ticks plus accum is always the total frame time.
+==================
+*/
+export const HOST_NETTICK_SLACK = 0.001;
+
+export function Host_NetTickTime( accum, interval ) {
+
+	if ( accum < interval - HOST_NETTICK_SLACK )
+		return 0;
+
+	return Math.max( interval, accum - interval );
+
+}
+
+/*
+==================
+Host_UpdateNetInterval
+
+QuakeSpasm/Ironwail Max_Fps_f: isolation is on when host_maxfps is above 72
+or 0. Deviation: it is also on during a WebXR session, where the headset
+sets the frame rate and every XR frame has to be drawn. A timedemo keeps
+the single loop, so it runs as fast as WinQuake's.
+==================
+*/
+function Host_UpdateNetInterval() {
+
+	const maxfps = host_maxfps.value;
+	let interval = 0;
+	if ( cls.timedemo !== true && ( maxfps > 72 || maxfps <= 0 || isXRActive() ) )
+		interval = HOST_NETINTERVAL;
+
+	if ( interval === host_netinterval )
+		return;
+
+	if ( interval !== 0 )
+		Con_Printf( 'Using renderer/network isolation.\n' );
+	else
+		Con_Printf( 'Disabling renderer/network isolation.\n' );
+
+	host_netinterval = interval;
+	host_netaccum = 0;
+	host_renderaccum = 0;
+	host_lookframetime = 0;
+
+}
+
+/*
+==================
 _Host_FilterTime
 
 Returns false if the time is too short to run a frame
+(exported for tests)
 ==================
 */
-function _Host_FilterTime( time ) {
+export function _Host_FilterTime( time ) {
 
 	realtime += time;
 
-	// Don't run too fast - cap at 72 FPS
-	// This prevents packets from flooding out and keeps physics consistent
-	if ( cls.timedemo !== true && realtime - oldrealtime < 1.0 / 72.0 )
-		return false; // framerate is too high
+	Host_UpdateNetInterval();
 
-	host_frametime = realtime - oldrealtime;
+	if ( host_netinterval === 0 ) {
+
+		// Don't run too fast - cap at 72 FPS (host_maxfps, 72 or below;
+		// QuakeSpasm clamps it to 10 or more)
+		// This prevents packets from flooding out and keeps physics consistent
+		if ( cls.timedemo !== true && realtime - oldrealtime < 1.0 / Math.max( 10, host_maxfps.value ) )
+			return false; // framerate is too high
+
+	} else {
+
+		// QuakeSpasm/Ironwail Host_GetFrameInterval: cap render frames at
+		// host_maxfps (0 = uncapped). A WebXR session draws every XR frame.
+		const maxfps = host_maxfps.value;
+		if ( maxfps > 0 && isXRActive() !== true ) {
+
+			host_renderaccum += time;
+			const step = Host_NetTickTime( host_renderaccum, 1.0 / Math.min( maxfps, 1000 ) );
+			if ( step === 0 )
+				return false; // framerate is too high
+			host_renderaccum -= step;
+
+		}
+
+	}
+
+	host_frametime = host_rawframetime = realtime - oldrealtime;
 	oldrealtime = realtime;
 
 	if ( host_framerate.value > 0 ) {
@@ -641,6 +778,104 @@ function _Host_FilterTime( time ) {
 	}
 
 	return true;
+
+}
+
+/*
+==================
+_Host_NetFrame
+
+Ironwail _Host_Frame's network block, run instead of WinQuake's CL_SendCmd /
+Host_ServerFrame calls while isolation is on. A frame with no tick only
+turns the view (CL_AccumulateCmd).
+
+During CL_SendCmd host_frametime is the render time since the view last
+turned: this frame's, or every frame's since the last tick when
+CL_AccumulateCmd couldn't turn it. So keyboard, stick and XR turning in
+CL_BaseMove / IN_Move cover each frame once. CL_SendMove sends the tick's
+length (host_netframetime). The local server runs with host_frametime set
+to the tick's length.
+(exported for tests)
+==================
+*/
+export function _Host_NetFrame() {
+
+	let dt = host_rawframetime;
+	if ( dt < 0 ) dt = 0;
+	if ( dt > 0.2 ) dt = 0.2; // Ironwail's CLAMP( 0.0, time, 0.2 )
+	host_netaccum += dt;
+
+	const tick = Host_NetTickTime( host_netaccum, host_netinterval );
+	if ( tick === 0 ) {
+
+		if ( CL_AccumulateCmd() )
+			host_lookframetime = 0;
+		else
+			host_lookframetime += host_frametime;
+		return;
+
+	}
+
+	host_netaccum -= tick;
+
+	if ( host_framerate.value > 0 ) {
+
+		host_netframetime = host_framerate.value;
+
+	} else {
+
+		// don't allow really long ticks, as WinQuake's _Host_FilterTime
+		// (Ironwail allows up to 0.2)
+		host_netframetime = tick > 0.1 ? 0.1 : tick;
+
+	}
+
+	let lookframetime = host_lookframetime + host_frametime;
+	if ( lookframetime > 0.1 )
+		lookframetime = 0.1;
+	host_lookframetime = 0;
+
+	// if running the server locally, make intentions now
+	if ( sv.active )
+		_Host_SendCmd( lookframetime );
+
+	if ( sv.active ) {
+
+		const renderframetime = host_frametime;
+		set_host_frametime( host_netframetime );
+		try {
+
+			Host_ServerFrame();
+
+		} finally {
+
+			set_host_frametime( renderframetime );
+
+		}
+
+	}
+
+	// if running the server remotely, send intentions now after
+	// the incoming messages have been read
+	if ( ! sv.active )
+		_Host_SendCmd( lookframetime );
+
+}
+
+// CL_SendCmd with host_frametime set to lookframetime
+function _Host_SendCmd( lookframetime ) {
+
+	const renderframetime = host_frametime;
+	host_frametime = lookframetime;
+	try {
+
+		CL_SendCmd();
+
+	} finally {
+
+		host_frametime = renderframetime;
+
+	}
 
 }
 

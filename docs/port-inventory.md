@@ -219,8 +219,8 @@ own fix PR.
 
 ### G10 · Inert debug cvars and parms — **low**
 
-- **`host_speeds` and `serverprofile`:** registered (`src/host.js:77`,
-  `:80`) but never read. In C they print per-frame timings
+- **`host_speeds` and `serverprofile`:** registered (`src/host.js:83`,
+  `:86`) but never read. In C they print per-frame timings
   (`host.c:697-720`, `:736-762`).
 - **`-particles <n>`:** ignored. `MAX_PARTICLES` is fixed at 2048
   (`src/r_part.js:13`), the same as C's default (`r_part.c:50-58`).
@@ -349,9 +349,9 @@ The name appears only in a comment, a string, or as a different symbol.
 | function | `EmitSkyPolys` | `gl_warp.c:231` | missing | ported as `EmitWaterPolysQuake`/`EmitSkyPolysQuake` (same turbsin, scale and sky speeds) |
 | function | `EmitBothSkyLayers` | `gl_warp.c:274` | missing | ported as `EmitWaterPolysQuake`/`EmitSkyPolysQuake` (same turbsin, scale and sky speeds) |
 | function | `Host_ClientCommands` | `host.c:322` | missing | inlined into `PF_stuffcmd`, its only caller |
-| function | `Host_FilterTime` | `host.c:501` | mentioned (`src/cl_pred.js`) | folded into `Host_Frame` / `cl_pred.js` timing |
+| function | `Host_FilterTime` | `host.c:501` | mentioned (`src/cl_pred.js`) | `_Host_FilterTime` (`src/host.js:732`); with `host_maxfps` above 72 or 0 it caps render frames instead (QuakeSpasm/Ironwail) |
 | function | `Host_GetConsoleCommands` | `host.c:532` | missing | dedicated-server stdin console; room servers are lobby-managed and only watch stdin for EOF (`server/game_server.js`) |
-| function | `_Host_Frame` | `host.c:633` | missing | folded into `Host_Frame` / `cl_pred.js` timing |
+| function | `_Host_Frame` | `host.c:633` | missing | `_Host_Frame_Internal` (`src/host.js:577`); `_Host_NetFrame` (`:801`) runs the 72 Hz tick under `host_maxfps` isolation |
 | function | `Host_InitVCR` | `host.c:772` | missing | VCR demo recorder (`-record`/`-playback`) for network debugging |
 | function | `BOPS_Error` | `mathlib.c:174` | missing | assembly helper for `BoxOnPlaneSide` |
 | function | `M_Menu_Net_f` | `menu.c:885` | missing | transport menus; replaced by the WebTransport room list (`M_Menu_LanConfig_f`/`M_FetchRooms`), see port-review §7 |
