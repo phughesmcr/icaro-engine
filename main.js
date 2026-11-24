@@ -4,7 +4,7 @@
 import { Sys_Init, Sys_Printf, Sys_Error } from './src/sys.js';
 import { COM_InitArgv } from './src/common.js';
 import { Host_Init, Host_Frame, Host_Shutdown } from './src/host.js';
-import { COM_FetchPak, COM_AddPack } from './src/pak.js';
+import { COM_AddPakSequence } from './src/pak.js';
 import { Cbuf_AddText } from './src/cmd.js';
 import { cls, cl } from './src/client.js';
 import { sv } from './src/server.js';
@@ -41,13 +41,12 @@ async function main() {
 
 		};
 
-		// Load pak0.pak from static/
-		Sys_Printf( 'Loading pak0.pak...\\n' );
-		const pak0 = await COM_FetchPak( 'static/pak0.pak', 'pak0.pak', setProgress );
-		if ( pak0 ) {
+		// Load static/pak0.pak, then pak1.pak (registered) and so on if present
+		Sys_Printf( 'Loading pak files...\\n' );
+		const pakCount = await COM_AddPakSequence( 'static/pak0.pak', setProgress );
+		if ( pakCount > 0 ) {
 
-			COM_AddPack( pak0 );
-			Sys_Printf( 'pak0.pak loaded successfully\\n' );
+			Sys_Printf( pakCount + ' pak file(s) loaded\\n' );
 
 		} else {
 

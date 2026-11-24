@@ -52,7 +52,7 @@ Test counts are from `deno test --allow-read --allow-net --allow-env tests/` on 
 | SP-1, SP-5, SP-6, SP-9, MP-1, MP-5 (server items), MOD-1 to MOD-4, C-19 | [#3] | Fixed (47 pass) |
 | SRV-1 to SRV-5 | [#4] | Fixed; the lobby's own permissions are documented rather than enforced (47 pass; 1 more test needs `--allow-run --allow-write`) |
 | SP-2, SP-3, SP-4, SP-8, MP-4, MP-5 (client half), MOD-5, C-1 to C-4, C-6, C-7, C-15 to C-18, IN-3 (view comfort) | [#5] | Fixed (41 pass) |
-| C-5 (mirrors) | [#11] | Fixed; stacked on #5 (48 pass). Not yet seen on a GPU or on e2m3, which is registered-only; skipped in WebXR |
+| C-5 (mirrors) | [#11] | Fixed (48 pass); skipped in WebXR. The reflection pass has since run on a GPU on `start` |
 | PRED-1, PRED-3, PRED-4, PRED-5, IN-3 (movement angles) | [#6] | Fixed (50 pass); residuals fixed in #13 |
 | IN-1, IN-2, IN-3 (rest), IN-4, IN-5 | [#7] | Fixed (48 pass); residuals fixed in #12 |
 | NET-1 to NET-5, PRED-2 | [#8] | Fixed (59 pass); residuals fixed in #13 |
@@ -79,7 +79,7 @@ What the PRs above leave open, on purpose or because it can't be checked here.
 - **Prediction ([#13]):** QuakeC changes to `punchangle` or `teleport_time` made after the last server update (for example firing on a predicted frame) are not predicted. `pausetime` is a QuakeC monster field the engine never reads, so there is nothing to mirror.
 - **Input ([#12]):** browsers reserve some shortcuts (Ctrl+W, Ctrl+T, Cmd+Q and others). Keyboard Lock captures them only in fullscreen on Chrome and Edge; Firefox and Safari have no Keyboard Lock.
 - **Transport ([#13]):** moves now travel as datagrams. The load test ran on one machine over loopback; `WT_SetClientOutboundDatagrams( false )` restores the reliable stream.
-- **Mirrors ([#11]):** the render-target pass has never run on a GPU. Check it with registered data on e2m3 and `r_mirroralpha 0.5`.
+- **Mirrors ([#11]):** the reflection pass runs on a GPU without WebGL errors, and the mirror's brightness follows `r_mirroralpha`. Whether the reflected image looks right still needs checking by eye. The mirror texture `window02_1` is in `start` and `e1m5` (shareware) and `e4m3` (registered), not e2m3 as this review first said.
 - **Lobby permissions ([#4]):** the lobby process's own Deno permissions are documented, not enforced.
 - **Registered content ([#10]):** `COM_FindFile`'s loose-file rule and the `WINDED` dedicated-server check are intentional deviations; see section 7.
 
@@ -288,7 +288,7 @@ None of these change any shareware model. All 61 MDLs produced byte-identical di
 | C-2 | `src/r_part.js:800` | Particles are 3-unit point sprites centred on the origin, with no `1 + dist*0.004` growth. Far particles look smaller and near ones about 2× larger than in GLQuake. | Reported (sizing verified) |
 | C-3 | `src/gl_rsurf.js` (~`:969`, `:1961`, `:1995`) | Water warp is driven by `cl.time`, not `realtime`, so it freezes when paused. | Reported |
 | C-4 | `src/gl_rsurf.js` (~`:1886`) | `r_fullbright` and `r_lightmap` have no effect; materials always apply the lightmap. | Reported |
-| C-5 | `src/gl_rmain.js:1309` `R_Mirror` | Mirrors aren't implemented, so the e2m3 mirror shows no reflection. The code documents this as a known gap. | Verified |
+| C-5 | `src/gl_rmain.js:1309` `R_Mirror` | Mirrors aren't implemented, so the mirror surfaces (`window02_1`, in `start`, `e1m5` and `e4m3`; this row first said e2m3) show no reflection. The code documents this as a known gap. | Verified |
 | C-6 | `src/gl_draw.js:743` `Draw_ConsoleBackground` | The console is always opaque; GLQuake fades it to about 0.8 alpha at half height. | Reported |
 | C-7 | `src/view.js:765` `V_CalcIntermissionRefdef` | The intermission and finale camera follows the mouse (uses `cl.viewangles` instead of the entity angles). | Reported |
 | C-8 | `src/gl_screen.js:377` `SCR_SizeUp_f`/`SizeDown_f` | Edit `.value` directly, so viewsize changed with +/- isn't shown in the console or saved. | Reported |

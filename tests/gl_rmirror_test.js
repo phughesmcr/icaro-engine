@@ -1,6 +1,6 @@
-// Mirror surfaces (port review C-5). The shareware pak has no mirror texture,
-// so these cover the maths, the cvar gate and the chain bookkeeping only. The
-// render pass itself has not been seen on e2m3 (registered data).
+// Mirror surfaces (port review C-5). These cover the maths, the cvar gate and
+// the chain bookkeeping only; the render pass needs a GPU. The mirror texture
+// (window02_1) is in start and e1m5 (shareware) and e4m3 (registered).
 
 // Bootstrap the renderer's existing circular module graph in its safe order.
 const gl_rsurf = await import( '../src/gl_rsurf.js' );

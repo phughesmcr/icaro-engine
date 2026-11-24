@@ -23,3 +23,7 @@ node_modules/
 coverage/
 .claude/worktrees/
 .claude/settings.local.json
+
+# Registered Quake data: must never be committed or deployed publicly
+static/pak1.pak
+static/PAK1.PAK
