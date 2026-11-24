@@ -334,6 +334,8 @@ const gp_look_yaw = { name: 'gp_look_yaw', string: '1', value: 1 };
 const gp_look_pitch = { name: 'gp_look_pitch', string: '1', value: 1 };
 // XR turning: 0 = smooth turn with the right stick, otherwise snap by this many degrees
 const xr_snapturn = { name: 'xr_snapturn', string: '0', value: 0, archive: true };
+// XR smooth-turn rate at full stick deflection, degrees per second (was a fixed 2 * cl_yawspeed, 280 at its default of 140)
+const xr_turnspeed = { name: 'xr_turnspeed', string: '280', value: 280, archive: true };
 
 let in_initialized = false;
 
@@ -478,24 +480,103 @@ function isDevToolsShortcut( event ) {
 }
 
 /*
-Which keys keep their browser behaviour:
-- Escape leaves pointer lock and fullscreen.
-- F12 and the developer tools shortcuts.
+Which keys keep their browser behaviour.
+
+Always the browser's:
+- Escape (leaves pointer lock and fullscreen), F12 and the developer tools
+  shortcuts (Ctrl+Shift+I/J/C, Cmd+Opt+I/J/C).
 - Cmd/Meta shortcuts, except while pointer lock is held in game.
-Everything else that maps to a Quake key is the game's, including Ctrl/Alt
-combinations (Ctrl is +attack and Alt +strafe by default; Ctrl+S, Ctrl+F,
-Ctrl+D, Alt+letter would otherwise open dialogs or the menu bar and steal
-focus), F1-F11, Tab, Space, Backspace, arrows and '/' or '\'' (Firefox quick find).
-Browsers do not let pages block some shortcuts (Ctrl+W, Ctrl+T, Cmd+Q, Cmd+Tab);
-the blur handler clears key state when those take focus away.
+- Ctrl/Alt chords on keys that map to nothing in Quake.
+
+Ctrl is +attack and Alt is +strafe by default, so a chord such as Ctrl+W, Ctrl+R
+or Alt+D is also a game key. Every chord is sent to the game. The browser's own
+action is suppressed only while the game owns the keyboard (key_dest is
+key_game and we hold pointer lock or fullscreen), so Ctrl+R or Ctrl+S cannot
+reload the page or open a dialog in the middle of a fight. In the menu, the
+console and with the mouse released the browser keeps its shortcuts (Ctrl+R,
+Ctrl+-, Ctrl+F, Alt+Left...). Plain mapped keys (F1-F11, Tab, Space, Backspace,
+arrows, '/' and '\'' for Firefox quick find) are always the game's.
+
+Cannot be overridden by any page: Ctrl+W, Ctrl+T, Ctrl+N, Ctrl+Tab, Ctrl+Shift+W/T/N
+and Cmd+Q/W/T/N (reserved by Chrome, Firefox and Safari, and no keydown is
+delivered or preventDefault is ignored), Cmd+Tab, Alt+Tab, Alt+F4 and the OS
+shortcuts. Only the Keyboard Lock API can capture the first group, and Chrome
+and Edge allow it only while the page is fullscreen (Firefox and Safari have no
+keyboard lock). We request it for the keys we map, except Escape, when we hold
+pointer lock or fullscreen. Elsewhere a reserved shortcut takes focus away
+and the blur and visibility handlers release every key.
 */
+function gameOwnsKeyboard() {
+
+	if ( key_dest !== key_game ) return false;
+	if ( pointerLocked ) return true;
+	return typeof document !== 'undefined' &&
+		( document.fullscreenElement != null || document.webkitFullscreenElement != null );
+
+}
+
 function shouldPreventDefault( event, qkey ) {
 
 	if ( event.code === 'Escape' || event.code === 'F12' ) return false;
 	if ( isDevToolsShortcut( event ) ) return false;
 	if ( event.metaKey ) return pointerLocked;
-	if ( event.ctrlKey || event.altKey ) return true;
+	if ( event.ctrlKey || event.altKey ) return qkey !== 0 && gameOwnsKeyboard();
 	return qkey !== 0;
+
+}
+
+// Every physical key the game maps, except Escape (the way out of a lock) and
+// F11/F12 (fullscreen toggle, developer tools)
+function lockableCodes() {
+
+	const codes = new Set( Object.keys( codeToQuakeKey ) );
+	for ( let c = 65; c <= 90; c ++ ) codes.add( 'Key' + String.fromCharCode( c ) );
+	for ( let c = 0; c <= 9; c ++ ) codes.add( 'Digit' + c );
+	for ( const code in codeToUSChar ) codes.add( code );
+	codes.delete( 'Escape' );
+	codes.delete( 'F11' );
+	codes.delete( 'F12' );
+	return [ ...codes ];
+
+}
+
+// Best effort: Chrome and Edge only honour this in fullscreen
+let keyboardLocked = false;
+
+function updateKeyboardLock() {
+
+	if ( typeof navigator === 'undefined' || navigator.keyboard == null ) return;
+
+	const want = in_initialized && ! isQuest && key_dest === key_game && gameOwnsKeyboard();
+	if ( want === keyboardLocked ) return;
+	keyboardLocked = want;
+
+	try {
+
+		let result = null;
+		if ( want ) {
+
+			result = navigator.keyboard.lock( lockableCodes() );
+
+		} else {
+
+			navigator.keyboard.unlock();
+
+		}
+
+		// A refused lock (Chrome outside fullscreen) must be retried on the next change
+		if ( want && result != null && typeof result.catch === 'function' ) {
+
+			result.catch( () => { if ( keyboardLocked ) keyboardLocked = false; } );
+
+		}
+
+	} catch {
+
+		// Unsupported or refused: shortcuts keep their browser behaviour
+		keyboardLocked = false;
+
+	}
 
 }
 
@@ -576,6 +657,9 @@ function handleKeyDown( event ) {
 		event.preventDefault();
 
 	}
+
+	// The menu may have opened or closed
+	updateKeyboardLock();
 
 }
 
@@ -796,6 +880,8 @@ function handlePointerLockChange() {
 
 	}
 
+	updateKeyboardLock();
+
 }
 
 function handleContextMenu( event ) {
@@ -986,7 +1072,11 @@ export function IN_Init( element ) {
 		'Home': K_HOME,
 		'End': K_END,
 		'Pause': K_PAUSE,
-		// Numpad, as vid_win.c scantokey maps it (NumLock state ignored)
+		// Numpad, exactly as WinQuake vid_win.c scantokey[] maps scancodes 0x47-0x53
+		// (7/8/9 Home/Up/PgUp, 4/6 Left/Right, 1/2/3 End/Down/PgDn, 0 Ins, . Del),
+		// 0x4A/0x4E/0x4C as '-', '+', '5', extended 0x1C as Enter, 0x35/0x37 as '/', '*'.
+		// NumLock state is ignored, as in WinQuake. keys.h has no K_KP_* codes, so
+		// the numpad shares keys and bind names with the arrows and nav cluster.
 		'Numpad7': K_HOME,
 		'Numpad8': K_UPARROW,
 		'Numpad9': K_PGUP,
@@ -1010,6 +1100,7 @@ export function IN_Init( element ) {
 	Cvar_RegisterVariable( gp_look_yaw );
 	Cvar_RegisterVariable( gp_look_pitch );
 	Cvar_RegisterVariable( xr_snapturn );
+	Cvar_RegisterVariable( xr_turnspeed );
 
 	// Register commands
 	Cmd_AddCommand( 'force_centerview', IN_ForceCenterView );
@@ -1025,6 +1116,8 @@ export function IN_Init( element ) {
 	targetElement.addEventListener( 'contextmenu', handleContextMenu );
 
 	document.addEventListener( 'pointerlockchange', handlePointerLockChange );
+	document.addEventListener( 'fullscreenchange', updateKeyboardLock );
+	document.addEventListener( 'webkitfullscreenchange', updateKeyboardLock );
 
 	// Pointer type decides touch vs mouse controls; capture so overlays can't hide it
 	document.addEventListener( 'pointerdown', handlePointerDown, true );
@@ -1091,6 +1184,8 @@ export function IN_Shutdown() {
 	}
 
 	document.removeEventListener( 'pointerlockchange', handlePointerLockChange );
+	document.removeEventListener( 'fullscreenchange', updateKeyboardLock );
+	document.removeEventListener( 'webkitfullscreenchange', updateKeyboardLock );
 	document.removeEventListener( 'pointerdown', handlePointerDown, true );
 	document.removeEventListener( 'pointermove', handlePointerMove, true );
 	document.removeEventListener( 'visibilitychange', handleVisibilityChange );
@@ -1105,6 +1200,7 @@ export function IN_Shutdown() {
 
 	mouseactive = false;
 	in_initialized = false;
+	updateKeyboardLock();
 
 }
 
@@ -1445,7 +1541,7 @@ function IN_XR_Move( cmd ) {
 
 	} else if ( Math.abs( lookX ) > deadzone ) {
 
-		cl.viewangles[ YAW ] -= lookX * cl_yawspeed.value * host_frametime * 2;
+		cl.viewangles[ YAW ] -= lookX * xr_turnspeed.value * host_frametime;
 
 	}
 

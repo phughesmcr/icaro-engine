@@ -35,6 +35,15 @@ const _aimForward = new THREE.Vector3();
 // State
 //============================================================================
 
+let _rendererOverride = null;
+let _overlayCanvasOverride = null;
+let T = THREE; // THREE, or a test stub
+function R() {
+
+	return _rendererOverride != null ? _rendererOverride : renderer;
+
+}
+
 let xrSessionActive = false;
 let xrRig = null; // THREE.Group — NOT in scene, positioned at vieworg/XR_SCALE each frame
 let xrOffset = null; // child of xrRig holding camera and controllers (floor offset)
@@ -83,6 +92,16 @@ export function getXRRig() {
 
 }
 
+// Test seam: lets tests supply a fake renderer, THREE and overlay canvas
+// (browser_shim.js has no WebGLRenderer or PlaneGeometry). Call with no argument to restore.
+export function XR_SetTestOverrides( overrides ) {
+
+	_rendererOverride = overrides != null && overrides.renderer != null ? overrides.renderer : null;
+	T = overrides != null && overrides.THREE != null ? overrides.THREE : THREE;
+	_overlayCanvasOverride = overrides != null && overrides.overlayCanvas != null ? overrides.overlayCanvas : null;
+
+}
+
 // Called with no arguments when the XR session ends
 export function XR_SetSessionEndCallback( callback ) {
 
@@ -104,27 +123,27 @@ export function XR_SetSessionEndCallback( callback ) {
 
 export function XR_Init( scene ) {
 
-	if ( renderer == null ) return;
+	if ( R() == null ) return;
 
 	_scene = scene;
 
 	// Enable XR on the renderer. The reference space type is chosen per
 	// session in _onSessionStarted ('local-floor', falling back to 'local').
-	renderer.xr.enabled = true;
-	renderer.xr.setReferenceSpaceType( 'local' );
+	R().xr.enabled = true;
+	R().xr.setReferenceSpaceType( 'local' );
 
 	// Create camera rig — NOT a child of scene.
 	// Positioned at vieworg / XR_SCALE (meters) each frame.
 	// Three.js XR composes: rig.matrixWorld × offset × camera.matrix (headset pose).
-	xrRig = new THREE.Group();
-	xrOffset = new THREE.Group();
+	xrRig = new T.Group();
+	xrOffset = new T.Group();
 	xrRig.add( xrOffset );
 
 	// Controller targetRay (pointer) spaces. Slot order is not handedness
 	// order, so record each slot's hand when it connects.
 	for ( let i = 0; i < 2; i ++ ) {
 
-		const controller = renderer.xr.getController( i );
+		const controller = R().xr.getController( i );
 		controller.userData.handedness = '';
 
 		controller.addEventListener( 'connected', function ( event ) {
@@ -147,7 +166,7 @@ export function XR_Init( scene ) {
 	}
 
 	// Session lifecycle
-	renderer.xr.addEventListener( 'sessionstart', function () {
+	R().xr.addEventListener( 'sessionstart', function () {
 
 		xrSessionActive = true;
 
@@ -159,7 +178,7 @@ export function XR_Init( scene ) {
 
 	} );
 
-	renderer.xr.addEventListener( 'sessionend', function () {
+	R().xr.addEventListener( 'sessionend', function () {
 
 		xrSessionActive = false;
 
@@ -247,7 +266,7 @@ export function XR_PollInput() {
 
 	if ( xrSessionActive === false ) return;
 
-	const session = renderer.xr.getSession();
+	const session = R().xr.getSession();
 	if ( session == null ) return;
 
 	for ( const source of session.inputSources ) {
@@ -309,7 +328,7 @@ export function XR_UpdateHUD() {
 
 	if ( xrSessionActive === false || hudMesh == null ) return;
 
-	const canvas = Draw_GetOverlayCanvas();
+	const canvas = _overlayCanvasOverride != null ? _overlayCanvasOverride : Draw_GetOverlayCanvas();
 	if ( canvas == null || canvas.width === 0 || canvas.height === 0 ) return;
 
 	// A resized canvas needs a new GPU texture
@@ -318,9 +337,9 @@ export function XR_UpdateHUD() {
 
 		if ( hudTexture != null ) hudTexture.dispose();
 
-		hudTexture = new THREE.CanvasTexture( canvas );
-		hudTexture.colorSpace = THREE.SRGBColorSpace;
-		hudTexture.minFilter = THREE.LinearFilter;
+		hudTexture = new T.CanvasTexture( canvas );
+		hudTexture.colorSpace = T.SRGBColorSpace;
+		hudTexture.minFilter = T.LinearFilter;
 		hudTexture.generateMipmaps = false;
 		hudMesh.material.map = hudTexture;
 		hudMesh.material.needsUpdate = true;
@@ -334,7 +353,7 @@ export function XR_UpdateHUD() {
 	}
 
 	hudTexture.needsUpdate = true;
-	renderer.initTexture( hudTexture );
+	R().initTexture( hudTexture );
 
 	hudMesh.visible = true;
 
@@ -345,7 +364,7 @@ export function XR_UpdateHUD() {
 // is set directly.
 function _poseHUD() {
 
-	const xrCamera = renderer.xr.getCamera();
+	const xrCamera = R().xr.getCamera();
 	hudMesh.matrixWorld.multiplyMatrices( xrCamera.matrixWorld, hudOffset );
 
 }
@@ -356,16 +375,16 @@ function _showHUD() {
 
 	if ( hudMesh == null ) {
 
-		hudOffset = new THREE.Matrix4();
+		hudOffset = new T.Matrix4();
 
-		const material = new THREE.MeshBasicMaterial( {
+		const material = new T.MeshBasicMaterial( {
 			transparent: true,
 			depthTest: false,
 			depthWrite: false,
 			toneMapped: false
 		} );
 
-		hudMesh = new THREE.Mesh( new THREE.PlaneGeometry( 1, 1 ), material );
+		hudMesh = new T.Mesh( new T.PlaneGeometry( 1, 1 ), material );
 		hudMesh.renderOrder = 10000;
 		hudMesh.frustumCulled = false;
 		hudMesh.matrixAutoUpdate = false;
@@ -594,9 +613,9 @@ async function _onSessionStarted( session ) {
 
 	try {
 
-		renderer.xr.setReferenceSpaceType( floor ? 'local-floor' : 'local' );
+		R().xr.setReferenceSpaceType( floor ? 'local-floor' : 'local' );
 		xrOffset.position.set( 0, floor ? - XR_FLOOR_TO_EYE / XR_SCALE : 0, 0 );
-		await renderer.xr.setSession( session );
+		await R().xr.setSession( session );
 
 	} catch ( err ) {
 
