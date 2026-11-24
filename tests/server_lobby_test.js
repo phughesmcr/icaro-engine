@@ -246,3 +246,34 @@ Deno.test( {
 		}
 	},
 } );
+
+Deno.test( {
+	name: 'room manager passes -rogue/-hipnotic and the game dir read grant to rooms',
+	ignore: canRun === false,
+	sanitizeOps: false,
+	sanitizeResources: false,
+	async fn() {
+		const fake = new URL( './fixtures/fake_room_server.sh', import.meta.url ).pathname;
+		const argsFile = await Deno.makeTempFile();
+		Deno.env.set( 'FAKE_ROOM_ARGS_FILE', argsFile );
+		RoomManager_SetConfig( { denoPath: fake, pakPath: '/data/quake/pak0.pak', gameFlags: [ '-rogue', '-evil' ] } );
+		const silence = console.log;
+		console.log = () => {};
+		try {
+			const room = await RoomManager_CreateRoom( { map: 'e1m1', maxPlayers: 4, hostName: 'host', specificId: 'GAME01' } );
+			assert.ok( room !== null, 'room should start' );
+			const args = ( await Deno.readTextFile( argsFile ) ).split( '\n' );
+			assert.ok( args.includes( '-rogue' ), 'flag forwarded' );
+			assert.ok( args.includes( '-evil' ) === false, 'unknown flags filtered out' );
+			const allowRead = args.find( ( a ) => a.startsWith( '--allow-read=' ) ).split( ',' );
+			assert.ok( allowRead.includes( '/data/quake/rogue' ), 'game dir next to the pak is readable' );
+		} finally {
+			RoomManager_ShutdownAll();
+			RoomManager_SetConfig( { pakPath: '../static/pak0.pak', gameFlags: [] } );
+			console.log = silence;
+			Deno.env.delete( 'FAKE_ROOM_ARGS_FILE' );
+			await new Promise( ( r ) => setTimeout( r, 600 ) );
+			await Deno.remove( argsFile );
+		}
+	},
+} );

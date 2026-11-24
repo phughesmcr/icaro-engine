@@ -3,6 +3,7 @@
 
 import { Con_Printf, Con_DPrintf, SZ_Clear, SZ_Write } from './common.js';
 import { NET_NewQSocket } from './net_main.js';
+import { Sys_PageURL } from './sys.js';
 import {
 	net_message,
 	net_driverlevel,
@@ -1259,8 +1260,7 @@ async function _WT_ConnectDirect( url, originalHost, roomId, attempt ) {
 		// Update URL with room parameter for easy sharing
 		if ( roomId != null && typeof window !== 'undefined' ) {
 
-			const newUrl = window.location.pathname + '?room=' + roomId;
-			history.replaceState( null, '', newUrl );
+			history.replaceState( null, '', Sys_PageURL( roomId ) );
 
 		}
 

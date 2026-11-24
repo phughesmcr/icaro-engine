@@ -10,6 +10,7 @@ const sbar = await import( '../src/sbar.js' );
 const menu = await import( '../src/menu.js' );
 const host = await import( '../src/host.js' );
 const q = await import( '../src/quakedef.js' );
+const sys = await import( '../src/sys.js' );
 
 function assertEqual( actual, expected, message ) {
 
@@ -289,6 +290,31 @@ Deno.test( 'game options menu: hipnotic and rogue episode and level lists, rogue
 		common.COM_InitArgv( [] );
 		cvar.Cvar_SetValue( 'teamplay', oldTeamplay );
 		keys.set_key_dest( keys.key_game );
+
+	}
+
+} );
+
+Deno.test( 'Sys_PageURL keeps game= for share links, adds room= and drops other parameters', () => {
+
+	const saved = Object.getOwnPropertyDescriptor( globalThis, 'location' );
+	const setLocation = ( search ) => Object.defineProperty( globalThis, 'location', {
+		value: { origin: 'https://example.test', pathname: '/play/', search: search }, configurable: true, writable: true,
+	} );
+
+	try {
+
+		setLocation( '?game=rogue&room=OLD1&foo=1' );
+		assertEqual( sys.Sys_PageURL( 'AB12' ), 'https://example.test/play/?room=AB12&game=rogue', 'room and game' );
+		assertEqual( sys.Sys_PageURL( null ), 'https://example.test/play/?game=rogue', 'game only' );
+
+		setLocation( '?room=OLD1' );
+		assertEqual( sys.Sys_PageURL( null ), 'https://example.test/play/', 'nothing kept' );
+
+	} finally {
+
+		if ( saved !== undefined ) Object.defineProperty( globalThis, 'location', saved );
+		else delete globalThis.location;
 
 	}
 

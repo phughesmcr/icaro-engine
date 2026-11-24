@@ -3,6 +3,8 @@
 # Ignores the deno flags, prints the readiness lines room_process_manager.ts
 # waits for, then reports player counts read from FAKE_ROOM_PLAYERS_FILE
 # (if set) every 0.1s. Exits shortly after SIGTERM, or when stdin closes.
+# Records its arguments to FAKE_ROOM_ARGS_FILE (if set), one per line.
+[ -n "$FAKE_ROOM_ARGS_FILE" ] && printf '%s\n' "$@" > "$FAKE_ROOM_ARGS_FILE"
 nonce=""
 while [ $# -gt 0 ]; do
 	if [ "$1" = "-statusnonce" ]; then nonce="$2"; shift; fi

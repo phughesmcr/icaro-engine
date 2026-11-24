@@ -268,7 +268,6 @@ What the PRs above leave open, on purpose or because it can't be checked here.
 - `OP_NE_S` returns 1 instead of the raw `strcmp` value. Truthiness is unchanged.
 - `PF_sound` dropped the range checks on volume, attenuation and channel.
 - `PR_GlobalString` is a stub, so runtime-error statement dumps show raw offsets.
-- The `give` command lacks the hipnotic and rogue items.
 
 ### MOD-5 · Model edge cases (loaders) — **low**, Reported (checked on all shareware assets)
 
