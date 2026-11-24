@@ -23,6 +23,11 @@ cmd.Cbuf_Init();
 cmd.Cmd_Init();
 keys.Key_Init();
 
+// stand-ins for the host commands a new game issues
+const issued = [];
+for ( const name of [ 'disconnect', 'maxplayers', 'map' ] )
+	cmd.Cmd_AddCommand( name, () => issued.push( name ) );
+
 const { channels, NUM_AMBIENTS, MAX_DYNAMIC_CHANNELS } = sound;
 const FIRST = NUM_AMBIENTS;
 const LAST = NUM_AMBIENTS + MAX_DYNAMIC_CHANNELS;
@@ -266,10 +271,7 @@ Deno.test( 'C-8: sizeup/sizedown go through Cvar_SetValue', () => {
 
 Deno.test( 'C-11: New Game asks for confirmation while a server is active', () => {
 
-	const issued = [];
-	for ( const name of [ 'disconnect', 'maxplayers', 'map' ] )
-		cmd.Cmd_AddCommand( name, () => issued.push( name ) );
-
+	issued.length = 0;
 	menu.M_Init();
 	gl_screen.SCR_SetExternals( { cls: { state: 2, signon: 0, demoplayback: false } } );
 	menu.M_SetExternals( {
@@ -301,6 +303,82 @@ Deno.test( 'C-11: New Game asks for confirmation while a server is active', () =
 	assertEqual( keys.key_dest, keys.key_game, 'back in game' );
 
 	menu.M_SetExternals( { sv: { active: false } } );
+
+} );
+
+Deno.test( 'C-11: Escape cancels the New Game confirmation', () => {
+
+	issued.length = 0;
+
+	menu.M_Init();
+	gl_screen.SCR_SetExternals( { cls: { state: 2, signon: 0, demoplayback: false } } );
+	menu.M_SetExternals( {
+		sv: { active: true },
+		key_dest_set: keys.set_key_dest,
+		key_dest_get: () => keys.key_dest
+	} );
+
+	cmd.Cmd_ExecuteString( 'menu_singleplayer' );
+	menu.M_Keydown( keys.K_ENTER );
+	keys.Key_Event( keys.K_ESCAPE, true );
+	keys.Key_Event( keys.K_ESCAPE, false );
+	cmd.Cbuf_Execute();
+	assertEqual( keys.Key_ModalActive(), false, 'dialog closed' );
+	assertEqual( issued.length, 0, 'no new game on escape' );
+	assertEqual( keys.key_dest, keys.key_menu, 'menu still up' );
+
+	menu.M_SetExternals( { sv: { active: false } } );
+
+} );
+
+Deno.test( 'C-11: touch answers the dialog, but not straight after it opens', () => {
+
+	issued.length = 0;
+
+	let now = 10;
+	menu.M_Init();
+	gl_screen.SCR_SetExternals( { cls: { state: 2, signon: 0, demoplayback: false } } );
+	menu.M_SetExternals( {
+		sv: { active: true },
+		key_dest_set: keys.set_key_dest,
+		key_dest_get: () => keys.key_dest,
+		realtime_get: () => now
+	} );
+
+	const hadWindow = 'window' in globalThis;
+	if ( ! hadWindow ) globalThis.window = { devicePixelRatio: 1 };
+
+	try {
+
+		// top of the screen, in menu space: yes
+		const topY = 10, H = 100;
+
+		cmd.Cmd_ExecuteString( 'menu_singleplayer' );
+		menu.M_Keydown( keys.K_ENTER );
+
+		now += 0.1; // second click of a double click
+		menu.M_TouchInput( 50, topY, 100, H );
+		assertEqual( keys.Key_ModalActive(), true, 'early tap ignored' );
+
+		now += 1;
+		menu.M_TouchInput( 50, H - 1, 100, H ); // bottom: no
+		cmd.Cbuf_Execute();
+		assertEqual( keys.Key_ModalActive(), false, 'bottom tap answers' );
+		assertEqual( issued.length, 0, 'no new game on bottom tap' );
+
+		menu.M_Keydown( keys.K_ENTER );
+		now += 1;
+		menu.M_TouchInput( 50, topY, 100, H );
+		cmd.Cbuf_Execute();
+		assertEqual( keys.Key_ModalActive(), false, 'top tap answers' );
+		assertEqual( issued.join( ',' ), 'disconnect,maxplayers,map', 'new game on top tap' );
+
+	} finally {
+
+		if ( ! hadWindow ) delete globalThis.window;
+		menu.M_SetExternals( { sv: { active: false }, realtime_get: () => 0 } );
+
+	}
 
 } );
 

@@ -707,6 +707,10 @@ function M_SinglePlayer_Draw() {
 
 }
 
+// when the last SCR_ModalMessage opened, for M_TouchInput
+let m_modal_time = 0;
+const MODAL_TOUCH_DELAY = 0.5; // seconds
+
 function M_SinglePlayer_NewGame() {
 
 	setKeyDest( key_game );
@@ -746,6 +750,7 @@ function M_SinglePlayer_Key( key ) {
 				case 0:
 					if ( _sv.active ) {
 
+						m_modal_time = _realtime_get();
 						SCR_ModalMessage( 'Are you sure you want to\nstart a new game?\n', function ( yes ) {
 
 							if ( yes )
@@ -2423,8 +2428,12 @@ export function M_TouchInput( touchX, touchY, screenWidth, screenHeight ) {
 	const vy = vidY - offsetY;
 
 	// SCR_ModalMessage is up: no Y key on touch, so tap top half for yes and
-	// bottom half for no, as the quit menu does
+	// bottom half for no, as the quit menu does. Taps right after the dialog
+	// opens are ignored, so a double click on "New Game" can't confirm it.
 	if ( Key_ModalActive() ) {
+
+		if ( _realtime_get() - m_modal_time < MODAL_TOUCH_DELAY )
+			return;
 
 		const k = vy < 100 ? 121 : 110; // 'y' : 'n'
 		Key_Event( k, true );
