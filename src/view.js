@@ -74,6 +74,18 @@ export const cl_crossx = new cvar_t( 'cl_crossx', '0', false );
 export const cl_crossy = new cvar_t( 'cl_crossy', '0', false );
 
 const gl_cshiftpercent = new cvar_t( 'gl_cshiftpercent', '100', false );
+// QuakeSpasm: per-type percentages, applied on top of gl_cshiftpercent
+const gl_cshiftpercent_contents = new cvar_t( 'gl_cshiftpercent_contents', '100', false );
+const gl_cshiftpercent_damage = new cvar_t( 'gl_cshiftpercent_damage', '100', false );
+const gl_cshiftpercent_bonus = new cvar_t( 'gl_cshiftpercent_bonus', '100', false );
+const gl_cshiftpercent_powerup = new cvar_t( 'gl_cshiftpercent_powerup', '100', false );
+// indexed by CSHIFT_CONTENTS, CSHIFT_DAMAGE, CSHIFT_BONUS, CSHIFT_POWERUP
+const cshiftpercent_cvars = [
+	gl_cshiftpercent_contents,
+	gl_cshiftpercent_damage,
+	gl_cshiftpercent_bonus,
+	gl_cshiftpercent_powerup
+];
 
 let v_dmg_time = 0;
 let v_dmg_roll = 0;
@@ -604,6 +616,8 @@ export function V_CalcBlend() {
 			continue;
 
 		let a2 = ( ( cl.cshifts[ j ].percent * gl_cshiftpercent.value ) / 100.0 ) / 255.0;
+		// QuakeSpasm -- also scale by the specific gl_cshiftpercent_* cvar
+		a2 *= cshiftpercent_cvars[ j ].value / 100.0;
 
 		if ( a2 === 0 )
 			continue;
@@ -1098,6 +1112,10 @@ export function V_Init() {
 
 	Cvar_RegisterVariable( v_idlescale );
 	Cvar_RegisterVariable( gl_cshiftpercent );
+	Cvar_RegisterVariable( gl_cshiftpercent_contents ); // QuakeSpasm
+	Cvar_RegisterVariable( gl_cshiftpercent_damage ); // QuakeSpasm
+	Cvar_RegisterVariable( gl_cshiftpercent_bonus ); // QuakeSpasm
+	Cvar_RegisterVariable( gl_cshiftpercent_powerup ); // QuakeSpasm
 
 	Cvar_RegisterVariable( scr_ofsx );
 	Cvar_RegisterVariable( scr_ofsy );
