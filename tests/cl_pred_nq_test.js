@@ -289,12 +289,18 @@ function runDifferential( name, opts ) {
 	worldmodel = opts.world || dryWorld;
 	const ent = makePlayer( opts.origin, opts.velocity, opts.viewangles, opts.onground );
 	SV_CheckWater( ent ); // last frame's waterlevel
+	svState.time = 10;
+	if ( opts.teleport ) ent.v.teleport_time = svState.time + opts.teleport; // QC: time + 0.7
+	if ( opts.punch ) ent.v.punchangle.set( opts.punch );
 
 	let from = new player_state_t();
 	let to = new player_state_t();
 	from.origin.set( opts.origin );
 	from.velocity.set( opts.velocity );
 	from.onground = opts.onground;
+	// what svc_playerinfo PF_TELEPORT and svc_clientdata carry
+	from.teleporttime = opts.teleport || 0;
+	if ( opts.punch ) from.punchangle.set( opts.punch );
 
 	const cmd = {
 		msec: dt * 1000,
@@ -315,6 +321,7 @@ function runDifferential( name, opts ) {
 		cmd.buttons = buttons;
 
 		serverFrame( ent, opts.viewangles, opts.move, buttons, dt );
+		svState.time += dt; // sv.time advances after SV_Physics
 		CL_PredictUsercmd( from, to, cmd, false, false );
 
 		for ( let i = 0; i < 3; i ++ ) {
@@ -530,6 +537,77 @@ Deno.test( 'NQ-mode split keeps fractional msec over the 100 ms limit', () => {
 
 		CL_PredictUsercmd( from, to, cmd, false, false );
 		assertNear( to.origin[ 0 ], 100 * 0.2505, 0.001, 'distance covered' );
+
+	} );
+
+} );
+
+Deno.test( 'NQ prediction: the teleporter back-move lock matches the server', () => {
+
+	withNQ( () => {
+
+		// walking backwards for 0.35 s after a teleport: the server zeroes fmove
+		// until sv.time passes teleport_time, so the player stays put, then moves
+		const ent = runDifferential( 'teleport lock', {
+			dt: 1 / 72, frames: 60, onground: true, teleport: 0.35,
+			origin: [ - 400, - 200, 24 ], velocity: [ 0, 0, 0 ],
+			viewangles: [ 0, 0, 0 ], move: [ - 320, 0, 0 ],
+		} );
+		// 60 frames is 0.83 s: the lock ended and the player really moved back
+		if ( ent.v.velocity[ 0 ] > - 100 )
+			throw new Error( 'expected movement once the lock ended, got ' + ent.v.velocity[ 0 ] );
+
+	} );
+
+} );
+
+Deno.test( 'NQ prediction: moving forward is not locked by teleport_time', () => {
+
+	withNQ( () => {
+
+		runDifferential( 'teleport forward', {
+			dt: 1 / 72, frames: 30, onground: true, teleport: 0.35,
+			origin: [ - 400, - 200, 24 ], velocity: [ 0, 0, 0 ],
+			viewangles: [ 0, 0, 0 ], move: [ 320, 0, 0 ],
+		} );
+
+	} );
+
+} );
+
+Deno.test( 'NQ prediction: punchangle shifts the move angles as on the server', () => {
+
+	withNQ( () => {
+
+		// a weapon kick: 20 degrees of pitch and 12 of yaw, dropping 10 deg/s
+		const ent = runDifferential( 'punch', {
+			dt: 1 / 72, frames: 40, onground: true, punch: [ - 20, 12, 0 ],
+			origin: [ - 400, - 200, 24 ], velocity: [ 0, 0, 0 ],
+			viewangles: [ 0, 0, 0 ], move: [ 320, 0, 0 ],
+		} );
+		// the kick turned the move: velocity has a y component
+		if ( Math.abs( ent.v.velocity[ 1 ] ) < 1 )
+			throw new Error( 'expected the punch yaw to bend the move, got ' + ent.v.velocity[ 1 ] );
+
+	} );
+
+} );
+
+Deno.test( 'NQ prediction: the teleport time and punchangle run down per step, also when a command is split', () => {
+
+	withNQ( () => {
+
+		worldmodel = dryWorld;
+		setupClientWorld( worldmodel );
+		const from = new player_state_t();
+		const to = new player_state_t();
+		from.origin.set( [ - 400, - 200, 24 ] );
+		from.onground = true;
+		from.teleporttime = 0.5;
+		from.punchangle.set( [ 0, 0, 0 ] );
+		const cmd = { msec: 250, angles: new Float32Array( 3 ), forwardmove: 0, sidemove: 0, upmove: 0, buttons: 0 };
+		CL_PredictUsercmd( from, to, cmd, false, false ); // 3 steps of 83 ms
+		assertNear( to.teleporttime, 0.25, 0.001, 'teleporttime after 250 ms' );
 
 	} );
 

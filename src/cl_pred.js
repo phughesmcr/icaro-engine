@@ -11,7 +11,7 @@ import { pmove, movevars, PlayerMove, PM_GetOnGround, Pmove_Init,
 import { CONTENTS_EMPTY } from './bspfile.js';
 import { cl, cl_entities, packet_entities_t } from './client.js';
 import { STAT_HEALTH } from './quakedef.js';
-import { PS_BSP, PS_BOX, PF_FLY, PF_NOCLIP } from './protocol.js';
+import { PS_BSP, PS_BOX, PF_FLY, PF_NOCLIP, PF_TELEPORT } from './protocol.js';
 import { realtime, sv } from './host.js';
 
 // CVars
@@ -86,6 +86,8 @@ export class player_state_t {
 		this.watertype = CONTENTS_EMPTY;
 		this.roll = 0;
 		this.movedir = new Float32Array( 3 );
+		this.teleporttime = 0; // seconds of ent->v.teleport_time left
+		this.punchangle = new Float32Array( 3 );
 	}
 
 	copyFrom( other ) {
@@ -100,6 +102,8 @@ export class player_state_t {
 		this.watertype = other.watertype;
 		this.roll = other.roll;
 		VectorCopy( other.movedir, this.movedir );
+		this.teleporttime = other.teleporttime;
+		VectorCopy( other.punchangle, this.punchangle );
 	}
 
 	clear() {
@@ -114,6 +118,8 @@ export class player_state_t {
 		this.watertype = CONTENTS_EMPTY;
 		this.roll = 0;
 		this.movedir.fill( 0 );
+		this.teleporttime = 0;
+		this.punchangle.fill( 0 );
 	}
 }
 
@@ -460,6 +466,8 @@ export function CL_StoreCommand( cmd, senttime, netsequence = - 1 ) {
 let _cl_predmovetype = PM_MOVETYPE_WALK;
 // The view player's movetype from its last playerinfo (PF_NOCLIP / PF_FLY)
 let _cl_servermovetype = PM_MOVETYPE_WALK;
+// Seconds of the view player's teleport_time left, from its last playerinfo
+let _cl_serverteleport = 0;
 
 // Temporary player state for other-player prediction
 const _predFrom = new player_state_t();
@@ -759,7 +767,7 @@ Called from CL_ParsePlayerInfo to set player state from server.
 This stores the QuakeWorld-style player info for prediction.
 =================
 */
-export function CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, skin, effects, weaponframe, msec, cmd, modelindex ) {
+export function CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, skin, effects, weaponframe, msec, cmd, modelindex, teleport ) {
 	if ( playernum < 0 || playernum >= MAX_CLIENTS )
 		return;
 
@@ -771,6 +779,7 @@ export function CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, ski
 	if ( playernum + 1 === cl.viewentity ) {
 		_cl_servermovetype = ( flags & PF_NOCLIP ) !== 0 ? PM_MOVETYPE_NOCLIP
 			: ( flags & PF_FLY ) !== 0 ? PM_MOVETYPE_FLY : PM_MOVETYPE_WALK;
+		_cl_serverteleport = ( flags & PF_TELEPORT ) !== 0 ? ( teleport || 0 ) * 0.01 : 0;
 	}
 
 	VectorCopy( origin, pplayer.state_origin );
@@ -882,6 +891,8 @@ function CL_PredictUsercmdStep( from, to, cmd, msec, spectator, dead, nq ) {
 	pmove.watertype = from.watertype;
 	pmove.roll = from.roll;
 	VectorCopy( from.movedir, pmove.movedir );
+	pmove.teleporttime = from.teleporttime;
+	VectorCopy( from.punchangle, pmove.punchangle );
 
 	pmove.cmd.msec = msec;
 	VectorCopy( cmd.angles, pmove.cmd.angles );
@@ -907,6 +918,8 @@ function CL_PredictUsercmdStep( from, to, cmd, msec, spectator, dead, nq ) {
 		to.watertype = pmove.watertype;
 		to.roll = pmove.roll;
 		VectorCopy( pmove.movedir, to.movedir );
+		to.teleporttime = pmove.teleporttime;
+		VectorCopy( pmove.punchangle, to.punchangle );
 	} else {
 		to.oldbuttons = pmove.cmd.buttons;
 		to.onground = PM_GetOnGround() !== -1; // Use proper onground from pmove
@@ -914,6 +927,8 @@ function CL_PredictUsercmdStep( from, to, cmd, msec, spectator, dead, nq ) {
 		to.watertype = PM_GetWaterType();
 		to.roll = 0;
 		VectorCopy( from.movedir, to.movedir );
+		to.teleporttime = from.teleporttime;
+		VectorCopy( from.punchangle, to.punchangle );
 	}
 }
 
@@ -1080,6 +1095,9 @@ export function CL_SetServerState( origin, velocity, onground ) {
 	frame.playerstate.onground = onground;
 	// waterlevel belongs to the predicted origin, not the server's
 	frame.playerstate.waterlevel = -1;
+	// the server's teleport_time and punchangle for the acknowledged move
+	frame.playerstate.teleporttime = _cl_serverteleport;
+	VectorCopy( cl.punchangle, frame.playerstate.punchangle );
 	has_server_state = true;
 }
 
@@ -1115,6 +1133,7 @@ export function CL_ResetPrediction() {
 	cl_predtime = 0;
 	_cl_predmovetype = PM_MOVETYPE_WALK;
 	_cl_servermovetype = PM_MOVETYPE_WALK;
+	_cl_serverteleport = 0;
 
 	cl_simorg.fill( 0 );
 	cl_simvel.fill( 0 );

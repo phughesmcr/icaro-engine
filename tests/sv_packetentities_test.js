@@ -7,7 +7,7 @@ import {
 	MAX_PACKET_ENTITIES, PE_ENT_MASK, PE_MOREBITS, PE_REMOVE,
 	PE_ORIGIN1, PE_ORIGIN2, PE_ORIGIN3, PE_ANGLE1, PE_ANGLE2, PE_ANGLE3,
 	PE_MODEL, PE_FRAME, PE_COLORMAP, PE_SKIN, PE_EFFECTS, PE_SOLID, PS_BSP, PS_BOX, PS_NOLERP,
-	svc_packetentities, svc_deltapacketentities, svc_playerinfo,
+	svc_packetentities, svc_deltapacketentities, svc_playerinfo, PF_TELEPORT,
 } from '../src/protocol.js';
 import { PR_SetSV, sv as progs_sv } from '../src/progs.js';
 import { PR_AllocEdicts } from '../src/pr_edict.js';
@@ -225,7 +225,7 @@ Deno.test( 'SV_EmitPacketEntities keeps a delta frame in step with the client on
 		const frames = [];
 		for ( let i = 0; i < 64; i ++ ) frames.push( { entities: makePacket() } );
 		frames[ 5 ].entities = old;
-		const client = { delta_sequence: 5, frames };
+		const client = { delta_sequence: 5, outgoing_sequence: 6, frames };
 		const msg = makeMsg( 400 );
 
 		SV_EmitPacketEntities( client, to, msg );
@@ -274,6 +274,7 @@ Deno.test( 'SV_EmitPacketEntities: 300 entities reach the client over a few data
 			for ( let i = 0; i < want.num_entities; i ++ )
 				to.state( to.num_entities ++ ).copyFrom( want.entities[ i ] );
 
+			client.outgoing_sequence = seq;
 			const msg = makeMsg( 1024 );
 			SV_EmitPacketEntities( client, to, msg );
 			const got = decode( msg, clientFrame, baselines );
@@ -305,6 +306,181 @@ Deno.test( 'SV_EmitPacketEntities sends everything when it fits', () => {
 		assert( decode( msg, { num_entities: 0, entities: [] }, baselines ).length === 100, 'client missed entities' );
 
 	} );
+
+} );
+
+// delta_sequence age check (QW SV_EmitPacketEntities)
+
+function emitWithAge( outgoing, delta ) {
+
+	let header = - 1;
+	withServer( ( baselines ) => {
+
+		const old = makePacket();
+		fillPacket( old, range( 20, 4 ), 1 );
+		const to = makePacket();
+		fillPacket( to, range( 20, 4 ), 2 );
+		const frames = [];
+		for ( let i = 0; i < 64; i ++ ) frames.push( { entities: makePacket() } );
+		if ( delta !== - 1 ) frames[ delta & 63 ].entities = old;
+		const msg = makeMsg( 1024 );
+		SV_EmitPacketEntities( { delta_sequence: delta, outgoing_sequence: outgoing, frames }, to, msg );
+		header = msg.data[ 0 ];
+		// whichever was chosen must decode against what the client holds
+		const got = decode( msg, header === svc_deltapacketentities ? old : { num_entities: 0, entities: [] }, baselines );
+		assert( got.length === 4, 'client lost entities' );
+
+	} );
+	return header;
+
+}
+
+Deno.test( 'SV_EmitPacketEntities sends a full update when delta_sequence is too old', () => {
+
+	// age < PE_UPDATE_BACKUP - 1: still a delta
+	assert( emitWithAge( 70, 8 ) === svc_deltapacketentities, 'age 62 should be a delta' );
+	// age == PE_UPDATE_BACKUP - 1: the client would drop a delta, so send a full update
+	assert( emitWithAge( 71, 8 ) === svc_packetentities, 'age 63 should be a full update' );
+	assert( emitWithAge( 200, 8 ) === svc_packetentities, 'a very old ack should be a full update' );
+	// the sequence is one byte on the wire: 11 frames old across the wrap
+	assert( emitWithAge( 261, 250 ) === svc_deltapacketentities, 'age across the 256 wrap should be a delta' );
+	// no delta requested
+	assert( emitWithAge( 3, - 1 ) === svc_packetentities, 'delta_sequence -1 is a full update' );
+
+} );
+
+// Entities past the datagram capacity must still be refreshed within a
+// bounded number of frames: every entity changes every frame, the datagram
+// holds about a fifth of them, and the client acks each frame.
+Deno.test( 'SV_EmitPacketEntities sweeps all entities across frames when they overflow', () => {
+
+	withServer( ( baselines ) => {
+
+		const count = 300;
+		const numbers = range( 20, count );
+		const frames = [];
+		for ( let i = 0; i < 64; i ++ ) frames.push( { entities: makePacket() } );
+		const client = { delta_sequence: - 1, outgoing_sequence: 0, frames, pe_cursor: 0 };
+		let clientFrame = { num_entities: 0, entities: [] };
+		const lastUpdated = new Map(); // entity number -> frame it last changed on the client
+		let overflowed = 0;
+		let worstGap = 0;
+		const originalPrintf = console.log;
+
+		for ( let seq = 0; seq < 40; seq ++ ) {
+
+			const to = frames[ seq & 63 ].entities;
+			fillPacket( to, numbers, seq * 3 ); // everything moved
+			client.outgoing_sequence = seq;
+
+			const msg = makeMsg( 1024 );
+			console.log = () => {};
+			try {
+
+				SV_EmitPacketEntities( client, to, msg );
+
+			} finally {
+
+				console.log = originalPrintf;
+
+			}
+
+			if ( client.pe_cursor !== 0 ) overflowed ++;
+			const got = decode( msg, clientFrame, baselines );
+			assert( got.length === to.num_entities, `frame ${seq}: client has ${got.length}, server stored ${to.num_entities}` );
+
+			// which entities changed on the client this frame
+			const before = new Map();
+			for ( let i = 0; i < clientFrame.num_entities; i ++ ) before.set( clientFrame.entities[ i ].number, clientFrame.entities[ i ] );
+			for ( const e of got ) {
+
+				const b = before.get( e.number );
+				if ( b == null || b.origin[ 0 ] !== e.origin[ 0 ] ) lastUpdated.set( e.number, seq );
+
+			}
+
+			clientFrame = { num_entities: got.length, entities: got.map( ( e ) => {
+
+				const c = new entity_state_t();
+				c.copyFrom( e );
+				return c;
+
+			} ) };
+			client.delta_sequence = seq;
+
+			if ( seq >= 10 ) {
+
+				for ( const n of numbers ) worstGap = Math.max( worstGap, seq - ( lastUpdated.get( n ) ?? - 1 ) );
+
+			}
+
+		}
+
+		assert( overflowed > 3, 'the test must overflow the datagram, overflowed ' + overflowed + ' frames' );
+		for ( const n of numbers )
+			assert( lastUpdated.has( n ), `entity ${n} was never sent` );
+		assert( worstGap <= 8, `an entity went ${worstGap} frames without an update` );
+
+	} );
+
+} );
+
+// teleport_time reaches the client through svc_playerinfo PF_TELEPORT
+
+Deno.test( 'SV_WritePlayersToClient sends the view player teleport_time left (PF_TELEPORT)', () => {
+
+	const oldClients = svs.clients;
+	const oldMaxclients = svs.maxclients;
+	const oldPrecache = sv.model_precache;
+	const oldTime = sv.time;
+	const edicts = PR_AllocEdicts( 3, 105 );
+
+	try {
+
+		sv.model_precache = [ '', 'progs/player.mdl' ];
+		sv.time = 5;
+		svs.maxclients = 1;
+		const ent = edicts[ 1 ];
+		ent.v.modelindex = 1;
+		ent.v.health = 100;
+		ent.v.mins[ 2 ] = - 24;
+		svs.clients = [ { active: true, spawned: true, edict: ent, localtime: 0 } ];
+
+		const write = () => {
+
+			const msg = makeMsg( 200 );
+			SV_WritePlayersToClient( svs.clients[ 0 ], ent, new Uint8Array( [ 1 ] ), msg );
+			return msg;
+
+		};
+
+		// the teleporter's QC: teleport_time = time + 0.7, read after sv.time advanced by a frame
+		ent.v.teleport_time = 5.7;
+		sv.time = 5.0125;
+		let msg = write();
+		const flags = msg.data[ 2 ] | ( msg.data[ 3 ] << 8 );
+		assert( ( flags & PF_TELEPORT ) !== 0, 'PF_TELEPORT set' );
+		assert( msg.data[ msg.cursize - 1 ] === 69, `expected 69 (10 ms units, rounded up), got ${msg.data[ msg.cursize - 1 ]}` );
+
+		// expired
+		sv.time = 5.7;
+		msg = write();
+		assert( ( ( msg.data[ 2 ] | ( msg.data[ 3 ] << 8 ) ) & PF_TELEPORT ) === 0, 'no PF_TELEPORT once it expires' );
+
+		// waterjump keeps teleport_time = time + 2: the longest value, still one byte
+		ent.v.teleport_time = 7;
+		sv.time = 5;
+		msg = write();
+		assert( msg.data[ msg.cursize - 1 ] === 200, 'two seconds is 200' );
+
+	} finally {
+
+		svs.clients = oldClients;
+		svs.maxclients = oldMaxclients;
+		sv.model_precache = oldPrecache;
+		sv.time = oldTime;
+
+	}
 
 } );
 
@@ -462,7 +638,7 @@ Deno.test( 'PE_SOLID is sent only on change, carries the box, and clears', () =>
 		// nothing changed: nothing but the header and terminator is sent
 		const f1 = frame( 2 );
 		msg = makeMsg( 1024 );
-		SV_EmitPacketEntities( { delta_sequence: 0, frames }, f1, msg );
+		SV_EmitPacketEntities( { delta_sequence: 0, outgoing_sequence: 1, frames }, f1, msg );
 		assert( msg.cursize === 4, `unchanged frame took ${msg.cursize} bytes` );
 		frames[ 1 ].entities = f1;
 
@@ -470,7 +646,7 @@ Deno.test( 'PE_SOLID is sent only on change, carries the box, and clears', () =>
 		boss.v.solid = SOLID_NOT;
 		const f2 = frame( 2 );
 		msg = makeMsg( 1024 );
-		SV_EmitPacketEntities( { delta_sequence: 1, frames }, f2, msg );
+		SV_EmitPacketEntities( { delta_sequence: 1, outgoing_sequence: 2, frames }, f2, msg );
 		const got2 = decode( msg, { num_entities: 2, entities: got0 }, baselines );
 		assert( got2[ 0 ].solid === 0, 'corpse is still solid on the client' );
 		assert( got2[ 1 ].solid === PS_BOX && got2[ 1 ].maxs[ 2 ] === 64, 'explobox lost its box' );

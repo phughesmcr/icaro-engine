@@ -146,6 +146,9 @@ export const PF_GIB = ( 1 << 10 ); // offset the view height differently
 // Not in QW: the view player's NQ movetype, for prediction (view player only)
 export const PF_FLY = ( 1 << 11 ); // MOVETYPE_FLY
 export const PF_NOCLIP = ( 1 << 12 ); // MOVETYPE_NOCLIP
+// Not in QW: [byte] ent->v.teleport_time - sv.time in 10 ms units (view player
+// only), for the teleporter back-move lock and waterjump in prediction
+export const PF_TELEPORT = ( 1 << 13 );
 
 // command move bits (for delta compression of usercmd_t)
 export const CM_ANGLE1 = ( 1 << 0 );
