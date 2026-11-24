@@ -64,7 +64,7 @@ import { R_TranslatePlayerSkin } from './gl_rmisc.js';
 // QuakeWorld model precache indices (set during CL_ParseServerInfo)
 export let cl_playerindex = -1;
 import { R_NewMap } from './gl_rmisc.js';
-import { R_ParseParticleEffect, R_AddEfrags } from './render.js';
+import { R_ParseParticleEffect, R_AddEfrags, LERP_MOVESTEP, LERP_RESETANIM, LERP_RESETMOVE } from './render.js';
 import { Host_Error, Host_EndGame, realtime, sv } from './host.js';
 import { NET_SendMessage } from './net_main.js';
 import { CL_GetMessage } from './cl_demo.js';
@@ -134,6 +134,7 @@ export function CL_EntityNum( num ) {
 		while ( cl.num_entities <= num ) {
 
 			cl_entities[ cl.num_entities ].colormap = null; // vid.colormap
+			cl_entities[ cl.num_entities ].lerpflags |= LERP_RESETMOVE | LERP_RESETANIM; //johnfitz
 			cl.num_entities ++;
 
 		}
@@ -817,6 +818,11 @@ export function CL_ParseUpdate( bits ) {
 	else
 		forcelink = false;
 
+	//johnfitz -- lerping
+	if ( ent.msgtime + 0.2 < cl.mtime[ 0 ] ) //more than 0.2 seconds since the last message (most entities think every 0.1 sec)
+		ent.lerpflags |= LERP_RESETANIM; //if we missed a think, we'd be lerping from the wrong frame
+	//johnfitz
+
 	ent.msgtime = cl.mtime[ 0 ];
 
 	let modnum;
@@ -847,6 +853,8 @@ export function CL_ParseUpdate( bits ) {
 
 		if ( num > 0 && num <= cl.maxclients )
 			R_TranslatePlayerSkin( num - 1 );
+
+		ent.lerpflags |= LERP_RESETANIM; //johnfitz -- don't lerp animation across model changes
 
 	}
 
@@ -924,8 +932,14 @@ export function CL_ParseUpdate( bits ) {
 	else
 		ent.msg_angles[ 0 ][ 2 ] = ent.baseline.angles[ 2 ];
 
-	if ( bits & U_NOLERP )
+	// U_NOLERP is QS's U_STEP: the server sends it for MOVETYPE_STEP
+	if ( bits & U_NOLERP ) {
+
+		ent.lerpflags |= LERP_MOVESTEP; //johnfitz -- lerping for movetype_step entities
 		ent.forcelink = true;
+
+	} else
+		ent.lerpflags &= ~ LERP_MOVESTEP;
 
 	if ( forcelink ) {
 
@@ -1092,6 +1106,11 @@ export function CL_ParseClientdata( bits ) {
 
 	}
 
+	//johnfitz -- lerping
+	if ( cl.viewent.model !== cl.model_precache[ cl.stats[ STAT_WEAPON ] ] )
+		cl.viewent.lerpflags |= LERP_RESETANIM; //don't lerp animation across model changes
+	//johnfitz
+
 	//
 	// Update client-side prediction with authoritative server state
 	// This provides the base position/velocity for prediction to build on
@@ -1257,6 +1276,7 @@ export function CL_ParseStatic() {
 
 	// copy it to the current state
 	ent.model = cl.model_precache[ ent.baseline.modelindex ];
+	ent.lerpflags |= LERP_RESETANIM; //johnfitz -- lerping
 	ent.frame = ent.baseline.frame;
 	ent.colormap = null; // vid.colormap
 	ent.skinnum = ent.baseline.skin;

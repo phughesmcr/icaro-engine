@@ -20,7 +20,8 @@ import { SIGNONS, MAX_DLIGHTS, MAX_EFRAGS, MAX_BEAMS, MAX_TEMP_ENTITIES,
 	usercmd_t,
 	NUM_CSHIFTS } from './client.js';
 import { anglemod, VectorCopy, VectorMA, AngleVectors } from './mathlib.js';
-import { R_RocketTrail, R_RemoveEfrags, R_EntityParticles } from './render.js';
+import { R_RocketTrail, R_RemoveEfrags, R_EntityParticles, r_lerpmodels, r_lerpmove,
+	LERP_MOVESTEP, LERP_RESETANIM, LERP_RESETANIM2, LERP_RESETMOVE } from './render.js';
 import { CL_InitTEnts, CL_UpdateTEnts } from './cl_tent.js';
 import { host_frametime, realtime, Host_Error, Host_ShutdownServer, Host_ClearMemory, sv } from './host.js';
 import { SCR_EndLoadingPlaque, SCR_BeginLoadingPlaque } from './gl_screen.js';
@@ -600,6 +601,24 @@ export function CL_LerpPoint() {
 
 /*
 ===============
+CL_NoLerpMuzzleFlash
+
+QS cl_main.c CL_RelinkEntities (EF_MUZZLEFLASH): no lerping for two
+frames, on the gun when it is the view entity's flash. Shared by the NQ
+relink and the QW player and packet-entity paths.
+===============
+*/
+export function CL_NoLerpMuzzleFlash( num ) {
+
+	if ( num === cl.viewentity )
+		cl.viewent.lerpflags |= LERP_RESETANIM | LERP_RESETANIM2; //no lerping for two frames
+	else
+		cl_entities[ num ].lerpflags |= LERP_RESETANIM | LERP_RESETANIM2; //no lerping for two frames
+
+}
+
+/*
+===============
 CL_LinkPacketEntities
 
 Links non-player entities from QW-style packet_entities into the
@@ -692,6 +711,10 @@ function CL_LinkPacketEntities( frac ) {
 			dl.minlight = 32;
 			dl.die = cl.time + 0.1;
 
+			//johnfitz -- assume muzzle flash accompanied by muzzle flare, which looks bad when lerped
+			if ( r_lerpmodels.value !== 2 )
+				CL_NoLerpMuzzleFlash( s1.number );
+
 		}
 
 		// create a new entity
@@ -715,6 +738,11 @@ function CL_LinkPacketEntities( frac ) {
 					ent.syncbase = 0.0;
 
 			}
+
+			// No LERP_RESETANIM here (QS sets it at a model change): the
+			// loop in CL_RelinkEntities clears ent.model whenever a packet
+			// arrives, so this runs for every packet. gl_mesh.js
+			// R_SetupAliasFrame resets the lerp when the model really changes.
 
 		}
 
@@ -758,7 +786,18 @@ function CL_LinkPacketEntities( frac ) {
 			// no trail from the stale position either
 			VectorCopy( s1.origin, _peOldorg );
 
+			// nor a lerp (QS cl_main.c CL_RelinkEntities: an entity that
+			// leaves the packet gets LERP_RESETMOVE|LERP_RESETANIM)
+			ent.lerpflags |= LERP_RESETMOVE | LERP_RESETANIM;
+
 		} else if ( ent._lastPESeq !== seq ) {
+
+			// QS cl_parse.c CL_ParseUpdate: more than 0.2 seconds since the
+			// last update (most entities think every 0.1 sec), so a lerp
+			// would start from the wrong frame. ent.msgtime is the time of
+			// the last packet this entity was linked from.
+			if ( ent.msgtime + 0.2 < cl.mtime[ 0 ] )
+				ent.lerpflags |= LERP_RESETANIM;
 
 			// New server data — shift old position and store new
 			VectorCopy( ent.msg_origins[ 0 ], ent.msg_origins[ 1 ] );
@@ -770,8 +809,16 @@ function CL_LinkPacketEntities( frac ) {
 		}
 
 		// MOVETYPE_STEP monsters snap to each update, as NQ's U_NOLERP
-		// (cl_parse.c sets forcelink) does: "don't mess up the step animation"
-		const lerp = ( s1.solid & PS_NOLERP ) !== 0 ? 1 : frac;
+		// (cl_parse.c sets forcelink) does: "don't mess up the step animation".
+		// r_lerpmove then slides them there (QS's U_STEP sets LERP_MOVESTEP).
+		let lerp = frac;
+		if ( ( s1.solid & PS_NOLERP ) !== 0 ) {
+
+			lerp = 1;
+			ent.lerpflags |= LERP_MOVESTEP;
+
+		} else
+			ent.lerpflags &= ~ LERP_MOVESTEP;
 
 		// rotate binary objects locally
 		if ( model != null && ( model.flags & 0x0008 ) ) { // EF_ROTATE
@@ -804,8 +851,12 @@ function CL_LinkPacketEntities( frac ) {
 			for ( let i = 0; i < 3; i ++ ) {
 
 				_peDelta[ i ] = ent.msg_origins[ 0 ][ i ] - ent.msg_origins[ 1 ][ i ];
-				if ( _peDelta[ i ] > 100 || _peDelta[ i ] < - 100 )
+				if ( _peDelta[ i ] > 100 || _peDelta[ i ] < - 100 ) {
+
 					f = 1; // assume a teleportation, not a motion
+					ent.lerpflags |= LERP_RESETMOVE; //johnfitz -- don't lerp teleports
+
+				}
 
 			}
 
@@ -918,6 +969,7 @@ function CL_LinkPlayers() {
 
 			if ( isView )
 				ent.model = null; // nothing for R_Mirror to draw
+			ent.lerpflags |= LERP_RESETMOVE | LERP_RESETANIM; //johnfitz -- reset the lerp when it comes back
 			continue;
 
 		}
@@ -963,6 +1015,10 @@ function CL_LinkPlayers() {
 			dl.minlight = 32;
 			dl.die = cl.time + 0.1;
 
+			//johnfitz -- assume muzzle flash accompanied by muzzle flare, which looks bad when lerped
+			if ( r_lerpmodels.value !== 2 )
+				CL_NoLerpMuzzleFlash( j + 1 );
+
 		}
 
 		if ( ( pplayer.effects & 0x0004 ) !== 0 ) { // EF_BRIGHTLIGHT
@@ -991,11 +1047,15 @@ function CL_LinkPlayers() {
 
 			if ( isView )
 				ent.model = null;
+			ent.lerpflags |= LERP_RESETMOVE | LERP_RESETANIM; //johnfitz
 			continue;
 
 		}
 
-		ent.model = cl.model_precache[ pplayer.modelindex ];
+		const model = cl.model_precache[ pplayer.modelindex ];
+		if ( model !== ent.model )
+			ent.lerpflags |= LERP_RESETANIM; //johnfitz -- don't lerp animation across model changes
+		ent.model = model;
 		if ( ent.model == null )
 			continue;
 
@@ -1126,6 +1186,13 @@ export function CL_RelinkEntities() {
 		if ( ent.msgtime !== cl.mtime[ 0 ] ) {
 
 			ent.model = null;
+			// johnfitz -- next time this entity slot is reused, the lerp
+			// will need to be reset. Not on the QW path: there this runs for
+			// every packet entity each time a packet arrives (msgtime is the
+			// last packet's) and CL_LinkPacketEntities links it again, so it
+			// would reset every lerp; that path resets its own.
+			if ( usePacketEntities === false )
+				ent.lerpflags |= LERP_RESETMOVE | LERP_RESETANIM;
 			continue;
 
 		}
@@ -1151,10 +1218,16 @@ export function CL_RelinkEntities() {
 
 					f = 1; // assume a teleportation, not a motion
 					teleported = true;
+					ent.lerpflags |= LERP_RESETMOVE; //johnfitz -- don't lerp teleports
 
 				}
 
 			}
+
+			//johnfitz -- don't cl_lerp entities that will be r_lerped
+			if ( r_lerpmove.value !== 0 && ( ent.lerpflags & LERP_MOVESTEP ) !== 0 )
+				f = 1;
+			//johnfitz
 
 			// interpolate the origin and angles
 			for ( let j = 0; j < 3; j ++ ) {
@@ -1190,6 +1263,10 @@ export function CL_RelinkEntities() {
 			dl.radius = 200 + ( Math.random() * 32 | 0 );
 			dl.minlight = 32;
 			dl.die = cl.time + 0.1;
+
+			//johnfitz -- assume muzzle flash accompanied by muzzle flare, which looks bad when lerped
+			if ( r_lerpmodels.value !== 2 )
+				CL_NoLerpMuzzleFlash( i );
 
 		}
 

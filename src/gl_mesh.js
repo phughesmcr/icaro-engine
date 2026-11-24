@@ -6,6 +6,10 @@ import { cl } from './client.js';
 import { R_GetPlayerSkinTexture } from './gl_rmisc.js';
 import { gl_nocolors, gl_doubleeyes, GL_RegisterCullMaterial } from './glquake.js';
 import { r_avertexnormals } from './anorm_dots.js';
+import { VectorCopy, VectorCompare } from './mathlib.js';
+import { r_lerpmodels, r_lerpmove, r_nolerp_list,
+	LERP_MOVESTEP, LERP_RESETANIM, LERP_RESETANIM2, LERP_RESETMOVE, LERP_FINISH } from './render.js';
+import { MOD_NOLERP, Mod_SetExtraFlags } from './gl_model.js';
 
 /*
 =================================================================
@@ -579,50 +583,215 @@ export function GL_ClearAliasCache() {
 
 /*
 =================
-R_SetupAliasFrame
+lerpdata_t
 
-Determine which pose to render for the given entity and alias model header.
+FitzQuake/QuakeSpasm (r_alias.c): what R_SetupAliasFrame and
+R_SetupEntityTransform work out for one draw of one entity.
 =================
 */
-function R_SetupAliasFrame( entity, paliashdr ) {
+export class lerpdata_t {
 
-	let posenum = 0;
-	if ( entity && entity.frame !== undefined ) {
+	constructor() {
 
-		let frame = entity.frame;
-		if ( frame >= paliashdr.numframes || frame < 0 ) {
-
-			Con_DPrintf( 'R_AliasSetupFrame: no such frame ' + frame + '\n' );
-			frame = 0;
-
-		}
-
-		if ( paliashdr.frames && paliashdr.frames[ frame ] ) {
-
-			const frameInfo = paliashdr.frames[ frame ];
-			posenum = frameInfo.firstpose;
-			const numposes = frameInfo.numposes;
-
-			if ( numposes > 1 ) {
-
-				const interval = frameInfo.interval;
-				const time = cl ? cl.time : 0;
-				posenum += ( ( time / interval ) | 0 ) % numposes;
-
-			}
-
-		} else {
-
-			posenum = frame;
-
-		}
-
-		if ( posenum >= paliashdr.numposes )
-			posenum = 0;
+		this.pose1 = 0;
+		this.pose2 = 0;
+		this.blend = 0;
+		this.origin = new Float32Array( 3 );
+		this.angles = new Float32Array( 3 );
 
 	}
 
-	return posenum;
+}
+
+// The lerpdata of the entity R_DrawAliasModel drew last; gl_rmain.js hands
+// it to GL_DrawAliasShadow for the same entity (QS passes it on the stack).
+export const alias_lerpdata = new lerpdata_t();
+
+function CLAMP( min, x, max ) {
+
+	return x < min ? min : ( x > max ? max : x );
+
+}
+
+/*
+=================
+R_SetupAliasFrame -- johnfitz -- rewritten to support lerping
+
+Ported from: QuakeSpasm r_alias.c. Deliberate deviation for r_lerpmodels
+(id's R_SetupAliasFrame picks one pose and draws it): blend from the
+previous pose to the new one over the frame's interval, 0.1 s for a
+single-pose frame. With r_lerpmodels 0, pose1 = pose2 = id's pose.
+QS takes currententity; this takes the entity as its first argument.
+=================
+*/
+export function R_SetupAliasFrame( e, paliashdr, frame, lerpdata ) {
+
+	const time = cl != null ? cl.time : 0;
+
+	if ( frame >= paliashdr.numframes || frame < 0 ) {
+
+		Con_DPrintf( 'R_AliasSetupFrame: no such frame ' + frame + ' for \'' + ( e.model != null ? e.model.name : '' ) + '\'\n' );
+		frame = 0;
+
+	}
+
+	let posenum;
+	let numposes;
+	const frameInfo = paliashdr.frames != null ? paliashdr.frames[ frame ] : undefined;
+	if ( frameInfo != null ) {
+
+		posenum = frameInfo.firstpose;
+		numposes = frameInfo.numposes;
+
+	} else {
+
+		posenum = frame;
+		numposes = 1;
+
+	}
+
+	if ( numposes > 1 ) {
+
+		e.lerptime = frameInfo.interval;
+		posenum += ( ( time / e.lerptime ) | 0 ) % numposes;
+
+	} else
+		e.lerptime = 0.1;
+
+	if ( posenum >= paliashdr.numposes )
+		posenum = 0;
+
+	// Not in QS: something that sets e.model directly (view.js, cl_tent.js)
+	// doesn't set LERP_RESETANIM, and the stored poses would index the old
+	// model. Don't lerp across a model change, as QS's model-change sites do.
+	if ( e._lerphdr !== paliashdr ) {
+
+		e._lerphdr = paliashdr;
+		e.lerpflags |= LERP_RESETANIM;
+
+	}
+
+	if ( ( e.lerpflags & LERP_RESETANIM ) !== 0 ) {
+
+		//kill any lerp in progress
+		e.lerpstart = 0;
+		e.previouspose = posenum;
+		e.currentpose = posenum;
+		e.lerpflags &= ~ LERP_RESETANIM;
+
+	} else if ( e.currentpose !== posenum ) {
+
+		// pose changed, start new lerp
+		if ( ( e.lerpflags & LERP_RESETANIM2 ) !== 0 ) {
+
+			//defer lerping one more time
+			e.lerpstart = 0;
+			e.previouspose = posenum;
+			e.currentpose = posenum;
+			e.lerpflags &= ~ LERP_RESETANIM2;
+
+		} else {
+
+			e.lerpstart = time;
+			e.previouspose = e.currentpose;
+			e.currentpose = posenum;
+
+		}
+
+	}
+
+	// QS sets MOD_NOLERP from a cvar callback when r_nolerp_list changes
+	if ( e.model.extraflags_list !== r_nolerp_list.string )
+		Mod_SetExtraFlags( e.model );
+
+	//set up values
+	if ( r_lerpmodels.value !== 0 && ! ( ( e.model.flags & MOD_NOLERP ) !== 0 && r_lerpmodels.value !== 2 ) ) {
+
+		if ( ( e.lerpflags & LERP_FINISH ) !== 0 && numposes === 1 )
+			lerpdata.blend = CLAMP( 0.0, ( time - e.lerpstart ) / ( e.lerpfinish - e.lerpstart ), 1.0 );
+		else
+			lerpdata.blend = CLAMP( 0.0, ( time - e.lerpstart ) / e.lerptime, 1.0 );
+		if ( lerpdata.blend === 1.0 )
+			e.previouspose = e.currentpose;
+		lerpdata.pose1 = e.previouspose;
+		lerpdata.pose2 = e.currentpose;
+
+	} else {
+
+		//don't lerp
+		lerpdata.blend = 1;
+		lerpdata.pose1 = posenum;
+		lerpdata.pose2 = posenum;
+
+	}
+
+}
+
+/*
+=================
+R_SetupEntityTransform -- johnfitz -- set up transform part of lerpdata
+
+Ported from: QuakeSpasm r_alias.c. Deliberate deviation for r_lerpmove:
+a MOVETYPE_STEP entity (LERP_MOVESTEP) slides from its last position to
+the new one over 0.1 s instead of jumping at each think. The client
+receives no lerpfinish (no U_LERPFINISH), so LERP_FINISH is never set
+and QS's 0.1 s fallback applies.
+=================
+*/
+export function R_SetupEntityTransform( e, lerpdata ) {
+
+	// if LERP_RESETMOVE, kill any lerps in progress
+	if ( ( e.lerpflags & LERP_RESETMOVE ) !== 0 ) {
+
+		e.movelerpstart = 0;
+		VectorCopy( e.origin, e.previousorigin );
+		VectorCopy( e.origin, e.currentorigin );
+		VectorCopy( e.angles, e.previousangles );
+		VectorCopy( e.angles, e.currentangles );
+		e.lerpflags &= ~ LERP_RESETMOVE;
+
+	} else if ( ! VectorCompare( e.origin, e.currentorigin ) || ! VectorCompare( e.angles, e.currentangles ) ) {
+
+		// origin/angles changed, start new lerp
+		e.movelerpstart = cl != null ? cl.time : 0;
+		VectorCopy( e.currentorigin, e.previousorigin );
+		VectorCopy( e.origin, e.currentorigin );
+		VectorCopy( e.currentangles, e.previousangles );
+		VectorCopy( e.angles, e.currentangles );
+
+	}
+
+	//set up values
+	if ( r_lerpmove.value !== 0 && ( cl == null || e !== cl.viewent ) && ( e.lerpflags & LERP_MOVESTEP ) !== 0 ) {
+
+		const time = cl != null ? cl.time : 0;
+		let blend;
+		if ( ( e.lerpflags & LERP_FINISH ) !== 0 )
+			blend = CLAMP( 0.0, ( time - e.movelerpstart ) / ( e.lerpfinish - e.movelerpstart ), 1.0 );
+		else
+			blend = CLAMP( 0.0, ( time - e.movelerpstart ) / 0.1, 1.0 );
+
+		//translation
+		for ( let i = 0; i < 3; i ++ )
+			lerpdata.origin[ i ] = e.previousorigin[ i ] + ( e.currentorigin[ i ] - e.previousorigin[ i ] ) * blend;
+
+		//rotation
+		for ( let i = 0; i < 3; i ++ ) {
+
+			let d = e.currentangles[ i ] - e.previousangles[ i ];
+			if ( d > 180 ) d -= 360;
+			if ( d < - 180 ) d += 360;
+			lerpdata.angles[ i ] = e.previousangles[ i ] + d * blend;
+
+		}
+
+	} else {
+
+		//don't lerp
+		VectorCopy( e.origin, lerpdata.origin );
+		VectorCopy( e.angles, lerpdata.angles );
+
+	}
 
 }
 
@@ -710,6 +879,63 @@ function R_GetAliasMaterial( paliashdr, entity, hasLighting, playerSkinTexture )
 
 }
 
+/*
+=================
+R_GetAliasLerpMaterial
+
+Not in the C. For r_lerpmodels, GL_DrawAliasFrame (QS r_alias.c) blends
+two poses per vertex; here the vertex shader does it: the geometry carries
+the previous pose as a second attribute, pose1, next to position (pose2),
+and a uniform holds the blend. Three uploads a material's uniforms only
+when the material changes between draws, so two entities sharing one
+cached material would draw with one blend: each entity gets its own
+material, kept in step with the cached one R_GetAliasMaterial picked.
+With r_lerpmodels 0 the cached materials are used, as before.
+=================
+*/
+function _aliasLerpCompile( shader ) {
+
+	// `this` is the material (WebGLRenderer calls material.onBeforeCompile)
+	shader.uniforms.r_lerpblend = this._lerpblend;
+	shader.vertexShader = 'attribute vec3 pose1;\nuniform float r_lerpblend;\n' +
+		shader.vertexShader.replace( '#include <begin_vertex>',
+			'#include <begin_vertex>\n\ttransformed = mix( pose1, position, r_lerpblend );' );
+
+}
+
+function R_GetAliasLerpMaterial( entity, base, blend ) {
+
+	let material = entity._aliasLerpMaterial;
+	if ( material == null ) {
+
+		material = GL_RegisterCullMaterial( new THREE.MeshBasicMaterial() );
+		material._lerpblend = { value: 1 };
+		material._lerpbase = null;
+		// one shared function, so every lerp material shares one program
+		// (Three keys custom programs by onBeforeCompile's source)
+		material.onBeforeCompile = _aliasLerpCompile;
+		entity._aliasLerpMaterial = material;
+
+	}
+
+	if ( material._lerpbase !== base ) {
+
+		// map on/off and vertexColors are compiled into the program
+		if ( ( material.map === null ) !== ( base.map === null ) ||
+			material.vertexColors !== base.vertexColors )
+			material.needsUpdate = true;
+		material.map = base.map;
+		material.color.copy( base.color );
+		material.vertexColors = base.vertexColors;
+		material._lerpbase = base;
+
+	}
+
+	material._lerpblend.value = blend;
+	return material;
+
+}
+
 // Reusable matrix objects for R_DrawAliasModel transform computation
 const _aliasMat = new THREE.Matrix4();
 const _aliasRZ = new THREE.Matrix4();
@@ -751,12 +977,20 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 	if ( ! paliashdr || ! paliashdr.posedata )
 		return null;
 
-	const posenum = R_SetupAliasFrame( entity, paliashdr );
+	const lerpdata = alias_lerpdata;
+	R_SetupAliasFrame( entity, paliashdr, entity.frame, lerpdata );
+	R_SetupEntityTransform( entity, lerpdata );
+	const posenum = lerpdata.pose2;
+	const pose1 = lerpdata.pose1;
 	const hasLighting = shadedots && shadelight !== undefined;
 
 	// Get cached template (shared positions/normals/uvs/indices per model+pose)
 	const template = GL_DrawAliasFrame( paliashdr, posenum );
 	if ( ! template )
+		return null;
+	// the pose r_lerpmodels blends from; the same template when not lerping
+	const template1 = pose1 === posenum ? template : GL_DrawAliasFrame( paliashdr, pose1 );
+	if ( ! template1 )
 		return null;
 
 	// Build or update per-entity geometry (shares template attributes, owns color buffer)
@@ -772,10 +1006,11 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 	}
 
 	// When pose or model changes, swap to the new template's shared attributes
-	if ( entity._aliasPosenum !== posenum || entity._aliasPaliashdr !== paliashdr ) {
+	if ( entity._aliasPosenum !== posenum || entity._aliasPose1 !== pose1 || entity._aliasPaliashdr !== paliashdr ) {
 
 		// Cull by a sphere that holds every pose (GL_AliasCullSphere), not
-		// the one Three would compute from whichever pose came first.
+		// the one Three would compute from whichever pose came first. A
+		// blend of two poses stays inside it too.
 		if ( entity._aliasPaliashdr !== paliashdr && paliashdr._cullCenter !== undefined ) {
 
 			if ( geometry.boundingSphere === null )
@@ -787,6 +1022,8 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 		}
 
 		geometry.setAttribute( 'position', template.posAttr );
+		// r_lerpmodels: the previous pose, read only by the lerp material
+		geometry.setAttribute( 'pose1', template1.posAttr );
 		geometry.setAttribute( 'normal', template.normalAttr );
 		geometry.setAttribute( 'uv', template.uvAttr );
 		geometry.setIndex( template.indices );
@@ -800,6 +1037,7 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 		}
 
 		entity._aliasPosenum = posenum;
+		entity._aliasPose1 = pose1;
 		entity._aliasPaliashdr = paliashdr;
 
 	}
@@ -809,14 +1047,33 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 
 		const colorArr = entity._aliasColorArray;
 		const lni = template.lightnormalindices;
-		for ( let i = 0; i < template.vertexCount; i ++ ) {
+		if ( template1 === template || lerpdata.blend >= 1 ) {
 
-			// glColor3f clamps to [0, 1], and GL modulates in display space;
-			// Three multiplies vertex colours in linear space, so decode.
-			const l = GL_LinearLight( shadedots[ lni[ i ] ] * shadelight );
-			colorArr[ i * 3 ] = l;
-			colorArr[ i * 3 + 1 ] = l;
-			colorArr[ i * 3 + 2 ] = l;
+			for ( let i = 0; i < template.vertexCount; i ++ ) {
+
+				// glColor3f clamps to [0, 1], and GL modulates in display space;
+				// Three multiplies vertex colours in linear space, so decode.
+				const l = GL_LinearLight( shadedots[ lni[ i ] ] * shadelight );
+				colorArr[ i * 3 ] = l;
+				colorArr[ i * 3 + 1 ] = l;
+				colorArr[ i * 3 + 2 ] = l;
+
+			}
+
+		} else {
+
+			// QS r_alias.c GL_DrawAliasFrame: lerp the shading of the two poses
+			const lni1 = template1.lightnormalindices;
+			const blend = lerpdata.blend;
+			const iblend = 1.0 - blend;
+			for ( let i = 0; i < template.vertexCount; i ++ ) {
+
+				const l = GL_LinearLight( ( shadedots[ lni1[ i ] ] * iblend + shadedots[ lni[ i ] ] * blend ) * shadelight );
+				colorArr[ i * 3 ] = l;
+				colorArr[ i * 3 + 1 ] = l;
+				colorArr[ i * 3 + 2 ] = l;
+
+			}
 
 		}
 
@@ -839,7 +1096,9 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 	}
 
 	// Get cached material
-	const material = R_GetAliasMaterial( paliashdr, entity, hasLighting, playerSkinTexture );
+	let material = R_GetAliasMaterial( paliashdr, entity, hasLighting, playerSkinTexture );
+	if ( r_lerpmodels.value !== 0 )
+		material = R_GetAliasLerpMaterial( entity, material, lerpdata.blend );
 
 	// Get or create mesh for this entity
 	let mesh = entity ? entity._aliasMesh : null;
@@ -859,21 +1118,18 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 	// Apply entity transform — R_RotateForEntity equivalent
 	if ( entity ) {
 
-		if ( entity.origin ) {
+		// QS R_DrawAliasModel: R_RotateForEntity( lerpdata.origin, lerpdata.angles )
+		mesh.position.set(
+			lerpdata.origin[ 0 ],
+			lerpdata.origin[ 1 ],
+			lerpdata.origin[ 2 ]
+		);
 
-			mesh.position.set(
-				entity.origin[ 0 ],
-				entity.origin[ 1 ],
-				entity.origin[ 2 ]
-			);
+		{
 
-		}
-
-		if ( entity.angles ) {
-
-			const yaw = entity.angles[ 1 ] * _DEG2RAD;
-			const pitch = - entity.angles[ 0 ] * _DEG2RAD;
-			const roll = entity.angles[ 2 ] * _DEG2RAD;
+			const yaw = lerpdata.angles[ 1 ] * _DEG2RAD;
+			const pitch = - lerpdata.angles[ 0 ] * _DEG2RAD;
+			const roll = lerpdata.angles[ 2 ] * _DEG2RAD;
 
 			_aliasMat.identity();
 			_aliasRZ.makeRotationZ( yaw );
@@ -946,12 +1202,17 @@ const _shadowRZ = new THREE.Matrix4();
 const _shadowRY = new THREE.Matrix4();
 const _shadowRX = new THREE.Matrix4();
 
-export function GL_DrawAliasShadow( entity, paliashdr, posenum, lightspot, shadevector ) {
+// lerpdata is what R_DrawAliasModel worked out for this entity this frame
+// (alias_lerpdata): QS r_alias.c GL_DrawAliasShadow lerps the pose and the
+// transform as the model does.
+export function GL_DrawAliasShadow( entity, paliashdr, lerpdata, lightspot, shadevector ) {
 
 	if ( paliashdr == null || paliashdr.posedata == null ) return null;
 
-	const template = GL_DrawAliasFrame( paliashdr, posenum );
+	const template = GL_DrawAliasFrame( paliashdr, lerpdata.pose2 );
 	if ( template == null ) return null;
+	const template1 = lerpdata.pose1 === lerpdata.pose2 ? template : GL_DrawAliasFrame( paliashdr, lerpdata.pose1 );
+	if ( template1 == null ) return null;
 
 	const lheight = entity.origin[ 2 ] - lightspot[ 2 ];
 	const height = - lheight + 1.0;
@@ -974,11 +1235,14 @@ export function GL_DrawAliasShadow( entity, paliashdr, posenum, lightspot, shade
 
 	// Project vertices onto ground plane (same as C code)
 	const srcPos = template.posAttr.array;
+	const srcPos1 = template1.posAttr.array;
+	const blend = lerpdata.blend;
 	for ( let i = 0; i < template.vertexCount; i ++ ) {
 
-		const px = srcPos[ i * 3 ];
-		const py = srcPos[ i * 3 + 1 ];
-		const pz = srcPos[ i * 3 + 2 ];
+		// pose1 + ( pose2 - pose1 ) * blend; pose2 itself when not lerping
+		const px = srcPos1[ i * 3 ] + ( srcPos[ i * 3 ] - srcPos1[ i * 3 ] ) * blend;
+		const py = srcPos1[ i * 3 + 1 ] + ( srcPos[ i * 3 + 1 ] - srcPos1[ i * 3 + 1 ] ) * blend;
+		const pz = srcPos1[ i * 3 + 2 ] + ( srcPos[ i * 3 + 2 ] - srcPos1[ i * 3 + 2 ] ) * blend;
 
 		shadowPosArray[ i * 3 ] = px - shadevector[ 0 ] * ( pz + lheight );
 		shadowPosArray[ i * 3 + 1 ] = py - shadevector[ 1 ] * ( pz + lheight );
@@ -1005,21 +1269,17 @@ export function GL_DrawAliasShadow( entity, paliashdr, posenum, lightspot, shade
 	}
 
 	// Apply same transform as entity (R_RotateForEntity equivalent)
-	if ( entity.origin != null ) {
+	shadowMesh.position.set(
+		lerpdata.origin[ 0 ],
+		lerpdata.origin[ 1 ],
+		lerpdata.origin[ 2 ]
+	);
 
-		shadowMesh.position.set(
-			entity.origin[ 0 ],
-			entity.origin[ 1 ],
-			entity.origin[ 2 ]
-		);
+	{
 
-	}
-
-	if ( entity.angles != null ) {
-
-		const yaw = entity.angles[ 1 ] * _DEG2RAD;
-		const pitch = - entity.angles[ 0 ] * _DEG2RAD;
-		const roll = entity.angles[ 2 ] * _DEG2RAD;
+		const yaw = lerpdata.angles[ 1 ] * _DEG2RAD;
+		const pitch = - lerpdata.angles[ 0 ] * _DEG2RAD;
+		const roll = lerpdata.angles[ 2 ] * _DEG2RAD;
 
 		_shadowMat.identity();
 		_shadowRZ.makeRotationZ( yaw );

@@ -194,6 +194,21 @@ export class entity_t {
 
 		this._lastPESeq = 0; // last server sequence this entity was updated from packet entities (for interpolation)
 
+		// johnfitz -- lerping (FitzQuake/QuakeSpasm render.h; see LERP_*).
+		// A new entity starts with nothing to lerp from.
+		this.lerpflags = 8 | 2; // LERP_RESETMOVE | LERP_RESETANIM (render.js; not imported: cycle)
+		this.lerpstart = 0; // animation lerping
+		this.lerptime = 0; // animation lerping
+		this.lerpfinish = 0; // lerping -- server sent us a more accurate interval, use it instead of 0.1
+		this.previouspose = 0; // animation lerping
+		this.currentpose = 0; // animation lerping
+		this.movelerpstart = 0; // transform lerping
+		this.previousorigin = new Float32Array( 3 ); // transform lerping
+		this.currentorigin = new Float32Array( 3 ); // transform lerping
+		this.previousangles = new Float32Array( 3 ); // transform lerping
+		this.currentangles = new Float32Array( 3 ); // transform lerping
+		this._lerphdr = null; // aliashdr the poses above index (port-only guard)
+
 	}
 
 }

@@ -5,7 +5,8 @@ import * as THREE from 'three';
 import { Sys_FloatTime } from './sys.js';
 import { Con_Printf } from './common.js';
 import { vid, renderer, vid_renderscale } from './vid.js';
-import { r_refdef, r_origin, vpn, vright, vup, entity_t } from './render.js';
+import { r_refdef, r_origin, vpn, vright, vup, entity_t, r_lerpmodels, r_lerpmove, r_nolerp_list } from './render.js';
+import { Cvar_RegisterVariable } from './cvar.js';
 import {
 	M_PI, DotProduct, VectorCopy, VectorAdd, VectorSubtract,
 	AngleVectors, Length, RotatePointAroundVector, BoxOnPlaneSide
@@ -14,7 +15,7 @@ import { R_DrawWorld as R_DrawWorld_impl, R_MarkLeaves as R_MarkLeaves_impl, GL_
 import { R_MirrorGate, R_MirrorPass, R_MirrorCleanup } from './gl_rmirror.js';
 import { Mod_PointInLeaf, SPR_SINGLE, SPR_ORIENTED } from './gl_model.js';
 import { R_AnimateLight as R_AnimateLight_impl, R_RenderDlights as R_RenderDlights_impl, R_LightPoint, lightspot } from './gl_rlight.js';
-import { R_DrawAliasModel as R_DrawAliasModel_mesh, GL_DrawAliasShadow } from './gl_mesh.js';
+import { R_DrawAliasModel as R_DrawAliasModel_mesh, GL_DrawAliasShadow, alias_lerpdata } from './gl_mesh.js';
 import { r_avertexnormal_dots } from './anorm_dots.js';
 import { V_SetContentsColor as V_SetContentsColor_view, V_CalcBlend as V_CalcBlend_view } from './view.js';
 import { chase_active } from './chase.js';
@@ -684,15 +685,26 @@ export function R_DrawViewModel() {
 
 		// Non-XR: apply depthRange hack so weapon renders on top of world
 		const baseMaterial = mesh.material;
-		if ( currententity._viewmodelMaterial == null || currententity._viewmodelMaterialBase !== baseMaterial ) {
+		if ( baseMaterial === currententity._aliasLerpMaterial ) {
 
-			currententity._viewmodelMaterial = baseMaterial.clone();
-			currententity._viewmodelMaterial.transparent = true;
-			currententity._viewmodelMaterialBase = baseMaterial;
+			// r_lerpmodels: the gun's own lerp material (gl_mesh.js), not
+			// shared, so mark it directly. A clone would lose its
+			// onBeforeCompile and the blend.
+			baseMaterial.transparent = true;
+
+		} else {
+
+			if ( currententity._viewmodelMaterial == null || currententity._viewmodelMaterialBase !== baseMaterial ) {
+
+				currententity._viewmodelMaterial = baseMaterial.clone();
+				currententity._viewmodelMaterial.transparent = true;
+				currententity._viewmodelMaterialBase = baseMaterial;
+
+			}
+
+			mesh.material = currententity._viewmodelMaterial;
 
 		}
-
-		mesh.material = currententity._viewmodelMaterial;
 		mesh.renderOrder = 999;
 
 		mesh.onBeforeRender = _viewmodelBeforeRender;
@@ -746,9 +758,10 @@ function _clearEntityMeshCache( entity, geometries, materials ) {
 	const shadowGeometry = entity._aliasShadowGeo;
 	const viewmodelMaterial = entity._viewmodelMaterial;
 	const playerMaterial = entity._playerMaterial;
+	const lerpMaterial = entity._aliasLerpMaterial;
 	if ( spriteMesh == null && aliasMesh == null && shadowMesh == null &&
 		aliasGeometry == null && shadowGeometry == null &&
-		viewmodelMaterial == null && playerMaterial == null ) return;
+		viewmodelMaterial == null && playerMaterial == null && lerpMaterial == null ) return;
 
 	_detachEntityMesh( spriteMesh );
 	_detachEntityMesh( aliasMesh );
@@ -759,6 +772,7 @@ function _clearEntityMeshCache( entity, geometries, materials ) {
 	_disposeEntityGeometry( shadowGeometry, geometries );
 	_disposeEntityMaterial( viewmodelMaterial, materials );
 	_disposeEntityMaterial( playerMaterial, materials );
+	_disposeEntityMaterial( lerpMaterial, materials );
 
 	entity._spriteMesh = null;
 	entity._aliasMesh = null;
@@ -766,6 +780,7 @@ function _clearEntityMeshCache( entity, geometries, materials ) {
 	entity._aliasColorArray = null;
 	entity._aliasPaliashdr = null;
 	entity._aliasPosenum = undefined;
+	entity._aliasPose1 = undefined;
 	entity._aliasShadowMesh = null;
 	entity._aliasShadowGeo = null;
 	entity._aliasShadowPosArray = null;
@@ -774,6 +789,7 @@ function _clearEntityMeshCache( entity, geometries, materials ) {
 	entity._viewmodelMaterialBase = null;
 	entity._playerMaterial = null;
 	entity._playerSkinTexture = null;
+	entity._aliasLerpMaterial = null;
 
 }
 
@@ -931,7 +947,7 @@ function R_DrawAliasModel( e ) {
 	// Draw shadow (Ported from WinQuake/gl_rmain.c:579-591)
 	if ( r_shadows.value !== 0 && e !== cl.viewent && mesh != null && scene != null ) {
 
-		const shadowMesh = GL_DrawAliasShadow( e, paliashdr, e._aliasPosenum || 0, lightspot, _shadevector );
+		const shadowMesh = GL_DrawAliasShadow( e, paliashdr, alias_lerpdata, lightspot, _shadevector );
 		if ( shadowMesh != null ) {
 
 			shadowMesh._quakeOwner = e;
@@ -1399,6 +1415,11 @@ export function R_Init() {
 
 	// Initialize r_worldentity here (deferred from module scope to avoid circular dep crash)
 	r_worldentity = new entity_t();
+
+	// johnfitz -- lerping; QS registers these in gl_rmisc.c R_Init
+	Cvar_RegisterVariable( r_lerpmodels );
+	Cvar_RegisterVariable( r_lerpmove );
+	Cvar_RegisterVariable( r_nolerp_list );
 
 	// create the Three.js scene
 	scene = new THREE.Scene();

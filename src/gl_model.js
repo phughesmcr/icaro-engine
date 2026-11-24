@@ -11,6 +11,7 @@ import { d_8to24table, vid } from './vid.js';
 import { COM_LoadFile } from './pak.js';
 import { DotProduct, VectorCopy, Length } from './mathlib.js';
 import { Cvar_RegisterVariable } from './cvar.js';
+import { r_nolerp_list } from './render.js';
 import { MAX_DLIGHTS } from './client.js';
 import { R_InitSky as R_InitSky_warp, GL_SubdivideSurface as GL_SubdivideSurface_warp, GL_Warp_SetLoadmodel } from './gl_warp.js';
 import { GL_MakeAliasModelDisplayLists as GL_MakeAliasModelDisplayLists_mesh } from './gl_mesh.js';
@@ -133,6 +134,10 @@ export const EF_TRACER = 16;		// green split trail
 export const EF_ZOMGIB = 32;		// small blood trail
 export const EF_TRACER2 = 64;		// orange split trail + rotate
 export const EF_TRACER3 = 128;		// purple trail
+
+// Deliberate deviation, from FitzQuake/QuakeSpasm (gl_model.h): flags that
+// aren't in the mdl, set by Mod_SetExtraFlags.
+export const MOD_NOLERP = 256;		// don't lerp when animating
 
 // ============================================================================
 // Alias model limits
@@ -555,6 +560,7 @@ export class model_t {
 		this.synctype = 0;
 
 		this.flags = 0;
+		this.extraflags_list = null;	// r_nolerp_list the MOD_ flags were built from (Mod_SetExtraFlags)
 
 		// volume occupied by the model graphics
 		this.mins = new Float32Array( 3 );
@@ -2949,6 +2955,65 @@ function Mod_LoadAliasModel( mod, buffer ) {
 	// move the complete, relocatable alias model to the cache
 	//
 	mod.cache.data = pheader;
+
+	Mod_SetExtraFlags( mod ); //johnfitz
+
+}
+
+/*
+=================
+nameInList
+
+Ported from: QuakeSpasm gl_model.c. Is name one of the comma-separated
+entries in list?
+=================
+*/
+export function nameInList( list, name ) {
+
+	let s = 0;
+	while ( s < list.length ) {
+
+		// make a copy until the next comma or end of string
+		let e = list.indexOf( ',', s );
+		if ( e === - 1 )
+			e = list.length;
+		//compare it to the model name
+		if ( e - s === name.length && list.startsWith( name, s ) )
+			return true;
+		//search forwards to the next comma or end of string
+		s = e;
+		while ( s < list.length && list.charCodeAt( s ) === 44 ) // ','
+			s ++;
+
+	}
+
+	return false;
+
+}
+
+/*
+=================
+Mod_SetExtraFlags -- johnfitz -- set up extra flags that aren't in the mdl
+
+Ported from: QuakeSpasm gl_model.c (only MOD_NOLERP: r_noshadow_list and
+the fullbright hack are not ported). QS reruns it from a cvar callback when
+r_nolerp_list changes; this port's cvars have no callbacks, so gl_mesh.js
+R_SetupAliasFrame reruns it when the list string differs from the one the
+flags were built from.
+=================
+*/
+export function Mod_SetExtraFlags( mod ) {
+
+	if ( mod == null || mod.type !== mod_alias )
+		return;
+
+	mod.flags &= ~ MOD_NOLERP; // QS keeps the mdl's first byte (plus MF_HOLEY)
+
+	// nolerp flag
+	if ( nameInList( r_nolerp_list.string, mod.name ) )
+		mod.flags |= MOD_NOLERP;
+
+	mod.extraflags_list = r_nolerp_list.string;
 
 }
 
