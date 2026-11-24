@@ -23,6 +23,34 @@ export const MAXCLIPPLANES = 11;
 export const TOP_RANGE = 16; // soldier uniform colors
 export const BOTTOM_RANGE = 96;
 
+// Deliberate deviation, from FitzQuake/QuakeSpasm (render.h): entity_t
+// lerpflags for r_lerpmodels and r_lerpmove. id draws each animation frame
+// and each MOVETYPE_STEP position as it arrives.
+export const LERP_MOVESTEP = ( 1 << 0 ); // this is a MOVETYPE_STEP entity, enable movement lerp
+export const LERP_RESETANIM = ( 1 << 1 ); // disable anim lerping until next anim frame
+export const LERP_RESETANIM2 = ( 1 << 2 ); // set this and previous flag to disable anim lerping for two anim frames
+export const LERP_RESETMOVE = ( 1 << 3 ); // disable movement lerping until next origin/angles change
+export const LERP_FINISH = ( 1 << 4 ); // use lerpfinish time from server update instead of assuming interval of 0.1
+
+// Deliberate deviation, from QuakeSpasm/Ironwail (gl_rmain.c): not in id's
+// Quake. Plain objects, as glquake.js's cvars are, so importers in an import
+// cycle never meet a class in its TDZ; gl_rmain.js R_Init registers them.
+// QS and Ironwail default r_lerpmodels and r_lerpmove to 1 (Ironwail
+// archives them); here they default to 0, so the game looks as id's does
+// until a player turns them on.
+//   r_lerpmodels 1: blend alias-model animation frames, except models in
+//                   r_nolerp_list; 2: blend those too, and don't stop for
+//                   muzzle flashes.
+//   r_lerpmove 1:   blend MOVETYPE_STEP entities (monsters) between the
+//                   positions the server sends every think (0.1 s).
+export const r_lerpmodels = { name: 'r_lerpmodels', string: '0', value: 0, archive: true };
+export const r_lerpmove = { name: 'r_lerpmove', string: '0', value: 0, archive: true };
+export const r_nolerp_list = {
+	name: 'r_nolerp_list',
+	string: 'progs/flame.mdl,progs/flame2.mdl,progs/braztall.mdl,progs/brazshrt.mdl,progs/longtrch.mdl,progs/flame_pyre.mdl,progs/v_saw.mdl,progs/v_xfist.mdl,progs/h2stuff/newfire.mdl',
+	value: 0
+};
+
 //============================================================================
 // efrag_t -- entity fragment for BSP leaf association
 //============================================================================
@@ -81,6 +109,21 @@ export class entity_t {
 		this.trivial_accept = 0;
 		this.topnode = null; // mnode_t -- for bmodels, first world node
 		                     // that splits bmodel, or NULL if not split
+
+		// johnfitz -- lerping (FitzQuake/QuakeSpasm render.h; see LERP_*).
+		// A new entity starts with nothing to lerp from.
+		this.lerpflags = LERP_RESETMOVE | LERP_RESETANIM;
+		this.lerpstart = 0; // animation lerping
+		this.lerptime = 0; // animation lerping
+		this.lerpfinish = 0; // lerping -- server sent us a more accurate interval, use it instead of 0.1
+		this.previouspose = 0; // animation lerping
+		this.currentpose = 0; // animation lerping
+		this.movelerpstart = 0; // transform lerping
+		this.previousorigin = new Float32Array( 3 ); // transform lerping
+		this.currentorigin = new Float32Array( 3 ); // transform lerping
+		this.previousangles = new Float32Array( 3 ); // transform lerping
+		this.currentangles = new Float32Array( 3 ); // transform lerping
+		this._lerphdr = null; // aliashdr the poses above index (port-only guard)
 
 	}
 
