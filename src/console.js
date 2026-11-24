@@ -3,7 +3,8 @@
 import { Cmd_AddCommand } from './cmd.js';
 import { Cvar_RegisterVariable } from './cvar.js';
 import { key_dest, set_key_dest, key_game, key_console, key_message,
-	key_lines, edit_line, key_linepos, chat_buffer } from './keys.js';
+	key_lines, edit_line, key_linepos, set_key_linepos, chat_buffer,
+	set_team_message } from './keys.js';
 import { Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
 
 /*
@@ -108,6 +109,7 @@ export function Con_ToggleConsole_f() {
 			set_key_dest( key_game );
 
 			key_lines[ edit_line ][ 1 ] = 0; // clear any typing
+			set_key_linepos( 1 );
 
 		} else {
 
@@ -159,9 +161,10 @@ export function Con_ClearNotify() {
 Con_MessageMode_f
 ================
 */
-function Con_MessageMode_f() {
+export function Con_MessageMode_f() {
 
 	set_key_dest( key_message );
+	set_team_message( false );
 
 }
 
@@ -170,9 +173,10 @@ function Con_MessageMode_f() {
 Con_MessageMode2_f
 ================
 */
-function Con_MessageMode2_f() {
+export function Con_MessageMode2_f() {
 
 	set_key_dest( key_message );
+	set_team_message( true );
 
 }
 
@@ -556,11 +560,14 @@ export function Con_DrawNotify() {
 
 		if ( _Draw_Character ) {
 
-			for ( let x = 0; x < chat_buffer.length; x ++ ) {
+			let x = 0;
+			for ( ; x < chat_buffer.length; x ++ ) {
 
 				_Draw_Character( ( x + 5 ) << 3, v, chat_buffer.charCodeAt( x ) );
 
 			}
+
+			_Draw_Character( ( x + 5 ) << 3, v, 10 + ( Math.floor( realtime * con_cursorspeed ) & 1 ) );
 
 		}
 
@@ -645,7 +652,7 @@ export function Con_NotifyBox( text ) {
 */
 
 // sprintf implementation supporting width, precision, and flags for Quake format strings
-function _sprintf( fmt, ...args ) {
+export function _sprintf( fmt, ...args ) {
 
 	if ( typeof fmt !== 'string' ) return String( fmt );
 
@@ -723,8 +730,9 @@ function _sprintf( fmt, ...args ) {
 					case 'd':
 					case 'i': {
 
+						// C converts to int, which truncates toward zero
 						const val = args[ argIdx ++ ];
-						const num = Math.floor( Number( val ) );
+						const num = Math.trunc( Number( val ) );
 						const n = isNaN( num ) ? 0 : num;
 						str = String( Math.abs( n ) );
 						if ( n < 0 ) str = '-' + str;
@@ -742,6 +750,23 @@ function _sprintf( fmt, ...args ) {
 						str = n.toFixed( prec );
 						if ( plusSign && n >= 0 ) str = '+' + str;
 						else if ( spaceSign && n >= 0 ) str = ' ' + str;
+						break;
+
+					}
+					case 'u':
+					case 'x':
+					case 'X': {
+
+						// unsigned 32-bit, as the C int argument is reinterpreted
+						const val = args[ argIdx ++ ];
+						const num = Math.trunc( Number( val ) );
+						const n = isNaN( num ) ? 0 : ( num >>> 0 );
+						if ( fmt[ i ] === 'u' )
+							str = String( n );
+						else if ( fmt[ i ] === 'x' )
+							str = n.toString( 16 );
+						else
+							str = n.toString( 16 ).toUpperCase();
 						break;
 
 					}

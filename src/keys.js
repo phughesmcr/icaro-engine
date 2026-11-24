@@ -144,8 +144,27 @@ export let history_line = 0;
 
 export let key_dest = key_game;
 export function set_key_dest( v ) { key_dest = v; }
+export function set_key_linepos( v ) { key_linepos = v; }
 
 export let key_count = 0; // incremented every key event
+
+// SCR_ModalMessage spins on Sys_SendKeyEvents with key_count = -1 until
+// key_lastpress is 'y', 'n' or escape. A browser can't block, so the dialog
+// registers a callback here and Key_Event finishes the loop for it.
+let key_modal_callback = null;
+
+export function Key_BeginModal( callback ) {
+
+	key_modal_callback = callback;
+	key_count = - 1; // wait for a key down and up
+
+}
+
+export function Key_ModalActive() {
+
+	return key_modal_callback !== null;
+
+}
 
 export const keybindings = new Array( 256 ).fill( null );
 const consolekeys = new Array( 256 ).fill( false );
@@ -274,6 +293,7 @@ export function Key_SetExternals( externals ) {
 // Chat buffer
 export let chat_buffer = '';
 export let team_message = false;
+export function set_team_message( v ) { team_message = v; }
 
 /*
 ====================
@@ -786,6 +806,23 @@ export function Key_Event( key, down ) {
 	key_count ++;
 
 	if ( key_count <= 0 ) {
+
+		// SCR_ModalMessage's wait loop
+		if ( key_modal_callback !== null ) {
+
+			if ( key_lastpress === 121 || key_lastpress === 110 || key_lastpress === K_ESCAPE ) { // 'y', 'n'
+
+				const callback = key_modal_callback;
+				key_modal_callback = null;
+				callback( key_lastpress === 121 );
+
+			} else {
+
+				key_count = - 1;
+
+			}
+
+		}
 
 		return; // just catching keys for Con_NotifyBox
 

@@ -63,6 +63,7 @@ for ( let i = 0; i < 7; i ++ ) sb_weapons[ i ] = new Array( 8 ).fill( null );
 const sb_ammo = new Array( 4 ).fill( null );
 const sb_sigil = new Array( 4 ).fill( null );
 const sb_armor = new Array( 3 ).fill( null );
+let sb_disc = null; // draw_disc, which gl_draw.js keeps private
 const sb_items = new Array( 32 ).fill( null );
 
 const sb_faces = [];
@@ -238,6 +239,9 @@ export function Sbar_Init() {
 	sb_armor[ 1 ] = _Draw_PicFromWad( 'sb_armor2' );
 	sb_armor[ 2 ] = _Draw_PicFromWad( 'sb_armor3' );
 
+	// Draw_Init loads this as draw_disc; sbar.c draws it over the armour icon
+	sb_disc = _Draw_PicFromWad( 'disc' );
+
 	sb_items[ 0 ] = _Draw_PicFromWad( 'sb_key1' );
 	sb_items[ 1 ] = _Draw_PicFromWad( 'sb_key2' );
 	sb_items[ 2 ] = _Draw_PicFromWad( 'sb_invis' );
@@ -365,49 +369,26 @@ Sbar_DrawNum
 Draws a number with the large status bar font
 =============
 */
-function Sbar_DrawNum( x, y, num, digits, color ) {
+export function Sbar_DrawNum( x, y, num, digits, color ) {
 
-	const str = String( num );
+	// Sbar_itoa: integer to decimal, with a leading '-' for negatives
+	const str = String( Math.trunc( num ) );
+	const l = str.length;
 	let ptr = 0;
-	let l = str.length;
 
 	if ( l > digits )
-		l = digits;
+		ptr += ( l - digits ); // keep the rightmost digits
+	if ( l < digits )
+		x += ( digits - l ) * 24;
 
-	let frame;
-
-	if ( num < 0 ) {
-
-		// draw minus sign
-		frame = sb_nums[ color ] ? sb_nums[ color ][ STAT_MINUS ] : null;
-		Sbar_DrawPic( x - 24, y, frame );
-		ptr = 1; // skip the minus in string
-
-	}
-
-	x += ( digits - l ) * 24;
-
-	while ( ptr < str.length && l > 0 ) {
+	while ( ptr < l ) {
 
 		const c = str.charCodeAt( ptr );
-		if ( c >= 48 && c <= 57 ) { // '0' to '9'
+		const frame = ( c === 45 ) ? STAT_MINUS : c - 48; // '-' : '0'
 
-			frame = sb_nums[ color ] ? sb_nums[ color ][ c - 48 ] : null;
-
-		} else if ( c === 45 ) { // '-'
-
-			frame = sb_nums[ color ] ? sb_nums[ color ][ STAT_MINUS ] : null;
-
-		} else {
-
-			frame = null;
-
-		}
-
-		Sbar_DrawPic( x, y, frame );
+		Sbar_DrawPic( x, y, sb_nums[ color ] ? sb_nums[ color ][ frame ] : null );
 		x += 24;
 		ptr ++;
-		l --;
 
 	}
 
@@ -817,7 +798,7 @@ export function Sbar_Draw() {
 		if ( ( _cl.items & IT_INVULNERABILITY ) !== 0 ) {
 
 			Sbar_DrawNum( 24, 0, 666, 3, 1 );
-			// draw_disc would go here (invulnerability icon)
+			Sbar_DrawPic( 0, 0, sb_disc );
 
 		} else {
 
