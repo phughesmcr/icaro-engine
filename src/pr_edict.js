@@ -24,6 +24,7 @@ import {
 	PR_SetGlobalDefs, PR_SetFieldDefs, PR_SetStatements,
 	PR_SetGlobalStruct, PR_SetGlobals, PR_SetGlobalsFloat, PR_SetGlobalsInt,
 	PR_SetEdictSize, PR_SetCRC, PR_SetStringTempOfs, PR_AppendString,
+	PR_HostError, STRINGTEMP_BUFFERS, STRINGTEMP_LENGTH,
 	EdictFieldAccessor, edict_t,
 	PR_GetString,
 	EDICT_NUM, NUM_FOR_EDICT, EDICT_TO_PROG,
@@ -122,7 +123,7 @@ export function ED_Alloc() {
 	}
 
 	if ( i === MAX_EDICTS )
-		Sys_Error( 'ED_Alloc: no free edicts' );
+		PR_HostError( 'ED_Alloc: no free edicts' ); // id: Sys_Error; Ironwail's Host_Error (deliberate deviation)
 
 	sv.num_edicts ++;
 	e = EDICT_NUM( i );
@@ -690,17 +691,17 @@ export function ED_ParseGlobals( data ) {
 		if ( com_token === '}' )
 			break;
 		if ( data === null )
-			Sys_Error( 'ED_ParseEntity: EOF without closing brace' );
+			PR_HostError( 'ED_ParseEntity: EOF without closing brace' ); // id: Sys_Error; Ironwail's Host_Error (deliberate deviation)
 
 		const keyname = com_token;
 
 		// parse value
 		data = COM_Parse( data );
 		if ( data === null )
-			Sys_Error( 'ED_ParseEntity: EOF without closing brace' );
+			PR_HostError( 'ED_ParseEntity: EOF without closing brace' ); // id: Sys_Error; Ironwail's Host_Error (deliberate deviation)
 
 		if ( com_token === '}' )
-			Sys_Error( 'ED_ParseEntity: closing brace without data' );
+			PR_HostError( 'ED_ParseEntity: closing brace without data' ); // id: Sys_Error; Ironwail's Host_Error (deliberate deviation)
 
 		const key = ED_FindGlobal( keyname );
 		if ( ! key ) {
@@ -712,7 +713,7 @@ export function ED_ParseGlobals( data ) {
 
 		if ( ! ED_ParseEpair( pr_globals, key, com_token ) ) {
 
-			Sys_Error( 'ED_ParseGlobals: parse error' );
+			PR_HostError( 'ED_ParseGlobals: parse error' ); // Host_Error as in id
 
 		}
 
@@ -858,7 +859,7 @@ export function ED_ParseEdict( data, ent ) {
 		if ( com_token === '}' )
 			break;
 		if ( data === null )
-			Sys_Error( 'ED_ParseEntity: EOF without closing brace' );
+			PR_HostError( 'ED_ParseEntity: EOF without closing brace' ); // id: Sys_Error; Ironwail's Host_Error (deliberate deviation)
 
 		// anglehack is to allow QuakeEd to write single scalar angles
 		// and allow them to be turned into vectors. (FIXME...)
@@ -885,10 +886,10 @@ export function ED_ParseEdict( data, ent ) {
 		// parse value
 		data = COM_Parse( data );
 		if ( data === null )
-			Sys_Error( 'ED_ParseEntity: EOF without closing brace' );
+			PR_HostError( 'ED_ParseEntity: EOF without closing brace' ); // id: Sys_Error; Ironwail's Host_Error (deliberate deviation)
 
 		if ( com_token === '}' )
-			Sys_Error( 'ED_ParseEntity: closing brace without data' );
+			PR_HostError( 'ED_ParseEntity: closing brace without data' ); // id: Sys_Error; Ironwail's Host_Error (deliberate deviation)
 
 		init = true;
 
@@ -914,7 +915,7 @@ export function ED_ParseEdict( data, ent ) {
 
 		if ( ! ED_ParseEpair( ent._fieldAccessor, key, value ) ) {
 
-			Sys_Error( 'ED_ParseEdict: parse error' );
+			PR_HostError( 'ED_ParseEdict: parse error' ); // Host_Error as in id
 
 		}
 
@@ -956,7 +957,7 @@ export function ED_LoadFromFile( data ) {
 		if ( data === null )
 			break;
 		if ( com_token !== '{' )
-			Sys_Error( 'ED_LoadFromFile: found %s when expecting {', com_token );
+			PR_HostError( 'ED_LoadFromFile: found ' + com_token + ' when expecting {' ); // id: Sys_Error; Ironwail's Host_Error (deliberate deviation)
 
 		if ( ! ent )
 			ent = EDICT_NUM( 0 );
@@ -1074,15 +1075,14 @@ export function PR_LoadProgs( fileData ) {
 	header.entityfields = dataView.getInt32( offset, true ); offset += 4;
 
 	if ( header.version !== PROG_VERSION )
-		Sys_Error( 'progs.dat has wrong version number (%i should be %i)', header.version, PROG_VERSION );
+		PR_HostError( 'progs.dat has wrong version number (' + header.version + ' should be ' + PROG_VERSION + ')' ); // id: Sys_Error; Ironwail's Host_Error (deliberate deviation)
 	if ( header.crc !== PROGHEADER_CRC )
-		Sys_Error( 'progs.dat system vars have been modified, progdefs.h is out of date' );
+		PR_HostError( 'progs.dat system vars have been modified, progdefs.h is out of date' ); // id: Sys_Error; Ironwail's Host_Error (deliberate deviation)
 
 	PR_SetProgs( header );
 
-	// Parse strings - allocate with extra 128 bytes for pr_string_temp
-	const PR_STRING_TEMP_SIZE = 128;
-	const stringsDataWithTemp = new Uint8Array( header.numstrings + PR_STRING_TEMP_SIZE );
+	// Parse strings, with room after them for the pr_string_temp buffers
+	const stringsDataWithTemp = new Uint8Array( header.numstrings + STRINGTEMP_BUFFERS * STRINGTEMP_LENGTH );
 	stringsDataWithTemp.set( new Uint8Array( fileData, header.ofs_strings, header.numstrings ) );
 	// Zero-fill the temp area (already done by Uint8Array constructor)
 	PR_SetStringsData( stringsDataWithTemp );
@@ -1153,7 +1153,7 @@ export function PR_LoadProgs( fileData ) {
 		const def = new ddef_t();
 		def.type = dataView.getUint16( offset, true ); offset += 2;
 		if ( def.type & DEF_SAVEGLOBAL )
-			Sys_Error( 'PR_LoadProgs: pr_fielddefs[i].type & DEF_SAVEGLOBAL' );
+			PR_HostError( 'PR_LoadProgs: pr_fielddefs[i].type & DEF_SAVEGLOBAL' ); // id: Sys_Error; Ironwail's Host_Error (deliberate deviation)
 		def.ofs = dataView.getUint16( offset, true ); offset += 2;
 		def.s_name = dataView.getInt32( offset, true ); offset += 4;
 		fielddefs.push( def );

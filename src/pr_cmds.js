@@ -1,6 +1,5 @@
 // Ported from: WinQuake/pr_cmds.c -- QuakeC built-in functions
 
-import { Sys_Error } from './sys.js';
 import { SV_BroadcastPrintf } from './host.js';
 import {
 	Con_Printf, Con_DPrintf,
@@ -11,7 +10,7 @@ import {
 	VectorCopy, VectorSubtract, VectorNormalize, VectorMA, VectorScale, VectorAdd,
 	DotProduct, Length, AngleVectors, vec3_origin, anglemod, M_PI,
 } from './mathlib.js';
-import { MAX_MODELS, MAX_SOUNDS } from './quakedef.js';
+import { MAX_MODELS, MAX_SOUNDS, MAX_LIGHTSTYLES } from './quakedef.js';
 import {
 	OFS_RETURN, OFS_PARM0, OFS_PARM1, OFS_PARM2, OFS_PARM3,
 	OFS_PARM4,
@@ -507,14 +506,16 @@ function PF_sound() {
 	const volume = ( G_FLOAT( OFS_PARM3 ) * 255 ) | 0;
 	const attenuation = G_FLOAT( OFS_PARM4 );
 
+	// id has Sys_Error; Host_Error is Ironwail's (deliberate deviation), so a
+	// bad QuakeC sound() call ends the map instead of killing the engine
 	if ( volume < 0 || volume > 255 )
-		Sys_Error( 'SV_StartSound: volume = ' + volume );
+		PR_HostError( 'SV_StartSound: volume = ' + volume );
 
 	if ( attenuation < 0 || attenuation > 4 )
-		Sys_Error( 'SV_StartSound: attenuation = ' + attenuation.toFixed( 6 ) );
+		PR_HostError( 'SV_StartSound: attenuation = ' + attenuation.toFixed( 6 ) );
 
 	if ( channel < 0 || channel > 7 )
-		Sys_Error( 'SV_StartSound: channel = ' + channel );
+		PR_HostError( 'SV_StartSound: channel = ' + channel );
 
 	SV_StartSound( entity, channel, sample, volume, attenuation );
 
@@ -551,6 +552,23 @@ function PF_traceline() {
 	const v2 = G_VECTOR( OFS_PARM1 );
 	const nomonsters = G_FLOAT( OFS_PARM2 ) | 0;
 	const ent = G_EDICT( OFS_PARM3 );
+
+	// Deliberate deviation from id, taken from Ironwail/QuakeSpasm: some
+	// progs.dat pass NaN vectors, which would poison the trace. Zero them in
+	// place (G_VECTOR is a view on the globals), warning when developer is set.
+	const v1nan = Number.isNaN( v1[ 0 ] ) || Number.isNaN( v1[ 1 ] ) || Number.isNaN( v1[ 2 ] );
+	const v2nan = Number.isNaN( v2[ 0 ] ) || Number.isNaN( v2[ 1 ] ) || Number.isNaN( v2[ 2 ] );
+	if ( v1nan || v2nan ) {
+
+		Con_DPrintf( 'NAN in traceline:\nv1(' + v1[ 0 ].toFixed( 6 ) + ' ' + v1[ 1 ].toFixed( 6 ) + ' ' + v1[ 2 ].toFixed( 6 )
+			+ ') v2(' + v2[ 0 ].toFixed( 6 ) + ' ' + v2[ 1 ].toFixed( 6 ) + ' ' + v2[ 2 ].toFixed( 6 )
+			+ ')\nentity ' + NUM_FOR_EDICT( ent ) + '\n' );
+		if ( v1nan )
+			v1[ 0 ] = v1[ 1 ] = v1[ 2 ] = 0;
+		if ( v2nan )
+			v2[ 0 ] = v2[ 1 ] = v2[ 2 ] = 0;
+
+	}
 
 	const trace = SV_Move( v1, vec3_origin, vec3_origin, v2, nomonsters, ent );
 
@@ -804,7 +822,7 @@ export function PF_Format5_1f( v ) {
 
 }
 
-// Temp string for ftos/vtos (in C this is a static buffer in pr_strings space)
+// ftos/vtos return a temp string in pr_strings space (PR_SetTempString)
 function PF_ftos() {
 
 	const v = G_FLOAT( OFS_PARM0 );
@@ -815,7 +833,7 @@ function PF_ftos() {
 	else
 		str = PF_Format5_1f( v ); // %5.1f
 
-	// Write into the fixed pr_string_temp area (reused each call, like C)
+	// Write into the next pr_string_temp buffer (see PR_SetTempString)
 	const ofs = PR_SetTempString( str );
 	G_INT_SET( OFS_RETURN, ofs );
 
@@ -834,7 +852,7 @@ function PF_vtos() {
 	// sprintf( pr_string_temp, "'%5.1f %5.1f %5.1f'", ... )
 	const str = '\'' + PF_Format5_1f( v[ 0 ] ) + ' ' + PF_Format5_1f( v[ 1 ] ) + ' ' + PF_Format5_1f( v[ 2 ] ) + '\'';
 
-	// Write into the fixed pr_string_temp area (reused each call, like C)
+	// Write into the next pr_string_temp buffer (see PR_SetTempString)
 	const ofs = PR_SetTempString( str );
 	G_INT_SET( OFS_RETURN, ofs );
 
@@ -1070,6 +1088,16 @@ function PF_lightstyle() {
 
 	const style = G_FLOAT( OFS_PARM0 ) | 0;
 	const val = G_STRING( OFS_PARM1 );
+
+	// Deliberate deviation from id, taken from Ironwail/QuakeSpasm: bounds
+	// check the style, which id used unchecked to index sv.lightstyles and
+	// sent to clients (whose CL_ParseServerMessage Sys_Errors on >= 64)
+	if ( style < 0 || style >= MAX_LIGHTSTYLES ) {
+
+		Con_DPrintf( 'PF_lightstyle: invalid style ' + style + '\n' );
+		return;
+
+	}
 
 	// change the string in sv
 	if ( sv.lightstyles ) {

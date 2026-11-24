@@ -1,6 +1,7 @@
 // Ported from: WinQuake/progs.h -- program execution definitions
 
 import { link_t } from './common.js';
+import { Sys_Error } from './sys.js';
 import { entity_state_t } from './quakedef.js';
 import {
 	OFS_RETURN,
@@ -155,9 +156,18 @@ export let pr_edict_size = 0; // in bytes (C: sizeof edict_t fields portion)
 
 export let pr_crc = 0;
 
-// Temp string buffer for PF_ftos/PF_vtos (mirrors C's pr_string_temp[128])
-// This is a fixed 128-byte region at the end of pr_strings_data that gets reused.
+// Temp string buffers for PF_ftos/PF_vtos, at the end of pr_strings_data.
+// Deliberate deviation from id (pr_cmds.c pr_string_temp[128], one shared
+// buffer), taken from Ironwail/QuakeSpasm (pr_cmds.c PR_GetTempString): a
+// ring of buffers, so bprint( ftos( a ), ftos( b ) ) prints both values rather
+// than b twice. Ironwail declares 1024 buffers but indexes them with a byte,
+// so only 256 are ever used; we reserve those 256. Each keeps id's 128 bytes:
+// ftos/vtos output always fits, and Ironwail's 1024-byte length serves string
+// builtins (sprintf, strcat) that the port does not have.
+export const STRINGTEMP_BUFFERS = 256;
+export const STRINGTEMP_LENGTH = 128;
 export let pr_string_temp_ofs = - 1;
+let pr_string_tempindex = 0; // C: static byte pr_string_tempindex
 
 // type_size[etype] - number of int/float slots per type
 export const type_size = [ 1, 1, 1, 3, 1, 1, 1, 1 ];
@@ -186,20 +196,46 @@ export function PR_SetEdictSize( s ) { pr_edict_size = s; }
 export function PR_SetCRC( c ) { pr_crc = c; }
 export function PR_SetStringTempOfs( o ) { pr_string_temp_ofs = o; }
 
-// Write a string into the fixed pr_string_temp area (128 bytes max).
-// Returns the offset into pr_strings_data. Mirrors C's pr_string_temp usage.
+// Host_Error lives in host.js, which imports the server and client; the
+// server installs it here (SV_Init) so the QuakeC VM can raise it without an
+// import cycle. Kept in progs.js so EDICT_NUM and NUM_FOR_EDICT can use it.
+let Host_Error = null;
+
+export function PR_SetHostError( callback ) {
+
+	const previous = Host_Error;
+	Host_Error = callback;
+	return previous;
+
+}
+
+export function PR_HostError( error ) {
+
+	if ( Host_Error === null )
+		Sys_Error( 'PR_HostError: Host_Error callback not set' );
+
+	Host_Error( error );
+	Sys_Error( 'PR_HostError: Host_Error returned' );
+
+}
+
+// Write a string into the next pr_string_temp buffer (STRINGTEMP_LENGTH bytes
+// with its NUL) and return its offset into pr_strings_data. Mirrors Ironwail's
+// PR_GetTempString: pre-increment a byte index, so the first buffer used is 1.
 export function PR_SetTempString( str ) {
 
-	const maxLen = 127; // leave room for null terminator
-	const len = Math.min( str.length, maxLen );
+	pr_string_tempindex = ( pr_string_tempindex + 1 ) & 0xff;
+	const ofs = pr_string_temp_ofs + ( ( STRINGTEMP_BUFFERS - 1 ) & pr_string_tempindex ) * STRINGTEMP_LENGTH;
+
+	const len = Math.min( str.length, STRINGTEMP_LENGTH - 1 ); // leave room for the NUL
 	for ( let i = 0; i < len; i ++ ) {
 
-		pr_strings_data[ pr_string_temp_ofs + i ] = str.charCodeAt( i );
+		pr_strings_data[ ofs + i ] = str.charCodeAt( i );
 
 	}
 
-	pr_strings_data[ pr_string_temp_ofs + len ] = 0; // null terminator
-	return pr_string_temp_ofs;
+	pr_strings_data[ ofs + len ] = 0; // null terminator
+	return ofs;
 
 }
 
@@ -313,11 +349,9 @@ export function PR_SetSVS( s ) { svs = s; }
 
 export function EDICT_NUM( n ) {
 
-	if ( n < 0 || n >= sv.max_edicts ) {
-
-		throw new Error( 'EDICT_NUM: bad number ' + n );
-
-	}
+	// id has Sys_Error; Host_Error is Ironwail's (deliberate deviation)
+	if ( n < 0 || n >= sv.max_edicts )
+		PR_HostError( 'EDICT_NUM: bad number ' + n );
 
 	return sv.edicts[ n ];
 
@@ -327,11 +361,9 @@ export function NUM_FOR_EDICT( e ) {
 
 	const n = e.index;
 
-	if ( n < 0 || n >= sv.num_edicts ) {
-
-		throw new Error( 'NUM_FOR_EDICT: bad pointer' );
-
-	}
+	// id has Sys_Error; Host_Error is Ironwail's (deliberate deviation)
+	if ( n < 0 || n >= sv.num_edicts )
+		PR_HostError( 'NUM_FOR_EDICT: bad pointer' );
 
 	return n;
 
