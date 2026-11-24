@@ -275,8 +275,55 @@ export const gl_finish = { name: 'gl_finish', string: '0', value: 0 };
 // config compatibility.
 export const gl_ztrick = { name: 'gl_ztrick', string: '1', value: 1 };
 export const gl_subdivide_size = { name: 'gl_subdivide_size', string: '128', value: 128, archive: true };
-// Texture filtering: 0 = nearest (pixelated), 1 = linear (smooth)
-export const gl_texturemode = { name: 'gl_texturemode', string: '0', value: 0, archive: true };
+
+// gl_draw.c gl_filter_min / gl_filter_max (extern in glquake.h). The
+// gl_texturemode command (Draw_TextureMode_f in gl_draw.js) sets them.
+export const GL_NEAREST = 0x2600;
+export const GL_LINEAR = 0x2601;
+export const GL_NEAREST_MIPMAP_NEAREST = 0x2700;
+export const GL_LINEAR_MIPMAP_NEAREST = 0x2701;
+export const GL_NEAREST_MIPMAP_LINEAR = 0x2702;
+export const GL_LINEAR_MIPMAP_LINEAR = 0x2703;
+
+export let gl_filter_min = GL_LINEAR_MIPMAP_NEAREST;
+export let gl_filter_max = GL_LINEAR;
+
+export function set_gl_filter( min, max ) {
+
+	gl_filter_min = min;
+	gl_filter_max = max;
+
+}
+
+// The GL filter enum as the matching Three.js filter constant. Only the
+// modes[] values reach here (Draw_TextureMode_f rejects any other name).
+export function GL_ThreeFilter( filter ) {
+
+	switch ( filter ) {
+
+		case GL_NEAREST: return THREE.NearestFilter;
+		case GL_LINEAR: return THREE.LinearFilter;
+		case GL_NEAREST_MIPMAP_NEAREST: return THREE.NearestMipmapNearestFilter;
+		case GL_LINEAR_MIPMAP_NEAREST: return THREE.LinearMipmapNearestFilter;
+		case GL_NEAREST_MIPMAP_LINEAR: return THREE.NearestMipmapLinearFilter;
+		case GL_LINEAR_MIPMAP_LINEAR: return THREE.LinearMipmapLinearFilter;
+
+	}
+
+	throw new Error( 'GL_ThreeFilter: unknown GL filter 0x' + Number( filter ).toString( 16 ) );
+
+}
+
+/*
+gl_draw.c GL_Upload32: a mipmapped texture gets gl_filter_min / gl_filter_max,
+any other texture gets gl_filter_max both ways.
+*/
+export function GL_SetTextureFilter( texture, mipmap ) {
+
+	texture.minFilter = GL_ThreeFilter( mipmap ? gl_filter_min : gl_filter_max );
+	texture.magFilter = GL_ThreeFilter( gl_filter_max );
+
+}
 
 // Track all game textures for filter updates
 export const _allGameTextures = [];
@@ -446,17 +493,18 @@ export function GL_UnregisterTexture( texture ) {
 
 }
 
+/*
+The loop at the end of gl_draw.c Draw_TextureMode_f: "change all the existing
+mipmap texture objects". As in C, textures without mipmaps keep the filter
+they were loaded with.
+*/
 export function GL_UpdateTextureFiltering() {
-
-	const filter = gl_texturemode.value ? THREE.LinearFilter : THREE.NearestFilter;
-	const mipFilter = gl_texturemode.value ? THREE.LinearMipmapLinearFilter : THREE.NearestMipmapLinearFilter;
 
 	for ( const texture of _allGameTextures ) {
 
-		if ( texture ) {
+		if ( texture != null && texture.generateMipmaps === true ) {
 
-			texture.magFilter = filter;
-			texture.minFilter = texture.generateMipmaps ? mipFilter : filter;
+			GL_SetTextureFilter( texture, true );
 			texture.needsUpdate = true;
 
 		}

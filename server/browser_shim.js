@@ -24,8 +24,10 @@ export class DataTexture {
 export const RGBAFormat = 1023;
 export const LinearFilter = 1006;
 export const NearestFilter = 1003;
-export const LinearMipmapLinearFilter = 1008;
+export const NearestMipmapNearestFilter = 1004;
 export const NearestMipmapLinearFilter = 1005;
+export const LinearMipmapNearestFilter = 1007;
+export const LinearMipmapLinearFilter = 1008;
 export const RepeatWrapping = 1000;
 export const SRGBColorSpace = 'srgb';
 export const FrontSide = 0;
@@ -225,6 +227,9 @@ export class BufferAttribute {
 		this.array = array;
 		this.itemSize = itemSize;
 		this.needsUpdate = false;
+	}
+	get count() {
+		return this.array.length / this.itemSize;
 	}
 }
 

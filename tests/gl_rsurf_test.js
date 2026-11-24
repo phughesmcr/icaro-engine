@@ -463,3 +463,198 @@ Deno.test( 'grown lightmap blocks upload changed rows and r_fullbright rebuilds'
 	}
 
 } );
+
+// gl_rsurf.c DrawGLWaterPoly: SURF_UNDERWATER vertices move by
+// 8*sin(other*0.05+realtime)*sin(z*0.05+realtime) in x and y, z unchanged.
+Deno.test( 'underwater world materials warp vertices like DrawGLWaterPoly', () => {
+
+	const vertexShader = '#include <common>\nvoid main() {\n#include <begin_vertex>\n}';
+	const fragmentShader = 'uniform vec3 emissive;\n#include <map_fragment>\n#include <emissivemap_fragment>';
+	const lmTex = { channel: 0 };
+
+	const underwater = gl_rsurf.R_CreateWorldMaterial( { _fullbright: null }, lmTex, true );
+	const dry = gl_rsurf.R_CreateWorldMaterial( { _fullbright: null }, lmTex, false );
+	if ( underwater.customProgramCacheKey() === dry.customProgramCacheKey() )
+		throw new Error( 'underwater and dry lightmap materials share a program key' );
+
+	const shader = { uniforms: {}, vertexShader, fragmentShader };
+	underwater.onBeforeCompile( shader );
+	assertEqual( 'quakeWarpTime' in shader.uniforms, true, 'warp uniform' );
+	assertEqual( 'quakeLightmapOnly' in shader.uniforms, true, 'lightmap uniform kept' );
+	for ( const line of [
+		'uniform float quakeWarpTime;',
+		'float quakeWarpZ = sin( position.z * 0.05 + quakeWarpTime );',
+		'transformed.x += 8.0 * sin( position.y * 0.05 + quakeWarpTime ) * quakeWarpZ;',
+		'transformed.y += 8.0 * sin( position.x * 0.05 + quakeWarpTime ) * quakeWarpZ;'
+	] ) {
+
+		assertEqual( shader.vertexShader.includes( line ), true, line );
+
+	}
+
+	assertEqual( shader.vertexShader.includes( 'transformed.z' ), false, 'z is not warped' );
+
+	const dryShader = { uniforms: {}, vertexShader, fragmentShader };
+	dry.onBeforeCompile( dryShader );
+	assertEqual( dryShader.vertexShader, vertexShader, 'dry surfaces do not warp' );
+
+	// no lightmap block: the plain material still warps
+	const basic = gl_rsurf.R_CreateWorldMaterial( {}, null, true );
+	const basicShader = { uniforms: {}, vertexShader, fragmentShader };
+	basic.onBeforeCompile( basicShader );
+	assertEqual( 'quakeWarpTime' in basicShader.uniforms, true, 'unlit warp uniform' );
+
+} );
+
+Deno.test( 'R_WaterWarpTime wraps realtime without changing the sines', () => {
+
+	const period = Math.PI * 2;
+	for ( const t of [ 0, 1.25, period, 1000.5, 86400.123 ] ) {
+
+		const wrapped = gl_rsurf.R_WaterWarpTime( t );
+		if ( wrapped < 0 || wrapped >= period )
+			throw new Error( `R_WaterWarpTime(${t}) = ${wrapped} is outside [0, 2*PI)` );
+		const diff = Math.abs( Math.sin( 3.7 + wrapped ) - Math.sin( 3.7 + t ) );
+		if ( diff > 1e-9 )
+			throw new Error( `sin differs by ${diff} at realtime ${t}` );
+
+	}
+
+} );
+
+Deno.test( 'DrawGLWaterPoly keeps DrawGLPoly\'s geometry for the shader warp', () => {
+
+	const p = {
+		numverts: 4,
+		verts: new Float32Array( [
+			0, 0, 0, 0, 0, 0.1, 0.1,
+			64, 0, 0, 1, 0, 0.9, 0.1,
+			64, 64, 0, 1, 1, 0.9, 0.9,
+			0, 64, 0, 0, 1, 0.1, 0.9
+		] )
+	};
+	const normal = [ 0, 0, 1 ];
+	const water = gl_rsurf.DrawGLWaterPoly( p, normal );
+	const plain = gl_rsurf.DrawGLPoly( p, normal );
+	for ( const name of [ 'position', 'normal', 'uv', 'uv1' ] ) {
+
+		const a = water.getAttribute( name ).array;
+		const b = plain.getAttribute( name ).array;
+		assertEqual( a.length, b.length, `${name} length` );
+		for ( let i = 0; i < a.length; i ++ )
+			assertEqual( a[ i ], b[ i ], `${name}[${i}]` );
+
+	}
+
+	assertEqual( gl_rsurf.DrawGLWaterPoly( null, normal ), undefined, 'no poly' );
+
+} );
+
+function warpTimeUniform() {
+
+	const shader = { uniforms: {}, vertexShader: '', fragmentShader: '' };
+	gl_rsurf.R_PatchWaterWarpVertexShader( shader );
+	return shader.uniforms.quakeWarpTime;
+
+}
+
+// gl_rsurf.c DrawGLWaterPoly reads realtime each frame; R_DrawWorld feeds it
+// to the shader.
+Deno.test( 'R_DrawWorld advances the underwater warp time from realtime', async () => {
+
+	const host = await import( '../src/host.js' );
+	const oldWorldmodel = cl.worldmodel;
+	const oldWorldentity = gl_rmain.r_worldentity;
+	const uniform = warpTimeUniform();
+	const oldValue = uniform.value;
+
+	try {
+
+		gl_rmain.set_r_worldentity( { model: null, frame: 0 } ); // R_Init's entity_t
+
+		// realtime += 7.25. host.js has no realtime setter, so this stays for the
+		// rest of the file; no other test here reads the clock.
+		host._Host_FilterTime( 7.25 );
+		const expected = gl_rsurf.R_WaterWarpTime( host.realtime );
+		if ( expected === oldValue )
+			throw new Error( 'realtime did not move the warp time; the test proves nothing' );
+
+		cl.worldmodel = {
+			nodes: [ { contents: - 2 } ], // CONTENTS_SOLID: nothing to recurse into
+			numleafs: 0,
+			leafs: [],
+			firstmodelsurface: 0,
+			nummodelsurfaces: 0,
+			numsurfaces: 0,
+			surfaces: [],
+			numtextures: 0,
+			textures: []
+		};
+		gl_rsurf.R_DrawWorld();
+		assertEqual( uniform.value, expected, 'warp time after R_DrawWorld' );
+
+	} finally {
+
+		uniform.value = oldValue;
+		cl.worldmodel = oldWorldmodel;
+		gl_rmain.set_r_worldentity( oldWorldentity );
+
+	}
+
+} );
+
+// gl_rsurf.c R_RenderBrushPoly: only SURF_UNDERWATER surfaces take
+// DrawGLWaterPoly, so they need batches of their own with the warping material.
+Deno.test( 'underwater surfaces get their own unculled world batches', () => {
+
+	const p = {
+		numverts: 3,
+		verts: new Float32Array( [
+			0, 0, 0, 0, 0, 0.1, 0.1,
+			64, 0, 0, 1, 0, 0.9, 0.1,
+			64, 64, 0, 1, 1, 0.9, 0.9
+		] )
+	};
+	const texture = { name: 'wbrick1_5', anim_total: 0, gl_texture: { id: 1 } };
+	const plane = { normal: new Float32Array( [ 0, 0, 1 ] ) };
+	const makeSurf = ( flags ) => ( {
+		flags: flags,
+		polys: p,
+		plane: plane,
+		texinfo: { texture: texture },
+		lightmaptexturenum: 3
+	} );
+	const dry = makeSurf( 0 );
+	const wet = makeSurf( gl_rmain.SURF_UNDERWATER );
+	const wet2 = makeSurf( gl_rmain.SURF_UNDERWATER );
+	const leaf = { contents: - 3 };
+	const worldmodel = {
+		firstmodelsurface: 0,
+		nummodelsurfaces: 3,
+		numsurfaces: 3,
+		surfaces: [ dry, wet, wet2 ]
+	};
+	const surfaceToLeaves = new Map( [ [ dry, [ leaf ] ], [ wet, [ leaf ] ], [ wet2, [ leaf ] ] ] );
+
+	const groups = [ ...gl_rsurf.R_CollectWorldBatchGroups( worldmodel, surfaceToLeaves ).values() ];
+	assertEqual( groups.length, 2, 'same texture and lightmap split by SURF_UNDERWATER' );
+	const dryGroup = groups.find( ( g ) => g.underwater === false );
+	const wetGroup = groups.find( ( g ) => g.underwater === true );
+	assertEqual( dryGroup.surfaceData.length, 1, 'dry group surfaces' );
+	assertEqual( dryGroup.surfaceData[ 0 ].surf, dry, 'dry group holds the dry surface' );
+	assertEqual( wetGroup.surfaceData.length, 2, 'underwater group surfaces' );
+	assertEqual( wetGroup.totalVerts, 6, 'underwater group vertex count' );
+	assertEqual( wetGroup.lmNum, 3, 'underwater group lightmap' );
+
+	const makeBatch = () => ( { name: '', frustumCulled: true, perObjectFrustumCulled: true } );
+	const dryBatch = makeBatch();
+	const wetBatch = makeBatch();
+	gl_rsurf.R_InitWorldBatch( dryBatch, dryGroup );
+	gl_rsurf.R_InitWorldBatch( wetBatch, wetGroup );
+	assertEqual( dryBatch.frustumCulled, true, 'dry batch frustum culled' );
+	assertEqual( dryBatch.perObjectFrustumCulled, true, 'dry batch per-object culled' );
+	assertEqual( wetBatch.frustumCulled, false, 'underwater batch frustum culled' );
+	assertEqual( wetBatch.perObjectFrustumCulled, false, 'underwater batch per-object culled' );
+	assertEqual( wetBatch.name, 'world_wbrick1_5_lm3_underwater', 'underwater batch name' );
+
+} );

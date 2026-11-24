@@ -104,6 +104,14 @@ own fix PR.
 - **Not affected:** the water surface's own texture warp, and the
   no-lightmap rule for turbulent surfaces, both match C.
 
+- **Status: fixed.** `R_BuildWorldMeshes` now builds `SURF_UNDERWATER`
+  surfaces with `DrawGLWaterPoly` into their own batches. Their material adds
+  the C sum in the vertex shader (`R_PatchWaterWarpVertexShader`), driven by
+  `realtime` each frame. That one pass moves the texture and the lightmap
+  together, so it also stands in for `DrawGLWaterPolyLightmap`. Only the world
+  needs it: `Mod_LoadLeafs` reaches only faces listed in world leaves, so
+  brush-model surfaces are never flagged, in C or here.
+
 ### G2 · Help screens replaced by a credits page — **medium**
 
 - **C:** the main menu's fourth item (`case 3`) and the `help` command open
@@ -145,6 +153,22 @@ own fix PR.
   - Configs written for GLQuake fall back to nearest.
 - **Fix:** the default may be a deliberate pixel-art choice. If it stays,
   comment it and note it in `port-review.md` §7.
+
+- **Status: fixed.** `gl_texturemode` is the C command again
+  (`Draw_TextureMode_f`, `src/gl_draw.js`), with C's default
+  `GL_LINEAR_MIPMAP_NEAREST`.
+  - Each mode maps to the matching Three.js min/mag filter
+    (`GL_ThreeFilter`, `src/glquake.js`).
+  - As in C, the command re-filters only mipmapped textures. New textures
+    take the current mode, and a texture without mipmaps uses
+    `gl_filter_max` both ways.
+  - Like any command, it is not saved to `config.cfg`. Old `gl_texturemode 0`
+    or `1` lines now print "bad filter name".
+  - The particle texture is always `GL_LINEAR`, as in
+    `gl_rmisc.c R_InitParticleTexture`.
+  - The Options menu's Texture Filtering entry (a port addition) now runs the
+    command. It switches between `GL_LINEAR_MIPMAP_NEAREST` and
+    `GL_NEAREST_MIPMAP_LINEAR`, the old "off" look.
 
 ### G4 · Game Options menu lacks Frag Limit and Time Limit — **medium (multiplayer hosts)**
 
@@ -443,9 +467,9 @@ The name appears only in a comment, a string, or as a different symbol.
 | Kind | C name | C source | JS status | Reason |
 |---|---|---|---|---|
 | function | `Draw_CharToConback` | `gl_draw.c:276` | missing | G7: conback version string |
-| function | `Draw_TextureMode_f` | `gl_draw.c:320` | missing | G3: `gl_texturemode` is a 0/1 cvar, not the C command |
-| command | `gl_texturemode` | `gl_draw.c:390` | string-only (`src/glquake.js`) | G3: `gl_texturemode` is a 0/1 cvar, not the C command |
-| function | `DrawGLWaterPolyLightmap` | `gl_rsurf.c:617` | missing | G1: submerged surfaces do not wobble (`DrawGLWaterPoly` is never called) |
+| function | `Draw_TextureMode_f` | `gl_draw.c:320` | missing | fixed: G3, ported to `src/gl_draw.js` |
+| command | `gl_texturemode` | `gl_draw.c:390` | string-only (`src/glquake.js`) | fixed: G3, the C command again (`src/gl_draw.js`) |
+| function | `DrawGLWaterPolyLightmap` | `gl_rsurf.c:617` | missing | fixed: G1, folded into the underwater world material (`src/gl_rsurf.js`) |
 | cvar | `host_speeds` | `host.c:58` | differs (`src/host.js`): C reads it, JS never does | fixed: G10, read in `Host_Frame` |
 | cvar | `serverprofile` | `host.c:61` | differs (`src/host.js`): C reads it, JS never does | fixed: G10, read in `Host_Frame` |
 | cvar | `fraglimit` | `host.c:63` | differs (`src/host.js`): C reads it, JS never does | fixed: G4, the Game Options rows are back (QuakeC reads them through `cvar()` in both) |

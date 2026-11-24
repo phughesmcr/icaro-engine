@@ -34,13 +34,15 @@ Deno.test( 'model clearing disposes only map-owned Three textures', () => {
 	const spriteDescriptors = Object.getOwnPropertyDescriptors( sprite );
 	const aliasDescriptors = Object.getOwnPropertyDescriptors( alias );
 	const oldRegistry = glquake._allGameTextures.slice();
-	const oldTextureMode = glquake.gl_texturemode.value;
+	const oldFilterMin = glquake.gl_filter_min;
+	const oldFilterMax = glquake.gl_filter_max;
 	const base = makeTexture( 'brush base' );
 	const fullbright = makeTexture( 'brush fullbright' );
 	const spriteTexture = makeTexture( 'sprite' );
 	const solidSky = makeTexture( 'solid sky' );
 	const alphaSky = makeTexture( 'alpha sky' );
 	const aliasTexture = makeTexture( 'alias' );
+	aliasTexture.generateMipmaps = true;
 	const particleTexture = makeTexture( 'particle' );
 	base._fullbright = fullbright;
 
@@ -86,10 +88,12 @@ Deno.test( 'model clearing disposes only map-owned Three textures', () => {
 		assertEqual( glquake._allGameTextures.includes( particleTexture ), true,
 			'particle registry retention' );
 
-		glquake.gl_texturemode.value = 1;
+		glquake.set_gl_filter( glquake.GL_LINEAR_MIPMAP_LINEAR, glquake.GL_LINEAR );
 		glquake.GL_UpdateTextureFiltering();
 		assertEqual( aliasTexture.needsUpdate, true, 'alias filtering update' );
-		assertEqual( particleTexture.needsUpdate, true, 'particle filtering update' );
+		assertEqual( aliasTexture.minFilter, THREE.LinearMipmapLinearFilter, 'alias min filter' );
+		// like gl_draw.c Draw_TextureMode_f, only mipmapped textures change
+		assertEqual( particleTexture.needsUpdate, false, 'particle (no mipmaps) left alone' );
 		assertEqual( base.needsUpdate, false, 'disposed filtering exclusion' );
 
 		gl_model.Mod_ClearAll();
@@ -105,7 +109,7 @@ Deno.test( 'model clearing disposes only map-owned Three textures', () => {
 		Object.defineProperties( sprite, spriteDescriptors );
 		Object.defineProperties( alias, aliasDescriptors );
 		glquake._allGameTextures.splice( 0, glquake._allGameTextures.length, ...oldRegistry );
-		glquake.gl_texturemode.value = oldTextureMode;
+		glquake.set_gl_filter( oldFilterMin, oldFilterMax );
 
 	}
 
