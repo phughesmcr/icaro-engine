@@ -81,14 +81,20 @@ NET_NewQSocket
 
 Called by drivers when a new communications endpoint is required
 The sequence and buffer fields will be filled in properly
+
+pendingConnections: sockets the calling driver has already handed out for
+incoming sessions that SV_CheckForNewClients has not accepted yet. A server
+driver passes its queue length so that connections opened in the same frame
+cannot claim more sockets than there are free client slots (net_activeconnections
+only rises once a socket is accepted). Outgoing and loopback callers pass 0.
 ===================
 */
-export function NET_NewQSocket() {
+export function NET_NewQSocket( pendingConnections = 0 ) {
 
 	if ( net_freeSockets === null )
 		return null;
 
-	if ( net_activeconnections >= svs.maxclients )
+	if ( net_activeconnections + pendingConnections >= svs.maxclients )
 		return null;
 
 	// get one from free list
@@ -498,6 +504,12 @@ export function NET_CheckNewConnections() {
 
 	SetNetTime();
 
+	// SV_CheckForNewClients calls Sys_Error when it gets a connection with no
+	// free client slot. Leave connections queued in their driver until a slot
+	// frees up (the driver times out ones that wait too long).
+	if ( NET_HasFreeClientSlot() === false )
+		return null;
+
 	for ( let i = 0; i < net_numdrivers; i ++ ) {
 
 		set_net_driverlevel( i );
@@ -515,6 +527,28 @@ export function NET_CheckNewConnections() {
 	}
 
 	return null;
+
+}
+
+/*
+===================
+NET_HasFreeClientSlot
+===================
+*/
+function NET_HasFreeClientSlot() {
+
+	if ( svs.clients == null )
+		return true;
+
+	const max = Math.min( svs.maxclients, svs.clients.length );
+	for ( let i = 0; i < max; i ++ ) {
+
+		if ( svs.clients[ i ] != null && ! svs.clients[ i ].active )
+			return true;
+
+	}
+
+	return false;
 
 }
 
