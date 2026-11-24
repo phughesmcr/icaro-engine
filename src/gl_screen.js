@@ -220,6 +220,10 @@ function SCR_CheckDrawCenterString() {
 		return;
 	if ( key_dest !== key_game )
 		return;
+	// Deviation (FitzQuake/Ironwail): not in id's C. The timer above keeps
+	// running while paused, as in Ironwail; only the drawing stops.
+	if ( _cl.paused ) //johnfitz -- don't show centerprint during a pause
+		return;
 
 	SCR_DrawCenterString();
 
@@ -1103,7 +1107,10 @@ export function SCR_UpdateScreen() {
 
 	} else {
 
-		if ( Cvar_VariableValue( 'crosshair' ) !== 0 && _cls.demoplayback === false )
+		// Deviation (FitzQuake/Ironwail SCR_DrawCrosshair): no crosshair during
+		// intermission. In id's C intermission 3 (svc_cutscene) reaches this
+		// branch and drew it over the cutscene.
+		if ( Cvar_VariableValue( 'crosshair' ) !== 0 && _cls.demoplayback === false && ! _cl.intermission )
 			Draw_Character( Math.floor( _vid.width / 2 + Cvar_VariableValue( 'cl_crossx' ) ) - 4,
 				Math.floor( _vid.height / 2 + Cvar_VariableValue( 'cl_crossy' ) ) - 4, 43 ); // '+' crosshair
 

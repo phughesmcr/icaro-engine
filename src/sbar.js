@@ -1011,6 +1011,12 @@ export function Sbar_Draw() {
 	// Force redraw every frame — canvas overlay is cleared each frame
 	sb_updates = 0;
 
+	// Deviation (FitzQuake/Ironwail): id's C has no such check. Intermission
+	// 3 (svc_cutscene) reaches Sbar_Draw through SCR_UpdateScreen's else
+	// branch and drew the status bar over the cutscene.
+	if ( _cl.intermission )
+		return; //johnfitz -- never draw sbar during intermission
+
 	if ( sb_lines > 24 ) {
 
 		Sbar_DrawInventory();
@@ -1346,36 +1352,42 @@ export function Sbar_IntermissionOverlay() {
 
 	}
 
+	// Deviation (FitzQuake/Ironwail CANVAS_MENU): id's C draws at fixed
+	// 320x200 positions, which sit in the top-left corner of our wider virtual
+	// screen. Keep id's layout and centre the 320x200 block.
+	const xofs = ( _vid.width - 320 ) >> 1;
+	const yofs = ( _vid.height - 200 ) >> 1;
+
 	const pic_complete = _Draw_CachePic( 'gfx/complete.lmp' );
 	if ( pic_complete )
-		_Draw_Pic( 64, 24, pic_complete );
+		_Draw_Pic( xofs + 64, yofs + 24, pic_complete );
 
 	const pic_inter = _Draw_CachePic( 'gfx/inter.lmp' );
 	if ( pic_inter )
-		_Draw_TransPic( 0, 56, pic_inter );
+		_Draw_TransPic( xofs + 0, yofs + 56, pic_inter );
 
 	// time
 	const dig = Math.floor( _cl.completed_time / 60 );
-	Sbar_IntermissionNumber( 160, 64, dig, 3, 0 );
+	Sbar_IntermissionNumber( xofs + 160, yofs + 64, dig, 3, 0 );
 	const num = Math.floor( _cl.completed_time ) - dig * 60;
 	if ( sb_colon )
-		_Draw_TransPic( 234, 64, sb_colon );
+		_Draw_TransPic( xofs + 234, yofs + 64, sb_colon );
 	if ( sb_nums[ 0 ][ Math.floor( num / 10 ) ] )
-		_Draw_TransPic( 246, 64, sb_nums[ 0 ][ Math.floor( num / 10 ) ] );
+		_Draw_TransPic( xofs + 246, yofs + 64, sb_nums[ 0 ][ Math.floor( num / 10 ) ] );
 	if ( sb_nums[ 0 ][ num % 10 ] )
-		_Draw_TransPic( 266, 64, sb_nums[ 0 ][ num % 10 ] );
+		_Draw_TransPic( xofs + 266, yofs + 64, sb_nums[ 0 ][ num % 10 ] );
 
 	// secrets
-	Sbar_IntermissionNumber( 160, 104, _cl.stats[ STAT_SECRETS ], 3, 0 );
+	Sbar_IntermissionNumber( xofs + 160, yofs + 104, _cl.stats[ STAT_SECRETS ], 3, 0 );
 	if ( sb_slash )
-		_Draw_TransPic( 232, 104, sb_slash );
-	Sbar_IntermissionNumber( 240, 104, _cl.stats[ STAT_TOTALSECRETS ], 3, 0 );
+		_Draw_TransPic( xofs + 232, yofs + 104, sb_slash );
+	Sbar_IntermissionNumber( xofs + 240, yofs + 104, _cl.stats[ STAT_TOTALSECRETS ], 3, 0 );
 
 	// kills
-	Sbar_IntermissionNumber( 160, 144, _cl.stats[ STAT_MONSTERS ], 3, 0 );
+	Sbar_IntermissionNumber( xofs + 160, yofs + 144, _cl.stats[ STAT_MONSTERS ], 3, 0 );
 	if ( sb_slash )
-		_Draw_TransPic( 232, 144, sb_slash );
-	Sbar_IntermissionNumber( 240, 144, _cl.stats[ STAT_TOTALMONSTERS ], 3, 0 );
+		_Draw_TransPic( xofs + 232, yofs + 144, sb_slash );
+	Sbar_IntermissionNumber( xofs + 240, yofs + 144, _cl.stats[ STAT_TOTALMONSTERS ], 3, 0 );
 
 }
 

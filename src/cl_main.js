@@ -9,7 +9,7 @@ import { Cmd_AddCommand } from './cmd.js';
 import { Cbuf_InsertText } from './cmd.js';
 import { clc_disconnect, clc_stringcmd, PS_NOLERP } from './protocol.js';
 import { CL_GetMessage, CL_Record_f, CL_PlayDemo_f, CL_TimeDemo_f, CL_StopPlayback, CL_Stop_f } from './cl_demo.js';
-import { CL_ParseServerMessage } from './cl_parse.js';
+import { CL_ParseServerMessage, CL_ClearStuffText } from './cl_parse.js';
 import { SIGNONS, MAX_DLIGHTS, MAX_EFRAGS, MAX_BEAMS, MAX_TEMP_ENTITIES,
 	MAX_DEMOS, MAX_VISEDICTS,
 	ca_dedicated, ca_disconnected, ca_connected,
@@ -76,6 +76,7 @@ export function CL_ClearState() {
 	// wipe the entire cl structure
 	// In JS we reset the fields instead of memset
 	cl.movemessages = 0;
+	CL_ClearStuffText(); // cl.stuffcmdbuf (QuakeSpasm/Ironwail)
 	cl.cmd = new usercmd_t();
 	cl.stats.fill( 0 );
 	cl.items = 0;
