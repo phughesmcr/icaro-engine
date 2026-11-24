@@ -24,7 +24,7 @@ import {
 	PR_SetProgs, PR_SetFunctions, PR_SetStrings, PR_SetStringsData,
 	PR_SetGlobalDefs, PR_SetFieldDefs, PR_SetStatements,
 	PR_SetGlobalStruct, PR_SetGlobals, PR_SetGlobalsFloat, PR_SetGlobalsInt,
-	PR_SetEdictSize, PR_SetCRC, PR_SetStringTempOfs,
+	PR_SetEdictSize, PR_SetCRC, PR_SetStringTempOfs, PR_AppendString,
 	EdictFieldAccessor, edict_t,
 	PR_GetString, G_FLOAT, G_INT, G_STRING, G_EDICT, G_EDICTNUM,
 	EDICT_NUM, NUM_FOR_EDICT, EDICT_TO_PROG, PROG_TO_EDICT,
@@ -46,10 +46,6 @@ const gefvCache = [
 	{ pcache: null, field: '' },
 	{ pcache: null, field: '' },
 ];
-
-// Extra strings allocated by ED_NewString (stored separately from progs.dat string table)
-let pr_extra_strings = [];
-let pr_extra_strings_offset = 0; // starting offset (set after progs load)
 
 //============================================================================
 // Cvar stubs (will be replaced when cvar system is connected)
@@ -760,27 +756,7 @@ export function ED_NewString( string ) {
 
 	}
 
-	const result = chars.join( '' );
-
-	// Store in extra strings and return an offset
-	const ofs = pr_extra_strings_offset + pr_extra_strings.length;
-	pr_extra_strings.push( result );
-
-	// Patch into the string data so PR_GetString can find it
-	// We extend the strings data array
-	// Store one byte per character (Latin-1), matching PR_GetString, which
-	// decodes byte by byte. UTF-8 would split bytes >= 0x80 (gold/coloured
-	// text) into two.
-	const newData = new Uint8Array( pr_strings_data.length + result.length + 1 );
-	newData.set( pr_strings_data );
-	for ( let i = 0; i < result.length; i ++ )
-		newData[ pr_strings_data.length + i ] = result.charCodeAt( i ) & 0xff;
-	newData[ pr_strings_data.length + result.length ] = 0;
-
-	const newOfs = pr_strings_data.length;
-	PR_SetStringsData( newData );
-
-	return newOfs;
+	return PR_AppendString( chars.join( '' ) );
 
 }
 
@@ -1114,8 +1090,6 @@ export function PR_LoadProgs( fileData ) {
 	// Zero-fill the temp area (already done by Uint8Array constructor)
 	PR_SetStringsData( stringsDataWithTemp );
 	PR_SetStringTempOfs( header.numstrings );
-	pr_extra_strings = [];
-	pr_extra_strings_offset = header.numstrings + PR_STRING_TEMP_SIZE;
 
 	// Parse statements
 	const statements = [];

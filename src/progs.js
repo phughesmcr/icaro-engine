@@ -146,6 +146,7 @@ export let progs = null; // dprograms_t
 export let pr_functions = null; // dfunction_t[]
 export let pr_strings = ''; // string table (raw string data)
 export let pr_strings_data = null; // Uint8Array of raw string bytes
+export let pr_strings_size = 0; // bytes in use; pr_strings_data may have zeroed spare capacity past this
 export let pr_globaldefs = null; // ddef_t[]
 export let pr_fielddefs = null; // ddef_t[]
 export let pr_statements = null; // dstatement_t[]
@@ -172,7 +173,12 @@ export const type_size = [ 1, 1, 1, 3, 1, 1, 1, 1 ];
 export function PR_SetProgs( p ) { progs = p; }
 export function PR_SetFunctions( f ) { pr_functions = f; }
 export function PR_SetStrings( s ) { pr_strings = s; }
-export function PR_SetStringsData( d ) { pr_strings_data = d; }
+export function PR_SetStringsData( d ) {
+
+	pr_strings_data = d;
+	pr_strings_size = d != null ? d.length : 0;
+
+}
 export function PR_SetGlobalDefs( g ) { pr_globaldefs = g; }
 export function PR_SetFieldDefs( f ) { pr_fielddefs = f; }
 export function PR_SetStatements( s ) { pr_statements = s; }
@@ -198,6 +204,32 @@ export function PR_SetTempString( str ) {
 
 	pr_strings_data[ pr_string_temp_ofs + len ] = 0; // null terminator
 	return pr_string_temp_ofs;
+
+}
+
+// Append a NUL-terminated string (one byte per character, Latin-1, as
+// PR_GetString decodes it) and return its offset. This stands in for C's
+// Hunk_Alloc in ED_NewString. Capacity doubles, so spawning a map's entities
+// reallocates the table a few times rather than once per string.
+export function PR_AppendString( str ) {
+
+	const ofs = pr_strings_size;
+	const end = ofs + str.length + 1;
+
+	if ( end > pr_strings_data.length ) {
+
+		const grown = new Uint8Array( Math.max( end, pr_strings_data.length * 2 ) );
+		grown.set( pr_strings_data.subarray( 0, pr_strings_size ) );
+		pr_strings_data = grown;
+
+	}
+
+	for ( let i = 0; i < str.length; i ++ )
+		pr_strings_data[ ofs + i ] = str.charCodeAt( i ) & 0xff;
+	pr_strings_data[ end - 1 ] = 0;
+
+	pr_strings_size = end;
+	return ofs;
 
 }
 
