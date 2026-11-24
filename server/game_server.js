@@ -431,8 +431,10 @@ function Host_ServerFrame() {
  * deterministic, and restarting the map would carry it into the next level
  * through the spawn parms. In C, Sys_Error quits the program, so the room
  * does the same: it shuts the server down (svc_disconnect to every client)
- * and exits. Host_ShutdownServer( true ) drops clients without running
- * QuakeC's ClientDisconnect on the broken state.
+ * and exits. Host_ShutdownServer( true ) skips each client's own final
+ * message; the port's SV_DropClient still runs QuakeC's ClientDisconnect,
+ * and if that throws on the broken state the server is marked inactive
+ * anyway.
  *
  * frame is injectable for tests.
  */
