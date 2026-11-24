@@ -7,6 +7,8 @@ import { d_8to24table } from './vid.js';
 import { cl as client_cl } from './client.js';
 import { gl_texturemode, GL_RegisterTexture } from './glquake.js';
 import { isXRActive, XR_SCALE } from './webxr.js';
+import { Con_Printf, COM_StripExtension } from './common.js';
+import { COM_EnsureFile, COM_LoadFileAsString } from './pak.js';
 
 const MAX_PARTICLES = 2048;
 
@@ -230,6 +232,114 @@ function allocParticle() {
 	p.type = pt_static;
 
 	return p;
+
+}
+
+/*
+===============
+R_ParsePointFile
+
+The fscanf( f, "%f %f %f\n", ... ) loop of R_ReadPointFile_f: read
+whitespace-separated triples until one fails to parse. Returns the
+coordinates as a flat array, three per point.
+===============
+*/
+export function R_ParsePointFile( text ) {
+
+	const tokens = text.split( /\s+/ ).filter( ( t ) => t.length > 0 );
+	const out = [];
+	for ( let i = 0; i + 2 < tokens.length; i += 3 ) {
+
+		const x = parseFloat( tokens[ i ] );
+		const y = parseFloat( tokens[ i + 1 ] );
+		const z = parseFloat( tokens[ i + 2 ] );
+		if ( Number.isNaN( x ) || Number.isNaN( y ) || Number.isNaN( z ) )
+			break;
+		out.push( x, y, z );
+
+	}
+
+	return out;
+
+}
+
+/*
+===============
+R_LoadPointFile
+
+The particle half of R_ReadPointFile_f: one static particle per point,
+coloured ( -c ) & 15, that never dies. Returns the number of points read.
+===============
+*/
+export function R_LoadPointFile( coords ) {
+
+	let c = 0;
+	for ( let i = 0; i + 2 < coords.length; i += 3 ) {
+
+		c ++;
+
+		const p = allocParticle();
+		if ( p === null ) {
+
+			Con_Printf( 'Not enough free particles\n' );
+			break;
+
+		}
+
+		p.die = 99999;
+		p.color = ( - c ) & 15;
+		p.type = pt_static;
+		p.org[ 0 ] = coords[ i ];
+		p.org[ 1 ] = coords[ i + 1 ];
+		p.org[ 2 ] = coords[ i + 2 ];
+
+	}
+
+	return c;
+
+}
+
+/*
+===============
+R_ReadPointFile_f
+
+Deviation: C opens maps/<sv.name>.pts, which only exists on the server host.
+The port names it after the client's world model ( maps/e1m1.bsp gives
+maps/e1m1.pts ), the same file whenever the server is local, and it also
+works when connected to a remote server. Loose .pts files (written by qbsp
+on a leak) are fetched on demand, so the particles appear once it arrives.
+===============
+*/
+export function R_ReadPointFile_f() {
+
+	if ( client_cl === null || client_cl.worldmodel === null || client_cl.worldmodel === undefined ) {
+
+		Con_Printf( 'pointfile: no map loaded\n' );
+		return;
+
+	}
+
+	const name = COM_StripExtension( client_cl.worldmodel.name ) + '.pts';
+	const worldmodel = client_cl.worldmodel;
+
+	COM_EnsureFile( name ).then( ( found ) => {
+
+		// the map changed while the file was loading
+		if ( client_cl.worldmodel !== worldmodel ) return;
+
+		const text = found === true ? COM_LoadFileAsString( name ) : null;
+		if ( text === null ) {
+
+			Con_Printf( 'couldn\'t open ' + name + '\n' );
+			return;
+
+		}
+
+		Con_Printf( 'Reading ' + name + '...\n' );
+		const c = R_LoadPointFile( R_ParsePointFile( text ) );
+		Con_Printf( c + ' points read\n' );
+
+	} );
 
 }
 

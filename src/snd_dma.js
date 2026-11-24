@@ -12,8 +12,9 @@ import {
 	listener_origin, listener_forward, listener_right, listener_up,
 	sound_nominal_clip_dist,
 	loadas8bit, bgmvolume, volume,
-	snd_initialized,
-	Sound_SetTotalChannels, Sound_SetPaintedtime, Sound_SetShm, Sound_SetInitialized
+	snd_initialized, snd_blocked,
+	Sound_SetTotalChannels, Sound_SetPaintedtime, Sound_SetShm, Sound_SetInitialized,
+	Sound_SetBlocked
 } from './sound.js';
 import { S_LoadSound } from './snd_mem.js';
 import { cl } from './client.js';
@@ -97,6 +98,9 @@ export function S_Init() {
 		masterGain.connect( audioContext.destination );
 		masterGain.gain.value = volume.value;
 
+		// started while the page is hidden: stay blocked (S_BlockSound)
+		if ( snd_blocked > 0 ) audioContext.suspend();
+
 		sound_started = true;
 		Sound_SetInitialized( true );
 
@@ -162,7 +166,7 @@ export function S_Startup() {
 	if ( ! snd_initialized )
 		return;
 
-	if ( audioContext && audioContext.state === 'suspended' ) {
+	if ( audioContext && audioContext.state === 'suspended' && snd_blocked <= 0 ) {
 
 		audioContext.resume();
 
@@ -200,11 +204,48 @@ Web Audio API requires a user gesture before audio can play.
 */
 export function S_UnlockAudio() {
 
-	if ( audioContext && audioContext.state === 'suspended' ) {
+	// A blocked (hidden) page stays silent until S_UnblockSound.
+	if ( audioContext && audioContext.state === 'suspended' && snd_blocked <= 0 ) {
 
 		audioContext.resume();
 
 	}
+
+}
+
+/*
+==================
+S_BlockSound
+
+Ported from snd_win.c. The wave-out path counts blocks and silences the
+device on the first (waveOutReset); suspending the AudioContext is the
+Web Audio equivalent. Nothing is mixed while hidden anyway: the frame
+loop runs on requestAnimationFrame, which the browser pauses.
+==================
+*/
+export function S_BlockSound() {
+
+	Sound_SetBlocked( snd_blocked + 1 );
+
+	if ( snd_blocked === 1 && audioContext !== null && audioContext.state !== 'closed' )
+		audioContext.suspend().catch( () => {} );
+
+}
+
+/*
+==================
+S_UnblockSound
+==================
+*/
+export function S_UnblockSound() {
+
+	Sound_SetBlocked( snd_blocked - 1 );
+
+	// Resume whatever the reported state: suspend() is async, so a page hidden
+	// and shown again quickly can still read 'running' here and then go
+	// suspended, and iOS reports 'interrupted' after a call or backgrounding.
+	if ( snd_blocked <= 0 && audioContext !== null && audioContext.state !== 'closed' )
+		audioContext.resume().catch( () => {} );
 
 }
 

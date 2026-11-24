@@ -214,7 +214,6 @@ export const r_oldviewleaf = null;
 export const r_notexture_mip = null;
 export const d_lightstylevalue = new Int32Array( 256 );
 
-export const envmap = false;
 
 export const skytexturenum = - 1;
 export let mirrortexturenum = - 1;
