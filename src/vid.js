@@ -136,7 +136,7 @@ export function VID_ShiftPalette( palette ) {
 // For browser: creates a canvas and initializes Three.js WebGLRenderer.
 //============================================================================
 
-export function VID_Init( palette ) {
+export function VID_Init( palette, gammaparm = null ) {
 
 	Sys_Printf( 'VID_Init' );
 
@@ -162,6 +162,7 @@ export function VID_Init( palette ) {
 	// build palette lookup
 	if ( palette ) {
 
+		Check_Gamma( palette, gammaparm );
 		VID_SetPalette( palette );
 
 	}
@@ -299,21 +300,74 @@ export function VID_HandlePause( pause ) {
 }
 
 //============================================================================
+// Check_Gamma (gl_vidnt.c)
+//
+// GLQuake bakes a gamma curve into the palette once, at VID_Init:
+// pow( ( c + 1 ) / 256, vid_gamma ). vid_gamma is 1 on 3Dfx cards and 0.7 on
+// everything else, or the -gamma command-line value (read by Host_Init and
+// passed in, so vid.js needn't import common.js). The port takes the non-3Dfx
+// path. Like the C it rewrites the palette in place, so host_basepal
+// (Draw_Fill, 2D pics) sees the corrected colours too.
+//============================================================================
+
+let vid_gamma = 1.0;
+let _gamma_checked = false;
+
+export function Check_Gamma_Palette( pal, gamma ) {
+
+	for ( let i = 0; i < 768; i ++ ) {
+
+		const f = Math.pow( ( pal[ i ] + 1 ) / 256.0, gamma );
+		let inf = Math.floor( f * 255 + 0.5 );
+		if ( inf < 0 )
+			inf = 0;
+		if ( inf > 255 )
+			inf = 255;
+		pal[ i ] = inf;
+
+	}
+
+	return pal;
+
+}
+
+export function Check_Gamma( pal, gammaparm = null ) {
+
+	// C runs this once per VID_Init; guard so a second call can't apply the
+	// curve twice to the same in-place palette.
+	if ( _gamma_checked === true ) return;
+	_gamma_checked = true;
+
+	if ( gammaparm === null )
+		vid_gamma = 0.7; // default to 0.7 on non-3dfx hardware
+	else
+		vid_gamma = gammaparm;
+
+	Check_Gamma_Palette( pal, vid_gamma );
+
+}
+
+//============================================================================
 // VID_UpdateGamma
 //
-// Updates the renderer's tone mapping exposure based on the gamma cvar.
-// In original Quake, gamma ranges from 0.5 (brightest) to 1.0 (normal).
-// We map this to toneMappingExposure where 1.0 is normal and higher is brighter.
+// In GLQuake the gamma cvar does nothing: VID_ShiftPalette (gl_vidnt.c) is an
+// empty stub, so the only gamma is Check_Gamma's. Deviation: the port keeps
+// the cvar working as a brightness control, as a tone-mapping exposure of
+// 1 / gamma. At the default gamma 1 the exposure is 1, which with
+// Check_Gamma and LIGHTMAP_INTENSITY (glquake.js) matches GLQuake's output.
 //============================================================================
+
+export function VID_GammaExposure( gamma ) {
+
+	if ( ! ( gamma > 0 ) ) gamma = 1.0;
+	return 1.0 / gamma;
+
+}
 
 export function VID_UpdateGamma( gamma ) {
 
 	if ( ! renderer ) return;
 
-	// Quake gamma: 0.5 = bright, 1.0 = normal
-	// Exposure: higher = brighter
-	// Base exposure of 1.5 to brighten the overall scene
-	// Map gamma 0.5->3.0, 1.0->1.5 using: exposure = 1.5 / gamma
-	renderer.toneMappingExposure = 1.5 / gamma;
+	renderer.toneMappingExposure = VID_GammaExposure( gamma );
 
 }

@@ -63,7 +63,7 @@ Deno.test( 'dynamic light brightness comes from the radius, not the time left', 
 		light.die = 10.5;
 		gl_rlight.R_RenderDlights( cl, scene );
 		assertNear( pointLight.intensity, shortLived, 'intensity independent of die' );
-		assertNear( pointLight.intensity, 200 * ( 4 / 255 ) * 0.625, 'intensity matches the lightmap scale' );
+		assertNear( pointLight.intensity, 200 * ( 2 * glquake.LIGHTMAP_INTENSITY / 255 ) * 0.625, 'intensity matches the lightmap scale' );
 		assertNear( pointLight.distance, 200 - 32, 'reach stops at minlight' );
 		assertEqual( pointLight.decay, 0, 'no inverse-square falloff' );
 

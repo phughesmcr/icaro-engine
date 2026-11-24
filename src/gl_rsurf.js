@@ -38,7 +38,7 @@ function createQuakeLightmapMaterial( diffuseMap, lightmapTex ) {
 	const matOptions = {
 		map: diffuseMap,
 		lightMap: lightmapTex,
-		lightMapIntensity: 2
+		lightMapIntensity: LIGHTMAP_INTENSITY
 	};
 
 	// Fullbright pixel support: palette indices 224-255 should render at full
@@ -87,6 +87,7 @@ import {
 } from './mathlib.js';
 import { Mod_LeafPVS, solidskytexture, alphaskytexture } from './gl_model.js';
 import { realtime } from './host.js';
+import { LIGHTMAP_INTENSITY } from './glquake.js';
 import { MAX_MODELS } from './quakedef.js';
 import { R_MirrorGate } from './gl_rmirror.js';
 import { isXRActive } from './webxr.js';
@@ -2964,6 +2965,8 @@ export function GL_BuildLightmaps() {
 		texture.minFilter = THREE.LinearFilter;
 		texture.magFilter = THREE.LinearFilter;
 		texture.flipY = false;
+		// GLQuake's lightmap scales display-space colour; see LIGHTMAP_INTENSITY.
+		texture.colorSpace = THREE.SRGBColorSpace;
 		texture.needsUpdate = true;
 
 		lightmapTextures[ i ] = texture;

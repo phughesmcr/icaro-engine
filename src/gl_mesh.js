@@ -641,6 +641,15 @@ Caches geometry per (model, pose), materials per (model, skin),
 and reuses mesh objects per entity to minimize per-frame allocations.
 =================
 */
+// sRGB decode of a display-space light level, clamped as glColor3f clamps.
+export function GL_LinearLight( l ) {
+
+	if ( ! ( l > 0 ) ) return 0;
+	if ( l >= 1 ) return 1;
+	return l <= 0.04045 ? l / 12.92 : Math.pow( ( l + 0.055 ) / 1.055, 2.4 );
+
+}
+
 export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 
 	if ( ! paliashdr || ! paliashdr.posedata )
@@ -694,7 +703,9 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 		const lni = template.lightnormalindices;
 		for ( let i = 0; i < template.vertexCount; i ++ ) {
 
-			const l = shadedots[ lni[ i ] ] * shadelight;
+			// glColor3f clamps to [0, 1], and GL modulates in display space;
+			// Three multiplies vertex colours in linear space, so decode.
+			const l = GL_LinearLight( shadedots[ lni[ i ] ] * shadelight );
 			colorArr[ i * 3 ] = l;
 			colorArr[ i * 3 + 1 ] = l;
 			colorArr[ i * 3 + 2 ] = l;
