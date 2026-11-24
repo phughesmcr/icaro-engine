@@ -2193,20 +2193,37 @@ function Mod_MakeHull0() {
 	hull.lastclipnode = count - 1;
 	hull.planes = loadmodel.planes;
 
+	// C gets these indices by pointer subtraction (in->plane - planes,
+	// child - nodes). indexOf per node is quadratic, which a map near the
+	// raised limits makes slow, so look them up from maps built once.
+	const planenums = new Map();
+	for ( let i = 0; i < loadmodel.planes.length; i ++ )
+		planenums.set( loadmodel.planes[ i ], i );
+	const nodenums = new Map();
+	for ( let i = 0; i < count; i ++ )
+		nodenums.set( _in[ i ], i );
+
 	for ( let i = 0; i < count; i ++ ) {
 
 		const cn = new dclipnode_t();
 		const node = _in[ i ];
 
-		cn.planenum = loadmodel.planes.indexOf( node.plane );
+		const planenum = planenums.get( node.plane );
+		cn.planenum = planenum !== undefined ? planenum : - 1;
 
 		for ( let j = 0; j < 2; j ++ ) {
 
 			const child = node.children[ j ];
-			if ( child.contents < 0 )
+			if ( child.contents < 0 ) {
+
 				cn.children[ j ] = child.contents;
-			else
-				cn.children[ j ] = loadmodel.nodes.indexOf( child );
+
+			} else {
+
+				const nodenum = nodenums.get( child );
+				cn.children[ j ] = nodenum !== undefined ? nodenum : - 1;
+
+			}
 
 		}
 

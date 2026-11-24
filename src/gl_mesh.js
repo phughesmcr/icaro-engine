@@ -371,11 +371,11 @@ function GL_AliasCullSphere( hdr ) {
 		const verts = hdr.posedata[ i ];
 		for ( let j = 0; j < verts.length; j ++ ) {
 
-			if ( verts[ j ] == null ) continue;	// as GL_DrawAliasFrame skips it
-			const v = verts[ j ].v;
-			const x = v[ 0 ] * scale[ 0 ] + origin[ 0 ];
-			const y = v[ 1 ] * scale[ 1 ] + origin[ 1 ];
-			const z = v[ 2 ] * scale[ 2 ] + origin[ 2 ];
+			// GL_DrawAliasFrame places a missing vertex at the model origin
+			const vert = verts[ j ];
+			const x = vert != null ? vert.v[ 0 ] * scale[ 0 ] + origin[ 0 ] : 0;
+			const y = vert != null ? vert.v[ 1 ] * scale[ 1 ] + origin[ 1 ] : 0;
+			const z = vert != null ? vert.v[ 2 ] * scale[ 2 ] + origin[ 2 ] : 0;
 			if ( x < minx ) minx = x;
 			if ( x > maxx ) maxx = x;
 			if ( y < miny ) miny = y;
@@ -406,11 +406,10 @@ function GL_AliasCullSphere( hdr ) {
 		const verts = hdr.posedata[ i ];
 		for ( let j = 0; j < verts.length; j ++ ) {
 
-			if ( verts[ j ] == null ) continue;	// as GL_DrawAliasFrame skips it
-			const v = verts[ j ].v;
-			const dx = v[ 0 ] * scale[ 0 ] + origin[ 0 ] - cx;
-			const dy = v[ 1 ] * scale[ 1 ] + origin[ 1 ] - cy;
-			const dz = v[ 2 ] * scale[ 2 ] + origin[ 2 ] - cz;
+			const vert = verts[ j ];
+			const dx = ( vert != null ? vert.v[ 0 ] * scale[ 0 ] + origin[ 0 ] : 0 ) - cx;
+			const dy = ( vert != null ? vert.v[ 1 ] * scale[ 1 ] + origin[ 1 ] : 0 ) - cy;
+			const dz = ( vert != null ? vert.v[ 2 ] * scale[ 2 ] + origin[ 2 ] : 0 ) - cz;
 			const d = dx * dx + dy * dy + dz * dz;
 			if ( d > radiusSq ) radiusSq = d;
 

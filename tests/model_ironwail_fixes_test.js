@@ -254,10 +254,15 @@ Deno.test( 'Mod_DecompressVis stops at the end of truncated vis data', () => {
 
 Deno.test( 'Mod_DecompressVis clamps a zero run that overruns the row', () => {
 
+	// fill a longer row with 0xff so a write past this model's row would show
+	gl_model.Mod_DecompressVis( null, 0, { numleafs: 64, name: 'wide', viswarn: false } );
+
 	const model = { numleafs: 16, name: 'overrun', viswarn: false };
 	const row = gl_model.Mod_DecompressVis( new Uint8Array( [ 0x00, 0xff, 0x55 ] ), 0, model );
 	assertEqual( row[ 0 ], 0, 'first byte' );
 	assertEqual( row[ 1 ], 0, 'second byte' );
+	for ( let i = 2; i < 8; i ++ )
+		assertEqual( row[ i ], 0xff, `byte ${i} past the row left alone` );
 	assertEqual( model.viswarn, true, 'overrun warned' );
 
 	// a well-formed row decompresses as before
@@ -408,7 +413,160 @@ Deno.test( 'texture lump skips bad offsets and clamps pixels to the lump', () =>
 } );
 
 // ----------------------------------------------------------------------------
-// 4-6. Limits
+// 5-6. Alias models
+// ----------------------------------------------------------------------------
+
+// A synthetic MDL with one 8x8 skin and three vertices. tris: array of
+// [ facesfront, v0, v1, v2 ]. frames: array of either a pose (array of three
+// [ x, y, z ] byte triples) for a single frame, or { group: [ pose, ... ] }.
+function buildMdl( tris, frames, numtrisOverride ) {
+
+	const numverts = 3;
+	const poseSize = 24 + numverts * 4;	// daliasframe_t + trivertx_t[]
+	let size = 84 + 4 + 64 + numverts * 12 + tris.length * 16;
+	for ( const f of frames )
+		size += f.group !== undefined ? 4 + 12 + f.group.length * ( 4 + poseSize ) : 4 + poseSize;
+
+	const bytes = new Uint8Array( size );
+	const view = new DataView( bytes.buffer );
+	view.setUint32( 0, gl_model.IDPOLYHEADER, true );
+	view.setInt32( 4, gl_model.ALIAS_VERSION, true );
+	for ( let i = 0; i < 3; i ++ ) view.setFloat32( 8 + i * 4, 1, true );	// scale
+	view.setInt32( 48, 1, true );		// numskins
+	view.setInt32( 52, 8, true );		// skinwidth
+	view.setInt32( 56, 8, true );		// skinheight
+	view.setInt32( 60, numverts, true );
+	view.setInt32( 64, numtrisOverride !== undefined ? numtrisOverride : tris.length, true );
+	view.setInt32( 68, frames.length, true );
+	view.setFloat32( 80, 1, true );		// size
+
+	let pos = 84 + 4 + 64;		// one ALIAS_SKIN_SINGLE skin, left 0
+	for ( let i = 0; i < numverts; i ++, pos += 12 ) {
+
+		view.setInt32( pos + 4, i * 2, true );	// s
+		view.setInt32( pos + 8, i, true );	// t
+
+	}
+
+	for ( const t of tris ) {
+
+		for ( let j = 0; j < 4; j ++ ) view.setInt32( pos + j * 4, t[ j ], true );
+		pos += 16;
+
+	}
+
+	function writePose( pose ) {
+
+		pos += 24;	// bboxmin, bboxmax, name
+		for ( const v of pose ) {
+
+			bytes[ pos ] = v[ 0 ];
+			bytes[ pos + 1 ] = v[ 1 ];
+			bytes[ pos + 2 ] = v[ 2 ];
+			pos += 4;
+
+		}
+
+	}
+
+	for ( const f of frames ) {
+
+		if ( f.group === undefined ) {
+
+			view.setInt32( pos, gl_model.ALIAS_SINGLE, true );
+			pos += 4;
+			writePose( f );
+			continue;
+
+		}
+
+		view.setInt32( pos, gl_model.ALIAS_GROUP, true );
+		view.setInt32( pos + 4, f.group.length, true );
+		pos += 4 + 12;
+		for ( let i = 0; i < f.group.length; i ++, pos += 4 )
+			view.setFloat32( pos, 0.1, true );	// intervals
+		for ( const pose of f.group ) writePose( pose );
+
+	}
+
+	return bytes;
+
+}
+
+function loadMdl( bytes ) {
+
+	const name = 'progs/__ironwail_fix_' + ( pakSerial ++ ) + '.mdl';
+	COM_AddPack( { files: [ { name: name, filepos: 0, filelen: bytes.length } ], data: bytes.buffer } );
+	return gl_model.Mod_Extradata( gl_model.Mod_ForName( name, true ) );
+
+}
+
+const TRI = [ 1, 0, 1, 2 ];
+const POSE = [ [ 0, 0, 0 ], [ 4, 0, 0 ], [ 0, 4, 0 ] ];
+
+Deno.test( 'alias models past GLQuake\'s triangle and command buffers mesh whole', () => {
+
+	// Identical triangles never share a strip edge, so each is its own
+	// fan: 7 commands and 3 vertexes each. 2800 overflows GLQuake's 8192
+	// commands and vertexorder.
+	const numtris = 2800;
+	const hdr = loadMdl( buildMdl( new Array( numtris ).fill( TRI ), [ POSE ] ) );
+	assertEqual( hdr.numtris, numtris, 'numtris' );
+	assertEqual( hdr.commands.length, numtris * 7 + 1, 'command list length' );
+	assertEqual( hdr.commands[ numtris * 7 ], 0, 'end of list marker' );
+	assertEqual( Math.abs( hdr.commands[ ( numtris - 1 ) * 7 ] ), 3, 'last strip or fan length' );
+	assertEqual( hdr.posedata[ 0 ].length, numtris * 3, 'reordered vertexes' );
+
+} );
+
+Deno.test( 'alias model triangle and frame counts are bounds checked', () => {
+
+	assertThrows( () => loadMdl( buildMdl( [ TRI ], [ POSE ], gl_model.MAXALIASTRIS + 1 ) ),
+		/too many triangles/, 'numtris' );
+
+	const poses = new Array( gl_model.MAXALIASFRAMES + 1 ).fill( POSE );
+	assertThrows( () => loadMdl( buildMdl( [ TRI ], [ { group: poses } ] ) ),
+		/posenum >= MAXALIASFRAMES/, 'group frames' );
+
+	const singles = new Array( gl_model.MAXALIASFRAMES + 1 ).fill( POSE );
+	assertThrows( () => loadMdl( buildMdl( [ TRI ], singles ) ),
+		/posenum >= MAXALIASFRAMES/, 'single frames' );
+
+	// exactly MAXALIASFRAMES poses still load
+	const hdr = loadMdl( buildMdl( [ TRI ], [ { group: poses.slice( 1 ) } ] ) );
+	assertEqual( hdr.numposes, gl_model.MAXALIASFRAMES, 'numposes at the limit' );
+
+} );
+
+Deno.test( 'alias cull sphere holds every pose, not just the first', () => {
+
+	const far = [ [ 0, 0, 0 ], [ 200, 0, 0 ], [ 0, 4, 100 ] ];
+	const hdr = loadMdl( buildMdl( [ TRI ], [ POSE, { group: [ POSE, far ] } ] ) );
+	const c = hdr._cullCenter;
+	const r = hdr._cullRadius;
+
+	for ( let p = 0; p < hdr.posedata.length; p ++ ) {
+
+		for ( const vert of hdr.posedata[ p ] ) {
+
+			const dx = vert.v[ 0 ] - c[ 0 ];
+			const dy = vert.v[ 1 ] - c[ 1 ];
+			const dz = vert.v[ 2 ] - c[ 2 ];
+			if ( Math.sqrt( dx * dx + dy * dy + dz * dz ) > r + 1e-6 )
+				throw new Error( `pose ${p} vertex ${vert.v} outside the cull sphere` );
+
+		}
+
+	}
+
+	// the first pose alone fits in a sphere of radius under 4
+	if ( r < 100 )
+		throw new Error( `cull radius ${r} ignores the far pose` );
+
+} );
+
+// ----------------------------------------------------------------------------
+// Limits
 // ----------------------------------------------------------------------------
 
 Deno.test( 'alias model limits match QuakeSpasm and gl_mesh.js', () => {
