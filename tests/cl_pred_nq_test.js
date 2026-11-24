@@ -6,7 +6,7 @@
 // require the same origin and velocity.
 
 import { CONTENTS_EMPTY, CONTENTS_SOLID } from '../src/bspfile.js';
-import { MSG_WriteAngle, MSG_ReadAngle, MSG_BeginReading, SZ_Clear, net_message,
+import { MSG_WriteAngle16, MSG_ReadAngle16, MSG_BeginReading, SZ_Clear, net_message,
 	COM_SetNetMessage } from '../src/common.js';
 import { AngleVectors, DotProduct } from '../src/mathlib.js';
 import { edict_t } from '../src/progs.js';
@@ -194,9 +194,9 @@ function netAngle( f ) {
 	try {
 
 		SZ_Clear( _anglebuf );
-		MSG_WriteAngle( _anglebuf, f );
+		MSG_WriteAngle16( _anglebuf, f );
 		MSG_BeginReading();
-		return MSG_ReadAngle();
+		return MSG_ReadAngle16();
 
 	} finally {
 
@@ -483,7 +483,7 @@ Deno.test( 'NQ prediction: swimming matches the server (SV_WaterMove, QC drag)',
 
 } );
 
-Deno.test( 'CL_QuantizeAngle matches the MSG_WriteAngle / MSG_ReadAngle round trip', () => {
+Deno.test( 'CL_QuantizeAngle matches the MSG_WriteAngle16 / MSG_ReadAngle16 round trip', () => {
 
 	for ( let f = - 400; f <= 400; f += 0.37 ) {
 

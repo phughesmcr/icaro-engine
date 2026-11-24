@@ -387,16 +387,23 @@ export function MSG_WriteCoord( sb, f ) {
 
 }
 
+// Deliberate deviation from WinQuake's ((int)f*256/360) & 255, which drops
+// the fraction of a degree before quantising (up to ~2.4 deg off). This
+// rounds to the nearest step with Q_rint, as FitzQuake/QuakeSpasm do
+// (johnfitz -- use Q_rint instead of (int)).
 export function MSG_WriteAngle( sb, f ) {
 
-	MSG_WriteByte( sb, ( ( f | 0 ) * 256 / 360 ) & 255 );
+	const x = f * 256 / 360;
+	// Q_rint: ((x) > 0 ? (int)((x) + 0.5) : (int)((x) - 0.5))
+	MSG_WriteByte( sb, ( ( x > 0 ? x + 0.5 : x - 0.5 ) | 0 ) & 255 );
 
 }
 
 // QuakeWorld-style 16-bit angle (more precision)
+// Ported from: QW/client/common.c MSG_WriteAngle16
 export function MSG_WriteAngle16( sb, f ) {
 
-	MSG_WriteShort( sb, ( ( f | 0 ) * 65536 / 360 ) & 65535 );
+	MSG_WriteShort( sb, ( ( f * 65536 / 360 ) | 0 ) & 65535 );
 
 }
 
