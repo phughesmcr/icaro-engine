@@ -72,14 +72,6 @@ All twelve fix branches merge into `dev` together without conflicts. With `--all
 - Merge #13 after #8, #9 and #10.
 - #10 changes the packet-entity wire format without bumping `PROTOCOL_VERSION`, which has to stay 15 for the shipped demos. #13 adds a flag and a byte to `svc_playerinfo`. For both, deploy the client and server together, and make sure clients don't keep a cached bundle across the change.
 
-**Unsigned commits** (made while no one could answer the signing prompt): re-sign these before merging.
-- [#9]: `278f182` and `0b8f2b3`
-- [#10]: `7a37ad0`
-- [#11]: `afc4db2` and `fa1e2f4`
-- [#12]: `dae6df4`, `c4e0010` and the merge `244485e`
-- [#13]: `e1457eb`, `0948c70` and `ca62037`
-- [#1]: the commits that added and updated this section
-
 ### Residuals and follow-ups
 
 What the PRs above leave open, on purpose or because it can't be checked here.
