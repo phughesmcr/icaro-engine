@@ -131,11 +131,10 @@ Deno.test( 'touch menus: Touch Controls page, slider taps and Setup rows', async
 		tap( 100, 126 );
 		assertEqual( menu.m_state === menu.m_setup, false, 'Accept Changes leaves setup' );
 
-		touch.touch_sensitivity.value = 1;
-		touch.touch_sensitivity.string = '1';
-
 	} finally {
 
+		touch.touch_sensitivity.value = 1;
+		touch.touch_sensitivity.string = '1';
 		if ( ! hadWindow ) delete globalThis.window;
 
 	}
