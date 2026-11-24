@@ -9,6 +9,7 @@ line of sight checks trace->crosscontent, but bullets don't
 */
 
 import { Sys_Error } from './sys.js';
+import { Host_Error } from './host.js';
 import { Con_DPrintf, link_t, ClearLink, RemoveLink, InsertLinkBefore } from './common.js';
 import { VectorCopy, VectorAdd, VectorSubtract, DotProduct, vec3_origin, BoxOnPlaneSide } from './mathlib.js';
 import {
@@ -21,6 +22,7 @@ import {
 	CONTENTS_EMPTY, CONTENTS_SOLID, CONTENTS_WATER,
 	CONTENTS_CURRENT_0, CONTENTS_CURRENT_DOWN
 } from './bspfile.js';
+import { MAX_EDICTS } from './quakedef.js';
 import { PR_ExecuteProgram } from './pr_exec.js';
 import { EDICT_TO_PROG, PROG_TO_EDICT, pr_global_struct } from './progs.js';
 
@@ -205,13 +207,15 @@ export function SV_HullForEntity( ent, mins, maxs, offset ) {
 	if ( ent.v.solid === SOLID_BSP ) {
 
 		// explicit hulls in the BSP model
+		// C calls Sys_Error for both of these. Like Ironwail, Host_Error:
+		// they are QuakeC or map errors, so end the map, not the program.
 		if ( ent.v.movetype !== MOVETYPE_PUSH )
-			Sys_Error( 'SOLID_BSP without MOVETYPE_PUSH' );
+			Host_Error( 'SOLID_BSP without MOVETYPE_PUSH' );
 
 		const model = sv.models[ ent.v.modelindex | 0 ];
 
 		if ( ! model || model.type !== 0 ) // mod_brush = 0
-			Sys_Error( 'MOVETYPE_PUSH with a non bsp model' );
+			Host_Error( 'MOVETYPE_PUSH with a non bsp model' );
 
 		const size = new Float32Array( 3 );
 		VectorSubtract( maxs, mins, size );
@@ -373,53 +377,35 @@ export function SV_UnlinkEdict( ent ) {
 
 /*
 ====================
-SV_TouchLinks
+SV_AreaTriggerEdicts
+
+Not in C: Ironwail's (from Spike). Appends to touch_list the triggers at or
+below node that touch ent, without running QuakeC, so the area lists can't
+change under the walk. Mirrors the tests of C's SV_TouchLinks.
 ====================
 */
-export function SV_TouchLinks( ent, node ) {
+function SV_AreaTriggerEdicts( ent, node, listspace ) {
 
 	// touch linked edicts
-	let l = node.trigger_edicts.next;
-	while ( l !== node.trigger_edicts ) {
+	for ( let l = node.trigger_edicts.next; l !== node.trigger_edicts; l = l.next ) {
 
-		const next = l.next;
 		const touch = l._owner; // EDICT_FROM_AREA(l)
-		if ( ! touch || touch === ent ) {
-
-			l = next;
+		if ( ! touch || touch === ent )
 			continue;
-
-		}
-
-		if ( ! touch.v.touch || touch.v.solid !== SOLID_TRIGGER ) {
-
-			l = next;
+		if ( ! touch.v.touch || touch.v.solid !== SOLID_TRIGGER )
 			continue;
-
-		}
-
 		if ( ent.v.absmin[ 0 ] > touch.v.absmax[ 0 ]
 			|| ent.v.absmin[ 1 ] > touch.v.absmax[ 1 ]
 			|| ent.v.absmin[ 2 ] > touch.v.absmax[ 2 ]
 			|| ent.v.absmax[ 0 ] < touch.v.absmin[ 0 ]
 			|| ent.v.absmax[ 1 ] < touch.v.absmin[ 1 ]
-			|| ent.v.absmax[ 2 ] < touch.v.absmin[ 2 ] ) {
-
-			l = next;
+			|| ent.v.absmax[ 2 ] < touch.v.absmin[ 2 ] )
 			continue;
 
-		}
+		if ( touch_count - touch_base === listspace )
+			return; // should never happen
 
-		const old_self = pr_global_struct.self;
-		const old_other = pr_global_struct.other;
-		pr_global_struct.self = EDICT_TO_PROG( touch );
-		pr_global_struct.other = EDICT_TO_PROG( ent );
-		pr_global_struct.time = sv.time;
-		PR_ExecuteProgram( touch.v.touch );
-		pr_global_struct.self = old_self;
-		pr_global_struct.other = old_other;
-
-		l = next;
+		touch_list[ touch_count ++ ] = touch;
 
 	}
 
@@ -428,9 +414,79 @@ export function SV_TouchLinks( ent, node ) {
 		return;
 
 	if ( ent.v.absmax[ node.axis ] > node.dist )
-		SV_TouchLinks( ent, node.children[ 0 ] );
+		SV_AreaTriggerEdicts( ent, node.children[ 0 ], listspace );
 	if ( ent.v.absmin[ node.axis ] < node.dist )
-		SV_TouchLinks( ent, node.children[ 1 ] );
+		SV_AreaTriggerEdicts( ent, node.children[ 1 ], listspace );
+
+}
+
+// SV_TouchLinks' list of triggers to touch. A touch function can relink an
+// entity and so reenter SV_TouchLinks; each call uses the slots from
+// touch_count up (Ironwail takes a fresh hunk block per call). Sized for
+// one full call, it grows only if nested calls need more.
+const touch_list = new Array( MAX_EDICTS ).fill( null );
+let touch_count = 0;
+let touch_base = 0;
+
+/*
+====================
+SV_TouchLinks
+
+C walks the area node's trigger list while it runs QuakeC touch functions,
+which can unlink or relink triggers and corrupt the walk. Like Ironwail
+(ericw, from Spike), collect the touching triggers first, then check each one
+again before calling its touch function, since an earlier touch may have
+removed or moved it.
+====================
+*/
+export function SV_TouchLinks( ent ) {
+
+	const old_base = touch_base;
+	const start = touch_count;
+	touch_base = start;
+
+	try {
+
+		SV_AreaTriggerEdicts( ent, sv_areanodes[ 0 ], sv.num_edicts );
+		const end = touch_count;
+
+		for ( let i = start; i < end; i ++ ) {
+
+			const touch = touch_list[ i ];
+
+			// re-validate in case a touch function had side effects that
+			// make edicts later in the list no longer touch
+			if ( touch === ent )
+				continue;
+			if ( ! touch.v.touch || touch.v.solid !== SOLID_TRIGGER )
+				continue;
+			if ( ent.v.absmin[ 0 ] > touch.v.absmax[ 0 ]
+				|| ent.v.absmin[ 1 ] > touch.v.absmax[ 1 ]
+				|| ent.v.absmin[ 2 ] > touch.v.absmax[ 2 ]
+				|| ent.v.absmax[ 0 ] < touch.v.absmin[ 0 ]
+				|| ent.v.absmax[ 1 ] < touch.v.absmin[ 1 ]
+				|| ent.v.absmax[ 2 ] < touch.v.absmin[ 2 ] )
+				continue;
+
+			const old_self = pr_global_struct.self;
+			const old_other = pr_global_struct.other;
+			pr_global_struct.self = EDICT_TO_PROG( touch );
+			pr_global_struct.other = EDICT_TO_PROG( ent );
+			pr_global_struct.time = sv.time;
+			PR_ExecuteProgram( touch.v.touch );
+			pr_global_struct.self = old_self;
+			pr_global_struct.other = old_other;
+
+		}
+
+	} finally {
+
+		// free this call's slots (Hunk_FreeToLowMark)
+		touch_list.fill( null, start, touch_count );
+		touch_count = start;
+		touch_base = old_base;
+
+	}
 
 }
 
@@ -554,7 +610,7 @@ export function SV_LinkEdict( ent, touch_triggers ) {
 
 	// if touch_triggers, touch all entities at this node and descend for more
 	if ( touch_triggers )
-		SV_TouchLinks( ent, sv_areanodes[ 0 ] );
+		SV_TouchLinks( ent );
 
 }
 

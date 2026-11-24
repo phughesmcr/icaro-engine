@@ -10,7 +10,7 @@ import { COM_AddPakSequence, COM_AddGameDirectory, COM_SetLooseFileBasePath, COM
 import { COM_InitArgv, rogue, hipnotic } from '../src/common.js';
 import { Cbuf_Init, Cbuf_Execute, Cmd_Init } from '../src/cmd.js';
 import { Host_InitCommands } from '../src/host_cmd.js';
-import { deathmatch, samelevel, noexit, sys_ticrate } from '../src/host.js';
+import { deathmatch, samelevel, noexit, sys_ticrate, Host_ShutdownServer } from '../src/host.js';
 import { cls, ca_dedicated } from '../src/client.js';
 import { Memory_Init } from '../src/zone.js';
 import { PR_Init } from '../src/pr_edict.js';
@@ -420,6 +420,44 @@ function Host_ServerFrame() {
 }
 
 /**
+ * Run one server frame and say whether the room must exit.
+ *
+ * Host_Error (or a failed level change) shuts the server down and nothing
+ * restarts it, so the room exits rather than linger as a dead room.
+ *
+ * Any other throw (Sys_Error, a JavaScript error) leaves sv.active set
+ * after a half-run frame: QuakeC may have stopped mid-function and edicts
+ * may be half-updated. Running more frames on that state is not
+ * deterministic, and restarting the map would carry it into the next level
+ * through the spawn parms. In C, Sys_Error quits the program, so the room
+ * does the same: it shuts the server down (svc_disconnect to every client)
+ * and exits. Host_ShutdownServer( true ) skips each client's own final
+ * message; the port's SV_DropClient still runs QuakeC's ClientDisconnect,
+ * and if that throws on the broken state the server is marked inactive
+ * anyway.
+ *
+ * frame is injectable for tests.
+ */
+export function Room_RunFrame(frame = Host_ServerFrame) {
+	const wasActive = sv.active === true;
+	try {
+		frame();
+	} catch (error) {
+		Sys_Printf('Host_ServerFrame error: %s\n', String(error));
+		if (sv.active === true) {
+			try {
+				Host_ShutdownServer(true);
+			} catch (shutdownError) {
+				Sys_Printf('Host_ServerFrame error: Host_ShutdownServer: %s\n', String(shutdownError));
+				sv.active = false;
+			}
+		}
+		return true;
+	}
+	return wasActive && sv.active !== true;
+}
+
+/**
  * Main server loop
  */
 async function runServerLoop() {
@@ -439,17 +477,8 @@ async function runServerLoop() {
 			Sys_Printf('[GameLoop] Call #%d\n', gameLoopCallCount);
 		}
 
-		const wasActive = sv.active === true;
-		try {
-			Host_ServerFrame();
-		} catch (error) {
-			Sys_Printf('Host_ServerFrame error: %s\n', String(error));
-		}
-
-		// Host_Error (or a failed level change) shuts the server down and
-		// nothing restarts it. Exit rather than linger as a dead room; the
-		// lobby frees the port and id when the process exits.
-		if (wasActive && sv.active !== true) {
+		// The lobby frees the port and id when the process exits.
+		if (Room_RunFrame()) {
 			Room_ReportStatus(true);
 			Sys_Printf('Host_Error: server is no longer active, exiting\n');
 			Deno.exit(1);
