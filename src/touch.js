@@ -671,9 +671,15 @@ function onMenuTouchEnd( e ) {
 
 	e.preventDefault();
 
-	// touchend is a user activation: the iOS motion permission prompt for
-	// gyro aiming (just switched on in the menu) can be shown now
-	if ( e.type === 'touchend' ) Gyro_Update( true );
+	Menu_HandleTouchEnd( e );
+
+	// touchend is a user activation: if the tap just switched gyro aiming on,
+	// iOS can show its motion permission prompt now
+	if ( e.type === 'touchend' ) Gyro_RequestPermission();
+
+}
+
+function Menu_HandleTouchEnd( e ) {
 
 	if ( menuTouch === null ) return;
 	const touch = findTouch( e.changedTouches, menuTouch );
@@ -941,6 +947,8 @@ function Stick_Load() {
 
 	} ).catch( ( err ) => {
 
+		// Try again on the next Touch_Enable (e.g. back online)
+		nippleLoad = null;
 		console.warn( 'Touch: could not load the move stick (nipplejs):', err.message );
 
 	} );
@@ -987,8 +995,9 @@ function Stick_Create() {
 function Stick_Destroy() {
 
 	if ( stickManager === null ) return;
-	stickManager.destroy();
+	stickManager.destroy(); // emits no 'end' for a stick still held
 	stickManager = null;
+	Touch_ResetJoystick();
 
 }
 
@@ -1095,7 +1104,7 @@ function onDeviceMotion( e ) {
 
 	const k = touch_gyro_sensitivity.value * dt;
 	lookYaw += ( wy + wz ) * k; // counter-clockwise from above = turn left
-	lookPitch -= wx * k; // top edge away from the viewer = look up
+	lookPitch -= wx * k; // top edge towards the viewer (camera tilts up) = look up
 
 }
 
@@ -1141,7 +1150,25 @@ function Gyro_Update( fromGesture ) {
 
 	}
 
-	if ( ! fromGesture || gyroPermission !== 'unknown' ) return;
+	if ( fromGesture ) Gyro_RequestPermission();
+
+}
+
+/*
+=================
+Gyro_RequestPermission
+
+iOS only: ask for motion sensor access while touch_gyro is on. Must run
+inside a user activation (touchend). Gyro_Update starts listening once it is
+granted and the game controls are up.
+=================
+*/
+function Gyro_RequestPermission() {
+
+	if ( touch_gyro.value === 0 || gyroPermission !== 'unknown' ) return;
+
+	const DME = typeof DeviceMotionEvent !== 'undefined' ? DeviceMotionEvent : null;
+	if ( DME === null || typeof DME.requestPermission !== 'function' ) return;
 
 	gyroPermission = 'pending';
 	DME.requestPermission().then( ( result ) => {
@@ -1431,6 +1458,7 @@ export function Touch_Enable() {
 
 	for ( const l of gameListeners ) l.el.addEventListener( l.type, l.fn, { passive: false } );
 
+	if ( nipplejs === null ) Stick_Load();
 	Stick_Create();
 
 	// Gyro if switched on and already allowed (the iOS prompt waits for a tap)

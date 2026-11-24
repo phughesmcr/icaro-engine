@@ -576,6 +576,13 @@ Deno.test( 'touch: gyro integrates rotationRate in screen axes', () => {
 			assertEqual( Math.abs( look.yaw - 1 ) < 1e-9, true, 'landscape yaw ' + look.yaw );
 			assertEqual( Math.abs( look.pitch - 2 ) < 1e-9, true, 'landscape pitch ' + look.pitch );
 
+			// Roll (alpha, about the screen normal) also turns: the phone is
+			// usually tilted back, so turning the body rolls it too
+			motion( 1300, 30, 0, 0 );
+			look = touch.Touch_GetLookDelta();
+			assertEqual( Math.abs( look.yaw - 3 ) < 1e-9, true, 'roll adds to yaw ' + look.yaw );
+			assertEqual( look.pitch, 0, 'roll does not pitch' );
+
 			// A long gap is skipped rather than integrated
 			motion( 5000, 0, 10, 20 );
 			look = touch.Touch_GetLookDelta();
