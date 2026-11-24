@@ -33,6 +33,7 @@ import {
 	RETURN_EDICT,
 } from './progs.js';
 import { PR_ExecuteProgram } from './pr_exec.js';
+import { SV_UnlinkEdict } from './world.js';
 
 //============================================================================
 // Module state
@@ -147,11 +148,7 @@ Marks the edict as free
 */
 export function ED_Free( ed ) {
 
-	if ( sv.SV_UnlinkEdict ) {
-
-		sv.SV_UnlinkEdict( ed );
-
-	}
+	SV_UnlinkEdict( ed ); // unlink from world bsp
 
 	ed.free = true;
 	ed.v.model = 0;

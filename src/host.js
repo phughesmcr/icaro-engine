@@ -95,7 +95,14 @@ const pausable = new cvar_t( 'pausable', '1' );
 
 const temp1 = new cvar_t( 'temp1', '0' );
 
-export function set_host_frametime( v ) { host_frametime = v; }
+// In C host_frametime is one global shared with sv_phys.c; sv_phys.js keeps
+// its own copy, so keep both in step (SV_SpawnServer's settle frames need 0.1).
+export function set_host_frametime( v ) {
+
+	host_frametime = v;
+	SV_SetFrametime( v );
+
+}
 // set_host_client is imported and re-exported from server.js
 export { set_host_client } from './server.js';
 // sv is the server state, re-exported for client-side prediction
@@ -865,8 +872,8 @@ export function SV_BroadcastPrintf( fmt, ...args ) {
 
 	}
 
-	Con_Printf( '%s', msg );
-
+	// C writes only to spawned clients; a listen server's own player gets the
+	// line through its client connection, so there is no local echo here.
 	// Write to all active clients
 	for ( let i = 0; i < svs.maxclients; i ++ ) {
 
