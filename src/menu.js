@@ -20,6 +20,7 @@ import { skill, coop, teamplay, deathmatch, svs } from './server.js';
 import { Touch_ExitFullscreen } from './touch.js';
 import { Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
 import { SAVEGAME_COMMENT_LENGTH } from './quakedef.js';
+import { registered } from './common.js';
 
 /*
 ==============================================================================
@@ -165,13 +166,72 @@ const levels = [
 	{ name: 'baldm6', description: 'Scrap Metal (Bal)' },
 	{ name: 'edc', description: 'Eternal Dismemberment (Tyrann)' },
 	{ name: 'ultrav', description: 'UltraViolence (Escher)' },
+
+	// Registered id1 levels (menu.c levels[]), offered when registered
+	{ name: 'e2m1', description: 'The Installation' }, // 17
+	{ name: 'e2m2', description: 'Ogre Citadel' },
+	{ name: 'e2m3', description: 'Crypt of Decay' },
+	{ name: 'e2m4', description: 'The Ebon Fortress' },
+	{ name: 'e2m5', description: 'The Wizard\'s Manse' },
+	{ name: 'e2m6', description: 'The Dismal Oubliette' },
+	{ name: 'e2m7', description: 'Underearth' },
+
+	{ name: 'e3m1', description: 'Termination Central' }, // 24
+	{ name: 'e3m2', description: 'The Vaults of Zin' },
+	{ name: 'e3m3', description: 'The Tomb of Terror' },
+	{ name: 'e3m4', description: 'Satan\'s Dark Delight' },
+	{ name: 'e3m5', description: 'Wind Tunnels' },
+	{ name: 'e3m6', description: 'Chambers of Torment' },
+	{ name: 'e3m7', description: 'The Haunted Halls' },
+
+	{ name: 'e4m1', description: 'The Sewage System' }, // 31
+	{ name: 'e4m2', description: 'The Tower of Despair' },
+	{ name: 'e4m3', description: 'The Elder God Shrine' },
+	{ name: 'e4m4', description: 'The Palace of Hate' },
+	{ name: 'e4m5', description: 'Hell\'s Atrium' },
+	{ name: 'e4m6', description: 'The Pain Maze' },
+	{ name: 'e4m7', description: 'Azure Agony' },
+	{ name: 'e4m8', description: 'The Nameless City' },
+
+	{ name: 'end', description: 'Shub-Niggurath\'s Pit' }, // 39
+
+	{ name: 'dm1', description: 'Place of Two Deaths' }, // 40
+	{ name: 'dm2', description: 'Claustrophobopolis' },
+	{ name: 'dm3', description: 'The Abandoned Base' },
+	{ name: 'dm4', description: 'The Bad Place' },
+	{ name: 'dm5', description: 'The Cistern' },
+	{ name: 'dm6', description: 'The Dark Zone' },
 ];
 
 const episodes = [
 	{ description: 'Welcome to Quake', firstLevel: 0, levels: 1 },
 	{ description: 'Doomed Dimension', firstLevel: 1, levels: 8 },
-	{ description: 'Deathmatch Arena', firstLevel: 9, levels: 8 }
+	{ description: 'Deathmatch Arena', firstLevel: 9, levels: 8 },
+
+	// registered only (menu.c episodes[]); see M_NumEpisodes
+	{ description: 'Realm of Black Magic', firstLevel: 17, levels: 7 },
+	{ description: 'Netherworld', firstLevel: 24, levels: 7 },
+	{ description: 'The Elder World', firstLevel: 31, levels: 8 },
+	{ description: 'Final Level', firstLevel: 39, levels: 1 },
+	{ description: 'id1 Deathmatch', firstLevel: 40, levels: 6 }
 ];
+
+// The episodes before these are in the shareware pak or shipped loose
+const SHAREWARE_EPISODES = 3;
+
+/*
+==============
+M_NumEpisodes
+
+menu.c M_NetStart_Change: 7 episodes when registered, 2 for shareware.
+This port adds its loose-file deathmatch episode to both.
+==============
+*/
+export function M_NumEpisodes() {
+
+	return registered !== null && registered.value !== 0 ? episodes.length : SHAREWARE_EPISODES;
+
+}
 
 /*
 ==============================================================================
@@ -1332,8 +1392,7 @@ function M_NetStart_Change( dir ) {
 		case 5: // Episode
 			startepisode += dir;
 
-			// Limit to available episodes (7 for registered, 2 for shareware)
-			const numEpisodes = 3; // Welcome, Episode 1, Deathmatch
+			const numEpisodes = M_NumEpisodes();
 			if ( startepisode < 0 )
 				startepisode = numEpisodes - 1;
 			if ( startepisode >= numEpisodes )

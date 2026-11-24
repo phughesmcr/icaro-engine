@@ -1,9 +1,8 @@
 // Ported from: WinQuake/client.h -- client structures and definitions
 
 import { MAX_STYLESTRING, MAX_CL_STATS, MAX_SCOREBOARD, MAX_SCOREBOARDNAME,
-	MAX_MODELS, MAX_SOUNDS, MAX_EDICTS, MAX_LIGHTSTYLES, entity_state_t } from './quakedef.js';
+	MAX_MODELS, MAX_SOUNDS, MAX_EDICTS, MAX_LIGHTSTYLES, entity_state_t, packet_entities_t } from './quakedef.js';
 import { sizebuf_t } from './common.js';
-import { MAX_PACKET_ENTITIES } from './protocol.js';
 
 //=============================================================================
 
@@ -146,25 +145,9 @@ export class kbutton_t {
 
 }
 
-//
-// packet_entities_t - QW-style delta compressed entity snapshot
-// Ported from: QW/client/protocol.h
-//
-export class packet_entities_t {
-
-	constructor() {
-
-		this.num_entities = 0;
-		this.entities = [];
-		for ( let i = 0; i < MAX_PACKET_ENTITIES; i ++ ) {
-
-			this.entities.push( new entity_state_t() );
-
-		}
-
-	}
-
-}
+// packet_entities_t lives in quakedef.js, next to entity_state_t, so the
+// server's client_frame_t can share it
+export { packet_entities_t };
 
 //
 // entity_t - client side entity

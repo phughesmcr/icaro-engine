@@ -164,8 +164,10 @@ export const pmove = {
 	touchindex: []
 };
 
-// Initialize physents array
-for ( let i = 0; i < 32; i++ ) {
+// Initialize physents array. QW has 32; NQ maps put far more solid
+// entities (monsters) in view, and CL_SetSolidEntities adds them all.
+export const MAX_PHYSENTS = 128;
+for ( let i = 0; i < MAX_PHYSENTS; i++ ) {
 	pmove.physents.push( new physent_t() );
 	pmove.touchindex.push( 0 );
 }
@@ -1288,7 +1290,6 @@ const _nq_unstick_oldorg = new Float32Array( 3 );
 const _nq_unstick_dir = new Float32Array( 3 );
 const _nq_into = new Float32Array( 3 );
 const _nq_side = new Float32Array( 3 );
-const _nq_test = new Float32Array( 3 );
 
 /*
 ===============
@@ -1922,7 +1923,7 @@ Not modelled, because the client is never told the inputs:
 	- punchangle in the SV_ClientThink angles
 	- fixangle, teleport_time back-move lock, QC pausetime
 	- SV_CheckStuck (NudgePosition handles coordinate rounding instead)
-	- touch / impact functions, triggers, monsters (not physents)
+	- touch / impact functions, triggers
 	- dead players: CL_PredictMove does not predict them
 =============
 */
@@ -2029,38 +2030,6 @@ export function PM_NQ_CheckGround( origin, velocity ) {
 		return false;
 
 	return tr.ent >= 0 && pmove.physents[ tr.ent ].model != null;
-}
-
-/*
-=============
-PM_NQ_InSolid
-
-True if the player hull at origin is inside the world, even after the
-1/8-unit nudges that cover network coordinate rounding. A walking NQ
-player can never be there (SV_CheckStuck), so it means noclip.
-=============
-*/
-export function PM_NQ_InSolid( origin ) {
-	if ( pmove.numphysent === 0 || pmove.physents[ 0 ].model == null )
-		return false;
-
-	const hull = pmove.physents[ 0 ].model.hulls[ 1 ];
-	if ( hull == null )
-		return false;
-
-	for ( let z = -1; z <= 1; z++ ) {
-		for ( let x = -1; x <= 1; x++ ) {
-			for ( let y = -1; y <= 1; y++ ) {
-				_nq_test[ 0 ] = origin[ 0 ] + x * 0.125 - pmove.physents[ 0 ].origin[ 0 ];
-				_nq_test[ 1 ] = origin[ 1 ] + y * 0.125 - pmove.physents[ 0 ].origin[ 1 ];
-				_nq_test[ 2 ] = origin[ 2 ] + z * 0.125 - pmove.physents[ 0 ].origin[ 2 ];
-				if ( PM_HullPointContents( hull, hull.firstclipnode, _nq_test ) !== CONTENTS_SOLID )
-					return false;
-			}
-		}
-	}
-
-	return true;
 }
 
 /*

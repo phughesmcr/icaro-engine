@@ -3,6 +3,7 @@
 import { CONTENTS_EMPTY, CONTENTS_SOLID } from '../src/bspfile.js';
 import { cl } from '../src/client.js';
 import { pmove } from '../src/pmove.js';
+import { PS_BSP, PS_BOX, PS_NOLERP, PF_FLY, PF_NOCLIP } from '../src/protocol.js';
 import {
 	CL_PredictMove, CL_SetUpPlayerPrediction, CL_SetPlayerInfo, CL_GetPredictedPlayer,
 	CL_StoreCommand, CL_SetServerState, CL_SetValidSequence, CL_GetEntityFrame,
@@ -119,17 +120,20 @@ Deno.test( 'CL_PredictMove leaves cl.time alone and survives a full physents lis
 	init();
 	withClient( () => {
 
-		// 40 solid brush entities: more than pmove.physents can hold
+		// solid brush entities: more than pmove.physents can hold
 		const brush = { name: '*1', hulls: [ floorHull( - 1000 ), floorHull( - 1000 ) ] };
 		cl.model_precache[ 1 ] = brush;
 		CL_SetValidSequence( 1 );
 		const pak = CL_GetEntityFrame( 1 ).packet_entities;
-		pak.num_entities = 40;
-		for ( let i = 0; i < 40; i ++ ) {
+		const count = pmove.physents.length + 10;
+		pak.num_entities = count;
+		for ( let i = 0; i < count; i ++ ) {
 
-			pak.entities[ i ].number = i + 2;
-			pak.entities[ i ].modelindex = 1;
-			pak.entities[ i ].origin.fill( 0 );
+			const s = pak.state( i );
+			s.number = i + 2;
+			s.modelindex = 1;
+			s.solid = PS_BSP;
+			s.origin.fill( 0 );
 
 		}
 
@@ -183,6 +187,110 @@ Deno.test( 'CL_ResetPrediction clears carried player state', () => {
 		CL_SetUpPlayerPrediction( false );
 		if ( CL_GetPredictedPlayer( 1 ) !== null )
 			throw new Error( 'predicted player survived the reset' );
+
+	} );
+
+} );
+
+Deno.test( 'CL_SetSolidEntities uses the PE_SOLID info, brush entities first (PRED-5)', () => {
+
+	init();
+	withClient( () => {
+
+		// an inline submodel: hull 1 has a non-zero headnode
+		const doorHull = floorHull( - 1000 );
+		doorHull.clipnodes.unshift( doorHull.clipnodes[ 0 ] );
+		doorHull.firstclipnode = doorHull.lastclipnode = 1;
+		const door = { name: '*1', hulls: [ floorHull( - 1000 ), doorHull ] };
+		const monster = { name: 'progs/ogre.mdl' }; // alias model: no hulls
+		cl.model_precache[ 1 ] = monster;
+		cl.model_precache[ 2 ] = door;
+		CL_SetValidSequence( 1 );
+		const pak = CL_GetEntityFrame( 1 ).packet_entities;
+
+		// a corpse, then more live monsters than physents, then a door last
+		const monsters = pmove.physents.length + 5;
+		pak.num_entities = 0;
+		const add = ( number, modelindex, solid ) => {
+
+			const s = pak.state( pak.num_entities ++ );
+			s.number = number;
+			s.modelindex = modelindex;
+			s.solid = solid;
+			s.origin.fill( 0 );
+			s.origin[ 0 ] = number * 100;
+			s.mins.fill( - 32 );
+			s.mins[ 2 ] = - 24;
+			s.maxs.fill( 32 );
+			s.maxs[ 2 ] = 64;
+			return s;
+
+		};
+
+		add( 10, 1, PS_NOLERP ); // corpse: model, but not solid
+		for ( let i = 0; i < monsters; i ++ )
+			add( 11 + i, 1, PS_BOX | PS_NOLERP );
+		add( 11 + monsters, 2, PS_BSP );
+
+		cl.stats[ 0 ] = 100; // STAT_HEALTH
+		CL_SetServerState( new Float32Array( [ 0, 0, 24 ] ), new Float32Array( 3 ), true );
+		const cmd = idleCmd();
+		cmd.msec = 13;
+		CL_StoreCommand( cmd, - 1 );
+		CL_StoreCommand( cmd, - 0.5 );
+		CL_PredictMove();
+
+		const ents = pmove.physents.slice( 1, pmove.numphysent );
+		if ( ents[ 0 ].info !== 11 + monsters || ents[ 0 ].model !== door )
+			throw new Error( `expected the door first, got entity ${ents[ 0 ].info}` );
+		if ( ents.some( ( pe ) => pe.info === 10 ) )
+			throw new Error( 'the corpse is solid' );
+		const ogre = ents.find( ( pe ) => pe.info === 11 );
+		if ( ogre === undefined || ogre.model !== null || ogre.mins[ 0 ] !== - 32 || ogre.maxs[ 2 ] !== 64
+			|| ogre.origin[ 0 ] !== 1100 )
+			throw new Error( 'monster box missing or wrong' );
+		if ( pmove.numphysent !== pmove.physents.length )
+			throw new Error( `expected a full physents list, got ${pmove.numphysent}` );
+
+	} );
+
+} );
+
+Deno.test( 'the view player\'s PF_FLY / PF_NOCLIP select the predicted movetype', () => {
+
+	init();
+	const predictFrom = ( origin, flags, move ) => {
+
+		CL_ResetPrediction();
+		cl.worldmodel = worldmodel;
+		cl.stats[ 0 ] = 100; // STAT_HEALTH
+		// the view player is player 0 (cl.viewentity 1)
+		CL_SetPlayerInfo( 0, new Float32Array( origin ), new Float32Array( 3 ), 0, flags, 0, 0, 0, 0, null, 1 );
+		const cmd = idleCmd();
+		cmd.msec = 50;
+		cmd.forwardmove = move[ 0 ];
+		cmd.upmove = move[ 2 ];
+		for ( let i = 0; i < 4; i ++ )
+			CL_StoreCommand( cmd, - 1 + i * 0.05 );
+		CL_PredictMove();
+		return cl_simorg.slice();
+
+	};
+
+	withClient( () => {
+
+		const fly = predictFrom( [ 0, 0, 500 ], PF_FLY, [ 0, 0, 200 ] );
+		if ( fly[ 2 ] <= 500 )
+			throw new Error( `flying player should rise, z ${fly[ 2 ]}` );
+
+		const walk = predictFrom( [ 0, 0, 500 ], 0, [ 0, 0, 200 ] );
+		if ( walk[ 2 ] >= 500 )
+			throw new Error( `walking player should fall, z ${walk[ 2 ]}` );
+
+		// noclip moves through the floor
+		const noclip = predictFrom( [ 0, 0, - 50 ], PF_NOCLIP, [ 200, 0, 0 ] );
+		if ( noclip[ 0 ] <= 0 )
+			throw new Error( `noclip player should move inside the floor, x ${noclip[ 0 ]}` );
 
 	} );
 

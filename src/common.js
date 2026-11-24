@@ -733,7 +733,21 @@ const pop = new Uint16Array( [
 // Created in COM_Init rather than at module load: cvar.js imports this module,
 // so cvar_t may not be initialised yet when common.js is evaluated.
 export let registered = null; // cvar_t "registered"
+export let cmdline = null; // cvar_t "cmdline"
 export let static_registered = 1; // only for startup check, then set
+
+// set true if using non-id files (common.c COM_LoadPackFile, -game, -path;
+// this port has no -game or -path, so only a changed pak sets it)
+export let com_modified = false;
+
+export function COM_SetModified( modified ) {
+
+	com_modified = modified;
+
+}
+
+const CMDLINE_LENGTH = 256;
+export let com_cmdline = '';
 
 /*
 ================
@@ -753,7 +767,8 @@ export function COM_CheckRegistered() {
 	if ( h === null ) {
 
 		Con_Printf( 'Playing shareware version.\n' );
-		// C also exits here when com_modified (-game); this port has no -game
+		if ( com_modified )
+			Sys_Error( 'You must have the registered version to use modified games' );
 		return;
 
 	}
@@ -768,6 +783,7 @@ export function COM_CheckRegistered() {
 
 	}
 
+	Cvar_Set( 'cmdline', com_cmdline );
 	Cvar_Set( 'registered', '1' );
 	static_registered = 1;
 	Con_Printf( 'Playing registered version.\n' );
@@ -788,6 +804,8 @@ export function COM_Init() {
 
 		registered = new cvar_t( 'registered', '0' );
 		Cvar_RegisterVariable( registered );
+		cmdline = new cvar_t( 'cmdline', '0', false, true );
+		Cvar_RegisterVariable( cmdline );
 
 	}
 
@@ -799,6 +817,24 @@ export function COM_InitArgv( argv ) {
 
 	com_argc = argv.length;
 	com_argv = argv;
+
+	// reconstitute the command line for the cmdline externally visible cvar
+	let n = '';
+	for ( let j = 0; j < argv.length; j ++ ) {
+
+		n += argv[ j ];
+		if ( n.length >= CMDLINE_LENGTH - 1 ) {
+
+			n = n.substring( 0, CMDLINE_LENGTH - 1 );
+			break;
+
+		}
+
+		n += ' ';
+
+	}
+
+	com_cmdline = n;
 
 }
 

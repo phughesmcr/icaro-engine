@@ -1,7 +1,7 @@
 // Port-review fixes in the server engine: SP-5, SP-9, MOD-1, MOD-2, MOD-3, MOD-4
 
-import { ClearLink, InsertLinkBefore, link_t, COM_Init, registered } from '../src/common.js';
-import { COM_AddPack } from '../src/pak.js';
+import { ClearLink, InsertLinkBefore, link_t, COM_Init, COM_InitArgv, COM_SetModified, registered, cmdline, com_modified } from '../src/common.js';
+import { COM_AddPack, COM_LoadPackFile } from '../src/pak.js';
 import { OFS_PARM0, OFS_PARM1, OFS_PARM2, OFS_RETURN } from '../src/pr_comp.js';
 import {
 	pr_builtins, pr_strings_data, pr_globals_int, sv as progs_sv,
@@ -163,8 +163,10 @@ Deno.test( 'MOD-2: COM_CheckRegistered sets registered from gfx/pop.lmp', () => 
 
 		COM_AddPack( pack );
 		pack.files = [ { name: 'gfx/pop.lmp', filepos: 0, filelen: 256 } ];
+		COM_InitArgv( [ 'quake', '-game', 'x' ] );
 		COM_Init();
 		assertEqual( registered.value, 1, 'registered' );
+		assertEqual( cmdline.string, 'quake -game x ', 'cmdline cvar' );
 
 		data[ 21 ] ^= 1;
 		let threw = false;
@@ -183,7 +185,53 @@ Deno.test( 'MOD-2: COM_CheckRegistered sets registered from gfx/pop.lmp', () => 
 	} finally {
 
 		pack.files = [];
+		COM_InitArgv( [] );
 
 	}
+
+} );
+
+Deno.test( 'MOD-2: a modified pak is a Sys_Error on shareware (common.c com_modified)', () => {
+
+	try {
+
+		COM_SetModified( false );
+		COM_Init(); // shareware (no gfx/pop.lmp), unmodified: fine
+
+		// any pak that isn't the id1 pak0.pak sets com_modified
+		const buf = new ArrayBuffer( 12 + 64 );
+		const view = new DataView( buf );
+		view.setUint32( 0, 0x5041434b ); // "PACK"
+		view.setInt32( 4, 12, true );
+		view.setInt32( 8, 64, true );
+		COM_LoadPackFile( 'mod.pak', buf );
+		assertEqual( com_modified, true, 'mod pak sets com_modified' );
+
+		let threw = false;
+		try {
+
+			COM_Init();
+
+		} catch ( _e ) {
+
+			threw = true;
+
+		}
+
+		assertEqual( threw, true, 'shareware + modified is a Sys_Error' );
+
+	} finally {
+
+		COM_SetModified( false );
+
+	}
+
+} );
+
+Deno.test( 'MOD-2: the shipped pak0.pak is the original id1 one', () => {
+
+	COM_SetModified( false );
+	COM_LoadPackFile( 'pak0.pak', Deno.readFileSync( 'static/pak0.pak' ).buffer );
+	assertEqual( com_modified, false, 'pak0.pak count and directory CRC' );
 
 } );

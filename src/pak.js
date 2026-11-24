@@ -4,9 +4,14 @@
 // Directory entries: 56-byte filename + 4-byte offset + 4-byte length
 
 import { Sys_Printf, Sys_Error } from './sys.js';
-import { Con_Printf } from './common.js';
+import { Con_Printf, COM_SetModified } from './common.js';
+import { CRC_Init, CRC_ProcessByte } from './crc.js';
 
 const MAX_FILES_IN_PACK = 2048;
+
+// the shareware/registered id1 pak0.pak (common.c)
+const PAK0_COUNT = 339;
+const PAK0_CRC = 32981;
 
 class packfile_t {
 
@@ -79,11 +84,21 @@ export function COM_LoadPackFile( filename, buffer ) {
 	if ( numpackfiles > MAX_FILES_IN_PACK )
 		Sys_Error( filename + ' has too many files (' + numpackfiles + ')' );
 
+	const bytes = new Uint8Array( buffer );
+
+	if ( numpackfiles !== PAK0_COUNT )
+		COM_SetModified( true ); // not the original file
+
+	// crc the directory to check for modifications
+	let crc = CRC_Init();
+	for ( let i = 0; i < dirlen; i ++ )
+		crc = CRC_ProcessByte( crc, bytes[ dirofs + i ] );
+	if ( crc !== PAK0_CRC )
+		COM_SetModified( true );
+
 	const pack = new pack_t();
 	pack.filename = filename;
 	pack.data = buffer;
-
-	const bytes = new Uint8Array( buffer );
 
 	for ( let i = 0; i < numpackfiles; i ++ ) {
 
@@ -148,6 +163,11 @@ COM_FindFile
 
 Searches through the path looking for a file.
 Returns { data: Uint8Array, size: number } or null
+
+Deliberately not ported: common.c refuses loose files whose name has a
+'/' or '\\' when !static_registered ("don't ever go beyond base"). This
+port ships the shareware pak0.pak with its deathmatch maps as loose
+static/maps/*.bsp files, so that check would refuse every one of them.
 =================
 */
 export function COM_FindFile( filename ) {
