@@ -230,21 +230,22 @@ Deno.test( 'IN-1: blur, hidden page and Meta release held keys and mouse buttons
 		// blur
 		dom.document.fire( 'keydown', makeEvent( { code: 'KeyW', key: 'w' } ) );
 		dom.window.fire( 'blur', {} );
-		// vid_win.c ClearAllStates sends an up event for every key
-		assertEqual( run().join( ',' ), '+ta,-ta,-tb', 'blur releases W' );
+		// vid_win.c ClearAllStates sends an up event for every key; Key_Event
+		// drops the stray ones (Ironwail), so unpressed MOUSE1 sends no -tb
+		assertEqual( run().join( ',' ), '+ta,-ta', 'blur releases W' );
 
 		// visibilitychange to hidden
 		dom.document.fire( 'keydown', makeEvent( { code: 'KeyW', key: 'w' } ) );
 		dom.document.visibilityState = 'hidden';
 		dom.document.fire( 'visibilitychange', {} );
 		dom.document.visibilityState = 'visible';
-		assertEqual( run().join( ',' ), '+ta,-ta,-tb', 'hidden page releases W' );
+		assertEqual( run().join( ',' ), '+ta,-ta', 'hidden page releases W' );
 
 		// Meta down (macOS drops keyups while Cmd is held)
 		dom.document.fire( 'keydown', makeEvent( { code: 'KeyW', key: 'w' } ) );
 		dom.document.fire( 'keydown', makeEvent( { code: 'MetaLeft', key: 'Meta', metaKey: true } ) );
 		dom.document.fire( 'keydown', makeEvent( { code: 'KeyS', key: 's', metaKey: true } ) );
-		assertEqual( run().join( ',' ), '+ta,-ta,-tb', 'Meta releases W, Cmd+S does not reach the game' );
+		assertEqual( run().join( ',' ), '+ta,-ta', 'Meta releases W, Cmd+S does not reach the game' );
 
 		// Mouse button released outside the canvas (mouseup on window)
 		dom.body.fire( 'mousedown', makeEvent( { button: 0 } ) );
@@ -848,7 +849,7 @@ Deno.test( 'IN-3: XR buttons sharing a Quake key keep it held until all are rele
 		xr.rightTrigger = 1;
 		input.IN_XR_Buttons();
 		input.IN_ClearAllStates();
-		assertEqual( run().join( ',' ), '+tb,-ta,-tb', 'attack released once on clear (every key gets an up)' );
+		assertEqual( run().join( ',' ), '+tb,-tb', 'attack released once on clear (stray key-ups dropped)' );
 		xr.rightTrigger = 0;
 		input.IN_XR_Buttons();
 		assertEqual( run().join( ',' ), '', 'no second release' );

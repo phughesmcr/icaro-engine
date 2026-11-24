@@ -1284,6 +1284,20 @@ export function Key_Init() {
 
 /*
 ===================
+Key_MenuKeyRepeats
+
+Ironwail M_Keydown: only a few navigational keys repeat in menus
+===================
+*/
+function Key_MenuKeyRepeats( key ) {
+
+	return key === K_UPARROW || key === K_DOWNARROW
+		|| key === K_LEFTARROW || key === K_RIGHTARROW;
+
+}
+
+/*
+===================
 Key_Event
 
 Called by the system between frames for both key up and key down events
@@ -1291,6 +1305,14 @@ Should NOT be called during an interrupt!
 ===================
 */
 export function Key_Event( key, down ) {
+
+	// Ironwail Key_EventWithKeycode: ignore stray key up events. Browsers
+	// send key-ups for keys pressed before the page had focus (alt-tab back,
+	// a click into the page), and IN_ClearAllStates sends one for every key.
+	// Dropping them here keeps them from counting as the SCR_ModalMessage
+	// keypress or sending "-command" for a button that was never pressed.
+	if ( ! down && ! keydown[ key ] )
+		return;
 
 	const wasdown = keydown[ key ];
 	keydown[ key ] = down;
@@ -1343,8 +1365,13 @@ export function Key_Event( key, down ) {
 		if ( key !== K_BACKSPACE && key !== K_PAUSE && key_repeats[ key ] > 1 ) {
 
 			// QuakeSpasm lets keys repeat outside the game; here only the
-			// console's own keys do, so held arrows and Delete repeat
-			if ( ! ( consolekeys[ key ] && Key_ConsoleActive() ) )
+			// console's own keys do, so held arrows and Delete repeat.
+			// Menus let the arrow keys repeat, for scrolling through lists
+			// (Ironwail M_Keydown; id ignored all repeats in menus). Unlike
+			// Ironwail, Escape doesn't repeat: holding it would back out of
+			// every menu level and then close the menu.
+			if ( ! ( consolekeys[ key ] && Key_ConsoleActive() )
+				&& ! ( key_dest === key_menu && Key_MenuKeyRepeats( key ) ) )
 				return; // ignore most autorepeats
 
 		}
