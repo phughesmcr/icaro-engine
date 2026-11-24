@@ -642,11 +642,21 @@ and reuses mesh objects per entity to minimize per-frame allocations.
 =================
 */
 // sRGB decode of a display-space light level, clamped as glColor3f clamps.
+// GL keeps vertex colours at 8 bits per channel, so a 256-entry table is
+// exact enough and keeps Math.pow out of the per-vertex loop.
+const _linearLight = new Float32Array( 256 );
+for ( let i = 0; i < 256; i ++ ) {
+
+	const l = i / 255;
+	_linearLight[ i ] = l <= 0.04045 ? l / 12.92 : Math.pow( ( l + 0.055 ) / 1.055, 2.4 );
+
+}
+
 export function GL_LinearLight( l ) {
 
 	if ( ! ( l > 0 ) ) return 0;
 	if ( l >= 1 ) return 1;
-	return l <= 0.04045 ? l / 12.92 : Math.pow( ( l + 0.055 ) / 1.055, 2.4 );
+	return _linearLight[ ( l * 255 + 0.5 ) | 0 ];
 
 }
 

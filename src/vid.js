@@ -311,7 +311,7 @@ export function VID_HandlePause( pause ) {
 //============================================================================
 
 let vid_gamma = 1.0;
-let _gamma_checked = false;
+const _gamma_checked = new WeakSet(); // palettes already corrected
 
 export function Check_Gamma_Palette( pal, gamma ) {
 
@@ -333,10 +333,10 @@ export function Check_Gamma_Palette( pal, gamma ) {
 
 export function Check_Gamma( pal, gammaparm = null ) {
 
-	// C runs this once per VID_Init; guard so a second call can't apply the
-	// curve twice to the same in-place palette.
-	if ( _gamma_checked === true ) return;
-	_gamma_checked = true;
+	// C runs this once per VID_Init on a freshly loaded palette; guard so a
+	// second call can't apply the curve twice to the same array.
+	if ( _gamma_checked.has( pal ) ) return;
+	_gamma_checked.add( pal );
 
 	if ( gammaparm === null )
 		vid_gamma = 0.7; // default to 0.7 on non-3dfx hardware

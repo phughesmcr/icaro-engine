@@ -5,7 +5,7 @@
 // load the renderer graph in its safe order first.
 await import( '../src/gl_rsurf.js' );
 
-const { Check_Gamma_Palette, VID_GammaExposure } = await import( '../src/vid.js' );
+const { Check_Gamma, Check_Gamma_Palette, VID_GammaExposure } = await import( '../src/vid.js' );
 
 function assertEqual( actual, expected, message ) {
 
@@ -57,5 +57,19 @@ Deno.test( 'VID_GammaExposure: gamma 1 renders at exposure 1', () => {
 	assertEqual( VID_GammaExposure( 0.5 ), 2.0, 'gamma 0.5' );
 	assertEqual( VID_GammaExposure( 0 ), 1.0, 'gamma 0 guarded' );
 	assertEqual( VID_GammaExposure( - 1 ), 1.0, 'negative gamma guarded' );
+
+} );
+
+Deno.test( 'Check_Gamma defaults to 0.7, honours -gamma, and corrects each palette once', () => {
+
+	const pal = new Uint8Array( [ 0, 128, 255 ] );
+	Check_Gamma( pal );
+	assertEqual( pal[ 1 ], cCheckGamma( 128, 0.7 ), 'default 0.7' );
+	Check_Gamma( pal );
+	assertEqual( pal[ 1 ], cCheckGamma( 128, 0.7 ), 'not applied twice' );
+
+	const pal2 = new Uint8Array( [ 0, 128, 255 ] );
+	Check_Gamma( pal2, 1.0 );
+	assertEqual( pal2[ 1 ], cCheckGamma( 128, 1.0 ), '-gamma 1 on a fresh palette' );
 
 } );
