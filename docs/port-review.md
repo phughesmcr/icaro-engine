@@ -28,22 +28,68 @@ Line numbers refer to `dfef74a`. C references use function names, which are stab
 
 ## Fix status
 
-Every finding has an open PR against `dev`; none is merged yet. Each PR's description has a per-item table. Test counts are from `deno test --allow-read --allow-net --allow-env tests/` on that PR's branch. Nothing has been played in a browser or against a live server.
+Every finding but one has a fix in an open PR against `dev`. The exception is C-5 (mirrors), which is documented in the code instead of fixed. No PR is merged yet. Each PR's description has a per-item table.
+
+Test counts are from `deno test --allow-read --allow-net --allow-env tests/` on each PR's branch. Nothing has been played in a browser or against a live server.
+
+[#2]: https://github.com/phughesmcr/icaro-engine/pull/2
+[#3]: https://github.com/phughesmcr/icaro-engine/pull/3
+[#4]: https://github.com/phughesmcr/icaro-engine/pull/4
+[#5]: https://github.com/phughesmcr/icaro-engine/pull/5
+[#6]: https://github.com/phughesmcr/icaro-engine/pull/6
+[#7]: https://github.com/phughesmcr/icaro-engine/pull/7
+[#8]: https://github.com/phughesmcr/icaro-engine/pull/8
+[#9]: https://github.com/phughesmcr/icaro-engine/pull/9
+[#10]: https://github.com/phughesmcr/icaro-engine/pull/10
 
 | Findings | PR | Status |
 |---|---|---|
-| SP-7, MP-3, C-8 to C-14, C-20 to C-22 | #2 | Fixed (55 tests pass) |
-| SP-1, SP-5, SP-6, SP-9, MP-1, MP-5 (server items), MOD-1 to MOD-4, C-19 | #3 | Fixed (47 pass) |
-| SRV-1 to SRV-5 | #4 | Fixed; the lobby's own permissions are documented rather than enforced (47 pass, 1 needs `--allow-run --allow-write`) |
-| SP-2, SP-3, SP-4, SP-8, MP-4, MP-5 (client half), MOD-5, C-1 to C-4, C-6, C-7, C-15 to C-18, IN-3 (view comfort) | #5 | Fixed (41 pass) |
-| C-5 (mirrors) | #5 | **Not fixed.** Documented: needs a mirrored render-to-texture pass, and the only mirror is in registered e2m3 |
-| PRED-1, PRED-3, PRED-4, PRED-5, IN-3 (movement angles) | #6 | Fixed (50 pass) |
-| IN-1, IN-2, IN-3 (rest), IN-4, IN-5 | #7 | Fixed (48 pass) |
-| NET-1 to NET-5, PRED-2 | #8 | Fixed (59 pass); moves stay on the reliable stream by design |
-| `WT_*` no-op stubs; `WT_Listen` failure fails room startup | #9 | Fixed; stacked on #4 and #8 (71 pass) |
-| MP-2, MP-5 (`U_NOLERP`), PE_SOLID / solid monsters for prediction, movevars 11–12, player movetype, `COM_CheckRegistered`, menu episodes | #10 | Fixed; stacked on #3, #5 and #6 (76 pass). `COM_FindFile`'s shareware loose-file rule is deliberately not ported, since it would refuse the loose deathmatch maps |
+| SP-7, MP-3, C-8 to C-14, C-20 to C-22 | [#2] | Fixed (55 tests pass) |
+| SP-1, SP-5, SP-6, SP-9, MP-1, MP-5 (server items), MOD-1 to MOD-4, C-19 | [#3] | Fixed (47 pass) |
+| SRV-1 to SRV-5 | [#4] | Fixed; the lobby's own permissions are documented rather than enforced (47 pass; 1 more test needs `--allow-run --allow-write`) |
+| SP-2, SP-3, SP-4, SP-8, MP-4, MP-5 (client half), MOD-5, C-1 to C-4, C-6, C-7, C-15 to C-18, IN-3 (view comfort) | [#5] | Fixed (41 pass) |
+| C-5 (mirrors) | [#5] | **Not fixed.** The stub stays, with a comment: GLQuake only draws mirrors when `r_mirroralpha` is below its default of 1, the only mirror is in registered-only e2m3, and a real one needs a mirrored render-to-texture pass |
+| PRED-1, PRED-3, PRED-4, PRED-5, IN-3 (movement angles) | [#6] | Fixed, with residuals below (50 pass) |
+| IN-1, IN-2, IN-3 (rest), IN-4, IN-5 | [#7] | Fixed, with residuals below (48 pass) |
+| NET-1 to NET-5, PRED-2 | [#8] | Fixed (59 pass) |
+| `WT_*` no-op stubs, `WT_Listen` failure, server README | [#9] | Fixed; stacked on #4 and #8 (71 pass) |
+| MP-2, MP-5 (`U_NOLERP`), solid monsters for prediction (`PE_SOLID`), movevars 11–12, player movetype, `COM_CheckRegistered`, menu episodes | [#10] | Fixed; stacked on #3, #5 and #6 (76 pass) |
 
-Merge order: #2, #3, #4, #5, #6, #7 and #8 are independent of each other. Merge #9 after #4 and #8, and #10 after #3, #5 and #6. Unsigned commits, made while no one could answer the signing prompt: all of #9's own commits (`278f182` and its two merges) and `7a37ad0` in #10, plus the #1 commit that added this table. Re-sign them before merging.
+All nine fix branches merge into `dev` together without conflicts. With `--allow-run --allow-write` added, the combined tree passes all 143 tests.
+
+**Merge order:**
+- #2 to #8 are independent of each other.
+- Merge #9 after #4 and #8.
+- Merge #10 after #3, #5 and #6.
+- #10 changes the packet-entity wire format without bumping `PROTOCOL_VERSION`, which has to stay 15 for the shipped demos. Deploy the client and server together, and make sure clients don't keep a cached bundle across the change.
+
+**Unsigned commits** (made while no one could answer the signing prompt): re-sign these before merging.
+- [#9]: `278f182` and `0b8f2b3`
+- [#10]: `7a37ad0`
+- [#1]: the commits that added this section
+
+[#1]: https://github.com/phughesmcr/icaro-engine/pull/1
+
+### Residuals and follow-ups
+
+Deliberate gaps and items noticed along the way. None has a PR.
+
+- **Prediction ([#6], [#10]):** the teleport back-move lock, `punchangle`/`fixangle` and QuakeC `pausetime` are not predicted, because the server never sends `teleport_time` or `pausetime` and sends only the latest `punchangle`.
+- **Input ([#7]):**
+  - Ctrl/Alt key combos stay blocked in the browser.
+  - XR smooth turn speed is unchanged; snap turn is opt-in through `xr_snapturn`.
+  - Numpad keys map as `vid_win.c` does, not to separate `K_KP_*` codes.
+  - The touch-menu, snap-turn and XR internals have no tests.
+- **Transport ([#8]):**
+  - Moves stay on the reliable stream by design. Switching them to datagrams is a one-line change but needs a load test.
+  - Joining through the lobby port without a redirect is still broken (it predates the PR); it now fails cleanly.
+  - `cl_parse.js` still uses `ackSeq >= 0` as a "have an ack" sentinel.
+- **Registered content ([#10]):**
+  - `COM_FindFile`'s shareware rule refusing loose files with `/` in the path is not ported, since it would refuse the loose deathmatch maps.
+  - WinQuake's `WINDED` dedicated-server error is not ported.
+- **Packet entities ([#10]):**
+  - When a frame overflows the datagram, high-numbered entities wait for later frames.
+  - `delta_sequence` is not age-checked against `PE_UPDATE_BACKUP`.
 
 ---
 
