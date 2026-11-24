@@ -299,7 +299,7 @@ Deno.test( 'R_MirrorPass and R_MirrorCleanup reuse their objects across frames',
 
 		},
 		clear() {},
-		render( s, cam ) {
+		render( _s, cam ) {
 
 			this.renders ++;
 			this.cameras.push( cam );
