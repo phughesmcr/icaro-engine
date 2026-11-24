@@ -1,7 +1,7 @@
 // Ported from: WinQuake/sv_user.c -- server code for moving users
 
 import { Sys_Printf } from './sys.js';
-import { Con_DPrintf, MSG_ReadFloat, MSG_ReadAngle, MSG_ReadShort,
+import { Con_DPrintf, MSG_ReadFloat, MSG_ReadAngle16, MSG_ReadShort,
 	MSG_ReadByte, MSG_ReadChar, MSG_ReadString, MSG_BeginReading,
 	msg_badread } from './common.js';
 import { vec3_origin, DotProduct, VectorCopy, VectorAdd,
@@ -504,8 +504,11 @@ export function SV_ReadClientMove( move ) {
 	host_client.num_pings ++;
 
 	// read current angles
+	// Deliberate deviation from WinQuake's MSG_ReadAngle: CL_SendMove sends
+	// 16-bit angles, as FitzQuake's protocol does
+	// (johnfitz -- 16-bit angles for PROTOCOL_FITZQUAKE).
 	for ( let i = 0; i < 3; i ++ )
-		angle[ i ] = MSG_ReadAngle();
+		angle[ i ] = MSG_ReadAngle16();
 
 	VectorCopy( angle, host_client.edict.v.v_angle );
 

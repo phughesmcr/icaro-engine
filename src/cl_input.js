@@ -2,7 +2,7 @@
 
 import { PITCH, YAW, ROLL } from './quakedef.js';
 import { Con_Printf, Q_atoi,
-	MSG_WriteByte, MSG_WriteFloat, MSG_WriteShort, MSG_WriteAngle } from './common.js';
+	MSG_WriteByte, MSG_WriteFloat, MSG_WriteShort, MSG_WriteAngle16 } from './common.js';
 import { Cmd_AddCommand, Cmd_Argv } from './cmd.js';
 import { cvar_t } from './cvar.js';
 import { clc_move, clc_delta, PE_UPDATE_BACKUP } from './protocol.js';
@@ -358,16 +358,16 @@ export function CL_BaseMove( cmd ) {
 ==============
 CL_QuantizeAngle
 
-The angle the server gets back from MSG_WriteAngle / MSG_ReadAngle:
-truncated to whole degrees, then to 1/256 of a turn, as a signed char.
+The angle the server gets back from MSG_WriteAngle16 / MSG_ReadAngle16
+in clc_move: truncated to 1/65536 of a turn, as a signed short.
 ==============
 */
 export function CL_QuantizeAngle( f ) {
 
-	let b = ( ( f | 0 ) * 256 / 360 ) & 255;
-	if ( b > 127 )
-		b -= 256;
-	return b * ( 360.0 / 256 );
+	let s = ( ( f * 65536 / 360 ) | 0 ) & 65535;
+	if ( s > 32767 )
+		s -= 65536;
+	return s * ( 360.0 / 65536 );
 
 }
 
@@ -399,10 +399,14 @@ export function CL_SendMove( cmd ) {
 	if ( isXRActive() && XR_GetAimAngles( _xrAimAngles ) )
 		angles = _xrAimAngles;
 
+	// Deliberate deviation from WinQuake's MSG_WriteAngle (8 bits, ~1.4 deg
+	// steps): 16-bit angles, as FitzQuake's protocol sends them
+	// (johnfitz -- 16-bit angles for PROTOCOL_FITZQUAKE). SV_ReadClientMove
+	// reads them with MSG_ReadAngle16.
 	for ( let i = 0; i < 3; i ++ ) {
 
-		MSG_WriteAngle( buf, angles[ i ] );
-		// what the server's MSG_ReadAngle will get back
+		MSG_WriteAngle16( buf, angles[ i ] );
+		// what the server's MSG_ReadAngle16 will get back
 		_sendmove_predAngles[ i ] = CL_QuantizeAngle( angles[ i ] );
 
 	}
