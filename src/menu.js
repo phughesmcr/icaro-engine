@@ -809,7 +809,7 @@ function M_Main_Key( key ) {
 					M_Menu_Options_f();
 					break;
 				case 3:
-					M_Menu_Credits_f();
+					M_Menu_Help_f();
 					break;
 				case 4:
 					// Exit fullscreen when entering quit menu
@@ -2505,6 +2505,62 @@ function M_Setup_Key( key ) {
 /*
 ==============================================================================
 
+			HELP MENU
+
+==============================================================================
+*/
+
+// menu.c M_Menu_Help_f / M_Help_Draw / M_Help_Key: pages through
+// gfx/help0.lmp-help5.lmp. The port's credits screen stays reachable with
+// the menu_credits command.
+let help_page = 0;
+const NUM_HELP_PAGES = 6;
+
+function M_Menu_Help_f() {
+
+	setKeyDest( key_menu );
+	m_state = m_help;
+	m_entersound = true;
+	help_page = 0;
+
+}
+
+function M_Help_Draw() {
+
+	if ( ! _Draw_CachePic ) return;
+	M_DrawPic( 0, 0, _Draw_CachePic( 'gfx/help' + help_page + '.lmp' ) );
+
+}
+
+function M_Help_Key( key ) {
+
+	switch ( key ) {
+
+		case K_ESCAPE:
+			M_Menu_Main_f();
+			break;
+
+		case K_UPARROW:
+		case K_RIGHTARROW:
+			m_entersound = true;
+			if ( ++ help_page >= NUM_HELP_PAGES )
+				help_page = 0;
+			break;
+
+		case K_DOWNARROW:
+		case K_LEFTARROW:
+			m_entersound = true;
+			if ( -- help_page < 0 )
+				help_page = NUM_HELP_PAGES - 1;
+			break;
+
+	}
+
+}
+
+/*
+==============================================================================
+
 			CREDITS MENU
 
 ==============================================================================
@@ -2687,7 +2743,7 @@ export function M_Init() {
 	Cmd_AddCommand( 'menu_options', M_Menu_Options_f );
 	Cmd_AddCommand( 'menu_keys', M_Menu_Keys_f );
 	Cmd_AddCommand( 'menu_video', M_Menu_Video_f );
-	Cmd_AddCommand( 'help', M_Menu_Credits_f );
+	Cmd_AddCommand( 'help', M_Menu_Help_f );
 	Cmd_AddCommand( 'menu_credits', M_Menu_Credits_f );
 	Cmd_AddCommand( 'menu_quit', M_Menu_Quit_f );
 	Cmd_AddCommand( 'menu_lanconfig', M_Menu_LanConfig_f );
@@ -2749,6 +2805,7 @@ export function M_Keydown( key ) {
 		case m_options: M_Options_Key( key ); return;
 		case m_keys: M_Keys_Key( key ); return;
 		case m_video: M_Video_Key( key ); return;
+		case m_help: M_Help_Key( key ); return;
 		case m_credits: M_Credits_Key( key ); return;
 		case m_quit: M_Quit_Key( key ); return;
 		case m_lanconfig: M_LanConfig_Key( key ); return;
@@ -2799,6 +2856,7 @@ export function M_Draw() {
 		case m_options: M_Options_Draw(); break;
 		case m_keys: M_Keys_Draw(); break;
 		case m_video: M_Video_Draw(); break;
+		case m_help: M_Help_Draw(); break;
 		case m_credits: M_Credits_Draw(); break;
 		case m_quit: M_Quit_Draw(); break;
 		case m_lanconfig: M_LanConfig_Draw(); break;
@@ -3172,6 +3230,11 @@ function M_MenuClick( vx, vy ) {
 
 			}
 
+			break;
+
+		case m_help:
+			// Touch has no arrow keys: a tap on the page turns it
+			M_Help_Key( K_RIGHTARROW );
 			break;
 
 		case m_credits:

@@ -186,12 +186,12 @@ for ( let i = 0; i < MAX_EDICTS; i ++ )
 // cvars (proper cvar_t instances, registered in sv_main.js SV_Init)
 //
 export const sv_maxvelocity = new cvar_t( 'sv_maxvelocity', '2000' );
-export const sv_gravity = new cvar_t( 'sv_gravity', '800' );
+export const sv_gravity = new cvar_t( 'sv_gravity', '800', false, true );
 export const sv_nostep = new cvar_t( 'sv_nostep', '0' );
-export const sv_friction = new cvar_t( 'sv_friction', '4' );
+export const sv_friction = new cvar_t( 'sv_friction', '4', false, true );
 export const sv_edgefriction = new cvar_t( 'edgefriction', '2' );
 export const sv_stopspeed = new cvar_t( 'sv_stopspeed', '100' );
-export const sv_maxspeed = new cvar_t( 'sv_maxspeed', '320' );
+export const sv_maxspeed = new cvar_t( 'sv_maxspeed', '320', false, true );
 export const sv_accelerate = new cvar_t( 'sv_accelerate', '10' );
 export const sv_idealpitchscale = new cvar_t( 'sv_idealpitchscale', '0.8' );
 
