@@ -34,16 +34,21 @@ process per room. It was forked from mrdoob's three-quake.
   `server/key.pem` (see `server/README.md`). Both are gitignored.
 - To run the client, serve the repo root with any static file server
   (`python3 -m http.server`) and open `index.html`.
-- There is no CI. Tests cover logic only: rendering, audio and touch changes
-  need a browser check. If you didn't do one, say so.
+- CI (`.github/workflows/ci.yml`) runs on PRs to `dev` and `main`: the test
+  suite, `deno task lint` and both `deno check` lines above, on a pinned Deno
+  version. Tests cover logic only: rendering, audio and touch changes need a
+  browser check. If you didn't do one, say so.
 
 ### Lint and format baseline
 
 - `deno task lint` (config in root `deno.json`: `main.js`, `src/`, `server/`,
-  `tests/`; `no-window` rules off) still reports ~160 problems on `dev`, so it
-  exits non-zero. Most are unused parameters kept for C-signature parity, plus
-  `prefer-const`. The bar is **no new problems in the files you touched**, not
-  zero. Compare against the base version of each file.
+  `tests/`; `no-window` rules off) passes with zero problems. The bar is
+  **lint passes**; CI enforces it.
+- Unused parameters kept for C-signature parity get a `_` prefix
+  (`Z_Free( _ptr )`). Use a line-level `// deno-lint-ignore no-unused-vars`
+  with a reason only for C-parity state that has no reader in the port.
+- Never run `deno fmt` without `--check`. The code doesn't follow its style, so
+  it would rewrite every file.
 - Never run `deno fmt` without `--check`. The code doesn't follow its style, so
   it would rewrite every file.
 
@@ -124,7 +129,7 @@ list manual test steps in the PR.
 - Open one PR per concern with `--base dev`, then stop. **Never merge PRs.**
   The maintainer merges with merge commits, not squash.
 - A PR body says why, lists each finding as fixed or not (with the reason),
-  how it was verified (test count, lint delta), and what was *not* verified
+  how it was verified (test count, lint), and what was *not* verified
   (browser, real device, live QUIC).
 - When several agents work in parallel, each owns a disjoint set of files. If
   a fix needs a file you don't own, leave it out and name it in the PR body.
