@@ -17,23 +17,31 @@ ALIAS MODEL DISPLAY LIST GENERATION
 
 let paliashdr = null; // aliashdr_t *
 
-const used = new Uint8Array( 8192 );
+// Copy of gl_model.js MAXALIASTRIS: gl_model.js imports this module, so it
+// can't be imported here at load time. Keep the two equal.
+export const MAXALIASTRIS = 4096;
+
+// Deliberate deviation (QuakeSpasm): the buffers below are sized from
+// MAXALIASTRIS. GLQuake's fixed 8192 commands and 128-long strips overflow
+// for big models (one strip per triangle takes 7 commands each), and a typed
+// array drops the writes past its end.
+const used = new Uint8Array( MAXALIASTRIS );
 
 // the command list holds counts and s/t values that are valid for
 // every frame
-const commands = new Int32Array( 8192 );
+const commands = new Int32Array( MAXALIASTRIS * 7 + 1 );
 let numcommands = 0;
 
 // all frames will have their vertexes rearranged and expanded
 // so they are in the order expected by the command list
-const vertexorder = new Int32Array( 8192 );
+const vertexorder = new Int32Array( MAXALIASTRIS * 3 );
 let numorder = 0;
 
 let allverts = 0;
 let alltris = 0;
 
-const stripverts = new Int32Array( 128 );
-const striptris = new Int32Array( 128 );
+const stripverts = new Int32Array( MAXALIASTRIS + 2 );
+const striptris = new Int32Array( MAXALIASTRIS );
 let stripcount = 0;
 
 // References to model data set during BuildTris
@@ -205,8 +213,8 @@ for the model, which holds for all frames
 */
 export function BuildTris() {
 
-	const bestverts = new Int32Array( 1024 );
-	const besttris = new Int32Array( 1024 );
+	const bestverts = new Int32Array( MAXALIASTRIS + 2 );
+	const besttris = new Int32Array( MAXALIASTRIS );
 
 	//
 	// build tristrips
@@ -334,6 +342,83 @@ export function GL_MakeAliasModelDisplayLists( m, hdr ) {
 		paliashdr.posedata.push( frameVerts );
 
 	}
+
+	GL_AliasCullSphere( paliashdr );
+
+}
+
+/*
+================
+GL_AliasCullSphere
+
+Not in the C: GL draws every alias model it is given and lets the hardware
+clip it. Three.js frustum-culls a mesh by its geometry's bounding sphere,
+which it computes once from the first pose it sees, so a later pose that
+reaches outside it (an arm swing, a death fall) could be culled at the
+screen edge. Work out one sphere, in model space, that holds every vertex
+of every pose; R_DrawAliasModel gives it to the entity's geometry.
+================
+*/
+function GL_AliasCullSphere( hdr ) {
+
+	const scale = hdr.scale;
+	const origin = hdr.scale_origin;
+	let minx = Infinity, miny = Infinity, minz = Infinity;
+	let maxx = - Infinity, maxy = - Infinity, maxz = - Infinity;
+
+	for ( let i = 0; i < hdr.posedata.length; i ++ ) {
+
+		const verts = hdr.posedata[ i ];
+		for ( let j = 0; j < verts.length; j ++ ) {
+
+			// GL_DrawAliasFrame places a missing vertex at the model origin
+			const vert = verts[ j ];
+			const x = vert != null ? vert.v[ 0 ] * scale[ 0 ] + origin[ 0 ] : 0;
+			const y = vert != null ? vert.v[ 1 ] * scale[ 1 ] + origin[ 1 ] : 0;
+			const z = vert != null ? vert.v[ 2 ] * scale[ 2 ] + origin[ 2 ] : 0;
+			if ( x < minx ) minx = x;
+			if ( x > maxx ) maxx = x;
+			if ( y < miny ) miny = y;
+			if ( y > maxy ) maxy = y;
+			if ( z < minz ) minz = z;
+			if ( z > maxz ) maxz = z;
+
+		}
+
+	}
+
+	if ( minx > maxx ) {
+
+		// no vertices: an empty sphere at the model origin
+		hdr._cullCenter = [ 0, 0, 0 ];
+		hdr._cullRadius = 0;
+		return;
+
+	}
+
+	const cx = ( minx + maxx ) * 0.5;
+	const cy = ( miny + maxy ) * 0.5;
+	const cz = ( minz + maxz ) * 0.5;
+	let radiusSq = 0;
+
+	for ( let i = 0; i < hdr.posedata.length; i ++ ) {
+
+		const verts = hdr.posedata[ i ];
+		for ( let j = 0; j < verts.length; j ++ ) {
+
+			const vert = verts[ j ];
+			const dx = ( vert != null ? vert.v[ 0 ] * scale[ 0 ] + origin[ 0 ] : 0 ) - cx;
+			const dy = ( vert != null ? vert.v[ 1 ] * scale[ 1 ] + origin[ 1 ] : 0 ) - cy;
+			const dz = ( vert != null ? vert.v[ 2 ] * scale[ 2 ] + origin[ 2 ] : 0 ) - cz;
+			const d = dx * dx + dy * dy + dz * dz;
+			if ( d > radiusSq ) radiusSq = d;
+
+		}
+
+	}
+
+	hdr._cullCenter = [ cx, cy, cz ];
+	hdr._cullRadius = Math.sqrt( radiusSq );
 
 }
 
@@ -689,6 +774,18 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 	// When pose or model changes, swap to the new template's shared attributes
 	if ( entity._aliasPosenum !== posenum || entity._aliasPaliashdr !== paliashdr ) {
 
+		// Cull by a sphere that holds every pose (GL_AliasCullSphere), not
+		// the one Three would compute from whichever pose came first.
+		if ( entity._aliasPaliashdr !== paliashdr && paliashdr._cullCenter !== undefined ) {
+
+			if ( geometry.boundingSphere === null )
+				geometry.boundingSphere = new THREE.Sphere();
+			const c = paliashdr._cullCenter;
+			geometry.boundingSphere.center.set( c[ 0 ], c[ 1 ], c[ 2 ] );
+			geometry.boundingSphere.radius = paliashdr._cullRadius;
+
+		}
+
 		geometry.setAttribute( 'position', template.posAttr );
 		geometry.setAttribute( 'normal', template.normalAttr );
 		geometry.setAttribute( 'uv', template.uvAttr );
@@ -896,6 +993,9 @@ export function GL_DrawAliasShadow( entity, paliashdr, posenum, lightspot, shade
 	if ( shadowMesh == null ) {
 
 		shadowMesh = new THREE.Mesh( shadowGeo, _shadowMaterial );
+		// Its vertices move every frame with the light and the ground, and
+		// Three would cull it by the sphere of the first frame's shadow.
+		shadowMesh.frustumCulled = false;
 		entity._aliasShadowMesh = shadowMesh;
 
 	} else {

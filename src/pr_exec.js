@@ -1,6 +1,5 @@
 // Ported from: WinQuake/pr_exec.c -- QuakeC bytecode interpreter
 
-import { Sys_Error } from './sys.js';
 import { Con_Printf } from './common.js';
 import { PR_GlobalString, PR_GlobalStringNoContents } from './pr_edict.js';
 import {
@@ -14,6 +13,7 @@ import {
 	PR_SetArgc,
 	pr_trace, pr_xfunction, pr_xstatement,
 	PR_SetTrace, PR_SetXFunction, PR_SetXStatement,
+	PR_HostError, PR_SetHostError,
 } from './progs.js';
 import {
 	OFS_RETURN, OFS_PARM0,
@@ -39,8 +39,10 @@ import { ss_active } from './server.js';
 /*
 */
 
-const MAX_STACK_DEPTH = 32;
-const LOCALSTACK_SIZE = 2048;
+// Deliberate deviation from id (32 and 2048): Ironwail/QuakeSpasm's limits
+// (progs.h), so deeply recursive mods don't hit "stack overflow"
+const MAX_STACK_DEPTH = 1024;
+const LOCALSTACK_SIZE = 16384;
 
 const pr_stack = new Array( MAX_STACK_DEPTH );
 for ( let i = 0; i < MAX_STACK_DEPTH; i ++ )
@@ -51,25 +53,9 @@ let pr_depth = 0;
 const localstack = new Int32Array( LOCALSTACK_SIZE );
 let localstack_used = 0;
 
-let Host_Error = null;
-
-export function PR_SetHostError( callback ) {
-
-	const previous = Host_Error;
-	Host_Error = callback;
-	return previous;
-
-}
-
-export function PR_HostError( error ) {
-
-	if ( Host_Error === null )
-		Sys_Error( 'PR_HostError: Host_Error callback not set' );
-
-	Host_Error( error );
-	Sys_Error( 'PR_HostError: Host_Error returned' );
-
-}
+// PR_HostError and PR_SetHostError live in progs.js; re-exported for callers
+// that import them from here.
+export { PR_HostError, PR_SetHostError };
 
 const pr_opnames = [
 	'DONE',
@@ -285,8 +271,9 @@ PR_LeaveFunction
 */
 export function PR_LeaveFunction() {
 
+	// id has Sys_Error; Host_Error is Ironwail's (deliberate deviation)
 	if ( pr_depth <= 0 )
-		Sys_Error( 'prog stack underflow' );
+		PR_HostError( 'prog stack underflow' );
 
 	// restore locals from the stack
 	const c = pr_xfunction.locals;
@@ -325,7 +312,9 @@ export function PR_ExecuteProgram( fnum ) {
 
 	const f = pr_functions[ fnum ];
 
-	runaway = 100000;
+	// Deliberate deviation from id (100000): Ironwail/QuakeSpasm's 0x1000000
+	// statements before "runaway loop error", for mods with big loops
+	runaway = 0x1000000;
 	PR_SetTrace( false );
 
 	// make a stack frame

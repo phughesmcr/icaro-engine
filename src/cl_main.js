@@ -27,7 +27,7 @@ import { SCR_EndLoadingPlaque, SCR_BeginLoadingPlaque } from './gl_screen.js';
 import { S_StopAllSounds } from './snd_dma.js';
 import { M_ConnectionError, M_ShouldReturnOnError } from './menu.js';
 import { key_menu, set_key_dest } from './keys.js';
-import { V_UsePrediction } from './view.js';
+import { V_UsePrediction, V_ResetEffects } from './view.js';
 import { Sys_PageURL } from './sys.js';
 import { CL_InitPrediction, CL_ResetPrediction, CL_PredictMove,
 	CL_GetPredictedPlayer, CL_SetUpPlayerPrediction,
@@ -222,6 +222,11 @@ export function CL_Disconnect() {
 
 	cls.demoplayback = cls.timedemo = false;
 	cls.signon = 0;
+	// Deliberate deviation, from QuakeSpasm/Ironwail (cl_main.c
+	// CL_Disconnect): drop the intermission and the colour shifts, so the
+	// console and menu aren't drawn under a stale intermission or tint.
+	cl.intermission = 0;
+	V_ResetEffects();
 
 }
 
@@ -1126,6 +1131,7 @@ export function CL_RelinkEntities() {
 		}
 
 		VectorCopy( ent.origin, _relinkOldorg );
+		let teleported = false;
 
 		if ( ent.forcelink ) {
 
@@ -1141,8 +1147,12 @@ export function CL_RelinkEntities() {
 			for ( let j = 0; j < 3; j ++ ) {
 
 				_relinkDelta[ j ] = ent.msg_origins[ 0 ][ j ] - ent.msg_origins[ 1 ][ j ];
-				if ( _relinkDelta[ j ] > 100 || _relinkDelta[ j ] < - 100 )
+				if ( _relinkDelta[ j ] > 100 || _relinkDelta[ j ] < - 100 ) {
+
 					f = 1; // assume a teleportation, not a motion
+					teleported = true;
+
+				}
 
 			}
 
@@ -1201,6 +1211,13 @@ export function CL_RelinkEntities() {
 			dl.die = cl.time + 0.001;
 
 		}
+
+		// Deliberate deviation, from QuakeSpasm/Ironwail (cl_main.c
+		// CL_RelinkEntities, LERP_RESETMOVE resets the trail): no trail from
+		// the old spot after a teleport or a forcelink, which id drew as a
+		// streak across the map.
+		if ( ent.forcelink || teleported )
+			VectorCopy( ent.origin, _relinkOldorg );
 
 		// Particle trails based on model flags
 		// Ported from WinQuake/cl_main.c:587-606

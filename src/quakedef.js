@@ -23,7 +23,10 @@ export const MAX_DATAGRAM = 1024; // max length of unreliable message
 //
 // per-level limits
 //
-export const MAX_EDICTS = 600; // FIXME: ouch! ouch! ouch!
+// C has 600 (with "FIXME: ouch! ouch! ouch!"); QuakeSpasm and Ironwail raise
+// it for bigger maps. 1024 is the most the packet entities protocol carries
+// (PE_ENT_BITS in protocol.js), so no message format changes.
+export const MAX_EDICTS = 1024;
 export const MAX_LIGHTSTYLES = 64;
 export const MAX_MODELS = 256; // these are sent over the net as bytes
 export const MAX_SOUNDS = 256; // so they cannot be blindly increased

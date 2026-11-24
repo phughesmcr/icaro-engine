@@ -58,7 +58,7 @@ import { COM_LoadFile } from './pak.js';
 import { VectorCopy, VectorAdd, DotProduct } from './mathlib.js';
 import { Mod_ForName, Mod_LeafPVS } from './gl_model.js';
 import { PR_LoadProgs, PR_AllocEdicts, ED_ClearEdict, ED_LoadFromFile, ED_NewString, GetEdictFieldValue, PR_SetCurrentSkill, PR_SetDeathmatch } from './pr_edict.js';
-import { pr_global_struct, progs, pr_crc, EDICT_NUM, NUM_FOR_EDICT, PR_SetSV, PR_SetSVS, EDICT_TO_PROG, PROG_TO_EDICT, NEXT_EDICT, PR_GetString } from './progs.js';
+import { MAX_ENT_LEAFS, pr_global_struct, progs, pr_crc, EDICT_NUM, NUM_FOR_EDICT, PR_SetSV, PR_SetSVS, EDICT_TO_PROG, PROG_TO_EDICT, NEXT_EDICT, PR_GetString } from './progs.js';
 import { SV_ClearWorld, SV_Move, SV_TestEntityPosition, SV_LinkEdict, SV_PointContents } from './world.js';
 import { SV_Physics, SV_SetState, SV_SetCallbacks,
 	sv_maxvelocity, sv_gravity, sv_nostep, sv_friction, sv_edgefriction,
@@ -79,10 +79,28 @@ for ( let i = 0; i < MAX_MODELS; i ++ )
 // PVS culling state (from WinQuake/sv_main.c)
 // The PVS must include a small area around the client to allow head bobbing
 // or other small motion on the client side.
+// C sizes fatpvs from a fixed MAX_MAP_LEAFS. Like Ironwail, the port sizes it
+// from the world model's leaf count instead (SV_AllocFatPVS at map load), so
+// a map with more leafs than any fixed limit still gets a full PVS.
 const CONTENTS_SOLID = - 2;
-const MAX_MAP_LEAFS = 8192;
 let fatbytes = 0;
-const fatpvs = new Uint8Array( MAX_MAP_LEAFS / 8 );
+let fatpvs = new Uint8Array( 0 );
+
+/*
+=============
+SV_AllocFatPVS
+
+Not in C. Grows fatpvs to hold the PVS of the given world model; it never
+shrinks, so it allocates only when a map has more leafs than any before it.
+=============
+*/
+export function SV_AllocFatPVS( worldmodel ) {
+
+	const bytes = ( worldmodel.numleafs + 31 ) >> 3;
+	if ( bytes > fatpvs.length )
+		fatpvs = new Uint8Array( bytes );
+
+}
 
 // sv_aim is only used in sv_main.js (not a physics cvar shared with sv_phys/sv_user)
 export const sv_aim = new cvar_t( 'sv_aim', '0.93' );
@@ -180,14 +198,17 @@ Larger attenuations will drop off. (max 4 attenuation)
 */
 export function SV_StartSound( entity, channel, sample, volume, attenuation ) {
 
+	// C calls Sys_Error for these. Like Ironwail, Host_Error: a bad QuakeC
+	// sound() call ends the map, not the program.
+
 	if ( volume < 0 || volume > 255 )
-		Sys_Error( 'SV_StartSound: volume = ' + volume );
+		Host_Error( 'SV_StartSound: volume = ' + volume );
 
 	if ( attenuation < 0 || attenuation > 4 )
-		Sys_Error( 'SV_StartSound: attenuation = ' + attenuation );
+		Host_Error( 'SV_StartSound: attenuation = ' + attenuation );
 
 	if ( channel < 0 || channel > 7 )
-		Sys_Error( 'SV_StartSound: channel = ' + channel );
+		Host_Error( 'SV_StartSound: channel = ' + channel );
 
 	if ( sv.datagram.cursize > MAX_DATAGRAM - 16 )
 		return;
@@ -668,8 +689,9 @@ Calculates a PVS that is the inclusive or of all leafs within 8 pixels of the
 given point.
 =============
 */
-function SV_FatPVS( org ) {
+export function SV_FatPVS( org ) {
 
+	SV_AllocFatPVS( sv.worldmodel ); // no-op unless the map is new and bigger
 	fatbytes = ( sv.worldmodel.numleafs + 31 ) >> 3;
 	fatpvs.fill( 0, 0, fatbytes );
 	SV_AddToFatPVS( org, sv.worldmodel.nodes[ 0 ] );
@@ -1028,7 +1050,7 @@ Encodes the current state of the world as a svc_packetentities message.
 Ported from: QW/server/sv_ents.c
 =============
 */
-function SV_WriteEntitiesToClient( client, clent, pvs, msg ) {
+export function SV_WriteEntitiesToClient( client, clent, pvs, msg ) {
 
 	// this is the frame we are creating
 	const frame = client.frames[ client.outgoing_sequence & PE_UPDATE_MASK ];
@@ -1060,7 +1082,10 @@ function SV_WriteEntitiesToClient( client, clent, pvs, msg ) {
 
 		}
 
-		if ( ! visible )
+		// C skips the entity here even when it touches MAX_ENT_LEAFS leafs,
+		// where SV_FindTouchedLeafs stopped counting and the visible leaf may
+		// be one it never recorded. Like Ironwail (ericw), always send those.
+		if ( ! visible && ent.num_leafs < MAX_ENT_LEAFS )
 			continue;
 
 		// add to the packetentities
@@ -1354,7 +1379,8 @@ export function SV_WritePlayersToClient( _client, clent, pvs, msg ) {
 
 			}
 
-			if ( i === ent.num_leafs )
+			// Ironwail's MAX_ENT_LEAFS exception, as in SV_WriteEntitiesToClient
+			if ( i === ent.num_leafs && ent.num_leafs < MAX_ENT_LEAFS )
 				continue; // not visible
 
 		}
@@ -1951,6 +1977,7 @@ export function SV_SpawnServer( server ) {
 	}
 
 	sv.models[ 1 ] = sv.worldmodel;
+	SV_AllocFatPVS( sv.worldmodel );
 
 	//
 	// clear world interaction links

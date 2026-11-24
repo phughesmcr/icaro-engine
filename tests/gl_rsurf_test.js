@@ -303,48 +303,162 @@ Deno.test( 'lightmap upload without a renderer falls back to a full update', () 
 
 } );
 
-Deno.test( 'r_fullbright rebuild uploads whole lightmap blocks', async () => {
+// A surface whose lightmap fills a whole 128x128 block (2000-unit extents give
+// 126x126 luxels), so each one needs a block of its own.
+function makeBlockSizedSurface() {
 
-	const { r_fullbright } = await import( '../src/glquake.js' );
-	const textures = gl_rsurf.lightmapTextures;
-	const tex = makeLightmapTexture();
-	const oldPrecache = cl.model_precache[ 1 ];
-	const oldPrecache2 = cl.model_precache[ 2 ];
-	const oldFullbright = r_fullbright.value;
-	const surf = {
+	return {
 		flags: 0,
+		numedges: 0,
+		firstedge: 0,
+		polys: null,
+		extents: new Int16Array( [ 2000, 2000 ] ),
+		styles: new Uint8Array( [ 255, 255, 255, 255 ] ),
+		cached_light: new Int32Array( 4 ),
+		cached_dlight: false,
+		dlightframe: - 1,
+		dlightbits: new Uint32Array( 2 ),
+		samples: null,
 		lightmaptexturenum: 0,
 		light_s: 0,
-		light_t: 0,
-		extents: [ 0, 0 ],
-		samples: null,
-		styles: [ 255, 255, 255, 255 ],
-		cached_light: [ 0, 0, 0, 0 ],
-		dlightframe: - 1
+		light_t: 0
+	};
+
+}
+
+Deno.test( 'lightmap blocks grow past MAX_LIGHTMAPS at map load', () => {
+
+	const oldFrame = gl_rmain.r_framecount;
+	const oldModel = cl.model_precache[ 1 ];
+	const oldNext = cl.model_precache[ 2 ];
+	const oldWorldmodel = cl.worldmodel;
+	const count = gl_rsurf.MAX_LIGHTMAPS + 6;
+
+	try {
+
+		const surfaces = [];
+		for ( let i = 0; i < count; i ++ ) surfaces.push( makeBlockSizedSurface() );
+		cl.worldmodel = null;
+		cl.model_precache[ 1 ] = {
+			name: 'maps/big.bsp',
+			numsurfaces: count,
+			surfaces: surfaces,
+			vertexes: [],
+			edges: [],
+			surfedges: []
+		};
+		cl.model_precache[ 2 ] = null;
+
+		gl_rsurf.GL_BuildLightmaps();
+
+		assertEqual( gl_rsurf.lightmap_count, count, 'blocks in use' );
+		assertEqual( gl_rsurf.lightmapTextures.length, count, 'one texture per block' );
+		const last = surfaces[ count - 1 ];
+		assertEqual( last.lightmaptexturenum, count - 1, 'last surface block' );
+		assertEqual( last.light_s, 0, 'last surface s' );
+		assertEqual( last.light_t, 0, 'last surface t' );
+
+		// The unlit surface writes 255 (no light) into its own 126x126 rect;
+		// the upload inverts that to 0. Texels outside it stay cleared (255).
+		const data = gl_rsurf.lightmapTextures[ count - 1 ].image.data;
+		const BW = gl_rsurf.BLOCK_WIDTH;
+		assertEqual( data[ 0 ], 0, 'surface texel in the grown block' );
+		assertEqual( data[ ( 125 * BW + 125 ) * 4 ], 0, 'last surface texel' );
+		assertEqual( data[ 126 * 4 ], 255, 'texel right of the surface' );
+		assertEqual( data[ ( 126 * BW ) * 4 ], 255, 'texel below the surface' );
+
+		// The next map starts again from block 0 and reuses the grown blocks.
+		cl.model_precache[ 1 ].numsurfaces = 1;
+		cl.model_precache[ 1 ].surfaces = [ makeBlockSizedSurface() ];
+		gl_rsurf.GL_BuildLightmaps();
+		assertEqual( gl_rsurf.lightmap_count, 1, 'blocks in use on the next map' );
+		assertEqual( gl_rsurf.lightmapTextures.length, 1, 'textures on the next map' );
+
+	} finally {
+
+		cl.model_precache[ 1 ] = oldModel;
+		cl.model_precache[ 2 ] = oldNext;
+		cl.worldmodel = oldWorldmodel;
+		gl_rsurf.GL_BuildLightmaps();
+		gl_rmain.set_r_framecount( oldFrame );
+
+	}
+
+} );
+
+Deno.test( 'grown lightmap blocks upload changed rows and r_fullbright rebuilds', async () => {
+
+	const { r_fullbright } = await import( '../src/glquake.js' );
+	const oldFrame = gl_rmain.r_framecount;
+	const oldModel = cl.model_precache[ 1 ];
+	const oldNext = cl.model_precache[ 2 ];
+	const oldWorldmodel = cl.worldmodel;
+	const oldFullbright = r_fullbright.value;
+	const count = gl_rsurf.MAX_LIGHTMAPS + 2;
+	const last = count - 1;
+	const BW = gl_rsurf.BLOCK_WIDTH;
+	const calls = [];
+	const fakeRenderer = {
+		copyTextureToTexture( src, dst, region, position ) {
+
+			calls.push( { src, dst, minY: region.min.y, maxY: region.max.y, y: position.y } );
+
+		}
 	};
 
 	try {
 
-		textures.length = 0;
-		textures.push( tex );
-		cl.model_precache[ 1 ] = { name: 'maps/test.bsp', surfaces: [ surf ], numsurfaces: 1 };
+		const surfaces = [];
+		for ( let i = 0; i < count; i ++ ) surfaces.push( makeBlockSizedSurface() );
+		cl.worldmodel = null;
+		cl.model_precache[ 1 ] = {
+			name: 'maps/big.bsp',
+			numsurfaces: count,
+			surfaces: surfaces,
+			vertexes: [],
+			edges: [],
+			surfedges: []
+		};
 		cl.model_precache[ 2 ] = null;
 
+		gl_rsurf.GL_BuildLightmaps();
+		assertEqual( gl_rsurf.lightmap_count, count, 'blocks in use' );
+		const tex = gl_rsurf.lightmapTextures[ last ];
+
+		// Row upload from a block added after start-up reads that block's own
+		// buffer: the unlit surface stores 255 (no light), which converts to 0.
+		tex.image.data.fill( 7 );
+		gl_rsurf.R_UploadLightmapRect( last, { l: 0, t: 120, w: BW, h: 8 }, fakeRenderer );
+		assertEqual( calls.length, 1, 'copy calls' );
+		assertEqual( calls[ 0 ].dst, tex, 'grown block texture' );
+		assertEqual( calls[ 0 ].src.image, tex.image, 'source shares the grown block image' );
+		assertEqual( calls[ 0 ].minY, 120, 'region min y' );
+		assertEqual( calls[ 0 ].maxY, 128, 'region max y' );
+		assertEqual( calls[ 0 ].y, 120, 'destination y' );
+		assertEqual( rowTouched( tex, 119 ), false, 'row above the rect untouched' );
+		assertEqual( tex.image.data[ ( 120 * BW ) * 4 ], 0, 'surface texel converted' );
+		assertEqual( tex.image.data[ ( 127 * BW ) * 4 ], 255, 'cleared texel converted' );
+
+		// r_fullbright rebuilds every surface and must re-send whole blocks,
+		// including grown ones (no renderer here, so a full update).
+		tex.image.data.fill( 7 );
+		tex.needsUpdate = false;
 		r_fullbright.value = 1;
 		gl_rsurf.R_BlendLightmaps();
-
-		// One 1x1 surface was rebuilt, but every row of its block is re-sent.
-		assertEqual( tex.needsUpdate, true, 'block re-uploaded' );
+		assertEqual( tex.needsUpdate, true, 'grown block re-uploaded' );
 		assertEqual( rowTouched( tex, 0 ), true, 'first row converted' );
-		assertEqual( rowTouched( tex, gl_rsurf.BLOCK_HEIGHT - 1 ), true, 'last row converted' );
+		assertEqual( rowTouched( tex, gl_rsurf.BLOCK_HEIGHT - 1 ), true,
+			'last row converted (outside the rebuilt surface)' );
 
 	} finally {
 
 		r_fullbright.value = oldFullbright;
 		gl_rsurf.R_BlendLightmaps(); // restore the module's r_fullbright state
-		textures.length = 0;
-		cl.model_precache[ 1 ] = oldPrecache;
-		cl.model_precache[ 2 ] = oldPrecache2;
+		cl.model_precache[ 1 ] = oldModel;
+		cl.model_precache[ 2 ] = oldNext;
+		cl.worldmodel = oldWorldmodel;
+		gl_rsurf.GL_BuildLightmaps();
+		gl_rmain.set_r_framecount( oldFrame );
 
 	}
 

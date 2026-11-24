@@ -8,12 +8,20 @@ import { sizebuf_t } from './common.js';
 
 export const SIGNONS = 4; // signon messages to receive before connected
 
-export const MAX_DLIGHTS = 32;
-export const MAX_BEAMS = 24;
-export const MAX_EFRAGS = 640;
-export const MAX_TEMP_ENTITIES = 64; // lightning bolts, etc
-export const MAX_STATIC_ENTITIES = 128; // torches, etc
-export const MAX_VISEDICTS = 256;
+// The one definition of MAX_DLIGHTS and MAX_VISEDICTS: gl_rmain.js and
+// gl_rlight.js re-export these.
+// Deliberate deviation: 64 as in QuakeSpasm/Ironwail (id: 32). msurface_t
+// dlightbits is a word array sized from this (gl_model.js), so lights 32 and
+// up get their own bits (gl_rlight.js R_MarkLights).
+export const MAX_DLIGHTS = 64;
+// Deliberate deviation: the limits below are raised to Ironwail's values
+// (id: MAX_BEAMS 24, MAX_TEMP_ENTITIES 64, MAX_STATIC_ENTITIES 128,
+// MAX_VISEDICTS 256) so larger maps don't drop entities.
+export const MAX_BEAMS = 32;
+export const MAX_EFRAGS = 640; // more are allocated on demand (gl_refrag.js R_GetEfrag)
+export const MAX_TEMP_ENTITIES = 256; // lightning bolts, etc
+export const MAX_STATIC_ENTITIES = 4096; // torches, etc
+export const MAX_VISEDICTS = 16384;
 
 export const MAX_MAPSTRING = 2048;
 export const MAX_DEMOS = 8;

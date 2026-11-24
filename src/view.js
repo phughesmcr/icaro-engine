@@ -23,7 +23,8 @@ import { con_forcedup } from './console.js';
 import { VID_UpdateGamma } from './vid.js';
 import { scr_viewsize } from './gl_screen.js';
 import { cl_simorg, cl_simvel, cl_simangles, cl_simonground, cl_nopred, cl_prediction_active,
-	CL_GetValidSequence } from './cl_pred.js';
+	CL_GetValidSequence, CL_GetPredictedPlayer } from './cl_pred.js';
+import { PF_NOCLIP } from './protocol.js';
 import { isXRActive } from './webxr.js';
 import { v_blend } from './glquake.js';
 
@@ -151,6 +152,11 @@ let _bob = 0;
 
 export function V_CalcBob() {
 
+	// Deliberate deviation, from Ironwail (view.c V_CalcBob): id divides by
+	// cl_bobcycle, so "cl_bobcycle 0" made the view NaN.
+	if ( cl_bobcycle.value === 0 ) // Avoid divide-by-zero, don't bob
+		return 0;
+
 	if ( V_UsePrediction() === false ) {
 
 		// WinQuake view.c V_CalcBob: phase from cl.time, server velocity,
@@ -223,6 +229,24 @@ export function V_StartPitchDrift() {
 		cl.driftmove = 0;
 
 	}
+
+}
+
+/*
+===============
+V_ResetEffects
+
+From Ironwail (view.c), called by CL_Disconnect: clear the screen blend and
+damage kick so they don't linger after a disconnect.
+===============
+*/
+export function V_ResetEffects() {
+
+	cshift_empty.percent = 0;
+	v_blend.fill( 0 );
+	v_dmg_time = 0;
+	v_dmg_roll = 0;
+	v_dmg_pitch = 0;
 
 }
 
@@ -860,6 +884,24 @@ V_CalcRefdef
 */
 let _oldz = 0;
 
+/*
+==================
+V_InNoclip
+
+True when the view player is in noclip: noclip_anglehack where this
+process runs the server, else PF_NOCLIP from its last svc_playerinfo.
+==================
+*/
+function V_InNoclip() {
+
+	if ( noclip_anglehack )
+		return true;
+
+	const pplayer = CL_GetPredictedPlayer( cl.viewentity - 1 );
+	return pplayer !== null && ( pplayer.flags & PF_NOCLIP ) !== 0;
+
+}
+
 export function V_CalcRefdef() {
 
 	V_DriftPitch();
@@ -962,8 +1004,12 @@ export function V_CalcRefdef() {
 
 	// smooth out stair step ups
 	// QuakeWorld uses predicted onground state
+	// Deliberate deviation, from FitzQuake/Ironwail (view.c V_CalcRefdef):
+	// no smoothing in noclip, where FL_ONGROUND stays set and flying up
+	// lagged the view. Ironwail tests noclip_anglehack, which is only set
+	// where the server runs, so also check the view player's PF_NOCLIP.
 	const onGround = usePrediction ? ( cl_simonground !== -1 ) : cl.onground;
-	if ( onGround && playerorg[ 2 ] - _oldz > 0 ) {
+	if ( V_InNoclip() === false && onGround && playerorg[ 2 ] - _oldz > 0 ) {
 
 		let steptime = cl.time - cl.oldtime;
 		if ( steptime < 0 )

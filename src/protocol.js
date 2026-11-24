@@ -165,7 +165,7 @@ export const CM_ANGLE2 = ( 1 << 7 );
 // Ported from: QW/client/protocol.h
 //
 // The first 16 bits of a packetentities update holds 10 bits
-// of entity number (max 1024, to support MAX_EDICTS=600) and
+// of entity number (max 1024, which bounds MAX_EDICTS) and
 // 6 bits of flags.
 //==============================================
 
@@ -213,6 +213,6 @@ export const PS_NOLERP = ( 1 << 2 ); // MOVETYPE_STEP: don't interpolate (NQ U_N
 // the edict limit (MAX_EDICTS in quakedef.js) and never binds: entity
 // numbers are below it and the world and players are not in the packet.
 // The frame arrays grow on demand (packet_entities_t.state).
-export const MAX_PACKET_ENTITIES = 600;
+export const MAX_PACKET_ENTITIES = 1024; // MAX_EDICTS
 export const PE_UPDATE_BACKUP = 64; // must be power of 2
 export const PE_UPDATE_MASK = PE_UPDATE_BACKUP - 1;

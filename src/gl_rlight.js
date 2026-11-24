@@ -6,10 +6,11 @@ import { MAX_LIGHTSTYLES } from './quakedef.js';
 import { MAXLIGHTMAPS, d_lightstylevalue, r_framecount,
 	gl_flashblend, v_blend, LIGHTMAP_INTENSITY } from './glquake.js';
 import { r_origin } from './render.js';
-import { cl_dlights } from './client.js';
+import { cl_dlights, MAX_DLIGHTS } from './client.js';
 import { isXRActive, XR_SCALE } from './webxr.js';
 
-export const MAX_DLIGHTS = 32;
+// defined in client.js
+export { MAX_DLIGHTS };
 
 // Surface flags
 export const SURF_DRAWTILED = 0x20;
@@ -240,9 +241,13 @@ DYNAMIC LIGHTS
 /*
 =============
 R_MarkLights
+
+Deliberate deviation, from QuakeSpasm: takes the light's index rather than
+its bit, and sets that bit in the surface's dlightbits word array, so more
+than 32 lights (MAX_DLIGHTS) can be told apart.
 =============
 */
-export function R_MarkLights( light, bit, node, surfaces ) {
+export function R_MarkLights( light, num, node, surfaces ) {
 
 	if ( node.contents < 0 )
 		return;
@@ -252,19 +257,21 @@ export function R_MarkLights( light, bit, node, surfaces ) {
 
 	if ( dist > light.radius ) {
 
-		R_MarkLights( light, bit, node.children[ 0 ], surfaces );
+		R_MarkLights( light, num, node.children[ 0 ], surfaces );
 		return;
 
 	}
 
 	if ( dist < - light.radius ) {
 
-		R_MarkLights( light, bit, node.children[ 1 ], surfaces );
+		R_MarkLights( light, num, node.children[ 1 ], surfaces );
 		return;
 
 	}
 
 	// mark the polygons
+	const word = num >> 5;
+	const bit = 1 << ( num & 31 );
 	const surfStart = node.firstsurface;
 	for ( let i = 0; i < node.numsurfaces; i ++ ) {
 
@@ -273,17 +280,19 @@ export function R_MarkLights( light, bit, node, surfaces ) {
 
 		if ( surf.dlightframe !== r_dlightframecount ) {
 
-			surf.dlightbits = 0;
+			// QuakeSpasm only sets the light's own word here, which leaves
+			// last frame's bits in the other words; clear them all.
+			surf.dlightbits.fill( 0 );
 			surf.dlightframe = r_dlightframecount;
 
 		}
 
-		surf.dlightbits |= bit;
+		surf.dlightbits[ word ] |= bit;
 
 	}
 
-	R_MarkLights( light, bit, node.children[ 0 ], surfaces );
-	R_MarkLights( light, bit, node.children[ 1 ], surfaces );
+	R_MarkLights( light, num, node.children[ 0 ], surfaces );
+	R_MarkLights( light, num, node.children[ 1 ], surfaces );
 
 }
 
@@ -309,7 +318,7 @@ export function R_PushDlights( cl ) {
 		if ( ! l ) continue;
 		if ( l.die < cl.time || ! l.radius )
 			continue;
-		R_MarkLights( l, 1 << i, cl.worldmodel.nodes[ 0 ], cl.worldmodel.surfaces );
+		R_MarkLights( l, i, cl.worldmodel.nodes[ 0 ], cl.worldmodel.surfaces );
 
 	}
 
@@ -484,7 +493,7 @@ export function R_AddDynamicLights( surf, cl ) {
 
 	for ( let lnum = 0; lnum < MAX_DLIGHTS; lnum ++ ) {
 
-		if ( ! ( surf.dlightbits & ( 1 << lnum ) ) )
+		if ( ! ( surf.dlightbits[ lnum >> 5 ] & ( 1 << ( lnum & 31 ) ) ) )
 			continue; // not lit by this light
 
 		const dl = cl.dlights[ lnum ];

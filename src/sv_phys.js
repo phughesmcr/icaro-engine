@@ -757,10 +757,19 @@ export function SV_PushRotate( pusher, movetime ) {
 		org2[ 2 ] = DotProduct( org, up );
 		VectorSubtract( org2, org, move );
 
-		// Try moving the contacted entity
-		pusher.v.solid = SOLID_NOT;
-		SV_PushEntity( check, move );
-		pusher.v.solid = SOLID_BSP;
+		// Try moving the contacted entity. C forces the pusher back to
+		// SOLID_BSP afterwards; restore its own solid instead, as in
+		// SV_PushMove (Ironwail has no SV_PushRotate; same fix here).
+		const solid_backup = pusher.v.solid;
+		if ( solid_backup === SOLID_BSP
+			|| solid_backup === SOLID_BBOX
+			|| solid_backup === SOLID_SLIDEBOX ) {
+
+			pusher.v.solid = SOLID_NOT;
+			SV_PushEntity( check, move );
+			pusher.v.solid = solid_backup;
+
+		}
 
 		// If it is still inside the pusher, block
 		const block = SV_TestEntityPosition( check );
@@ -894,9 +903,20 @@ export function SV_PushMove( pusher, movetime ) {
 		num_moved ++;
 
 		// try moving the contacted entity
-		pusher.v.solid = SOLID_NOT;
-		SV_PushEntity( check, move );
-		pusher.v.solid = SOLID_BSP;
+		// C forces the pusher back to SOLID_BSP afterwards, so a non-solid
+		// pusher turns solid. Like Ironwail (quake-info-pool qfix
+		// movetype_push), restore its own solid, and only a solid pusher
+		// pushes.
+		const solid_backup = pusher.v.solid;
+		if ( solid_backup === SOLID_BSP
+			|| solid_backup === SOLID_BBOX
+			|| solid_backup === SOLID_SLIDEBOX ) {
+
+			pusher.v.solid = SOLID_NOT;
+			SV_PushEntity( check, move );
+			pusher.v.solid = solid_backup;
+
+		}
 
 		// if it is still inside the pusher, block
 		const block = SV_TestEntityPosition( check );

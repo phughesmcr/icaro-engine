@@ -12,7 +12,10 @@ export const MAX_MAP_ENTSTRING = 65536;
 export const MAX_MAP_PLANES = 32767;
 export const MAX_MAP_NODES = 32767; // because negative shorts are contents
 export const MAX_MAP_CLIPNODES = 32767;
-export const MAX_MAP_LEAFS = 8192;
+// Deliberate deviation: QuakeSpasm's BSP29 leaf limit (Mod_ProcessLeafs_S),
+// was 8192. Leafs past 8192 are reachable because node children are read
+// unsigned (Mod_LoadNodes); PVS buffers are sized from the loaded model.
+export const MAX_MAP_LEAFS = 32767;
 export const MAX_MAP_VERTS = 65535;
 export const MAX_MAP_FACES = 65535;
 export const MAX_MAP_MARKSURFACES = 65535;

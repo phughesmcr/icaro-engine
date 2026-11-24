@@ -6,7 +6,7 @@ import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from './cmd.js';
 import { Cvar_SetValue } from './cvar.js';
 import { COM_CheckParm } from './common.js';
 import { bgmvolume } from './sound.js';
-import { S_GetAudioContext, S_GetMasterGain } from './snd_dma.js';
+import { S_GetAudioContext, S_GetMasterGain, S_SetCallbacks } from './snd_dma.js';
 
 /*
 ==============================================================================
@@ -36,6 +36,22 @@ let musicSource = null; // MediaElementAudioSourceNode
 // Track URL provider (set externally)
 let _getTrackURL = null;
 
+// Bumped by CDAudio_Play and CDAudio_Stop, so a load error or gesture retry
+// left over from an earlier track does nothing.
+let playAttempt = 0;
+// play() was refused by the browser's autoplay policy: retry it on the next
+// user gesture (S_UnlockAudio)
+let gestureRetry = false;
+// URLs that failed to load (missing file or a codec the browser can't play),
+// so a track isn't fetched again on every level change. Network errors aren't
+// recorded, so a track that exists is retried next time.
+const missingURLs = new Set();
+
+// QuakeSpasm/Ironwail bgmusic.c music_handlers order, limited to the codecs
+// browsers play
+const MUSIC_DIRNAME = 'music';
+const MUSIC_EXTENSIONS = [ 'ogg', 'mp3' ];
+
 /*
 ==============================================================================
 
@@ -48,13 +64,151 @@ let _getTrackURL = null;
 ================
 CDAudio_SetTrackURLProvider
 
-Set a function that maps track number -> URL for music files.
-e.g., (track) => `music/track${track.toString().padStart(2,'0')}.ogg`
+Set a function that maps a track number to the URL of its music file, or to
+an ordered list of candidate URLs: CDAudio_Play tries each in turn until one
+loads (see CDAudio_TrackURLs).
 ================
 */
 export function CDAudio_SetTrackURLProvider( fn ) {
 
 	_getTrackURL = fn;
+
+}
+
+/*
+================
+CDAudio_TrackURLs
+
+Candidate URLs for a track's CD rip, as QuakeSpasm/Ironwail's BGM_PlayCDtrack
+looks for music/trackNN.<ext>: game directories in search-path priority
+(the mission pack's before id1's), and within a directory ogg before mp3.
+gamedirs lists the directories highest priority first.
+================
+*/
+export function CDAudio_TrackURLs( track, gamedirs ) {
+
+	const name = 'track' + String( track ).padStart( 2, '0' );
+	const urls = [];
+
+	for ( const dir of gamedirs ) {
+
+		for ( const ext of MUSIC_EXTENSIONS )
+			urls.push( dir + '/' + MUSIC_DIRNAME + '/' + name + '.' + ext );
+
+	}
+
+	return urls;
+
+}
+
+/*
+================
+CDAudio_StartElement
+
+Calls play() on the music element. A refusal by the autoplay policy
+(NotAllowedError) arms a retry on the next user gesture. Other rejections
+(AbortError when src changes, NotSupportedError for a missing file) are left
+to the element's error event.
+================
+*/
+function CDAudio_StartElement( attempt ) {
+
+	const promise = musicElement.play();
+
+	// HTMLMediaElement.play() returns undefined in old browsers
+	if ( promise === undefined )
+		return;
+
+	promise.then( function () {
+
+		if ( attempt === playAttempt )
+			gestureRetry = false;
+
+	}, function ( e ) {
+
+		if ( attempt !== playAttempt )
+			return;
+
+		// a DOMException from the browser
+		const err = ( e !== null && typeof e === 'object' ) ? e : { name: '', message: '' };
+		if ( err.name === 'NotAllowedError' ) {
+
+			gestureRetry = true;
+			Con_DPrintf( 'CDAudio: music waits for a click or key press\n' );
+
+		} else {
+
+			Con_DPrintf( 'CDAudio_Play: playback failed: %s\n', err.message );
+
+		}
+
+	} );
+
+}
+
+/*
+================
+CDAudio_PlayURL
+
+Loads the first candidate URL not already known to be missing, and falls
+through to the next one when the element reports a load error.
+================
+*/
+function CDAudio_PlayURL( urls, index, attempt ) {
+
+	while ( index < urls.length && missingURLs.has( urls[ index ] ) )
+		index ++;
+
+	if ( index >= urls.length ) {
+
+		// Ironwail prints this with Con_Printf. Most players of the web build
+		// have no music files, so keep it to developer mode, as WinQuake is
+		// quiet about a missing CD.
+		Con_DPrintf( 'Couldn\'t find a cdrip for track %d\n', playTrack );
+		playing = false;
+		wasPlaying = false; // nothing for CDAudio_Resume to restart
+		gestureRetry = false;
+		return;
+
+	}
+
+	const url = urls[ index ];
+
+	musicElement.onerror = function () {
+
+		if ( attempt !== playAttempt )
+			return;
+
+		// MEDIA_ERR_NETWORK may be transient; anything else is the file
+		const error = musicElement.error;
+		if ( error === null || error === undefined || error.code !== 2 )
+			missingURLs.add( url );
+		CDAudio_PlayURL( urls, index + 1, attempt );
+
+	};
+
+	musicElement.src = url;
+
+	// paused while an earlier candidate was failing: CDAudio_Resume plays it
+	if ( playing )
+		CDAudio_StartElement( attempt );
+
+}
+
+/*
+================
+CDAudio_GestureRetry
+
+Registered as the S_UnlockAudio callback, so it runs inside the user's
+gesture handler, where the browser allows play().
+================
+*/
+function CDAudio_GestureRetry() {
+
+	if ( ! gestureRetry || ! playing || musicElement === null )
+		return;
+
+	CDAudio_StartElement( playAttempt );
 
 }
 
@@ -104,15 +258,14 @@ export function CDAudio_Play( track, looping ) {
 
 	cdvolume = vol;
 
-	// Get track URL
-	let url = null;
-	if ( _getTrackURL ) {
+	// Get the track's candidate URLs
+	let urls = null;
+	if ( _getTrackURL !== null )
+		urls = _getTrackURL( track );
+	if ( typeof urls === 'string' )
+		urls = [ urls ];
 
-		url = _getTrackURL( track );
-
-	}
-
-	if ( ! url ) {
+	if ( urls === null || urls === undefined || urls.length === 0 ) {
 
 		Con_DPrintf( 'CDAudio_Play: no URL for track %d\n', track );
 		return;
@@ -128,7 +281,6 @@ export function CDAudio_Play( track, looping ) {
 
 		}
 
-		musicElement.src = url;
 		musicElement.loop = looping;
 		musicElement.volume = bgmvolume.value;
 
@@ -161,12 +313,6 @@ export function CDAudio_Play( track, looping ) {
 
 		}
 
-		musicElement.play().catch( function ( e ) {
-
-			Con_DPrintf( 'CDAudio_Play: playback failed: %s\n', e.message );
-
-		} );
-
 		// Handle looping via ended event for non-loop mode
 		musicElement.onended = function () {
 
@@ -179,6 +325,9 @@ export function CDAudio_Play( track, looping ) {
 		};
 
 		playing = true;
+		gestureRetry = false;
+		playAttempt ++;
+		CDAudio_PlayURL( urls, 0, playAttempt );
 
 	} catch ( e ) {
 
@@ -209,6 +358,10 @@ export function CDAudio_Stop() {
 		} catch { /* ignore */ }
 
 	}
+
+	// drop any pending candidate fallthrough or gesture retry
+	playAttempt ++;
+	gestureRetry = false;
 
 	wasPlaying = playing;
 	playing = false;
@@ -256,17 +409,17 @@ export function CDAudio_Resume() {
 	if ( ! wasPlaying )
 		return;
 
+	playing = true;
+
 	if ( musicElement ) {
 
 		try {
 
-			musicElement.play().catch( function () {} );
+			CDAudio_StartElement( playAttempt );
 
 		} catch { /* ignore */ }
 
 	}
-
-	playing = true;
 
 }
 
@@ -329,6 +482,9 @@ export function CDAudio_Init() {
 
 	Cmd_AddCommand( 'cd', CD_f );
 
+	// retry music the autoplay policy refused on the next click or key press
+	S_SetCallbacks( { onUnlockAudio: CDAudio_GestureRetry } );
+
 	Con_Printf( 'CD Audio Initialized (Web Audio)\n' );
 
 	return 0;
@@ -372,6 +528,7 @@ export function CDAudio_Shutdown() {
 	}
 
 	musicElement = null;
+	missingURLs.clear();
 	initialized = false;
 
 }
