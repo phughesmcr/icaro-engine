@@ -116,7 +116,16 @@ For program optimization: renders 128 frames spinning the view through
 360 degrees and reports the time taken.
 ====================
 */
-function R_TimeRefresh_f() {
+export function R_TimeRefresh_f() {
+
+	// R_RenderView draws nothing without a world or with r_norefresh set, so
+	// the timing would be meaningless (gl_rmisc.c prints it anyway).
+	if ( ! cl.worldmodel || r_norefresh.value ) {
+
+		Con_Printf( 'timerefresh: no map loaded or r_norefresh is set\n' );
+		return;
+
+	}
 
 	// WebGL is asynchronous; finish() plus a 1-pixel readback stands in for
 	// glFinish() so the timing covers the GPU work, not just command submission.
