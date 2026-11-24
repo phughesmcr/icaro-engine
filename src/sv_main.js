@@ -886,7 +886,7 @@ export function SV_EmitPacketEntities( client, to, msg ) {
 	if ( useDelta ) {
 
 		const age = ( ( client.outgoing_sequence & 255 ) - ( client.delta_sequence & 255 ) ) & 255;
-		if ( age >= PE_UPDATE_BACKUP - 1 )
+		if ( age === 0 || age >= PE_UPDATE_BACKUP - 1 ) // 0: the frame being built
 			useDelta = false;
 
 	}
@@ -915,7 +915,7 @@ export function SV_EmitPacketEntities( client, to, msg ) {
 	// the cursor to the first entity it could not send, so the next frame
 	// starts there instead of re-sending the low numbers first. A sweep needs
 	// ceil(entities / capacity) frames at worst, then the cursor returns to 0.
-	const cursor = client.pe_cursor | 0;
+	const cursor = useDelta ? client.pe_cursor | 0 : 0; // a full update has nothing to defer to
 	const newcount = to.num_entities;
 
 	let newindex = 0; // read position in `to`
@@ -927,7 +927,7 @@ export function SV_EmitPacketEntities( client, to, msg ) {
 	let safesize = msg.cursize;
 	let safeout = 0;
 	let safeold = 0;
-	let safenum = 0;
+	let safenum = cursor; // an overflow before the first entry keeps the sweep where it was
 	let overflow = false;
 
 	while ( newindex < newcount || oldindex < oldmax ) {

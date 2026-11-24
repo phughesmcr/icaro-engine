@@ -425,6 +425,24 @@ Deno.test( 'SV_EmitPacketEntities sweeps all entities across frames when they ov
 
 } );
 
+Deno.test( 'SV_EmitPacketEntities ignores a leftover sweep cursor on a full update', () => {
+
+	withServer( ( baselines ) => {
+
+		const to = makePacket();
+		fillPacket( to, range( 20, 10 ), 3 );
+		const msg = makeMsg( 1024 );
+		const client = { delta_sequence: - 1, outgoing_sequence: 5, frames: [], pe_cursor: 25 };
+		SV_EmitPacketEntities( client, to, msg );
+		assert( to.num_entities === 10, 'entities below the cursor were dropped' );
+		assert( decode( msg, { num_entities: 0, entities: [] }, baselines ).length === 10, 'client missed entities' );
+		// age 0 is the frame being built: never delta from it
+		assert( emitWithAge( 9, 9 ) === svc_packetentities, 'age 0 should be a full update' );
+
+	} );
+
+} );
+
 // teleport_time reaches the client through svc_playerinfo PF_TELEPORT
 
 Deno.test( 'SV_WritePlayersToClient sends the view player teleport_time left (PF_TELEPORT)', () => {
