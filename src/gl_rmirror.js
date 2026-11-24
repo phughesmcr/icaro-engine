@@ -196,10 +196,12 @@ const _textureMatrix = new THREE.Matrix4(); // the overlay's textureMatrix unifo
 const _keepNormal = new Float64Array( 3 );
 const _clipPlane = new Float64Array( 4 );
 
-// Overlay meshes, one per visible mirror surface, kept in _group. Their
-// geometry is reassigned every frame: R_ClearMirrors disposes the mirror
-// geometries on a map change.
+// Overlay meshes, one per visible mirror surface, kept in _group. They take
+// their surface's geometry for the frame and give it back in R_MirrorCleanup
+// (pointing at _emptyGeometry), so a disposed geometry from an earlier map
+// (R_ClearMirrors) is never kept alive by the pool.
 const _meshes = [];
+let _emptyGeometry = null;
 
 // Undo list for the frame in progress: mirror instances hidden in the world
 // batches, with their previous visibility. _restoreCount is -1 when there is
@@ -252,6 +254,9 @@ function _ensureOverlay() {
 		} );
 
 	}
+
+	if ( _emptyGeometry === null )
+		_emptyGeometry = new THREE.BufferGeometry();
 
 	if ( _group === null ) {
 
@@ -397,8 +402,12 @@ export function R_MirrorPass( renderer, scene, camera, plane, items, alpha, hide
 
 	}
 
-	for ( let i = items.length; i < _meshes.length; i ++ )
+	for ( let i = items.length; i < _meshes.length; i ++ ) {
+
+		_meshes[ i ].geometry = _emptyGeometry;
 		_meshes[ i ].visible = false;
+
+	}
 
 	scene.add( _group );
 	return true;
@@ -422,5 +431,8 @@ export function R_MirrorCleanup() {
 
 	if ( _group !== null && _group.parent !== null )
 		_group.parent.remove( _group );
+
+	for ( let i = 0; i < _meshes.length; i ++ )
+		_meshes[ i ].geometry = _emptyGeometry;
 
 }

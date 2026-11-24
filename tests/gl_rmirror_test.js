@@ -280,6 +280,8 @@ Deno.test( 'R_MirrorPass and R_MirrorCleanup reuse their objects across frames',
 
 	const renderer = {
 		renders: 0,
+		targets: [],
+		cameras: [],
 		viewports: [],
 		target: null,
 		getViewport( v ) {
@@ -290,9 +292,19 @@ Deno.test( 'R_MirrorPass and R_MirrorCleanup reuse their objects across frames',
 		},
 		getPixelRatio() { return 1; },
 		getRenderTarget() { return this.target; },
-		setRenderTarget( t ) { this.target = t; },
+		setRenderTarget( t ) {
+
+			if ( t !== null ) this.targets.push( t );
+			this.target = t;
+
+		},
 		clear() {},
-		render() { this.renders ++; }
+		render( s, cam ) {
+
+			this.renders ++;
+			this.cameras.push( cam );
+
+		}
 	};
 
 	const scene = new THREE.Scene();
@@ -373,16 +385,46 @@ Deno.test( 'R_MirrorPass and R_MirrorCleanup reuse their objects across frames',
 	gl_rmirror.R_MirrorCleanup();
 	assertEqual( batch.vis[ 2 ], true, 'third surface visibility restored' );
 
-	// a new map: geometries replaced, meshes kept
-	const newItems = [ { geom: geoms[ 2 ], texture, batch, instanceId: 2 } ];
+	// a new map with fewer mirror surfaces: geometries replaced, meshes kept,
+	// and no pooled mesh still holds the old map's (disposed) geometries
+	const newItems = [ { geom: new THREE.BufferGeometry(), texture, batch, instanceId: 2 } ];
 	gl_rmirror.R_MirrorPass( renderer, scene, camera, plane, newItems, 0.5, hide );
-	assertEqual( meshes[ 0 ].geometry, geoms[ 2 ], 'mesh takes the new map geometry' );
-	assertEqual( group.children[ 2 ].visible, false, 'spare pooled mesh hidden' );
+	assertEqual( meshes[ 0 ].geometry, newItems[ 0 ].geom, 'mesh takes the new map geometry' );
+	for ( let i = 1; i < group.children.length; i ++ ) {
+
+		const m = group.children[ i ];
+		assertEqual( m.visible, false, `spare pooled mesh ${i} hidden` );
+		assertEqual( geoms.includes( m.geometry ), false, `spare pooled mesh ${i} drops the old map geometry` );
+
+	}
+
 	gl_rmirror.R_MirrorCleanup();
+	for ( let i = 0; i < group.children.length; i ++ ) {
+
+		const g = group.children[ i ].geometry;
+		assertEqual( geoms.includes( g ) || g === newItems[ 0 ].geom, false, `mesh ${i} holds no mirror geometry after cleanup` );
+
+	}
 
 	assertEqual( renderer.renders, 6, 'one reflection render per frame' );
 	for ( let i = 1; i < renderer.viewports.length; i ++ )
 		assertEqual( renderer.viewports[ i ], renderer.viewports[ 0 ], `viewport scratch reused (call ${i})` );
+	assertEqual( renderer.targets.length, 6, 'one render target bind per frame' );
+	for ( let i = 1; i < renderer.targets.length; i ++ )
+		assertEqual( renderer.targets[ i ], renderer.targets[ 0 ], `render target reused (frame ${i})` );
+	for ( let i = 1; i < renderer.cameras.length; i ++ )
+		assertEqual( renderer.cameras[ i ], renderer.cameras[ 0 ], `virtual camera reused (frame ${i})` );
+
+	// eye on the mirror plane: nothing drawn, nothing to undo
+	camera.matrixWorld.elements[ 12 ] = 0.2;
+	const onPlane = gl_rmirror.R_MirrorPass( renderer, scene, camera, plane, items, 0.5, hide );
+	assertEqual( onPlane, false, 'eye on the plane draws nothing' );
+	assertEqual( renderer.renders, 6, 'no reflection render with the eye on the plane' );
+	assertEqual( scene.children.indexOf( group ), - 1, 'no overlay with the eye on the plane' );
+	assertEqual( batch.vis[ 0 ], true, 'mirror surface left visible with the eye on the plane' );
+	gl_rmirror.R_MirrorCleanup();
+	assertEqual( batch.vis[ 0 ], true, 'cleanup after an early return changes nothing' );
+	camera.matrixWorld.elements[ 12 ] = 64;
 
 	// nothing to undo: a second cleanup is a no-op
 	gl_rmirror.R_MirrorCleanup();
