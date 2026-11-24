@@ -1719,7 +1719,7 @@ function Mod_LoadFaces( fileofs, filelen ) {
 		s.numedges = view.getInt16( base + 8, true );
 		s.flags = 0;
 
-		const planenum = view.getUint16( base, true );
+		const planenum = view.getInt16( base, true ); // dface_t planenum is a short
 		const side = view.getInt16( base + 2, true );
 		if ( side )
 			s.flags |= SURF_PLANEBACK;
@@ -2876,10 +2876,11 @@ function Mod_LoadSpriteModel( mod, buffer ) {
 	mod.synctype = view.getInt32( 32, true );
 	psprite.numframes = numframes;
 
-	mod.mins[ 0 ] = mod.mins[ 1 ] = - psprite.maxwidth / 2;
-	mod.maxs[ 0 ] = mod.maxs[ 1 ] = psprite.maxwidth / 2;
-	mod.mins[ 2 ] = - psprite.maxheight / 2;
-	mod.maxs[ 2 ] = psprite.maxheight / 2;
+	// C int division (maxwidth and maxheight are ints)
+	mod.mins[ 0 ] = mod.mins[ 1 ] = ( - psprite.maxwidth / 2 ) | 0;
+	mod.maxs[ 0 ] = mod.maxs[ 1 ] = ( psprite.maxwidth / 2 ) | 0;
+	mod.mins[ 2 ] = ( - psprite.maxheight / 2 ) | 0;
+	mod.maxs[ 2 ] = ( psprite.maxheight / 2 ) | 0;
 
 	//
 	// load the frames
