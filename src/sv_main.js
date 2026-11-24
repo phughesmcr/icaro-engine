@@ -293,8 +293,28 @@ export function SV_SendServerinfo( client ) {
 	MSG_WriteShort( client.message, clientnum + 1 );
 
 	// send movevars for client-side prediction (matches QW sv_user.c:98-108)
-	MSG_WriteByte( client.message, svc_stufftext );
-	MSG_WriteString( client.message, '_movevars'
+	SV_WriteMovevars( client.message );
+
+	MSG_WriteByte( client.message, svc_signonnum );
+	MSG_WriteByte( client.message, 1 );
+
+	client.sendsignon = true;
+	client.spawned = false; // need prespawn, spawn, etc
+
+}
+
+/*
+================
+SV_WriteMovevars
+
+Writes the _movevars stufftext that feeds client-side prediction. Not in
+NetQuake: it carries the values QuakeWorld sends in svc_serverdata.
+================
+*/
+function SV_WriteMovevars( msg ) {
+
+	MSG_WriteByte( msg, svc_stufftext );
+	MSG_WriteString( msg, '_movevars'
 		+ ' ' + sv_gravity.value
 		+ ' ' + sv_stopspeed.value
 		+ ' ' + sv_maxspeed.value
@@ -307,11 +327,40 @@ export function SV_SendServerinfo( client ) {
 		+ ' ' + 1.0 // entgravity
 		+ '\n' );
 
-	MSG_WriteByte( client.message, svc_signonnum );
-	MSG_WriteByte( client.message, 1 );
+}
 
-	client.sendsignon = true;
-	client.spawned = false; // need prespawn, spawn, etc
+// Movevar cvar values last sent to all clients
+const _movevars_sent = new Float64Array( 5 );
+
+function SV_SnapshotMovevars() {
+
+	_movevars_sent[ 0 ] = sv_gravity.value;
+	_movevars_sent[ 1 ] = sv_stopspeed.value;
+	_movevars_sent[ 2 ] = sv_maxspeed.value;
+	_movevars_sent[ 3 ] = sv_accelerate.value;
+	_movevars_sent[ 4 ] = sv_friction.value;
+
+}
+
+/*
+================
+SV_CheckMovevars
+
+Re-sends _movevars on the reliable stream when one of the cvars it carries
+changes mid-game, so prediction keeps using the server's values.
+================
+*/
+function SV_CheckMovevars() {
+
+	if ( _movevars_sent[ 0 ] === sv_gravity.value
+		&& _movevars_sent[ 1 ] === sv_stopspeed.value
+		&& _movevars_sent[ 2 ] === sv_maxspeed.value
+		&& _movevars_sent[ 3 ] === sv_accelerate.value
+		&& _movevars_sent[ 4 ] === sv_friction.value )
+		return;
+
+	SV_SnapshotMovevars();
+	SV_WriteMovevars( sv.reliable_datagram );
 
 }
 
@@ -512,6 +561,8 @@ SV_UpdateToReliableMessages
 =======================
 */
 function SV_UpdateToReliableMessages() {
+
+	SV_CheckMovevars();
 
 	// check for changes to be sent over the reliable streams
 	for ( let i = 0; i < svs.maxclients; i ++ ) {
@@ -1759,6 +1810,9 @@ export function SV_SpawnServer( server ) {
 
 	// all setup is completed, any further precache statements are errors
 	sv.state = ss_active;
+
+	// clients get the current movevars in serverinfo
+	SV_SnapshotMovevars();
 
 	// run two frames to allow everything to settle
 	set_host_frametime( 0.1 );
