@@ -167,3 +167,26 @@ Deno.test( 'view effects use entity state when prediction is not running', () =>
 	}
 
 } );
+
+Deno.test( 'lightmap shader patch adds the r_lightmap switch', async () => {
+
+	const { R_PatchLightmapShader } = await import( '../src/gl_rsurf.js' );
+	const shader = {
+		uniforms: {},
+		fragmentShader: [
+			'uniform vec3 emissive;',
+			'void main() {',
+			'\t#include <map_fragment>',
+			'\t#include <emissivemap_fragment>',
+			'}'
+		].join( '\n' )
+	};
+
+	R_PatchLightmapShader( shader );
+
+	assertEqual( shader.uniforms.quakeLightmapOnly != null, true, 'uniform bound' );
+	assertEqual( shader.fragmentShader.includes( 'uniform float quakeLightmapOnly;' ), true, 'uniform declared' );
+	assertEqual( shader.fragmentShader.includes( 'mix( diffuseColor.rgb, vec3( 1.0 ), quakeLightmapOnly )' ), true, 'diffuse swapped for white' );
+	assertEqual( shader.fragmentShader.includes( 'totalEmissiveRadiance *= 1.0 - quakeLightmapOnly;' ), true, 'fullbright emissive dropped' );
+
+} );

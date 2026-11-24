@@ -11,7 +11,7 @@ and drops the fullbright emissive while it is 1.
 */
 const _lightmapOnly = { value: 0 };
 
-function R_PatchLightmapShader( shader ) {
+export function R_PatchLightmapShader( shader ) {
 
 	shader.uniforms.quakeLightmapOnly = _lightmapOnly;
 	shader.fragmentShader = shader.fragmentShader
