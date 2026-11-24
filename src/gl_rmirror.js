@@ -55,17 +55,17 @@ export function R_ReflectVector( out, v, normal ) {
 
 }
 
-// World matrix of the virtual camera: the camera reflected through the plane.
-// A true mirror matrix has determinant -1, so the right vector is rebuilt as
-// forward x up to keep a proper rotation (the image comes out flipped, which
-// the projective texture lookup in the mirror shader undoes).
-// cam is a column-major camera world matrix: x = right, y = up, z = -forward.
 // Scratch for R_MirrorCameraWorld (reflected in place: R_ReflectPoint and
 // R_ReflectVector read the input before writing the output).
 const _mcPos = new Float64Array( 3 );
 const _mcUp = new Float64Array( 3 );
 const _mcFwd = new Float64Array( 3 );
 
+// World matrix of the virtual camera: the camera reflected through the plane.
+// A true mirror matrix has determinant -1, so the right vector is rebuilt as
+// forward x up to keep a proper rotation (the image comes out flipped, which
+// the projective texture lookup in the mirror shader undoes).
+// cam is a column-major camera world matrix: x = right, y = up, z = -forward.
 export function R_MirrorCameraWorld( out, cam, normal, dist ) {
 
 	_mcPos[ 0 ] = cam[ 12 ]; _mcPos[ 1 ] = cam[ 13 ]; _mcPos[ 2 ] = cam[ 14 ];

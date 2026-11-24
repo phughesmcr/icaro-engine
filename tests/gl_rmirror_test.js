@@ -362,13 +362,25 @@ Deno.test( 'R_MirrorPass and R_MirrorCleanup reuse their objects across frames',
 
 	}
 
+	// more surfaces than any frame before: the pool grows, keeping its meshes
+	const moreItems = [ items[ 0 ], items[ 1 ], { geom: geoms[ 2 ], texture, batch, instanceId: 2 } ];
+	gl_rmirror.R_MirrorPass( renderer, scene, camera, plane, moreItems, 0.5, hide );
+	assertEqual( group.children.length, 3, 'pool grown to three meshes' );
+	assertEqual( group.children[ 0 ], meshes[ 0 ], 'grown pool keeps mesh 0' );
+	assertEqual( group.children[ 1 ], meshes[ 1 ], 'grown pool keeps mesh 1' );
+	assertEqual( group.children[ 2 ].geometry, geoms[ 2 ], 'new mesh geometry' );
+	assertEqual( batch.vis[ 2 ], false, 'third surface hidden in the main view' );
+	gl_rmirror.R_MirrorCleanup();
+	assertEqual( batch.vis[ 2 ], true, 'third surface visibility restored' );
+
 	// a new map: geometries replaced, meshes kept
 	const newItems = [ { geom: geoms[ 2 ], texture, batch, instanceId: 2 } ];
 	gl_rmirror.R_MirrorPass( renderer, scene, camera, plane, newItems, 0.5, hide );
 	assertEqual( meshes[ 0 ].geometry, geoms[ 2 ], 'mesh takes the new map geometry' );
+	assertEqual( group.children[ 2 ].visible, false, 'spare pooled mesh hidden' );
 	gl_rmirror.R_MirrorCleanup();
 
-	assertEqual( renderer.renders, 5, 'one reflection render per frame' );
+	assertEqual( renderer.renders, 6, 'one reflection render per frame' );
 	for ( let i = 1; i < renderer.viewports.length; i ++ )
 		assertEqual( renderer.viewports[ i ], renderer.viewports[ 0 ], `viewport scratch reused (call ${i})` );
 
