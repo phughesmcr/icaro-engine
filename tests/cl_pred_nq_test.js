@@ -96,6 +96,26 @@ const poolWorld = {
 	} ]
 };
 
+// A 16-unit step up at x = 0 (floor z = 0 before it, z = 16 after)
+function stepHull( stepX, lowZ, highZ ) {
+
+	return {
+		firstclipnode: 0,
+		lastclipnode: 2,
+		clipnodes: [
+			{ planenum: 0, children: new Int16Array( [ 2, 1 ] ) },
+			{ planenum: 1, children: new Int16Array( [ CONTENTS_EMPTY, CONTENTS_SOLID ] ) },
+			{ planenum: 2, children: new Int16Array( [ CONTENTS_EMPTY, CONTENTS_SOLID ] ) },
+		],
+		planes: [ axisPlane( 0, stepX ), axisPlane( 2, lowZ ), axisPlane( 2, highZ ) ],
+	};
+
+}
+const stepWorld = {
+	name: 'step',
+	hulls: [ stepHull( 0, 0, 16 ), stepHull( - 16, 24, 40 ) ]
+};
+
 let worldmodel = dryWorld;
 
 //
@@ -382,6 +402,22 @@ Deno.test( 'NQ prediction: sliding along a wall matches the server (SV_WallFrict
 			origin: [ - 300, 70, 24 ], velocity: [ 0, 0, 0 ],
 			viewangles: [ 0, 80, 0 ], move: [ 400, 0, 0 ],
 		} );
+
+	} );
+
+} );
+
+Deno.test( 'NQ prediction: climbing a step matches the server (SV_WalkMove step-up)', () => {
+
+	withNQ( () => {
+
+		const ent = runDifferential( 'step', {
+			dt: 1 / 72, frames: 60, onground: true, world: stepWorld,
+			origin: [ - 100, 0, 24 ], velocity: [ 0, 0, 0 ],
+			viewangles: [ 0, 20, 0 ], move: [ 320, 0, 0 ],
+		} );
+		if ( ent.v.origin[ 0 ] < 0 || ent.v.origin[ 2 ] < 39.9 )
+			throw new Error( `expected the server's player on the step, at ${ent.v.origin}` );
 
 	} );
 

@@ -178,7 +178,6 @@ let cls_latency = 0;
 // in cl.time, but here cl.time stays in server time for CL_LerpPoint,
 // dlights and the rest of the NQ client (PRED-1).
 let cl_predtime = 0;
-export function CL_GetPredictTime() { return cl_predtime; }
 
 /*
 =================
