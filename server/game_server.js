@@ -37,7 +37,6 @@ import {
 	WT_SearchForHosts,
 	WT_SetDriverLevel,
 	WT_SetSocketAllocator,
-	WT_SetDirectMode,
 	WT_SetSocketFreer,
 	WT_GetMaxPendingWrites,
 } from './net_webtransport_server.ts';
@@ -200,9 +199,9 @@ async function Host_Init_Server() {
 		keyFile: CONFIG.keyFile,
 	});
 
-	// If running as a room server, use direct mode (skip lobby protocol)
+	// Room servers accept connections directly (no lobby protocol); the
+	// driver has no separate mode for it.
 	if (CONFIG.directMode) {
-		WT_SetDirectMode(true);
 		Sys_Printf('Direct mode enabled (room server)\n');
 	}
 
@@ -283,7 +282,10 @@ async function Host_Init_Server() {
 	COM_SetLooseFileBasePath(decodeURIComponent(new URL('../static/', import.meta.url).pathname));
 
 	// Start listening for connections
-	await net_drivers[1].Listen(true);
+	// WT_Listen resolves false when the listener can't bind or load its cert.
+	if (await net_drivers[1].Listen(true) === false) {
+		throw new Error('WebTransport listener failed to start on port ' + CONFIG.port);
+	}
 
 	// Ensure the default map file is available, then spawn. maxclients comes
 	// from -maxclients (set on svs above, before SV_SpawnServer, so clients
