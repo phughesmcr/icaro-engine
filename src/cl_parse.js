@@ -328,7 +328,8 @@ export function CL_ParseServerInfo() {
 	// now we try to load everything else until a cache allocation fails
 	//
 
-	// Lazy-load: if the world BSP isn't cached yet, fetch it on demand and reconnect
+	// Lazy-load (web-only): if the world BSP isn't cached yet, fetch it on
+	// demand and reconnect
 	if ( nummodels > 1 && COM_FindFile( model_precache[ 1 ] ) === null ) {
 
 		const addr = cls.netcon != null ? cls.netcon.address : null;
@@ -346,6 +347,13 @@ export function CL_ParseServerInfo() {
 			}
 
 		} );
+
+		// Disconnect for the download. Staying connected let the rest of this
+		// message (svc_signonnum) sign on a player with no map, holding a server
+		// slot until the reconnect. Host_EndGame sends clc_disconnect and
+		// discards the rest of the message, as C's longjmp does.
+		if ( cls.demoplayback !== true )
+			Host_EndGame( 'fetching ' + model_precache[ 1 ] + '\n' );
 		return;
 
 	}
