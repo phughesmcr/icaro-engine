@@ -10,6 +10,7 @@ const console_ = await import( '../src/console.js' );
 const sbar = await import( '../src/sbar.js' );
 const gl_screen = await import( '../src/gl_screen.js' );
 const menu = await import( '../src/menu.js' );
+const draw = await import( '../src/gl_draw.js' );
 const { cl } = await import( '../src/client.js' );
 
 function assertEqual( actual, expected, message ) {
@@ -331,18 +332,42 @@ Deno.test( 'C-11: Escape cancels the New Game confirmation', () => {
 
 } );
 
-Deno.test( 'C-11: touch answers the dialog, but not straight after it opens', () => {
+// Taps at the YES / NO choices, on an element the size of _vid. The New Game
+// text is two lines, so its choice row starts a blank line under them.
+function modalChoiceY() {
+
+	return Math.floor( draw.Draw_GetVirtualHeight() * 0.35 ) + 2 * 8 + 8 + 4;
+
+}
+
+function tapModal( dx ) {
+
+	const w = draw.Draw_GetVirtualWidth();
+	const h = draw.Draw_GetVirtualHeight();
+	menu.M_TouchInput( ( w >> 1 ) + dx, modalChoiceY(), w, h );
+
+}
+
+function tapQuit( vx, vy ) {
+
+	const w = draw.Draw_GetVirtualWidth();
+	const h = draw.Draw_GetVirtualHeight();
+	menu.M_TouchInput( vx + ( w - 320 ) / 2, vy + ( h - 200 ) / 2, w, h );
+
+}
+
+function withNewGameMenu( fn ) {
 
 	issued.length = 0;
 
-	let now = 10;
+	const clock = { now: 10 };
 	menu.M_Init();
 	gl_screen.SCR_SetExternals( { cls: { state: 2, signon: 0, demoplayback: false } } );
 	menu.M_SetExternals( {
 		sv: { active: true },
 		key_dest_set: keys.set_key_dest,
 		key_dest_get: () => keys.key_dest,
-		realtime_get: () => now
+		realtime_get: () => clock.now
 	} );
 
 	const hadWindow = 'window' in globalThis;
@@ -350,35 +375,231 @@ Deno.test( 'C-11: touch answers the dialog, but not straight after it opens', ()
 
 	try {
 
-		// top of the screen, in menu space: yes
-		const topY = 10, H = 100;
-
-		cmd.Cmd_ExecuteString( 'menu_singleplayer' );
-		menu.M_Keydown( keys.K_ENTER );
-
-		now += 0.1; // second click of a double click
-		menu.M_TouchInput( 50, topY, 100, H );
-		assertEqual( keys.Key_ModalActive(), true, 'early tap ignored' );
-
-		now += 1;
-		menu.M_TouchInput( 50, H - 1, 100, H ); // bottom: no
-		cmd.Cbuf_Execute();
-		assertEqual( keys.Key_ModalActive(), false, 'bottom tap answers' );
-		assertEqual( issued.length, 0, 'no new game on bottom tap' );
-
-		menu.M_Keydown( keys.K_ENTER );
-		now += 1;
-		menu.M_TouchInput( 50, topY, 100, H );
-		cmd.Cbuf_Execute();
-		assertEqual( keys.Key_ModalActive(), false, 'top tap answers' );
-		assertEqual( issued.join( ',' ), 'disconnect,maxplayers,map', 'new game on top tap' );
+		fn( clock );
 
 	} finally {
+
+		if ( keys.Key_ModalActive() ) {
+
+			keys.Key_Event( keys.K_ESCAPE, true );
+			keys.Key_Event( keys.K_ESCAPE, false );
+
+		}
 
 		if ( ! hadWindow ) delete globalThis.window;
 		menu.M_SetExternals( { sv: { active: false }, realtime_get: () => 0 } );
 
 	}
+
+}
+
+Deno.test( 'C-11: touch answers the dialog on YES or NO, but not straight after it opens', () => {
+
+	withNewGameMenu( ( clock ) => {
+
+		cmd.Cmd_ExecuteString( 'menu_singleplayer' );
+		menu.M_Keydown( keys.K_ENTER );
+
+		clock.now += 0.1; // second click of a double click
+		tapModal( - 30 );
+		assertEqual( keys.Key_ModalActive(), true, 'early tap ignored' );
+
+		clock.now += 1;
+		const w = draw.Draw_GetVirtualWidth();
+		const h = draw.Draw_GetVirtualHeight();
+		menu.M_TouchInput( w >> 1, 2, w, h ); // top of the screen
+		menu.M_TouchInput( w >> 1, h - 2, w, h ); // bottom
+		tapModal( - 100 ); // left of YES
+		assertEqual( keys.Key_ModalActive(), true, 'taps away from the choices ignored' );
+
+		tapModal( 20 ); // NO
+		cmd.Cbuf_Execute();
+		assertEqual( keys.Key_ModalActive(), false, 'NO tap answers' );
+		assertEqual( issued.length, 0, 'no new game on NO' );
+
+		menu.M_Keydown( keys.K_ENTER );
+		clock.now += 1;
+		tapModal( - 30 ); // YES
+		cmd.Cbuf_Execute();
+		assertEqual( keys.Key_ModalActive(), false, 'YES tap answers' );
+		assertEqual( issued.join( ',' ), 'disconnect,maxplayers,map', 'new game on YES' );
+
+	} );
+
+} );
+
+Deno.test( 'C-11: arrows and Enter (gamepad d-pad and A) answer the dialog', () => {
+
+	withNewGameMenu( () => {
+
+		cmd.Cmd_ExecuteString( 'menu_singleplayer' );
+
+		// The Enter that opens it, its autorepeat and its key-up don't answer;
+		// a fresh Enter takes the choice, which starts on NO
+		keys.Key_Event( keys.K_ENTER, true );
+		assertEqual( keys.Key_ModalActive(), true, 'dialog shown' );
+		assertEqual( keys.Key_ModalYes(), false, 'starts on NO' );
+		keys.Key_Event( keys.K_ENTER, true ); // autorepeat
+		keys.Key_Event( keys.K_ENTER, false );
+		assertEqual( keys.Key_ModalActive(), true, 'opening Enter did not answer' );
+		keys.Key_Event( keys.K_ENTER, true );
+		keys.Key_Event( keys.K_ENTER, false );
+		cmd.Cbuf_Execute();
+		assertEqual( keys.Key_ModalActive(), false, 'Enter answers' );
+		assertEqual( issued.length, 0, 'NO by default' );
+		assertEqual( keys.key_dest, keys.key_menu, 'menu still up' );
+
+		// An arrow moves the choice to YES, Enter takes it
+		keys.Key_Event( keys.K_ENTER, true );
+		keys.Key_Event( keys.K_ENTER, false );
+		assertEqual( keys.Key_ModalYes(), false, 'NO again on reopening' );
+		keys.Key_Event( keys.K_RIGHTARROW, true );
+		keys.Key_Event( keys.K_RIGHTARROW, true ); // autorepeat: no second move
+		keys.Key_Event( keys.K_RIGHTARROW, false );
+		assertEqual( keys.Key_ModalYes(), true, 'arrow selects YES' );
+		assertEqual( keys.Key_ModalActive(), true, 'arrows do not answer' );
+		keys.Key_Event( keys.K_ENTER, true );
+		keys.Key_Event( keys.K_ENTER, false );
+		cmd.Cbuf_Execute();
+		assertEqual( keys.Key_ModalActive(), false, 'Enter answers YES' );
+		assertEqual( issued.join( ',' ), 'disconnect,maxplayers,map', 'new game on YES' );
+
+	} );
+
+} );
+
+Deno.test( 'quit menu: NO by default, arrows and Enter, y disconnects, touch on YES/NO', () => {
+
+	withNewGameMenu( ( clock ) => {
+
+		// Enter on the default NO: back to the main menu, nothing issued
+		cmd.Cmd_ExecuteString( 'menu_quit' );
+		assertEqual( menu.m_state, menu.m_quit, 'quit menu up' );
+		menu.M_Keydown( keys.K_ENTER );
+		cmd.Cbuf_Execute();
+		assertEqual( menu.m_state, menu.m_main, 'NO: main menu' );
+		assertEqual( issued.length, 0, 'NO: no disconnect' );
+
+		// An arrow selects YES: Enter disconnects and shows the main menu
+		cmd.Cmd_ExecuteString( 'menu_quit' );
+		menu.M_Keydown( keys.K_DOWNARROW );
+		menu.M_Keydown( keys.K_ENTER );
+		cmd.Cbuf_Execute();
+		assertEqual( issued.join( ',' ), 'disconnect', 'YES disconnects' );
+		assertEqual( menu.m_state, menu.m_main, 'YES: main menu' );
+		assertEqual( keys.key_dest, keys.key_menu, 'menu still up' );
+
+		// 'y' answers yes and 'n' no, as in C
+		issued.length = 0;
+		cmd.Cmd_ExecuteString( 'menu_quit' );
+		menu.M_Keydown( 110 );
+		cmd.Cbuf_Execute();
+		assertEqual( issued.length, 0, 'n: no disconnect' );
+		cmd.Cmd_ExecuteString( 'menu_quit' );
+		menu.M_Keydown( 89 ); // 'Y'
+		cmd.Cbuf_Execute();
+		assertEqual( issued.join( ',' ), 'disconnect', 'Y disconnects' );
+
+		// Touch: early taps and taps away from the choices do nothing
+		issued.length = 0;
+		cmd.Cmd_ExecuteString( 'menu_quit' );
+		clock.now += 0.1;
+		tapQuit( 130, 112 ); // YES, too soon
+		assertEqual( menu.m_state, menu.m_quit, 'early tap ignored' );
+		clock.now += 1;
+		tapQuit( 160, 20 ); // top half
+		tapQuit( 160, 180 ); // bottom half
+		assertEqual( menu.m_state, menu.m_quit, 'taps away from the choices ignored' );
+		tapQuit( 180, 112 ); // NO
+		cmd.Cbuf_Execute();
+		assertEqual( menu.m_state, menu.m_main, 'NO tap: main menu' );
+		assertEqual( issued.length, 0, 'NO tap: no disconnect' );
+
+		cmd.Cmd_ExecuteString( 'menu_quit' );
+		clock.now += 1;
+		tapQuit( 130, 112 ); // YES
+		cmd.Cbuf_Execute();
+		assertEqual( issued.join( ',' ), 'disconnect', 'YES tap disconnects' );
+
+	} );
+
+} );
+
+Deno.test( 'yes/no prompts: the mouse selects YES or NO, the wheel does not', () => {
+
+	const oldMouse = menu.ui_mouse.value;
+	menu.ui_mouse.value = 1;
+
+	try {
+
+		withNewGameMenu( ( clock ) => {
+
+			const w = draw.Draw_GetVirtualWidth();
+			const h = draw.Draw_GetVirtualHeight();
+			const moveQuit = ( vx, vy ) => menu.M_Mousemove( vx + ( w - 320 ) / 2, vy + ( h - 200 ) / 2, w, h );
+
+			// Quit menu: hovering YES selects it, the wheel doesn't toggle it
+			cmd.Cmd_ExecuteString( 'menu_quit' );
+			menu.M_Keydown( keys.K_MWHEELDOWN );
+			menu.M_Keydown( keys.K_ENTER );
+			cmd.Cbuf_Execute();
+			assertEqual( issued.length, 0, 'wheel left NO selected' );
+
+			cmd.Cmd_ExecuteString( 'menu_quit' );
+			moveQuit( 130, 112 ); // YES
+			menu.M_Keydown( keys.K_ENTER );
+			cmd.Cbuf_Execute();
+			assertEqual( issued.join( ',' ), 'disconnect', 'hovered YES taken' );
+
+			// SCR_ModalMessage: hovering moves the choice both ways
+			issued.length = 0;
+			cmd.Cmd_ExecuteString( 'menu_singleplayer' );
+			menu.M_Keydown( keys.K_ENTER );
+			clock.now += 1;
+			menu.M_Mousemove( ( w >> 1 ) - 30, modalChoiceY(), w, h );
+			assertEqual( keys.Key_ModalYes(), true, 'hover YES' );
+			menu.M_Mousemove( ( w >> 1 ) + 20, modalChoiceY(), w, h );
+			assertEqual( keys.Key_ModalYes(), false, 'hover NO' );
+			menu.M_Mousemove( ( w >> 1 ) - 30, 2, w, h );
+			assertEqual( keys.Key_ModalYes(), false, 'hover elsewhere keeps the choice' );
+
+		} );
+
+	} finally {
+
+		menu.ui_mouse.value = oldMouse;
+
+	}
+
+} );
+
+Deno.test( 'quit YES on the title screen leaves the demo loop alone', () => {
+
+	withNewGameMenu( () => {
+
+		const cls = { state: 2, demonum: - 1, demoplayback: true }; // ca_connected
+		menu.M_SetExternals( { sv: { active: false }, cls } );
+		try {
+
+			cmd.Cmd_ExecuteString( 'menu_quit' );
+			menu.M_Keydown( 121 ); // 'y'
+			cmd.Cbuf_Execute();
+			assertEqual( issued.length, 0, 'no disconnect during the demo' );
+			assertEqual( menu.m_state, menu.m_main, 'main menu' );
+
+			cls.demoplayback = false; // a client in a remote game
+			cmd.Cmd_ExecuteString( 'menu_quit' );
+			menu.M_Keydown( 121 );
+			cmd.Cbuf_Execute();
+			assertEqual( issued.join( ',' ), 'disconnect', 'remote game: disconnect' );
+
+		} finally {
+
+			menu.M_SetExternals( { cls: { state: 0, demonum: - 1, demoplayback: false } } );
+
+		}
+
+	} );
 
 } );
 
