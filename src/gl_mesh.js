@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { Con_Printf, Con_DPrintf } from './common.js';
 import { cl } from './client.js';
 import { R_GetPlayerSkinTexture } from './gl_rmisc.js';
-import { gl_nocolors } from './glquake.js';
+import { gl_nocolors, gl_doubleeyes } from './glquake.js';
 import { r_avertexnormals } from './anorm_dots.js';
 
 /*
@@ -71,7 +71,7 @@ function StripLength( starttri, startv ) {
 	while ( found ) {
 
 		found = false;
-		for ( let j = starttri + 1; j < pheader.numtris; j ++ ) {
+		search: for ( let j = starttri + 1; j < pheader.numtris; j ++ ) {
 
 			const check = triangles[ j ];
 
@@ -87,8 +87,9 @@ function StripLength( starttri, startv ) {
 				// this is the next part of the fan
 
 				// if we can't use this triangle, this tristrip is done
+				// (C: goto done, which leaves the j loop too)
 				if ( used[ j ] )
-					break;
+					break search;
 
 				// the new edge
 				if ( stripcount & 1 )
@@ -147,7 +148,7 @@ function FanLength( starttri, startv ) {
 	while ( found ) {
 
 		found = false;
-		for ( let j = starttri + 1; j < pheader.numtris; j ++ ) {
+		search: for ( let j = starttri + 1; j < pheader.numtris; j ++ ) {
 
 			const check = triangles[ j ];
 
@@ -163,8 +164,9 @@ function FanLength( starttri, startv ) {
 				// this is the next part of the fan
 
 				// if we can't use this triangle, this tristrip is done
+				// (C: goto done, which leaves the j loop too)
 				if ( used[ j ] )
-					break;
+					break search;
 
 				// the new edge
 				m2 = check.vertindex[ ( k + 2 ) % 3 ];
@@ -266,7 +268,7 @@ export function BuildTris() {
 			let s = stverts[ k ].s;
 			let t = stverts[ k ].t;
 			if ( ! triangles[ besttris[ 0 ] ].facesfront && stverts[ k ].onseam )
-				s += pheader.skinwidth / 2; // on back side
+				s += ( pheader.skinwidth / 2 ) | 0; // on back side (C int division)
 			s = ( s + 0.5 ) / pheader.skinwidth;
 			t = ( t + 0.5 ) / pheader.skinheight;
 
@@ -629,6 +631,7 @@ const _aliasMat = new THREE.Matrix4();
 const _aliasRZ = new THREE.Matrix4();
 const _aliasRY = new THREE.Matrix4();
 const _aliasRX = new THREE.Matrix4();
+const _eyesOffset = new THREE.Vector3();
 const _DEG2RAD = Math.PI / 180;
 
 /*
@@ -761,6 +764,28 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 			_aliasRX.makeRotationX( roll );
 			_aliasMat.multiply( _aliasRZ ).multiply( _aliasRY ).multiply( _aliasRX );
 			mesh.setRotationFromMatrix( _aliasMat );
+
+		}
+
+		// gl_rmain.c R_DrawAliasModel: eyes are drawn at double size, moved
+		// down 30 units ("they are really hard to see in gl"). C translates to
+		// scale_origin - ( 0, 0, 30 ) and scales by scale * 2. The template
+		// already holds scale * v + scale_origin, so scale it by 2 and move
+		// it by -scale_origin - ( 0, 0, 30 ) in the entity's frame.
+		if ( gl_doubleeyes.value !== 0 && entity.model != null &&
+			entity.model.name === 'progs/eyes.mdl' ) {
+
+			mesh.scale.setScalar( 2 );
+			_eyesOffset.set(
+				- paliashdr.scale_origin[ 0 ],
+				- paliashdr.scale_origin[ 1 ],
+				- paliashdr.scale_origin[ 2 ] - ( 22 + 8 )
+			).applyQuaternion( mesh.quaternion );
+			mesh.position.add( _eyesOffset );
+
+		} else {
+
+			mesh.scale.setScalar( 1 );
 
 		}
 
