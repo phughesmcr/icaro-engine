@@ -69,7 +69,7 @@ const v_ipitch_level = new cvar_t( 'v_ipitch_level', '0.3', false );
 
 const v_idlescale = new cvar_t( 'v_idlescale', '0', false );
 
-export const crosshair = new cvar_t( 'crosshair', '1' );
+export const crosshair = new cvar_t( 'crosshair', '0', true ); // view.c: "0", archived
 export const cl_crossx = new cvar_t( 'cl_crossx', '0', false );
 export const cl_crossy = new cvar_t( 'cl_crossy', '0', false );
 

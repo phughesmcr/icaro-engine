@@ -36,6 +36,7 @@ import { SV_LinkEdict } from './world.js';
 import { SV_ClientPrintf, SV_BroadcastPrintf,
 	Host_ShutdownServer, Host_Shutdown } from './host.js';
 import { COM_FindFile, COM_EnsureFile } from './pak.js';
+import { Mod_ForName, Mod_Extradata, Mod_Print, mod_alias } from './gl_model.js';
 
 export let noclip_anglehack = false;
 
@@ -70,6 +71,7 @@ export function Host_InitCommands() {
 	Cmd_AddCommand( 'notarget', Host_Notarget_f );
 	Cmd_AddCommand( 'fly', Host_Fly_f );
 	Cmd_AddCommand( 'noclip', Host_Noclip_f );
+	Cmd_AddCommand( 'version', Host_Version_f );
 	Cmd_AddCommand( 'give', Host_Give_f );
 	Cmd_AddCommand( 'ping', Host_Ping_f );
 	Cmd_AddCommand( 'kick', Host_Kick_f );
@@ -80,6 +82,13 @@ export function Host_InitCommands() {
 	Cmd_AddCommand( 'startdemos', Host_Startdemos_f );
 	Cmd_AddCommand( 'demos', Host_Demos_f );
 	Cmd_AddCommand( 'stopdemo', Host_Stopdemo_f );
+
+	Cmd_AddCommand( 'viewmodel', Host_Viewmodel_f );
+	Cmd_AddCommand( 'viewframe', Host_Viewframe_f );
+	Cmd_AddCommand( 'viewnext', Host_Viewnext_f );
+	Cmd_AddCommand( 'viewprev', Host_Viewprev_f );
+
+	Cmd_AddCommand( 'mcache', Mod_Print );
 	Cmd_AddCommand( 'spawn', Host_Spawn_f );
 	Cmd_AddCommand( 'begin', Host_Begin_f );
 	Cmd_AddCommand( 'prespawn', Host_PreSpawn_f );
@@ -1473,6 +1482,151 @@ function Host_Stopdemo_f() {
 		return;
 	CL_StopPlayback();
 	CL_Disconnect();
+
+}
+
+/*
+==================
+Host_Version_f
+
+C also prints the build time ("Exe: " __TIME__ " " __DATE__). The port has
+no build step that could stamp one, so that line is left out.
+==================
+*/
+export function Host_Version_f() {
+
+	Con_Printf( 'Version ' + VERSION.toFixed( 2 ) + '\n' );
+
+}
+
+/*
+==================
+FindViewthing
+
+The view* commands step a "viewthing" entity through a model's frames, for
+modders inspecting a model. They read both the local server's edicts and the
+client's model_precache, so like C they only work in a local game.
+==================
+*/
+export function FindViewthing() {
+
+	for ( let i = 0; i < sv.num_edicts; i ++ ) {
+
+		const e = EDICT_NUM( i );
+		if ( PR_GetString( e.v.classname ) === 'viewthing' )
+			return e;
+
+	}
+
+	Con_Printf( 'No viewthing on map\n' );
+	return null;
+
+}
+
+/*
+==================
+Host_Viewmodel_f
+==================
+*/
+export function Host_Viewmodel_f() {
+
+	const e = FindViewthing();
+	if ( e === null )
+		return;
+
+	const m = Mod_ForName( Cmd_Argv( 1 ), false );
+	if ( m === null ) {
+
+		Con_Printf( 'Can\'t load %s\n', Cmd_Argv( 1 ) );
+		return;
+
+	}
+
+	e.v.frame = 0;
+	cl.model_precache[ Math.trunc( e.v.modelindex ) ] = m;
+
+}
+
+/*
+==================
+Host_Viewframe_f
+==================
+*/
+export function Host_Viewframe_f() {
+
+	const e = FindViewthing();
+	if ( e === null )
+		return;
+	const m = cl.model_precache[ Math.trunc( e.v.modelindex ) ];
+
+	let f = parseInt( Cmd_Argv( 1 ), 10 ) || 0; // atoi
+	if ( f >= m.numframes )
+		f = m.numframes - 1;
+
+	e.v.frame = f;
+
+}
+
+/*
+==================
+PrintFrameName
+==================
+*/
+function PrintFrameName( m, frame ) {
+
+	// C casts any model's extra data to aliashdr_t and reads garbage for a
+	// brush or sprite model; the port's Mod_Extradata would Sys_Error on a
+	// brush model instead, so only alias models print a name.
+	if ( m.type !== mod_alias )
+		return;
+
+	// C's "if (!hdr) return;" is left out: Mod_Extradata returns the data or
+	// calls Sys_Error.
+	const hdr = Mod_Extradata( m );
+	const pframedesc = hdr.frames[ frame ];
+
+	Con_Printf( 'frame %i: %s\n', frame, pframedesc.name );
+
+}
+
+/*
+==================
+Host_Viewnext_f
+==================
+*/
+export function Host_Viewnext_f() {
+
+	const e = FindViewthing();
+	if ( e === null )
+		return;
+	const m = cl.model_precache[ Math.trunc( e.v.modelindex ) ];
+
+	e.v.frame = e.v.frame + 1;
+	if ( e.v.frame >= m.numframes )
+		e.v.frame = m.numframes - 1;
+
+	PrintFrameName( m, e.v.frame );
+
+}
+
+/*
+==================
+Host_Viewprev_f
+==================
+*/
+export function Host_Viewprev_f() {
+
+	const e = FindViewthing();
+	if ( e === null )
+		return;
+
+	const m = cl.model_precache[ Math.trunc( e.v.modelindex ) ];
+
+	e.v.frame = e.v.frame - 1;
+	if ( e.v.frame < 0 )
+		e.v.frame = 0;
+
+	PrintFrameName( m, e.v.frame );
 
 }
 

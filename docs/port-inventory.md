@@ -117,6 +117,13 @@ own fix PR.
 - **Fix:** either restore Help (it can keep a credits entry elsewhere), or
   note the deviation in `port-review.md` §7.
 
+- **Status: fixed.** Main menu row 4 and `help` open `M_Menu_Help_f` again
+  (`src/menu.js`). The main menu draws the PAK's `gfx/mainmenu.lmp`, which
+  reads HELP. The custom `static/mainmenu.png` supplies only the in-game
+  Continue row. The credits screen moved to a new last row of the Options
+  menu (a port addition), and `menu_credits` still opens it. On touch, a
+  tap turns the page.
+
 ### G3 · `gl_texturemode` is a 0/1 cvar, not the C command — **medium**
 
 - **C:** `gl_texturemode` is a command (`gl_draw.c:320-361`, registered
@@ -154,6 +161,14 @@ own fix PR.
 - **Fix:** starting the match as a WebTransport room instead of
   `listen`/`map` is deliberate (port-review §7). The missing rows are not.
 
+- **Status: fixed.** Nine rows with C's cursor table; Frag Limit (0–100 by
+  10) and Time Limit (0–60 by 5) wrap as in C, and Episode and Level are
+  back at y 112 and 120. `maxplayers` is capped by `svs.maxclientslimit`.
+  Left out: C's "More than 4 players … see techinfo.txt" box, since the
+  browser has no command line. Like Game Type, Teamplay and Skill, the new
+  rows set the local cvars only: the room request sends just the map and
+  `maxplayers`, so none of these settings reach the room server yet.
+
 ### G5 · Crosshair defaults on, isn't saved, and is drawn differently — **low-medium**
 
 - **C:** `crosshair` defaults to `"0"` and is archived (`view.c:61`).
@@ -167,6 +182,10 @@ own fix PR.
   - It is hidden during demo playback (`src/gl_screen.js:884`).
 - **Seen:** a new player gets a crosshair. Turning it off in Options isn't
   remembered across sessions.
+
+- **Status: partly fixed.** `crosshair` defaults to `"0"` and is archived.
+  Still different: the `cl_crossx`/`cl_crossy` offset and the hiding during
+  demos (`src/gl_screen.js`).
 
 ### G6 · 2D UI scale differs from GLQuake's 640-wide console — **low-medium**
 
@@ -204,6 +223,8 @@ own fix PR.
   (Part 2), which is about prediction.
 - **Fix:** one token per cvar. Every other cvar's default and flags match C.
 
+- **Status: fixed.** All three have the server flag.
+
 ### G9 · Missing console commands — **low**
 
 - **`version`:** `Host_Version_f` (`host_cmd.c:949`, `:1896`). Typing
@@ -217,6 +238,17 @@ own fix PR.
   the frames of a `viewthing` entity (`host_cmd.c:1670-1790`). They matter
   to modders only.
 
+- **Status: fixed.**
+  - `version` prints `Version 1.09`. C's second line, the build time, is
+    left out: the port has no build step to stamp one.
+  - `mcache` runs `Mod_Print`.
+  - `flush` is registered in `Cache_Init` as in C. Nothing in the port
+    allocates from that cache, so it is a near no-op, kept so configs and
+    players get the C command.
+  - The four view* commands are ported (`src/host_cmd.js`). Like C they
+    need a local game. `PrintFrameName` skips non-alias models, where C
+    reads garbage.
+
 ### G10 · Inert debug cvars and parms — **low**
 
 - **`host_speeds` and `serverprofile`:** registered (`src/host.js:83`,
@@ -224,6 +256,12 @@ own fix PR.
   (`host.c:697-720`, `:736-762`).
 - **`-particles <n>`:** ignored. `MAX_PARTICLES` is fixed at 2048
   (`src/r_part.js:13`), the same as C's default (`r_part.c:50-58`).
+
+- **Status: partly fixed.** `host_speeds` prints the
+  `tot`/`server`/`gfx`/`snd` line each frame, and `serverprofile` the
+  1000-frame average, as in `host.c`. Both run in the browser's
+  `Host_Frame` only; the room server has its own frame loop
+  (`server/game_server.js`). `-particles` is still ignored.
 
 ## Command-line parms
 
@@ -408,32 +446,32 @@ The name appears only in a comment, a string, or as a different symbol.
 | function | `Draw_TextureMode_f` | `gl_draw.c:320` | missing | G3: `gl_texturemode` is a 0/1 cvar, not the C command |
 | command | `gl_texturemode` | `gl_draw.c:390` | string-only (`src/glquake.js`) | G3: `gl_texturemode` is a 0/1 cvar, not the C command |
 | function | `DrawGLWaterPolyLightmap` | `gl_rsurf.c:617` | missing | G1: submerged surfaces do not wobble (`DrawGLWaterPoly` is never called) |
-| cvar | `host_speeds` | `host.c:58` | differs (`src/host.js`): C reads it, JS never does | G10: registered but inert |
-| cvar | `serverprofile` | `host.c:61` | differs (`src/host.js`): C reads it, JS never does | G10: registered but inert |
-| cvar | `fraglimit` | `host.c:63` | differs (`src/host.js`): C reads it, JS never does | G4: the C engine reads these only in the Game Options menu, which lacks the rows (QuakeC reads them through `cvar()` in both) |
-| cvar | `timelimit` | `host.c:64` | differs (`src/host.js`): C reads it, JS never does | G4: the C engine reads these only in the Game Options menu, which lacks the rows (QuakeC reads them through `cvar()` in both) |
-| function | `Host_Version_f` | `host_cmd.c:949` | missing | G9: `version` command |
-| function | `FindViewthing` | `host_cmd.c:1670` | missing | G9: viewthing model-inspection commands |
-| function | `Host_Viewmodel_f` | `host_cmd.c:1690` | missing | G9: viewthing model-inspection commands |
-| function | `Host_Viewframe_f` | `host_cmd.c:1715` | missing | G9: viewthing model-inspection commands |
-| function | `PrintFrameName` | `host_cmd.c:1734` | missing | G9: viewthing model-inspection commands |
-| function | `Host_Viewnext_f` | `host_cmd.c:1752` | missing | G9: viewthing model-inspection commands |
-| function | `Host_Viewprev_f` | `host_cmd.c:1774` | missing | G9: viewthing model-inspection commands |
-| command | `version` | `host_cmd.c:1896` | mentioned (`src/cl_parse.js`) | G9: `version` command |
-| command | `viewmodel` | `host_cmd.c:1919` | mentioned (`src/gl_mesh.js`) | G9: viewthing model-inspection commands |
-| command | `viewframe` | `host_cmd.c:1920` | missing | G9: viewthing model-inspection commands |
-| command | `viewnext` | `host_cmd.c:1921` | missing | G9: viewthing model-inspection commands |
-| command | `viewprev` | `host_cmd.c:1922` | missing | G9: viewthing model-inspection commands |
-| command | `mcache` | `host_cmd.c:1924` | missing | G9: `Mod_Print` exists but is not registered |
-| function | `M_Menu_Help_f` | `menu.c:1535` | missing | G2: help pages replaced by a credits screen |
-| function | `M_Help_Draw` | `menu.c:1545` | missing | G2: help pages replaced by a credits screen |
-| function | `M_Help_Key` | `menu.c:1551` | missing | G2: help pages replaced by a credits screen |
-| command | `help` | `menu.c:3016` | handler (`src/menu.js`): C=M_Menu_Help_f JS=M_Menu_Credits_f | G2: help pages replaced by a credits screen |
-| cvar | `sv_friction` | `sv_phys.c:42` | differs (`src/sv_phys.js`): server C=True JS=False | G8: missing server flag |
-| cvar | `sv_gravity` | `sv_phys.c:44` | differs (`src/sv_phys.js`): server C=True JS=False | G8: missing server flag |
-| cvar | `sv_maxspeed` | `sv_user.c:167` | differs (`src/sv_phys.js`): server C=True JS=False | G8: missing server flag |
-| cvar | `crosshair` | `view.c:61` | differs (`src/view.js`): default C='0' JS='1'; archive C=True JS=False | G5: default and archive flag |
-| command | `flush` | `zone.c:814` | mentioned (`src/gl_screen.js`) | G9: `Cache_Flush` exists but is not registered (no-op under GC) |
+| cvar | `host_speeds` | `host.c:58` | differs (`src/host.js`): C reads it, JS never does | fixed: G10, read in `Host_Frame` |
+| cvar | `serverprofile` | `host.c:61` | differs (`src/host.js`): C reads it, JS never does | fixed: G10, read in `Host_Frame` |
+| cvar | `fraglimit` | `host.c:63` | differs (`src/host.js`): C reads it, JS never does | fixed: G4, the Game Options rows are back (QuakeC reads them through `cvar()` in both) |
+| cvar | `timelimit` | `host.c:64` | differs (`src/host.js`): C reads it, JS never does | fixed: G4, the Game Options rows are back (QuakeC reads them through `cvar()` in both) |
+| function | `Host_Version_f` | `host_cmd.c:949` | missing | fixed: G9 `version` command |
+| function | `FindViewthing` | `host_cmd.c:1670` | missing | fixed: G9 viewthing model-inspection commands |
+| function | `Host_Viewmodel_f` | `host_cmd.c:1690` | missing | fixed: G9 viewthing model-inspection commands |
+| function | `Host_Viewframe_f` | `host_cmd.c:1715` | missing | fixed: G9 viewthing model-inspection commands |
+| function | `PrintFrameName` | `host_cmd.c:1734` | missing | fixed: G9 viewthing model-inspection commands |
+| function | `Host_Viewnext_f` | `host_cmd.c:1752` | missing | fixed: G9 viewthing model-inspection commands |
+| function | `Host_Viewprev_f` | `host_cmd.c:1774` | missing | fixed: G9 viewthing model-inspection commands |
+| command | `version` | `host_cmd.c:1896` | mentioned (`src/cl_parse.js`) | fixed: G9 `version` command |
+| command | `viewmodel` | `host_cmd.c:1919` | mentioned (`src/gl_mesh.js`) | fixed: G9 viewthing model-inspection commands |
+| command | `viewframe` | `host_cmd.c:1920` | missing | fixed: G9 viewthing model-inspection commands |
+| command | `viewnext` | `host_cmd.c:1921` | missing | fixed: G9 viewthing model-inspection commands |
+| command | `viewprev` | `host_cmd.c:1922` | missing | fixed: G9 viewthing model-inspection commands |
+| command | `mcache` | `host_cmd.c:1924` | missing | fixed: G9 `mcache` runs `Mod_Print` |
+| function | `M_Menu_Help_f` | `menu.c:1535` | missing | fixed: G2 |
+| function | `M_Help_Draw` | `menu.c:1545` | missing | fixed: G2 |
+| function | `M_Help_Key` | `menu.c:1551` | missing | fixed: G2 |
+| command | `help` | `menu.c:3016` | handler (`src/menu.js`): C=M_Menu_Help_f JS=M_Menu_Credits_f | fixed: G2 |
+| cvar | `sv_friction` | `sv_phys.c:42` | differs (`src/sv_phys.js`): server C=True JS=False | fixed: G8 server flag |
+| cvar | `sv_gravity` | `sv_phys.c:44` | differs (`src/sv_phys.js`): server C=True JS=False | fixed: G8 server flag |
+| cvar | `sv_maxspeed` | `sv_user.c:167` | differs (`src/sv_phys.js`): server C=True JS=False | fixed: G8 server flag |
+| cvar | `crosshair` | `view.c:61` | differs (`src/view.js`): default C='0' JS='1'; archive C=True JS=False | fixed: G5 default and archive flag |
+| command | `flush` | `zone.c:814` | mentioned (`src/gl_screen.js`) | fixed: G9 `flush` registered (near no-op under GC) |
 
 ### (c) Dead or empty in C too: 56
 

@@ -136,8 +136,8 @@ async function M_FetchRooms() {
 */
 
 let gameoptions_cursor = 0;
-const gameoptions_cursor_table = [ 40, 56, 64, 72, 80, 104, 112 ];
-const NUM_GAMEOPTIONS = 7;
+const gameoptions_cursor_table = [ 40, 56, 64, 72, 80, 88, 96, 112, 120 ];
+const NUM_GAMEOPTIONS = 9;
 
 let maxplayers = 4;
 let startepisode = 2; // Default to Deathmatch Arena
@@ -717,36 +717,24 @@ function M_Main_Draw() {
 	const p = _Draw_CachePic( 'gfx/ttl_main.lmp' );
 	M_DrawPic( ( 320 - ( p ? p.width : 0 ) ) / 2, 4, p );
 
-	// Use the extended menu image (Continue + 5 items) if available, otherwise fall back to PAK images
-	const extPic = _Draw_CachePic( 'gfx/mainmenu_ext.lmp' );
+	// menu.c M_Main_Draw draws gfx/mainmenu.lmp. The port adds a Continue row
+	// above it while in a game. Only that row comes from the custom image
+	// (static/mainmenu.png, first 21 px); the five C rows always come from the
+	// PAK, whose fourth row reads HELP, because it opens M_Menu_Help_f.
+	const mainPic = _Draw_CachePic( 'gfx/mainmenu.lmp' );
 
-	if ( extPic != null ) {
+	if ( inGame ) {
 
-		if ( inGame ) {
-
-			// Draw full image (Continue + 5 items)
-			M_DrawTransPic( 72, 32, extPic );
-
-		} else {
-
-			// Skip the Continue row (first 21px), draw only the 5 regular items
-			M_DrawSubPic( 72, 32, extPic, 21, 112 );
-
-		}
+		const extPic = _Draw_CachePic( 'gfx/mainmenu_ext.lmp' );
+		if ( extPic != null )
+			M_DrawSubPic( 72, 32, extPic, 0, 21 );
+		else
+			M_DrawTransPic( 72, 32, _Draw_CachePic( 'gfx/continue.lmp' ) );
+		M_DrawTransPic( 72, 52, mainPic );
 
 	} else {
 
-		// Fallback to original PAK images
-		if ( inGame ) {
-
-			M_DrawTransPic( 72, 32, _Draw_CachePic( 'gfx/continue.lmp' ) );
-			M_DrawTransPic( 72, 52, _Draw_CachePic( 'gfx/mainmenu.lmp' ) );
-
-		} else {
-
-			M_DrawTransPic( 72, 32, _Draw_CachePic( 'gfx/mainmenu.lmp' ) );
-
-		}
+		M_DrawTransPic( 72, 32, mainPic );
 
 	}
 
@@ -809,7 +797,7 @@ function M_Main_Key( key ) {
 					M_Menu_Options_f();
 					break;
 				case 3:
-					M_Menu_Credits_f();
+					M_Menu_Help_f();
 					break;
 				case 4:
 					// Exit fullscreen when entering quit menu
@@ -1378,9 +1366,9 @@ function M_Menu_GameOptions_f() {
 	m_entersound = true;
 
 	if ( maxplayers === 0 )
-		maxplayers = svs.maxclients || 4;
+		maxplayers = svs.maxclients;
 	if ( maxplayers < 2 )
-		maxplayers = 4;
+		maxplayers = svs.maxclientslimit;
 
 }
 
@@ -1446,15 +1434,32 @@ function M_GameOptions_Draw() {
 		skillMsg = 'Nightmare difficulty';
 	M_Print( 160, 80, skillMsg );
 
+	// Frag limit and time limit. The engine reads these cvars only here;
+	// QuakeC reads them with cvar(). Like Game Type, Teamplay and Skill, they
+	// set the local cvars: the room request carries only map and maxplayers.
+	const fraglimit = Cvar_VariableValue( 'fraglimit' );
+	M_Print( 0, 88, '       Frag Limit' );
+	if ( fraglimit === 0 )
+		M_Print( 160, 88, 'none' );
+	else
+		M_Print( 160, 88, Math.trunc( fraglimit ) + ' frags' );
+
+	const timelimit = Cvar_VariableValue( 'timelimit' );
+	M_Print( 0, 96, '       Time Limit' );
+	if ( timelimit === 0 )
+		M_Print( 160, 96, 'none' );
+	else
+		M_Print( 160, 96, Math.trunc( timelimit ) + ' minutes' );
+
 	// Episode
-	M_Print( 0, 104, '         Episode' );
-	M_Print( 160, 104, M_GameEpisodes()[ startepisode ].description );
+	M_Print( 0, 112, '         Episode' );
+	M_Print( 160, 112, M_GameEpisodes()[ startepisode ].description );
 
 	// Level
-	M_Print( 0, 112, '           Level' );
+	M_Print( 0, 120, '           Level' );
 	const level = M_StartLevel();
-	M_Print( 160, 112, level.description );
-	M_Print( 160, 120, level.name );
+	M_Print( 160, 120, level.description );
+	M_Print( 160, 128, level.name );
 
 	// Cursor
 	M_DrawCharacter( 144, gameoptions_cursor_table[ gameoptions_cursor ], 12 + ( ( Math.floor( _realtime_get() * 4 ) ) & 1 ) );
@@ -1466,9 +1471,12 @@ function M_NetStart_Change( dir ) {
 	switch ( gameoptions_cursor ) {
 
 		case 1: // Max players
+			// menu.c also shows a "see techinfo.txt" box when the cap is hit.
+			// It points at command-line parms the browser has no way to pass,
+			// so it is left out.
 			maxplayers += dir;
-			if ( maxplayers > 4 )
-				maxplayers = 4;
+			if ( maxplayers > svs.maxclientslimit )
+				maxplayers = svs.maxclientslimit;
 			if ( maxplayers < 2 )
 				maxplayers = 2;
 			break;
@@ -1498,7 +1506,23 @@ function M_NetStart_Change( dir ) {
 				Cvar_SetValue( 'skill', 3 );
 			break;
 
-		case 5: { // Episode
+		case 5: // Frag limit
+			Cvar_SetValue( 'fraglimit', Cvar_VariableValue( 'fraglimit' ) + dir * 10 );
+			if ( Cvar_VariableValue( 'fraglimit' ) > 100 )
+				Cvar_SetValue( 'fraglimit', 0 );
+			if ( Cvar_VariableValue( 'fraglimit' ) < 0 )
+				Cvar_SetValue( 'fraglimit', 100 );
+			break;
+
+		case 6: // Time limit
+			Cvar_SetValue( 'timelimit', Cvar_VariableValue( 'timelimit' ) + dir * 5 );
+			if ( Cvar_VariableValue( 'timelimit' ) > 60 )
+				Cvar_SetValue( 'timelimit', 0 );
+			if ( Cvar_VariableValue( 'timelimit' ) < 0 )
+				Cvar_SetValue( 'timelimit', 60 );
+			break;
+
+		case 7: { // Episode
 			startepisode += dir;
 
 			const numEpisodes = M_NumEpisodes();
@@ -1511,7 +1535,7 @@ function M_NetStart_Change( dir ) {
 			break;
 		}
 
-		case 6: { // Level
+		case 8: { // Level
 			startlevel += dir;
 			const count = M_GameEpisodes()[ startepisode ].levels;
 			if ( startlevel < 0 )
@@ -1794,7 +1818,7 @@ function M_AdjustSliders( dir ) {
 ==============================================================================
 */
 
-const OPTIONS_ITEMS = 15;
+const OPTIONS_ITEMS = 16;
 let m_options_cursor = 0;
 
 function M_Menu_Options_f() {
@@ -1857,6 +1881,11 @@ function M_Options_Draw() {
 
 	M_Print( 16, 144, '        Touch controls' );
 
+	// Port addition: the main menu's fourth row is C's Help again, so the
+	// credits screen (attribution and source link) is reached from here,
+	// which mouse and touch players can use without the console.
+	M_Print( 16, 152, '               Credits' );
+
 	// cursor
 	M_DrawCharacter( 200, 32 + m_options_cursor * 8, 12 + ( ( Math.floor( _realtime_get() * 4 ) ) & 1 ) );
 
@@ -1882,6 +1911,9 @@ function M_Options_Key( key ) {
 					break;
 				case 14:
 					M_Menu_Touch_f();
+					break;
+				case 15:
+					M_Menu_Credits_f();
 					break;
 				case 2:
 					Cbuf_AddText( 'exec default.cfg\n' );
@@ -2505,6 +2537,62 @@ function M_Setup_Key( key ) {
 /*
 ==============================================================================
 
+			HELP MENU
+
+==============================================================================
+*/
+
+// menu.c M_Menu_Help_f / M_Help_Draw / M_Help_Key: pages through
+// gfx/help0.lmp-help5.lmp. The port's credits screen stays reachable with
+// the menu_credits command.
+let help_page = 0;
+const NUM_HELP_PAGES = 6;
+
+function M_Menu_Help_f() {
+
+	setKeyDest( key_menu );
+	m_state = m_help;
+	m_entersound = true;
+	help_page = 0;
+
+}
+
+function M_Help_Draw() {
+
+	if ( ! _Draw_CachePic ) return;
+	M_DrawPic( 0, 0, _Draw_CachePic( 'gfx/help' + help_page + '.lmp' ) );
+
+}
+
+function M_Help_Key( key ) {
+
+	switch ( key ) {
+
+		case K_ESCAPE:
+			M_Menu_Main_f();
+			break;
+
+		case K_UPARROW:
+		case K_RIGHTARROW:
+			m_entersound = true;
+			if ( ++ help_page >= NUM_HELP_PAGES )
+				help_page = 0;
+			break;
+
+		case K_DOWNARROW:
+		case K_LEFTARROW:
+			m_entersound = true;
+			if ( -- help_page < 0 )
+				help_page = NUM_HELP_PAGES - 1;
+			break;
+
+	}
+
+}
+
+/*
+==============================================================================
+
 			CREDITS MENU
 
 ==============================================================================
@@ -2555,7 +2643,7 @@ function M_Credits_Key( key ) {
 	switch ( key ) {
 
 		case K_ESCAPE:
-			M_Menu_Main_f();
+			M_Menu_Options_f(); // reached from the Options menu
 			break;
 		case K_ENTER:
 			M_OpenCreditsSource();
@@ -2687,7 +2775,7 @@ export function M_Init() {
 	Cmd_AddCommand( 'menu_options', M_Menu_Options_f );
 	Cmd_AddCommand( 'menu_keys', M_Menu_Keys_f );
 	Cmd_AddCommand( 'menu_video', M_Menu_Video_f );
-	Cmd_AddCommand( 'help', M_Menu_Credits_f );
+	Cmd_AddCommand( 'help', M_Menu_Help_f );
 	Cmd_AddCommand( 'menu_credits', M_Menu_Credits_f );
 	Cmd_AddCommand( 'menu_quit', M_Menu_Quit_f );
 	Cmd_AddCommand( 'menu_lanconfig', M_Menu_LanConfig_f );
@@ -2749,6 +2837,7 @@ export function M_Keydown( key ) {
 		case m_options: M_Options_Key( key ); return;
 		case m_keys: M_Keys_Key( key ); return;
 		case m_video: M_Video_Key( key ); return;
+		case m_help: M_Help_Key( key ); return;
 		case m_credits: M_Credits_Key( key ); return;
 		case m_quit: M_Quit_Key( key ); return;
 		case m_lanconfig: M_LanConfig_Key( key ); return;
@@ -2799,6 +2888,7 @@ export function M_Draw() {
 		case m_options: M_Options_Draw(); break;
 		case m_keys: M_Keys_Draw(); break;
 		case m_video: M_Video_Draw(); break;
+		case m_help: M_Help_Draw(); break;
 		case m_credits: M_Credits_Draw(); break;
 		case m_quit: M_Quit_Draw(); break;
 		case m_lanconfig: M_LanConfig_Draw(); break;
@@ -3172,6 +3262,11 @@ function M_MenuClick( vx, vy ) {
 
 			}
 
+			break;
+
+		case m_help:
+			// Touch has no arrow keys: a tap on the page turns it
+			M_Help_Key( K_RIGHTARROW );
 			break;
 
 		case m_credits:

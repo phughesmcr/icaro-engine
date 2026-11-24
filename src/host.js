@@ -80,10 +80,10 @@ const host_framerate = new cvar_t( 'host_framerate', '0' ); // set for slow moti
 // turn on renderer/network isolation (see _Host_FilterTime). Ironwail's
 // default is 250; 72 keeps WinQuake's single 72 Hz loop.
 export const host_maxfps = new cvar_t( 'host_maxfps', '72', true );
-const host_speeds = new cvar_t( 'host_speeds', '0' ); // set for running times
+export const host_speeds = new cvar_t( 'host_speeds', '0' ); // set for running times
 
 export const sys_ticrate = new cvar_t( 'sys_ticrate', '0.05' );
-const serverprofile = new cvar_t( 'serverprofile', '0' );
+export const serverprofile = new cvar_t( 'serverprofile', '0' );
 
 export const fraglimit = new cvar_t( 'fraglimit', '0', false, true );
 export const timelimit = new cvar_t( 'timelimit', '0', false, true );
@@ -545,7 +545,46 @@ Host_Frame
 Runs all active servers
 ==================
 */
+// host.c Host_Frame statics for serverprofile
+let serverprofile_timetotal = 0;
+let serverprofile_timecount = 0;
+
 export function Host_Frame( time ) {
+
+	if ( serverprofile.value === 0 ) {
+
+		_Host_Frame( time );
+		return;
+
+	}
+
+	const time1 = Sys_FloatTime();
+	_Host_Frame( time );
+	const time2 = Sys_FloatTime();
+
+	serverprofile_timetotal += time2 - time1;
+	serverprofile_timecount ++;
+
+	if ( serverprofile_timecount < 1000 )
+		return;
+
+	const m = Math.trunc( serverprofile_timetotal * 1000 / serverprofile_timecount );
+	serverprofile_timecount = 0;
+	serverprofile_timetotal = 0;
+	let c = 0;
+	for ( let i = 0; i < svs.maxclients; i ++ ) {
+
+		if ( svs.clients[ i ].active )
+			c ++;
+
+	}
+
+	Con_Printf( 'serverprofile: %2i clients %2i msec\n', c, m );
+
+}
+
+// host.c _Host_Frame; the try/catch stands in for its setjmp(host_abortserver)
+function _Host_Frame( time ) {
 
 	try {
 
@@ -573,6 +612,11 @@ export function Host_Frame( time ) {
 	}
 
 }
+
+// host.c _Host_Frame statics for host_speeds
+let host_speeds_time1 = 0;
+let host_speeds_time2 = 0;
+let host_speeds_time3 = 0;
 
 function _Host_Frame_Internal( time ) {
 
@@ -638,7 +682,13 @@ function _Host_Frame_Internal( time ) {
 	}
 
 	// update video
+	if ( host_speeds.value !== 0 )
+		host_speeds_time1 = Sys_FloatTime();
+
 	SCR_UpdateScreen();
+
+	if ( host_speeds.value !== 0 )
+		host_speeds_time2 = Sys_FloatTime();
 
 	// update audio
 	if ( cls.signon === SIGNONS ) {
@@ -653,6 +703,17 @@ function _Host_Frame_Internal( time ) {
 	}
 
 	CDAudio_Update();
+
+	if ( host_speeds.value !== 0 ) {
+
+		const pass1 = Math.trunc( ( host_speeds_time1 - host_speeds_time3 ) * 1000 );
+		host_speeds_time3 = Sys_FloatTime();
+		const pass2 = Math.trunc( ( host_speeds_time2 - host_speeds_time1 ) * 1000 );
+		const pass3 = Math.trunc( ( host_speeds_time3 - host_speeds_time2 ) * 1000 );
+		Con_Printf( '%3i tot %3i server %3i gfx %3i snd\n',
+			pass1 + pass2 + pass3, pass1, pass2, pass3 );
+
+	}
 
 	host_framecount ++;
 
