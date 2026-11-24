@@ -13,6 +13,8 @@
 		"lint": "deno lint",
 		"lobby": "deno run --allow-net=0.0.0.0:4433 --allow-read=server/cert.pem,server/key.pem --allow-run=deno --unstable-net server/lobby_server.js -cert server/cert.pem -key server/key.pem -pak static/pak0.pak",
 		"game": "deno run --allow-net=0.0.0.0:4433 --allow-read=static,server/cert.pem,server/key.pem --unstable-net server/game_server.js -cert server/cert.pem -key server/key.pem -pak static/pak0.pak -map start",
-		"test": "deno test --allow-read --allow-net --allow-env --allow-run --allow-write tests/"
+		"test": "deno test --allow-read --allow-write --allow-env=FAKE_ROOM_PLAYERS_FILE,FAKE_ROOM_ARGS_FILE --allow-run=./tests/fixtures/fake_room_server.sh tests/",
+		"check": "deno check main.js server/game_server.js server/lobby_server.js server/room_process_manager.ts tests/net_webtransport_server_test.ts",
+		"ci": "deno task test && deno task lint && deno task check"
 	}
 }

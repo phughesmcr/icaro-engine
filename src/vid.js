@@ -127,6 +127,28 @@ export function VID_ShiftPalette( palette ) {
 }
 
 //============================================================================
+// VID_ParseRenderScale
+//
+// Web-only, no C equivalent. Reads ?scale= from a URL query string: the
+// fraction of the screen's pixels the 3D view is rendered at, which the
+// browser then stretches to fill the page. 0.5 renders a quarter of the
+// pixels, for weak GPUs such as smart-TV browsers. Clamped to 0.25..1;
+// missing or invalid values give 1 (full resolution).
+//============================================================================
+
+// WebGL drawing-buffer pixels per 2D overlay pixel; set once by VID_Init.
+// R_SetupGL scales the view rectangle by it.
+export let vid_renderscale = 1;
+
+export function VID_ParseRenderScale( search ) {
+
+	const value = parseFloat( new URLSearchParams( search ).get( 'scale' ) );
+	if ( ! Number.isFinite( value ) ) return 1;
+	return Math.min( 1, Math.max( 0.25, value ) );
+
+}
+
+//============================================================================
 // VID_Init
 //
 // Called at startup to set up translation tables.
@@ -191,8 +213,13 @@ export function VID_Init( palette, gammaparm = null ) {
 		stencil: false
 	} );
 
+	// Web-only: ?scale= renders the 3D view below screen resolution (see
+	// VID_ParseRenderScale). The 2D overlay canvas in gl_draw.js keeps the
+	// full device pixel ratio, so menus and the HUD stay sharp.
+	vid_renderscale = VID_ParseRenderScale( window.location.search );
 	renderer.setSize( canvas.width, canvas.height );
-	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setPixelRatio( window.devicePixelRatio * vid_renderscale );
+	if ( vid_renderscale < 1 ) canvas.style.imageRendering = 'pixelated';
 	renderer.outputColorSpace = THREE.SRGBColorSpace;
 	renderer.autoClear = false; // we manage clearing ourselves, like Quake did
 	renderer.sortObjects = false; // we sort manually via BSP front-to-back

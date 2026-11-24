@@ -1638,6 +1638,285 @@ Deno.test( 'IN-4: fullscreen request has a pending guard and does not latch afte
 
 } );
 
+Deno.test( 'IN: a browser that refuses pointer lock gets fullscreen from clicks instead', async () => {
+
+	const savedScreen = Object.getOwnPropertyDescriptor( globalThis, 'screen' );
+	Object.defineProperty( globalThis, 'screen', {
+		configurable: true,
+		value: { orientation: { lock: () => Promise.resolve() } }
+	} );
+
+	let lockRequests = 0;
+	let fsRequests = 0;
+	const click = ( dom ) => {
+
+		dom.body.fire( 'mousedown', makeEvent( { button: 0 } ) );
+		dom.window.fire( 'mouseup', makeEvent( { button: 0 } ) );
+
+	};
+	const setup = ( dom ) => {
+
+		touch.Touch_Init( document.body );
+		dom.document.fullscreenElement = null;
+		dom.document.fire( 'fullscreenchange', {} ); // reset state left by other tests
+		lockRequests = 0;
+		fsRequests = 0;
+		dom.body.requestPointerLock = () => { lockRequests ++; };
+		dom.document.documentElement = { requestFullscreen() { fsRequests ++; return Promise.resolve(); } };
+		unbindAll();
+		keys.set_key_dest( keys.key_game );
+
+	};
+	const teardown = ( dom ) => {
+
+		delete dom.body.requestPointerLock;
+		delete dom.document.documentElement;
+		run();
+
+	};
+
+	try {
+
+		// Samsung TV browser: every pointer lock request is refused
+		await withFakeDom( async ( dom ) => {
+
+			setup( dom );
+			try {
+
+				click( dom );
+				assertEqual( lockRequests, 1, 'first click asks for pointer lock' );
+				dom.document.fire( 'pointerlockerror', {} );
+				await flush();
+				assertEqual( fsRequests, 0, 'one refusal may be transient' );
+
+				click( dom );
+				assertEqual( lockRequests, 2, 'second click asks for pointer lock again' );
+				dom.document.fire( 'pointerlockerror', {} );
+				await flush();
+				assertEqual( fsRequests, 1, 'a second refusal falls back to fullscreen' );
+
+				// fullscreenElement stayed null: as if the user left fullscreen
+				click( dom );
+				await flush();
+				assertEqual( lockRequests, 2, 'no more pointer lock requests' );
+				assertEqual( fsRequests, 2, 'a later click asks for fullscreen' );
+
+			} finally {
+
+				teardown( dom );
+
+			}
+
+		} );
+
+		// Desktop: a refusal after a lock has worked (Escape cooldown) is temporary
+		await withFakeDom( async ( dom ) => {
+
+			setup( dom );
+			try {
+
+				dom.document.pointerLockElement = dom.body;
+				dom.document.fire( 'pointerlockchange', {} );
+				keys.set_key_dest( keys.key_console ); // keep the lock-loss Escape out of the menu code
+				dom.document.pointerLockElement = null;
+				dom.document.fire( 'pointerlockchange', {} );
+				keys.set_key_dest( keys.key_game );
+
+				for ( let i = 0; i < 3; i ++ ) {
+
+					click( dom );
+					dom.document.fire( 'pointerlockerror', {} );
+					await flush();
+
+				}
+				assertEqual( fsRequests, 0, 'no fullscreen fallback' );
+				assertEqual( lockRequests, 3, 'each click still asks for pointer lock' );
+
+			} finally {
+
+				teardown( dom );
+
+			}
+
+		} );
+
+	} finally {
+
+		if ( savedScreen ) Object.defineProperty( globalThis, 'screen', savedScreen );
+		else delete globalThis.screen;
+
+	}
+
+} );
+
+// Minimal session history. popstate fires synchronously on the fake window;
+// with deferForward, forward() waits for flush() as in a browser.
+function makeFakeHistory( win ) {
+
+	const h = {
+		entries: [ { state: null, url: 'index.html' } ],
+		index: 0,
+		deferForward: false,
+		queue: [],
+		get state() { return this.entries[ this.index ].state; },
+		replaceState( state, _title, url ) {
+
+			this.entries[ this.index ] = { state: state, url: url ?? this.entries[ this.index ].url };
+
+		},
+		pushState( state, _title, url ) {
+
+			const top = this.entries[ this.index ];
+			this.entries.length = this.index + 1;
+			this.entries.push( { state: state, url: url ?? top.url } );
+			this.index ++;
+
+		},
+		go( delta ) {
+
+			const next = this.index + delta;
+			if ( next < 0 || next >= this.entries.length ) return;
+			this.index = next;
+			win.fire( 'popstate', { state: this.entries[ next ].state } );
+
+		},
+		back() { this.go( - 1 ); },
+		forward() {
+
+			if ( this.deferForward ) this.queue.push( 1 );
+			else this.go( 1 );
+
+		},
+		flush() {
+
+			while ( this.queue.length > 0 ) this.go( this.queue.shift() );
+
+		}
+	};
+	return h;
+
+}
+
+Deno.test( 'IN: browser Back sends Escape once the guard is armed, and keeps the room URL', async () => {
+
+	const saved = {};
+	for ( const name of [ 'history', 'navigator' ] )
+		saved[ name ] = Object.getOwnPropertyDescriptor( globalThis, name );
+	const restore = ( name ) => {
+
+		if ( saved[ name ] === undefined ) delete globalThis[ name ];
+		else Object.defineProperty( globalThis, name, saved[ name ] );
+
+	};
+	const setNavigator = ( value ) => Object.defineProperty( globalThis, 'navigator', { configurable: true, value: value } );
+
+	// Fake clock for the duplicate-press window
+	let now = 0;
+	Object.defineProperty( performance, 'now', { configurable: true, value: () => now } );
+
+	try {
+
+		const h = makeFakeHistory( windowTarget );
+		Object.defineProperty( globalThis, 'history', { configurable: true, value: h } );
+
+		await withFakeDom( ( dom ) => {
+
+			const key = ( code, key ) => {
+
+				dom.document.fire( 'keydown', makeEvent( { code: code, key: key } ) );
+				dom.document.fire( 'keyup', makeEvent( { code: code, key: key } ) );
+
+			};
+			// key_message: an Escape returns to key_game, a second one would open the menu
+			const back = () => {
+
+				now += 1000;
+				keys.set_key_dest( keys.key_message );
+				h.back();
+
+			};
+
+			try {
+
+				keys.set_key_dest( keys.key_message );
+				key( 'Escape', 'Escape' );
+				assertEqual( h.entries.length, 1, 'Escape is not a user activation: not armed' );
+
+				setNavigator( { userAgent: '', userActivation: { isActive: false } } );
+				key( 'ShiftLeft', 'Shift' );
+				assertEqual( h.entries.length, 1, 'no activation reported: not armed' );
+				restore( 'navigator' );
+
+				dom.document.fire( 'touchend', makeEvent( {} ) );
+				assertEqual( h.entries.length, 3, 'a tap pushes two marked entries and the guard' );
+				assertEqual( h.index, 2, 'on the guard entry' );
+				dom.document.fire( 'mousedown', makeEvent( { button: 0 } ) );
+				assertEqual( h.entries.length, 3, 'armed only once' );
+
+				back();
+				assertEqual( keys.key_dest, keys.key_game, 'Back sends Escape' );
+				assertEqual( h.index, 2, 'and returns to the guard entry' );
+
+				// cl_main.js / menu.js write the room into the current entry
+				h.replaceState( null, '', 'index.html?room=abc' );
+				back();
+				assertEqual( keys.key_dest, keys.key_game, 'Back after replaceState still sends Escape' );
+				assertEqual( h.entries[ h.index ].url, 'index.html?room=abc', 'room URL survives' );
+
+				// Second Back before the first forward() lands
+				h.deferForward = true;
+				back();
+				h.back();
+				assertEqual( h.index, 0, 'both Backs stayed on the page' );
+				h.flush();
+				h.deferForward = false;
+				assertEqual( h.index, 2, 'back on the guard entry' );
+				assertEqual( keys.key_dest, keys.key_game, 'a double Back sends one Escape' );
+
+				// A gamepad button the browser also treats as Back: the poll sends Escape
+				setNavigator( { userAgent: '', getGamepads: () => [ {
+					connected: true, index: 0, buttons: [ { pressed: false }, { pressed: true } ]
+				} ] } );
+				back();
+				assertEqual( keys.key_dest, keys.key_message, 'held gamepad Escape: no second Escape' );
+				assertEqual( h.index, 2, 'guard restored anyway' );
+				restore( 'navigator' );
+
+				// A remote that sends an Escape keydown and a Back for one press
+				now += 1000;
+				keys.set_key_dest( keys.key_message );
+				key( 'Escape', 'Escape' );
+				assertEqual( keys.key_dest, keys.key_game, 'the keydown sent Escape' );
+				keys.set_key_dest( keys.key_message );
+				h.back();
+				assertEqual( keys.key_dest, keys.key_message, 'the Back right after it did not' );
+
+			} finally {
+
+				keys.set_key_dest( keys.key_game );
+				run();
+
+			}
+
+		} );
+
+		// IN_Shutdown stopped listening: a Back now just navigates
+		now += 1000;
+		keys.set_key_dest( keys.key_message );
+		h.back();
+		assertEqual( keys.key_dest, keys.key_message, 'no Escape after shutdown' );
+		keys.set_key_dest( keys.key_game );
+
+	} finally {
+
+		delete performance.now;
+		restore( 'navigator' );
+		restore( 'history' );
+
+	}
+
+} );
+
 Deno.test( 'IN-4: touch joystick run speed in IN_Move', () => {
 
 	withFakeDom( () => {

@@ -96,6 +96,16 @@ let eventWindow = null; // window, or targetElement when there is no window (Den
 // pointerlockchange handler does not open the menu.
 let suppressLockEscape = false;
 
+// Web-only: some browsers with a mouse-like pointer never grant pointer lock
+// (Samsung TV browsers fire pointerlockerror for every request). Once two
+// requests in a row are refused before any lock has worked, clicks ask for
+// fullscreen instead, which those browsers do allow. One refusal may be
+// transient (an unfocused page), and a refusal after a lock has worked
+// (e.g. Chrome's cooldown after Escape) changes nothing.
+let pointerLockWorked = false;
+let pointerLockRefusals = 0;
+let pointerLockUnavailable = false;
+
 // Quake key sent down for each physical key (event.code), so keyup releases
 // the same Quake key even if Shift or the layout changed event.key meanwhile.
 const keyForCode = new Map();
@@ -152,6 +162,15 @@ function GP_ReleaseAll() {
 function requestPointerLock() {
 
 	if ( pointerLocked || isQuest || touchMode || targetElement == null ) return;
+
+	if ( pointerLockUnavailable ) {
+
+		// Only reached from a user gesture, which fullscreen also needs
+		requestFullscreen();
+		return;
+
+	}
+
 	if ( targetElement.requestPointerLock == null ) return;
 
 	// Chrome returns a promise that rejects if the request is refused
@@ -166,6 +185,112 @@ function requestFullscreen() {
 	if ( isQuest ) return;
 
 	Touch_RequestFullscreen();
+
+}
+
+/*
+===========================================================================
+
+			BROWSER BACK BUTTON (web-only)
+
+TV remotes, Android's back gesture, Alt+Left and the toolbar Back button
+would leave the page mid-game. After the first user gesture we mark the
+current history entry and push a guard entry on top of it. Back then lands
+on the marked entry: we press Escape (menu in game, back a level in menus,
+as the gamepad's B/Back buttons do) and go forward to the guard again.
+history.forward() restores the guard entry as it was, including any room
+URL that replaceState wrote into it (cl_main.js, menu.js). Its own popstate
+carries no marker and is ignored.
+
+Two marked entries sit under the guard, so a second Back that arrives before
+the asynchronous forward() lands (a double press, an auto-repeating remote)
+reaches the other marked entry instead of leaving the page. Three Backs
+before any forward() lands can still leave.
+
+Arming waits for a key, mouse button or touch because Chrome's Back button
+skips history entries pushed without user activation; gamepad presses,
+Escape and modifier keys don't count as activation, so where the browser
+reports navigator.userActivation we wait until it is active. The entries
+cannot be removed again, so IN_Shutdown only stops listening, and each page
+load arms once (a reload adds entries under the old ones).
+===========================================================================
+*/
+
+const BACK_GUARD_STATE = 'icaro-back-guard';
+// A browser Back this soon after an Escape from the keyboard or a gamepad
+// is the same press (e.g. a remote whose Back button does both)
+const BACK_GUARD_DEDUP_MS = 500;
+
+let backGuardArmed = false;
+let lastEscapeTime = - Infinity;
+
+function IN_Now() {
+
+	return typeof performance !== 'undefined' ? performance.now() : Date.now();
+
+}
+
+function isModifierKey( event ) {
+
+	switch ( event.key ) {
+
+		case 'Shift': case 'Control': case 'Alt': case 'AltGraph': case 'Meta': case 'CapsLock':
+			return true;
+		default:
+			return false;
+
+	}
+
+}
+
+function IN_ArmBackGuard( event ) {
+
+	if ( backGuardArmed || ! in_initialized ) return;
+	if ( typeof history === 'undefined' || history.pushState == null ) return;
+	// Escape and modifier keys are not user activation in Chrome
+	if ( event != null && ( event.key === 'Escape' || isModifierKey( event ) ) ) return;
+	// Neither are modifier keys; ask the browser where it can tell us
+	const activation = typeof navigator !== 'undefined' ? navigator.userActivation : undefined;
+	if ( activation != null && activation.isActive === false ) return;
+
+	backGuardArmed = true;
+	try {
+
+		history.replaceState( BACK_GUARD_STATE, '' );
+		history.pushState( BACK_GUARD_STATE, '' );
+		history.pushState( null, '' );
+
+	} catch ( e ) {
+
+		Con_Printf( 'Back button guard unavailable: ' + e.message + '\n' );
+
+	}
+
+}
+
+function GP_EscapeHeld() {
+
+	const gp = GP_GetPrimary();
+	if ( gp == null ) return false;
+	return GP_ButtonDown( gp, 1 ) || GP_ButtonDown( gp, 8 ) || GP_ButtonDown( gp, 9 );
+
+}
+
+function handlePopState( event ) {
+
+	if ( ! in_initialized || event.state !== BACK_GUARD_STATE ) return;
+
+	history.forward();
+
+	// The gamepad poll sends (or already sent) Escape for a held B/Back/Start.
+	// Our own Escape counts too: after a double Back, forward() lands on the
+	// middle marked entry again, and that is not a new press.
+	if ( IN_Now() - lastEscapeTime < BACK_GUARD_DEDUP_MS || GP_EscapeHeld() ) return;
+
+	lastEscapeTime = IN_Now();
+	Key_Event( K_ESCAPE, true );
+	Key_Event( K_ESCAPE, false );
+	updateKeyboardLock();
 
 }
 
@@ -218,6 +343,7 @@ function GP_KeyEdge( quakeKey, isDown, prev, storeKey ) {
 	const wasDown = prev[ storeKey ];
 	if ( isDown !== wasDown ) {
 
+		if ( quakeKey === K_ESCAPE && isDown ) lastEscapeTime = IN_Now();
 		Key_Event( quakeKey, isDown );
 		prev[ storeKey ] = isDown;
 
@@ -495,7 +621,9 @@ action is suppressed only while the game owns the keyboard (key_dest is
 key_game and we hold pointer lock or fullscreen), so Ctrl+R or Ctrl+S cannot
 reload the page or open a dialog in the middle of a fight. In the menu, the
 console and with the mouse released the browser keeps its shortcuts (Ctrl+R,
-Ctrl+-, Ctrl+F, Alt+Left...). Plain mapped keys (F1-F11, Tab, Space, Backspace,
+Ctrl+-, Ctrl+F...). Alt+Left and every other browser Back are not shortcuts
+we can cancel: once armed, the back button guard turns them into Escape (see
+IN_ArmBackGuard). Plain mapped keys (F1-F11, Tab, Space, Backspace,
 arrows, '/' and '\'' for Firefox quick find) are always the game's.
 
 Cannot be overridden by any page: Ctrl+W, Ctrl+T, Ctrl+N, Ctrl+Tab, Ctrl+Shift+W/T/N
@@ -631,6 +759,7 @@ function handleKeyDown( event ) {
 
 	if ( qkey ) {
 
+		if ( qkey === K_ESCAPE && ! event.repeat ) lastEscapeTime = IN_Now();
 		Key_Event( qkey, true );
 
 	}
@@ -853,6 +982,7 @@ function handlePointerLockChange() {
 
 	if ( pointerLocked ) {
 
+		pointerLockWorked = true;
 		mouseactive = true;
 
 	} else {
@@ -882,6 +1012,20 @@ function handlePointerLockChange() {
 	}
 
 	updateKeyboardLock();
+
+}
+
+// See pointerLockUnavailable. The error follows the request within the
+// click's user activation, so fullscreen can still be requested here.
+function handlePointerLockError() {
+
+	if ( pointerLockWorked || touchMode ) return;
+
+	pointerLockRefusals ++;
+	if ( pointerLockRefusals < 2 ) return;
+
+	pointerLockUnavailable = true;
+	requestFullscreen();
 
 }
 
@@ -1143,7 +1287,11 @@ export function IN_Init( element ) {
 	targetElement.addEventListener( 'wheel', handleWheel, { passive: false } );
 	targetElement.addEventListener( 'contextmenu', handleContextMenu );
 
+	pointerLockWorked = false;
+	pointerLockRefusals = 0;
+	pointerLockUnavailable = false;
 	document.addEventListener( 'pointerlockchange', handlePointerLockChange );
+	document.addEventListener( 'pointerlockerror', handlePointerLockError );
 	document.addEventListener( 'fullscreenchange', updateKeyboardLock );
 	document.addEventListener( 'webkitfullscreenchange', updateKeyboardLock );
 
@@ -1158,6 +1306,14 @@ export function IN_Init( element ) {
 	// Focus loss: release everything (vid_win.c AppActivate -> ClearAllStates)
 	eventWindow.addEventListener( 'blur', handleBlur );
 	document.addEventListener( 'visibilitychange', handleVisibilityChange );
+
+	// Browser Back opens the menu once the user has interacted (web-only)
+	backGuardArmed = false;
+	lastEscapeTime = - Infinity;
+	eventWindow.addEventListener( 'popstate', handlePopState );
+	document.addEventListener( 'keydown', IN_ArmBackGuard, true );
+	document.addEventListener( 'mousedown', IN_ArmBackGuard, true );
+	document.addEventListener( 'touchend', IN_ArmBackGuard, true );
 
 	// Initialize touch controls. Start in touch mode only on touch-first
 	// devices; touchscreen laptops start with the mouse and switch on touch.
@@ -1212,10 +1368,16 @@ export function IN_Shutdown() {
 
 		eventWindow.removeEventListener( 'mouseup', handleMouseUp );
 		eventWindow.removeEventListener( 'blur', handleBlur );
+		eventWindow.removeEventListener( 'popstate', handlePopState );
 
 	}
 
+	document.removeEventListener( 'keydown', IN_ArmBackGuard, true );
+	document.removeEventListener( 'mousedown', IN_ArmBackGuard, true );
+	document.removeEventListener( 'touchend', IN_ArmBackGuard, true );
+
 	document.removeEventListener( 'pointerlockchange', handlePointerLockChange );
+	document.removeEventListener( 'pointerlockerror', handlePointerLockError );
 	document.removeEventListener( 'fullscreenchange', updateKeyboardLock );
 	document.removeEventListener( 'webkitfullscreenchange', updateKeyboardLock );
 	document.removeEventListener( 'pointerdown', handlePointerDown, true );

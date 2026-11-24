@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { Sys_FloatTime } from './sys.js';
 import { Con_Printf } from './common.js';
-import { vid, renderer } from './vid.js';
+import { vid, renderer, vid_renderscale } from './vid.js';
 import { r_refdef, r_origin, vpn, vright, vup, entity_t, r_lerpmodels, r_lerpmove, r_nolerp_list } from './render.js';
 import { Cvar_RegisterVariable } from './cvar.js';
 import {
@@ -474,28 +474,10 @@ export function R_SetupGL() {
 	if ( isXRActive() === false && renderer !== null ) {
 
 		renderer.getDrawingBufferSize( _setupgl_drawingBufferSize );
-		const bufferWidth = _setupgl_drawingBufferSize.x;
-		const bufferHeight = _setupgl_drawingBufferSize.y;
-		const scale = r_refdef.vrectScale;
-		let x = r_refdef.vrect.x * scale;
-		let x2 = ( r_refdef.vrect.x + r_refdef.vrect.width ) * scale;
-		let y = bufferHeight - r_refdef.vrect.y * scale;
-		let y2 = bufferHeight -
-			( r_refdef.vrect.y + r_refdef.vrect.height ) * scale;
-
-		// Match GLQuake's one-pixel expansion around fractional view boundaries.
-		if ( x > 0 ) x --;
-		if ( x2 < bufferWidth ) x2 ++;
-		if ( y2 < 0 ) y2 --;
-		if ( y < bufferHeight ) y ++;
-
-		const pixelRatio = renderer.getPixelRatio();
-		renderer.setViewport(
-			x / pixelRatio,
-			y2 / pixelRatio,
-			( x2 - x ) / pixelRatio,
-			( y - y2 ) / pixelRatio
-		);
+		R_VrectToViewport( _setupgl_viewport, r_refdef.vrect, r_refdef.vrectScale, vid_renderscale,
+			_setupgl_drawingBufferSize.x, _setupgl_drawingBufferSize.y, renderer.getPixelRatio() );
+		renderer.setViewport( _setupgl_viewport[ 0 ], _setupgl_viewport[ 1 ],
+			_setupgl_viewport[ 2 ], _setupgl_viewport[ 3 ] );
 
 	}
 
@@ -821,6 +803,40 @@ const _setupgl_right = new Float32Array( 3 );
 const _setupgl_up = new Float32Array( 3 );
 const _setupgl_matrix = new THREE.Matrix4();
 const _setupgl_drawingBufferSize = new THREE.Vector2();
+const _setupgl_viewport = new Float64Array( 4 );
+
+/*
+=============
+R_VrectToViewport
+
+Port-only helper for R_SetupGL's glViewport. Writes the Three.js viewport
+(x, y, width, height in CSS pixels, bottom-left origin) for a view rectangle
+in virtual 2D coordinates. vrectScale maps those to 2D overlay pixels;
+renderScale (vid_renderscale, from ?scale=) is the WebGL buffer's size
+relative to the overlay, so the result is the same at every render scale.
+=============
+*/
+export function R_VrectToViewport( out, vrect, vrectScale, renderScale, bufferWidth, bufferHeight, pixelRatio ) {
+
+	const scale = vrectScale * renderScale;
+	let x = vrect.x * scale;
+	let x2 = ( vrect.x + vrect.width ) * scale;
+	let y = bufferHeight - vrect.y * scale;
+	let y2 = bufferHeight - ( vrect.y + vrect.height ) * scale;
+
+	// Match GLQuake's one-pixel expansion around fractional view boundaries.
+	if ( x > 0 ) x --;
+	if ( x2 < bufferWidth ) x2 ++;
+	if ( y2 < 0 ) y2 --;
+	if ( y < bufferHeight ) y ++;
+
+	out[ 0 ] = x / pixelRatio;
+	out[ 1 ] = y2 / pixelRatio;
+	out[ 2 ] = ( x2 - x ) / pixelRatio;
+	out[ 3 ] = ( y - y2 ) / pixelRatio;
+	return out;
+
+}
 
 function R_DrawAliasModel( e ) {
 
