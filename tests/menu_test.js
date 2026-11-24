@@ -59,3 +59,84 @@ Deno.test( 'the game options menu offers the registered episodes only when regis
 	}
 
 } );
+
+Deno.test( 'touch menus: Touch Controls page, slider taps and Setup rows', async () => {
+
+	const cvar = await import( '../src/cvar.js' );
+	const touch = await import( '../src/touch.js' );
+	const sound = await import( '../src/sound.js' );
+	const draw = await import( '../src/gl_draw.js' );
+
+	const hadWindow = 'window' in globalThis;
+	if ( ! hadWindow ) globalThis.window = { devicePixelRatio: 1 };
+	try {
+
+		cmd.Cbuf_Init();
+		cmd.Cmd_Init();
+		keys.Key_Init();
+		menu.M_Init();
+		if ( cvar.Cvar_FindVar( 'touch_sensitivity' ) === null ) touch.Touch_RegisterCvars();
+		if ( cvar.Cvar_FindVar( 'volume' ) === null ) cvar.Cvar_RegisterVariable( sound.volume );
+		for ( const [ name, value ] of [ [ 'viewsize', '100' ], [ 'sensitivity', '3' ] ] )
+			if ( cvar.Cvar_FindVar( name ) === null ) cvar.Cvar_RegisterVariable( { name, string: value, value: Number( value ) } );
+
+		// Tap at a point in the 320x200 menu space
+		const w = draw.Draw_GetVirtualWidth();
+		const h = draw.Draw_GetVirtualHeight();
+		const tap = ( vx, vy ) => menu.M_TouchInput( vx + ( w - 320 ) / 2, vy + ( h - 200 ) / 2, w, h );
+		const near = ( a, b, m ) => assertEqual( Math.abs( a - b ) < 1e-6, true, m + ' (' + a + ' vs ' + b + ')' );
+
+		// Options row 14 opens the Touch Controls page
+		cmd.Cmd_ExecuteString( 'menu_options' );
+		tap( 100, 32 + 14 * 8 + 4 );
+		assertEqual( menu.m_state, menu.m_touch, 'Touch controls row opens the page' );
+
+		// Look Speed slider (row 0, y 48): ends of the slider and the middle, snapped to 0.25
+		tap( 300, 52 );
+		near( touch.touch_sensitivity.value, 3, 'right end is the maximum' );
+		tap( 210, 52 );
+		near( touch.touch_sensitivity.value, 0.25, 'left cap is the minimum' );
+		tap( 256, 52 );
+		near( touch.touch_sensitivity.value, 1.75, 'middle snaps to a step' );
+
+		// Tapping a label steps a slider up and flips a toggle
+		tap( 100, 52 );
+		near( touch.touch_sensitivity.value, 2, 'label tap steps up' );
+		const lefty = touch.touch_lefthanded.value;
+		tap( 100, 48 + 4 * 8 + 4 );
+		assertEqual( touch.touch_lefthanded.value, lefty ? 0 : 1, 'Left-Handed toggles' );
+		tap( 100, 48 + 4 * 8 + 4 );
+
+		// Escape goes back to Options; a tap on the Sound Volume slider (row 8) sets it
+		menu.M_Keydown( keys.K_ESCAPE );
+		assertEqual( menu.m_state, menu.m_options, 'back to Options' );
+		tap( 220, 32 + 8 * 8 + 4 );
+		near( sound.volume.value, 0, 'volume at the left end' );
+		tap( 256, 32 + 8 * 8 + 4 );
+		near( sound.volume.value, 0.5, 'volume in the middle' );
+
+		// Screen size (row 4) and mouse speed (row 6) have their own ranges
+		tap( 292, 32 + 4 * 8 + 4 );
+		near( cvar.Cvar_FindVar( 'viewsize' ).value, 120, 'screen size at the right end' );
+		tap( 220, 32 + 4 * 8 + 4 );
+		near( cvar.Cvar_FindVar( 'viewsize' ).value, 30, 'screen size at the left end' );
+		tap( 256, 32 + 6 * 8 + 4 );
+		near( cvar.Cvar_FindVar( 'sensitivity' ).value, 6, 'mouse speed in the middle' );
+
+		// Setup: the name row only takes the cursor, Accept Changes leaves the menu
+		cmd.Cmd_ExecuteString( 'menu_setup' );
+		assertEqual( menu.m_state, menu.m_setup, 'setup menu open' );
+		tap( 100, 42 );
+		assertEqual( menu.m_state, menu.m_setup, 'name row stays in setup' );
+		tap( 100, 126 );
+		assertEqual( menu.m_state === menu.m_setup, false, 'Accept Changes leaves setup' );
+
+	} finally {
+
+		touch.touch_sensitivity.value = 1;
+		touch.touch_sensitivity.string = '1';
+		if ( ! hadWindow ) delete globalThis.window;
+
+	}
+
+} );

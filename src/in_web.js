@@ -27,7 +27,8 @@ import { PITCH, YAW } from './quakedef.js';
 import {
 	Touch_IsMobile, Touch_IsTouchCapable, Touch_Init, Touch_Enable, Touch_Disable, Touch_IsEnabled,
 	Touch_GetMoveInput, Touch_GetLookDelta, Touch_ReleaseButtons,
-	Touch_ShowMenu, Touch_HideMenu, Touch_SetMenuCallback, Touch_RequestFullscreen
+	Touch_ShowMenu, Touch_HideMenu, Touch_SetMenuCallback, Touch_RequestFullscreen,
+	Touch_RegisterCvars, Touch_Frame, Touch_ShowSysBar, Touch_HideSysBar
 } from './touch.js';
 import { M_TouchInput } from './menu.js';
 import { Draw_GetOverlayCanvas } from './gl_draw.js';
@@ -952,6 +953,7 @@ function IN_SetTouchMode( on ) {
 
 		if ( Touch_IsEnabled() ) Touch_Disable();
 		Touch_HideMenu();
+		Touch_HideSysBar();
 		mouseactive = pointerLocked;
 
 	}
@@ -1101,6 +1103,7 @@ export function IN_Init( element ) {
 	Cvar_RegisterVariable( gp_look_pitch );
 	Cvar_RegisterVariable( xr_snapturn );
 	Cvar_RegisterVariable( xr_turnspeed );
+	Touch_RegisterCvars();
 
 	// Register commands
 	Cmd_AddCommand( 'force_centerview', IN_ForceCenterView );
@@ -1439,17 +1442,20 @@ export function IN_Move( cmd ) {
 
 	if ( ! cmd ) return;
 
-	// Add touch input - touch look directly controls view angles (bypasses mlook checks)
+	// Add touch input - touch look (drag and gyro, in degrees) directly
+	// controls view angles (bypasses mlook checks). Its speed is
+	// touch_sensitivity / touch_gyro_sensitivity; a negative m_pitch
+	// ("Invert Mouse") inverts it too.
 	if ( Touch_IsEnabled() ) {
 
 		const touchLook = Touch_GetLookDelta();
 
-		// Apply touch look directly to view angles
-		if ( touchLook.x !== 0 || touchLook.y !== 0 ) {
+		if ( touchLook.yaw !== 0 || touchLook.pitch !== 0 ) {
 
-			cl.viewangles[ YAW ] -= m_yaw.value * touchLook.x * sensitivity.value * 2;
+			cl.viewangles[ YAW ] += touchLook.yaw;
 
-			cl.viewangles[ PITCH ] += m_pitch.value * touchLook.y * sensitivity.value * 2;
+			cl.viewangles[ PITCH ] += m_pitch.value < 0 ? - touchLook.pitch : touchLook.pitch;
+			if ( touchLook.pitch !== 0 ) V_StopPitchDrift();
 			if ( cl.viewangles[ PITCH ] > 80 )
 				cl.viewangles[ PITCH ] = 80;
 			if ( cl.viewangles[ PITCH ] < - 70 )
@@ -1603,6 +1609,8 @@ export function IN_UpdateTouch() {
 
 	if ( ! touchMode ) return;
 
+	Touch_Frame();
+
 	if ( key_dest === key_game && cls.state === ca_connected && ! cls.demoplayback ) {
 
 		// In game (not demo, actually connected) - show game controls, hide menu controls
@@ -1642,7 +1650,8 @@ export function IN_UpdateTouch() {
 
 	} else {
 
-		// Console or other - hide all controls
+		// Console or chat - hide the game controls, keep Back and the
+		// on-screen keyboard button (there is no other way out or to type)
 		if ( Touch_IsEnabled() ) {
 
 			Touch_Disable();
@@ -1651,6 +1660,7 @@ export function IN_UpdateTouch() {
 		}
 
 		Touch_HideMenu();
+		Touch_ShowSysBar();
 
 	}
 

@@ -1,11 +1,57 @@
 // Touch controls for mobile devices
-// Provides virtual joystick on left, look area on right, FIRE/JUMP/pause buttons
+//
+// In game: a floating move stick on the left (nipplejs), drag-to-look on the
+// right, FIRE and JUMP buttons that also aim while held, weapon next/prev and
+// a menu button. Optional gyro aiming. Mirrored with touch_lefthanded.
+// In menus and the console: tap-to-select, drag for arrow keys, and a small
+// bar with Back and an on-screen keyboard button.
 
-import { K_ESCAPE, K_UPARROW, K_DOWNARROW, K_LEFTARROW, K_RIGHTARROW, Key_Event } from './keys.js';
+import { K_ESCAPE, K_UPARROW, K_DOWNARROW, K_LEFTARROW, K_RIGHTARROW, K_ENTER, K_BACKSPACE, Key_Event } from './keys.js';
 import { in_attack, in_jump } from './cl_input.js';
 import { S_UnlockAudio } from './snd_dma.js';
+import { cvar_t, Cvar_RegisterVariable } from './cvar.js';
+import { Cbuf_AddText } from './cmd.js';
 
-// Touch state
+/*
+==============================================================================
+
+			CVARS (archived, set from the Touch Controls menu)
+
+==============================================================================
+*/
+
+export const touch_sensitivity = new cvar_t( 'touch_sensitivity', '1', true ); // drag look speed
+export const touch_gyro = new cvar_t( 'touch_gyro', '0', true ); // gyro aiming on/off
+export const touch_gyro_sensitivity = new cvar_t( 'touch_gyro_sensitivity', '1', true ); // 1 = real-world degrees
+export const touch_size = new cvar_t( 'touch_size', '1', true ); // button scale
+export const touch_opacity = new cvar_t( 'touch_opacity', '0.6', true );
+export const touch_lefthanded = new cvar_t( 'touch_lefthanded', '0', true ); // mirror the layout
+export const touch_haptics = new cvar_t( 'touch_haptics', '1', true ); // vibrate on button press (Android)
+
+export function Touch_RegisterCvars() {
+
+	Cvar_RegisterVariable( touch_sensitivity );
+	Cvar_RegisterVariable( touch_gyro );
+	Cvar_RegisterVariable( touch_gyro_sensitivity );
+	Cvar_RegisterVariable( touch_size );
+	Cvar_RegisterVariable( touch_opacity );
+	Cvar_RegisterVariable( touch_lefthanded );
+	Cvar_RegisterVariable( touch_haptics );
+
+}
+
+// Degrees of view rotation per CSS pixel of drag at touch_sensitivity 1
+// (the same speed as before touch_sensitivity existed)
+const LOOK_DEGREES_PER_PX = 0.4;
+
+/*
+==============================================================================
+
+			STATE
+
+==============================================================================
+*/
+
 let enabled = false;
 let initialized = false;
 let menuOverlay = null;
@@ -16,19 +62,15 @@ let fullscreenPending = false;
 let wakeLock = null;
 let wakeLockPending = false;
 
-// Buttons held by touch (they write kbutton state directly, not via Key_Event)
-let fireHeld = false;
-let jumpHeld = false;
-
-// Movement joystick (left side)
-let moveTouch = null;
-const joystickOrigin = { x: 0, y: 0 };
-const joystickCurrent = { x: 0, y: 0 };
-const JOYSTICK_RADIUS = 50; // px
+// Movement stick (nipplejs, loaded on demand from the import map)
+const JOYSTICK_SIZE = 120; // px, at touch_size 1
 const JOYSTICK_DEADZONE = 0.15; // fraction of the radius
 const JOYSTICK_RUN_THRESHOLD = 0.9; // past this the stick runs (+speed)
+let nipplejs = null;
+let nippleLoad = null;
+let stickManager = null;
 
-// Look area (right side)
+// Look area (drag to look)
 let lookTouch = null;
 const lastLookPos = { x: 0, y: 0 };
 
@@ -44,30 +86,56 @@ const menuTouchStep = { x: 0, y: 0 };
 let moveForward = 0;
 let moveRight = 0;
 let moveRun = false;
-let lookDeltaX = 0;
-let lookDeltaY = 0;
+let lookYaw = 0; // degrees, + = turn left
+let lookPitch = 0; // degrees, + = look down
 
 // Returned by the getters (no per-frame allocation)
 const _moveInput = { forward: 0, right: 0, run: false };
-const _lookDelta = { x: 0, y: 0 };
+const _lookDelta = { yaw: 0, pitch: 0 };
 
 // Gyroscope state
-let gyroEnabled = false;
-let gyroPermissionRequested = false;
-let prevBeta = null;
-let prevGamma = null;
-const GYRO_SENSITIVITY = 8.0;
-const LOOK_SENSITIVITY = 3.0;
+let gyroListening = false;
+let gyroPermission = 'unknown'; // 'unknown' | 'pending' | 'granted' | 'denied'
+let gyroLastTime = - 1;
+
+// Layout inputs last applied (re-laid out when a cvar changes)
+let layoutKey = '';
 
 // UI elements
 let overlay = null;
-let joystickArea = null;
-let joystickBase = null;
-let joystickKnob = null;
+let moveZone = null;
 let lookArea = null;
-let fireButton = null;
-let jumpButton = null;
 let pauseButton = null;
+let sysBar = null;
+let backButton = null;
+let keyboardButton = null;
+let keyboardInput = null;
+
+/*
+Hold buttons write kbutton state directly (not via Key_Event) and aim while
+held: dragging a finger that started on FIRE or JUMP turns the view, so the
+player can shoot and look with one thumb. Each tracks the touches on it.
+*/
+const holdButtons = [];
+
+// Tap buttons send a console command
+const tapButtons = [];
+
+// getButton returns the kbutton: cl_input.js is part of an import cycle with
+// this module, so its exports can't be read while this module loads
+function makeHoldButton( id, label, getButton, color ) {
+
+	const b = { id, label, getButton, color, el: null, touches: new Set(), lastPos: new Map() };
+	holdButtons.push( b );
+	return b;
+
+}
+
+const fireButton = makeHoldButton( 'touch-fire', 'FIRE', () => in_attack, '255, 90, 90' );
+const jumpButton = makeHoldButton( 'touch-jump', 'JUMP', () => in_jump, '110, 160, 255' );
+const weaponNextButton = { id: 'touch-weapon-next', label: 'WPN▶', command: 'impulse 10\n', el: null };
+const weaponPrevButton = { id: 'touch-weapon-prev', label: '◀', command: 'impulse 12\n', el: null };
+tapButtons.push( weaponNextButton, weaponPrevButton );
 
 /*
 =================
@@ -108,160 +176,212 @@ export function Touch_IsTouchCapable() {
 }
 
 /*
-=================
-Touch_CreateUI
+==============================================================================
 
-Create the touch control UI elements
-=================
+			UI CREATION
+
+==============================================================================
 */
+
+function makeDiv( id, css ) {
+
+	const el = document.createElement( 'div' );
+	if ( id ) el.id = id;
+	el.style.cssText = css;
+	return el;
+
+}
+
+const BUTTON_CSS = `
+	position: absolute;
+	border-radius: 50%;
+	pointer-events: auto;
+	touch-action: none;
+	user-select: none;
+	-webkit-user-select: none;
+	-webkit-touch-callout: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-family: sans-serif;
+	font-weight: bold;
+	color: rgba(255, 255, 255, 0.85);
+	box-sizing: border-box;
+`;
+
+const SYS_BUTTON_CSS = `
+	pointer-events: auto;
+	touch-action: manipulation;
+	user-select: none;
+	-webkit-user-select: none;
+	min-width: 48px;
+	height: 40px;
+	padding: 0 12px;
+	border-radius: 8px;
+	background: rgba(0, 0, 0, 0.45);
+	border: 1px solid rgba(255, 255, 255, 0.35);
+	color: rgba(255, 255, 255, 0.85);
+	font-family: sans-serif;
+	font-size: 15px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+`;
+
 function Touch_CreateUI( container ) {
 
-	// Main overlay
-	overlay = document.createElement( 'div' );
-	overlay.id = 'touch-controls';
-	overlay.style.cssText = `
+	overlay = makeDiv( 'touch-controls', `
 		position: fixed;
-		top: 0;
-		left: 0;
-		width: 100%;
-		height: 100%;
+		inset: 0;
 		pointer-events: none;
 		z-index: 200;
 		display: none;
 		touch-action: none;
-	`;
+		user-select: none;
+		-webkit-user-select: none;
+	` );
 
-	// Left side - movement joystick area
-	joystickArea = document.createElement( 'div' );
-	joystickArea.style.cssText = `
+	// Move stick zone (the stick appears where the thumb lands)
+	moveZone = makeDiv( 'touch-move', `
 		position: absolute;
-		left: 0;
 		top: 0;
-		width: 40%;
+		width: 45%;
 		height: 100%;
 		pointer-events: auto;
 		touch-action: none;
-	`;
+	` );
 
-	// Joystick base (appears when touching)
-	joystickBase = document.createElement( 'div' );
-	joystickBase.style.cssText = `
-		position: fixed;
-		width: 120px;
-		height: 120px;
-		border-radius: 50%;
-		background: rgba(255, 255, 255, 0.15);
-		border: 2px solid rgba(255, 255, 255, 0.3);
-		display: none;
-		transform: translate(-50%, -50%);
-		pointer-events: none;
-	`;
-
-	// Joystick knob
-	joystickKnob = document.createElement( 'div' );
-	joystickKnob.style.cssText = `
+	// Look area (the rest of the screen, under the buttons)
+	lookArea = makeDiv( 'touch-look', `
 		position: absolute;
-		width: 50px;
-		height: 50px;
-		border-radius: 50%;
-		background: rgba(255, 255, 255, 0.4);
-		border: 2px solid rgba(255, 255, 255, 0.6);
-		left: 50%;
-		top: 50%;
-		transform: translate(-50%, -50%);
-	`;
-	joystickBase.appendChild( joystickKnob );
-	joystickArea.appendChild( joystickBase );
-
-	// Right side - look area (drag to look)
-	lookArea = document.createElement( 'div' );
-	lookArea.style.cssText = `
-		position: absolute;
-		right: 0;
 		top: 0;
-		width: 60%;
+		width: 55%;
 		height: 100%;
 		pointer-events: auto;
 		touch-action: none;
-	`;
+	` );
 
-	// Fire button (top right)
-	fireButton = document.createElement( 'div' );
-	fireButton.style.cssText = `
-		position: absolute;
-		right: 60px;
-		top: 50px;
-		width: 100px;
-		height: 100px;
-		border-radius: 50%;
-		background: transparent;
-		border: 2px solid rgba(255, 100, 100, 0.5);
-		pointer-events: auto;
-		touch-action: none;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-family: sans-serif;
-		font-size: 14px;
-		color: rgba(255, 255, 255, 0.7);
-	`;
-	fireButton.textContent = 'FIRE';
-
-	// Jump button (below fire button)
-	jumpButton = document.createElement( 'div' );
-	jumpButton.style.cssText = `
-		position: absolute;
-		right: 60px;
-		top: 170px;
-		width: 100px;
-		height: 100px;
-		border-radius: 50%;
-		background: transparent;
-		border: 2px solid rgba(100, 150, 255, 0.5);
-		pointer-events: auto;
-		touch-action: none;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-family: sans-serif;
-		font-size: 14px;
-		color: rgba(255, 255, 255, 0.7);
-	`;
-	jumpButton.textContent = 'JUMP';
-
-	// Pause button (bottom right corner)
-	pauseButton = document.createElement( 'div' );
-	pauseButton.style.cssText = `
-		position: absolute;
-		right: 20px;
-		bottom: 20px;
-		width: 40px;
-		height: 40px;
-		border-radius: 5px;
-		background: rgba(255, 255, 255, 0.15);
-		border: 1px solid rgba(255, 255, 255, 0.3);
-		pointer-events: auto;
-		touch-action: none;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-family: sans-serif;
-		font-size: 16px;
-		color: rgba(255, 255, 255, 0.7);
-	`;
-	pauseButton.textContent = '| |';
-
-	// Assemble UI
-	overlay.appendChild( joystickArea );
+	overlay.appendChild( moveZone );
 	overlay.appendChild( lookArea );
-	overlay.appendChild( fireButton );
-	overlay.appendChild( jumpButton );
+
+	for ( const b of holdButtons ) {
+
+		b.el = makeDiv( b.id, BUTTON_CSS );
+		b.el.textContent = b.label;
+		overlay.appendChild( b.el );
+
+	}
+
+	for ( const b of tapButtons ) {
+
+		b.el = makeDiv( b.id, BUTTON_CSS );
+		b.el.textContent = b.label;
+		overlay.appendChild( b.el );
+
+	}
+
+	pauseButton = makeDiv( 'touch-pause', BUTTON_CSS + `
+		border-radius: 8px;
+	` );
+	pauseButton.textContent = '❙❙';
 	overlay.appendChild( pauseButton );
 
 	container.appendChild( overlay );
 
-	// Create menu navigation overlay
 	Touch_CreateMenuUI( container );
+	Touch_CreateSysBar( container );
+
+	Touch_Layout();
+
+}
+
+/*
+=================
+Touch_Layout
+
+Size and place the game controls from touch_size, touch_opacity and
+touch_lefthanded. Positions keep clear of notches and the home indicator
+(safe-area insets) and sit where the thumbs rest in landscape.
+=================
+*/
+function Touch_Layout() {
+
+	if ( overlay === null ) return;
+
+	const scale = Math.min( Math.max( touch_size.value || 1, 0.5 ), 2 );
+	const opacity = Math.min( Math.max( touch_opacity.value, 0.1 ), 1 );
+	const mirror = touch_lefthanded.value !== 0;
+	layoutKey = touch_size.string + '|' + touch_opacity.string + '|' + touch_lefthanded.string;
+
+	// The action side is the right side unless mirrored
+	const near = mirror ? 'left' : 'right';
+	const far = mirror ? 'right' : 'left';
+	const inset = ( side ) => `env(safe-area-inset-${side}, 0px)`;
+
+	moveZone.style[ far ] = '0';
+	moveZone.style[ near ] = '';
+	lookArea.style[ near ] = '0';
+	lookArea.style[ far ] = '';
+
+	// Circle centred (cx, cy) px from the near and bottom edges
+	const place = ( el, cx, cy, size ) => {
+
+		const s = size * scale;
+		el.style.width = s + 'px';
+		el.style.height = s + 'px';
+		el.style[ near ] = `calc(${inset( near )} + ${cx * scale - s / 2}px)`;
+		el.style[ far ] = '';
+		el.style.bottom = `calc(${inset( 'bottom' )} + ${cy * scale - s / 2}px)`;
+		el.style.fontSize = Math.round( 13 * scale ) + 'px';
+		el.style.opacity = String( opacity );
+
+	};
+
+	place( fireButton.el, 100, 112, 88 );
+	place( jumpButton.el, 48, 48, 64 );
+	place( weaponNextButton.el, 96, 206, 56 );
+	place( weaponPrevButton.el, 168, 176, 44 );
+
+	for ( const b of holdButtons ) {
+
+		b.el.style.border = `2px solid rgba(${b.color}, 0.8)`;
+		Touch_SetButtonPressed( b, b.touches.size > 0 );
+
+	}
+
+	for ( const b of tapButtons ) {
+
+		b.el.style.border = '2px solid rgba(255, 255, 255, 0.5)';
+		b.el.style.background = 'rgba(0, 0, 0, 0.25)';
+
+	}
+
+	// Menu button: top corner on the stick side, small
+	const p = 40 * scale;
+	pauseButton.style.width = p + 'px';
+	pauseButton.style.height = p + 'px';
+	pauseButton.style[ far ] = `calc(${inset( far )} + 12px)`;
+	pauseButton.style[ near ] = '';
+	pauseButton.style.top = `calc(${inset( 'top' )} + 12px)`;
+	pauseButton.style.fontSize = Math.round( 12 * scale ) + 'px';
+	pauseButton.style.background = 'rgba(0, 0, 0, 0.3)';
+	pauseButton.style.border = '1px solid rgba(255, 255, 255, 0.5)';
+	pauseButton.style.opacity = String( opacity );
+
+	// The stick size is a nipplejs option: rebuild it
+	if ( stickManager !== null ) {
+
+		Stick_Destroy();
+		Stick_Create();
+
+	}
+
+}
+
+function Touch_SetButtonPressed( b, pressed ) {
+
+	if ( b.el === null ) return;
+	b.el.style.background = pressed ? `rgba(${b.color}, 0.35)` : 'rgba(0, 0, 0, 0.2)';
 
 }
 
@@ -274,19 +394,14 @@ Create fullscreen touch area for menu tap-to-select
 */
 function Touch_CreateMenuUI( container ) {
 
-	menuOverlay = document.createElement( 'div' );
-	menuOverlay.id = 'touch-menu-controls';
-	menuOverlay.style.cssText = `
+	menuOverlay = makeDiv( 'touch-menu-controls', `
 		position: fixed;
-		top: 0;
-		left: 0;
-		width: 100%;
-		height: 100%;
+		inset: 0;
 		display: none;
 		z-index: 199;
 		pointer-events: auto;
 		touch-action: none;
-	`;
+	` );
 
 	menuOverlay.addEventListener( 'touchstart', onMenuTouchStart, { passive: false } );
 	menuOverlay.addEventListener( 'touchmove', onMenuTouchMove, { passive: false } );
@@ -294,6 +409,157 @@ function Touch_CreateMenuUI( container ) {
 	menuOverlay.addEventListener( 'touchcancel', onMenuTouchEnd, { passive: false } );
 
 	container.appendChild( menuOverlay );
+
+}
+
+/*
+=================
+Touch_CreateSysBar
+
+Back (Escape) and keyboard buttons, shown in menus, the console and chat,
+where there is no keyboard to press Escape or type with. The keyboard button
+focuses an off-screen text field, whose input is forwarded as Quake keys.
+=================
+*/
+function Touch_CreateSysBar( container ) {
+
+	sysBar = makeDiv( 'touch-sysbar', `
+		position: fixed;
+		top: calc(env(safe-area-inset-top, 0px) + 10px);
+		left: calc(env(safe-area-inset-left, 0px) + 10px);
+		display: none;
+		gap: 8px;
+		z-index: 201;
+		pointer-events: none;
+	` );
+
+	backButton = makeDiv( 'touch-back', SYS_BUTTON_CSS );
+	backButton.textContent = '← Back';
+	keyboardButton = makeDiv( 'touch-keyboard', SYS_BUTTON_CSS );
+	keyboardButton.textContent = '⌨';
+	sysBar.appendChild( backButton );
+	sysBar.appendChild( keyboardButton );
+
+	// No preventDefault: the tap must stay a click, which is what lets
+	// focus() open the soft keyboard on iOS
+	backButton.addEventListener( 'click', () => {
+
+		S_UnlockAudio();
+		Touch_HideKeyboard();
+		pressKey( K_ESCAPE );
+
+	} );
+	keyboardButton.addEventListener( 'click', Touch_ToggleKeyboard );
+
+	keyboardInput = document.createElement( 'input' );
+	keyboardInput.id = 'touch-keyboard-input';
+	keyboardInput.type = 'text';
+	keyboardInput.setAttribute && keyboardInput.setAttribute( 'autocapitalize', 'off' );
+	keyboardInput.setAttribute && keyboardInput.setAttribute( 'autocomplete', 'off' );
+	keyboardInput.setAttribute && keyboardInput.setAttribute( 'autocorrect', 'off' );
+	keyboardInput.setAttribute && keyboardInput.setAttribute( 'spellcheck', 'false' );
+	keyboardInput.setAttribute && keyboardInput.setAttribute( 'enterkeyhint', 'send' );
+	// 16px stops iOS zooming in on focus; off-screen but focusable
+	keyboardInput.style.cssText = `
+		position: fixed;
+		left: -1000px;
+		top: 0;
+		width: 10px;
+		height: 10px;
+		font-size: 16px;
+		opacity: 0;
+	`;
+	keyboardInput.addEventListener( 'input', onKeyboardInput );
+	keyboardInput.addEventListener( 'keydown', onKeyboardKeyDown );
+
+	container.appendChild( sysBar );
+	container.appendChild( keyboardInput );
+
+}
+
+/*
+==============================================================================
+
+			ON-SCREEN KEYBOARD
+
+Mobile keyboards often send keydown with key "Unidentified", so text comes
+from the input event and the field is emptied after each one. Enter and
+Backspace on an empty field only arrive as keydown.
+
+==============================================================================
+*/
+
+function onKeyboardInput( e ) {
+
+	const type = e.inputType || '';
+	if ( type.startsWith( 'delete' ) ) {
+
+		pressKey( K_BACKSPACE );
+
+	} else if ( type === 'insertLineBreak' ) {
+
+		pressKey( K_ENTER );
+
+	} else {
+
+		const text = e.data != null ? e.data : keyboardInput.value;
+		for ( const ch of text ) {
+
+			const code = ch.charCodeAt( 0 );
+			if ( code >= 32 && code < 127 ) pressKey( code );
+
+		}
+
+	}
+
+	keyboardInput.value = '';
+
+}
+
+function onKeyboardKeyDown( e ) {
+
+	if ( e.key === 'Enter' ) {
+
+		e.preventDefault();
+		pressKey( K_ENTER );
+
+	} else if ( e.key === 'Backspace' && keyboardInput.value === '' ) {
+
+		e.preventDefault();
+		pressKey( K_BACKSPACE );
+
+	} else if ( e.key === 'Escape' ) {
+
+		e.preventDefault();
+		Touch_HideKeyboard();
+		pressKey( K_ESCAPE );
+
+	}
+
+}
+
+function Touch_ToggleKeyboard() {
+
+	if ( keyboardInput === null ) return;
+	S_UnlockAudio();
+
+	if ( typeof document !== 'undefined' && document.activeElement === keyboardInput ) {
+
+		keyboardInput.blur();
+
+	} else {
+
+		keyboardInput.value = '';
+		keyboardInput.focus();
+
+	}
+
+}
+
+function Touch_HideKeyboard() {
+
+	if ( keyboardInput !== null && typeof document !== 'undefined' &&
+		document.activeElement === keyboardInput ) keyboardInput.blur();
 
 }
 
@@ -405,6 +671,16 @@ function onMenuTouchEnd( e ) {
 
 	e.preventDefault();
 
+	Menu_HandleTouchEnd( e );
+
+	// touchend is a user activation: if the tap just switched gyro aiming on,
+	// iOS can show its motion permission prompt now
+	if ( e.type === 'touchend' ) Gyro_RequestPermission();
+
+}
+
+function Menu_HandleTouchEnd( e ) {
+
 	if ( menuTouch === null ) return;
 	const touch = findTouch( e.changedTouches, menuTouch );
 	if ( touch === null ) return;
@@ -429,158 +705,299 @@ function onMenuTouchEnd( e ) {
 }
 
 /*
-=================
-Touch event handlers
-=================
+==============================================================================
+
+			GAME TOUCH HANDLERS
+
+==============================================================================
 */
 
-function onTouchStart( e ) {
+function haptic( ms ) {
+
+	if ( ! touch_haptics.value || typeof navigator === 'undefined' ) return;
+	if ( typeof navigator.vibrate !== 'function' ) return; // iOS has none
+	// Chrome logs an error for vibrate before the first real tap
+	if ( navigator.userActivation && ! navigator.userActivation.hasBeenActive ) return;
+	navigator.vibrate( ms );
+
+}
+
+function addLook( dx, dy ) {
+
+	const k = LOOK_DEGREES_PER_PX * touch_sensitivity.value;
+	lookYaw -= dx * k;
+	lookPitch += dy * k;
+
+}
+
+function onLookTouchStart( e ) {
 
 	e.preventDefault();
-
-	// Unlock audio on first user gesture
 	S_UnlockAudio();
 
-	// Request gyroscope permission on first touch (needs user gesture)
-	if ( ! gyroPermissionRequested ) {
-
-		Gyro_RequestPermission();
-
-	}
-
 	for ( const touch of e.changedTouches ) {
 
-		const target = e.currentTarget;
-
-		if ( target === joystickArea && moveTouch === null ) {
-
-			// Start joystick
-			moveTouch = touch.identifier;
-			joystickOrigin.x = touch.clientX;
-			joystickOrigin.y = touch.clientY;
-			joystickCurrent.x = touch.clientX;
-			joystickCurrent.y = touch.clientY;
-
-			// Show joystick at touch position
-			joystickBase.style.display = 'block';
-			joystickBase.style.left = touch.clientX + 'px';
-			joystickBase.style.top = touch.clientY + 'px';
-
-		} else if ( target === lookArea && lookTouch === null ) {
-
-			// Start look
-			lookTouch = touch.identifier;
-			lastLookPos.x = touch.clientX;
-			lastLookPos.y = touch.clientY;
-
-		} else if ( target === fireButton ) {
-
-			if ( ! fireHeld ) in_attack.state |= 1 + 2; // down + impulse down
-			fireHeld = true;
-			fireButton.style.background = 'rgba(255, 100, 100, 0.2)';
-			if ( typeof navigator.vibrate === 'function' ) navigator.vibrate( 100 );
-
-		} else if ( target === jumpButton ) {
-
-			if ( ! jumpHeld ) in_jump.state |= 1 + 2; // down + impulse down
-			jumpHeld = true;
-			jumpButton.style.background = 'rgba(100, 150, 255, 0.2)';
-			if ( typeof navigator.vibrate === 'function' ) navigator.vibrate( 100 );
-
-		} else if ( target === pauseButton ) {
-
-			// Trigger escape key
-			Key_Event( K_ESCAPE, true );
-			Key_Event( K_ESCAPE, false );
-
-		}
+		if ( lookTouch !== null ) break;
+		lookTouch = touch.identifier;
+		lastLookPos.x = touch.clientX;
+		lastLookPos.y = touch.clientY;
 
 	}
 
 }
 
-function onTouchMove( e ) {
+function onLookTouchMove( e ) {
 
 	e.preventDefault();
 
+	const touch = lookTouch !== null ? findTouch( e.changedTouches, lookTouch ) : null;
+	if ( touch === null ) return;
+
+	addLook( touch.clientX - lastLookPos.x, touch.clientY - lastLookPos.y );
+	lastLookPos.x = touch.clientX;
+	lastLookPos.y = touch.clientY;
+
+}
+
+function onLookTouchEnd( e ) {
+
+	e.preventDefault();
+
+	if ( lookTouch !== null && findTouch( e.changedTouches, lookTouch ) !== null ) lookTouch = null;
+	onGameTouchEnd( e );
+
+}
+
+// touchend is a user activation (touchstart is not in Chrome): fullscreen
+// and the iOS motion permission prompt can only be requested from it
+function onGameTouchEnd( e ) {
+
+	if ( e.type !== 'touchend' ) return;
+	Touch_RequestFullscreen();
+	Gyro_Update( true );
+
+}
+
+function onHoldTouchStart( b, e ) {
+
+	e.preventDefault();
+	S_UnlockAudio();
+
 	for ( const touch of e.changedTouches ) {
 
-		if ( touch.identifier === moveTouch ) {
+		if ( b.touches.size === 0 ) {
 
-			// Update joystick
-			joystickCurrent.x = touch.clientX;
-			joystickCurrent.y = touch.clientY;
-
-			// Calculate offset from origin
-			const dx = joystickCurrent.x - joystickOrigin.x;
-			const dy = joystickCurrent.y - joystickOrigin.y;
-
-			// Clamp to max radius
-			const dist = Math.sqrt( dx * dx + dy * dy );
-			let clampedX = dx;
-			let clampedY = dy;
-
-			if ( dist > JOYSTICK_RADIUS ) {
-
-				clampedX = ( dx / dist ) * JOYSTICK_RADIUS;
-				clampedY = ( dy / dist ) * JOYSTICK_RADIUS;
-
-			}
-
-			// Update knob position
-			joystickKnob.style.left = `calc(50% + ${clampedX}px)`;
-			joystickKnob.style.top = `calc(50% + ${clampedY}px)`;
-
-			Touch_SetJoystick( clampedX / JOYSTICK_RADIUS, clampedY / JOYSTICK_RADIUS );
-
-		} else if ( touch.identifier === lookTouch ) {
-
-			// Calculate look delta
-			const dx = touch.clientX - lastLookPos.x;
-			const dy = touch.clientY - lastLookPos.y;
-
-			lookDeltaX += dx * LOOK_SENSITIVITY;
-			lookDeltaY += dy * LOOK_SENSITIVITY;
-
-			lastLookPos.x = touch.clientX;
-			lastLookPos.y = touch.clientY;
+			b.getButton().state |= 1 + 2; // down + impulse down
+			Touch_SetButtonPressed( b, true );
+			haptic( 12 );
 
 		}
+
+		b.touches.add( touch.identifier );
+		b.lastPos.set( touch.identifier, { x: touch.clientX, y: touch.clientY } );
 
 	}
 
 }
 
-function onTouchEnd( e ) {
+function onHoldTouchMove( b, e ) {
 
 	e.preventDefault();
 
 	for ( const touch of e.changedTouches ) {
 
-		const target = e.currentTarget;
-
-		if ( touch.identifier === moveTouch ) {
-
-			Touch_ResetJoystick();
-
-		} else if ( touch.identifier === lookTouch ) {
-
-			lookTouch = null;
-
-		} else if ( target === fireButton || target === jumpButton ) {
-
-			// Another finger may still be on the button
-			if ( e.targetTouches && e.targetTouches.length > 0 ) continue;
-			if ( target === fireButton ) Touch_ReleaseFire();
-			else Touch_ReleaseJump();
-
-		}
+		const last = b.lastPos.get( touch.identifier );
+		if ( last === undefined ) continue;
+		addLook( touch.clientX - last.x, touch.clientY - last.y );
+		last.x = touch.clientX;
+		last.y = touch.clientY;
 
 	}
 
-	// touchend is a user activation (touchstart is not in Chrome), and these
-	// controls are only shown while playing a map
-	if ( e.type === 'touchend' ) Touch_RequestFullscreen();
+}
+
+function onHoldTouchEnd( b, e ) {
+
+	e.preventDefault();
+
+	for ( const touch of e.changedTouches ) {
+
+		b.touches.delete( touch.identifier );
+		b.lastPos.delete( touch.identifier );
+
+	}
+
+	if ( b.touches.size === 0 ) Touch_ReleaseHold( b );
+	onGameTouchEnd( e );
+
+}
+
+function Touch_ReleaseHold( b ) {
+
+	const kbutton = b.getButton();
+	if ( kbutton.state & 1 ) {
+
+		kbutton.state &= ~ 1; // up
+		kbutton.state |= 4; // impulse up
+
+	}
+
+	b.touches.clear();
+	b.lastPos.clear();
+	Touch_SetButtonPressed( b, false );
+
+}
+
+function onTapTouchStart( b, e ) {
+
+	e.preventDefault();
+	S_UnlockAudio();
+	Cbuf_AddText( b.command );
+	haptic( 8 );
+	b.el.style.background = 'rgba(255, 255, 255, 0.3)';
+
+}
+
+function onTapTouchEnd( b, e ) {
+
+	e.preventDefault();
+	if ( ! e.targetTouches || e.targetTouches.length === 0 ) b.el.style.background = 'rgba(0, 0, 0, 0.25)';
+	onGameTouchEnd( e );
+
+}
+
+function onPauseTouchStart( e ) {
+
+	e.preventDefault();
+	pressKey( K_ESCAPE );
+
+}
+
+// Listener table, so Enable/Disable add and remove the same functions
+const gameListeners = [];
+
+function Touch_BuildListeners() {
+
+	const add = ( el, type, fn ) => gameListeners.push( { el, type, fn } );
+
+	add( lookArea, 'touchstart', onLookTouchStart );
+	add( lookArea, 'touchmove', onLookTouchMove );
+	add( lookArea, 'touchend', onLookTouchEnd );
+	add( lookArea, 'touchcancel', onLookTouchEnd );
+
+	// The stick itself uses pointer events (nipplejs). Its touch events are
+	// cancelled so no compatibility mousedown reaches the canvas (that would
+	// be +attack), and touchend asks for fullscreen and the gyro permission.
+	const cancel = ( e ) => e.preventDefault();
+	add( moveZone, 'touchstart', ( e ) => {
+
+		cancel( e );
+		S_UnlockAudio();
+
+	} );
+	add( moveZone, 'touchmove', cancel );
+	add( moveZone, 'touchend', ( e ) => {
+
+		cancel( e );
+		onGameTouchEnd( e );
+
+	} );
+	add( moveZone, 'touchcancel', cancel );
+
+	for ( const b of holdButtons ) {
+
+		add( b.el, 'touchstart', ( e ) => onHoldTouchStart( b, e ) );
+		add( b.el, 'touchmove', ( e ) => onHoldTouchMove( b, e ) );
+		add( b.el, 'touchend', ( e ) => onHoldTouchEnd( b, e ) );
+		add( b.el, 'touchcancel', ( e ) => onHoldTouchEnd( b, e ) );
+
+	}
+
+	for ( const b of tapButtons ) {
+
+		add( b.el, 'touchstart', ( e ) => onTapTouchStart( b, e ) );
+		add( b.el, 'touchend', ( e ) => onTapTouchEnd( b, e ) );
+		add( b.el, 'touchcancel', ( e ) => onTapTouchEnd( b, e ) );
+
+	}
+
+	add( pauseButton, 'touchstart', onPauseTouchStart );
+
+}
+
+/*
+==============================================================================
+
+			MOVE STICK (nipplejs)
+
+==============================================================================
+*/
+
+// Load nipplejs through the page's import map. The specifier is a variable
+// so tools that resolve imports up front (Deno tests) don't fail on it.
+function Stick_Load() {
+
+	if ( nippleLoad !== null ) return nippleLoad;
+
+	const specifier = 'nipplejs';
+	nippleLoad = import( specifier ).then( ( mod ) => {
+
+		nipplejs = mod.default || mod;
+		if ( enabled && stickManager === null ) Stick_Create();
+
+	} ).catch( ( err ) => {
+
+		// Try again on the next Touch_Enable (e.g. back online)
+		nippleLoad = null;
+		console.warn( 'Touch: could not load the move stick (nipplejs):', err.message );
+
+	} );
+
+	return nippleLoad;
+
+}
+
+function Stick_Create() {
+
+	if ( nipplejs === null || moveZone === null || stickManager !== null ) return;
+
+	const scale = Math.min( Math.max( touch_size.value || 1, 0.5 ), 2 );
+	stickManager = nipplejs.create( {
+		zone: moveZone,
+		mode: 'dynamic',
+		size: Math.round( JOYSTICK_SIZE * scale ),
+		color: 'white',
+		fadeTime: 120,
+		multitouch: false,
+		restOpacity: Math.min( Math.max( touch_opacity.value, 0.1 ), 1 )
+	} );
+
+	// nipplejs 1.x passes one event object; 0.x passed ( event, data )
+	stickManager.on( 'start', () => {
+
+		S_UnlockAudio();
+
+	} );
+	stickManager.on( 'move', ( evt, data ) => {
+
+		const d = data || ( evt && evt.data );
+		if ( d && d.vector ) Touch_SetJoystick( d.vector.x, - d.vector.y );
+
+	} );
+	stickManager.on( 'end', () => {
+
+		Touch_ResetJoystick();
+
+	} );
+
+}
+
+function Stick_Destroy() {
+
+	if ( stickManager === null ) return;
+	stickManager.destroy(); // emits no 'end' for a stick still held
+	stickManager = null;
+	Touch_ResetJoystick();
 
 }
 
@@ -593,7 +1010,7 @@ Applies the deadzone (rescaled so movement starts at zero) and the run
 threshold (full deflection in that direction, flagged as running).
 =================
 */
-function Touch_SetJoystick( x, y ) {
+export function Touch_SetJoystick( x, y ) {
 
 	const mag = Math.sqrt( x * x + y * y );
 
@@ -619,46 +1036,9 @@ function Touch_SetJoystick( x, y ) {
 
 function Touch_ResetJoystick() {
 
-	moveTouch = null;
 	moveForward = 0;
 	moveRight = 0;
 	moveRun = false;
-
-	if ( joystickBase !== null ) {
-
-		joystickBase.style.display = 'none';
-		joystickKnob.style.left = '50%';
-		joystickKnob.style.top = '50%';
-
-	}
-
-}
-
-function Touch_ReleaseFire() {
-
-	if ( fireHeld ) {
-
-		in_attack.state &= ~ 1; // up
-		in_attack.state |= 4; // impulse up
-		fireHeld = false;
-
-	}
-
-	if ( fireButton !== null ) fireButton.style.background = 'transparent';
-
-}
-
-function Touch_ReleaseJump() {
-
-	if ( jumpHeld ) {
-
-		in_jump.state &= ~ 1; // up
-		in_jump.state |= 4; // impulse up
-		jumpHeld = false;
-
-	}
-
-	if ( jumpButton !== null ) jumpButton.style.background = 'transparent';
 
 }
 
@@ -666,143 +1046,180 @@ function Touch_ReleaseJump() {
 =================
 Touch_ReleaseButtons
 
-Release FIRE/JUMP if touch is holding them, reset the joystick and look
+Release FIRE/JUMP if touch is holding them, reset the stick and look
 tracking. Called by Touch_Disable and on focus loss.
 =================
 */
 export function Touch_ReleaseButtons() {
 
-	Touch_ReleaseFire();
-	Touch_ReleaseJump();
+	for ( const b of holdButtons ) Touch_ReleaseHold( b );
 	Touch_ResetJoystick();
 	lookTouch = null;
-	lookDeltaX = 0;
-	lookDeltaY = 0;
+	lookYaw = 0;
+	lookPitch = 0;
 	menuTouch = null;
 
 }
 
 /*
-=================
-Gyroscope support
+==============================================================================
 
-Uses deviceorientation with delta tracking. In fullscreen landscape:
-- beta changes when tilting left/right = yaw
-- gamma changes when tilting up/down = pitch
-=================
+			GYRO AIMING
+
+devicemotion rotationRate is angular velocity in degrees per second about the
+device axes (beta: x, short edge; gamma: y, long edge; alpha: z, out of the
+screen). It is rotated into screen axes for the current orientation, then
+integrated over the time between events: rotation about the screen's
+vertical axis turns, about its horizontal axis pitches. Rotation about the
+screen normal (roll) is added to yaw ("local space" gyro), so turning while
+the phone is tilted back still turns. touch_gyro_sensitivity 1 maps a real
+degree to a view degree.
+
+==============================================================================
 */
 
-function onDeviceOrientation( e ) {
+function onDeviceMotion( e ) {
 
 	if ( ! enabled ) return;
 
-	const beta = e.beta;   // X-axis tilt: -180 to 180
-	const gamma = e.gamma; // Y-axis tilt: -90 to 90
+	const r = e.rotationRate;
+	const t = typeof e.timeStamp === 'number' ? e.timeStamp : performance.now();
+	const last = gyroLastTime;
+	gyroLastTime = t;
 
-	if ( beta === null || gamma === null ) return;
+	if ( r == null || r.alpha == null || r.beta == null || r.gamma == null || last < 0 ) return;
 
-	if ( prevBeta !== null && prevGamma !== null ) {
+	// Skip the first event after a pause instead of integrating the gap
+	const dt = ( t - last ) / 1000;
+	if ( dt <= 0 || dt > 0.25 ) return;
 
-		let dBeta = beta - prevBeta;
-		let dGamma = gamma - prevGamma;
+	const angle = Gyro_ScreenAngle() * Math.PI / 180;
+	const c = Math.cos( angle );
+	const s = Math.sin( angle );
 
-		// Clamp deltas - ignore large jumps from gimbal lock or axis flips
-		if ( dBeta > 10 || dBeta < - 10 ) dBeta = 0;
-		if ( dGamma > 10 || dGamma < - 10 ) dGamma = 0;
+	// Device axes to screen axes (x right, y up, z towards the viewer)
+	const wx = r.beta * c - r.gamma * s;
+	const wy = r.beta * s + r.gamma * c;
+	const wz = r.alpha;
 
-		// deviceorientation reports values relative to the device's physical
-		// axes, NOT the screen orientation. We must check the actual screen
-		// angle and remap accordingly.
-		const angle = ( screen.orientation && screen.orientation.angle !== undefined )
-			? screen.orientation.angle
-			: ( window.orientation || 0 );
+	const k = touch_gyro_sensitivity.value * dt;
+	lookYaw += ( wy + wz ) * k; // counter-clockwise from above = turn left
+	lookPitch -= wx * k; // top edge towards the viewer (camera tilts up) = look up
 
-		let dYaw, dPitch;
+}
 
-		if ( angle === 90 ) {
+function Gyro_ScreenAngle() {
 
-			// Landscape: top of phone is on the left
-			dYaw = dBeta;
-			dPitch = - dGamma;
+	if ( typeof screen !== 'undefined' && screen.orientation && typeof screen.orientation.angle === 'number' )
+		return screen.orientation.angle;
+	if ( typeof window !== 'undefined' && typeof window.orientation === 'number' )
+		return ( window.orientation + 360 ) % 360;
+	return 0;
 
-		} else if ( angle === - 90 || angle === 270 ) {
+}
 
-			// Landscape: top of phone is on the right
-			dYaw = - dBeta;
-			dPitch = dGamma;
+/*
+=================
+Gyro_Update
 
-		} else {
+Start or stop listening to match touch_gyro while the game controls are up.
+fromGesture: we are inside a user activation, so iOS may show its motion
+permission prompt now (it refuses outside one).
+=================
+*/
+function Gyro_Update( fromGesture ) {
 
-			// Portrait (0) or upside-down (180)
-			dYaw = dGamma;
-			dPitch = dBeta;
+	const want = enabled && touch_gyro.value !== 0;
 
-		}
+	if ( ! want ) {
 
-		lookDeltaX -= dYaw * GYRO_SENSITIVITY;
-		lookDeltaY -= dPitch * GYRO_SENSITIVITY;
+		Gyro_Stop();
+		return;
 
 	}
 
-	prevBeta = beta;
-	prevGamma = gamma;
+	if ( gyroListening || typeof window === 'undefined' ) return;
 
-}
+	const DME = typeof DeviceMotionEvent !== 'undefined' ? DeviceMotionEvent : null;
+	if ( DME === null ) return;
 
-async function Gyro_RequestPermission() {
+	if ( typeof DME.requestPermission !== 'function' || gyroPermission === 'granted' ) {
 
-	if ( gyroPermissionRequested ) return;
-	gyroPermissionRequested = true;
-
-	// iOS 13+ requires explicit permission request from a user gesture
-	if ( typeof DeviceOrientationEvent !== 'undefined' &&
-		typeof DeviceOrientationEvent.requestPermission === 'function' ) {
-
-		try {
-
-			const permission = await DeviceOrientationEvent.requestPermission();
-			if ( permission === 'granted' ) {
-
-				Gyro_Enable();
-
-			} else {
-
-				console.log( 'Gyroscope permission denied' );
-
-			}
-
-		} catch ( err ) {
-
-			console.log( 'Gyroscope permission error:', err.message );
-
-		}
-
-	} else {
-
-		// Android and older iOS - no permission needed
-		Gyro_Enable();
+		Gyro_Start();
+		return;
 
 	}
 
-}
-
-function Gyro_Enable() {
-
-	if ( gyroEnabled ) return;
-	gyroEnabled = true;
-	prevBeta = null;
-	prevGamma = null;
-	window.addEventListener( 'deviceorientation', onDeviceOrientation );
+	if ( fromGesture ) Gyro_RequestPermission();
 
 }
 
-function Gyro_Disable() {
+/*
+=================
+Gyro_RequestPermission
 
-	if ( ! gyroEnabled ) return;
-	gyroEnabled = false;
-	prevBeta = null;
-	prevGamma = null;
-	window.removeEventListener( 'deviceorientation', onDeviceOrientation );
+iOS only: ask for motion sensor access while touch_gyro is on. Must run
+inside a user activation (touchend). Gyro_Update starts listening once it is
+granted and the game controls are up.
+=================
+*/
+function Gyro_RequestPermission() {
+
+	if ( touch_gyro.value === 0 || gyroPermission !== 'unknown' ) return;
+
+	const DME = typeof DeviceMotionEvent !== 'undefined' ? DeviceMotionEvent : null;
+	if ( DME === null || typeof DME.requestPermission !== 'function' ) return;
+
+	gyroPermission = 'pending';
+	DME.requestPermission().then( ( result ) => {
+
+		gyroPermission = result === 'granted' ? 'granted' : 'denied';
+		if ( gyroPermission === 'granted' ) Gyro_Update( false );
+		else console.log( 'Touch: motion sensor permission denied, gyro aiming is off' );
+
+	} ).catch( ( err ) => {
+
+		// Not from a gesture after all: ask again on the next tap
+		gyroPermission = 'unknown';
+		console.log( 'Touch: motion sensor permission error:', err.message );
+
+	} );
+
+}
+
+function Gyro_Start() {
+
+	if ( gyroListening ) return;
+	gyroListening = true;
+	gyroLastTime = - 1;
+	window.addEventListener( 'devicemotion', onDeviceMotion );
+
+}
+
+function Gyro_Stop() {
+
+	if ( ! gyroListening ) return;
+	gyroListening = false;
+	window.removeEventListener( 'devicemotion', onDeviceMotion );
+
+}
+
+/*
+=================
+Touch_Frame
+
+Called every frame: re-lays out the controls and starts or stops the gyro
+when the touch cvars change (from the menu or the console)
+=================
+*/
+export function Touch_Frame() {
+
+	if ( ! initialized ) return;
+
+	const key = touch_size.string + '|' + touch_opacity.string + '|' + touch_lefthanded.string;
+	if ( key !== layoutKey ) Touch_Layout();
+
+	if ( ( touch_gyro.value !== 0 ) !== gyroListening ) Gyro_Update( false );
 
 }
 
@@ -1010,12 +1427,16 @@ export function Touch_Init( container ) {
 	if ( initialized ) return;
 
 	Touch_CreateUI( container || document.body );
+	Touch_BuildListeners();
 
 	document.addEventListener( 'visibilitychange', onVisibilityChange );
 	document.addEventListener( 'fullscreenchange', onFullscreenChange );
 	document.addEventListener( 'webkitfullscreenchange', onFullscreenChange );
 
 	initialized = true;
+
+	// Fetch the stick library now, so it is ready by the first map
+	Stick_Load();
 
 }
 
@@ -1033,34 +1454,15 @@ export function Touch_Enable() {
 
 	enabled = true;
 	overlay.style.display = 'block';
+	Touch_HideSysBar();
 
-	// Add touch listeners
-	joystickArea.addEventListener( 'touchstart', onTouchStart, { passive: false } );
-	joystickArea.addEventListener( 'touchmove', onTouchMove, { passive: false } );
-	joystickArea.addEventListener( 'touchend', onTouchEnd, { passive: false } );
-	joystickArea.addEventListener( 'touchcancel', onTouchEnd, { passive: false } );
+	for ( const l of gameListeners ) l.el.addEventListener( l.type, l.fn, { passive: false } );
 
-	lookArea.addEventListener( 'touchstart', onTouchStart, { passive: false } );
-	lookArea.addEventListener( 'touchmove', onTouchMove, { passive: false } );
-	lookArea.addEventListener( 'touchend', onTouchEnd, { passive: false } );
-	lookArea.addEventListener( 'touchcancel', onTouchEnd, { passive: false } );
+	if ( nipplejs === null ) Stick_Load();
+	Stick_Create();
 
-	fireButton.addEventListener( 'touchstart', onTouchStart, { passive: false } );
-	fireButton.addEventListener( 'touchend', onTouchEnd, { passive: false } );
-	fireButton.addEventListener( 'touchcancel', onTouchEnd, { passive: false } );
-
-	jumpButton.addEventListener( 'touchstart', onTouchStart, { passive: false } );
-	jumpButton.addEventListener( 'touchend', onTouchEnd, { passive: false } );
-	jumpButton.addEventListener( 'touchcancel', onTouchEnd, { passive: false } );
-
-	pauseButton.addEventListener( 'touchstart', onTouchStart, { passive: false } );
-
-	// Enable gyroscope if permission was already granted
-	if ( gyroPermissionRequested ) {
-
-		Gyro_Enable();
-
-	}
+	// Gyro if switched on and already allowed (the iOS prompt waits for a tap)
+	Gyro_Update( false );
 
 	// Keep screen on while playing
 	Touch_RequestWakeLock();
@@ -1081,34 +1483,17 @@ export function Touch_Disable() {
 	enabled = false;
 	overlay.style.display = 'none';
 
-	// Remove touch listeners
-	joystickArea.removeEventListener( 'touchstart', onTouchStart );
-	joystickArea.removeEventListener( 'touchmove', onTouchMove );
-	joystickArea.removeEventListener( 'touchend', onTouchEnd );
-	joystickArea.removeEventListener( 'touchcancel', onTouchEnd );
+	for ( const l of gameListeners ) l.el.removeEventListener( l.type, l.fn );
 
-	lookArea.removeEventListener( 'touchstart', onTouchStart );
-	lookArea.removeEventListener( 'touchmove', onTouchMove );
-	lookArea.removeEventListener( 'touchend', onTouchEnd );
-	lookArea.removeEventListener( 'touchcancel', onTouchEnd );
+	// A stick held now would never see its pointerup
+	Stick_Destroy();
 
-	fireButton.removeEventListener( 'touchstart', onTouchStart );
-	fireButton.removeEventListener( 'touchend', onTouchEnd );
-	fireButton.removeEventListener( 'touchcancel', onTouchEnd );
-
-	jumpButton.removeEventListener( 'touchstart', onTouchStart );
-	jumpButton.removeEventListener( 'touchend', onTouchEnd );
-	jumpButton.removeEventListener( 'touchcancel', onTouchEnd );
-
-	pauseButton.removeEventListener( 'touchstart', onTouchStart );
-
-	// Disable gyroscope while controls are off
-	Gyro_Disable();
+	Gyro_Stop();
 
 	// Release wake lock when not playing
 	Touch_ReleaseWakeLock();
 
-	// Release FIRE/JUMP (their touchend will never arrive), reset joystick UI
+	// Release FIRE/JUMP (their touchend will never arrive), reset the stick
 	Touch_ReleaseButtons();
 
 }
@@ -1144,15 +1529,16 @@ export function Touch_GetMoveInput() {
 =================
 Touch_GetLookDelta
 
-Returns accumulated look delta and clears it
+Returns the view change from drag look and gyro since the last call, in
+degrees (yaw: + turns left, pitch: + looks down), and clears it
 =================
 */
 export function Touch_GetLookDelta() {
 
-	_lookDelta.x = lookDeltaX;
-	_lookDelta.y = lookDeltaY;
-	lookDeltaX = 0;
-	lookDeltaY = 0;
+	_lookDelta.yaw = lookYaw;
+	_lookDelta.pitch = lookPitch;
+	lookYaw = 0;
+	lookPitch = 0;
 	return _lookDelta;
 
 }
@@ -1161,7 +1547,7 @@ export function Touch_GetLookDelta() {
 =================
 Touch_ShowMenu
 
-Show menu touch overlay
+Show menu touch overlay (and the Back / keyboard bar)
 =================
 */
 export function Touch_ShowMenu() {
@@ -1169,6 +1555,7 @@ export function Touch_ShowMenu() {
 	if ( ! initialized || ! menuOverlay ) return;
 
 	menuOverlay.style.display = 'block';
+	Touch_ShowSysBar();
 
 }
 
@@ -1184,6 +1571,28 @@ export function Touch_HideMenu() {
 	if ( ! initialized || ! menuOverlay ) return;
 
 	menuOverlay.style.display = 'none';
+
+}
+
+/*
+=================
+Touch_ShowSysBar / Touch_HideSysBar
+
+The Back / keyboard bar on its own, for the console and chat
+=================
+*/
+export function Touch_ShowSysBar() {
+
+	if ( ! initialized || ! sysBar ) return;
+	sysBar.style.display = 'flex';
+
+}
+
+export function Touch_HideSysBar() {
+
+	if ( ! initialized || ! sysBar ) return;
+	sysBar.style.display = 'none';
+	Touch_HideKeyboard();
 
 }
 

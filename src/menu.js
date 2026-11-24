@@ -50,6 +50,7 @@ export const m_gameoptions = 16;
 export const m_search = 17;
 export const m_slist = 18;
 export const m_credits = 19;
+export const m_touch = 20;
 
 export let m_state = m_none;
 export let m_entersound = false;
@@ -1685,7 +1686,7 @@ function M_AdjustSliders( dir ) {
 ==============================================================================
 */
 
-const OPTIONS_ITEMS = 14;
+const OPTIONS_ITEMS = 15;
 let m_options_cursor = 0;
 
 function M_Menu_Options_f() {
@@ -1746,6 +1747,8 @@ function M_Options_Draw() {
 	M_Print( 16, 136, '             Crosshair' );
 	M_DrawCheckbox( 220, 136, Cvar_VariableValue( 'crosshair' ) );
 
+	M_Print( 16, 144, '        Touch controls' );
+
 	// cursor
 	M_DrawCharacter( 200, 32 + m_options_cursor * 8, 12 + ( ( Math.floor( _realtime_get() * 4 ) ) & 1 ) );
 
@@ -1768,6 +1771,9 @@ function M_Options_Key( key ) {
 				case 1:
 					m_state = m_none;
 					Con_ToggleConsole_f();
+					break;
+				case 14:
+					M_Menu_Touch_f();
 					break;
 				case 2:
 					Cbuf_AddText( 'exec default.cfg\n' );
@@ -1807,6 +1813,138 @@ function M_Options_Key( key ) {
 			break;
 		case K_RIGHTARROW:
 			M_AdjustSliders( 1 );
+			break;
+
+	}
+
+}
+
+/*
+==============================================================================
+
+			TOUCH CONTROLS MENU
+
+==============================================================================
+*/
+
+// Sliders: cvar, range and step. Toggles: cvar flipped between 0 and 1, or
+// get/set for settings stored another way.
+const touchItems = [
+	{ label: '            Look Speed', cvar: 'touch_sensitivity', min: 0.25, max: 3, step: 0.25 },
+	{ label: '           Gyro Aiming', cvar: 'touch_gyro' },
+	{ label: '            Gyro Speed', cvar: 'touch_gyro_sensitivity', min: 0.25, max: 3, step: 0.25 },
+	{ label: '           Invert Look', get: () => m_pitch.value < 0, set: () => Cvar_SetValue( 'm_pitch', - m_pitch.value ) },
+	{ label: '           Left-Handed', cvar: 'touch_lefthanded' },
+	{ label: '           Button Size', cvar: 'touch_size', min: 0.6, max: 1.6, step: 0.1 },
+	{ label: '        Button Opacity', cvar: 'touch_opacity', min: 0.2, max: 1, step: 0.1 },
+	{ label: '             Vibration', cvar: 'touch_haptics' }
+];
+const TOUCH_ITEMS = touchItems.length;
+const TOUCH_TOP = 48;
+let m_touch_cursor = 0;
+
+function M_Menu_Touch_f() {
+
+	setKeyDest( key_menu );
+	m_state = m_touch;
+	m_entersound = true;
+
+}
+
+function M_TouchItem_IsSlider( item ) {
+
+	return item.min !== undefined;
+
+}
+
+function M_TouchItem_Fraction( item ) {
+
+	return ( Cvar_VariableValue( item.cvar ) - item.min ) / ( item.max - item.min );
+
+}
+
+// Set a slider to a fraction of its range, snapped to its step
+function M_TouchItem_SetFraction( item, r ) {
+
+	r = Math.min( Math.max( r, 0 ), 1 );
+	const steps = Math.round( r * ( item.max - item.min ) / item.step );
+	const v = item.min + steps * item.step;
+	Cvar_SetValue( item.cvar, Math.round( v * 100 ) / 100 );
+
+}
+
+function M_TouchItem_Adjust( item, dir ) {
+
+	if ( _S_LocalSound ) _S_LocalSound( 'misc/menu3.wav' );
+
+	if ( M_TouchItem_IsSlider( item ) ) {
+
+		const v = Cvar_VariableValue( item.cvar ) + dir * item.step;
+		M_TouchItem_SetFraction( item, ( v - item.min ) / ( item.max - item.min ) );
+
+	} else if ( item.set ) {
+
+		item.set();
+
+	} else {
+
+		Cvar_SetValue( item.cvar, Cvar_VariableValue( item.cvar ) ? 0 : 1 );
+
+	}
+
+}
+
+function M_Touch_Draw() {
+
+	if ( ! _Draw_CachePic ) return;
+
+	M_DrawTransPic( 16, 4, _Draw_CachePic( 'gfx/qplaque.lmp' ) );
+	const p = _Draw_CachePic( 'gfx/p_option.lmp' );
+	M_DrawPic( ( 320 - ( p ? p.width : 0 ) ) / 2, 4, p );
+
+	M_PrintWhite( 112, 32, 'Touch Controls' );
+
+	for ( let i = 0; i < TOUCH_ITEMS; i ++ ) {
+
+		const item = touchItems[ i ];
+		const y = TOUCH_TOP + i * 8;
+		M_Print( 16, y, item.label );
+
+		if ( M_TouchItem_IsSlider( item ) )
+			M_DrawSlider( 220, y, M_TouchItem_Fraction( item ) );
+		else
+			M_DrawCheckbox( 220, y, item.get ? item.get() : Cvar_VariableValue( item.cvar ) );
+
+	}
+
+	M_DrawCharacter( 200, TOUCH_TOP + m_touch_cursor * 8, 12 + ( ( Math.floor( _realtime_get() * 4 ) ) & 1 ) );
+
+}
+
+function M_Touch_Key( key ) {
+
+	switch ( key ) {
+
+		case K_ESCAPE:
+			M_Menu_Options_f();
+			break;
+		case K_ENTER:
+			m_entersound = true;
+			M_TouchItem_Adjust( touchItems[ m_touch_cursor ], 1 );
+			break;
+		case K_UPARROW:
+			if ( _S_LocalSound ) _S_LocalSound( 'misc/menu1.wav' );
+			m_touch_cursor = ( m_touch_cursor + TOUCH_ITEMS - 1 ) % TOUCH_ITEMS;
+			break;
+		case K_DOWNARROW:
+			if ( _S_LocalSound ) _S_LocalSound( 'misc/menu1.wav' );
+			m_touch_cursor = ( m_touch_cursor + 1 ) % TOUCH_ITEMS;
+			break;
+		case K_LEFTARROW:
+			M_TouchItem_Adjust( touchItems[ m_touch_cursor ], - 1 );
+			break;
+		case K_RIGHTARROW:
+			M_TouchItem_Adjust( touchItems[ m_touch_cursor ], 1 );
 			break;
 
 	}
@@ -2391,6 +2529,7 @@ export function M_Keydown( key ) {
 		case m_quit: M_Quit_Key( key ); return;
 		case m_lanconfig: M_LanConfig_Key( key ); return;
 		case m_gameoptions: M_GameOptions_Key( key ); return;
+		case m_touch: M_Touch_Key( key ); return;
 		default: return;
 
 	}
@@ -2440,6 +2579,7 @@ export function M_Draw() {
 		case m_quit: M_Quit_Draw(); break;
 		case m_lanconfig: M_LanConfig_Draw(); break;
 		case m_gameoptions: M_GameOptions_Draw(); break;
+		case m_touch: M_Touch_Draw(); break;
 
 	}
 
@@ -2553,6 +2693,14 @@ export function M_TouchInput( touchX, touchY, screenWidth, screenHeight ) {
 			M_GameOptions_Touch( vx, vy );
 			break;
 
+		case m_setup:
+			M_Setup_Touch( vx, vy );
+			break;
+
+		case m_touch:
+			M_Touch_Touch( vx, vy );
+			break;
+
 	}
 
 }
@@ -2641,7 +2789,93 @@ function M_Options_Touch( vx, vy ) {
 		if ( item >= 0 && item < OPTIONS_ITEMS ) {
 
 			m_options_cursor = item;
+
+			// Tapping on a slider sets it there (Enter only ever raises it)
+			if ( item >= 4 && item <= 8 && vx >= SLIDER_TAP_LEFT ) {
+
+				M_Options_SetSlider( item, M_SliderTapFraction( vx ) );
+				return;
+
+			}
+
 			M_Options_Key( K_ENTER );
+
+		}
+
+	}
+
+}
+
+// Sliders are drawn at x=220 (end caps at 212 and 300); the thumb moves over
+// 72px. Taps from the left cap on map to a position along it.
+const SLIDER_TAP_LEFT = 208;
+
+function M_SliderTapFraction( vx ) {
+
+	return Math.min( Math.max( ( vx - 220 ) / ( ( SLIDER_RANGE - 1 ) * 8 ), 0 ), 1 );
+
+}
+
+// Set an Options slider (rows 4 to 8) from a fraction of its range
+function M_Options_SetSlider( item, r ) {
+
+	if ( _S_LocalSound ) _S_LocalSound( 'misc/menu3.wav' );
+
+	switch ( item ) {
+
+		case 4: // screen size, 30 to 120 in steps of 10
+			Cvar_SetValue( 'viewsize', 30 + Math.round( r * 9 ) * 10 );
+			break;
+		case 5: // gamma, 1 (dark) to 0.5 (bright)
+			Cvar_SetValue( 'gamma', Math.round( ( 1 - r * 0.5 ) * 20 ) / 20 );
+			break;
+		case 6: // mouse speed, 1 to 11 in steps of 0.5
+			Cvar_SetValue( 'sensitivity', 1 + Math.round( r * 20 ) / 2 );
+			break;
+		case 7: // music volume
+			Cvar_SetValue( 'bgmvolume', Math.round( r * 10 ) / 10 );
+			break;
+		case 8: // sound volume
+			Cvar_SetValue( 'volume', Math.round( r * 10 ) / 10 );
+			break;
+
+	}
+
+}
+
+// Touch Controls menu touch - items at TOUCH_TOP, 8px spacing
+function M_Touch_Touch( vx, vy ) {
+
+	if ( vy < TOUCH_TOP || vy >= TOUCH_TOP + TOUCH_ITEMS * 8 ) return;
+
+	const i = Math.floor( ( vy - TOUCH_TOP ) / 8 );
+	const item = touchItems[ i ];
+	m_touch_cursor = i;
+
+	if ( M_TouchItem_IsSlider( item ) && vx >= SLIDER_TAP_LEFT ) {
+
+		if ( _S_LocalSound ) _S_LocalSound( 'misc/menu3.wav' );
+		M_TouchItem_SetFraction( item, M_SliderTapFraction( vx ) );
+
+	} else {
+
+		M_Touch_Key( K_ENTER );
+
+	}
+
+}
+
+// Setup menu touch - rows from setup_cursor_table. The name row only takes
+// the cursor: type with the on-screen keyboard button.
+function M_Setup_Touch( vx, vy ) {
+
+	for ( let i = 0; i < NUM_SETUP_CMDS; i ++ ) {
+
+		if ( vy >= setup_cursor_table[ i ] - 4 && vy < setup_cursor_table[ i ] + 12 ) {
+
+			setup_cursor = i;
+			M_Setup_Key( K_ENTER );
+			return;
 
 		}
 
