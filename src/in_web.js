@@ -204,7 +204,8 @@ carries no marker and is ignored.
 
 Two marked entries sit under the guard, so a second Back that arrives before
 the asynchronous forward() lands (a double press, an auto-repeating remote)
-reaches the other marked entry instead of leaving the page.
+reaches the other marked entry instead of leaving the page. Three Backs
+before any forward() lands can still leave.
 
 Arming waits for a key, mouse button or touch because Chrome's Back button
 skips history entries pushed without user activation; gamepad presses,
@@ -229,12 +230,25 @@ function IN_Now() {
 
 }
 
+function isModifierKey( event ) {
+
+	switch ( event.key ) {
+
+		case 'Shift': case 'Control': case 'Alt': case 'AltGraph': case 'Meta': case 'CapsLock':
+			return true;
+		default:
+			return false;
+
+	}
+
+}
+
 function IN_ArmBackGuard( event ) {
 
 	if ( backGuardArmed || ! in_initialized ) return;
 	if ( typeof history === 'undefined' || history.pushState == null ) return;
-	// Escape is not a user activation in Chrome
-	if ( event != null && event.key === 'Escape' ) return;
+	// Escape and modifier keys are not user activation in Chrome
+	if ( event != null && ( event.key === 'Escape' || isModifierKey( event ) ) ) return;
 	// Neither are modifier keys; ask the browser where it can tell us
 	const activation = typeof navigator !== 'undefined' ? navigator.userActivation : undefined;
 	if ( activation != null && activation.isActive === false ) return;
