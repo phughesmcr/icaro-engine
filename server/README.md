@@ -134,6 +134,18 @@ WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on t
   - **Bidirectional stream** (length-prefixed frames) for reliable Quake messages (signon data, string commands, score/name updates).
   - **WebTransport datagrams** (with serialized outbound writes and reliable-stream fallback on timeout/error) for unreliable messages (entity updates, clientdata, `clc_move`).
   - **Sequencing header** (`0x71`, 4-byte sequence, 4-byte ack) with separate reliable and datagram receive sequence lanes and transport-level acknowledgments for client prediction.
+  - **Connect handshake** (defined in `../src/net.js`): the first reliable frame each way. The client sends `"ICARO"` plus a version byte (`WT_PROTOCOL_VERSION`, currently 1). The server replies `"ICARO"`, its version, a status byte (accept/reject) and a UTF-8 reason. A client slot is allocated only after a valid hello. A wrong version, missing datagram support or no free slot gets a reject with a reason (for example "Server is full"), which the client shows instead of a generic connect failure.
+  - **Session limits** (NET-2), counted from QUIC accept until the transport closes. Sessions over a limit are closed without a handshake reply. The defaults can be changed with `WT_SetConfig`:
+
+    | Option | Default | Meaning |
+    |---|---|---|
+    | `maxHandshakingSessions` | 16 | Sessions that have not been assigned a slot yet, across all clients |
+    | `maxSessionsPerIp` | 8 | Live sessions per client IP; this also limits players behind one NAT |
+    | `handshakeTimeoutMs` | 10000 | Time a session has to send a valid hello |
+    | `pendingAcceptTimeoutMs` | 30000 | Time an accepted socket may wait for the engine to pick it up |
+    | `closeFlushMs` | 1000 | Bounded wait for the last reliable frames (disconnect reason) on close |
+
+  - **Startup failure**: `WT_Listen` resolves `false` if the listener can't bind its port or load the certificate, and `game_server.js` then exits with an error.
 
 ### Game Simulation (`game_server.js`)
 
@@ -168,6 +180,7 @@ WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on t
 **Tests & utilities:**
 
 - `net_webtransport_server_test.ts` — Unit tests for WebTransport packet sequencing (`deno test server/net_webtransport_server_test.ts`)
+- `../tests/net_webtransport_server_lifecycle_test.js` and `../tests/net_webtransport_client_lifecycle_test.js` — Handshake, session-limit, timeout and close-path tests for both drivers, run against in-memory transports (`../tests/fake_webtransport.js`, `../tests/webtransport_test_env.js`)
 - `../tests/server_lobby_test.js` — Lobby and room-manager tests (`deno task test` from the repository root). The room-process test needs `--allow-run --allow-write` and is skipped without them.
 - `test_imports.js` — Smoke check verifying Deno imports of `../src/` modules (`cd server && deno run --allow-read test_imports.js`)
 
