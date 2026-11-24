@@ -391,6 +391,28 @@ Deno.test( 'IN-2: touchscreen laptop starts with the mouse and switches per poin
 
 } );
 
+// Finds an element by id in the fake DOM
+function byId( id, root = body ) {
+
+	for ( const c of root.children ) {
+
+		if ( c.id === id ) return c;
+		const found = byId( id, c );
+		if ( found ) return found;
+
+	}
+
+	return null;
+
+}
+
+const touchEvent = ( type, id, x, y, extra ) => Object.assign( {
+	type,
+	changedTouches: [ { identifier: id, clientX: x, clientY: y } ],
+	targetTouches: [],
+	preventDefault() {}
+}, extra );
+
 Deno.test( 'IN-4: Touch_Disable releases FIRE/JUMP; joystick deadzone and run threshold', () => {
 
 	withFakeDom( () => {
@@ -398,38 +420,30 @@ Deno.test( 'IN-4: Touch_Disable releases FIRE/JUMP; joystick deadzone and run th
 		touch.Touch_Init( document.body );
 		touch.Touch_Enable();
 
-		const overlay = document.body.children.find( ( c ) => c.id === 'touch-controls' );
-		const [ joystickArea, , fireButton, jumpButton ] = overlay.children;
-
-		const touchEvent = ( target, id, x, y ) => ( {
-			currentTarget: target,
-			type: 'touchstart',
-			changedTouches: [ { identifier: id, clientX: x, clientY: y } ],
-			preventDefault() {}
-		} );
+		const fireButton = byId( 'touch-fire' );
+		const jumpButton = byId( 'touch-jump' );
 
 		cl_input.in_attack.state = 0;
 		cl_input.in_jump.state = 0;
-		fireButton.fire( 'touchstart', touchEvent( fireButton, 1, 0, 0 ) );
-		jumpButton.fire( 'touchstart', touchEvent( jumpButton, 2, 0, 0 ) );
+		fireButton.fire( 'touchstart', touchEvent( 'touchstart', 1, 0, 0 ) );
+		jumpButton.fire( 'touchstart', touchEvent( 'touchstart', 2, 0, 0 ) );
 		assertEqual( cl_input.in_attack.state & 1, 1, 'FIRE held' );
 		assertEqual( cl_input.in_jump.state & 1, 1, 'JUMP held' );
 
-		// Joystick: inside the deadzone
-		joystickArea.fire( 'touchstart', touchEvent( joystickArea, 3, 100, 100 ) );
-		joystickArea.fire( 'touchmove', touchEvent( joystickArea, 3, 100, 95 ) );
+		// Stick (nipplejs reports the knob offset as a fraction of the radius)
+		touch.Touch_SetJoystick( 0, - 0.1 );
 		let move = touch.Touch_GetMoveInput();
 		assertEqual( move.forward, 0, 'deadzone forward' );
 		assertEqual( move.run, false, 'deadzone run' );
 
 		// Half deflection: walking, rescaled past the deadzone
-		joystickArea.fire( 'touchmove', touchEvent( joystickArea, 3, 100, 75 ) );
+		touch.Touch_SetJoystick( 0, - 0.5 );
 		move = touch.Touch_GetMoveInput();
 		assertEqual( Math.abs( move.forward - ( 0.5 - 0.15 ) / 0.75 ) < 1e-9, true, 'half deflection' );
 		assertEqual( move.run, false, 'half deflection walks' );
 
 		// Full deflection backwards: running
-		joystickArea.fire( 'touchmove', touchEvent( joystickArea, 3, 100, 160 ) );
+		touch.Touch_SetJoystick( 0, 1 );
 		move = touch.Touch_GetMoveInput();
 		assertEqual( move.forward, - 1, 'full deflection backwards' );
 		assertEqual( move.run, true, 'full deflection runs' );
@@ -438,10 +452,182 @@ Deno.test( 'IN-4: Touch_Disable releases FIRE/JUMP; joystick deadzone and run th
 		assertEqual( cl_input.in_attack.state & 1, 0, 'FIRE released' );
 		assertEqual( cl_input.in_jump.state & 1, 0, 'JUMP released' );
 		assertEqual( touch.Touch_GetMoveInput().forward, 0, 'joystick reset' );
-		assertEqual( joystickArea.children[ 0 ].style.display, 'none', 'joystick UI hidden' );
 
 		cl_input.in_attack.state = 0;
 		cl_input.in_jump.state = 0;
+
+	} );
+
+} );
+
+Deno.test( 'touch: dragging from FIRE aims while it stays held; a second finger keeps it down', () => {
+
+	withFakeDom( () => {
+
+		touch.Touch_Init( document.body );
+		touch.Touch_Enable();
+		touch.Touch_GetLookDelta();
+
+		const fireButton = byId( 'touch-fire' );
+		const sens = touch.touch_sensitivity.value;
+
+		cl_input.in_attack.state = 0;
+		fireButton.fire( 'touchstart', touchEvent( 'touchstart', 1, 100, 100 ) );
+		fireButton.fire( 'touchmove', touchEvent( 'touchmove', 1, 110, 95 ) );
+		const look = touch.Touch_GetLookDelta();
+		assertEqual( Math.abs( look.yaw - ( - 10 * 0.4 * sens ) ) < 1e-9, true, 'drag right turns right' );
+		assertEqual( Math.abs( look.pitch - ( - 5 * 0.4 * sens ) ) < 1e-9, true, 'drag up looks up' );
+		assertEqual( cl_input.in_attack.state & 1, 1, 'still firing while aiming' );
+
+		// Second finger on FIRE, first lifts: still held
+		fireButton.fire( 'touchstart', touchEvent( 'touchstart', 2, 100, 100 ) );
+		fireButton.fire( 'touchend', touchEvent( 'touchend', 1, 110, 95, { type: 'touchcancel' } ) );
+		assertEqual( cl_input.in_attack.state & 1, 1, 'held by the second finger' );
+		fireButton.fire( 'touchend', touchEvent( 'touchcancel', 2, 100, 100 ) );
+		assertEqual( cl_input.in_attack.state & 1, 0, 'released with the last finger' );
+
+		touch.Touch_Disable();
+		cl_input.in_attack.state = 0;
+
+	} );
+
+} );
+
+Deno.test( 'touch: weapon buttons queue impulse 10 / 12', () => {
+
+	withFakeDom( () => {
+
+		touch.Touch_Init( document.body );
+		touch.Touch_Enable();
+		const impulses = [];
+		cmd.Cmd_AddCommand( 'impulse', () => impulses.push( cmd.Cmd_Argv( 1 ) ) );
+
+		byId( 'touch-weapon-next' ).fire( 'touchstart', touchEvent( 'touchstart', 1, 0, 0 ) );
+		byId( 'touch-weapon-prev' ).fire( 'touchstart', touchEvent( 'touchstart', 2, 0, 0 ) );
+		run();
+		assertEqual( impulses.join( ',' ), '10,12', 'next then previous weapon' );
+
+		touch.Touch_Disable();
+
+	} );
+
+} );
+
+Deno.test( 'touch: touch_lefthanded mirrors the layout', () => {
+
+	withFakeDom( () => {
+
+		touch.Touch_Init( document.body );
+		const fire = byId( 'touch-fire' );
+		const zone = byId( 'touch-move' );
+
+		touch.touch_lefthanded.string = '0';
+		touch.touch_lefthanded.value = 0;
+		touch.Touch_Frame();
+		assertEqual( fire.style.left, '', 'FIRE on the right' );
+		assertEqual( zone.style.left, '0', 'stick on the left' );
+
+		touch.touch_lefthanded.string = '1';
+		touch.touch_lefthanded.value = 1;
+		touch.Touch_Frame();
+		assertEqual( fire.style.right, '', 'FIRE on the left' );
+		assertEqual( zone.style.right, '0', 'stick on the right' );
+
+		touch.touch_lefthanded.string = '0';
+		touch.touch_lefthanded.value = 0;
+		touch.Touch_Frame();
+
+	} );
+
+} );
+
+Deno.test( 'touch: gyro integrates rotationRate in screen axes', () => {
+
+	const savedScreen = Object.getOwnPropertyDescriptor( globalThis, 'screen' );
+	const savedDME = Object.getOwnPropertyDescriptor( globalThis, 'DeviceMotionEvent' );
+	const orientation = { angle: 0 };
+	Object.defineProperty( globalThis, 'screen', { configurable: true, value: { orientation } } );
+	Object.defineProperty( globalThis, 'DeviceMotionEvent', { configurable: true, value: function () {} } );
+
+	try {
+
+		withFakeDom( () => {
+
+			touch.Touch_Init( document.body );
+			touch.touch_gyro.value = 1;
+			touch.touch_gyro.string = '1';
+			touch.Touch_Enable();
+			touch.Touch_GetLookDelta();
+
+			const motion = ( t, alpha, beta, gamma ) => windowTarget.fire( 'devicemotion', { timeStamp: t, rotationRate: { alpha, beta, gamma } } );
+
+			// Portrait: turning about the long edge (gamma) is yaw, about the
+			// short edge (beta) is pitch. The first event only sets the clock.
+			motion( 1000, 0, 0, 0 );
+			motion( 1100, 0, 10, 20 );
+			let look = touch.Touch_GetLookDelta();
+			assertEqual( Math.abs( look.yaw - 2 ) < 1e-9, true, 'portrait yaw ' + look.yaw );
+			assertEqual( Math.abs( look.pitch + 1 ) < 1e-9, true, 'portrait pitch ' + look.pitch );
+
+			// Landscape (top edge on the left): beta is yaw, gamma is pitch
+			orientation.angle = 90;
+			motion( 1200, 0, 10, 20 );
+			look = touch.Touch_GetLookDelta();
+			assertEqual( Math.abs( look.yaw - 1 ) < 1e-9, true, 'landscape yaw ' + look.yaw );
+			assertEqual( Math.abs( look.pitch - 2 ) < 1e-9, true, 'landscape pitch ' + look.pitch );
+
+			// A long gap is skipped rather than integrated
+			motion( 5000, 0, 10, 20 );
+			look = touch.Touch_GetLookDelta();
+			assertEqual( look.yaw, 0, 'gap skipped' );
+
+			touch.touch_gyro.value = 0;
+			touch.touch_gyro.string = '0';
+			touch.Touch_Frame();
+			motion( 5100, 0, 10, 20 );
+			assertEqual( touch.Touch_GetLookDelta().yaw, 0, 'off when touch_gyro is 0' );
+
+			touch.Touch_Disable();
+
+		} );
+
+	} finally {
+
+		for ( const [ name, desc ] of [ [ 'screen', savedScreen ], [ 'DeviceMotionEvent', savedDME ] ] ) {
+
+			if ( desc ) Object.defineProperty( globalThis, name, desc );
+			else delete globalThis[ name ];
+
+		}
+
+	}
+
+} );
+
+Deno.test( 'touch: on-screen keyboard input is forwarded as Quake keys', () => {
+
+	withFakeDom( () => {
+
+		touch.Touch_Init( document.body );
+		const field = byId( 'touch-keyboard-input' );
+		keys.Key_Init(); // console key table
+		keys.set_key_dest( keys.key_console );
+		const line = () => String.fromCharCode( ...keys.key_lines[ keys.edit_line ].slice( 1, keys.key_linepos ) );
+		const before = line();
+
+		field.value = 'hi';
+		field.fire( 'input', { inputType: 'insertText', data: 'hi' } );
+		assertEqual( field.value, '', 'field emptied after each input' );
+		assertEqual( line(), before + 'hi', 'typed into the console' );
+
+		field.fire( 'input', { inputType: 'deleteContentBackward', data: null } );
+		assertEqual( line(), before + 'h', 'backspace' );
+
+		// Backspace on the (always empty) field only arrives as keydown
+		field.fire( 'keydown', { key: 'Backspace', preventDefault() {} } );
+		assertEqual( line(), before, 'backspace from keydown' );
+
+		keys.set_key_dest( keys.key_game );
 
 	} );
 
@@ -1356,13 +1542,6 @@ Deno.test( 'IN-4: touch joystick run speed in IN_Move', () => {
 
 		touch.Touch_Init( document.body );
 		touch.Touch_Enable();
-		const overlay = document.body.children.find( ( c ) => c.id === 'touch-controls' );
-		const joystick = overlay.children[ 0 ];
-		const ev = ( type, y ) => ( {
-			currentTarget: joystick, type,
-			changedTouches: [ { identifier: 11, clientX: 100, clientY: y } ],
-			targetTouches: [], preventDefault() {}
-		} );
 		const fwd = cl_input.cl_forwardspeed.value;
 		const back = cl_input.cl_backspeed.value;
 		const key = cl_input.cl_movespeedkey.value;
@@ -1375,29 +1554,24 @@ Deno.test( 'IN-4: touch joystick run speed in IN_Move', () => {
 
 		};
 
-		documentTarget.documentElement = {}; // touchend asks for fullscreen
 		cl_input.in_speed.state = 0;
-		joystick.fire( 'touchstart', ev( 'touchstart', 100 ) );
 
-		joystick.fire( 'touchmove', ev( 'touchmove', 75 ) );
+		touch.Touch_SetJoystick( 0, - 0.5 );
 		near( move().forwardmove, fwd * ( 0.5 - 0.15 ) / 0.75, 'half deflection walks' );
 
-		joystick.fire( 'touchmove', ev( 'touchmove', 40 ) );
+		touch.Touch_SetJoystick( 0, - 1 );
 		near( move().forwardmove, fwd * key, 'full deflection forward runs' );
 
-		joystick.fire( 'touchmove', ev( 'touchmove', 160 ) );
+		touch.Touch_SetJoystick( 0, 1 );
 		near( move().forwardmove, - back * key, 'full deflection backward runs at cl_backspeed' );
 
-		joystick.fire( 'touchmove', ev( 'touchmove', 75 ) );
+		touch.Touch_SetJoystick( 0, - 0.5 );
 		cl_input.in_speed.state = 1;
 		near( move().forwardmove, fwd * ( 0.5 - 0.15 ) / 0.75 * key, '+speed held scales a walk' );
 		cl_input.in_speed.state = 0;
 
-		joystick.fire( 'touchend', ev( 'touchend', 75 ) );
-		near( move().forwardmove, 0, 'released' );
-
-		delete documentTarget.documentElement;
 		touch.Touch_Disable();
+		near( move().forwardmove, 0, 'released' );
 
 	} );
 

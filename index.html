@@ -6,6 +6,13 @@
 	<title>Icaro Engine</title>
 	<link rel="icon" type="image/svg+xml" href="static/icon.svg">
 	<link rel="apple-touch-icon" href="static/icon.png">
+	<!-- Home Screen install: the only way to get fullscreen on iPhone -->
+	<link rel="manifest" href="manifest.webmanifest">
+	<meta name="theme-color" content="#000000">
+	<meta name="mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+	<meta name="apple-mobile-web-app-title" content="Icaro">
 	<style>
 		* {
 			margin: 0;
@@ -17,6 +24,12 @@
 			height: 100%;
 			overflow: hidden;
 			background: #000;
+			/* no pull-to-refresh, text selection or tap flash on touch screens */
+			overscroll-behavior: none;
+			-webkit-user-select: none;
+			user-select: none;
+			-webkit-tap-highlight-color: transparent;
+			-webkit-touch-callout: none;
 		}
 		canvas {
 			display: block;
@@ -60,7 +73,8 @@
 	{
 		"imports": {
 			"three": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.module.js",
-			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/"
+			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/",
+			"nipplejs": "https://cdn.jsdelivr.net/npm/nipplejs@1.0.4/dist/index.mjs"
 		}
 	}
 	</script>
