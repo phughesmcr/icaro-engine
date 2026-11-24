@@ -572,7 +572,9 @@ Deno.test( 'R_DrawWorld advances the underwater warp time from realtime', async 
 
 		gl_rmain.set_r_worldentity( { model: null, frame: 0 } ); // R_Init's entity_t
 
-		host._Host_FilterTime( 7.25 ); // realtime += 7.25
+		// realtime += 7.25. host.js has no realtime setter, so this stays for the
+		// rest of the file; no other test here reads the clock.
+		host._Host_FilterTime( 7.25 );
 		const expected = gl_rsurf.R_WaterWarpTime( host.realtime );
 		if ( expected === oldValue )
 			throw new Error( 'realtime did not move the warp time; the test proves nothing' );
