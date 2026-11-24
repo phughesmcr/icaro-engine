@@ -20,7 +20,10 @@ const gl_rlight = await import( '../src/gl_rlight.js' );
 const net = await import( '../src/net.js' );
 const { SZ_Alloc, SZ_Clear, SZ_Write, COM_SetNetMessage } = await import( '../src/common.js' );
 const common = await import( '../src/common.js' );
-const { svc_nop, svc_time, svc_print, clc_nop } = await import( '../src/protocol.js' );
+const { svc_nop, svc_time, svc_print, clc_nop, PF_NOCLIP } = await import( '../src/protocol.js' );
+const { CL_ParseClientdata } = await import( '../src/cl_parse.js' );
+const { CL_SetPlayerInfo, CL_GetPredictedPlayer } = await import( '../src/cl_pred.js' );
+const { R_AddEfrags, R_Efrag_SetExternals } = await import( '../src/gl_refrag.js' );
 
 function assertEqual( actual, expected, message ) {
 
@@ -322,5 +325,157 @@ Deno.test( 'CL_KeepaliveMessage errors on a reliable message', () => {
 		assertEqual( cls.state, ca_disconnected, 'disconnected' );
 
 	} );
+
+} );
+
+Deno.test( 'efrags are allocated on demand once the pool is used up', () => {
+
+	const saved = { free: cl.free_efrags, worldmodel: cl.worldmodel };
+	const leaf = { contents: CONTENTS_EMPTY, efrags: null };
+	const ent = new client.entity_t();
+	ent.model = { mins: new Float32Array( [ - 8, - 8, - 8 ] ), maxs: new Float32Array( [ 8, 8, 8 ] ) };
+
+	try {
+
+		R_Efrag_SetExternals( { cl } );
+		cl.worldmodel = { nodes: [ leaf ] };
+		cl.free_efrags = null;
+
+		R_AddEfrags( ent );
+
+		assertEqual( ent.efrag !== null && ent.efrag.entity === ent, true, 'entity efrag' );
+		assertEqual( leaf.efrags, ent.efrag, 'leaf efrag' );
+		let free = 0;
+		for ( let ef = cl.free_efrags; ef !== null; ef = ef.entnext )
+			free ++;
+		assertEqual( free, 127, 'efrags left from the new batch' );
+
+	} finally {
+
+		cl.free_efrags = saved.free;
+		cl.worldmodel = saved.worldmodel;
+
+	}
+
+} );
+
+Deno.test( 'svc_clientdata stops pitch drift during signon', () => {
+
+	const saved = {
+		signon: cls.signon, nodrift: cl.nodrift, laststop: cl.laststop, pitchvel: cl.pitchvel,
+		time: cl.time, viewheight: cl.viewheight, idealpitch: cl.idealpitch, items: cl.items,
+		onground: cl.onground, inwater: cl.inwater, stats: Int32Array.from( cl.stats ),
+		punch: Float32Array.from( cl.punchangle ),
+		mvel0: Float32Array.from( cl.mvelocity[ 0 ] ), mvel1: Float32Array.from( cl.mvelocity[ 1 ] ),
+		message: { data: net.net_message.data, maxsize: net.net_message.maxsize, cursize: net.net_message.cursize },
+		commonMessage: common.net_message
+	};
+
+	try {
+
+		COM_SetNetMessage( net.net_message );
+		net.net_message.data = new Uint8Array( 64 );
+		net.net_message.maxsize = 64;
+
+		for ( const [ signon, drifting ] of [ [ 2, false ], [ client.SIGNONS, true ] ] ) {
+
+			cls.signon = signon;
+			cl.time = 3;
+			cl.laststop = 0;
+			cl.nodrift = false;
+			cl.pitchvel = 10;
+			// bits 0: items, health, ammo, four ammo counts and the weapon
+			net.net_message.cursize = 16;
+			net.net_message.data.fill( 0 );
+			common.MSG_BeginReading();
+
+			CL_ParseClientdata( 0 );
+
+			assertEqual( cl.nodrift, ! drifting, 'nodrift at signon ' + signon );
+			assertEqual( cl.laststop, drifting ? 0 : 3, 'laststop at signon ' + signon );
+
+		}
+
+	} finally {
+
+		cls.signon = saved.signon;
+		cl.nodrift = saved.nodrift;
+		cl.laststop = saved.laststop;
+		cl.pitchvel = saved.pitchvel;
+		cl.time = saved.time;
+		cl.viewheight = saved.viewheight;
+		cl.idealpitch = saved.idealpitch;
+		cl.items = saved.items;
+		cl.onground = saved.onground;
+		cl.inwater = saved.inwater;
+		cl.stats.set( saved.stats );
+		cl.punchangle.set( saved.punch );
+		cl.mvelocity[ 0 ].set( saved.mvel0 );
+		cl.mvelocity[ 1 ].set( saved.mvel1 );
+		net.net_message.data = saved.message.data;
+		net.net_message.maxsize = saved.message.maxsize;
+		net.net_message.cursize = saved.message.cursize;
+		COM_SetNetMessage( saved.commonMessage );
+
+	}
+
+} );
+
+Deno.test( 'stair smoothing is skipped in noclip', () => {
+
+	if ( Cvar_FindVar( 'cl_bobcycle' ) === null )
+		view.V_Init();
+
+	const ent = client.cl_entities[ 1 ];
+	const pplayer = CL_GetPredictedPlayer( 0 );
+	const saved = {
+		active: sv.active, viewentity: cl.viewentity, onground: cl.onground,
+		time: cl.time, oldtime: cl.oldtime, viewheight: cl.viewheight,
+		origin: Float32Array.from( ent.origin ), flags: pplayer !== null ? pplayer.flags : 0,
+		vieworg: Float32Array.from( r_refdef.vieworg ), refangles: Float32Array.from( r_refdef.viewangles )
+	};
+	const setNoclip = ( flags ) => CL_SetPlayerInfo( 0, ent.origin, cl.velocity, 0, flags, 0, 0, 0, 0, null, 0, 0 );
+
+	// Step up 10 units while on the ground; returns how far the view lags.
+	const stepLag = () => {
+
+		ent.origin.fill( 0 );
+		cl.onground = false;
+		view.V_CalcRefdef(); // settles the smoothing at z 0
+		ent.origin[ 2 ] = 10;
+		cl.onground = true;
+		view.V_CalcRefdef();
+		return 10 + cl.viewheight - r_refdef.vieworg[ 2 ];
+
+	};
+
+	try {
+
+		sv.active = true; // the WinQuake path: cl.onground and the entity origin
+		cl.viewentity = 1;
+		cl.viewheight = 22;
+		cl.time = 2;
+		cl.oldtime = 1.99;
+
+		setNoclip( 0 );
+		assertEqual( stepLag() > 9, true, 'walking lags the view behind the step' );
+
+		setNoclip( PF_NOCLIP );
+		assertNear( stepLag(), 0, 1, 'noclip view lag' );
+
+	} finally {
+
+		setNoclip( saved.flags );
+		sv.active = saved.active;
+		cl.viewentity = saved.viewentity;
+		cl.onground = saved.onground;
+		cl.time = saved.time;
+		cl.oldtime = saved.oldtime;
+		cl.viewheight = saved.viewheight;
+		ent.origin.set( saved.origin );
+		r_refdef.vieworg.set( saved.vieworg );
+		r_refdef.viewangles.set( saved.refangles );
+
+	}
 
 } );
