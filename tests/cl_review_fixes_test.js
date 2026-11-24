@@ -7,7 +7,7 @@
 await import( '../src/gl_rsurf.js' );
 
 const { CL_EntityNum, CL_ParseServerMessage, CL_ParseStuffText, CL_ClearStuffText } = await import( '../src/cl_parse.js' );
-const { CL_TEntSRand, CL_TEntRand } = await import( '../src/cl_tent.js' );
+const { CL_TEntSRand, CL_TEntRand, CL_UpdateTEnts } = await import( '../src/cl_tent.js' );
 const { V_SetContentsColor } = await import( '../src/view.js' );
 const sbar = await import( '../src/sbar.js' );
 const { Draw_GetVirtualWidth, Draw_GetVirtualHeight } = await import( '../src/gl_draw.js' );
@@ -17,7 +17,8 @@ const net = await import( '../src/net.js' );
 const common = await import( '../src/common.js' );
 const { SZ_Clear, MSG_WriteByte, MSG_WriteString, COM_SetNetMessage } = common;
 const { Cbuf_Init, Cbuf_Execute, Cmd_AddCommand, Cmd_Argv } = await import( '../src/cmd.js' );
-const { svc_stufftext, svc_lightstyle, svc_updatestat } = await import( '../src/protocol.js' );
+const { svc_stufftext, svc_lightstyle, svc_updatestat, svc_serverinfo, PROTOCOL_VERSION } = await import( '../src/protocol.js' );
+const { MSG_WriteLong } = common;
 const { CONTENTS_SKY, CONTENTS_WATER, CONTENTS_EMPTY } = await import( '../src/bspfile.js' );
 
 function assertEqual( actual, expected, message ) {
@@ -146,6 +147,27 @@ Deno.test( 'bad svc_lightstyle and svc_updatestat indexes are Host_Errors', () =
 
 } );
 
+Deno.test( 'a bad serverinfo is a Host_Error, not a half-connected client', () => {
+
+	const savedState = cls.state;
+	try {
+
+		withServerMessage( ( m ) => {
+
+			MSG_WriteByte( m, svc_serverinfo );
+			MSG_WriteLong( m, PROTOCOL_VERSION );
+			MSG_WriteByte( m, 0 ); // maxclients
+
+		}, () => expectHostError( () => CL_ParseServerMessage(), 'Bad maxclients (0) from server' ) );
+
+	} finally {
+
+		cls.state = savedState;
+
+	}
+
+} );
+
 Deno.test( 'sky contents give no colour shift', () => {
 
 	const shift = cl.cshifts[ CSHIFT_CONTENTS ];
@@ -168,6 +190,46 @@ Deno.test( 'beam roll is fixed for a given cl.time', () => {
 	assertEqual( CL_TEntRand() !== a[ 0 ], true, 'next millisecond rolls differently' );
 	for ( const r of a )
 		assertEqual( r >= 0 && Number.isInteger( r ), true, 'non-negative integer' );
+
+} );
+
+Deno.test( 'CL_UpdateTEnts rolls a beam the same way while cl.time stands still', () => {
+
+	const b = client.cl_beams[ 0 ];
+	const saved = { model: b.model, entity: b.entity, endtime: b.endtime, time: cl.time, viewentity: cl.viewentity };
+	try {
+
+		b.model = { name: 'progs/bolt.mdl' };
+		b.entity = 1;
+		cl.viewentity = 2;
+		cl.time = 10.5;
+		b.endtime = cl.time + 1;
+		b.start.set( [ 0, 0, 0 ] );
+		b.end.set( [ 0, 0, 100 ] );
+
+		const rolls = () => {
+
+			client.set_cl_numvisedicts( 0 );
+			CL_UpdateTEnts();
+			return [ 0, 1, 2, 3 ].map( ( i ) => client.cl_temp_entities[ i ].angles[ 2 ] ).join( ',' );
+
+		};
+
+		const first = rolls();
+		assertEqual( rolls(), first, 'same cl.time, same rolls' );
+		cl.time += 0.05;
+		assertEqual( rolls() !== first, true, 'time moves on, the bolt flickers' );
+
+	} finally {
+
+		b.model = saved.model;
+		b.entity = saved.entity;
+		b.endtime = saved.endtime;
+		cl.time = saved.time;
+		cl.viewentity = saved.viewentity;
+		client.set_cl_numvisedicts( 0 );
+
+	}
 
 } );
 
