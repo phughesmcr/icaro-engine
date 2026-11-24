@@ -28,10 +28,11 @@ Line numbers refer to `dfef74a`. C references use function names, which are stab
 
 ## Fix status
 
-Every finding but one has a fix in an open PR against `dev`. The exception is C-5 (mirrors), which is documented in the code instead of fixed. No PR is merged yet. Each PR's description has a per-item table.
+Every finding has a fix in an open PR against `dev`, and so does every residual the first round of PRs left. No PR is merged yet. Each PR's description has a per-item table.
 
-Test counts are from `deno test --allow-read --allow-net --allow-env tests/` on each PR's branch. Nothing has been played in a browser or against a live server.
+Test counts are from `deno test --allow-read --allow-net --allow-env tests/` on each PR's branch. Nothing has been played in a browser, on a GPU, in a headset or against a live server.
 
+[#1]: https://github.com/phughesmcr/icaro-engine/pull/1
 [#2]: https://github.com/phughesmcr/icaro-engine/pull/2
 [#3]: https://github.com/phughesmcr/icaro-engine/pull/3
 [#4]: https://github.com/phughesmcr/icaro-engine/pull/4
@@ -41,6 +42,9 @@ Test counts are from `deno test --allow-read --allow-net --allow-env tests/` on 
 [#8]: https://github.com/phughesmcr/icaro-engine/pull/8
 [#9]: https://github.com/phughesmcr/icaro-engine/pull/9
 [#10]: https://github.com/phughesmcr/icaro-engine/pull/10
+[#11]: https://github.com/phughesmcr/icaro-engine/pull/11
+[#12]: https://github.com/phughesmcr/icaro-engine/pull/12
+[#13]: https://github.com/phughesmcr/icaro-engine/pull/13
 
 | Findings | PR | Status |
 |---|---|---|
@@ -48,46 +52,43 @@ Test counts are from `deno test --allow-read --allow-net --allow-env tests/` on 
 | SP-1, SP-5, SP-6, SP-9, MP-1, MP-5 (server items), MOD-1 to MOD-4, C-19 | [#3] | Fixed (47 pass) |
 | SRV-1 to SRV-5 | [#4] | Fixed; the lobby's own permissions are documented rather than enforced (47 pass; 1 more test needs `--allow-run --allow-write`) |
 | SP-2, SP-3, SP-4, SP-8, MP-4, MP-5 (client half), MOD-5, C-1 to C-4, C-6, C-7, C-15 to C-18, IN-3 (view comfort) | [#5] | Fixed (41 pass) |
-| C-5 (mirrors) | [#5] | **Not fixed.** The stub stays, with a comment: GLQuake only draws mirrors when `r_mirroralpha` is below its default of 1, the only mirror is in registered-only e2m3, and a real one needs a mirrored render-to-texture pass |
-| PRED-1, PRED-3, PRED-4, PRED-5, IN-3 (movement angles) | [#6] | Fixed, with residuals below (50 pass) |
-| IN-1, IN-2, IN-3 (rest), IN-4, IN-5 | [#7] | Fixed, with residuals below (48 pass) |
-| NET-1 to NET-5, PRED-2 | [#8] | Fixed (59 pass) |
+| C-5 (mirrors) | [#11] | Fixed; stacked on #5 (48 pass). Not yet seen on a GPU or on e2m3, which is registered-only; skipped in WebXR |
+| PRED-1, PRED-3, PRED-4, PRED-5, IN-3 (movement angles) | [#6] | Fixed (50 pass); residuals fixed in #13 |
+| IN-1, IN-2, IN-3 (rest), IN-4, IN-5 | [#7] | Fixed (48 pass); residuals fixed in #12 |
+| NET-1 to NET-5, PRED-2 | [#8] | Fixed (59 pass); residuals fixed in #13 |
 | `WT_*` no-op stubs, `WT_Listen` failure, server README | [#9] | Fixed; stacked on #4 and #8 (71 pass) |
 | MP-2, MP-5 (`U_NOLERP`), solid monsters for prediction (`PE_SOLID`), movevars 11–12, player movetype, `COM_CheckRegistered`, menu episodes | [#10] | Fixed; stacked on #3, #5 and #6 (76 pass) |
+| Input residuals: Ctrl/Alt chords, Keyboard Lock, numpad mapping, `xr_turnspeed`, touch and XR tests | [#12] | Fixed; stacked on #2 and #7 (77 pass) |
+| Netcode residuals: teleport lock and `punchangle` prediction, `hasAck`, `delta_sequence` age check, entity starvation, moves as datagrams, lobby join reply | [#13] | Fixed; stacked on #8, #9 and #10 (120 pass) |
 
-All nine fix branches merge into `dev` together without conflicts. With `--allow-run --allow-write` added, the combined tree passes all 143 tests.
+All twelve fix branches merge into `dev` together without conflicts. With `--allow-run --allow-write` added, the combined tree passes all 169 tests.
 
 **Merge order:**
 - #2 to #8 are independent of each other.
 - Merge #9 after #4 and #8.
 - Merge #10 after #3, #5 and #6.
-- #10 changes the packet-entity wire format without bumping `PROTOCOL_VERSION`, which has to stay 15 for the shipped demos. Deploy the client and server together, and make sure clients don't keep a cached bundle across the change.
+- Merge #11 after #5.
+- Merge #12 after #2 and #7.
+- Merge #13 after #8, #9 and #10.
+- #10 changes the packet-entity wire format without bumping `PROTOCOL_VERSION`, which has to stay 15 for the shipped demos. #13 adds a flag and a byte to `svc_playerinfo`. For both, deploy the client and server together, and make sure clients don't keep a cached bundle across the change.
 
 **Unsigned commits** (made while no one could answer the signing prompt): re-sign these before merging.
 - [#9]: `278f182` and `0b8f2b3`
 - [#10]: `7a37ad0`
-- [#1]: the commits that added this section
-
-[#1]: https://github.com/phughesmcr/icaro-engine/pull/1
+- [#11]: `afc4db2` and `fa1e2f4`
+- [#12]: `dae6df4`, `c4e0010` and the merge `244485e`
+- [#13]: `e1457eb`, `0948c70` and `ca62037`
+- [#1]: the commits that added and updated this section
 
 ### Residuals and follow-ups
 
-Deliberate gaps and items noticed along the way. None has a PR.
+What the PRs above leave open, on purpose or because it can't be checked here.
 
-- **Prediction ([#6], [#10]):** the teleport back-move lock, `punchangle`/`fixangle` and QuakeC `pausetime` are not predicted, because the server never sends `teleport_time` or `pausetime` and sends only the latest `punchangle`.
-- **Input ([#7]):**
-  - Ctrl/Alt key combos stay blocked in the browser.
-  - XR smooth turn speed is unchanged; snap turn is opt-in through `xr_snapturn`.
-  - Numpad keys map as `vid_win.c` does, not to separate `K_KP_*` codes.
-  - The touch-menu, snap-turn and XR internals have no tests.
-- **Transport ([#8]):**
-  - Moves stay on the reliable stream by design. Switching them to datagrams is a one-line change but needs a load test.
-  - Joining through the lobby port without a redirect is still broken (it predates the PR); it now fails cleanly.
-  - `cl_parse.js` still uses `ackSeq >= 0` as a "have an ack" sentinel.
+- **Prediction ([#13]):** QuakeC changes to `punchangle` or `teleport_time` made after the last server update (for example firing on a predicted frame) are not predicted. `pausetime` is a QuakeC monster field the engine never reads, so there is nothing to mirror.
+- **Input ([#12]):** browsers reserve some shortcuts (Ctrl+W, Ctrl+T, Cmd+Q and others). Keyboard Lock captures them only in fullscreen on Chrome and Edge; Firefox and Safari have no Keyboard Lock.
+- **Transport ([#13]):** moves now travel as datagrams. The load test ran on one machine over loopback; `WT_SetClientOutboundDatagrams( false )` restores the reliable stream.
+- **Mirrors ([#11]):** the render-target pass has never run on a GPU. Check it with registered data on e2m3 and `r_mirroralpha 0.5`.
 - **Registered content ([#10]):** `COM_FindFile`'s loose-file rule and the `WINDED` dedicated-server check are intentional deviations; see section 7.
-- **Packet entities ([#10]):**
-  - When a frame overflows the datagram, high-numbered entities wait for later frames.
-  - `delta_sequence` is not age-checked against `PE_UPDATE_BACKUP`.
 
 ---
 
