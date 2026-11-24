@@ -269,6 +269,38 @@ Deno.test( 'NET-5: a stale transport close does not touch a reused socket', asyn
 
 } );
 
+Deno.test( 'NET-5: a closing transport leaves a socket that now belongs to another connection', async () => {
+
+	const teardown = setupServer();
+	try {
+
+		// A pending socket whose connection still points at it, while the
+		// socket itself has been handed to someone else.
+		const client = await connectRaw();
+		assertEqual( server.WT_GetSessionStatsForTest().pending, 1, 'socket queued' );
+		const sock = net.net_activeSockets;
+		const connA = sock.driverdata;
+		const other = { connected: true, pendingMessages: [] };
+		sock.driverdata = other;
+
+		client.pair.client.close();
+		await waitFor( () => server.WT_GetSessionStatsForTest().live === 0, 1000, 'old connection closed' );
+
+		assert( sock.driverdata === other, 'socket still owned by the other connection' );
+		assertEqual( server.WT_GetSessionStatsForTest().pending, 1, 'socket not freed from the queue' );
+		assert( net.net_activeSockets === sock && sock.disconnected === false, 'socket not returned to the pool' );
+
+		// Hand it back so teardown can free it normally.
+		sock.driverdata = connA;
+
+	} finally {
+
+		await teardown();
+
+	}
+
+} );
+
 Deno.test( 'NET-5: oversized reliable frames drop the client explicitly', async () => {
 
 	const teardown = setupServer();
