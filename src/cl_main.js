@@ -990,10 +990,6 @@ function CL_LinkPlayers() {
 
 		}
 
-		// grab an entity to fill in
-		if ( cl_numvisedicts >= MAX_VISEDICTS )
-			break; // object list is full
-
 		ent.model = cl.model_precache[ pplayer.modelindex ];
 		if ( ent.model == null )
 			continue;
@@ -1027,6 +1023,9 @@ function CL_LinkPlayers() {
 		// first: R_Mirror (gl_rmain.c) draws it in the reflection.
 		if ( isView && chase === false )
 			continue;
+
+		if ( cl_numvisedicts >= MAX_VISEDICTS )
+			break; // object list is full
 
 		cl_visedicts[ cl_numvisedicts ] = ent;
 		set_cl_numvisedicts( cl_numvisedicts + 1 );
