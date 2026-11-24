@@ -20,10 +20,26 @@ const PLANE_X = 0;
 const PLANE_Y = 1;
 const PLANE_Z = 2;
 
-// Pre-allocated scratch vectors for RecursiveLightPoint (indexed by recursion depth)
-// BSP trees are typically 20-30 levels deep max
+// Scratch vectors for RecursiveLightPoint, indexed by the number of planes
+// the trace has crossed. Most maps need fewer than 32; a deeper BSP grows
+// the pool the first time it gets there (_getLightMid).
 const _lightMidPool = [];
 for ( let i = 0; i < 32; i ++ ) _lightMidPool[ i ] = new Float32Array( 3 );
+
+function _getLightMid( depth ) {
+
+	let mid = _lightMidPool[ depth ];
+	if ( mid === undefined ) {
+
+		while ( _lightMidPool.length <= depth )
+			_lightMidPool.push( new Float32Array( 3 ) );
+		mid = _lightMidPool[ depth ];
+
+	}
+
+	return mid;
+
+}
 
 export let r_dlightframecount = 0;
 
@@ -90,8 +106,19 @@ Renders a dynamic light using Three.js PointLight.
 // Reusable vector for distance check
 const _dlightV = new Float32Array( 3 );
 
-// Reusable vector for R_LightPoint
+// Reusable vectors for R_LightPoint
+const _lightPointStart = new Float32Array( 3 );
 const _lightPointEnd = new Float32Array( 3 );
+
+// R_LightPoint's trace length. id has 2048; QuakeSpasm and Ironwail 8192.
+const LIGHTPOINT_MAXDIST = 8192;
+
+// Trace state for RecursiveLightPoint, set by R_LightPoint (Ironwail passes
+// rayorg and maxdist as arguments). A lightmapped surface without samples
+// pulls _lightMaxDist in to just past itself; a lit surface found beyond
+// that reads as black.
+let _lightRayOrg = _lightPointStart;
+let _lightMaxDist = LIGHTPOINT_MAXDIST;
 
 // Pool of PointLights for dynamic lights
 const _dlightPool = [];
@@ -379,7 +406,7 @@ export function RecursiveLightPoint( node, start, end, surfaces, depth = 0 ) {
 
 	const frac = front / ( front - back );
 	// Use pre-allocated scratch vector from pool (indexed by recursion depth)
-	const mid = _lightMidPool[ depth ];
+	const mid = _getLightMid( depth );
 	mid[ 0 ] = start[ 0 ] + ( end[ 0 ] - start[ 0 ] ) * frac;
 	mid[ 1 ] = start[ 1 ] + ( end[ 1 ] - start[ 1 ] ) * frac;
 	mid[ 2 ] = start[ 2 ] + ( end[ 2 ] - start[ 2 ] ) * frac;
@@ -419,7 +446,26 @@ export function RecursiveLightPoint( node, start, end, surfaces, depth = 0 ) {
 		if ( ds > surf.extents[ 0 ] || dt > surf.extents[ 1 ] )
 			continue;
 
-		if ( ! surf.samples )
+		// Deliberate deviation (QuakeSpasm/Ironwail RecursiveLightPoint): id
+		// returns black at the first lightmapped surface without samples.
+		// Overlapping surfaces with mixed lighting data made models pitch
+		// black in lit areas, so look on for a lit surface within 8 units.
+		const sp = surf.plane;
+		const sfront = DotProduct( _lightRayOrg, sp.normal ) - sp.dist;
+		const sback = DotProduct( end, sp.normal ) - sp.dist;
+		const dx = end[ 0 ] - _lightRayOrg[ 0 ];
+		const dy = end[ 1 ] - _lightRayOrg[ 1 ];
+		const dz = end[ 2 ] - _lightRayOrg[ 2 ];
+		const dist = sfront / ( sfront - sback ) * Math.sqrt( dx * dx + dy * dy + dz * dz );
+
+		if ( ! surf.samples ) {
+
+			_lightMaxDist = Math.min( _lightMaxDist, dist + 8 );
+			continue;
+
+		}
+
+		if ( dist >= _lightMaxDist )
 			return 0;
 
 		const ds4 = ds >> 4;
@@ -458,17 +504,29 @@ export function RecursiveLightPoint( node, start, end, surfaces, depth = 0 ) {
 R_LightPoint
 =============
 */
-export function R_LightPoint( p, cl ) {
+// ofs (Ironwail): start the trace this far above p. R_SetupAliasLighting
+// retries with ofs = model maxs[2] * 0.5 when the first trace is black, for
+// models whose origin is just below the floor.
+export function R_LightPoint( p, cl, ofs = 0 ) {
 
 	if ( ! cl.worldmodel || ! cl.worldmodel.lightdata )
 		return 255;
 
-	const end = _lightPointEnd;
-	end[ 0 ] = p[ 0 ];
-	end[ 1 ] = p[ 1 ];
-	end[ 2 ] = p[ 2 ] - 2048;
+	const start = _lightPointStart;
+	start[ 0 ] = p[ 0 ];
+	start[ 1 ] = p[ 1 ];
+	start[ 2 ] = p[ 2 ] + ofs;
 
-	let r = RecursiveLightPoint( cl.worldmodel.nodes[ 0 ], p, end, cl.worldmodel.surfaces );
+	// Deliberate deviation (QuakeSpasm/Ironwail): trace 8192 units, not 2048
+	const end = _lightPointEnd;
+	end[ 0 ] = start[ 0 ];
+	end[ 1 ] = start[ 1 ];
+	end[ 2 ] = start[ 2 ] - LIGHTPOINT_MAXDIST;
+
+	_lightRayOrg = start;
+	_lightMaxDist = LIGHTPOINT_MAXDIST;
+
+	let r = RecursiveLightPoint( cl.worldmodel.nodes[ 0 ], start, end, cl.worldmodel.surfaces );
 
 	if ( r === - 1 )
 		r = 0;

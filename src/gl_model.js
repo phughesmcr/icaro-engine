@@ -6,6 +6,7 @@
 
 import * as THREE from 'three';
 import { Sys_Error } from './sys.js';
+import { Host_Error } from './host.js';
 import { Con_Printf, Con_DPrintf } from './common.js';
 import { d_8to24table, vid } from './vid.js';
 import { COM_LoadFile } from './pak.js';
@@ -1214,8 +1215,12 @@ export function Mod_LoadModel( mod, crash ) {
 	const buf = COM_LoadFile( mod.name );
 	if ( ! buf ) {
 
+		// Deliberate deviation (QuakeSpasm/Ironwail): Host_Error, not
+		// Sys_Error, so a missing model (QuakeC precache_model, a bolt
+		// model absent from the pak) drops to the console instead of
+		// wiping the page or killing the room's game server.
 		if ( crash )
-			Sys_Error( 'Mod_NumForName: ' + mod.name + ' not found' );
+			Host_Error( 'Mod_LoadModel: ' + mod.name + ' not found' );
 		return null;
 
 	}
@@ -1360,8 +1365,10 @@ function Mod_LoadTextures( fileofs, filelen ) {
 		for ( let j = 0; j < MIPLEVELS; j ++ )
 			offsets[ j ] = mtView.getUint32( 24 + j * 4, true );
 
+		// Deliberate deviation (QuakeSpasm): a warning, not Sys_Error. Nothing
+		// here depends on the alignment; the mip offsets come from the file.
 		if ( ( width & 15 ) || ( height & 15 ) )
-			Sys_Error( 'Texture ' + name + ' is not 16 aligned' );
+			Con_Printf( 'Texture ' + name + ' (' + width + ' x ' + height + ') is not 16 aligned\n' );
 
 		// Deliberate deviation (QuakeSpasm): a zero sized texture is skipped
 		// with a warning.
@@ -2038,9 +2045,10 @@ function Mod_LoadLeafs( fileofs, filelen ) {
 	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
 	const out = new Array( count );
 
-	// Deliberate deviation: QuakeSpasm's BSP29 limit check (the C has none)
+	// Deliberate deviation: QuakeSpasm's BSP29 limit check (the C has none),
+	// raised with Host_Error as Ironwail does so a bad map isn't fatal
 	if ( count > MAX_MAP_LEAFS )
-		Sys_Error( 'Mod_LoadLeafs: ' + count + ' leafs exceeds limit of ' + MAX_MAP_LEAFS + '.' );
+		Host_Error( 'Mod_LoadLeafs: ' + count + ' leafs exceeds limit of ' + MAX_MAP_LEAFS + '.' );
 
 	loadmodel.leafs = out;
 	loadmodel.numleafs = count;
@@ -2156,9 +2164,10 @@ function Mod_LoadClipnodes( fileofs, filelen ) {
 
 		cn.planenum = view.getInt32( base, true );
 
-		// Deliberate deviation (QuakeSpasm Mod_LoadClipnodes): bounds check
+		// Deliberate deviation (QuakeSpasm Mod_LoadClipnodes): bounds check,
+		// with Host_Error as Ironwail has it
 		if ( cn.planenum < 0 || cn.planenum >= loadmodel.numplanes )
-			Sys_Error( 'Mod_LoadClipnodes: planenum out of bounds' );
+			Host_Error( 'Mod_LoadClipnodes: planenum out of bounds' );
 
 		// Deliberate deviation (QuakeSpasm): read the children unsigned so
 		// maps with more than 32767 clipnodes load; values at or past count
@@ -2241,8 +2250,10 @@ function Mod_MakeHull0() {
 
 function Mod_LoadMarksurfaces( fileofs, filelen ) {
 
+	// Deliberate deviation (Ironwail Mod_LoadMarksurfaces): Host_Error, not
+	// Sys_Error, for both checks
 	if ( filelen % 2 )
-		Sys_Error( 'MOD_LoadBmodel: funny lump size in ' + loadmodel.name );
+		Host_Error( 'MOD_LoadBmodel: funny lump size in ' + loadmodel.name );
 
 	const count = filelen / 2;
 	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
@@ -2255,7 +2266,7 @@ function Mod_LoadMarksurfaces( fileofs, filelen ) {
 
 		const j = view.getUint16( i * 2, true );
 		if ( j >= loadmodel.numsurfaces )
-			Sys_Error( 'Mod_ParseMarksurfaces: bad surface number' );
+			Host_Error( 'Mod_ParseMarksurfaces: bad surface number' );
 		out[ i ] = loadmodel.surfaces[ j ];
 
 	}
@@ -2807,8 +2818,10 @@ function Mod_LoadAliasModel( mod, buffer ) {
 	pheader.numtris = view.getInt32( 64, true );
 	pheader.numframes = view.getInt32( 68, true );
 
+	// Deliberate deviation (QuakeSpasm): a developer warning, not Sys_Error.
+	// No buffer in the port is sized by MAX_LBM_HEIGHT.
 	if ( pheader.skinheight > MAX_LBM_HEIGHT )
-		Sys_Error( 'model ' + mod.name + ' has a skin taller than ' + MAX_LBM_HEIGHT );
+		Con_DPrintf( 'model ' + mod.name + ' has a skin taller than ' + MAX_LBM_HEIGHT + '\n' );
 	if ( pheader.numverts <= 0 )
 		Sys_Error( 'model ' + mod.name + ' has no vertices' );
 	if ( pheader.numverts > MAXALIASVERTS )

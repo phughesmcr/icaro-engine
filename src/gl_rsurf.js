@@ -45,6 +45,19 @@ and the small value keeps float32 precision after hours of play.
 */
 const _waterWarpTime = { value: 0 };
 
+/*
+R_WarpTime: the clock for water turbulence and the sky scroll. id uses
+realtime, so both keep moving while the game is paused. Deliberate deviation
+(QuakeSpasm/Ironwail): use cl.time, which stops with the game. The underwater
+vertex warp above stays on realtime as in id; QuakeSpasm and Ironwail don't
+have it.
+*/
+function R_WarpTime() {
+
+	return cl != null ? cl.time : 0;
+
+}
+
 export function R_WaterWarpTime( time ) {
 
 	const period = Math.PI * 2;
@@ -734,7 +747,7 @@ export function DrawGLWaterPoly( p, planeNormal ) {
 // the world geometry and camera setup.
 //============================================================================
 
-function EmitWaterPolysQuake( fa, realtime ) {
+function EmitWaterPolysQuake( fa, time ) {
 
 	// Use cached geometry on the surface to avoid per-frame allocation.
 	// Positions are static; only UVs change each frame due to turbulence.
@@ -819,10 +832,10 @@ function EmitWaterPolysQuake( fa, realtime ) {
 		const os = origUvs[ i * 2 ];
 		const ot = origUvs[ i * 2 + 1 ];
 
-		let s = os + turbsin[ ( ( ot * 0.125 + realtime ) * TURBSCALE | 0 ) & 255 ];
+		let s = os + turbsin[ ( ( ot * 0.125 + time ) * TURBSCALE | 0 ) & 255 ];
 		s *= ( 1.0 / 64 );
 
-		let t = ot + turbsin[ ( ( os * 0.125 + realtime ) * TURBSCALE | 0 ) & 255 ];
+		let t = ot + turbsin[ ( ( os * 0.125 + time ) * TURBSCALE | 0 ) & 255 ];
 		t *= ( 1.0 / 64 );
 
 		turbUvs[ i * 2 ] = s;
@@ -969,7 +982,7 @@ export function R_DrawSequentialPoly( s ) {
 		const renderGroup = currentRenderGroup || worldGroup;
 		if ( s.polys && renderGroup ) {
 
-			const geometry = EmitWaterPolysQuake( s, realtime );
+			const geometry = EmitWaterPolysQuake( s, R_WarpTime() );
 			if ( geometry ) {
 
 				const t = R_TextureAnimation( s.texinfo.texture );
@@ -1026,7 +1039,7 @@ export function R_RenderBrushPoly( fa ) {
 		const renderGroup = currentRenderGroup || worldGroup;
 		if ( fa.polys && renderGroup ) {
 
-			const geometry = EmitWaterPolysQuake( fa, realtime );
+			const geometry = EmitWaterPolysQuake( fa, R_WarpTime() );
 			if ( geometry ) {
 
 				const material = _getWaterMaterial( t, r_wateralpha.value );
@@ -2108,7 +2121,7 @@ export function R_DrawWaterSurfaces() {
 
 			if ( s.polys && worldGroup ) {
 
-				const geometry = EmitWaterPolysQuake( s, realtime );
+				const geometry = EmitWaterPolysQuake( s, R_WarpTime() );
 				if ( geometry ) {
 
 					const material = _getWaterMaterial( s.texinfo.texture, r_wateralpha.value );
@@ -2141,7 +2154,7 @@ export function R_DrawWaterSurfaces() {
 
 				if ( s.polys && worldGroup ) {
 
-					const geometry = EmitWaterPolysQuake( s, realtime );
+					const geometry = EmitWaterPolysQuake( s, R_WarpTime() );
 					if ( geometry ) {
 
 						const material = _getWaterMaterial( t, r_wateralpha.value );
@@ -2330,8 +2343,9 @@ function R_DrawSkyChain( s ) {
 
 	}
 
-	// Solid sky layer (background, speed = realtime*8)
-	let solidSpeed = realtime * 8;
+	// Solid sky layer (background, speed = time*8)
+	const time = R_WarpTime();
+	let solidSpeed = time * 8;
 	solidSpeed -= ( solidSpeed | 0 ) & ~127;
 
 	for ( let fa = s; fa; fa = fa.texturechain ) {
@@ -2369,10 +2383,10 @@ function R_DrawSkyChain( s ) {
 
 	}
 
-	// Alpha sky layer (overlay, speed = realtime*16)
+	// Alpha sky layer (overlay, speed = time*16)
 	if ( alphaSkyMaterial ) {
 
-		let alphaSpeed = realtime * 16;
+		let alphaSpeed = time * 16;
 		alphaSpeed -= ( alphaSpeed | 0 ) & ~127;
 
 		for ( let fa = s; fa; fa = fa.texturechain ) {
