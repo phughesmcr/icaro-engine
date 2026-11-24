@@ -188,6 +188,85 @@ function requestFullscreen() {
 
 }
 
+/*
+===========================================================================
+
+			BROWSER BACK BUTTON (web-only)
+
+TV remotes, Android's back gesture, Alt+Left and the toolbar Back button
+would leave the page mid-game. After the first user gesture we mark the
+current history entry and push a guard entry on top of it. Back then lands
+on the marked entry: we press Escape (menu in game, back a level in menus,
+as the gamepad's B/Back buttons do) and go forward to the guard again.
+history.forward() restores the guard entry as it was, including any room
+URL that replaceState wrote into it (cl_main.js, menu.js). Its own popstate
+carries no marker and is ignored.
+
+Arming waits for a key, mouse button or touch because Chrome's Back button
+skips history entries pushed without user activation; gamepad presses don't
+count as activation. The entries cannot be removed again, so IN_Shutdown
+only stops listening.
+===========================================================================
+*/
+
+const BACK_GUARD_STATE = 'icaro-back-guard';
+// A browser Back this soon after an Escape from the keyboard or a gamepad
+// is the same press (e.g. a remote whose Back button does both)
+const BACK_GUARD_DEDUP_MS = 500;
+
+let backGuardArmed = false;
+let lastEscapeTime = - Infinity;
+
+function IN_Now() {
+
+	return typeof performance !== 'undefined' ? performance.now() : Date.now();
+
+}
+
+function IN_ArmBackGuard( event ) {
+
+	if ( backGuardArmed || ! in_initialized ) return;
+	if ( typeof history === 'undefined' || history.pushState == null ) return;
+	// Escape is not a user activation in Chrome
+	if ( event != null && event.key === 'Escape' ) return;
+
+	backGuardArmed = true;
+	try {
+
+		history.replaceState( BACK_GUARD_STATE, '' );
+		history.pushState( null, '' );
+
+	} catch ( e ) {
+
+		Con_Printf( 'Back button guard unavailable: ' + e.message + '\n' );
+
+	}
+
+}
+
+function GP_EscapeHeld() {
+
+	const gp = GP_GetPrimary();
+	if ( gp == null ) return false;
+	return GP_ButtonDown( gp, 1 ) || GP_ButtonDown( gp, 8 ) || GP_ButtonDown( gp, 9 );
+
+}
+
+function handlePopState( event ) {
+
+	if ( ! in_initialized || event.state !== BACK_GUARD_STATE ) return;
+
+	history.forward();
+
+	// The gamepad poll sends (or already sent) Escape for a held B/Back/Start
+	if ( IN_Now() - lastEscapeTime < BACK_GUARD_DEDUP_MS || GP_EscapeHeld() ) return;
+
+	Key_Event( K_ESCAPE, true );
+	Key_Event( K_ESCAPE, false );
+	updateKeyboardLock();
+
+}
+
 function GP_GetPrimary() {
 
 	if ( typeof navigator === 'undefined' || navigator.getGamepads == null ) return null;
@@ -237,6 +316,7 @@ function GP_KeyEdge( quakeKey, isDown, prev, storeKey ) {
 	const wasDown = prev[ storeKey ];
 	if ( isDown !== wasDown ) {
 
+		if ( quakeKey === K_ESCAPE && isDown ) lastEscapeTime = IN_Now();
 		Key_Event( quakeKey, isDown );
 		prev[ storeKey ] = isDown;
 
@@ -514,7 +594,9 @@ action is suppressed only while the game owns the keyboard (key_dest is
 key_game and we hold pointer lock or fullscreen), so Ctrl+R or Ctrl+S cannot
 reload the page or open a dialog in the middle of a fight. In the menu, the
 console and with the mouse released the browser keeps its shortcuts (Ctrl+R,
-Ctrl+-, Ctrl+F, Alt+Left...). Plain mapped keys (F1-F11, Tab, Space, Backspace,
+Ctrl+-, Ctrl+F...). Alt+Left and every other browser Back are not shortcuts
+we can cancel: once armed, the back button guard turns them into Escape (see
+IN_ArmBackGuard). Plain mapped keys (F1-F11, Tab, Space, Backspace,
 arrows, '/' and '\'' for Firefox quick find) are always the game's.
 
 Cannot be overridden by any page: Ctrl+W, Ctrl+T, Ctrl+N, Ctrl+Tab, Ctrl+Shift+W/T/N
@@ -650,6 +732,7 @@ function handleKeyDown( event ) {
 
 	if ( qkey ) {
 
+		if ( qkey === K_ESCAPE && ! event.repeat ) lastEscapeTime = IN_Now();
 		Key_Event( qkey, true );
 
 	}
@@ -1197,6 +1280,13 @@ export function IN_Init( element ) {
 	eventWindow.addEventListener( 'blur', handleBlur );
 	document.addEventListener( 'visibilitychange', handleVisibilityChange );
 
+	// Browser Back opens the menu once the user has interacted (web-only)
+	lastEscapeTime = - Infinity;
+	eventWindow.addEventListener( 'popstate', handlePopState );
+	document.addEventListener( 'keydown', IN_ArmBackGuard, true );
+	document.addEventListener( 'mousedown', IN_ArmBackGuard, true );
+	document.addEventListener( 'touchend', IN_ArmBackGuard, true );
+
 	// Initialize touch controls. Start in touch mode only on touch-first
 	// devices; touchscreen laptops start with the mouse and switch on touch.
 	const ua = typeof navigator !== 'undefined' ? ( navigator.userAgent || '' ) : '';
@@ -1250,8 +1340,13 @@ export function IN_Shutdown() {
 
 		eventWindow.removeEventListener( 'mouseup', handleMouseUp );
 		eventWindow.removeEventListener( 'blur', handleBlur );
+		eventWindow.removeEventListener( 'popstate', handlePopState );
 
 	}
+
+	document.removeEventListener( 'keydown', IN_ArmBackGuard, true );
+	document.removeEventListener( 'mousedown', IN_ArmBackGuard, true );
+	document.removeEventListener( 'touchend', IN_ArmBackGuard, true );
 
 	document.removeEventListener( 'pointerlockchange', handlePointerLockChange );
 	document.removeEventListener( 'pointerlockerror', handlePointerLockError );

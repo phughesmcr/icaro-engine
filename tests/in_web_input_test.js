@@ -1749,6 +1749,131 @@ Deno.test( 'IN: a browser that refuses pointer lock gets fullscreen from clicks 
 
 } );
 
+// Minimal session history: popstate fires synchronously on the fake window
+function makeFakeHistory( win ) {
+
+	const h = {
+		entries: [ { state: null, url: 'index.html' } ],
+		index: 0,
+		get state() { return this.entries[ this.index ].state; },
+		replaceState( state, _title, url ) {
+
+			this.entries[ this.index ] = { state: state, url: url ?? this.entries[ this.index ].url };
+
+		},
+		pushState( state, _title, url ) {
+
+			const top = this.entries[ this.index ];
+			this.entries.length = this.index + 1;
+			this.entries.push( { state: state, url: url ?? top.url } );
+			this.index ++;
+
+		},
+		go( delta ) {
+
+			const next = this.index + delta;
+			if ( next < 0 || next >= this.entries.length ) return;
+			this.index = next;
+			win.fire( 'popstate', { state: this.entries[ next ].state } );
+
+		},
+		back() { this.go( - 1 ); },
+		forward() { this.go( 1 ); }
+	};
+	return h;
+
+}
+
+Deno.test( 'IN: browser Back sends Escape once the guard is armed, and keeps the room URL', async () => {
+
+	const saved = {};
+	for ( const name of [ 'history', 'navigator' ] )
+		saved[ name ] = Object.getOwnPropertyDescriptor( globalThis, name );
+	const restore = ( name ) => {
+
+		if ( saved[ name ] === undefined ) delete globalThis[ name ];
+		else Object.defineProperty( globalThis, name, saved[ name ] );
+
+	};
+
+	try {
+
+		const h = makeFakeHistory( windowTarget );
+		Object.defineProperty( globalThis, 'history', { configurable: true, value: h } );
+
+		await withFakeDom( ( dom ) => {
+
+			const back = () => {
+
+				keys.set_key_dest( keys.key_message ); // Escape there returns to key_game
+				h.back();
+
+			};
+
+			try {
+
+				assertEqual( h.entries.length, 1, 'nothing pushed before a user gesture' );
+
+				dom.document.fire( 'mousedown', makeEvent( { button: 0 } ) );
+				assertEqual( h.entries.length, 2, 'first gesture pushes the guard entry' );
+				assertEqual( h.index, 1, 'on the guard entry' );
+				dom.document.fire( 'mousedown', makeEvent( { button: 0 } ) );
+				assertEqual( h.entries.length, 2, 'armed only once' );
+
+				back();
+				assertEqual( keys.key_dest, keys.key_game, 'Back sends Escape' );
+				assertEqual( h.index, 1, 'and returns to the guard entry' );
+
+				// cl_main.js / menu.js write the room into the current entry
+				h.replaceState( null, '', 'index.html?room=abc' );
+				back();
+				assertEqual( keys.key_dest, keys.key_game, 'Back after replaceState still sends Escape' );
+				assertEqual( h.entries[ h.index ].url, 'index.html?room=abc', 'room URL survives' );
+
+				// A gamepad button the browser also treats as Back: the poll sends Escape
+				Object.defineProperty( globalThis, 'navigator', {
+					configurable: true,
+					value: { userAgent: '', getGamepads: () => [ {
+						connected: true, index: 0, buttons: [ { pressed: false }, { pressed: true } ]
+					} ] }
+				} );
+				back();
+				assertEqual( keys.key_dest, keys.key_message, 'held gamepad Escape: no second Escape' );
+				assertEqual( h.index, 1, 'guard restored anyway' );
+				restore( 'navigator' );
+
+				// A remote that sends an Escape keydown and a Back for one press
+				keys.set_key_dest( keys.key_message );
+				dom.document.fire( 'keydown', makeEvent( { code: 'Escape', key: 'Escape' } ) );
+				dom.document.fire( 'keyup', makeEvent( { code: 'Escape', key: 'Escape' } ) );
+				assertEqual( keys.key_dest, keys.key_game, 'the keydown sent Escape' );
+				back();
+				assertEqual( keys.key_dest, keys.key_message, 'the Back right after it did not' );
+
+			} finally {
+
+				keys.set_key_dest( keys.key_game );
+				run();
+
+			}
+
+		} );
+
+		// IN_Shutdown stopped listening: a Back now just navigates
+		keys.set_key_dest( keys.key_message );
+		h.back();
+		assertEqual( keys.key_dest, keys.key_message, 'no Escape after shutdown' );
+		keys.set_key_dest( keys.key_game );
+
+	} finally {
+
+		restore( 'navigator' );
+		restore( 'history' );
+
+	}
+
+} );
+
 Deno.test( 'IN-4: touch joystick run speed in IN_Move', () => {
 
 	withFakeDom( () => {
