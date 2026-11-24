@@ -84,9 +84,7 @@ Deliberate gaps and items noticed along the way. None has a PR.
   - Moves stay on the reliable stream by design. Switching them to datagrams is a one-line change but needs a load test.
   - Joining through the lobby port without a redirect is still broken (it predates the PR); it now fails cleanly.
   - `cl_parse.js` still uses `ackSeq >= 0` as a "have an ack" sentinel.
-- **Registered content ([#10]):**
-  - `COM_FindFile`'s shareware rule refusing loose files with `/` in the path is not ported, since it would refuse the loose deathmatch maps.
-  - WinQuake's `WINDED` dedicated-server error is not ported.
+- **Registered content ([#10]):** `COM_FindFile`'s loose-file rule and the `WINDED` dedicated-server check are intentional deviations; see section 7.
 - **Packet entities ([#10]):**
   - When a frame overflows the datagram, high-numbered entities wait for later frames.
   - `delta_sequence` is not age-checked against `PE_UPDATE_BACKUP`.
@@ -379,6 +377,9 @@ These were compared function by function and found faithful:
   - Alias frame `bboxmax`.
   - `Mod_FloodFillSkin` on every skin.
 - **Omitted platform features:** the DOS/Win32 platform code, serial/modem/IPX menus, the video mode menu, and `#ifdef QUAKE2` code.
+- **Registered-content checks kept looser on purpose** (decided in [#10]):
+  - `COM_FindFile`'s shareware rule that refuses loose files whose path contains `/` is not ported. The port ships its deathmatch maps as loose `static/maps/*.bsp` files next to the shareware pak, and the rule would refuse them.
+  - WinQuake's `#if WINDED` check in `COM_CheckRegistered`, which stops a dedicated server without the registered `gfx/pop.lmp`, is not ported. The Deno room server is a dedicated server that runs on the shareware pak by design.
 
 ## 8. Not covered by this review
 
