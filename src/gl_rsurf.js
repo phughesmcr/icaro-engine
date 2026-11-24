@@ -92,6 +92,7 @@ import { LIGHTMAP_INTENSITY } from './glquake.js';
 import { MAX_MODELS } from './quakedef.js';
 import { R_MirrorGate } from './gl_rmirror.js';
 import { isXRActive } from './webxr.js';
+import { renderer } from './vid.js';
 
 //============================================================================
 // Constants
@@ -1943,9 +1944,76 @@ function R_CheckLightmapCvars() {
 			R_BuildLightMap( surf, lightmaps, offset, BLOCK_WIDTH * lightmap_bytes );
 			lightmap_modified[ surf.lightmaptexturenum ] = true;
 
+			// R_BlendLightmaps uploads only lightmap_rectchange, so mark the
+			// whole block.
+			const theRect = lightmap_rectchange[ surf.lightmaptexturenum ];
+			theRect.l = 0;
+			theRect.t = 0;
+			theRect.w = BLOCK_WIDTH;
+			theRect.h = BLOCK_HEIGHT;
+
 		}
 
 	}
+
+}
+
+/*
+R_UploadLightmapRect
+
+The upload half of R_BlendLightmaps for lightmap block i. GLQuake sends only
+the changed rows:
+	glTexSubImage2D (GL_TEXTURE_2D, 0, 0, theRect->t, BLOCK_WIDTH, theRect->h, ...)
+Three.js has no sub-image upload on the texture itself, so convert those rows
+of the GL_LUMINANCE block (255 - light) to the texture's RGBA brightness and
+hand them to renderer.copyTextureToTexture. For CPU data that is one
+texSubImage2D, and it uploads the destination first if it is still pending.
+
+The source must be a texture the renderer has never seen: once a texture has
+GPU state, copyTextureToTexture copies through a framebuffer instead. Without
+a renderer (tests, server) fall back to a full re-upload.
+*/
+let _lightmapUploadSrc = null; // THREE.DataTexture sharing the block's image
+const _lightmapSrcRegion = { min: { x: 0, y: 0 }, max: { x: BLOCK_WIDTH, y: 0 } };
+const _lightmapDstPosition = { x: 0, y: 0, z: 0 };
+
+export function R_UploadLightmapRect( i, theRect, r ) {
+
+	const tex = lightmapTextures[ i ];
+	if ( tex == null || tex.image == null || tex.image.data == null )
+		return;
+	if ( theRect.h <= 0 )
+		return;
+
+	const srcOffset = i * BLOCK_WIDTH * BLOCK_HEIGHT * lightmap_bytes;
+	const dstData = tex.image.data;
+	const end = ( theRect.t + theRect.h ) * BLOCK_WIDTH;
+
+	for ( let p = theRect.t * BLOCK_WIDTH; p < end; p ++ ) {
+
+		const val = 255 - lightmaps[ srcOffset + p ];
+		dstData[ p * 4 ] = val;
+		dstData[ p * 4 + 1 ] = val;
+		dstData[ p * 4 + 2 ] = val;
+		dstData[ p * 4 + 3 ] = 255;
+
+	}
+
+	if ( r == null ) {
+
+		tex.needsUpdate = true;
+		return;
+
+	}
+
+	if ( _lightmapUploadSrc === null )
+		_lightmapUploadSrc = new THREE.DataTexture();
+	_lightmapUploadSrc.image = tex.image;
+
+	_lightmapSrcRegion.min.y = theRect.t;
+	_lightmapSrcRegion.max.y = theRect.t + theRect.h;
+	_lightmapDstPosition.y = theRect.t;
+	r.copyTextureToTexture( _lightmapUploadSrc, tex, _lightmapSrcRegion, _lightmapDstPosition );
 
 }
 
@@ -1970,28 +2038,7 @@ export function R_BlendLightmaps() {
 			lightmap_modified[ i ] = false;
 			const theRect = lightmap_rectchange[ i ];
 
-			// Upload changed lightmap data to the THREE.DataTexture
-			const tex = lightmapTextures[ i ];
-			if ( tex && tex.image && tex.image.data ) {
-
-				const srcOffset = i * BLOCK_WIDTH * BLOCK_HEIGHT * lightmap_bytes;
-				const dstData = tex.image.data;
-				const pixelCount = BLOCK_WIDTH * BLOCK_HEIGHT;
-
-				for ( let p = 0; p < pixelCount; p ++ ) {
-
-					const val = 255 - lightmaps[ srcOffset + p ];
-					dstData[ p * 4 ] = val;
-					dstData[ p * 4 + 1 ] = val;
-					dstData[ p * 4 + 2 ] = val;
-					dstData[ p * 4 + 3 ] = 255;
-
-				}
-
-				tex.needsUpdate = true;
-
-			}
-
+			R_UploadLightmapRect( i, theRect, renderer );
 			theRect.l = BLOCK_WIDTH;
 			theRect.t = BLOCK_HEIGHT;
 			theRect.h = 0;
