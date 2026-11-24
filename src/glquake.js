@@ -258,7 +258,14 @@ export const gl_flashblend = { name: 'gl_flashblend', string: '1', value: 1 };
 export const gl_nocolors = { name: 'gl_nocolors', string: '0', value: 0 };
 export const gl_doubleeyes = { name: 'gl_doubleeys', string: '1', value: 1 };
 export const gl_max_size = { name: 'gl_max_size', string: '1024', value: 1024 };
+export const gl_picmip = { name: 'gl_picmip', string: '0', value: 0 };
 export const gl_playermip = { name: 'gl_playermip', string: '0', value: 0 };
+export const gl_finish = { name: 'gl_finish', string: '0', value: 0 };
+// gl_vidnt.c registers gl_ztrick in VID_Init. It alternates the depth range
+// each frame to skip glClear(GL_DEPTH_BUFFER_BIT) on 1990s cards. Obsolete
+// under WebGL/Three.js: the renderer clears depth itself. Kept registered for
+// config compatibility.
+export const gl_ztrick = { name: 'gl_ztrick', string: '1', value: 1 };
 export const gl_subdivide_size = { name: 'gl_subdivide_size', string: '128', value: 128, archive: true };
 // Texture filtering: 0 = nearest (pixelated), 1 = linear (smooth)
 export const gl_texturemode = { name: 'gl_texturemode', string: '0', value: 0, archive: true };
@@ -271,6 +278,136 @@ export function GL_RegisterTexture( texture ) {
 	if ( texture != null && _allGameTextures.includes( texture ) === false ) {
 
 		_allGameTextures.push( texture );
+
+	}
+
+}
+
+/*
+================
+GL_ScaledTextureSize
+
+The size GL_Upload32 (gl_draw.c) uploads a texture at: shifted down by
+gl_picmip, then clamped to gl_max_size. GLQuake first rounds up to a power of
+two; WebGL2 takes any size, so the port skips that and only ever shrinks.
+Never below 1 texel (C has no floor; a huge picmip would upload 0x0).
+Returns the shared _scaledSize scratch object.
+================
+*/
+const _scaledSize = { width: 0, height: 0 };
+
+export function GL_ScaledTextureSize( width, height, mip = gl_picmip.value ) {
+
+	const shift = Math.max( 0, mip | 0 );
+	let scaled_width = width >> shift;
+	let scaled_height = height >> shift;
+
+	if ( scaled_width > gl_max_size.value )
+		scaled_width = gl_max_size.value | 0;
+	if ( scaled_height > gl_max_size.value )
+		scaled_height = gl_max_size.value | 0;
+
+	_scaledSize.width = Math.max( 1, scaled_width );
+	_scaledSize.height = Math.max( 1, scaled_height );
+	return _scaledSize;
+
+}
+
+/*
+================
+GL_ResampleTexture8
+
+GL_ResampleTexture (gl_draw.c) point-samples 32-bit texels; doing the same on
+8-bit palette indices picks the same source texels, so the base and fullbright
+textures split from the result keep matching sizes.
+================
+*/
+export function GL_ResampleTexture8( data, inwidth, inheight, outwidth, outheight ) {
+
+	const out = new Uint8Array( outwidth * outheight );
+	const fracstep = ( inwidth * 0x10000 / outwidth ) | 0;
+
+	for ( let i = 0; i < outheight; i ++ ) {
+
+		const inrow = inwidth * ( ( i * inheight / outheight ) | 0 );
+		let frac = fracstep >> 1;
+
+		for ( let j = 0; j < outwidth; j ++ ) {
+
+			out[ i * outwidth + j ] = data[ inrow + ( frac >> 16 ) ];
+			frac += fracstep;
+
+		}
+
+	}
+
+	return out;
+
+}
+
+/*
+================
+gl_cull
+
+R_SetupGL (gl_rmain.c) enables GL_CULL_FACE only while gl_cull is set. Three.js
+culls per material, so materials that are culled by default register here and
+flip between FrontSide and DoubleSide when the cvar changes. Materials that are
+intrinsically DoubleSide (sky, particles) never register.
+================
+*/
+// Weak references: alias material caches live on model headers that can be
+// dropped without disposing their materials, so the registry must not keep
+// them alive.
+const _cullMaterials = new Set();
+const _cullMaterialRefs = new WeakMap();
+let _cullValue = 1;
+
+function _onCullMaterialDispose( event ) {
+
+	const ref = _cullMaterialRefs.get( event.target );
+	if ( ref !== undefined ) _cullMaterials.delete( ref );
+	_cullMaterialRefs.delete( event.target );
+	event.target.removeEventListener( 'dispose', _onCullMaterialDispose );
+
+}
+
+export function GL_CullSide() {
+
+	return gl_cull.value !== 0 ? THREE.FrontSide : THREE.DoubleSide;
+
+}
+
+export function GL_RegisterCullMaterial( material ) {
+
+	if ( material == null || _cullMaterialRefs.has( material ) ) return material;
+	material.side = GL_CullSide();
+	const ref = new WeakRef( material );
+	_cullMaterialRefs.set( material, ref );
+	_cullMaterials.add( ref );
+	material.addEventListener( 'dispose', _onCullMaterialDispose );
+	return material;
+
+}
+
+// Called once per frame from R_SetupGL; only walks the set when gl_cull changes.
+export function GL_UpdateCull() {
+
+	if ( gl_cull.value === _cullValue ) return;
+	_cullValue = gl_cull.value;
+
+	const side = GL_CullSide();
+	for ( const ref of _cullMaterials ) {
+
+		const material = ref.deref();
+		if ( material === undefined ) {
+
+			_cullMaterials.delete( ref );
+			continue;
+
+		}
+
+		material.side = side;
+		material.needsUpdate = true;
 
 	}
 

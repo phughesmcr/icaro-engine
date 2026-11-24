@@ -1,6 +1,7 @@
 // Ported from: WinQuake/gl_rsurf.c -- surface-related refresh code
 
 import * as THREE from 'three';
+import { GL_RegisterCullMaterial } from './glquake.js';
 import { Sys_Error } from './sys.js';
 
 /*
@@ -56,7 +57,7 @@ function createQuakeLightmapMaterial( diffuseMap, lightmapTex ) {
 	const material = new THREE.MeshLambertMaterial( matOptions );
 	material.onBeforeCompile = R_PatchLightmapShader;
 	material.customProgramCacheKey = R_LightmapProgramKey;
-	return material;
+	return GL_RegisterCullMaterial( material );
 
 }
 import { cl, cl_dlights, MAX_DLIGHTS, MAX_VISEDICTS, cl_visedicts, cl_numvisedicts, set_cl_numvisedicts } from './client.js';
@@ -1518,7 +1519,7 @@ export function R_DrawBrushModel( e ) {
 
 					material = ( diffuse != null && lmTex != null )
 						? createQuakeLightmapMaterial( diffuse, lmTex )
-						: new THREE.MeshBasicMaterial( { map: diffuse } );
+						: GL_RegisterCullMaterial( new THREE.MeshBasicMaterial( { map: diffuse } ) );
 					_brushMaterialCache.set( matKey, material );
 
 				}
@@ -1575,7 +1576,7 @@ export function R_DrawBrushModel( e ) {
 
 				material = ( diffuse && anim.lmTex )
 					? createQuakeLightmapMaterial( diffuse, anim.lmTex )
-					: new THREE.MeshBasicMaterial( { map: diffuse } );
+					: GL_RegisterCullMaterial( new THREE.MeshBasicMaterial( { map: diffuse } ) );
 				_brushMaterialCache.set( matKey, material );
 
 			}
@@ -2686,7 +2687,7 @@ function R_BuildWorldMeshes() {
 		const lmTex = lightmapTextures[ group.lmNum ];
 		const material = lmTex
 			? createQuakeLightmapMaterial( diffuse, lmTex )
-			: new THREE.MeshBasicMaterial( { map: diffuse } );
+			: GL_RegisterCullMaterial( new THREE.MeshBasicMaterial( { map: diffuse } ) );
 
 		// Create BatchedMesh with capacity for all geometries in this group
 		const batchedMesh = new THREE.BatchedMesh(

@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { Con_Printf, Con_DPrintf } from './common.js';
 import { cl } from './client.js';
 import { R_GetPlayerSkinTexture } from './gl_rmisc.js';
-import { gl_nocolors, gl_doubleeyes } from './glquake.js';
+import { gl_nocolors, gl_doubleeyes, GL_RegisterCullMaterial } from './glquake.js';
 import { r_avertexnormals } from './anorm_dots.js';
 
 /*
@@ -564,10 +564,10 @@ function R_GetAliasMaterial( paliashdr, entity, hasLighting, playerSkinTexture )
 
 			}
 
-			entity._playerMaterial = new THREE.MeshBasicMaterial( {
+			entity._playerMaterial = GL_RegisterCullMaterial( new THREE.MeshBasicMaterial( {
 				map: playerSkinTexture,
 				vertexColors: hasLighting
-			} );
+			} ) );
 			entity._playerSkinTexture = playerSkinTexture;
 
 		}
@@ -619,6 +619,7 @@ function R_GetAliasMaterial( paliashdr, entity, hasLighting, playerSkinTexture )
 
 	}
 
+	GL_RegisterCullMaterial( material );
 	paliashdr._materialCache.set( cacheKey, material );
 	return material;
 
