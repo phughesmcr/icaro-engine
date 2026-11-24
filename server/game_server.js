@@ -1,8 +1,9 @@
 // Icaro Engine Game Server for Deno
 // Uses the existing JavaScript game modules from src/
 //
-// Local dev:  deno run --allow-net --allow-read --unstable-net --config ../deno.json game_server.js
-// Production: deno run --allow-net --allow-read --unstable-net --config /opt/icaro-engine/deno.json /opt/icaro-engine/server/game_server.js
+// Local dev:  deno task game   (from the repository root; see server/README.md)
+// Rooms are normally spawned by lobby_server.js via room_process_manager.ts,
+// which passes scoped --allow-net/--allow-read flags.
 
 import { Sys_Printf, Sys_FloatTime } from '../src/sys.js';
 import { COM_FetchPak, COM_AddPack, COM_SetLooseFileBasePath, COM_EnsureFile } from '../src/pak.js';
@@ -36,22 +37,12 @@ import {
 	WT_SearchForHosts,
 	WT_SetDriverLevel,
 	WT_SetSocketAllocator,
-	WT_SetMapCallbacks,
 	WT_SetDirectMode,
 	WT_SetSocketFreer,
-	WT_SetMaxClientsCallback,
 	WT_GetMaxPendingWrites,
 } from './net_webtransport_server.ts';
 import { NET_NewQSocket, NET_FreeQSocket } from '../src/net_main.js';
-
-// Reduce log write volume in production. Keep only allowlisted lines.
-globalThis.__ICARO_QUIET_LOGS = true;
-
-// Global unhandled rejection handler - prevent server crashes from async errors
-globalThis.addEventListener('unhandledrejection', (event) => {
-	Sys_Printf('Unhandled promise rejection: %s\n', String(event.reason));
-	event.preventDefault(); // Prevent default crash behavior
-});
+import { formatRoomStatusLine, MAX_PLAYERS_LIMIT, DEFAULT_MAX_PLAYERS } from './room_process_manager.ts';
 
 // Server configuration
 const CONFIG = {
@@ -64,7 +55,19 @@ const CONFIG = {
 	roomId: null,        // Room ID if spawned by lobby server
 	directMode: false,   // Skip lobby protocol, accept connections directly
 	idleTimeout: 300,    // Seconds to wait before exiting when empty (room mode)
+	statusNonce: null,   // Token for structured status lines to the lobby (room mode)
+	parentWatch: false,  // Exit when stdin closes (the lobby holds the other end)
 };
+
+/**
+ * Clamp -maxclients to 1..MAX_PLAYERS_LIMIT (MAX_SCOREBOARD), like
+ * Host_Maxplayers_f / NET_Init do in the original engine.
+ */
+function clampMaxClients(value) {
+	const n = parseInt(value, 10);
+	if (Number.isFinite(n) === false) return DEFAULT_MAX_PLAYERS;
+	return Math.max(1, Math.min(MAX_PLAYERS_LIMIT, n));
+}
 
 // Parse command line arguments
 function parseArgs() {
@@ -74,7 +77,7 @@ function parseArgs() {
 		if (arg === '-port' && args[i + 1]) {
 			CONFIG.port = parseInt(args[++i], 10);
 		} else if (arg === '-maxclients' && args[i + 1]) {
-			CONFIG.maxClients = parseInt(args[++i], 10);
+			CONFIG.maxClients = clampMaxClients(args[++i]);
 		} else if (arg === '-map' && args[i + 1]) {
 			CONFIG.defaultMap = args[++i];
 		} else if (arg === '-pak' && args[i + 1]) {
@@ -89,7 +92,12 @@ function parseArgs() {
 		} else if (arg === '-direct') {
 			CONFIG.directMode = true;
 		} else if (arg === '-idletimeout' && args[i + 1]) {
-			CONFIG.idleTimeout = parseInt(args[++i], 10);
+			const t = parseInt(args[++i], 10);
+			if (Number.isFinite(t)) CONFIG.idleTimeout = t;
+		} else if (arg === '-statusnonce' && args[i + 1]) {
+			CONFIG.statusNonce = args[++i];
+		} else if (arg === '-parentwatch') {
+			CONFIG.parentWatch = true;
 		}
 	}
 }
@@ -101,7 +109,43 @@ let oldrealtime = 0;
 
 // Idle tracking for room servers
 let lastActiveTime = 0;
-let hadPlayersEver = false;
+
+// Structured status reporting to the lobby (room mode)
+const STATUS_INTERVAL = 5; // Seconds between unchanged status lines
+let lastStatusPlayers = -1;
+let lastStatusActive = null;
+let lastStatusTime = 0;
+
+/**
+ * Write a status line for the lobby. Bypasses Sys_Printf (and so the quiet
+ * log filter): the lobby relies on these to know player counts.
+ */
+function Room_ReportStatus(force) {
+	if (CONFIG.statusNonce === null) return;
+	const players = countActivePlayers();
+	const active = sv.active === true;
+	if (force !== true && players === lastStatusPlayers && active === lastStatusActive &&
+		realtime - lastStatusTime < STATUS_INTERVAL) {
+		return;
+	}
+	lastStatusPlayers = players;
+	lastStatusActive = active;
+	lastStatusTime = realtime;
+	console.log(formatRoomStatusLine(CONFIG.statusNonce, { players, active }));
+}
+
+/**
+ * Exit when stdin reaches EOF. The lobby spawns rooms with a piped stdin and
+ * never writes to it, so EOF means the lobby process has gone away.
+ */
+async function Room_WatchParent() {
+	const buf = new Uint8Array(256);
+	try {
+		while ((await Deno.stdin.read(buf)) !== null) { /* discard */ }
+	} catch { /* treat errors as EOF */ }
+	Sys_Printf('Room %s exiting: lobby stdin closed\n', CONFIG.roomId ?? '-');
+	Deno.exit(0);
+}
 
 // Heartbeat tracking
 let frameCount = 0;
@@ -111,10 +155,12 @@ const HEARTBEAT_INTERVAL = 30; // Log every 30 seconds
 // Watchdog: logs to stderr every 5 seconds to detect event loop freezes
 // If this stops printing, the event loop is completely blocked
 let watchdogCount = 0;
-setInterval(() => {
-	watchdogCount++;
-	console.error('[WATCHDOG] tick=' + watchdogCount + ' time=' + Math.floor(performance.now() / 1000));
-}, 5000);
+function startWatchdog() {
+	setInterval(() => {
+		watchdogCount++;
+		console.error('[WATCHDOG] tick=' + watchdogCount + ' time=' + Math.floor(performance.now() / 1000));
+	}, 5000);
+}
 
 
 /**
@@ -239,30 +285,17 @@ async function Host_Init_Server() {
 	// Start listening for connections
 	await net_drivers[1].Listen(true);
 
-	// Set up map change callbacks so rooms can trigger level changes
-	WT_SetMapCallbacks(
-		async (mapName) => {
-			Sys_Printf('Changing map to: ' + mapName + '\n');
-			await COM_EnsureFile('maps/' + mapName + '.bsp');
-			await SV_SpawnServer(mapName);
-		},
-		() => sv.name || ''
-	);
-
-	// Set up maxclients callback so rooms can set player limits
-	// This must be called before SV_SpawnServer so clients receive the correct value in svc_serverinfo
-	WT_SetMaxClientsCallback((maxClients) => {
-		// Clamp to valid range (like original MaxPlayers_f in net_main.c)
-		if (maxClients < 1) maxClients = 1;
-		if (maxClients > svs.maxclientslimit) maxClients = svs.maxclientslimit;
-		Sys_Printf('Updating maxclients: %d -> %d\n', svs.maxclients, maxClients);
-		svs.maxclients = maxClients;
-	});
-
-	// Ensure the default map file is available, then spawn
+	// Ensure the default map file is available, then spawn. maxclients comes
+	// from -maxclients (set on svs above, before SV_SpawnServer, so clients
+	// receive it in svc_serverinfo).
 	Sys_Printf('Spawning server for map: ' + CONFIG.defaultMap + '\n');
-	await COM_EnsureFile('maps/' + CONFIG.defaultMap + '.bsp');
-	await SV_SpawnServer(CONFIG.defaultMap);
+	if (await COM_EnsureFile('maps/' + CONFIG.defaultMap + '.bsp') !== true) {
+		throw new Error('Map not found: maps/' + CONFIG.defaultMap + '.bsp');
+	}
+	SV_SpawnServer(CONFIG.defaultMap);
+	if (sv.active !== true) {
+		throw new Error('Could not spawn map ' + CONFIG.defaultMap);
+	}
 
 	Sys_Printf('\nServer initialized!\n');
 	Sys_Printf('  Port: ' + CONFIG.port + '\n');
@@ -311,6 +344,17 @@ function Host_ServerFrame() {
 		lastHeartbeat = realtime;
 	}
 
+	// Track activity for room servers (idle timeout). Rooms nobody joins
+	// exit too: lastActiveTime starts at the first frame.
+	if (CONFIG.roomId !== null && CONFIG.idleTimeout > 0) {
+		if (countActivePlayers() > 0) {
+			lastActiveTime = realtime;
+		} else if (realtime - lastActiveTime > CONFIG.idleTimeout) {
+			Sys_Printf('Room %s idle for %d seconds, shutting down\n', CONFIG.roomId, Math.floor(realtime - lastActiveTime));
+			Deno.exit(0);
+		}
+	}
+
 	if (!sv.active) return;
 
 	// Set the time and clear the general datagram
@@ -341,21 +385,6 @@ function Host_ServerFrame() {
 		Sys_Printf('[FrameTiming] RunClients=' + (t1 - t0).toFixed(1) + 'ms Physics=' + (t2 - t1).toFixed(1) + 'ms Send=' + (t3 - t2).toFixed(1) + 'ms total=' + total.toFixed(1) + 'ms\n');
 	}
 
-	// Track activity for room servers (idle timeout)
-	if (CONFIG.roomId !== null) {
-		const playerCount = countActivePlayers();
-		if (playerCount > 0) {
-			lastActiveTime = realtime;
-			hadPlayersEver = true;
-		} else if (hadPlayersEver && CONFIG.idleTimeout > 0) {
-			// Check idle timeout only after we've had players
-			const idleTime = realtime - lastActiveTime;
-			if (idleTime > CONFIG.idleTimeout) {
-				Sys_Printf('Room %s idle for %d seconds, shutting down\n', CONFIG.roomId, Math.floor(idleTime));
-				Deno.exit(0);
-			}
-		}
-	}
 }
 
 /**
@@ -378,11 +407,23 @@ async function runServerLoop() {
 			Sys_Printf('[GameLoop] Call #%d\n', gameLoopCallCount);
 		}
 
+		const wasActive = sv.active === true;
 		try {
 			Host_ServerFrame();
 		} catch (error) {
 			Sys_Printf('Host_ServerFrame error: %s\n', String(error));
 		}
+
+		// Host_Error (or a failed level change) shuts the server down and
+		// nothing restarts it. Exit rather than linger as a dead room; the
+		// lobby frees the port and id when the process exits.
+		if (wasActive && sv.active !== true) {
+			Room_ReportStatus(true);
+			Sys_Printf('Host_Error: server is no longer active, exiting\n');
+			Deno.exit(1);
+		}
+
+		Room_ReportStatus(false);
 	}, tickInterval);
 
 	// Keep process running
@@ -393,10 +434,25 @@ async function runServerLoop() {
  * Entry point
  */
 async function main() {
+	// Reduce log write volume in production. Keep only allowlisted lines.
+	globalThis.__ICARO_QUIET_LOGS = true;
+
+	// Global unhandled rejection handler - prevent server crashes from async errors
+	globalThis.addEventListener('unhandledrejection', (event) => {
+		Sys_Printf('Unhandled promise rejection: %s\n', String(event.reason));
+		event.preventDefault(); // Prevent default crash behavior
+	});
+
 	parseArgs();
+	startWatchdog();
+
+	if (CONFIG.parentWatch) {
+		Room_WatchParent();
+	}
 
 	try {
 		await Host_Init_Server();
+		Room_ReportStatus(true);
 		await runServerLoop();
 	} catch (error) {
 		console.error('Fatal error:', error);
@@ -404,4 +460,6 @@ async function main() {
 	}
 }
 
-main();
+if (import.meta.main) {
+	main();
+}

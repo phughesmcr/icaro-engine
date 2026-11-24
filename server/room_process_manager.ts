@@ -2,14 +2,34 @@
 // Spawns and manages isolated Deno processes for each game room
 // This matches how original Quake handled multiple games: separate server processes
 
+import { resolve as resolvePath } from 'node:path';
+import { fileURLToPath as fromFileUrl } from 'node:url';
 import { Sys_Printf } from './sys_server.ts';
 
 // Port range for room servers (main lobby is on 4433)
-const BASE_PORT = 4434;
-const MAX_ROOMS = 10;
+export const BASE_PORT = 4434;
+export const MAX_ROOMS = 10;
+
+// Room config limits
+export const MAX_PLAYERS_LIMIT = 16; // MAX_SCOREBOARD in quakedef.h
+export const DEFAULT_MAX_PLAYERS = 4;
+export const DEFAULT_MAP = 'rapture1';
+export const DEFAULT_HOST_NAME = 'Player';
+export const MAX_HOST_NAME_BYTES = 32;
+export const MAX_MAP_NAME_LENGTH = 32;
+
+// Structured status channel: game_server.js writes one line per status update
+// to stdout, bypassing the quiet-log filter:
+//   @@ICARO_STATUS <nonce> {"players":N,"active":true|false}
+// The nonce is a per-room random token passed via -statusnonce, so text that
+// some other code path prints can't forge a status line.
+export const STATUS_PREFIX = '@@ICARO_STATUS';
+
+const ROOM_STARTUP_TIMEOUT_MS = 15 * 1000;
 const ROOM_STARTUP_GRACE_MS = 30 * 1000;
 const ROOM_WATCHDOG_TIMEOUT_MS = 30 * 1000;
 const ROOM_JOIN_STALE_MS = 12 * 1000;
+const ROOM_KILL_ESCALATION_MS = 5 * 1000;
 
 interface RoomProcess {
 	id: string;
@@ -17,12 +37,18 @@ interface RoomProcess {
 	port: number;
 	maxPlayers: number;
 	hostName: string;
+	owner: string;           // Creator key (client IP) for per-owner limits
+	nonce: string;           // Status-line token
 	process: Deno.ChildProcess;
 	createdAt: number;
 	playerCount: number;
+	statusActive: boolean;   // Last `active` value reported on the status channel
 	lastActiveTime: number;  // Last time room had players (for idle cleanup)
 	lastOutputTime: number;  // Last stdout/stderr line seen from room process
 	lastWatchdogTime: number; // Last watchdog tick seen from room stderr
+	ready: boolean;          // Startup finished; only ready rooms are listed or joinable
+	exited: boolean;
+	killTimer: ReturnType<typeof setTimeout> | null;
 }
 
 function isRoomResponsive( room: RoomProcess, now: number ): boolean {
@@ -34,17 +60,22 @@ function isRoomResponsive( room: RoomProcess, now: number ): boolean {
 	return ( now - room.lastWatchdogTime ) <= ROOM_JOIN_STALE_MS;
 }
 
-// Active room processes
+// Active (listed) room processes
 const roomProcesses = new Map<string, RoomProcess>();
 
-// Track which ports are in use
+// Every spawned process that has not exited yet, including rooms that were
+// terminated but are still shutting down. Used by RoomManager_ShutdownAll.
+const liveRooms = new Set<RoomProcess>();
+
+// Ports held by a live process. A port is released only when its process
+// exits, so a new room can't be handed a port the old one still has bound.
 const usedPorts = new Set<number>();
 
 // Configuration (set by main server)
 let certFile = 'cert.pem';
 let keyFile = 'key.pem';
 let pakPath = '../static/pak0.pak';
-let denoPath = '/root/.deno/bin/deno';
+let denoPath = Deno.execPath();
 
 /**
  * Configure paths for room servers
@@ -61,6 +92,152 @@ export function RoomManager_SetConfig( config: {
 	if ( config.denoPath != null ) denoPath = config.denoPath;
 }
 
+/*
+===============================================================================
+
+ROOM CONFIG VALIDATION
+
+===============================================================================
+*/
+
+/**
+ * Clamp a requested player limit to an integer in 1..MAX_PLAYERS_LIMIT.
+ * Non-numeric input gets the default.
+ */
+export function RoomManager_ClampMaxPlayers( value: unknown ): number {
+	const n = typeof value === 'number' ? value : typeof value === 'string' ? Number( value ) : NaN;
+	if ( Number.isFinite( n ) === false ) return DEFAULT_MAX_PLAYERS;
+	const i = Math.floor( n );
+	if ( i < 1 ) return 1;
+	if ( i > MAX_PLAYERS_LIMIT ) return MAX_PLAYERS_LIMIT;
+	return i;
+}
+
+/**
+ * Strip control characters, collapse whitespace and cap at
+ * MAX_HOST_NAME_BYTES of UTF-8 (without splitting a code point).
+ */
+export function RoomManager_SanitizeHostName( value: unknown ): string {
+	if ( typeof value !== 'string' ) return DEFAULT_HOST_NAME;
+	// deno-lint-ignore no-control-regex
+	let name = value.replace( /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, '' ).replace( /\s+/g, ' ' ).trim();
+	const encoder = new TextEncoder();
+	if ( encoder.encode( name ).length > MAX_HOST_NAME_BYTES ) {
+		let out = '';
+		let bytes = 0;
+		for ( const ch of name ) {
+			const len = encoder.encode( ch ).length;
+			if ( bytes + len > MAX_HOST_NAME_BYTES ) break;
+			out += ch;
+			bytes += len;
+		}
+		name = out.trim();
+	}
+	return name.length > 0 ? name : DEFAULT_HOST_NAME;
+}
+
+/**
+ * Map names may only contain [A-Za-z0-9_] and be at most
+ * MAX_MAP_NAME_LENGTH long. Returns null if the name is invalid.
+ */
+export function RoomManager_SanitizeMapName( value: unknown ): string | null {
+	if ( typeof value !== 'string' ) return null;
+	if ( value.length === 0 || value.length > MAX_MAP_NAME_LENGTH ) return null;
+	if ( /^[A-Za-z0-9_]+$/.test( value ) === false ) return null;
+	return value;
+}
+
+/*
+===============================================================================
+
+CHILD STDOUT PARSING
+
+===============================================================================
+*/
+
+/**
+ * Split a byte stream into lines. Uses a streaming TextDecoder so multi-byte
+ * characters split across chunks decode correctly, and buffers the partial
+ * last line until its newline arrives.
+ */
+export function createLineSplitter( onLine: ( line: string ) => void, maxLineLength = 64 * 1024 ): {
+	push: ( chunk: Uint8Array ) => void;
+	flush: () => void;
+} {
+	const decoder = new TextDecoder();
+	let pending = '';
+
+	function emitLines( text: string ): void {
+		pending += text;
+		let nl = pending.indexOf( '\n' );
+		while ( nl !== - 1 ) {
+			const line = pending.slice( 0, nl ).replace( /\r$/, '' );
+			pending = pending.slice( nl + 1 );
+			onLine( line );
+			nl = pending.indexOf( '\n' );
+		}
+		// Guard against a child that never writes a newline
+		if ( pending.length > maxLineLength ) {
+			onLine( pending );
+			pending = '';
+		}
+	}
+
+	return {
+		push( chunk: Uint8Array ): void {
+			emitLines( decoder.decode( chunk, { stream: true } ) );
+		},
+		flush(): void {
+			emitLines( decoder.decode() );
+			if ( pending.length > 0 ) {
+				onLine( pending.replace( /\r$/, '' ) );
+				pending = '';
+			}
+		},
+	};
+}
+
+export interface RoomStatus {
+	players: number;
+	active: boolean;
+}
+
+/**
+ * Parse a status line. Returns null unless the line starts with
+ * STATUS_PREFIX, carries the expected nonce and has a valid payload.
+ */
+export function parseRoomStatusLine( line: string, nonce: string ): RoomStatus | null {
+	const head = STATUS_PREFIX + ' ' + nonce + ' ';
+	if ( line.startsWith( head ) === false ) return null;
+	let payload: unknown;
+	try {
+		payload = JSON.parse( line.slice( head.length ) );
+	} catch {
+		return null;
+	}
+	if ( payload === null || typeof payload !== 'object' ) return null;
+	const { players, active } = payload as { players?: unknown; active?: unknown };
+	if ( typeof players !== 'number' || Number.isInteger( players ) === false || players < 0 ) return null;
+	if ( typeof active !== 'boolean' ) return null;
+	return { players, active };
+}
+
+/**
+ * Format a status line (used by game_server.js; exported so the two ends
+ * share one definition).
+ */
+export function formatRoomStatusLine( nonce: string, status: RoomStatus ): string {
+	return STATUS_PREFIX + ' ' + nonce + ' ' + JSON.stringify( { players: status.players, active: status.active } );
+}
+
+/*
+===============================================================================
+
+ROOM LIFECYCLE
+
+===============================================================================
+*/
+
 /**
  * Generate a short room ID
  */
@@ -71,6 +248,12 @@ function generateRoomId(): string {
 		id += chars[ Math.floor( Math.random() * chars.length ) ];
 	}
 	return id;
+}
+
+function generateNonce(): string {
+	const bytes = new Uint8Array( 12 );
+	crypto.getRandomValues( bytes );
+	return Array.from( bytes, ( b ) => b.toString( 16 ).padStart( 2, '0' ) ).join( '' );
 }
 
 /**
@@ -87,6 +270,47 @@ function findAvailablePort(): number | null {
 }
 
 /**
+ * Apply a status update to a room record.
+ */
+function applyRoomStatus( room: RoomProcess, status: RoomStatus, now: number ): void {
+	const players = Math.min( status.players, room.maxPlayers );
+	if ( players !== room.playerCount ) {
+		Sys_Printf( 'Room %s players: %d -> %d\n', room.id, room.playerCount, players );
+	}
+	room.playerCount = players;
+	room.statusActive = status.active;
+	if ( players > 0 ) {
+		room.lastActiveTime = now;
+	}
+}
+
+/**
+ * Send SIGTERM, then SIGKILL if the process hasn't exited after a grace period.
+ */
+function killRoomProcess( room: RoomProcess ): void {
+	if ( room.exited ) return;
+	try {
+		room.process.kill( 'SIGTERM' );
+	} catch {
+		// Process may have already exited
+	}
+	if ( room.killTimer === null ) {
+		room.killTimer = setTimeout( () => {
+			room.killTimer = null;
+			if ( room.exited ) return;
+			Sys_Printf( 'Room %s did not exit after SIGTERM, sending SIGKILL\n', room.id );
+			try {
+				room.process.kill( 'SIGKILL' );
+			} catch { /* already gone */ }
+		}, ROOM_KILL_ESCALATION_MS );
+	}
+}
+
+function absolutePath( p: string ): string {
+	return resolvePath( p );
+}
+
+/**
  * Create a new room by spawning a dedicated server process
  * If specificId is provided, use that ID instead of generating a random one
  */
@@ -94,6 +318,7 @@ export async function RoomManager_CreateRoom( config: {
 	map: string;
 	maxPlayers: number;
 	hostName: string;
+	owner?: string;
 	specificId?: string;
 } ): Promise<{ id: string; port: number } | null> {
 	// Reclaim any frozen rooms before enforcing limits/port availability.
@@ -105,6 +330,16 @@ export async function RoomManager_CreateRoom( config: {
 		return null;
 	}
 
+	// Validate config (callers should already have done this; this is the
+	// last line of defence before the values reach a child's argv)
+	const safeMap = RoomManager_SanitizeMapName( config.map );
+	if ( safeMap === null ) {
+		Sys_Printf( 'Invalid map name: %s\n', JSON.stringify( String( config.map ).slice( 0, 64 ) ) );
+		return null;
+	}
+	const maxPlayers = RoomManager_ClampMaxPlayers( config.maxPlayers );
+	const hostName = RoomManager_SanitizeHostName( config.hostName );
+
 	// Find available port
 	const port = findAvailablePort();
 	if ( port === null ) {
@@ -112,16 +347,12 @@ export async function RoomManager_CreateRoom( config: {
 		return null;
 	}
 
-	// Mark port as used immediately (will be freed on failure)
-	usedPorts.add( port );
-
 	// Generate unique room ID (or use specificId if provided)
 	let id: string;
 	if ( config.specificId != null && config.specificId.length > 0 ) {
 		// Check if specific ID is already in use
 		if ( roomProcesses.has( config.specificId.toUpperCase() ) ) {
 			Sys_Printf( 'Room ID %s already exists\n', config.specificId );
-			usedPorts.delete( port );
 			return null;
 		}
 		id = config.specificId.toUpperCase();
@@ -132,201 +363,199 @@ export async function RoomManager_CreateRoom( config: {
 		}
 	}
 
-	Sys_Printf( 'Creating room %s on port %d (map: %s)\n', id, port, config.map );
+	// Mark port as used (released by the exit handler, or below if spawn fails)
+	usedPorts.add( port );
 
+	Sys_Printf( 'Creating room %s on port %d (map: %s, maxPlayers: %d)\n', id, port, safeMap, maxPlayers );
+
+	const nonce = generateNonce();
+	let process: Deno.ChildProcess;
 	try {
-		// Find the path to the game server script
-		const serverDir = new URL( '.', import.meta.url ).pathname;
-		const gameServerPath = serverDir + 'game_server.js';
-		const denoJsonPath = serverDir.replace( /server\/$/, 'deno.json' );
+		const gameServerPath = fromFileUrl( new URL( './game_server.js', import.meta.url ) );
+		const denoJsonPath = fromFileUrl( new URL( '../deno.json', import.meta.url ) );
+		const staticDir = fromFileUrl( new URL( '../static/', import.meta.url ) );
 
-		// Validate map name - only allow alphanumeric and underscore
-		const safeMap = config.map.replace( /[^a-zA-Z0-9_]/g, '' );
-		if ( safeMap !== config.map || safeMap.length === 0 ) {
-			Sys_Printf( 'Invalid map name: %s\n', config.map );
-			usedPorts.delete( port );
-			return null;
+		const absPak = absolutePath( pakPath );
+		const absCert = absolutePath( certFile );
+		const absKey = absolutePath( keyFile );
+		const readPaths = [ staticDir, absPak, absCert, absKey ];
+		if ( readPaths.some( ( p ) => p.includes( ',' ) ) ) {
+			throw new Error( 'paths passed to --allow-read must not contain commas' );
 		}
 
-		// Spawn dedicated server process for this room
+		// Spawn dedicated server process for this room. Permissions are
+		// scoped to what the room needs: listen on its own UDP port, read
+		// the pak, the TLS files and loose files under static/.
 		const command = new Deno.Command( denoPath, {
 			args: [
 				'run',
-				'--allow-net',
-				'--allow-read',
+				'--allow-net=0.0.0.0:' + port,
+				'--allow-read=' + readPaths.join( ',' ),
 				'--unstable-net',
 				'--config', denoJsonPath,
 				gameServerPath,
 				'-port', String( port ),
-				'-maxclients', String( config.maxPlayers ),
+				'-maxclients', String( maxPlayers ),
 				'-map', safeMap,
-				'-pak', pakPath,
-				'-cert', certFile,
-				'-key', keyFile,
+				'-pak', absPak,
+				'-cert', absCert,
+				'-key', absKey,
 				'-room', id,  // Pass room ID so process can identify itself
+				'-statusnonce', nonce,
+				'-parentwatch', // Exit when our stdin closes (lobby died)
 			],
+			stdin: 'piped',
 			stdout: 'piped',
 			stderr: 'piped',
 		} );
 
-		const process = command.spawn();
-
-		// Store room info
-		const now = Date.now();
-		const roomInfo: RoomProcess = {
-			id,
-			map: safeMap,
-			port,
-			maxPlayers: config.maxPlayers,
-			hostName: config.hostName,
-			process,
-			createdAt: now,
-			playerCount: 0,
-			lastActiveTime: now,  // Initialize to creation time
-			lastOutputTime: now,
-			lastWatchdogTime: now,
-		};
-		roomProcesses.set( id, roomInfo );
-
-		// Create a promise that resolves when we detect the server is listening
-		// This is much more robust than a fixed timeout
-		const STARTUP_TIMEOUT_MS = 15000;
-		let serverReady = false;
-		let serverStartError: Error | null = null;
-		const serverReadyPromise = ( async () => {
-			while ( serverReady === false ) {
-				if ( serverStartError !== null ) {
-					throw serverStartError;
-				}
-				await new Promise( resolve => setTimeout( resolve, 25 ) );
-			}
-		} )();
-
-		// Pipe stdout/stderr to main server console with prefix
-		// Also detect when server is ready and parse heartbeat messages
-		( async () => {
-			const reader = process.stdout.getReader();
-			const decoder = new TextDecoder();
-			try {
-				while ( true ) {
-					const { value, done } = await reader.read();
-					if ( done ) break;
-					const text = decoder.decode( value );
-					for ( const line of text.split( '\n' ) ) {
-						if ( line.trim() !== '' ) {
-							Sys_Printf( '[Room %s] %s\n', id, line );
-							const room = roomProcesses.get( id );
-							if ( room !== undefined ) {
-								room.lastOutputTime = Date.now();
-							}
-
-							// Detect when WebTransport server is actually listening
-							// This is the signal that clients can now connect
-							if ( line.includes( 'WebTransport server listening' ) ) {
-								serverReady = true;
-							}
-
-							// Parse heartbeat messages: "[Heartbeat] time=X frames=Y players=Z"
-							const heartbeatMatch = line.match( /\[Heartbeat\].*players=(\d+)/ );
-							if ( heartbeatMatch !== null ) {
-								const playerCount = parseInt( heartbeatMatch[ 1 ], 10 );
-								const room = roomProcesses.get( id );
-								if ( room !== undefined ) {
-									room.playerCount = playerCount;
-									if ( playerCount > 0 ) {
-										room.lastActiveTime = Date.now();
-									}
-								}
-							}
-
-							// Parse player connect/disconnect for immediate updates
-							// "Client X connected" - player joined
-							if ( line.includes( ' connected' ) && line.includes( 'Client ' ) ) {
-								const room = roomProcesses.get( id );
-								if ( room !== undefined ) {
-									room.playerCount++;
-									room.lastActiveTime = Date.now();
-								}
-							}
-							// "Client player removed" - player left
-							if ( line.includes( 'removed' ) && line.includes( 'Client ' ) ) {
-								const room = roomProcesses.get( id );
-								if ( room !== undefined && room.playerCount > 0 ) {
-									room.playerCount--;
-								}
-							}
-						}
-					}
-				}
-			} catch { /* ignore */ }
-			// If stdout closes without seeing "listening", reject the promise
-			if ( serverReady === false && serverStartError === null ) {
-				serverStartError = new Error( 'Process stdout closed before server was ready' );
-			}
-		} )();
-
-		( async () => {
-			const reader = process.stderr.getReader();
-			const decoder = new TextDecoder();
-			try {
-				while ( true ) {
-					const { value, done } = await reader.read();
-					if ( done ) break;
-					const text = decoder.decode( value );
-					for ( const line of text.split( '\n' ) ) {
-						if ( line.trim() !== '' ) {
-							Sys_Printf( '[Room %s ERR] %s\n', id, line );
-							const room = roomProcesses.get( id );
-							if ( room !== undefined ) {
-								const now = Date.now();
-								room.lastOutputTime = now;
-								if ( line.includes( '[WATCHDOG]' ) ) {
-									room.lastWatchdogTime = now;
-								}
-							}
-						}
-					}
-				}
-			} catch { /* ignore */ }
-		} )();
-
-		// Monitor process exit
-		process.status.then( ( status ) => {
-			Sys_Printf( 'Room %s process exited with code %d\n', id, status.code );
-			usedPorts.delete( port );
-			roomProcesses.delete( id );
-			// If process exits before ready, reject
-			if ( serverReady === false && serverStartError === null ) {
-				serverStartError = new Error( 'Process exited with code ' + status.code );
-			}
-		} );
-
-		// Wait for the server to signal it's ready (or timeout)
-		const timeoutPromise = new Promise<never>( ( _, reject ) => {
-			setTimeout( () => reject( new Error( 'Server startup timeout' ) ), STARTUP_TIMEOUT_MS );
-		} );
-
-		try {
-			await Promise.race( [ serverReadyPromise, timeoutPromise ] );
-		} catch ( startupError ) {
-			Sys_Printf( 'Room %s failed to start: %s\n', id, ( startupError as Error ).message );
-			try {
-				process.kill( 'SIGTERM' );
-			} catch { /* process may have already exited */ }
-			usedPorts.delete( port );
-			roomProcesses.delete( id );
-			return null;
-		}
-
-		Sys_Printf( 'Room %s created successfully on port %d\n', id, port );
-
-		return { id, port };
-
+		process = command.spawn();
 	} catch ( error ) {
 		Sys_Printf( 'Failed to create room: %s\n', ( error as Error ).message );
-		usedPorts.delete( port );  // Free the port on failure
+		usedPorts.delete( port );
 		return null;
 	}
+
+	// Store room info
+	const now = Date.now();
+	const roomInfo: RoomProcess = {
+		id,
+		map: safeMap,
+		port,
+		maxPlayers,
+		hostName,
+		owner: config.owner ?? '',
+		nonce,
+		process,
+		createdAt: now,
+		playerCount: 0,
+		statusActive: false,
+		lastActiveTime: now,  // Initialize to creation time
+		lastOutputTime: now,
+		lastWatchdogTime: now,
+		ready: false,
+		exited: false,
+		killTimer: null,
+	};
+	roomProcesses.set( id, roomInfo );
+	liveRooms.add( roomInfo );
+
+	// Startup completes when the room has bound its port ("WebTransport server
+	// listening") and reported an active server on the status channel.
+	let sawListening = false;
+	let settled = false;
+	let resolveReady: () => void = () => {};
+	let rejectReady: ( e: Error ) => void = () => {};
+	const readyPromise = new Promise<void>( ( res, rej ) => {
+		resolveReady = res;
+		rejectReady = rej;
+	} );
+	const failStartup = ( message: string ) => {
+		if ( settled ) return;
+		settled = true;
+		rejectReady( new Error( message ) );
+	};
+	const checkReady = () => {
+		if ( settled ) return;
+		if ( sawListening && roomInfo.statusActive ) {
+			settled = true;
+			resolveReady();
+		}
+	};
+
+	// Parse stdout: status lines update the room; everything else is relayed.
+	const stdoutSplitter = createLineSplitter( ( line ) => {
+		if ( line.trim() === '' ) return;
+		const t = Date.now();
+		roomInfo.lastOutputTime = t;
+
+		const status = parseRoomStatusLine( line, nonce );
+		if ( status !== null ) {
+			applyRoomStatus( roomInfo, status, t );
+			if ( status.active === false && settled === false ) {
+				failStartup( 'Room reported an inactive server' );
+			}
+			checkReady();
+			return; // Don't relay status lines to the lobby log
+		}
+
+		Sys_Printf( '[Room %s] %s\n', id, line );
+
+		if ( line.startsWith( 'WebTransport server listening' ) ) {
+			sawListening = true;
+			checkReady();
+		} else if ( line.startsWith( 'Failed to start WebTransport listener' ) ) {
+			failStartup( line );
+		}
+	} );
+
+	const stderrSplitter = createLineSplitter( ( line ) => {
+		if ( line.trim() === '' ) return;
+		const t = Date.now();
+		roomInfo.lastOutputTime = t;
+		if ( line.startsWith( '[WATCHDOG]' ) ) {
+			roomInfo.lastWatchdogTime = t;
+			return; // One every 5s per room: too noisy to relay
+		}
+		Sys_Printf( '[Room %s ERR] %s\n', id, line );
+	} );
+
+	const pump = async ( stream: ReadableStream<Uint8Array>, splitter: ReturnType<typeof createLineSplitter> ) => {
+		try {
+			for await ( const chunk of stream ) {
+				splitter.push( chunk );
+			}
+		} catch { /* stream closed */ }
+		splitter.flush();
+	};
+
+	pump( process.stdout, stdoutSplitter ).then( () => {
+		failStartup( 'Process stdout closed before server was ready' );
+	} );
+	pump( process.stderr, stderrSplitter );
+
+	// Monitor process exit
+	process.status.then( ( status ) => {
+		Sys_Printf( 'Room %s process exited with code %d\n', id, status.code );
+		roomInfo.exited = true;
+		if ( roomInfo.killTimer !== null ) {
+			clearTimeout( roomInfo.killTimer );
+			roomInfo.killTimer = null;
+		}
+		liveRooms.delete( roomInfo );
+		// The port was held by this process until now, so it is ours to free.
+		usedPorts.delete( port );
+		// The id may already belong to a newer room (terminated + recreated).
+		if ( roomProcesses.get( id ) === roomInfo ) {
+			roomProcesses.delete( id );
+		}
+		failStartup( 'Process exited with code ' + status.code );
+	} );
+
+	// Wait for the server to signal it's ready (or timeout)
+	let timeoutId: ReturnType<typeof setTimeout> | undefined;
+	const timeoutPromise = new Promise<never>( ( _, reject ) => {
+		timeoutId = setTimeout( () => reject( new Error( 'Server startup timeout' ) ), ROOM_STARTUP_TIMEOUT_MS );
+	} );
+
+	try {
+		await Promise.race( [ readyPromise, timeoutPromise ] );
+	} catch ( startupError ) {
+		settled = true;
+		Sys_Printf( 'Room %s failed to start: %s\n', id, ( startupError as Error ).message );
+		if ( roomProcesses.get( id ) === roomInfo ) {
+			roomProcesses.delete( id );
+		}
+		killRoomProcess( roomInfo );
+		return null;
+	} finally {
+		clearTimeout( timeoutId );
+	}
+
+	roomInfo.ready = true;
+	Sys_Printf( 'Room %s created successfully on port %d\n', id, port );
+
+	return { id, port };
 }
 
 /**
@@ -344,7 +573,7 @@ export function RoomManager_GetRoom( id: string ): {
 	RoomManager_CleanupUnhealthyRooms();
 
 	const room = roomProcesses.get( id.toUpperCase() );
-	if ( room == null ) return null;
+	if ( room == null || room.ready === false ) return null;
 	if ( isRoomResponsive( room, Date.now() ) === false ) return null;
 
 	return {
@@ -382,7 +611,7 @@ export function RoomManager_ListRooms(): Array<{
 	}> = [];
 
 	for ( const room of roomProcesses.values() ) {
-		if ( isRoomResponsive( room, now ) === false ) {
+		if ( room.ready === false || isRoomResponsive( room, now ) === false ) {
 			continue;
 		}
 
@@ -397,6 +626,17 @@ export function RoomManager_ListRooms(): Array<{
 	}
 
 	return rooms;
+}
+
+/**
+ * Number of listed rooms created by `owner`.
+ */
+export function RoomManager_CountRoomsByOwner( owner: string ): number {
+	let count = 0;
+	for ( const room of roomProcesses.values() ) {
+		if ( room.owner === owner ) count++;
+	}
+	return count;
 }
 
 /**
@@ -435,15 +675,13 @@ export function RoomManager_CleanupUnhealthyRooms(): number {
 export function RoomManager_UpdatePlayerCount( id: string, count: number ): void {
 	const room = roomProcesses.get( id );
 	if ( room != null ) {
-		room.playerCount = count;
-		if ( count > 0 ) {
-			room.lastActiveTime = Date.now();
-		}
+		applyRoomStatus( room, { players: Math.max( 0, Math.floor( count ) ), active: room.statusActive }, Date.now() );
 	}
 }
 
 /**
- * Terminate a room
+ * Terminate a room. The room is unlisted immediately; its port is released
+ * once the process has actually exited.
  */
 export function RoomManager_TerminateRoom( id: string ): boolean {
 	const room = roomProcesses.get( id );
@@ -451,20 +689,15 @@ export function RoomManager_TerminateRoom( id: string ): boolean {
 
 	Sys_Printf( 'Terminating room %s\n', id );
 
-	try {
-		room.process.kill( 'SIGTERM' );
-	} catch {
-		// Process may have already exited
-	}
-
-	usedPorts.delete( room.port );
 	roomProcesses.delete( id );
+	killRoomProcess( room );
 
 	return true;
 }
 
 /**
- * Clean up idle rooms (rooms with 0 players for too long)
+ * Clean up idle rooms (rooms with 0 players for too long). A room that
+ * reports players is never reaped here.
  */
 export function RoomManager_CleanupIdleRooms( maxIdleMs: number = 5 * 60 * 1000 ): number {
 	RoomManager_CleanupUnhealthyRooms();
@@ -487,19 +720,31 @@ export function RoomManager_CleanupIdleRooms( maxIdleMs: number = 5 * 60 * 1000 
 }
 
 /**
- * Get room count
+ * Whether a room with this id exists, including one that is still starting.
+ */
+export function RoomManager_HasRoom( id: string ): boolean {
+	return roomProcesses.has( id.toUpperCase() );
+}
+
+/**
+ * Get room count (including rooms that are still starting)
  */
 export function RoomManager_GetRoomCount(): number {
 	return roomProcesses.size;
 }
 
 /**
- * Shutdown all rooms
+ * Shutdown all rooms, including ones already terminating.
+ * Sends SIGTERM to each; children also exit on their own when the lobby's
+ * end of their stdin pipe closes.
  */
 export function RoomManager_ShutdownAll(): void {
 	Sys_Printf( 'Shutting down all room processes...\n' );
 
-	for ( const id of roomProcesses.keys() ) {
-		RoomManager_TerminateRoom( id );
+	roomProcesses.clear();
+	for ( const room of liveRooms ) {
+		try {
+			room.process.kill( 'SIGTERM' );
+		} catch { /* already gone */ }
 	}
 }
