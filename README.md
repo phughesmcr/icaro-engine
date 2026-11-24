@@ -9,6 +9,13 @@ For the full game, copy `pak1.pak` from the `id1` folder of a registered copy of
 The client and the room server load `pak0.pak`, `pak1.pak`, ... until one is missing.
 Registered data must not be committed or deployed publicly; `.gitignore` excludes `static/pak1.pak`.
 
+#### Mission packs
+
+To play *Scourge of Armagon* or *Dissolution of Eternity*, copy the pack's `pak0.pak` to `static/hipnotic/pak0.pak` or `static/rogue/pak0.pak` and open the page with `?game=hipnotic` or `?game=rogue`.
+This is WinQuake's `-hipnotic` / `-rogue`: the pack's paks load after id1's, so its progs, graphics and maps win, and the status bar and multiplayer menu switch to the pack's layout and levels.
+Mission packs need the registered `static/pak1.pak`. For multiplayer, start the lobby (or `game_server.js`) with the same `-hipnotic` or `-rogue` flag.
+`.gitignore` excludes `static/hipnotic/` and `static/rogue/`.
+
 ### Mobile
 
 On phones and tablets the game shows touch controls. Play in landscape.

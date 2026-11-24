@@ -28,6 +28,7 @@ import { S_StopAllSounds } from './snd_dma.js';
 import { M_ConnectionError, M_ShouldReturnOnError } from './menu.js';
 import { key_menu, set_key_dest } from './keys.js';
 import { V_UsePrediction } from './view.js';
+import { Sys_PageURL } from './sys.js';
 import { CL_InitPrediction, CL_ResetPrediction, CL_PredictMove,
 	CL_GetPredictedPlayer, CL_SetUpPlayerPrediction,
 	CL_GetServerSequence, CL_GetValidSequence, CL_GetEntityFrame,
@@ -233,7 +234,7 @@ export function CL_Disconnect_f() {
 	// Clear room from browser URL on explicit disconnect
 	if ( typeof window !== 'undefined' && window.location.search.includes( 'room=' ) ) {
 
-		history.replaceState( null, '', window.location.pathname );
+		history.replaceState( null, '', Sys_PageURL( null ) );
 
 	}
 
@@ -260,7 +261,7 @@ export async function CL_EstablishConnection( host ) {
 	// Clear room from browser URL when connecting to single player (local)
 	if ( host === 'local' && typeof window !== 'undefined' && window.location.search.includes( 'room=' ) ) {
 
-		history.replaceState( null, '', window.location.pathname );
+		history.replaceState( null, '', Sys_PageURL( null ) );
 
 	}
 
@@ -334,8 +335,7 @@ export async function CL_EstablishConnection( host ) {
 			const roomId = url.searchParams.get( 'room' );
 			if ( roomId ) {
 
-				const shareUrl = window.location.origin + window.location.pathname + '?room=' + roomId;
-				history.replaceState( null, '', shareUrl );
+				history.replaceState( null, '', Sys_PageURL( roomId ) );
 
 			}
 

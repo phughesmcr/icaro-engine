@@ -2,7 +2,7 @@
 // Spawns and manages isolated Deno processes for each game room
 // This matches how original Quake handled multiple games: separate server processes
 
-import { resolve as resolvePath } from 'node:path';
+import { dirname, resolve as resolvePath } from 'node:path';
 import { fileURLToPath as fromFileUrl } from 'node:url';
 import { Sys_Printf } from './sys_server.ts';
 
@@ -76,6 +76,7 @@ let certFile = 'cert.pem';
 let keyFile = 'key.pem';
 let pakPath = '../static/pak0.pak';
 let denoPath = Deno.execPath();
+let gameFlags: string[] = []; // '-rogue' and/or '-hipnotic', passed to every room
 
 /**
  * Configure paths for room servers
@@ -85,11 +86,13 @@ export function RoomManager_SetConfig( config: {
 	keyFile?: string;
 	pakPath?: string;
 	denoPath?: string;
+	gameFlags?: string[];
 } ): void {
 	if ( config.certFile != null ) certFile = config.certFile;
 	if ( config.keyFile != null ) keyFile = config.keyFile;
 	if ( config.pakPath != null ) pakPath = config.pakPath;
 	if ( config.denoPath != null ) denoPath = config.denoPath;
+	if ( config.gameFlags != null ) gameFlags = config.gameFlags.filter( ( f ) => f === '-rogue' || f === '-hipnotic' );
 }
 
 /*
@@ -378,7 +381,9 @@ export async function RoomManager_CreateRoom( config: {
 		const absPak = absolutePath( pakPath );
 		const absCert = absolutePath( certFile );
 		const absKey = absolutePath( keyFile );
-		const readPaths = [ staticDir, absPak, absCert, absKey ];
+		// game_server.js loads the mission pack from <pak dir>/rogue or hipnotic
+		const gameDirs = gameFlags.map( ( f ) => dirname( absPak ) + '/' + f.slice( 1 ) );
+		const readPaths = [ staticDir, absPak, absCert, absKey, ...gameDirs ];
 		if ( readPaths.some( ( p ) => p.includes( ',' ) ) ) {
 			throw new Error( 'paths passed to --allow-read must not contain commas' );
 		}
@@ -403,6 +408,7 @@ export async function RoomManager_CreateRoom( config: {
 				'-room', id,  // Pass room ID so process can identify itself
 				'-statusnonce', nonce,
 				'-parentwatch', // Exit when our stdin closes (lobby died)
+				...gameFlags,
 			],
 			stdin: 'piped',
 			stdout: 'piped',

@@ -11,7 +11,7 @@ import { V_Init } from './view.js';
 import { Chase_Init } from './chase.js';
 import { W_LoadWadFile } from './wad.js';
 import { COM_LoadFile } from './pak.js';
-import { COM_Init } from './common.js';
+import { COM_Init, rogue, hipnotic } from './common.js';
 import { Key_Init, Key_WriteBindings } from './keys.js';
 import { Con_Init, Con_SetExternals, Con_Printf as RealConPrintf, Con_DPrintf as RealConDPrintf } from './console.js';
 import { M_Init, M_SetExternals } from './menu.js';
@@ -359,7 +359,9 @@ export async function Host_Init( parms ) {
 		Draw_String: Draw_String,
 		Draw_Fill: Draw_Fill,
 		Draw_PicFromWad: Draw_PicFromWad,
-		Draw_CachePic: Draw_CachePic
+		Draw_CachePic: Draw_CachePic,
+		hipnotic: hipnotic,
+		rogue: rogue
 	} );
 	Sbar_Init();
 	CL_Init();

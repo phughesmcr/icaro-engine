@@ -70,7 +70,7 @@ The lobby and the rooms run with scoped permissions:
 | Lobby | `--allow-read` | the cert and key files | TLS |
 | Lobby | `--allow-run` | the Deno binary | Spawning room processes |
 | Room | `--allow-net` | `0.0.0.0:<room port>` | QUIC listener |
-| Room | `--allow-read` | `static/`, the pak, the cert and key | Game data and TLS |
+| Room | `--allow-read` | `static/`, the pak, the cert and key, and `rogue/` or `hipnotic/` next to the pak when `-rogue` or `-hipnotic` is set | Game data and TLS |
 
 The lobby builds the room flags itself (`room_process_manager.ts`). If you change `-port` or the cert/key paths, change the lobby's flags to match. `--allow-run=deno` resolves `deno` on `PATH` at startup; if that is a version-manager shim rather than the real binary, Deno will refuse to spawn rooms. Pass the binary's real path instead (`deno eval 'console.log(Deno.execPath())'`).
 
@@ -85,6 +85,7 @@ The lobby builds the room flags itself (`room_process_manager.ts`). If you chang
 | `-key <path>` | `key.pem` | TLS private key file (forwarded to room servers) |
 | `-pak <path>` | `../static/pak0.pak` | Path to `pak0.pak` (forwarded to room servers) |
 | `-deno <path>` | `Deno.execPath()` | Deno binary used to spawn room servers |
+| `-rogue`, `-hipnotic` | off | Mission pack for every room (forwarded to room servers) |
 
 ### `game_server.js`
 
@@ -94,6 +95,7 @@ The lobby builds the room flags itself (`room_process_manager.ts`). If you chang
 | `-maxclients <num>` | `4` | Maximum players (clamped to 1–16) |
 | `-map <name>` | `start` | Starting map |
 | `-pak <path>` | `../static/pak0.pak` | Path to `pak0.pak` |
+| `-rogue`, `-hipnotic` | off | Mission pack, as WinQuake's flags: also loads `rogue/pak0.pak` or `hipnotic/pak0.pak` (and later paks) from the `-pak` file's directory, searched first. Browser clients must use the matching `?game=` |
 | `-cert <path>` | `cert.pem` | TLS certificate file |
 | `-key <path>` | `key.pem` | TLS private key file |
 | `-room <id>` | `null` | Room ID assigned by `lobby_server.js` (enables room idle-exit tracking) |

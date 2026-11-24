@@ -6,7 +6,8 @@
 // which passes scoped --allow-net/--allow-read flags.
 
 import { Sys_Printf, Sys_FloatTime } from '../src/sys.js';
-import { COM_AddPakSequence, COM_SetLooseFileBasePath, COM_EnsureFile } from '../src/pak.js';
+import { COM_AddPakSequence, COM_AddGameDirectory, COM_SetLooseFileBasePath, COM_EnsureFile } from '../src/pak.js';
+import { COM_InitArgv, rogue, hipnotic } from '../src/common.js';
 import { Cbuf_Init, Cbuf_Execute, Cmd_Init } from '../src/cmd.js';
 import { Host_InitCommands } from '../src/host_cmd.js';
 import { deathmatch, samelevel, noexit, sys_ticrate } from '../src/host.js';
@@ -56,6 +57,7 @@ const CONFIG = {
 	idleTimeout: 300,    // Seconds to wait before exiting when empty (room mode)
 	statusNonce: null,   // Token for structured status lines to the lobby (room mode)
 	parentWatch: false,  // Exit when stdin closes (the lobby holds the other end)
+	gameFlags: [],       // -rogue and/or -hipnotic: load <pak dir>/rogue or hipnotic too
 };
 
 /**
@@ -97,6 +99,8 @@ function parseArgs() {
 			CONFIG.statusNonce = args[++i];
 		} else if (arg === '-parentwatch') {
 			CONFIG.parentWatch = true;
+		} else if (arg === '-rogue' || arg === '-hipnotic') {
+			CONFIG.gameFlags.push(arg);
 		}
 	}
 }
@@ -173,6 +177,10 @@ async function Host_Init_Server() {
 		Sys_Printf('Icaro Game Server v1.0\n');
 	}
 	Sys_Printf('========================================\n\n');
+
+	// Only the mission-pack flags go to COM_InitArgv: the rest are this
+	// server's own, and NET_Init would read -port from com_argv
+	COM_InitArgv(['game_server', ...CONFIG.gameFlags]);
 
 	// Initialize subsystems in order (from host.js)
 	Memory_Init();
@@ -275,6 +283,16 @@ async function Host_Init_Server() {
 	// pak0.pak plus any pak1.pak, pak2.pak... next to it (registered data)
 	if (await COM_AddPakSequence(CONFIG.pakPath) === 0) {
 		throw new Error('Failed to load ' + CONFIG.pakPath);
+	}
+
+	// common.c COM_InitFilesystem: <basedir>/rogue or hipnotic after id1,
+	// where basedir is the directory holding the -pak file
+	const basedir = CONFIG.pakPath.includes('/') ? CONFIG.pakPath.slice(0, CONFIG.pakPath.lastIndexOf('/')) : '.';
+	for (const dir of [rogue ? 'rogue' : null, hipnotic ? 'hipnotic' : null]) {
+		if (dir === null) continue;
+		if (await COM_AddGameDirectory(basedir + '/' + dir) === 0) {
+			throw new Error('-' + dir + ' needs ' + basedir + '/' + dir + '/pak0.pak');
+		}
 	}
 
 	// Set base path for on-demand loose file loading (custom maps not in PAK)

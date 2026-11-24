@@ -702,6 +702,7 @@ export function COM_Parse( data ) {
 export let com_argc = 0;
 export let com_argv = [];
 
+// Set by COM_InitArgv from -rogue and -hipnotic (main.js maps ?game= to these)
 export let standard_quake = true;
 export let rogue = false;
 export let hipnotic = false;
@@ -737,7 +738,8 @@ export let cmdline = null; // cvar_t "cmdline"
 export let static_registered = 1; // only for startup check, then set
 
 // set true if using non-id files (common.c COM_LoadPackFile, -game, -path;
-// this port has no -game or -path, so only a changed pak sets it)
+// this port has no -game or -path, so only a changed pak sets it, such as a
+// mission pack's pak0.pak loaded for -rogue or -hipnotic)
 export let com_modified = false;
 
 export function COM_SetModified( modified ) {
@@ -835,6 +837,12 @@ export function COM_InitArgv( argv ) {
 	}
 
 	com_cmdline = n;
+
+	// common.c COM_InitArgv. Assigned on every call so that a later call
+	// without the flag (as the tests make) clears it again.
+	rogue = COM_CheckParm( '-rogue' ) !== 0;
+	hipnotic = COM_CheckParm( '-hipnotic' ) !== 0;
+	standard_quake = rogue === false && hipnotic === false;
 
 }
 

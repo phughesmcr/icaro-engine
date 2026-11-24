@@ -29,6 +29,26 @@ export function Sys_Error( error ) {
 
 }
 
+/*
+================
+Sys_PageURL
+
+The page URL to put in the address bar: room= when roomId is given, and
+game= kept from the current URL, since whoever opens a shared link needs the
+same mission pack. Other parameters are dropped.
+================
+*/
+export function Sys_PageURL( roomId ) {
+
+	const params = new URLSearchParams();
+	if ( roomId ) params.set( 'room', roomId );
+	const game = new URLSearchParams( globalThis.location.search ).get( 'game' );
+	if ( game !== null ) params.set( 'game', game );
+	const query = params.toString();
+	return globalThis.location.origin + globalThis.location.pathname + ( query.length > 0 ? '?' + query : '' );
+
+}
+
 const _quietLogAllowPatterns = [
 	/^Connection from /,
 	/^Connection closed:/,
