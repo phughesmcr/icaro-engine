@@ -2,6 +2,8 @@
 // + WinQuake/common.h -- general definitions
 
 import { Sys_Error } from './sys.js';
+import { cvar_t, Cvar_RegisterVariable, Cvar_Set } from './cvar.js';
+import { COM_LoadFile } from './pak.js';
 
 //============================================================================
 // common.h types
@@ -704,10 +706,135 @@ export let standard_quake = true;
 export let rogue = false;
 export let hipnotic = false;
 
+//============================================================================
+// Registered version check
+//============================================================================
+
+// this graphic needs to be in the pak file to use registered features
+const pop = new Uint16Array( [
+	0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	0x0000, 0x0000, 0x6600, 0x0000, 0x0000, 0x0000, 0x6600, 0x0000,
+	0x0000, 0x0066, 0x0000, 0x0000, 0x0000, 0x0000, 0x0067, 0x0000,
+	0x0000, 0x6665, 0x0000, 0x0000, 0x0000, 0x0000, 0x0065, 0x6600,
+	0x0063, 0x6561, 0x0000, 0x0000, 0x0000, 0x0000, 0x0061, 0x6563,
+	0x0064, 0x6561, 0x0000, 0x0000, 0x0000, 0x0000, 0x0061, 0x6564,
+	0x0064, 0x6564, 0x0000, 0x6469, 0x6969, 0x6400, 0x0064, 0x6564,
+	0x0063, 0x6568, 0x6200, 0x0064, 0x6864, 0x0000, 0x6268, 0x6563,
+	0x0000, 0x6567, 0x6963, 0x0064, 0x6764, 0x0063, 0x6967, 0x6500,
+	0x0000, 0x6266, 0x6769, 0x6a68, 0x6768, 0x6a69, 0x6766, 0x6200,
+	0x0000, 0x0062, 0x6566, 0x6666, 0x6666, 0x6666, 0x6562, 0x0000,
+	0x0000, 0x0000, 0x0062, 0x6364, 0x6664, 0x6362, 0x0000, 0x0000,
+	0x0000, 0x0000, 0x0000, 0x0062, 0x6662, 0x0000, 0x0000, 0x0000,
+	0x0000, 0x0000, 0x0000, 0x0061, 0x6661, 0x0000, 0x0000, 0x0000,
+	0x0000, 0x0000, 0x0000, 0x0000, 0x6500, 0x0000, 0x0000, 0x0000,
+	0x0000, 0x0000, 0x0000, 0x0000, 0x6400, 0x0000, 0x0000, 0x0000
+] );
+
+// Created in COM_Init rather than at module load: cvar.js imports this module,
+// so cvar_t may not be initialised yet when common.js is evaluated.
+export let registered = null; // cvar_t "registered"
+export let cmdline = null; // cvar_t "cmdline"
+export let static_registered = 1; // only for startup check, then set
+
+// set true if using non-id files (common.c COM_LoadPackFile, -game, -path;
+// this port has no -game or -path, so only a changed pak sets it)
+export let com_modified = false;
+
+export function COM_SetModified( modified ) {
+
+	com_modified = modified;
+
+}
+
+const CMDLINE_LENGTH = 256;
+export let com_cmdline = '';
+
+/*
+================
+COM_CheckRegistered
+
+Looks for the pop.txt file and verifies it.
+Sets the "registered" cvar.
+Immediately exits out if an alternate game was attempted to be started without
+being registered.
+================
+*/
+export function COM_CheckRegistered() {
+
+	const h = COM_LoadFile( 'gfx/pop.lmp' );
+	static_registered = 0;
+
+	if ( h === null ) {
+
+		Con_Printf( 'Playing shareware version.\n' );
+		if ( com_modified )
+			Sys_Error( 'You must have the registered version to use modified games' );
+		return;
+
+	}
+
+	// Sys_FileRead( h, check, sizeof( check ) ): 128 big-endian shorts
+	const check = new Uint8Array( h );
+	for ( let i = 0; i < 128; i ++ ) {
+
+		const v = 2 * i + 1 < check.length ? ( check[ 2 * i ] << 8 ) | check[ 2 * i + 1 ] : - 1;
+		if ( pop[ i ] !== v )
+			Sys_Error( 'Corrupted data file.' );
+
+	}
+
+	Cvar_Set( 'cmdline', com_cmdline );
+	Cvar_Set( 'registered', '1' );
+	static_registered = 1;
+	Con_Printf( 'Playing registered version.\n' );
+
+}
+
+/*
+================
+COM_Init
+
+The registered check from C COM_Init. The pak files are loaded before
+Host_Init in this port, so it can run straight away.
+================
+*/
+export function COM_Init() {
+
+	if ( registered === null ) {
+
+		registered = new cvar_t( 'registered', '0' );
+		Cvar_RegisterVariable( registered );
+		cmdline = new cvar_t( 'cmdline', '0', false, true );
+		Cvar_RegisterVariable( cmdline );
+
+	}
+
+	COM_CheckRegistered();
+
+}
+
 export function COM_InitArgv( argv ) {
 
 	com_argc = argv.length;
 	com_argv = argv;
+
+	// reconstitute the command line for the cmdline externally visible cvar
+	let n = '';
+	for ( let j = 0; j < argv.length; j ++ ) {
+
+		n += argv[ j ];
+		if ( n.length >= CMDLINE_LENGTH - 1 ) {
+
+			n = n.substring( 0, CMDLINE_LENGTH - 1 );
+			break;
+
+		}
+
+		n += ' ';
+
+	}
+
+	com_cmdline = n;
 
 }
 

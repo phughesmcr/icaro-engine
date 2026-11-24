@@ -5,11 +5,13 @@ import { VectorCopy } from './mathlib.js';
 import { Q_atof } from './common.js';
 import { cvar_t, Cvar_RegisterVariable } from './cvar.js';
 import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from './cmd.js';
-import { pmove, movevars, PlayerMove, PM_HullPointContents, PM_GetOnGround, Pmove_Init,
-	player_mins, player_maxs } from './pmove.js';
+import { pmove, movevars, PlayerMove, PM_GetOnGround, Pmove_Init,
+	PM_GetWaterType, PM_NQ_CheckGround,
+	PM_MOVETYPE_WALK, PM_MOVETYPE_FLY, PM_MOVETYPE_NOCLIP, player_mins, player_maxs } from './pmove.js';
 import { CONTENTS_EMPTY } from './bspfile.js';
 import { cl, cl_entities, packet_entities_t } from './client.js';
 import { STAT_HEALTH } from './quakedef.js';
+import { PS_BSP, PS_BOX, PF_FLY, PF_NOCLIP } from './protocol.js';
 import { realtime, sv } from './host.js';
 
 // CVars
@@ -17,6 +19,9 @@ export const cl_nopred = new cvar_t( 'cl_nopred', '0' );
 export const cl_pushlatency = new cvar_t( 'pushlatency', '-999' );
 export const cl_solid_players = new cvar_t( 'cl_solid_players', '1' );
 export const cl_predict_players = new cvar_t( 'cl_predict_players', '1' );
+// 1 = predict with pmove's NetQuake-physics mode, which mirrors what the
+// server runs (sv_user.js / sv_phys.js). 0 = original QuakeWorld pmove.
+export const cl_nqpmove = new cvar_t( 'cl_nqpmove', '1' );
 
 // Player flags from QuakeWorld protocol
 export const PF_DEAD = ( 1 << 9 ); // Don't block movement any more
@@ -26,8 +31,12 @@ export const PF_GIB = ( 1 << 10 ); // Offset the view height differently
 class predicted_player_t {
 	constructor() {
 		this.active = false;
-		this.origin = new Float32Array( 3 ); // Predicted origin
+		this.origin = new Float32Array( 3 ); // Predicted origin (output, for rendering)
 		this.velocity = new Float32Array( 3 ); // Last known velocity
+		// Server state from svc_playerinfo. Prediction always starts from
+		// here (QW keeps it in frame->playerstate), never from .origin.
+		this.state_origin = new Float32Array( 3 );
+		this.state_velocity = new Float32Array( 3 );
 		this.angles = new Float32Array( 3 );
 		this.modelindex = 0;
 		this.msgtime = 0; // Last update time
@@ -72,6 +81,11 @@ export class player_state_t {
 		this.oldbuttons = 0;
 		this.waterjumptime = 0;
 		this.weaponframe = 0;
+		// NetQuake-physics edict state (see pmove.js PM_NQ_PlayerMove)
+		this.waterlevel = -1; // -1 = unknown, recomputed from origin
+		this.watertype = CONTENTS_EMPTY;
+		this.roll = 0;
+		this.movedir = new Float32Array( 3 );
 	}
 
 	copyFrom( other ) {
@@ -82,6 +96,24 @@ export class player_state_t {
 		this.oldbuttons = other.oldbuttons;
 		this.waterjumptime = other.waterjumptime;
 		this.weaponframe = other.weaponframe;
+		this.waterlevel = other.waterlevel;
+		this.watertype = other.watertype;
+		this.roll = other.roll;
+		VectorCopy( other.movedir, this.movedir );
+	}
+
+	clear() {
+		this.origin.fill( 0 );
+		this.velocity.fill( 0 );
+		this.viewangles.fill( 0 );
+		this.onground = false;
+		this.oldbuttons = 0;
+		this.waterjumptime = 0;
+		this.weaponframe = 0;
+		this.waterlevel = -1;
+		this.watertype = CONTENTS_EMPTY;
+		this.roll = 0;
+		this.movedir.fill( 0 );
 	}
 }
 
@@ -142,6 +174,11 @@ export let cl_prediction_active = false; // true once CL_PredictMove has produce
 
 // Estimated latency for timing
 let cls_latency = 0;
+
+// Prediction target time, in the realtime / senttime clock. QW stores this
+// in cl.time, but here cl.time stays in server time for CL_LerpPoint,
+// dlights and the rest of the NQ client (PRED-1).
+let cl_predtime = 0;
 
 /*
 =================
@@ -418,23 +455,18 @@ export function CL_StoreCommand( cmd, senttime, netsequence = - 1 ) {
 	return sequence;
 }
 
+// Movetype for the local prediction run: the view player's movetype from its
+// last playerinfo (PF_NOCLIP / PF_FLY)
+let _cl_predmovetype = PM_MOVETYPE_WALK;
+// The view player's movetype from its last playerinfo (PF_NOCLIP / PF_FLY)
+let _cl_servermovetype = PM_MOVETYPE_WALK;
+
 // Temporary player state for other-player prediction
 const _predFrom = new player_state_t();
 const _predTo = new player_state_t();
 
 // Cached buffers for CL_PredictUsercmd split-command path (Golden Rule #4)
-const _splitTemp = new player_state_t();
-const _splitCmd = {
-	msec: 0,
-	angles: null, // shared with original cmd.angles (no copy needed)
-	forwardmove: 0,
-	sidemove: 0,
-	upmove: 0,
-	buttons: 0
-};
-
-// Cached buffer for CL_NudgePosition (Golden Rule #4)
-const _nudge_base = new Float32Array( 3 );
+const _splitTemp = [ new player_state_t(), new player_state_t() ];
 
 /*
 =================
@@ -442,9 +474,17 @@ CL_SetUpPlayerPrediction
 
 Calculate predicted positions for all other players.
 Uses full physics prediction (CL_PredictUsercmd) when movement commands
-are available from svc_playerinfo, otherwise falls back to velocity
-extrapolation.
+are available from svc_playerinfo, otherwise the server position.
 Ported from QuakeWorld cl_ents.c
+
+Every call starts from the server state (state_origin / state_velocity),
+so calling this more than once per frame doesn't compound the
+extrapolation. Other players are traced against the world and brush
+entities only, as in QW, where CL_PredictMove has restored numphysent
+before CL_SetUpPlayerPrediction(true) runs. The physents are built here,
+so the result does not depend on whatever the last CL_PredictMove left in
+pmove (it also includes the player being predicted), and it also works on
+a listen server, where CL_PredictMove never runs.
 =================
 */
 export function CL_SetUpPlayerPrediction( dopred ) {
@@ -452,6 +492,9 @@ export function CL_SetUpPlayerPrediction( dopred ) {
 	let playertime = realtime - cls_latency + 0.02;
 	if ( playertime > realtime )
 		playertime = realtime;
+
+	let physentsReady = false;
+	const nq = cl_nqpmove.value !== 0;
 
 	// Process all potential player slots
 	// Ported from QW cl_ents.c - reads from predicted_players[] data
@@ -480,47 +523,100 @@ export function CL_SetUpPlayerPrediction( dopred ) {
 
 		// For the local player, use our predicted position
 		if ( j + 1 === cl.viewentity ) {
-			VectorCopy( cl_simorg, pplayer.origin );
-			VectorCopy( cl_simvel, pplayer.velocity );
-		} else {
-			// Only predict half the move to minimize overruns (QW: msec = 500 * dt)
-			let msec = ( 500 * ( playertime - pplayer.msgtime ) ) | 0;
-
-			if ( msec <= 0 || cl_predict_players.value === 0 || dopred === false ) {
-				// No prediction - keep svc_playerinfo origin as-is
+			if ( cl_prediction_active ) {
+				VectorCopy( cl_simorg, pplayer.origin );
+				VectorCopy( cl_simvel, pplayer.velocity );
 			} else {
-				// Full physics prediction using movement commands from svc_playerinfo
-				if ( msec > 255 )
-					msec = 255;
-
-				// Build player state from svc_playerinfo data
-				VectorCopy( pplayer.origin, _predFrom.origin );
-				VectorCopy( pplayer.velocity, _predFrom.velocity );
-				VectorCopy( pplayer.cmd.angles, _predFrom.viewangles );
-				_predFrom.onground = ( pplayer.flags & PF_DEAD ) === 0;
-				_predFrom.oldbuttons = 0;
-				_predFrom.waterjumptime = 0;
-				_predFrom.weaponframe = pplayer.weaponframe;
-
-				// Set the prediction time on the command
-				pplayer.cmd.msec = msec;
-
-				// Run full physics prediction
-				CL_PredictUsercmd( _predFrom, _predTo, pplayer.cmd, false );
-
-				// Use the predicted result
-				VectorCopy( _predTo.origin, pplayer.origin );
+				VectorCopy( pplayer.state_origin, pplayer.origin );
+				VectorCopy( pplayer.state_velocity, pplayer.velocity );
 			}
+			continue;
 		}
+
+		VectorCopy( pplayer.state_origin, pplayer.origin );
+		VectorCopy( pplayer.state_velocity, pplayer.velocity );
+
+		// Only predict half the move to minimize overruns (QW: msec = 500 * dt)
+		let msec = ( 500 * ( playertime - pplayer.msgtime ) ) | 0;
+
+		if ( msec <= 0 || cl_predict_players.value === 0 || dopred === false )
+			continue; // No prediction - keep svc_playerinfo origin as-is
+
+		// Dead players get no user control on the NQ server
+		// (SV_ClientThink) and the QC tosses the body; keep them where
+		// the server put them.
+		if ( ( pplayer.flags & PF_DEAD ) !== 0 )
+			continue;
+
+		if ( msec > 255 )
+			msec = 255;
+
+		if ( physentsReady === false ) {
+			CL_SetPhysentsWorld();
+			physentsReady = true;
+		}
+
+		// Build player state from svc_playerinfo data
+		_predFrom.clear();
+		VectorCopy( pplayer.state_origin, _predFrom.origin );
+		VectorCopy( pplayer.state_velocity, _predFrom.velocity );
+		VectorCopy( pplayer.cmd.angles, _predFrom.viewangles );
+		_predFrom.weaponframe = pplayer.weaponframe;
+		// FL_ONGROUND is not sent for other players; estimate it
+		if ( nq )
+			_predFrom.onground = PM_NQ_CheckGround( _predFrom.origin, _predFrom.velocity );
+
+		// Set the prediction time on the command
+		pplayer.cmd.msec = msec;
+
+		// Run full physics prediction
+		CL_PredictUsercmd( _predFrom, _predTo, pplayer.cmd, false, false );
+
+		// Use the predicted result
+		VectorCopy( _predTo.origin, pplayer.origin );
 	}
+}
+
+/*
+=================
+CL_SetPhysentsWorld
+
+physents[0] = world, then the solid brush entities. QW does this in
+CL_SetSolidEntities, called once per parsed packet; the port rebuilds it
+for each user so stale player boxes are never left behind.
+=================
+*/
+function CL_SetPhysentsWorld() {
+	pmove.numphysent = 0;
+
+	if ( cl.worldmodel != null ) {
+		pmove.physents[ 0 ].model = cl.worldmodel;
+		pmove.physents[ 0 ].origin.fill( 0 );
+		pmove.physents[ 0 ].info = 0;
+		pmove.numphysent = 1;
+	}
+
+	// Add brush entities (doors, platforms) as collision objects
+	CL_SetSolidEntities();
 }
 
 /*
 =================
 CL_SetSolidEntities
 
-Add brush entities (doors, platforms, lifts) as collision objects for prediction.
+Add solid entities (doors, platforms, lifts, monsters) as collision
+objects for prediction.
 Ported from QuakeWorld cl_ents.c
+
+QW guesses from the model (hull 1 has a non-zero headnode) because its
+server never sets U_SOLID. Here the server sends each entity's solidity
+with PE_SOLID (sv_main.js SV_SetStateSolid): PS_BSP for SOLID_BSP brush
+entities, which collide with the model's hulls as in QW, and PS_BOX with
+the entity's v.mins/v.maxs for SOLID_BBOX and SOLID_SLIDEBOX (monsters,
+exploding boxes). Corpses are SOLID_NOT, so they are not sent as solid.
+
+Brush entities go in first, so a crowd of monsters can't push a door or
+lift out of a full physents list.
 =================
 */
 function CL_SetSolidEntities() {
@@ -538,11 +634,11 @@ function CL_SetSolidEntities() {
 	// authoritative frame data rather than potentially stale cl_entities.
 	for ( let i = 0; i < pak.num_entities; i++ ) {
 		const state = pak.entities[ i ];
-		if ( state.modelindex === 0 )
+		if ( ( state.solid & PS_BSP ) === 0 || state.modelindex === 0 )
 			continue;
 
 		const model = cl.model_precache[ state.modelindex ];
-		if ( model == null )
+		if ( model == null || model.hulls == null )
 			continue;
 
 		const hull = model.hulls[ 1 ];
@@ -553,11 +649,28 @@ function CL_SetSolidEntities() {
 			continue;
 
 		if ( pmove.numphysent >= pmove.physents.length )
-			break;
+			return;
 
 		const pent = pmove.physents[ pmove.numphysent ];
 		pent.model = model;
 		VectorCopy( state.origin, pent.origin );
+		pent.info = state.number;
+		pmove.numphysent++;
+	}
+
+	for ( let i = 0; i < pak.num_entities; i++ ) {
+		const state = pak.entities[ i ];
+		if ( ( state.solid & PS_BOX ) === 0 )
+			continue;
+
+		if ( pmove.numphysent >= pmove.physents.length )
+			return;
+
+		const pent = pmove.physents[ pmove.numphysent ];
+		pent.model = null; // SOLID_BBOX / SOLID_SLIDEBOX: box collision
+		VectorCopy( state.origin, pent.origin );
+		VectorCopy( state.mins, pent.mins );
+		VectorCopy( state.maxs, pent.maxs );
 		pent.info = state.number;
 		pmove.numphysent++;
 	}
@@ -567,27 +680,12 @@ function CL_SetSolidEntities() {
 =================
 CL_SetupPMove
 
-Set up pmove state for prediction
+Set up pmove state for prediction of the local player: world, brush
+entities, then other players at their server positions.
 =================
 */
 function CL_SetupPMove() {
-	// Set up physics entities (world model for collision)
-	pmove.numphysent = 0;
-
-	if ( cl.worldmodel != null ) {
-		pmove.physents[ 0 ].model = cl.worldmodel;
-		pmove.physents[ 0 ].origin.fill( 0 );
-		pmove.numphysent = 1;
-	}
-
-	// Add brush entities (doors, platforms) as collision objects
-	CL_SetSolidEntities();
-
-	// Calculate predicted positions for other players first
-	CL_SetUpPlayerPrediction( true );
-
-	// Add other players as physics entities for collision
-	CL_SetSolidPlayers( cl.viewentity - 1 );
+	CL_SetPhysentsWorld();
 }
 
 /*
@@ -595,20 +693,23 @@ function CL_SetupPMove() {
 CL_SetSolidPlayers
 
 Add other players as collision entities for prediction.
-Uses predicted positions from CL_SetUpPlayerPrediction().
-Ported from QuakeWorld cl_ents.c
+Ported from QuakeWorld cl_ents.c. QW uses the positions from
+CL_SetUpPlayerPrediction(false), i.e. the server positions.
 =================
 */
 function CL_SetSolidPlayers( playernum ) {
 	if ( cl_solid_players.value === 0 )
 		return;
 
-	// Use predicted player positions
 	for ( let j = 0; j < MAX_CLIENTS; j++ ) {
+		// Don't overflow the physents array
+		if ( pmove.numphysent >= pmove.physents.length )
+			break;
+
 		const pplayer = predicted_players[ j ];
 
-		// Skip inactive players
-		if ( ! pplayer.active )
+		// not present this frame
+		if ( pplayer.serverSequence !== server_sequence || pplayer.modelindex <= 0 )
 			continue;
 
 		// Don't add ourselves
@@ -619,19 +720,15 @@ function CL_SetSolidPlayers( playernum ) {
 		if ( ( pplayer.flags & PF_DEAD ) !== 0 )
 			continue;
 
-		// Add as a solid physics entity using predicted position
+		// Add as a solid physics entity using the server position
 		const pent = pmove.physents[ pmove.numphysent ];
 		pent.model = null; // Use box collision, not BSP
-		VectorCopy( pplayer.origin, pent.origin );
+		VectorCopy( pplayer.state_origin, pent.origin );
 		VectorCopy( player_mins, pent.mins );
 		VectorCopy( player_maxs, pent.maxs );
 		pent.info = j; // Store player number
 
 		pmove.numphysent++;
-
-		// Don't overflow the physents array
-		if ( pmove.numphysent >= pmove.physents.length )
-			break;
 	}
 }
 
@@ -671,6 +768,13 @@ export function CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, ski
 	pplayer.msgtime = realtime - msec * 0.001;
 	pplayer.serverSequence = server_sequence;
 
+	if ( playernum + 1 === cl.viewentity ) {
+		_cl_servermovetype = ( flags & PF_NOCLIP ) !== 0 ? PM_MOVETYPE_NOCLIP
+			: ( flags & PF_FLY ) !== 0 ? PM_MOVETYPE_FLY : PM_MOVETYPE_WALK;
+	}
+
+	VectorCopy( origin, pplayer.state_origin );
+	VectorCopy( velocity, pplayer.state_velocity );
 	VectorCopy( origin, pplayer.origin );
 	VectorCopy( velocity, pplayer.velocity );
 	pplayer.frame = frame;
@@ -723,67 +827,63 @@ export function CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, ski
 }
 
 /*
-=================
-CL_NudgePosition
-
-If pmove.origin is in a solid position,
-try nudging slightly on all axis to
-allow for the cut precision of the net coordinates
-=================
-*/
-function CL_NudgePosition() {
-	if ( cl.worldmodel == null )
-		return;
-
-	const hull = cl.worldmodel.hulls[ 1 ];
-	if ( PM_HullPointContents( hull, 0, pmove.origin ) === CONTENTS_EMPTY )
-		return;
-
-	const base = _nudge_base;
-	VectorCopy( pmove.origin, base );
-
-	for ( let x = -1; x <= 1; x++ ) {
-		for ( let y = -1; y <= 1; y++ ) {
-			pmove.origin[ 0 ] = base[ 0 ] + x * 1.0 / 8;
-			pmove.origin[ 1 ] = base[ 1 ] + y * 1.0 / 8;
-			if ( PM_HullPointContents( hull, 0, pmove.origin ) === CONTENTS_EMPTY )
-				return;
-		}
-	}
-}
-
-/*
 ==============
 CL_PredictUsercmd
 
 Predict the result of a single user command
+
+QW splits moves over 50 ms by recursing on halves (integer msec, so 255 ms
+runs as 8 x 31 ms). The port's recursion shared one split command and
+one temp state across levels, so deeper levels overwrote the outer
+level's msec. This runs the same steps iteratively with two scratch
+states. NetQuake mode splits only above 100 ms, the server's longest
+frame (Host_FilterTime clamps host_frametime to 0.1), and keeps
+fractional msec.
+
+dead defaults to the local player's health, as in QW.
 ==============
 */
-export function CL_PredictUsercmd( from, to, cmd, spectator ) {
-	// Split up very long moves
-	if ( cmd.msec > 50 ) {
-		_splitCmd.msec = Math.floor( cmd.msec / 2 );
-		_splitCmd.angles = cmd.angles;
-		_splitCmd.forwardmove = cmd.forwardmove;
-		_splitCmd.sidemove = cmd.sidemove;
-		_splitCmd.upmove = cmd.upmove;
-		_splitCmd.buttons = cmd.buttons;
+export function CL_PredictUsercmd( from, to, cmd, spectator, dead ) {
+	if ( dead === undefined )
+		dead = cl.stats[ STAT_HEALTH ] <= 0;
 
-		CL_PredictUsercmd( from, _splitTemp, _splitCmd, spectator );
-		CL_PredictUsercmd( _splitTemp, to, _splitCmd, spectator );
-		return;
+	const nq = cl_nqpmove.value !== 0 && spectator !== true;
+	const limit = nq ? 100 : 50;
+
+	let msec = cmd.msec;
+	let steps = 1;
+	while ( msec > limit ) {
+		msec = nq ? msec / 2 : Math.floor( msec / 2 );
+		steps *= 2;
 	}
 
+	let src = from;
+	for ( let i = 0; i < steps; i++ ) {
+		const dst = ( i === steps - 1 ) ? to : _splitTemp[ i & 1 ];
+		CL_PredictUsercmdStep( src, dst, cmd, msec, spectator, dead, nq );
+		src = dst;
+	}
+}
+
+function CL_PredictUsercmdStep( from, to, cmd, msec, spectator, dead, nq ) {
 	VectorCopy( from.origin, pmove.origin );
 	VectorCopy( cmd.angles, pmove.angles );
 	VectorCopy( from.velocity, pmove.velocity );
 
 	pmove.oldbuttons = from.oldbuttons;
 	pmove.waterjumptime = from.waterjumptime;
-	pmove.dead = cl.stats[ STAT_HEALTH ] <= 0;
+	pmove.dead = dead;
 	pmove.spectator = spectator;
 
-	pmove.cmd.msec = cmd.msec;
+	pmove.nqphysics = nq;
+	pmove.movetype = _cl_predmovetype;
+	pmove.onground = from.onground;
+	pmove.waterlevel = from.waterlevel;
+	pmove.watertype = from.watertype;
+	pmove.roll = from.roll;
+	VectorCopy( from.movedir, pmove.movedir );
+
+	pmove.cmd.msec = msec;
 	VectorCopy( cmd.angles, pmove.cmd.angles );
 	pmove.cmd.forwardmove = cmd.forwardmove;
 	pmove.cmd.sidemove = cmd.sidemove;
@@ -793,13 +893,28 @@ export function CL_PredictUsercmd( from, to, cmd, spectator ) {
 	PlayerMove();
 
 	to.waterjumptime = pmove.waterjumptime;
-	to.oldbuttons = pmove.cmd.buttons;
 	VectorCopy( pmove.origin, to.origin );
 	VectorCopy( pmove.angles, to.viewangles );
 	VectorCopy( pmove.velocity, to.velocity );
-	to.onground = PM_GetOnGround() !== -1; // Use proper onground from pmove
-
 	to.weaponframe = from.weaponframe;
+
+	if ( nq ) {
+		// FL_JUMPRELEASED is only re-set when the button is up, so keep
+		// pmove's flag rather than QW's "last buttons"
+		to.oldbuttons = pmove.oldbuttons;
+		to.onground = pmove.onground;
+		to.waterlevel = pmove.waterlevel;
+		to.watertype = pmove.watertype;
+		to.roll = pmove.roll;
+		VectorCopy( pmove.movedir, to.movedir );
+	} else {
+		to.oldbuttons = pmove.cmd.buttons;
+		to.onground = PM_GetOnGround() !== -1; // Use proper onground from pmove
+		to.waterlevel = -1; // QW levels mean something else; recompute if switched
+		to.watertype = PM_GetWaterType();
+		to.roll = 0;
+		VectorCopy( from.movedir, to.movedir );
+	}
 }
 
 /*
@@ -809,6 +924,10 @@ CL_Movevars_f
 Console command handler for _movevars. The server sends this via svc_stufftext
 during signon to sync physics parameters for client-side prediction.
 Matches original QuakeWorld's movevars protocol (QW/server/sv_user.c:98-108).
+
+Optional extra arguments 11 and 12 carry the NetQuake edgefriction and
+sv_maxvelocity cvars for the NetQuake-physics mode; servers that don't
+send them leave the WinQuake defaults.
 ==============
 */
 function CL_Movevars_f() {
@@ -825,6 +944,10 @@ function CL_Movevars_f() {
 	movevars.friction = Q_atof( Cmd_Argv( 8 ) );
 	movevars.waterfriction = Q_atof( Cmd_Argv( 9 ) );
 	movevars.entgravity = Q_atof( Cmd_Argv( 10 ) );
+	if ( Cmd_Argc() >= 12 )
+		movevars.edgefriction = Q_atof( Cmd_Argv( 11 ) );
+	if ( Cmd_Argc() >= 13 )
+		movevars.maxvelocity = Q_atof( Cmd_Argv( 12 ) );
 }
 
 /*
@@ -841,10 +964,11 @@ export function CL_PredictMove() {
 	if ( cl.paused )
 		return;
 
-	// Calculate the time we want to be at
-	cl.time = realtime - cls_latency - cl_pushlatency.value * 0.001;
-	if ( cl.time > realtime )
-		cl.time = realtime;
+	// Calculate the time we want to be at. QW writes this to cl.time; the
+	// port keeps it separate so cl.time stays in server time (PRED-1).
+	cl_predtime = realtime - cls_latency - cl_pushlatency.value * 0.001;
+	if ( cl_predtime > realtime )
+		cl_predtime = realtime;
 
 	if ( cl.intermission !== 0 )
 		return;
@@ -862,8 +986,12 @@ export function CL_PredictMove() {
 	// Get the last acknowledged frame from server
 	const from = frames[ incoming_sequence & UPDATE_MASK ];
 
-	// If prediction is disabled, just use server position
-	if ( cl_nopred.value !== 0 || sv.active ) {
+	const nq = cl_nqpmove.value !== 0;
+
+	// If prediction is disabled, just use server position. A dead player
+	// gets no user control on the NQ server (SV_ClientThink returns early)
+	// and the QC tosses the body, so use the server position then too.
+	if ( cl_nopred.value !== 0 || sv.active || ( nq && cl.stats[ STAT_HEALTH ] <= 0 ) ) {
 		VectorCopy( from.playerstate.velocity, cl_simvel );
 		VectorCopy( from.playerstate.origin, cl_simorg );
 		cl_simonground = from.playerstate.onground ? 0 : -1;
@@ -871,8 +999,14 @@ export function CL_PredictMove() {
 		return;
 	}
 
-	// Set up pmove for collision
+	// Set up pmove for collision: world and brush entities, then the
+	// other players, which are dropped again afterwards (QW oldphysent)
 	CL_SetupPMove();
+	const oldphysent = pmove.numphysent;
+	CL_SetSolidPlayers( cl.viewentity - 1 );
+
+	// The server sends the view player's movetype with its playerinfo
+	_cl_predmovetype = _cl_servermovetype;
 
 	// Predict forward from acknowledged state
 	let to = null;
@@ -883,11 +1017,14 @@ export function CL_PredictMove() {
 		to = frames[ ( incoming_sequence + i ) & UPDATE_MASK ];
 		CL_PredictUsercmd( lastFrom.playerstate, to.playerstate, to.cmd, false );
 
-		if ( to.senttime >= cl.time )
+		if ( to.senttime >= cl_predtime )
 			break;
 
 		lastFrom = to;
 	}
+
+	pmove.numphysent = oldphysent;
+	_cl_predmovetype = PM_MOVETYPE_WALK;
 
 	// net hasn't delivered packets in a long time...
 	if ( i === UPDATE_BACKUP - 1 || to == null )
@@ -898,7 +1035,7 @@ export function CL_PredictMove() {
 	if ( to.senttime === lastFrom.senttime ) {
 		f = 0;
 	} else {
-		f = ( cl.time - lastFrom.senttime ) / ( to.senttime - lastFrom.senttime );
+		f = ( cl_predtime - lastFrom.senttime ) / ( to.senttime - lastFrom.senttime );
 		if ( f < 0 ) f = 0;
 		if ( f > 1 ) f = 1;
 	}
@@ -941,6 +1078,8 @@ export function CL_SetServerState( origin, velocity, onground ) {
 	VectorCopy( origin, frame.playerstate.origin );
 	VectorCopy( velocity, frame.playerstate.velocity );
 	frame.playerstate.onground = onground;
+	// waterlevel belongs to the predicted origin, not the server's
+	frame.playerstate.waterlevel = -1;
 	has_server_state = true;
 }
 
@@ -954,6 +1093,7 @@ export function CL_InitPrediction() {
 	Cvar_RegisterVariable( cl_nopred );
 	Cvar_RegisterVariable( cl_solid_players );
 	Cvar_RegisterVariable( cl_predict_players );
+	Cvar_RegisterVariable( cl_nqpmove );
 	Cmd_AddCommand( '_movevars', CL_Movevars_f );
 	Pmove_Init();
 }
@@ -972,6 +1112,9 @@ export function CL_ResetPrediction() {
 	server_sequence = 0;
 	has_server_state = false;
 	cls_latency = 0;
+	cl_predtime = 0;
+	_cl_predmovetype = PM_MOVETYPE_WALK;
+	_cl_servermovetype = PM_MOVETYPE_WALK;
 
 	cl_simorg.fill( 0 );
 	cl_simvel.fill( 0 );
@@ -983,10 +1126,22 @@ export function CL_ResetPrediction() {
 		frames[ i ].sequence = - 1;
 		frames[ i ].netsequence = - 1;
 		frames[ i ].senttime = 0;
-		frames[ i ].playerstate.origin.fill( 0 );
-		frames[ i ].playerstate.velocity.fill( 0 );
+		frames[ i ].playerstate.clear(); // incl. waterjumptime, oldbuttons, onground
 		entity_frames[ i ].packet_entities.num_entities = 0;
 		entity_frames[ i ].invalid = false;
 		entity_frames[ i ].server_sequence = 0;
+	}
+
+	// Players from the previous map must not match server_sequence 0
+	for ( let i = 0; i < MAX_CLIENTS; i++ ) {
+		const pplayer = predicted_players[ i ];
+		pplayer.active = false;
+		pplayer.serverSequence = - 1;
+		pplayer.modelindex = 0;
+		pplayer.flags = 0;
+		pplayer.origin.fill( 0 );
+		pplayer.velocity.fill( 0 );
+		pplayer.state_origin.fill( 0 );
+		pplayer.state_velocity.fill( 0 );
 	}
 }

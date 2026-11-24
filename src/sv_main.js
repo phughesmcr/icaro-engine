@@ -30,12 +30,13 @@ import {
 	SU_ITEMS, SU_ONGROUND, SU_INWATER, SU_WEAPONFRAME, SU_ARMOR, SU_WEAPON,
 	DEFAULT_VIEWHEIGHT, svc_damage, svc_setangle,
 	svc_playerinfo, PF_MSEC, PF_COMMAND, PF_VELOCITY1, PF_VELOCITY2, PF_VELOCITY3,
-	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_DEAD, PF_GIB,
+	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_DEAD, PF_GIB, PF_FLY, PF_NOCLIP,
 	CM_ANGLE1, CM_ANGLE2, CM_ANGLE3, CM_FORWARD, CM_SIDE, CM_UP, CM_BUTTONS, CM_IMPULSE,
 	svc_packetentities, svc_deltapacketentities, svc_serversequence,
 	PE_ENT_BITS, PE_ENT_MASK, PE_ORIGIN1, PE_ORIGIN2, PE_ORIGIN3,
 	PE_ANGLE2, PE_REMOVE, PE_MOREBITS,
 	PE_FRAME, PE_ANGLE1, PE_ANGLE3, PE_MODEL, PE_COLORMAP, PE_SKIN, PE_EFFECTS, PE_SOLID,
+	PS_BSP, PS_BOX, PS_NOLERP,
 	MAX_PACKET_ENTITIES, PE_UPDATE_MASK
 } from './protocol.js';
 import {
@@ -43,8 +44,8 @@ import {
 	server_t, client_t, NUM_PING_TIMES,
 	host_client, set_host_client,
 	host_time,
-	MOVETYPE_PUSH, MOVETYPE_STEP,
-	SOLID_BSP, SOLID_NOT, SOLID_TRIGGER,
+	MOVETYPE_PUSH, MOVETYPE_STEP, MOVETYPE_FLY, MOVETYPE_NOCLIP,
+	SOLID_BSP, SOLID_NOT, SOLID_TRIGGER, SOLID_BBOX, SOLID_SLIDEBOX,
 	FL_ITEM, FL_ONGROUND, FL_MONSTER,
 	EF_MUZZLEFLASH,
 	NUM_SPAWN_PARMS,
@@ -293,8 +294,29 @@ export function SV_SendServerinfo( client ) {
 	MSG_WriteShort( client.message, clientnum + 1 );
 
 	// send movevars for client-side prediction (matches QW sv_user.c:98-108)
-	MSG_WriteByte( client.message, svc_stufftext );
-	MSG_WriteString( client.message, '_movevars'
+	SV_WriteMovevars( client.message );
+
+	MSG_WriteByte( client.message, svc_signonnum );
+	MSG_WriteByte( client.message, 1 );
+
+	client.sendsignon = true;
+	client.spawned = false; // need prespawn, spawn, etc
+
+}
+
+/*
+================
+SV_WriteMovevars
+
+Writes the _movevars stufftext that feeds client-side prediction. Not in
+NetQuake: it carries the values QuakeWorld sends in svc_serverdata, then
+edgefriction and sv_maxvelocity for pmove.js's NetQuake-physics mode.
+================
+*/
+export function SV_WriteMovevars( msg ) {
+
+	MSG_WriteByte( msg, svc_stufftext );
+	MSG_WriteString( msg, '_movevars'
 		+ ' ' + sv_gravity.value
 		+ ' ' + sv_stopspeed.value
 		+ ' ' + sv_maxspeed.value
@@ -305,13 +327,48 @@ export function SV_SendServerinfo( client ) {
 		+ ' ' + sv_friction.value
 		+ ' ' + 1 // waterfriction (no cvar in NQ)
 		+ ' ' + 1.0 // entgravity
+		+ ' ' + sv_edgefriction.value
+		+ ' ' + sv_maxvelocity.value
 		+ '\n' );
 
-	MSG_WriteByte( client.message, svc_signonnum );
-	MSG_WriteByte( client.message, 1 );
+}
 
-	client.sendsignon = true;
-	client.spawned = false; // need prespawn, spawn, etc
+// Movevar cvar values last sent to all clients
+const _movevars_sent = new Float64Array( 7 );
+
+function SV_SnapshotMovevars() {
+
+	_movevars_sent[ 0 ] = sv_gravity.value;
+	_movevars_sent[ 1 ] = sv_stopspeed.value;
+	_movevars_sent[ 2 ] = sv_maxspeed.value;
+	_movevars_sent[ 3 ] = sv_accelerate.value;
+	_movevars_sent[ 4 ] = sv_friction.value;
+	_movevars_sent[ 5 ] = sv_edgefriction.value;
+	_movevars_sent[ 6 ] = sv_maxvelocity.value;
+
+}
+
+/*
+================
+SV_CheckMovevars
+
+Re-sends _movevars on the reliable stream when one of the cvars it carries
+changes mid-game, so prediction keeps using the server's values.
+================
+*/
+export function SV_CheckMovevars() {
+
+	if ( _movevars_sent[ 0 ] === sv_gravity.value
+		&& _movevars_sent[ 1 ] === sv_stopspeed.value
+		&& _movevars_sent[ 2 ] === sv_maxspeed.value
+		&& _movevars_sent[ 3 ] === sv_accelerate.value
+		&& _movevars_sent[ 4 ] === sv_friction.value
+		&& _movevars_sent[ 5 ] === sv_edgefriction.value
+		&& _movevars_sent[ 6 ] === sv_maxvelocity.value )
+		return;
+
+	SV_SnapshotMovevars();
+	SV_WriteMovevars( sv.reliable_datagram );
 
 }
 
@@ -513,6 +570,8 @@ SV_UpdateToReliableMessages
 */
 function SV_UpdateToReliableMessages() {
 
+	SV_CheckMovevars();
+
 	// check for changes to be sent over the reliable streams
 	for ( let i = 0; i < svs.maxclients; i ++ ) {
 
@@ -670,7 +729,7 @@ function SV_WriteDelta( from, to, msg, force ) {
 	if ( to.modelindex !== from.modelindex )
 		bits |= PE_MODEL;
 
-	if ( to.flags & PE_SOLID )
+	if ( to.solid !== from.solid || ( ( to.solid & PS_BOX ) && ! SV_SameBox( from, to ) ) )
 		bits |= PE_SOLID;
 
 	// Check if morebits byte is needed (any of the lower-byte flags set)
@@ -717,8 +776,95 @@ function SV_WriteDelta( from, to, msg, force ) {
 		MSG_WriteCoord( msg, to.origin[ 2 ] );
 	if ( bits & PE_ANGLE3 )
 		MSG_WriteAngle( msg, to.angles[ 2 ] );
+	if ( bits & PE_SOLID ) {
+
+		MSG_WriteByte( msg, to.solid );
+		if ( to.solid & PS_BOX ) {
+
+			for ( let i = 0; i < 3; i ++ )
+				MSG_WriteCoord( msg, to.mins[ i ] );
+			for ( let i = 0; i < 3; i ++ )
+				MSG_WriteCoord( msg, to.maxs[ i ] );
+
+		}
+
+	}
 
 }
+
+function SV_SameBox( a, b ) {
+
+	return a.mins[ 0 ] === b.mins[ 0 ] && a.mins[ 1 ] === b.mins[ 1 ] && a.mins[ 2 ] === b.mins[ 2 ]
+		&& a.maxs[ 0 ] === b.maxs[ 0 ] && a.maxs[ 1 ] === b.maxs[ 1 ] && a.maxs[ 2 ] === b.maxs[ 2 ];
+
+}
+
+/*
+=============
+SV_SetStateSolid
+
+Fills in the PS_* byte and box that client-side prediction collides with.
+Not in QuakeWorld, whose CL_SetSolidEntities guesses from the model (QW
+never sets U_SOLID). Uses v.solid, never the model: corpses keep their
+model but are SOLID_NOT. Mirrors the filters SV_ClipToLinks applies when
+clent moves, so the player doesn't collide with their own missiles or
+with point-sized entities (nails, rockets) in prediction either.
+
+SOLID_BBOX and SOLID_SLIDEBOX entities get their v.mins/v.maxs as the box,
+sent with the PS_* byte only when it changes: the client has no other way
+to learn a monster's size, and setsize boxes don't follow from the model
+(misc_explobox is 0..32 x 0..64, Chthon is 256 wide and 280 tall).
+=============
+*/
+export function SV_SetStateSolid( state, ent, clent ) {
+
+	let solid = 0;
+	const s = ent.v.solid;
+	const clprog = EDICT_TO_PROG( clent );
+
+	if ( ( s === SOLID_BSP || s === SOLID_BBOX || s === SOLID_SLIDEBOX )
+		&& ent.v.size[ 0 ] !== 0 // points never interact
+		&& ent.v.owner !== clprog // don't clip against own missiles
+		&& ! ( clent.v.owner !== 0 && clent.v.owner === EDICT_TO_PROG( ent ) ) ) // or owner
+		solid = s === SOLID_BSP ? PS_BSP : PS_BOX;
+
+	if ( solid === PS_BOX ) {
+
+		for ( let i = 0; i < 3; i ++ ) {
+
+			state.mins[ i ] = ent.v.mins[ i ];
+			state.maxs[ i ] = ent.v.maxs[ i ];
+
+		}
+
+	} else {
+
+		state.mins.fill( 0 );
+		state.maxs.fill( 0 );
+
+	}
+
+	// sv_main.c SV_WriteEntitiesToClient: U_NOLERP, "don't mess up the
+	// step animation"
+	if ( ent.v.movetype === MOVETYPE_STEP )
+		solid |= PS_NOLERP;
+
+	state.solid = solid;
+
+}
+
+// Largest single entry SV_WriteDelta can write: short + morebits byte
+// + model, frame, colormap, skin, effects + 3 coords + 3 angles
+// + PE_SOLID byte and box (6 coords)
+const MAX_PACKETENTITY_BYTES = 2 + 1 + 5 + 3 * 2 + 3 + 1 + 6 * 2;
+
+// Largest svc_playerinfo SV_WritePlayersToClient can write: svc + num + flags
+// + origin + frame + msec + usercmd (bits, 3 angle16, 3 moves, buttons,
+// impulse) + velocity + model, skin, effects, weaponframe
+const MAX_PLAYERINFO_BYTES = 1 + 1 + 2 + 3 * 2 + 1 + 1 + ( 1 + 3 * 2 + 3 * 2 + 1 + 1 ) + 3 * 2 + 4;
+
+// An empty packetentities: svc_deltapacketentities + sequence + terminator
+const MIN_PACKETENTITIES_BYTES = 2 + 2;
 
 /*
 =============
@@ -728,7 +874,7 @@ Writes a delta update of a packet_entities_t to the message.
 Ported from: QW/server/sv_ents.c
 =============
 */
-function SV_EmitPacketEntities( client, to, msg ) {
+export function SV_EmitPacketEntities( client, to, msg ) {
 
 	let from;
 	let oldmax;
@@ -755,7 +901,23 @@ function SV_EmitPacketEntities( client, to, msg ) {
 	let newindex = 0;
 	let oldindex = 0;
 
+	// The last point at which the packet could end: the client would rebuild
+	// at most MAX_PACKET_ENTITIES entities from it (see the overflow case below)
+	let safesize = msg.cursize;
+	let safenew = 0;
+	let safeold = 0;
+	let overflow = false;
+
 	while ( newindex < to.num_entities || oldindex < oldmax ) {
+
+		// sv_main.c SV_WriteEntitiesToClient stops with "packet overflow" when
+		// the next entity might not fit. Keep 2 bytes for the terminator.
+		if ( msg.maxsize - msg.cursize < MAX_PACKETENTITY_BYTES + 2 ) {
+
+			overflow = true;
+			break;
+
+		}
 
 		const newnum = newindex >= to.num_entities ? 9999 : to.entities[ newindex ].number;
 		const oldnum = oldindex >= oldmax ? 9999 : from.entities[ oldindex ].number;
@@ -766,28 +928,46 @@ function SV_EmitPacketEntities( client, to, msg ) {
 			SV_WriteDelta( from.entities[ oldindex ], to.entities[ newindex ], msg, false );
 			oldindex ++;
 			newindex ++;
-			continue;
 
-		}
-
-		if ( newnum < oldnum ) {
+		} else if ( newnum < oldnum ) {
 
 			// this is a new entity, send it from the baseline
 			const ent = EDICT_NUM( newnum );
 			SV_WriteDelta( ent.baseline, to.entities[ newindex ], msg, true );
 			newindex ++;
-			continue;
 
-		}
-
-		if ( newnum > oldnum ) {
+		} else {
 
 			// the old entity isn't present in the new message
 			MSG_WriteShort( msg, oldnum | PE_REMOVE );
 			oldindex ++;
-			continue;
 
 		}
+
+		if ( newindex + oldmax - oldindex <= MAX_PACKET_ENTITIES ) {
+
+			safesize = msg.cursize;
+			safenew = newindex;
+			safeold = oldindex;
+
+		}
+
+	}
+
+	if ( overflow ) {
+
+		Con_Printf( 'packet overflow\n' );
+
+		// On the terminator the client keeps what it has read and copies the
+		// rest of the old frame unchanged. Rewind to the last point where that
+		// stays within MAX_PACKET_ENTITIES, and make this frame's snapshot match
+		// what the client will hold, so later deltas from it stay in step. The
+		// entities left out are sent on a later frame.
+		msg.cursize = safesize;
+		let n = safenew;
+		for ( let j = safeold; j < oldmax; j ++, n ++ )
+			to.state( n ).copyFrom( from.entities[ j ] );
+		to.num_entities = n;
 
 	}
 
@@ -842,11 +1022,12 @@ function SV_WriteEntitiesToClient( client, clent, pvs, msg ) {
 		if ( pack.num_entities >= MAX_PACKET_ENTITIES )
 			continue; // all full
 
-		const state = pack.entities[ pack.num_entities ];
+		const state = pack.state( pack.num_entities );
 		pack.num_entities ++;
 
 		state.number = e;
 		state.flags = 0;
+		SV_SetStateSolid( state, ent, clent );
 		state.origin[ 0 ] = ent.v.origin[ 0 ];
 		state.origin[ 1 ] = ent.v.origin[ 1 ];
 		state.origin[ 2 ] = ent.v.origin[ 2 ];
@@ -1096,7 +1277,7 @@ SV_WritePlayersToClient
 QuakeWorld-style player info for client-side prediction
 ==================
 */
-function SV_WritePlayersToClient( client, clent, pvs, msg ) {
+export function SV_WritePlayersToClient( client, clent, pvs, msg ) {
 
 	// Find player model index if not cached
 	if ( sv_playermodel === 0 ) {
@@ -1133,6 +1314,15 @@ function SV_WritePlayersToClient( client, clent, pvs, msg ) {
 
 		}
 
+		// leave room for this player and an empty packetentities after it;
+		// C has no playerinfo, so this mirrors its per-entity overflow check
+		if ( msg.maxsize - msg.cursize < MAX_PLAYERINFO_BYTES + MIN_PACKETENTITIES_BYTES ) {
+
+			Con_Printf( 'packet overflow\n' );
+			return;
+
+		}
+
 		let pflags = PF_MSEC | PF_COMMAND;
 
 		if ( ent.v.modelindex !== sv_playermodel )
@@ -1159,6 +1349,11 @@ function SV_WritePlayersToClient( client, clent, pvs, msg ) {
 			pflags &= ~( PF_MSEC | PF_COMMAND );
 			if ( ent.v.weaponframe !== 0 )
 				pflags |= PF_WEAPONFRAME;
+			// for prediction (pmove.js PM_NQ_PlayerMove)
+			if ( ent.v.movetype === MOVETYPE_NOCLIP )
+				pflags |= PF_NOCLIP;
+			else if ( ent.v.movetype === MOVETYPE_FLY )
+				pflags |= PF_FLY;
 
 		}
 
@@ -1759,6 +1954,9 @@ export function SV_SpawnServer( server ) {
 
 	// all setup is completed, any further precache statements are errors
 	sv.state = ss_active;
+
+	// clients get the current movevars in serverinfo
+	SV_SnapshotMovevars();
 
 	// run two frames to allow everything to settle
 	set_host_frametime( 0.1 );

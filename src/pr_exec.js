@@ -2,6 +2,7 @@
 
 import { Sys_Error } from './sys.js';
 import { Con_Printf } from './common.js';
+import { PR_GlobalString, PR_GlobalStringNoContents } from './pr_edict.js';
 import {
 	progs, pr_functions, pr_strings_data,
 	pr_globaldefs, pr_fielddefs, pr_statements,
@@ -141,18 +142,28 @@ export function PR_PrintStatement( s ) {
 
 }
 
-// Forward references to pr_edict.js functions for printing
-// (used by PR_PrintStatement but defined in pr_edict.js)
-function PR_GlobalString( ofs ) {
+/*
+============
+PR_strcmp
 
-	// Simple fallback - will be overridden by imports if needed
-	return ofs + ' ';
+strcmp() for OP_NE_S. C only guarantees the sign of the result, so this
+returns -1, 0 or 1 from the first differing byte.
+============
+*/
+export function PR_strcmp( a, b ) {
 
-}
+	const n = Math.min( a.length, b.length );
+	for ( let i = 0; i < n; i ++ ) {
 
-function PR_GlobalStringNoContents( ofs ) {
+		const d = a.charCodeAt( i ) - b.charCodeAt( i );
+		if ( d !== 0 )
+			return d < 0 ? - 1 : 1;
 
-	return ofs + ' ';
+	}
+
+	if ( a.length === b.length )
+		return 0;
+	return a.length < b.length ? - 1 : 1;
 
 }
 
@@ -501,7 +512,8 @@ export function PR_ExecuteProgram( fnum ) {
 					|| gf[ stA + 2 ] !== gf[ stB + 2 ] ) ? 1 : 0;
 				break;
 			case OP_NE_S:
-				gf[ stC ] = ( PR_GetString( gi[ stA ] ) !== PR_GetString( gi[ stB ] ) ) ? 1 : 0;
+				// C stores strcmp()'s raw result here, not a boolean
+				gf[ stC ] = PR_strcmp( PR_GetString( gi[ stA ] ), PR_GetString( gi[ stB ] ) );
 				break;
 			case OP_NE_E:
 				gf[ stC ] = ( gi[ stA ] !== gi[ stB ] ) ? 1 : 0;

@@ -71,9 +71,9 @@ function CL_ParseBeam( m ) {
 	end[ 1 ] = MSG_ReadCoord();
 	end[ 2 ] = MSG_ReadCoord();
 
-	// Use server time (cl.mtime[0]) for beam timing to avoid mismatch with
-	// client-side prediction which modifies cl.time
-	const serverTime = cl.mtime[ 0 ];
+	// cl_tent.c CL_ParseBeam: b->endtime = cl.time + 0.2. Prediction runs
+	// on its own clock and leaves cl.time alone, so the C timing works.
+	const beamTime = cl.time;
 
 	// override any beam with the same entity
 	for ( let i = 0; i < MAX_BEAMS; i ++ ) {
@@ -83,7 +83,7 @@ function CL_ParseBeam( m ) {
 
 			b.entity = ent;
 			b.model = m;
-			b.endtime = serverTime + 0.2;
+			b.endtime = beamTime + 0.2;
 			VectorCopy( start, b.start );
 			VectorCopy( end, b.end );
 			return;
@@ -96,11 +96,11 @@ function CL_ParseBeam( m ) {
 	for ( let i = 0; i < MAX_BEAMS; i ++ ) {
 
 		const b = cl_beams[ i ];
-		if ( b.model == null || b.endtime < serverTime ) {
+		if ( b.model == null || b.endtime < beamTime ) {
 
 			b.entity = ent;
 			b.model = m;
-			b.endtime = serverTime + 0.2;
+			b.endtime = beamTime + 0.2;
 			VectorCopy( start, b.start );
 			VectorCopy( end, b.end );
 			return;
@@ -150,7 +150,7 @@ export function CL_ParseTEnt() {
 				S_StartSound( - 1, 0, cl_sfx_tink1, pos, 1, 1 );
 			else {
 
-				const rnd = Math.random() * 3 | 0;
+				const rnd = Math.random() * 4 | 0; // rand() & 3: ric3 on 0 and 3
 				if ( rnd === 1 )
 					S_StartSound( - 1, 0, cl_sfx_ric1, pos, 1, 1 );
 				else if ( rnd === 2 )
@@ -171,7 +171,7 @@ export function CL_ParseTEnt() {
 				S_StartSound( - 1, 0, cl_sfx_tink1, pos, 1, 1 );
 			else {
 
-				const rnd = Math.random() * 3 | 0;
+				const rnd = Math.random() * 4 | 0; // rand() & 3: ric3 on 0 and 3
 				if ( rnd === 1 )
 					S_StartSound( - 1, 0, cl_sfx_ric1, pos, 1, 1 );
 				else if ( rnd === 2 )
@@ -313,16 +313,15 @@ export function CL_UpdateTEnts() {
 
 	num_temp_entities = 0;
 
-	// Use server time (cl.mtime[0]) for beam expiration to match CL_ParseBeam
-	// which also uses server time. This avoids mismatch with client-side prediction.
-	const serverTime = cl.mtime[ 0 ];
+	// cl_tent.c: beams expire against cl.time, as set in CL_ParseBeam
+	const beamTime = cl.time;
 
 	// update lightning
 	for ( let i = 0; i < MAX_BEAMS; i ++ ) {
 
 		const b = cl_beams[ i ];
 		// Fix Golden Rule #2: use explicit null check instead of falsy check
-		if ( b.model == null || b.endtime < serverTime )
+		if ( b.model == null || b.endtime < beamTime )
 			continue;
 
 		// if coming from the player, update the start position

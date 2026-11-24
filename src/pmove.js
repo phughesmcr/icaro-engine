@@ -4,7 +4,8 @@
 
 import { vec3_origin, DotProduct, VectorCopy, VectorAdd, VectorSubtract,
 	VectorMA, VectorScale, VectorNormalize, Length, AngleVectors, CrossProduct } from './mathlib.js';
-import { CONTENTS_EMPTY, CONTENTS_SOLID, CONTENTS_WATER, CONTENTS_SLIME } from './bspfile.js';
+import { CONTENTS_EMPTY, CONTENTS_SOLID, CONTENTS_WATER, CONTENTS_SLIME,
+	CONTENTS_CURRENT_0, CONTENTS_CURRENT_DOWN } from './bspfile.js';
 
 // Movement constants
 const STEPSIZE = 18;
@@ -67,8 +68,22 @@ export const movevars = {
 	wateraccelerate: 10,
 	friction: 4,
 	waterfriction: 1,
-	entgravity: 1.0
+	entgravity: 1.0,
+
+	// NetQuake server values used only by the NetQuake-physics mode
+	// (pmove.nqphysics). The NQ server never sends these, so they hold the
+	// WinQuake cvar defaults unless _movevars carries them as optional
+	// extra arguments (see CL_Movevars_f).
+	edgefriction: 2, // edgefriction (sv_phys.c)
+	maxvelocity: 2000, // sv_maxvelocity (sv_phys.c)
+	rollangle: 2, // cl_rollangle (view.c), read by V_CalcRoll in SV_ClientThink
+	rollspeed: 200 // cl_rollspeed (view.c)
 };
+
+// Movetypes understood by the NetQuake-physics mode (server.h values)
+export const PM_MOVETYPE_WALK = 3;
+export const PM_MOVETYPE_FLY = 5;
+export const PM_MOVETYPE_NOCLIP = 8;
 
 // Trace result structure
 export class pmtrace_t {
@@ -90,6 +105,10 @@ export class pmtrace_t {
 // Cached pmtrace_t buffers (must be after class definition)
 const _pm_move_total = new pmtrace_t();
 const _pm_move_trace = new pmtrace_t();
+const _pm_point_total = new pmtrace_t();
+const _pm_point_trace = new pmtrace_t();
+const _pm_point_start_l = new Float32Array( 3 );
+const _pm_point_end_l = new Float32Array( 3 );
 
 // Physics entity (world + other players/entities to collide with)
 export class physent_t {
@@ -115,6 +134,17 @@ export const pmove = {
 	dead: false,
 	spectator: false,
 
+	// NetQuake-physics mode (see PM_NQ_PlayerMove). When true, PlayerMove
+	// runs one NetQuake server frame for the player instead of QW pmove.
+	// These fields carry the edict state NQ keeps between frames:
+	nqphysics: false,
+	movetype: PM_MOVETYPE_WALK,
+	onground: false, // FL_ONGROUND, in and out
+	waterlevel: -1, // ent->v.waterlevel from the last SV_CheckWater; -1 = unknown
+	watertype: CONTENTS_EMPTY,
+	roll: 0, // ent->v.angles[ROLL] from the last SV_ClientThink
+	movedir: new Float32Array( 3 ), // ent->v.movedir, set by QC CheckWaterJump
+
 	// World state - physics entities to collide with
 	numphysent: 0,
 	physents: [], // Array of physent_t, [0] is world
@@ -134,8 +164,10 @@ export const pmove = {
 	touchindex: []
 };
 
-// Initialize physents array
-for ( let i = 0; i < 32; i++ ) {
+// Initialize physents array. QW has 32; NQ maps put far more solid
+// entities (monsters) in view, and CL_SetSolidEntities adds them all.
+export const MAX_PHYSENTS = 128;
+for ( let i = 0; i < MAX_PHYSENTS; i++ ) {
 	pmove.physents.push( new physent_t() );
 	pmove.touchindex.push( 0 );
 }
@@ -460,6 +492,76 @@ export function PM_PlayerMove( start, end ) {
 			total.inwater = trace.inwater;
 			total.fraction = trace.fraction;
 			VectorCopy( trace.endpos, total.endpos );
+			VectorCopy( trace.plane.normal, total.plane.normal );
+			total.plane.dist = trace.plane.dist;
+			total.ent = i;
+		}
+	}
+
+	return total;
+}
+
+/*
+================
+PM_NQ_PointMove
+
+Point trace (zero-size box) through hull 0 of the BSP physents only.
+Client-side stand-in for NetQuake's SV_Move ( start, vec3_origin,
+vec3_origin, end, MOVE_NOMONSTERS, ent ) (WinQuake/world.c), which the
+server uses for the edge-friction probe in SV_UserFriction and for
+QuakeC traceline ( ..., TRUE, ... ) in CheckWaterJump. Non-BSP physents
+(player boxes) are skipped, as MOVE_NOMONSTERS skips non-SOLID_BSP edicts.
+================
+*/
+export function PM_NQ_PointMove( start, end ) {
+	const total = _pm_point_total;
+	total.allsolid = false;
+	total.startsolid = false;
+	total.inopen = false;
+	total.inwater = false;
+	total.fraction = 1;
+	total.ent = -1;
+	total.plane.dist = 0;
+	total.plane.normal.fill( 0 );
+	VectorCopy( end, total.endpos );
+
+	for ( let i = 0; i < pmove.numphysent; i++ ) {
+		const pe = pmove.physents[ i ];
+		if ( pe.model == null )
+			continue;
+
+		const hull = pe.model.hulls[ 0 ];
+		if ( hull == null )
+			continue;
+
+		VectorSubtract( start, pe.origin, _pm_point_start_l );
+		VectorSubtract( end, pe.origin, _pm_point_end_l );
+
+		const trace = _pm_point_trace;
+		trace.allsolid = true;
+		trace.startsolid = false;
+		trace.inopen = false;
+		trace.inwater = false;
+		trace.fraction = 1;
+		trace.ent = -1;
+		trace.plane.dist = 0;
+		trace.plane.normal.fill( 0 );
+		VectorCopy( _pm_point_end_l, trace.endpos );
+
+		PM_RecursiveHullCheck( hull, hull.firstclipnode, 0, 1, _pm_point_start_l, _pm_point_end_l, trace );
+
+		if ( trace.allsolid )
+			trace.startsolid = true;
+		if ( trace.startsolid )
+			trace.fraction = 0;
+
+		if ( trace.fraction < total.fraction ) {
+			VectorAdd( trace.endpos, pe.origin, total.endpos );
+			total.allsolid = trace.allsolid;
+			total.startsolid = trace.startsolid;
+			total.inopen = trace.inopen;
+			total.inwater = trace.inwater;
+			total.fraction = trace.fraction;
 			VectorCopy( trace.plane.normal, total.plane.normal );
 			total.plane.dist = trace.plane.dist;
 			total.ent = i;
@@ -1081,7 +1183,7 @@ SpectatorMove
 */
 function SpectatorMove() {
 	// friction
-	let speed = Length( pmove.velocity );
+	const speed = Length( pmove.velocity );
 	if ( speed < 1 ) {
 		pmove.velocity.fill( 0 );
 	} else {
@@ -1137,6 +1239,800 @@ function SpectatorMove() {
 }
 
 /*
+==============================================================================
+
+NETQUAKE PHYSICS MODE
+
+The Icaro server simulates players with NetQuake physics (sv_user.js /
+sv_phys.js, ported from WinQuake sv_user.c / sv_phys.c) plus the id1
+QuakeC PlayerPreThink, not with QuakeWorld pmove. When pmove.nqphysics is
+set, PlayerMove runs this client-side copy of one NetQuake server frame
+for the player, so prediction agrees with the server:
+
+	SV_ClientThink    friction / acceleration, using last frame's
+	                  FL_ONGROUND and waterlevel
+	PlayerPreThink    QC WaterMove damping, CheckWaterJump, PlayerJump
+	SV_Physics_Client SV_CheckVelocity, SV_CheckWater, SV_AddGravity,
+	                  SV_WalkMove (or fly / noclip)
+
+What still cannot match client-side is listed in PM_NQ_PlayerMove.
+
+==============================================================================
+*/
+
+const PITCH = 0;
+const YAW = 1;
+const ROLL = 2;
+
+const _nq_angles = new Float32Array( 3 ); // ent->v.angles
+const _nq_wishvel = new Float32Array( 3 );
+const _nq_wishdir = new Float32Array( 3 );
+const _nq_start = new Float32Array( 3 );
+const _nq_stop = new Float32Array( 3 );
+const _nq_point = new Float32Array( 3 );
+const _nq_flatforward = new Float32Array( 3 );
+const _nq_planes = [];
+for ( let i = 0; i < MAX_CLIP_PLANES; i++ )
+	_nq_planes[ i ] = new Float32Array( 3 );
+const _nq_original_velocity = new Float32Array( 3 );
+const _nq_primal_velocity = new Float32Array( 3 );
+const _nq_new_velocity = new Float32Array( 3 );
+const _nq_end = new Float32Array( 3 );
+const _nq_dir = new Float32Array( 3 );
+const _nq_steptrace_normal = new Float32Array( 3 ); // steptrace.plane.normal in SV_WalkMove
+const _nq_oldorg = new Float32Array( 3 );
+const _nq_oldvel = new Float32Array( 3 );
+const _nq_nosteporg = new Float32Array( 3 );
+const _nq_nostepvel = new Float32Array( 3 );
+const _nq_upmove = new Float32Array( 3 );
+const _nq_downmove = new Float32Array( 3 );
+const _nq_unstick_oldorg = new Float32Array( 3 );
+const _nq_unstick_dir = new Float32Array( 3 );
+const _nq_into = new Float32Array( 3 );
+const _nq_side = new Float32Array( 3 );
+
+/*
+===============
+PM_NQ_CalcRoll
+
+V_CalcRoll (WinQuake view.c), which SV_ClientThink uses to roll the
+player's angles by up to 4 * cl_rollangle while strafing. The roll
+tilts the right vector, so it changes strafe acceleration slightly.
+===============
+*/
+function PM_NQ_CalcRoll( angles, velocity ) {
+	AngleVectors( angles, forward, right, up );
+	let side = DotProduct( velocity, right );
+	const sign = side < 0 ? -1 : 1;
+	side = Math.abs( side );
+
+	const value = movevars.rollangle;
+	if ( side < movevars.rollspeed )
+		side = side * value / movevars.rollspeed;
+	else
+		side = value;
+
+	return side * sign;
+}
+
+/*
+==================
+PM_NQ_UserFriction
+
+SV_UserFriction (WinQuake sv_user.c). Unlike PM_Friction: 2D speed,
+edge probe is a point trace through hull 0, edge factor is the
+edgefriction cvar, no water branch (SV_WaterMove has its own).
+==================
+*/
+function PM_NQ_UserFriction() {
+	const vel = pmove.velocity;
+
+	const speed = Math.sqrt( vel[ 0 ] * vel[ 0 ] + vel[ 1 ] * vel[ 1 ] );
+	if ( speed === 0 )
+		return;
+
+	// if the leading edge is over a dropoff, increase friction
+	const start = _nq_start;
+	const stop = _nq_stop;
+	start[ 0 ] = stop[ 0 ] = pmove.origin[ 0 ] + vel[ 0 ] / speed * 16;
+	start[ 1 ] = stop[ 1 ] = pmove.origin[ 1 ] + vel[ 1 ] / speed * 16;
+	start[ 2 ] = pmove.origin[ 2 ] + player_mins[ 2 ];
+	stop[ 2 ] = start[ 2 ] - 34;
+
+	const trace = PM_NQ_PointMove( start, stop );
+
+	let friction;
+	if ( trace.fraction === 1 )
+		friction = movevars.friction * movevars.edgefriction;
+	else
+		friction = movevars.friction;
+
+	// apply friction
+	const control = speed < movevars.stopspeed ? movevars.stopspeed : speed;
+	let newspeed = speed - frametime * control * friction;
+
+	if ( newspeed < 0 )
+		newspeed = 0;
+	newspeed /= speed;
+
+	vel[ 0 ] = vel[ 0 ] * newspeed;
+	vel[ 1 ] = vel[ 1 ] * newspeed;
+	vel[ 2 ] = vel[ 2 ] * newspeed;
+}
+
+/*
+===================
+PM_NQ_WaterMove
+
+SV_WaterMove (WinQuake sv_user.c): full-pitch v_angle, sv_friction
+water drag, sv_accelerate. No step press-down (that is QW pmove only).
+===================
+*/
+function PM_NQ_WaterMove() {
+	const wishvel = _nq_wishvel;
+
+	// user intentions
+	AngleVectors( pmove.angles, forward, right, up );
+
+	for ( let i = 0; i < 3; i++ )
+		wishvel[ i ] = forward[ i ] * pmove.cmd.forwardmove + right[ i ] * pmove.cmd.sidemove;
+
+	if ( pmove.cmd.forwardmove === 0 && pmove.cmd.sidemove === 0 && pmove.cmd.upmove === 0 )
+		wishvel[ 2 ] -= 60; // drift towards bottom
+	else
+		wishvel[ 2 ] += pmove.cmd.upmove;
+
+	let wishspeed = Length( wishvel );
+	if ( wishspeed > movevars.maxspeed ) {
+		VectorScale( wishvel, movevars.maxspeed / wishspeed, wishvel );
+		wishspeed = movevars.maxspeed;
+	}
+	wishspeed *= 0.7;
+
+	// water friction
+	const vel = pmove.velocity;
+	const speed = Length( vel );
+	let newspeed;
+	if ( speed !== 0 ) {
+		newspeed = speed - frametime * speed * movevars.friction;
+		if ( newspeed < 0 )
+			newspeed = 0;
+		VectorScale( vel, newspeed / speed, vel );
+	} else {
+		newspeed = 0;
+	}
+
+	// water acceleration
+	if ( wishspeed === 0 )
+		return;
+
+	const addspeed = wishspeed - newspeed;
+	if ( addspeed <= 0 )
+		return;
+
+	VectorNormalize( wishvel );
+	let accelspeed = movevars.accelerate * wishspeed * frametime;
+	if ( accelspeed > addspeed )
+		accelspeed = addspeed;
+
+	for ( let i = 0; i < 3; i++ )
+		vel[ i ] += accelspeed * wishvel[ i ];
+}
+
+/*
+===================
+PM_NQ_AirMove
+
+SV_AirMove (WinQuake sv_user.c). The wish direction comes from
+ent->v.angles, whose pitch is -v_angle/3. Z is zeroed afterwards and the
+vector is not renormalised, so looking up or down slows the player.
+===================
+*/
+function PM_NQ_AirMove() {
+	AngleVectors( _nq_angles, forward, right, up );
+
+	const fmove = pmove.cmd.forwardmove;
+	const smove = pmove.cmd.sidemove;
+
+	// The server's "hack to not let you back into teleporter" needs
+	// ent->v.teleport_time, which the client is never sent.
+
+	const wishvel = _nq_wishvel;
+	for ( let i = 0; i < 3; i++ )
+		wishvel[ i ] = forward[ i ] * fmove + right[ i ] * smove;
+
+	if ( pmove.movetype !== PM_MOVETYPE_WALK )
+		wishvel[ 2 ] = pmove.cmd.upmove;
+	else
+		wishvel[ 2 ] = 0;
+
+	const wishdir = _nq_wishdir;
+	VectorCopy( wishvel, wishdir );
+	let wishspeed = VectorNormalize( wishdir );
+	if ( wishspeed > movevars.maxspeed ) {
+		VectorScale( wishvel, movevars.maxspeed / wishspeed, wishvel );
+		wishspeed = movevars.maxspeed;
+	}
+
+	if ( pmove.movetype === PM_MOVETYPE_NOCLIP ) {
+		// noclip
+		VectorCopy( wishvel, pmove.velocity );
+	} else if ( pmove.onground ) {
+		PM_NQ_UserFriction();
+		PM_Accelerate( wishdir, wishspeed, movevars.accelerate ); // SV_Accelerate
+	} else {
+		// not on ground, so little effect on velocity.
+		// SV_AirAccelerate: same maths as PM_AirAccelerate (cap 30,
+		// sv_accelerate, scaled by the full wishspeed).
+		PM_AirAccelerate( wishdir, wishspeed, movevars.accelerate );
+	}
+}
+
+/*
+===================
+PM_NQ_ClientThink
+
+SV_ClientThink (WinQuake sv_user.c). pmove.angles is v_angle (the
+quantised angles the server read from clc_move).
+===================
+*/
+function PM_NQ_ClientThink() {
+	// show 1/3 the pitch angle and all the roll angle.
+	// V_CalcRoll reads last frame's ent->v.angles; the previous pitch and
+	// yaw are not kept, so this frame's are used with last frame's roll.
+	// punchangle is not added: the client only knows its latest value.
+	_nq_angles[ PITCH ] = - pmove.angles[ PITCH ] / 3;
+	_nq_angles[ YAW ] = pmove.angles[ YAW ];
+	_nq_angles[ ROLL ] = pmove.roll;
+	pmove.roll = PM_NQ_CalcRoll( _nq_angles, pmove.velocity ) * 4;
+	_nq_angles[ ROLL ] = pmove.roll;
+
+	// FL_WATERJUMP is pmove.waterjumptime > 0; it counts down the two
+	// seconds the QC sets in ent->v.teleport_time.
+	if ( pmove.waterjumptime > 0 ) {
+		// SV_WaterJump
+		pmove.waterjumptime -= frametime;
+		if ( pmove.waterjumptime <= 0 || waterlevel === 0 )
+			pmove.waterjumptime = 0;
+		pmove.velocity[ 0 ] = pmove.movedir[ 0 ];
+		pmove.velocity[ 1 ] = pmove.movedir[ 1 ];
+		return;
+	}
+
+	// walk
+	if ( waterlevel >= 2 && pmove.movetype !== PM_MOVETYPE_NOCLIP ) {
+		PM_NQ_WaterMove();
+		return;
+	}
+
+	PM_NQ_AirMove();
+}
+
+/*
+=============
+PM_NQ_CheckWaterJump
+
+id1 QuakeC CheckWaterJump (client.qc), called from PlayerPreThink when
+waterlevel == 2. Uses two traceline ( ..., TRUE, ... ) point traces where
+QW pmove uses point contents.
+=============
+*/
+function PM_NQ_CheckWaterJump() {
+	// makevectors ( self.angles ); v_forward_z = 0; normalize
+	AngleVectors( _nq_angles, forward, right, up );
+	const flat = _nq_flatforward;
+	flat[ 0 ] = forward[ 0 ];
+	flat[ 1 ] = forward[ 1 ];
+	flat[ 2 ] = 0;
+	VectorNormalize( flat );
+
+	const start = _nq_start;
+	const end = _nq_stop;
+	VectorCopy( pmove.origin, start );
+	start[ 2 ] += 8;
+	VectorMA( start, 24, flat, end );
+
+	let trace = PM_NQ_PointMove( start, end );
+	if ( trace.fraction < 1 ) {
+		// solid at waist
+		start[ 2 ] += player_maxs[ 2 ] - 8;
+		VectorMA( start, 24, flat, end );
+		VectorScale( trace.plane.normal, -50, pmove.movedir );
+		trace = PM_NQ_PointMove( start, end );
+		if ( trace.fraction === 1 ) {
+			// open at eye level
+			pmove.waterjumptime = 2; // FL_WATERJUMP, teleport_time = time + 2
+			pmove.velocity[ 2 ] = 225;
+			pmove.oldbuttons |= BUTTON_JUMP; // clear FL_JUMPRELEASED
+		}
+	}
+}
+
+/*
+=============
+PM_NQ_PlayerJump
+
+id1 QuakeC PlayerJump (client.qc). Runs after SV_ClientThink, so the jump
+frame gets ground friction and acceleration before the +270.
+FL_JUMPRELEASED is !( pmove.oldbuttons & BUTTON_JUMP ).
+=============
+*/
+function PM_NQ_PlayerJump() {
+	if ( pmove.waterjumptime > 0 )
+		return;
+
+	if ( waterlevel >= 2 ) {
+		if ( watertype === CONTENTS_WATER )
+			pmove.velocity[ 2 ] = 100;
+		else if ( watertype === CONTENTS_SLIME )
+			pmove.velocity[ 2 ] = 80;
+		else
+			pmove.velocity[ 2 ] = 50;
+		return;
+	}
+
+	if ( ! pmove.onground )
+		return;
+
+	if ( pmove.oldbuttons & BUTTON_JUMP )
+		return; // don't pogo stick
+
+	pmove.oldbuttons |= BUTTON_JUMP;
+	pmove.onground = false; // don't stairwalk
+	pmove.velocity[ 2 ] += 270;
+}
+
+/*
+=============
+PM_NQ_CheckWater
+
+SV_CheckWater (WinQuake sv_phys.c). Currents count as water, as in
+SV_PointContents. Returns true when waterlevel > 1.
+=============
+*/
+function PM_NQ_CheckWater() {
+	const point = _nq_point;
+	point[ 0 ] = pmove.origin[ 0 ];
+	point[ 1 ] = pmove.origin[ 1 ];
+	point[ 2 ] = pmove.origin[ 2 ] + player_mins[ 2 ] + 1;
+
+	waterlevel = 0;
+	watertype = CONTENTS_EMPTY;
+
+	let cont = PM_NQ_PointContents( point );
+	if ( cont <= CONTENTS_WATER ) {
+		watertype = cont;
+		waterlevel = 1;
+		point[ 2 ] = pmove.origin[ 2 ] + ( player_mins[ 2 ] + player_maxs[ 2 ] ) * 0.5;
+		cont = PM_NQ_PointContents( point );
+		if ( cont <= CONTENTS_WATER ) {
+			waterlevel = 2;
+			point[ 2 ] = pmove.origin[ 2 ] + 22; // view_ofs
+			cont = PM_NQ_PointContents( point );
+			if ( cont <= CONTENTS_WATER )
+				waterlevel = 3;
+		}
+	}
+
+	return waterlevel > 1;
+}
+
+// SV_PointContents (WinQuake world.c): world hull 0, currents become water
+function PM_NQ_PointContents( p ) {
+	const cont = PM_PointContents( p );
+	if ( cont <= CONTENTS_CURRENT_0 && cont >= CONTENTS_CURRENT_DOWN )
+		return CONTENTS_WATER;
+	return cont;
+}
+
+/*
+============
+PM_NQ_FlyMove
+
+SV_FlyMove (WinQuake sv_phys.c). Differs from PM_FlyMove: only allsolid
+traps, original_velocity is refreshed after progress, a floor hit on a BSP
+physent sets FL_ONGROUND, and the last vertical-plane hit is saved for
+SV_WallFriction when savestep is true.
+============
+*/
+function PM_NQ_FlyMove( time, savestep ) {
+	const numbumps = 4;
+	let blocked = 0;
+
+	const original_velocity = _nq_original_velocity;
+	const primal_velocity = _nq_primal_velocity;
+	const new_velocity = _nq_new_velocity;
+	const planes = _nq_planes;
+	const end = _nq_end;
+	VectorCopy( pmove.velocity, original_velocity );
+	VectorCopy( pmove.velocity, primal_velocity );
+	let numplanes = 0;
+
+	let time_left = time;
+
+	for ( let bumpcount = 0; bumpcount < numbumps; bumpcount++ ) {
+		if ( pmove.velocity[ 0 ] === 0 && pmove.velocity[ 1 ] === 0 && pmove.velocity[ 2 ] === 0 )
+			break;
+
+		for ( let i = 0; i < 3; i++ )
+			end[ i ] = pmove.origin[ i ] + time_left * pmove.velocity[ i ];
+
+		const trace = PM_PlayerMove( pmove.origin, end );
+
+		if ( trace.allsolid ) {
+			// entity is trapped in another solid
+			pmove.velocity.fill( 0 );
+			return 3;
+		}
+
+		if ( trace.fraction > 0 ) {
+			// actually covered some distance
+			VectorCopy( trace.endpos, pmove.origin );
+			VectorCopy( pmove.velocity, original_velocity );
+			numplanes = 0;
+		}
+
+		if ( trace.fraction === 1 )
+			break; // moved the entire distance
+
+		if ( trace.plane.normal[ 2 ] > 0.7 ) {
+			blocked |= 1; // floor
+			// only SOLID_BSP ground counts: world and brush physents,
+			// not other players (SOLID_SLIDEBOX) or box physents
+			if ( trace.ent >= 0 && pmove.physents[ trace.ent ].model != null )
+				pmove.onground = true;
+		}
+		if ( trace.plane.normal[ 2 ] === 0 ) {
+			blocked |= 2; // step
+			if ( savestep )
+				VectorCopy( trace.plane.normal, _nq_steptrace_normal );
+		}
+
+		time_left -= time_left * trace.fraction;
+
+		// cliped to another plane
+		if ( numplanes >= MAX_CLIP_PLANES ) {
+			// this shouldn't really happen
+			pmove.velocity.fill( 0 );
+			return 3;
+		}
+
+		VectorCopy( trace.plane.normal, planes[ numplanes ] );
+		numplanes++;
+
+		// modify original_velocity so it parallels all of the clip planes
+		let i;
+		for ( i = 0; i < numplanes; i++ ) {
+			PM_ClipVelocity( original_velocity, planes[ i ], new_velocity, 1 );
+			let j;
+			for ( j = 0; j < numplanes; j++ ) {
+				if ( j !== i ) {
+					if ( DotProduct( new_velocity, planes[ j ] ) < 0 )
+						break; // not ok
+				}
+			}
+			if ( j === numplanes )
+				break;
+		}
+
+		if ( i !== numplanes ) {
+			// go along this plane
+			VectorCopy( new_velocity, pmove.velocity );
+		} else {
+			// go along the crease
+			if ( numplanes !== 2 ) {
+				pmove.velocity.fill( 0 );
+				return 7;
+			}
+			CrossProduct( planes[ 0 ], planes[ 1 ], _nq_dir );
+			const d = DotProduct( _nq_dir, pmove.velocity );
+			VectorScale( _nq_dir, d, pmove.velocity );
+		}
+
+		// if original velocity is against the original velocity, stop dead
+		// to avoid tiny occilations in sloping corners
+		if ( DotProduct( pmove.velocity, primal_velocity ) <= 0 ) {
+			pmove.velocity.fill( 0 );
+			return blocked;
+		}
+	}
+
+	return blocked;
+}
+
+/*
+============
+PM_NQ_PushEntity
+
+SV_PushEntity (WinQuake sv_phys.c) for the player: trace the hull by
+push and take the end position, even when the trace starts in solid.
+============
+*/
+function PM_NQ_PushEntity( push ) {
+	VectorAdd( pmove.origin, push, _nq_end );
+	const trace = PM_PlayerMove( pmove.origin, _nq_end );
+	VectorCopy( trace.endpos, pmove.origin );
+	return trace;
+}
+
+/*
+============
+PM_NQ_WallFriction
+
+SV_WallFriction (WinQuake sv_phys.c): extra friction when running into
+a wall, based on the full-pitch view angle.
+============
+*/
+function PM_NQ_WallFriction() {
+	AngleVectors( pmove.angles, forward, right, up );
+	let d = DotProduct( _nq_steptrace_normal, forward );
+
+	d += 0.5;
+	if ( d >= 0 )
+		return;
+
+	// cut the tangential velocity
+	const i = DotProduct( _nq_steptrace_normal, pmove.velocity );
+	VectorScale( _nq_steptrace_normal, i, _nq_into );
+	VectorSubtract( pmove.velocity, _nq_into, _nq_side );
+
+	pmove.velocity[ 0 ] = _nq_side[ 0 ] * ( 1 + d );
+	pmove.velocity[ 1 ] = _nq_side[ 1 ] * ( 1 + d );
+}
+
+/*
+=====================
+PM_NQ_TryUnstick
+
+SV_TryUnstick (WinQuake sv_phys.c)
+=====================
+*/
+function PM_NQ_TryUnstick( oldvel ) {
+	const oldorg = _nq_unstick_oldorg;
+	const dir = _nq_unstick_dir;
+	VectorCopy( pmove.origin, oldorg );
+	dir.fill( 0 );
+
+	for ( let i = 0; i < 8; i++ ) {
+		// try pushing a little in an axial direction
+		switch ( i ) {
+			case 0: dir[ 0 ] = 2; dir[ 1 ] = 0; break;
+			case 1: dir[ 0 ] = 0; dir[ 1 ] = 2; break;
+			case 2: dir[ 0 ] = -2; dir[ 1 ] = 0; break;
+			case 3: dir[ 0 ] = 0; dir[ 1 ] = -2; break;
+			case 4: dir[ 0 ] = 2; dir[ 1 ] = 2; break;
+			case 5: dir[ 0 ] = -2; dir[ 1 ] = 2; break;
+			case 6: dir[ 0 ] = 2; dir[ 1 ] = -2; break;
+			case 7: dir[ 0 ] = -2; dir[ 1 ] = -2; break;
+		}
+
+		PM_NQ_PushEntity( dir );
+
+		// retry the original move
+		pmove.velocity[ 0 ] = oldvel[ 0 ];
+		pmove.velocity[ 1 ] = oldvel[ 1 ];
+		pmove.velocity[ 2 ] = 0;
+		const clip = PM_NQ_FlyMove( 0.1, false ); // C passes its own steptrace
+
+		if ( Math.abs( oldorg[ 1 ] - pmove.origin[ 1 ] ) > 4
+			|| Math.abs( oldorg[ 0 ] - pmove.origin[ 0 ] ) > 4 )
+			return clip;
+
+		// go back to the original pos and try again
+		VectorCopy( oldorg, pmove.origin );
+	}
+
+	pmove.velocity.fill( 0 );
+	return 7; // still not moving
+}
+
+/*
+=====================
+PM_NQ_WalkMove
+
+SV_WalkMove (WinQuake sv_phys.c)
+=====================
+*/
+function PM_NQ_WalkMove() {
+	const oldorg = _nq_oldorg;
+	const oldvel = _nq_oldvel;
+
+	// do a regular slide move unless it looks like you ran into a step
+	const oldonground = pmove.onground;
+	pmove.onground = false;
+
+	VectorCopy( pmove.origin, oldorg );
+	VectorCopy( pmove.velocity, oldvel );
+
+	let clip = PM_NQ_FlyMove( frametime, true );
+
+	if ( ! ( clip & 2 ) )
+		return; // move didn't block on a step
+
+	if ( ! oldonground && waterlevel === 0 )
+		return; // don't stair up while jumping
+
+	if ( pmove.movetype !== PM_MOVETYPE_WALK )
+		return; // gibbed by a trigger
+
+	// sv_nostep is not known client-side; it defaults to 0
+
+	if ( pmove.waterjumptime > 0 )
+		return; // FL_WATERJUMP
+
+	VectorCopy( pmove.origin, _nq_nosteporg );
+	VectorCopy( pmove.velocity, _nq_nostepvel );
+
+	// try moving up and forward to go up a step
+	VectorCopy( oldorg, pmove.origin ); // back to start pos
+
+	_nq_upmove.fill( 0 );
+	_nq_downmove.fill( 0 );
+	_nq_upmove[ 2 ] = STEPSIZE;
+	_nq_downmove[ 2 ] = - STEPSIZE + oldvel[ 2 ] * frametime;
+
+	// move up
+	PM_NQ_PushEntity( _nq_upmove );
+
+	// move forward
+	pmove.velocity[ 0 ] = oldvel[ 0 ];
+	pmove.velocity[ 1 ] = oldvel[ 1 ];
+	pmove.velocity[ 2 ] = 0;
+	clip = PM_NQ_FlyMove( frametime, true );
+
+	// check for stuckness, possibly due to the limited precision of floats
+	// in the clipping hulls
+	if ( clip ) {
+		if ( Math.abs( oldorg[ 1 ] - pmove.origin[ 1 ] ) < 0.03125
+			&& Math.abs( oldorg[ 0 ] - pmove.origin[ 0 ] ) < 0.03125 ) {
+			// stepping up didn't make any progress
+			clip = PM_NQ_TryUnstick( oldvel );
+		}
+	}
+
+	// extra friction based on view angle
+	if ( clip & 2 )
+		PM_NQ_WallFriction();
+
+	// move down
+	const downtrace = PM_NQ_PushEntity( _nq_downmove );
+
+	if ( downtrace.plane.normal[ 2 ] > 0.7 ) {
+		// The C sets FL_ONGROUND here only if the *player* is SOLID_BSP,
+		// which a player never is, so a step-up leaves the flag as the
+		// fly moves left it.
+	} else {
+		// if the push down didn't end up on good ground, use the move without
+		// the step up.  This happens near wall / slope combinations, and can
+		// cause the player to hop up higher on a slope too steep to climb
+		VectorCopy( _nq_nosteporg, pmove.origin );
+		VectorCopy( _nq_nostepvel, pmove.velocity );
+	}
+}
+
+/*
+=============
+PM_NQ_PlayerMove
+
+One NetQuake server frame for the player, in server order (Host_ServerFrame:
+SV_RunClients, then SV_Physics). In: pmove.origin, velocity, angles (v_angle),
+cmd, onground, waterlevel / watertype (-1 = recompute), roll, movedir,
+waterjumptime, oldbuttons, movetype. Out: the same fields.
+
+Not modelled, because the client is never told the inputs:
+	- punchangle in the SV_ClientThink angles
+	- fixangle, teleport_time back-move lock, QC pausetime
+	- SV_CheckStuck (NudgePosition handles coordinate rounding instead)
+	- touch / impact functions, triggers
+	- dead players: CL_PredictMove does not predict them
+=============
+*/
+function PM_NQ_PlayerMove() {
+	if ( pmove.movetype === PM_MOVETYPE_NOCLIP ) {
+		// SV_AirMove sets velocity to wishvel; SV_Physics_Client then
+		// moves without clipping
+		VectorCopy( pmove.cmd.angles, pmove.angles );
+		if ( pmove.waterlevel < 0 ) {
+			waterlevel = 0;
+			watertype = CONTENTS_EMPTY;
+		} else {
+			waterlevel = pmove.waterlevel;
+			watertype = pmove.watertype;
+		}
+		PM_NQ_ClientThink();
+		VectorMA( pmove.origin, frametime, pmove.velocity, pmove.origin );
+		onground = pmove.onground ? 0 : -1;
+		return;
+	}
+
+	NudgePosition();
+
+	// v_angle is the command's angles
+	VectorCopy( pmove.cmd.angles, pmove.angles );
+
+	// last frame's SV_CheckWater result
+	if ( pmove.waterlevel < 0 ) {
+		PM_NQ_CheckWater();
+	} else {
+		waterlevel = pmove.waterlevel;
+		watertype = pmove.watertype;
+	}
+
+	//
+	// SV_RunClients -> SV_ClientThink
+	//
+	PM_NQ_ClientThink();
+
+	//
+	// SV_Physics_Client -> QC PlayerPreThink
+	//
+
+	// QC WaterMove: extra water drag
+	if ( waterlevel !== 0 && ! ( pmove.waterjumptime > 0 ) ) {
+		const scale = 1 - 0.8 * waterlevel * frametime;
+		VectorScale( pmove.velocity, scale, pmove.velocity );
+	}
+
+	if ( waterlevel === 2 )
+		PM_NQ_CheckWaterJump();
+
+	if ( pmove.cmd.buttons & BUTTON_JUMP )
+		PM_NQ_PlayerJump();
+	else
+		pmove.oldbuttons &= ~BUTTON_JUMP; // FL_JUMPRELEASED
+
+	//
+	// SV_Physics_Client
+	//
+
+	// SV_CheckVelocity
+	for ( let i = 0; i < 3; i++ ) {
+		if ( pmove.velocity[ i ] > movevars.maxvelocity )
+			pmove.velocity[ i ] = movevars.maxvelocity;
+		else if ( pmove.velocity[ i ] < - movevars.maxvelocity )
+			pmove.velocity[ i ] = - movevars.maxvelocity;
+	}
+
+	if ( pmove.movetype === PM_MOVETYPE_FLY ) {
+		PM_NQ_FlyMove( frametime, false );
+	} else {
+		// MOVETYPE_WALK
+		if ( ! PM_NQ_CheckWater() && ! ( pmove.waterjumptime > 0 ) )
+			pmove.velocity[ 2 ] -= movevars.entgravity * movevars.gravity * frametime; // SV_AddGravity
+
+		PM_NQ_WalkMove();
+	}
+
+	pmove.waterlevel = waterlevel;
+	pmove.watertype = watertype;
+	onground = pmove.onground ? 0 : -1;
+}
+
+/*
+=============
+PM_NQ_CheckGround
+
+Best guess at FL_ONGROUND for a state the server did not report it for
+(other players): standing on a BSP physent within one unit, and not
+moving up fast (the PM_CatagorizePosition test).
+=============
+*/
+export function PM_NQ_CheckGround( origin, velocity ) {
+	if ( velocity[ 2 ] > 180 )
+		return false;
+
+	_nq_point[ 0 ] = origin[ 0 ];
+	_nq_point[ 1 ] = origin[ 1 ];
+	_nq_point[ 2 ] = origin[ 2 ] - 1;
+
+	const tr = PM_PlayerMove( origin, _nq_point );
+	if ( tr.fraction === 1 || tr.plane.normal[ 2 ] < 0.7 )
+		return false;
+
+	return tr.ent >= 0 && pmove.physents[ tr.ent ].model != null;
+}
+
+/*
 =============
 PlayerMove
 
@@ -1149,6 +2045,11 @@ were contacted during the move.
 export function PlayerMove() {
 	frametime = pmove.cmd.msec * 0.001;
 	pmove.numtouch = 0;
+
+	if ( pmove.nqphysics === true && pmove.spectator !== true ) {
+		PM_NQ_PlayerMove();
+		return;
+	}
 
 	AngleVectors( pmove.angles, forward, right, up );
 

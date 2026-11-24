@@ -10,7 +10,7 @@ import { NET_Connect, NET_SendMessage, NET_SendUnreliableMessage, NET_CanSendMes
 import { cvar_t, Cvar_RegisterVariable, Cvar_VariableValue } from './cvar.js';
 import { Cmd_AddCommand } from './cmd.js';
 import { Cbuf_InsertText } from './cmd.js';
-import { clc_disconnect, clc_stringcmd } from './protocol.js';
+import { clc_disconnect, clc_stringcmd, PS_NOLERP } from './protocol.js';
 import { CL_GetMessage, CL_Record_f, CL_PlayDemo_f, CL_TimeDemo_f, CL_StopPlayback, CL_Stop_f } from './cl_demo.js';
 import { CL_ParseServerMessage } from './cl_parse.js';
 import { SIGNONS, MAX_DLIGHTS, MAX_EFRAGS, MAX_BEAMS, MAX_TEMP_ENTITIES,
@@ -30,6 +30,7 @@ import { SCR_EndLoadingPlaque, SCR_BeginLoadingPlaque } from './gl_screen.js';
 import { S_StopAllSounds } from './snd_dma.js';
 import { M_ConnectionError, M_ShouldReturnOnError } from './menu.js';
 import { key_menu, set_key_dest } from './keys.js';
+import { V_UsePrediction } from './view.js';
 import { CL_InitPrediction, CL_ResetPrediction, CL_PredictMove,
 	CL_GetPredictedPlayer, CL_SetUpPlayerPrediction,
 	CL_GetServerSequence, CL_GetValidSequence, CL_GetEntityFrame,
@@ -70,6 +71,8 @@ export function CL_ClearState() {
 
 	// Reset client-side prediction state
 	CL_ResetPrediction();
+	_peCurSeq = 0;
+	_pePrevSeq = 0;
 
 	// wipe the entire cl structure
 	// In JS we reset the fields instead of memset
@@ -96,6 +99,7 @@ export function CL_ClearState() {
 	cl.mviewangles[ 0 ].fill( 0 );
 	cl.mviewangles[ 1 ].fill( 0 );
 	cl.viewangles.fill( 0 );
+	cl.setangles.fill( 0 );
 	cl.mvelocity[ 0 ].fill( 0 );
 	cl.mvelocity[ 1 ].fill( 0 );
 	cl.velocity.fill( 0 );
@@ -609,6 +613,10 @@ const _peFv = new Float32Array( 3 );
 const _peRv = new Float32Array( 3 );
 const _peUv = new Float32Array( 3 );
 
+// Server sequence of the packet linked last, and of the one before it
+let _peCurSeq = 0;
+let _pePrevSeq = 0;
+
 function CL_LinkPacketEntities( frac ) {
 
 	const seq = CL_GetServerSequence();
@@ -621,6 +629,15 @@ function CL_LinkPacketEntities( frac ) {
 
 	const pack = eframe.packet_entities;
 	const autorotate = anglemod( 100 * cl.time );
+
+	// remember which packet came before this one (for CL_LinkPacketEntities'
+	// "was it in the last packet" check)
+	if ( seq !== _peCurSeq ) {
+
+		_pePrevSeq = _peCurSeq;
+		_peCurSeq = seq;
+
+	}
 
 	for ( let pnum = 0; pnum < pack.num_entities; pnum ++ ) {
 
@@ -722,14 +739,22 @@ function CL_LinkPacketEntities( frac ) {
 		// similar to the NQ-style entity interpolation in CL_RelinkEntities.
 		// Update msg_origins only when new server data arrives (sequence changed).
 		//
-		if ( ent._lastPESeq === 0 || seq - ent._lastPESeq > 64 ) {
+		// An entity that was not in the previous packet has nothing to lerp
+		// from (cl_parse.c CL_ParseUpdate: ent->msgtime != cl.mtime[1] means
+		// forcelink), so snap it: this covers slots re-entering the PVS and
+		// slots reused by a new entity.
+		//
+		if ( ent._lastPESeq !== seq && ( ent._lastPESeq === 0 || ent._lastPESeq !== _pePrevSeq ) ) {
 
-			// First appearance or entity was gone for a long time — snap to current
+			// First appearance or absent from the previous packet — snap to current
 			VectorCopy( s1.origin, ent.msg_origins[ 0 ] );
 			VectorCopy( s1.origin, ent.msg_origins[ 1 ] );
 			VectorCopy( s1.angles, ent.msg_angles[ 0 ] );
 			VectorCopy( s1.angles, ent.msg_angles[ 1 ] );
 			ent._lastPESeq = seq;
+
+			// no trail from the stale position either
+			VectorCopy( s1.origin, _peOldorg );
 
 		} else if ( ent._lastPESeq !== seq ) {
 
@@ -742,6 +767,10 @@ function CL_LinkPacketEntities( frac ) {
 
 		}
 
+		// MOVETYPE_STEP monsters snap to each update, as NQ's U_NOLERP
+		// (cl_parse.c sets forcelink) does: "don't mess up the step animation"
+		const lerp = ( s1.solid & PS_NOLERP ) !== 0 ? 1 : frac;
+
 		// rotate binary objects locally
 		if ( model != null && ( model.flags & 0x0008 ) ) { // EF_ROTATE
 
@@ -752,7 +781,7 @@ function CL_LinkPacketEntities( frac ) {
 		} else {
 
 			// Interpolate angles with short-path wrapping
-			let f = frac;
+			const f = lerp;
 			for ( let i = 0; i < 3; i ++ ) {
 
 				let d = ent.msg_angles[ 0 ][ i ] - ent.msg_angles[ 1 ][ i ];
@@ -769,7 +798,7 @@ function CL_LinkPacketEntities( frac ) {
 		// Interpolate origin with teleport detection
 		{
 
-			let f = frac;
+			let f = lerp;
 			for ( let i = 0; i < 3; i ++ ) {
 
 				_peDelta[ i ] = ent.msg_origins[ 0 ][ i ] - ent.msg_origins[ 1 ][ i ];
@@ -863,7 +892,17 @@ Create visible entities in the correct position
 for all current players. Ported from QW cl_ents.c.
 =============
 */
+
+// Cached vectors for CL_LinkPlayers (avoid per-frame allocations)
+const _lpAngles = new Float32Array( 3 );
+const _lpFv = new Float32Array( 3 );
+const _lpRv = new Float32Array( 3 );
+const _lpUv = new Float32Array( 3 );
+
 function CL_LinkPlayers() {
+
+	const usePrediction = V_UsePrediction();
+	const chase = Cvar_VariableValue( 'chase_active' ) !== 0;
 
 	for ( let j = 0; j < cl.maxclients; j ++ ) {
 
@@ -871,13 +910,60 @@ function CL_LinkPlayers() {
 		if ( pplayer == null )
 			continue;
 
+		const isView = j + 1 === cl.viewentity;
+
+		// Use the cl_entities entry for this player slot so Three.js mesh caching works
+		const ent = cl_entities[ j + 1 ];
+
+		// CL_SetUpPlayerPrediction gives the local player cl_simorg, which is
+		// only valid while CL_PredictMove runs. Otherwise (local server, demo
+		// playback) CL_SetPlayerInfo has already put the server origin on the
+		// view entity, which is what V_CalcRefdef uses too.
+		const origin = ( isView && usePrediction === false ) ? ent.origin : pplayer.origin;
+
+		// entity angles, as the NQ server sends them for players
+		// (SV_ClientThink: pitch is 1/3 of the view pitch).
+		// The local player's command is never sent back, so use the view angles.
+		if ( isView ) {
+
+			_lpAngles[ 0 ] = - cl.viewangles[ 0 ] / 3;
+			_lpAngles[ 1 ] = cl.viewangles[ 1 ];
+			_lpAngles[ 2 ] = 0;
+
+		} else if ( pplayer.cmd != null ) {
+
+			_lpAngles[ 0 ] = - pplayer.cmd.angles[ 0 ] / 3;
+			_lpAngles[ 1 ] = pplayer.cmd.angles[ 1 ];
+			_lpAngles[ 2 ] = 0;
+
+		} else {
+
+			VectorCopy( ent.angles, _lpAngles );
+
+		}
+
 		// spawn light flashes, even ones coming from invisible objects
+		// (WinQuake cl_main.c CL_RelinkEntities, which does this for every
+		// entity including cl.viewentity)
+		if ( ( pplayer.effects & 0x0002 ) !== 0 ) { // EF_MUZZLEFLASH
+
+			const dl = CL_AllocDlight( j + 1 );
+			VectorCopy( origin, dl.origin );
+			dl.origin[ 2 ] += 16;
+			AngleVectors( _lpAngles, _lpFv, _lpRv, _lpUv );
+			VectorMA( dl.origin, 18, _lpFv, dl.origin );
+			dl.radius = 200 + ( Math.random() * 32 | 0 );
+			dl.minlight = 32;
+			dl.die = cl.time + 0.1;
+
+		}
+
 		if ( ( pplayer.effects & 0x0004 ) !== 0 ) { // EF_BRIGHTLIGHT
 
 			const dl = CL_AllocDlight( j + 1 );
-			dl.origin[ 0 ] = pplayer.origin[ 0 ];
-			dl.origin[ 1 ] = pplayer.origin[ 1 ];
-			dl.origin[ 2 ] = pplayer.origin[ 2 ] + 16;
+			dl.origin[ 0 ] = origin[ 0 ];
+			dl.origin[ 1 ] = origin[ 1 ];
+			dl.origin[ 2 ] = origin[ 2 ] + 16;
 			dl.radius = 400 + ( Math.random() * 32 | 0 );
 			dl.die = cl.time + 0.001;
 
@@ -886,16 +972,17 @@ function CL_LinkPlayers() {
 		if ( ( pplayer.effects & 0x0008 ) !== 0 ) { // EF_DIMLIGHT
 
 			const dl = CL_AllocDlight( j + 1 );
-			dl.origin[ 0 ] = pplayer.origin[ 0 ];
-			dl.origin[ 1 ] = pplayer.origin[ 1 ];
-			dl.origin[ 2 ] = pplayer.origin[ 2 ];
+			dl.origin[ 0 ] = origin[ 0 ];
+			dl.origin[ 1 ] = origin[ 1 ];
+			dl.origin[ 2 ] = origin[ 2 ];
 			dl.radius = 200 + ( Math.random() * 32 | 0 );
 			dl.die = cl.time + 0.001;
 
 		}
 
-		// the player object never gets added (the local player is the camera)
-		if ( j + 1 === cl.viewentity )
+		// the player object never gets added (the local player is the camera),
+		// unless the chase camera is on (cl_main.c: i == cl.viewentity && !chase_active.value)
+		if ( isView && chase === false )
 			continue;
 
 		if ( pplayer.modelindex <= 0 )
@@ -905,9 +992,6 @@ function CL_LinkPlayers() {
 		if ( cl_numvisedicts >= MAX_VISEDICTS )
 			break; // object list is full
 
-		// Use the cl_entities entry for this player slot so Three.js mesh caching works
-		const ent = cl_entities[ j + 1 ];
-
 		ent.model = cl.model_precache[ pplayer.modelindex ];
 		if ( ent.model == null )
 			continue;
@@ -916,17 +1000,18 @@ function CL_LinkPlayers() {
 		ent.frame = pplayer.frame;
 		ent.effects = pplayer.effects;
 
+		// QW cl_ents.c: ent->colormap = info->translations
+		// (NQ cl_parse.c: ent->colormap = cl.scores[i-1].translations)
+		ent.colormap = cl.scores != null ? cl.scores[ j ].translations : null;
+
 		// Set origin from predicted/server position
-		VectorCopy( pplayer.origin, ent.origin );
+		if ( origin !== ent.origin )
+			VectorCopy( origin, ent.origin );
 
-		// Set angles from movement command (like QW CL_LinkPlayers)
-		if ( pplayer.cmd != null ) {
-
-			ent.angles[ 0 ] = - pplayer.cmd.angles[ 0 ] / 3;
-			ent.angles[ 1 ] = pplayer.cmd.angles[ 1 ];
-			ent.angles[ 2 ] = 0;
-
-		}
+		// Set angles from movement command (like QW CL_LinkPlayers).
+		// The view entity's angles are set by V_CalcRefdef, as in WinQuake.
+		if ( isView === false && pplayer.cmd != null )
+			VectorCopy( _lpAngles, ent.angles );
 
 		// Mark as updated
 		ent.msgtime = cl.mtime[ 0 ];
@@ -984,14 +1069,18 @@ export function CL_RelinkEntities() {
 
 	// When using QW-style delta compression, players are handled by
 	// CL_LinkPlayers and non-players by CL_LinkPacketEntities.
-	// During demo playback or when no valid packet entity data exists,
-	// relink ALL entities using the NQ-style path.
-	const usePacketEntities = CL_GetValidSequence() !== 0 && cls.demoplayback === false;
+	// When no valid packet entity data exists (original NetQuake demos and
+	// servers), relink ALL entities using the NQ-style path. Demos recorded
+	// by this port contain svc_packetentities/svc_playerinfo, so they use the
+	// QW path during playback too (validsequence is reset by CL_ClearState).
+	const usePacketEntities = CL_GetValidSequence() !== 0;
 
 	if ( usePacketEntities ) {
 
-		// QW path: predict player positions and add them to visedicts
-		CL_SetUpPlayerPrediction( true );
+		// QW path: predict player positions and add them to visedicts.
+		// Don't extrapolate other players during demo playback: the demo
+		// already holds every frame the server sent.
+		CL_SetUpPlayerPrediction( cls.demoplayback === false );
 		CL_LinkPlayers();
 
 	}
@@ -1186,8 +1275,9 @@ export function CL_ReadFromServer() {
 
 	// Client-side prediction (QuakeWorld style)
 	// Predicts local player position for responsive movement with low server tick rates
-	// Skip during demo playback — prediction overwrites cl.time with realtime,
-	// which breaks the demo time gate when transitioning between demos.
+	// Skip during demo playback: the commands CL_SendMove stores then are
+	// the viewer's own input, never sent or acknowledged, and the demo's
+	// playerinfo already places the recorded player every frame.
 	if ( ! sv.active && ! cls.demoplayback ) {
 
 		CL_PredictMove();

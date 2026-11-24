@@ -142,7 +142,8 @@ export function SV_SetIdealPitch() {
 	let steps = 0;
 	for ( let j = 1; j < MAX_FORWARD; j ++ ) {
 
-		const step = z[ j ] - z[ j - 1 ];
+		// C declares step and dir as int, so each height step is truncated
+		const step = ( z[ j ] - z[ j - 1 ] ) | 0;
 		if ( step > - ON_EPSILON && step < ON_EPSILON )
 			continue;
 

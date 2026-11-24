@@ -1,9 +1,8 @@
 // Ported from: WinQuake/client.h -- client structures and definitions
 
 import { MAX_STYLESTRING, MAX_CL_STATS, MAX_SCOREBOARD, MAX_SCOREBOARDNAME,
-	MAX_MODELS, MAX_SOUNDS, MAX_EDICTS, MAX_LIGHTSTYLES, entity_state_t } from './quakedef.js';
+	MAX_MODELS, MAX_SOUNDS, MAX_EDICTS, MAX_LIGHTSTYLES, entity_state_t, packet_entities_t } from './quakedef.js';
 import { sizebuf_t } from './common.js';
-import { MAX_PACKET_ENTITIES } from './protocol.js';
 
 //=============================================================================
 
@@ -85,7 +84,22 @@ export class cshift_t {
 	constructor() {
 
 		this.destcolor = new Int32Array( 3 );
-		this.percent = 0; // 0-256
+		// C: int percent. Stored in an Int32Array so every write truncates
+		// like the C float->int conversion (e.g. V_UpdatePalette's
+		// percent -= host_frametime*150 drops by whole units per frame).
+		this._percent = new Int32Array( 1 ); // 0-256
+
+	}
+
+	get percent() {
+
+		return this._percent[ 0 ];
+
+	}
+
+	set percent( value ) {
+
+		this._percent[ 0 ] = value;
 
 	}
 
@@ -131,25 +145,9 @@ export class kbutton_t {
 
 }
 
-//
-// packet_entities_t - QW-style delta compressed entity snapshot
-// Ported from: QW/client/protocol.h
-//
-export class packet_entities_t {
-
-	constructor() {
-
-		this.num_entities = 0;
-		this.entities = [];
-		for ( let i = 0; i < MAX_PACKET_ENTITIES; i ++ ) {
-
-			this.entities.push( new entity_state_t() );
-
-		}
-
-	}
-
-}
+// packet_entities_t lives in quakedef.js, next to entity_state_t, so the
+// server's client_frame_t can share it
+export { packet_entities_t };
 
 //
 // entity_t - client side entity
@@ -280,6 +278,10 @@ export class client_state_t {
 		// of each level and after teleporting.
 		this.mviewangles = [ new Float32Array( 3 ), new Float32Array( 3 ) ]; // during demo playback viewangles is lerped between these
 		this.viewangles = new Float32Array( 3 );
+		// port addition: angles of the last svc_setangle. The packet-entity
+		// path carries no player angles, so V_CalcIntermissionRefdef uses
+		// these in place of the server's player angles (see view.js).
+		this.setangles = new Float32Array( 3 );
 
 		this.mvelocity = [ new Float32Array( 3 ), new Float32Array( 3 ) ]; // update by server, used for lean+bob (0 is newest)
 		this.velocity = new Float32Array( 3 ); // lerped between mvelocity[0] and [1]
