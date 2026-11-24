@@ -69,6 +69,8 @@ class WebTransportConnection {
 		// Transport protocol:
 		// - Reliable bidirectional stream: signon messages, stringcmds
 		// - Unreliable datagrams: entity updates, movement
+		// - The first reliable frame in each direction is the connect
+		//   handshake (WT_BuildHelloFrame in src/net.js)
 		this.reliableStream = null;
 		this.reliableWriter = null;
 		this.reliableReader = null;

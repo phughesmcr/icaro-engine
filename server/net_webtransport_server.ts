@@ -377,11 +377,13 @@ let serverCert = "";
 let serverKey = "";
 
 /**
- * Start or stop listening for connections
+ * Start or stop listening for connections.
+ * Resolves to false if the listener could not be started (for example the
+ * port is in use or the certificate can't be read), true otherwise.
  */
-export async function WT_Listen(state: boolean): Promise<void> {
+export async function WT_Listen(state: boolean): Promise<boolean> {
   if (state) {
-    if (quicEndpoint) return; // Already listening
+    if (quicEndpoint) return true; // Already listening
 
     try {
       // Read TLS certificate and key
@@ -398,20 +400,23 @@ export async function WT_Listen(state: boolean): Promise<void> {
 
       // Start accepting connections in background
       _acceptConnections();
+      return true;
     } catch (error) {
       Sys_Printf(
         "Failed to start WebTransport listener: " +
           (error as Error).message +
           "\n",
       );
-    }
-  } else {
-    if (quicEndpoint) {
-      quicEndpoint.close();
-      quicEndpoint = null;
-      Sys_Printf("WebTransport server stopped listening\n");
+      return false;
     }
   }
+
+  if (quicEndpoint) {
+    quicEndpoint.close();
+    quicEndpoint = null;
+    Sys_Printf("WebTransport server stopped listening\n");
+  }
+  return true;
 }
 
 /**
