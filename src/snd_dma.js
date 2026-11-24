@@ -34,7 +34,7 @@ let masterGain = null;
 // Known sounds cache
 const known_sfx = [];
 let num_sfx = 0;
-const MAX_SFX = 512;
+const MAX_SFX = 1024; // QuakeSpasm/Ironwail; WinQuake has 512
 
 for ( let i = 0; i < MAX_SFX; i ++ )
 	known_sfx[ i ] = new sfx_t();
@@ -49,6 +49,16 @@ const snd_ambient = true; // whether ambient sounds are enabled
 
 // Callback for host_frametime (to avoid circular dependency)
 let _getHostFrametime = () => 0;
+// Callback run by S_UnlockAudio inside a user gesture (cd_audio's autoplay retry)
+let _onUnlockAudio = () => {};
+
+// Rate sounds are cached and played at: WinQuake's snd_win.c sets
+// shm->speed = 11025, and QuakeSpasm/Ironwail cache sounds at sndspeed 11025
+// too. Each AudioBuffer is created at this rate and Web Audio resamples it to
+// the device rate (often 48000), so pitch is exact. Caching at the device rate
+// instead made ResampleSfx's 8.8 fixed-point step inexact (11025/48000) and
+// played 11 kHz sounds about 1.4% slow and flat.
+const SND_SPEED = 11025;
 
 // nosound cvar
 const nosound = { name: 'nosound', string: '0', value: 0 };
@@ -114,7 +124,7 @@ export function S_Init() {
 	}
 
 	// Set up DMA-equivalent state
-	sn.speed = audioContext ? audioContext.sampleRate : 22050;
+	sn.speed = SND_SPEED;
 	sn.samplebits = 16;
 	sn.channels = 2;
 	sn.samples = 16384;
@@ -192,6 +202,9 @@ export function S_SetCallbacks( callbacks ) {
 	if ( callbacks.getHostFrametime )
 		_getHostFrametime = callbacks.getHostFrametime;
 
+	if ( callbacks.onUnlockAudio )
+		_onUnlockAudio = callbacks.onUnlockAudio;
+
 }
 
 /*
@@ -210,6 +223,9 @@ export function S_UnlockAudio() {
 		audioContext.resume();
 
 	}
+
+	if ( snd_blocked <= 0 )
+		_onUnlockAudio();
 
 }
 
@@ -618,9 +634,17 @@ function S_UpdateAmbientSounds() {
 	const leaf = Mod_PointInLeaf( listener_origin, cl.worldmodel );
 	if ( leaf == null || ambient_level.value === 0 ) {
 
-		// Clear all ambient channels
-		for ( let ambient_channel = 0; ambient_channel < NUM_AMBIENTS; ambient_channel ++ )
+		// Clear all ambient channels. The C mixer skips a channel without sfx;
+		// here the looping Web Audio source has to be stopped as well, or it
+		// keeps playing at its last gain. master_vol is kept, as in C, so the
+		// fade carries on from it, and the loop below restarts the source.
+		for ( let ambient_channel = 0; ambient_channel < NUM_AMBIENTS; ambient_channel ++ ) {
+
 			channels[ ambient_channel ].sfx = null;
+			_stopWebAudio( channels[ ambient_channel ] );
+
+		}
+
 		return;
 
 	}

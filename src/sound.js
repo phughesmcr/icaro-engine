@@ -11,8 +11,12 @@
 export const DEFAULT_SOUND_PACKET_VOLUME = 255;
 export const DEFAULT_SOUND_PACKET_ATTENUATION = 1.0;
 
-export const MAX_CHANNELS = 128;
-export const MAX_DYNAMIC_CHANNELS = 32;
+// MAX_CHANNELS is QuakeSpasm/Ironwail's 1024 (WinQuake: 128), so maps with
+// more static sounds than id's 116 slots keep them. MAX_DYNAMIC_CHANNELS
+// stays at WinQuake's 8: SND_PickChannel's sound stealing between entities is
+// part of how vanilla sounds (QuakeSpasm raised it to 128).
+export const MAX_CHANNELS = 1024;
+export const MAX_DYNAMIC_CHANNELS = 8;
 export const NUM_AMBIENTS = 4;
 
 // Ambient sound types (from bspfile.h)
