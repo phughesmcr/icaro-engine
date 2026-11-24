@@ -2806,6 +2806,16 @@ function R_BuildWorldMeshes() {
 		const texName = t.name || '';
 		batchedMesh.name = `world_${texName}_lm${group.lmNum}` + ( group.underwater ? '_underwater' : '' );
 
+		// The warp moves vertices up to 8 units past the static bounds Three.js
+		// culls with, so culling could drop a surface still on screen. C sends
+		// every visible surface to GL; the PVS (setVisibleAt) still applies.
+		if ( group.underwater ) {
+
+			batchedMesh.frustumCulled = false;
+			batchedMesh.perObjectFrustumCulled = false;
+
+		}
+
 		// Add each surface's geometry to the batch
 		for ( const surfData of group.surfaceData ) {
 
