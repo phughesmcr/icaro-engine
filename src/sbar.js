@@ -403,13 +403,20 @@ function Sbar_DrawInventory() {
 
 	Sbar_DrawPic( 0, - 24, sb_ibar );
 
+	// As in sbar.c, flashon is shared by the whole function: the items and
+	// sigils loops below reuse whatever the last owned weapon left in it, so
+	// a fresh pickup is hidden for up to 2 seconds only while that weapon is
+	// selected or itself flashing. (C leaves it uninitialised if no weapon is
+	// owned; 0 here.)
+	let flashon = 0;
+
 	// weapons
 	for ( let i = 0; i < 7; i ++ ) {
 
 		if ( _cl.items & ( IT_SHOTGUN << i ) ) {
 
 			const time = _cl.item_gettime[ i ];
-			let flashon = Math.floor( ( _cl.time - time ) * 10 );
+			flashon = Math.floor( ( _cl.time - time ) * 10 );
 			if ( flashon >= 10 ) {
 
 				if ( _cl.stats[ STAT_ACTIVEWEAPON ] === ( IT_SHOTGUN << i ) )
@@ -446,7 +453,6 @@ function Sbar_DrawInventory() {
 	}
 
 	// items
-	let flashon = 0;
 	for ( let i = 0; i < 6; i ++ ) {
 
 		if ( _cl.items & ( 1 << ( 17 + i ) ) ) {
