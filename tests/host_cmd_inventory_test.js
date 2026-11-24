@@ -121,6 +121,12 @@ Deno.test( 'G9: the view* commands step a viewthing through its model frames', (
 		cmd.Cmd_ExecuteString( 'viewframe 0' );
 		assertEqual( output( () => cmd.Cmd_ExecuteString( 'viewprev' ) ), 'frame 0: stand1\n', 'viewprev stops at frame 0' );
 
+		// viewmodel: an unknown model leaves the viewthing alone
+		thing.v.frame = 1;
+		assertEqual( output( () => cmd.Cmd_ExecuteString( 'viewmodel progs/nosuch.mdl' ) ),
+			'Can\'t load progs/nosuch.mdl\n', 'viewmodel with a missing model' );
+		assertEqual( thing.v.frame, 1, 'frame unchanged on failure' );
+
 		// a brush model has no alias frames: the frame moves, no name is printed
 		client.cl.model_precache[ 3 ] = { type: 0, numframes: 2, cache: { data: null } };
 		assertEqual( output( () => cmd.Cmd_ExecuteString( 'viewnext' ) ), '', 'no frame name for a brush model' );
