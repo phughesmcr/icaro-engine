@@ -2,9 +2,9 @@
 // Equivalent to WinQuake/sys_win.c WinMain() + main()
 
 import { Sys_Init, Sys_Printf, Sys_Error } from './src/sys.js';
-import { COM_InitArgv } from './src/common.js';
+import { COM_InitArgv, rogue, hipnotic } from './src/common.js';
 import { Host_Init, Host_Frame, Host_Shutdown } from './src/host.js';
-import { COM_AddPakSequence } from './src/pak.js';
+import { COM_AddPakSequence, COM_AddGameDirectory } from './src/pak.js';
 import { Cbuf_AddText } from './src/cmd.js';
 import { cls, cl } from './src/client.js';
 import { sv } from './src/server.js';
@@ -19,11 +19,30 @@ const parms = {
 	argv: []
 };
 
+// ?game=rogue or ?game=hipnotic stands in for WinQuake's -rogue and
+// -hipnotic: the flag is passed to COM_InitArgv, and static/<game>/pak*.pak
+// load after id1's. Other values are ignored, so the parameter never
+// reaches a fetch path.
+const MISSION_PACKS = [ 'rogue', 'hipnotic' ];
+
 async function main() {
 
 	try {
 
 		Sys_Init();
+
+		const urlParams = new URLSearchParams( window.location.search );
+		const game = urlParams.get( 'game' );
+		if ( MISSION_PACKS.includes( game ) ) {
+
+			parms.argv = [ 'quake', '-' + game ];
+			parms.argc = parms.argv.length;
+
+		} else if ( game !== null ) {
+
+			Sys_Printf( 'Ignoring unknown game "%s" (expected rogue or hipnotic)\n', game );
+
+		}
 
 		COM_InitArgv( parms.argv );
 
@@ -54,6 +73,16 @@ async function main() {
 
 		}
 
+		// common.c COM_InitFilesystem: the mission pack's directory after id1,
+		// so its progs.dat, gfx.wad and maps are found first
+		for ( const dir of [ rogue ? 'rogue' : null, hipnotic ? 'hipnotic' : null ] ) {
+
+			if ( dir === null ) continue;
+			if ( await COM_AddGameDirectory( 'static/' + dir, setProgress ) === 0 )
+				Sys_Error( 'static/' + dir + '/pak0.pak not found. -' + dir + ' needs the mission pack\'s pak0.pak there.' );
+
+		}
+
 		await Host_Init( parms );
 
 		// Remove loading overlay
@@ -76,7 +105,6 @@ async function main() {
 		}
 
 		// Check URL parameters for auto-join
-		const urlParams = new URLSearchParams( window.location.search );
 		const roomId = urlParams.get( 'room' );
 
 		if ( roomId ) {

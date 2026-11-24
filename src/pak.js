@@ -135,12 +135,16 @@ export function COM_LoadPackFile( filename, buffer ) {
 =================
 COM_AddGameDirectory
 
-Sets up the search path for a game directory
+Adds pak0.pak, pak1.pak... from dir (a URL or path, without a trailing
+slash), searched before everything added so far, as common.c does for
+<basedir>/rogue or hipnotic. Unlike C, loose files are not looked up in
+dir: COM_EnsureFile still fetches them from the static/ base path only.
+Returns the number of paks added.
 =================
 */
-export function COM_AddGameDirectory( dir ) {
+export function COM_AddGameDirectory( dir, onProgress ) {
 
-	com_searchpaths.push( { pack: null, path: dir } );
+	return COM_AddPakSequence( dir + '/pak0.pak', onProgress );
 
 }
 

@@ -20,7 +20,8 @@ import { skill, coop, teamplay, deathmatch, svs } from './server.js';
 import { Touch_ExitFullscreen } from './touch.js';
 import { Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
 import { SAVEGAME_COMMENT_LENGTH } from './quakedef.js';
-import { registered } from './common.js';
+import { registered, standard_quake, rogue, hipnotic } from './common.js';
+import { Sys_PageURL } from './sys.js';
 
 /*
 ==============================================================================
@@ -220,16 +221,109 @@ const episodes = [
 // The episodes before these are in the shareware pak or shipped loose
 const SHAREWARE_EPISODES = 3;
 
+//MED 01/06/97 added hipnotic levels
+const hipnoticlevels = [
+	{ name: 'start', description: 'Command HQ' }, // 0
+
+	{ name: 'hip1m1', description: 'The Pumping Station' }, // 1
+	{ name: 'hip1m2', description: 'Storage Facility' },
+	{ name: 'hip1m3', description: 'The Lost Mine' },
+	{ name: 'hip1m4', description: 'Research Facility' },
+	{ name: 'hip1m5', description: 'Military Complex' },
+
+	{ name: 'hip2m1', description: 'Ancient Realms' }, // 6
+	{ name: 'hip2m2', description: 'The Black Cathedral' },
+	{ name: 'hip2m3', description: 'The Catacombs' },
+	{ name: 'hip2m4', description: 'The Crypt' },
+	{ name: 'hip2m5', description: 'Mortum\'s Keep' },
+	{ name: 'hip2m6', description: 'The Gremlin\'s Domain' },
+
+	{ name: 'hip3m1', description: 'Tur Torment' }, // 12
+	{ name: 'hip3m2', description: 'Pandemonium' },
+	{ name: 'hip3m3', description: 'Limbo' },
+	{ name: 'hip3m4', description: 'The Gauntlet' },
+
+	{ name: 'hipend', description: 'Armagon\'s Lair' }, // 16
+
+	{ name: 'hipdm1', description: 'The Edge of Oblivion' } // 17
+];
+
+//PGM 01/07/97 added rogue levels
+//PGM 03/02/97 added dmatch level
+const roguelevels = [
+	{ name: 'start', description: 'Split Decision' },
+	{ name: 'r1m1', description: 'Deviant\'s Domain' },
+	{ name: 'r1m2', description: 'Dread Portal' },
+	{ name: 'r1m3', description: 'Judgement Call' },
+	{ name: 'r1m4', description: 'Cave of Death' },
+	{ name: 'r1m5', description: 'Towers of Wrath' },
+	{ name: 'r1m6', description: 'Temple of Pain' },
+	{ name: 'r1m7', description: 'Tomb of the Overlord' },
+	{ name: 'r2m1', description: 'Tempus Fugit' },
+	{ name: 'r2m2', description: 'Elemental Fury I' },
+	{ name: 'r2m3', description: 'Elemental Fury II' },
+	{ name: 'r2m4', description: 'Curse of Osiris' },
+	{ name: 'r2m5', description: 'Wizard\'s Keep' },
+	{ name: 'r2m6', description: 'Blood Sacrifice' },
+	{ name: 'r2m7', description: 'Last Bastion' },
+	{ name: 'r2m8', description: 'Source of Evil' },
+	{ name: 'ctf1', description: 'Division of Change' }
+];
+
+//MED 01/06/97  added hipnotic episodes
+const hipnoticepisodes = [
+	{ description: 'Scourge of Armagon', firstLevel: 0, levels: 1 },
+	{ description: 'Fortress of the Dead', firstLevel: 1, levels: 5 },
+	{ description: 'Dominion of Darkness', firstLevel: 6, levels: 6 },
+	{ description: 'The Rift', firstLevel: 12, levels: 4 },
+	{ description: 'Final Level', firstLevel: 16, levels: 1 },
+	{ description: 'Deathmatch Arena', firstLevel: 17, levels: 1 }
+];
+
+//PGM 01/07/97 added rogue episodes
+//PGM 03/02/97 added dmatch episode
+const rogueepisodes = [
+	{ description: 'Introduction', firstLevel: 0, levels: 1 },
+	{ description: 'Hell\'s Fortress', firstLevel: 1, levels: 7 },
+	{ description: 'Corridors of Time', firstLevel: 8, levels: 8 },
+	{ description: 'Deathmatch Arena', firstLevel: 16, levels: 1 }
+];
+
+/*
+==============
+M_GameEpisodes / M_StartLevel
+
+The episode list for the running game (menu.c picks hipnotic, then rogue,
+then id1 at each use), and the level the game options menu points at.
+==============
+*/
+function M_GameEpisodes() {
+
+	if ( hipnotic ) return hipnoticepisodes;
+	if ( rogue ) return rogueepisodes;
+	return episodes;
+
+}
+
+export function M_StartLevel() {
+
+	const list = hipnotic ? hipnoticlevels : rogue ? roguelevels : levels;
+	return list[ M_GameEpisodes()[ startepisode ].firstLevel + startlevel ];
+
+}
+
 /*
 ==============
 M_NumEpisodes
 
-menu.c M_NetStart_Change: 7 episodes when registered, 2 for shareware.
-This port adds its loose-file deathmatch episode to both.
+menu.c M_NetStart_Change: 6 for hipnotic, 4 for rogue, 7 when registered
+and 2 for shareware. This port adds its loose-file deathmatch episode to
+the last two.
 ==============
 */
 export function M_NumEpisodes() {
 
+	if ( hipnotic || rogue ) return M_GameEpisodes().length;
 	return registered !== null && registered.value !== 0 ? episodes.length : SHAREWARE_EPISODES;
 
 }
@@ -1249,8 +1343,7 @@ function M_LanConfig_Key( key ) {
 				const connectUrl = urlObj.toString().replace( /\/$/, '' ).replace( /^https:\/\//, 'wts://' );
 
 				// Update browser URL so user can share it
-				const shareUrl = window.location.origin + window.location.pathname + '?room=' + room.id;
-				history.replaceState( null, '', shareUrl );
+				history.replaceState( null, '', Sys_PageURL( room.id ) );
 
 				// Set up error return
 				m_return_state = m_state;
@@ -1328,6 +1421,19 @@ function M_GameOptions_Draw() {
 
 	}
 
+	if ( rogue ) {
+
+		switch ( Math.floor( teamplay.value ) ) {
+
+			case 3: teamplayMsg = 'Tag'; break;
+			case 4: teamplayMsg = 'Capture the Flag'; break;
+			case 5: teamplayMsg = 'One Flag CTF'; break;
+			case 6: teamplayMsg = 'Three Team CTF'; break;
+
+		}
+
+	}
+
 	M_Print( 160, 72, teamplayMsg );
 
 	// Skill
@@ -1345,13 +1451,13 @@ function M_GameOptions_Draw() {
 
 	// Episode
 	M_Print( 0, 104, '         Episode' );
-	M_Print( 160, 104, episodes[ startepisode ].description );
+	M_Print( 160, 104, M_GameEpisodes()[ startepisode ].description );
 
 	// Level
 	M_Print( 0, 112, '           Level' );
-	const levelIdx = episodes[ startepisode ].firstLevel + startlevel;
-	M_Print( 160, 112, levels[ levelIdx ].description );
-	M_Print( 160, 120, levels[ levelIdx ].name );
+	const level = M_StartLevel();
+	M_Print( 160, 112, level.description );
+	M_Print( 160, 120, level.name );
 
 	// Cursor
 	M_DrawCharacter( 144, gameoptions_cursor_table[ gameoptions_cursor ], 12 + ( ( Math.floor( _realtime_get() * 4 ) ) & 1 ) );
@@ -1374,13 +1480,18 @@ function M_NetStart_Change( dir ) {
 			Cvar_SetValue( 'coop', coop.value ? 0 : 1 );
 			break;
 
-		case 3: // Teamplay
+		case 3: { // Teamplay
+
+			const count = rogue ? 6 : 2;
+
 			Cvar_SetValue( 'teamplay', teamplay.value + dir );
-			if ( teamplay.value > 2 )
+			if ( teamplay.value > count )
 				Cvar_SetValue( 'teamplay', 0 );
 			else if ( teamplay.value < 0 )
-				Cvar_SetValue( 'teamplay', 2 );
+				Cvar_SetValue( 'teamplay', count );
 			break;
+
+		}
 
 		case 4: // Skill
 			Cvar_SetValue( 'skill', skill.value + dir );
@@ -1404,7 +1515,7 @@ function M_NetStart_Change( dir ) {
 
 		case 6: // Level
 			startlevel += dir;
-			const count = episodes[ startepisode ].levels;
+			const count = M_GameEpisodes()[ startepisode ].levels;
 			if ( startlevel < 0 )
 				startlevel = count - 1;
 			if ( startlevel >= count )
@@ -1456,8 +1567,7 @@ function M_GameOptions_Key( key ) {
 			if ( gameoptions_cursor === 0 ) {
 
 				// Begin game - create room on server first
-				const levelIdx = episodes[ startepisode ].firstLevel + startlevel;
-				const mapName = levels[ levelIdx ].name;
+				const mapName = M_StartLevel().name;
 
 				// Create room on WebTransport server and connect as client
 				if ( _WT_CreateRoom ) {
@@ -1493,8 +1603,7 @@ function M_GameOptions_Key( key ) {
 
 							Con_Printf( 'Room created: ' + roomInfo + '\n' );
 							// Update browser URL so user can share it
-							const shareUrl = window.location.origin + window.location.pathname + '?room=' + room.id;
-							history.replaceState( null, '', shareUrl );
+							history.replaceState( null, '', Sys_PageURL( room.id ) );
 
 							// Dismiss the menu before connecting (like original Quake)
 							setKeyDest( key_game );
@@ -2487,6 +2596,15 @@ M_Init
 ================
 */
 export function M_Init() {
+
+	// menu.c starts at the first episode; this port's own default (the
+	// community deathmatch maps) is in the id1 list only
+	if ( standard_quake === false ) {
+
+		startepisode = 0;
+		startlevel = 0;
+
+	}
 
 	Cmd_AddCommand( 'togglemenu', M_ToggleMenu_f );
 	Cmd_AddCommand( 'menu_main', M_Menu_Main_f );

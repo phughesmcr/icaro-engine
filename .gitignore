@@ -27,3 +27,5 @@ coverage/
 # Registered Quake data: must never be committed or deployed publicly
 static/pak1.pak
 static/PAK1.PAK
+static/hipnotic/
+static/rogue/

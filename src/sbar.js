@@ -1,7 +1,7 @@
 // Ported from: WinQuake/sbar.c, WinQuake/sbar.h -- status bar / HUD code
 
 import { Cmd_AddCommand } from './cmd.js';
-import { realtime } from './host.js';
+import { realtime, teamplay } from './host.js';
 import { Con_Printf } from './console.js';
 import { Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
 import {
@@ -277,6 +277,59 @@ export function Sbar_Init() {
 	sb_ibar = _Draw_PicFromWad( 'ibar' );
 	sb_scorebar = _Draw_PicFromWad( 'scorebar' );
 
+	//MED 01/04/97 added new hipnotic weapons
+	if ( _hipnotic ) {
+
+		hsb_weapons[ 0 ][ 0 ] = _Draw_PicFromWad( 'inv_laser' );
+		hsb_weapons[ 0 ][ 1 ] = _Draw_PicFromWad( 'inv_mjolnir' );
+		hsb_weapons[ 0 ][ 2 ] = _Draw_PicFromWad( 'inv_gren_prox' );
+		hsb_weapons[ 0 ][ 3 ] = _Draw_PicFromWad( 'inv_prox_gren' );
+		hsb_weapons[ 0 ][ 4 ] = _Draw_PicFromWad( 'inv_prox' );
+
+		hsb_weapons[ 1 ][ 0 ] = _Draw_PicFromWad( 'inv2_laser' );
+		hsb_weapons[ 1 ][ 1 ] = _Draw_PicFromWad( 'inv2_mjolnir' );
+		hsb_weapons[ 1 ][ 2 ] = _Draw_PicFromWad( 'inv2_gren_prox' );
+		hsb_weapons[ 1 ][ 3 ] = _Draw_PicFromWad( 'inv2_prox_gren' );
+		hsb_weapons[ 1 ][ 4 ] = _Draw_PicFromWad( 'inv2_prox' );
+
+		for ( let i = 0; i < 5; i ++ ) {
+
+			hsb_weapons[ 2 + i ][ 0 ] = _Draw_PicFromWad( 'inva' + ( i + 1 ) + '_laser' );
+			hsb_weapons[ 2 + i ][ 1 ] = _Draw_PicFromWad( 'inva' + ( i + 1 ) + '_mjolnir' );
+			hsb_weapons[ 2 + i ][ 2 ] = _Draw_PicFromWad( 'inva' + ( i + 1 ) + '_gren_prox' );
+			hsb_weapons[ 2 + i ][ 3 ] = _Draw_PicFromWad( 'inva' + ( i + 1 ) + '_prox_gren' );
+			hsb_weapons[ 2 + i ][ 4 ] = _Draw_PicFromWad( 'inva' + ( i + 1 ) + '_prox' );
+
+		}
+
+		hsb_items[ 0 ] = _Draw_PicFromWad( 'sb_wsuit' );
+		hsb_items[ 1 ] = _Draw_PicFromWad( 'sb_eshld' );
+
+	}
+
+	if ( _rogue ) {
+
+		rsb_invbar[ 0 ] = _Draw_PicFromWad( 'r_invbar1' );
+		rsb_invbar[ 1 ] = _Draw_PicFromWad( 'r_invbar2' );
+
+		rsb_weapons[ 0 ] = _Draw_PicFromWad( 'r_lava' );
+		rsb_weapons[ 1 ] = _Draw_PicFromWad( 'r_superlava' );
+		rsb_weapons[ 2 ] = _Draw_PicFromWad( 'r_gren' );
+		rsb_weapons[ 3 ] = _Draw_PicFromWad( 'r_multirock' );
+		rsb_weapons[ 4 ] = _Draw_PicFromWad( 'r_plasma' );
+
+		rsb_items[ 0 ] = _Draw_PicFromWad( 'r_shield1' );
+		rsb_items[ 1 ] = _Draw_PicFromWad( 'r_agrav1' );
+
+		// PGM 01/19/97 - team color border
+		rsb_teambord = _Draw_PicFromWad( 'r_teambord' );
+
+		rsb_ammo[ 0 ] = _Draw_PicFromWad( 'r_ammolava' );
+		rsb_ammo[ 1 ] = _Draw_PicFromWad( 'r_ammomulti' );
+		rsb_ammo[ 2 ] = _Draw_PicFromWad( 'r_ammoplasma' );
+
+	}
+
 }
 
 /*
@@ -401,7 +454,18 @@ Sbar_DrawInventory
 */
 function Sbar_DrawInventory() {
 
-	Sbar_DrawPic( 0, - 24, sb_ibar );
+	if ( _rogue ) {
+
+		if ( _cl.stats[ STAT_ACTIVEWEAPON ] >= RIT_LAVA_NAILGUN )
+			Sbar_DrawPic( 0, - 24, rsb_invbar[ 0 ] );
+		else
+			Sbar_DrawPic( 0, - 24, rsb_invbar[ 1 ] );
+
+	} else {
+
+		Sbar_DrawPic( 0, - 24, sb_ibar );
+
+	}
 
 	// weapons
 	for ( let i = 0; i < 7; i ++ ) {
@@ -427,6 +491,95 @@ function Sbar_DrawInventory() {
 
 			if ( flashon > 1 )
 				sb_updates = 0; // force update to remove flash
+
+		}
+
+	}
+
+	// MED 01/04/97
+	// hipnotic weapons
+	if ( _hipnotic ) {
+
+		let grenadeflashing = 0;
+		for ( let i = 0; i < 4; i ++ ) {
+
+			if ( _cl.items & ( 1 << hipweapons[ i ] ) ) {
+
+				const time = _cl.item_gettime[ hipweapons[ i ] ];
+				let flashon = Math.floor( ( _cl.time - time ) * 10 );
+				if ( flashon >= 10 ) {
+
+					if ( _cl.stats[ STAT_ACTIVEWEAPON ] === ( 1 << hipweapons[ i ] ) )
+						flashon = 1;
+					else
+						flashon = 0;
+
+				} else {
+
+					flashon = ( flashon % 5 ) + 2;
+
+				}
+
+				// check grenade launcher
+				if ( i === 2 ) {
+
+					if ( _cl.items & HIT_PROXIMITY_GUN ) {
+
+						if ( flashon ) {
+
+							grenadeflashing = 1;
+							Sbar_DrawPic( 96, - 16, hsb_weapons[ flashon ][ 2 ] );
+
+						}
+
+					}
+
+				} else if ( i === 3 ) {
+
+					if ( _cl.items & ( IT_SHOTGUN << 4 ) ) {
+
+						if ( flashon && ! grenadeflashing ) {
+
+							Sbar_DrawPic( 96, - 16, hsb_weapons[ flashon ][ 3 ] );
+
+						} else if ( ! grenadeflashing ) {
+
+							Sbar_DrawPic( 96, - 16, hsb_weapons[ 0 ][ 3 ] );
+
+						}
+
+					} else {
+
+						Sbar_DrawPic( 96, - 16, hsb_weapons[ flashon ][ 4 ] );
+
+					}
+
+				} else {
+
+					Sbar_DrawPic( 176 + ( i * 24 ), - 16, hsb_weapons[ flashon ][ i ] );
+
+				}
+
+				if ( flashon > 1 )
+					sb_updates = 0; // force update to remove flash
+
+			}
+
+		}
+
+	}
+
+	if ( _rogue ) {
+
+		// check for powered up weapon.
+		if ( _cl.stats[ STAT_ACTIVEWEAPON ] >= RIT_LAVA_NAILGUN ) {
+
+			for ( let i = 0; i < 5; i ++ ) {
+
+				if ( _cl.stats[ STAT_ACTIVEWEAPON ] === ( RIT_LAVA_NAILGUN << i ) )
+					Sbar_DrawPic( ( i + 2 ) * 24, - 16, rsb_weapons[ i ] );
+
+			}
 
 		}
 
@@ -459,7 +612,9 @@ function Sbar_DrawInventory() {
 
 			} else {
 
-				Sbar_DrawPic( 192 + i * 16, - 16, sb_items[ i ] );
+				//MED 01/04/97 changed keys
+				if ( ! _hipnotic || ( i > 1 ) )
+					Sbar_DrawPic( 192 + i * 16, - 16, sb_items[ i ] );
 
 			}
 
@@ -470,25 +625,84 @@ function Sbar_DrawInventory() {
 
 	}
 
-	// sigils
-	for ( let i = 0; i < 4; i ++ ) {
+	//MED 01/04/97 added hipnotic items
+	// hipnotic items
+	if ( _hipnotic ) {
 
-		if ( _cl.items & ( 1 << ( 28 + i ) ) ) {
+		for ( let i = 0; i < 2; i ++ ) {
 
-			const time = _cl.item_gettime[ 28 + i ];
-			if ( time !== 0 && time > _cl.time - 2 && flashon ) {
+			if ( _cl.items & ( 1 << ( 24 + i ) ) ) {
 
-				// flash frame
-				sb_updates = 0;
+				const time = _cl.item_gettime[ 24 + i ];
+				if ( time !== 0 && time > _cl.time - 2 && flashon ) {
 
-			} else {
+					// flash frame
+					sb_updates = 0;
 
-				Sbar_DrawPic( 320 - 32 + i * 8, - 16, sb_sigil[ i ] );
+				} else {
+
+					Sbar_DrawPic( 288 + i * 16, - 16, hsb_items[ i ] );
+
+				}
+
+				if ( time !== 0 && time > _cl.time - 2 )
+					sb_updates = 0;
 
 			}
 
-			if ( time !== 0 && time > _cl.time - 2 )
-				sb_updates = 0;
+		}
+
+	}
+
+	if ( _rogue ) {
+
+		// new rogue items
+		for ( let i = 0; i < 2; i ++ ) {
+
+			if ( _cl.items & ( 1 << ( 29 + i ) ) ) {
+
+				const time = _cl.item_gettime[ 29 + i ];
+				if ( time !== 0 && time > _cl.time - 2 && flashon ) {
+
+					// flash frame
+					sb_updates = 0;
+
+				} else {
+
+					Sbar_DrawPic( 288 + i * 16, - 16, rsb_items[ i ] );
+
+				}
+
+				if ( time !== 0 && time > _cl.time - 2 )
+					sb_updates = 0;
+
+			}
+
+		}
+
+	} else {
+
+		// sigils
+		for ( let i = 0; i < 4; i ++ ) {
+
+			if ( _cl.items & ( 1 << ( 28 + i ) ) ) {
+
+				const time = _cl.item_gettime[ 28 + i ];
+				if ( time !== 0 && time > _cl.time - 2 && flashon ) {
+
+					// flash frame
+					sb_updates = 0;
+
+				} else {
+
+					Sbar_DrawPic( 320 - 32 + i * 8, - 16, sb_sigil[ i ] );
+
+				}
+
+				if ( time !== 0 && time > _cl.time - 2 )
+					sb_updates = 0;
+
+			}
 
 		}
 
@@ -699,10 +913,62 @@ Returns the health face to display
 */
 function Sbar_DrawFace() {
 
-	// PGM 01/19/97 - team color drawing (rogue only) is not ported
-
 	let f;
 	let anim;
+
+	// PGM 01/19/97 - team color drawing
+	// PGM 03/02/97 - fixed so color swatch only appears in CTF modes
+	if ( _rogue &&
+		( _cl.maxclients !== 1 ) &&
+		( teamplay.value > 3 ) &&
+		( teamplay.value < 7 ) ) {
+
+		const s = _cl.scores[ _cl.viewentity - 1 ];
+		// draw background
+		let top = s.colors & 0xf0;
+		let bottom = ( s.colors & 15 ) << 4;
+		top = Sbar_ColorForMap( top );
+		bottom = Sbar_ColorForMap( bottom );
+
+		let xofs;
+		if ( _cl.gametype === GAME_DEATHMATCH )
+			xofs = 113;
+		else
+			xofs = ( ( _vid.width - 320 ) >> 1 ) + 113;
+
+		Sbar_DrawPic( 112, 0, rsb_teambord );
+		if ( _Draw_Fill != null ) {
+
+			_Draw_Fill( xofs, _vid.height - SBAR_HEIGHT + 3, 22, 9, top );
+			_Draw_Fill( xofs, _vid.height - SBAR_HEIGHT + 12, 22, 9, bottom );
+
+		}
+
+		// draw number
+		f = s.frags;
+		const num = String( f ).padStart( 3, ' ' );
+
+		if ( top === 8 ) {
+
+			if ( num[ 0 ] !== ' ' )
+				Sbar_DrawCharacter( 109, 3, 18 + num.charCodeAt( 0 ) - 48 );
+			if ( num[ 1 ] !== ' ' )
+				Sbar_DrawCharacter( 116, 3, 18 + num.charCodeAt( 1 ) - 48 );
+			if ( num[ 2 ] !== ' ' )
+				Sbar_DrawCharacter( 123, 3, 18 + num.charCodeAt( 2 ) - 48 );
+
+		} else {
+
+			Sbar_DrawCharacter( 109, 3, num.charCodeAt( 0 ) );
+			Sbar_DrawCharacter( 116, 3, num.charCodeAt( 1 ) );
+			Sbar_DrawCharacter( 123, 3, num.charCodeAt( 2 ) );
+
+		}
+
+		return;
+
+	}
+	// PGM 01/19/97 - team color drawing
 
 	if ( ( _cl.items & ( IT_INVISIBILITY | IT_INVULNERABILITY ) ) === ( IT_INVISIBILITY | IT_INVULNERABILITY ) ) {
 
@@ -794,11 +1060,32 @@ export function Sbar_Draw() {
 
 		Sbar_DrawPic( 0, 0, sb_sbar );
 
+		// keys (hipnotic only)
+		//MED 01/04/97 moved keys here so they would not be overwritten
+		if ( _hipnotic ) {
+
+			if ( _cl.items & IT_KEY1 )
+				Sbar_DrawPic( 209, 3, sb_items[ 0 ] );
+			if ( _cl.items & IT_KEY2 )
+				Sbar_DrawPic( 209, 12, sb_items[ 1 ] );
+
+		}
+
 		// armor
 		if ( ( _cl.items & IT_INVULNERABILITY ) !== 0 ) {
 
 			Sbar_DrawNum( 24, 0, 666, 3, 1 );
 			Sbar_DrawPic( 0, 0, sb_disc );
+
+		} else if ( _rogue ) {
+
+			Sbar_DrawNum( 24, 0, _cl.stats[ STAT_ARMOR ], 3, _cl.stats[ STAT_ARMOR ] <= 25 ? 1 : 0 );
+			if ( ( _cl.items & RIT_ARMOR3 ) !== 0 )
+				Sbar_DrawPic( 0, 0, sb_armor[ 2 ] );
+			else if ( ( _cl.items & RIT_ARMOR2 ) !== 0 )
+				Sbar_DrawPic( 0, 0, sb_armor[ 1 ] );
+			else if ( ( _cl.items & RIT_ARMOR1 ) !== 0 )
+				Sbar_DrawPic( 0, 0, sb_armor[ 0 ] );
 
 		} else {
 
@@ -819,14 +1106,35 @@ export function Sbar_Draw() {
 		Sbar_DrawNum( 136, 0, _cl.stats[ STAT_HEALTH ], 3, _cl.stats[ STAT_HEALTH ] <= 25 ? 1 : 0 );
 
 		// ammo icon
-		if ( ( _cl.items & IT_SHELLS ) !== 0 )
-			Sbar_DrawPic( 224, 0, sb_ammo[ 0 ] );
-		else if ( ( _cl.items & IT_NAILS ) !== 0 )
-			Sbar_DrawPic( 224, 0, sb_ammo[ 1 ] );
-		else if ( ( _cl.items & IT_ROCKETS ) !== 0 )
-			Sbar_DrawPic( 224, 0, sb_ammo[ 2 ] );
-		else if ( ( _cl.items & IT_CELLS ) !== 0 )
-			Sbar_DrawPic( 224, 0, sb_ammo[ 3 ] );
+		if ( _rogue ) {
+
+			if ( ( _cl.items & RIT_SHELLS ) !== 0 )
+				Sbar_DrawPic( 224, 0, sb_ammo[ 0 ] );
+			else if ( ( _cl.items & RIT_NAILS ) !== 0 )
+				Sbar_DrawPic( 224, 0, sb_ammo[ 1 ] );
+			else if ( ( _cl.items & RIT_ROCKETS ) !== 0 )
+				Sbar_DrawPic( 224, 0, sb_ammo[ 2 ] );
+			else if ( ( _cl.items & RIT_CELLS ) !== 0 )
+				Sbar_DrawPic( 224, 0, sb_ammo[ 3 ] );
+			else if ( ( _cl.items & RIT_LAVA_NAILS ) !== 0 )
+				Sbar_DrawPic( 224, 0, rsb_ammo[ 0 ] );
+			else if ( ( _cl.items & RIT_PLASMA_AMMO ) !== 0 )
+				Sbar_DrawPic( 224, 0, rsb_ammo[ 1 ] );
+			else if ( ( _cl.items & RIT_MULTI_ROCKETS ) !== 0 )
+				Sbar_DrawPic( 224, 0, rsb_ammo[ 2 ] );
+
+		} else {
+
+			if ( ( _cl.items & IT_SHELLS ) !== 0 )
+				Sbar_DrawPic( 224, 0, sb_ammo[ 0 ] );
+			else if ( ( _cl.items & IT_NAILS ) !== 0 )
+				Sbar_DrawPic( 224, 0, sb_ammo[ 1 ] );
+			else if ( ( _cl.items & IT_ROCKETS ) !== 0 )
+				Sbar_DrawPic( 224, 0, sb_ammo[ 2 ] );
+			else if ( ( _cl.items & IT_CELLS ) !== 0 )
+				Sbar_DrawPic( 224, 0, sb_ammo[ 3 ] );
+
+		}
 
 		// ammo count
 		Sbar_DrawNum( 248, 0, _cl.stats[ STAT_AMMO ], 3, _cl.stats[ STAT_AMMO ] <= 10 ? 1 : 0 );
