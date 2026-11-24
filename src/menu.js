@@ -70,9 +70,6 @@ let m_save_demonum = 0;
 ==============================================================================
 */
 
-let lanConfig_cursor = 0;
-let lanConfig_joinname = ''; // Room code or full URL (max 64 chars)
-
 // Default WebTransport server (can be overridden by URL param)
 const DEFAULT_WT_SERVER = 'https://localhost:4433';
 
@@ -1088,7 +1085,7 @@ function M_MultiPlayer_Key( key ) {
 			switch ( m_multiplayer_cursor ) {
 
 				case 0:
-					// Join Game -> LAN Config (room code entry)
+					// Join Game -> LAN Config (room list)
 					M_Menu_LanConfig_f();
 					break;
 				case 1:
