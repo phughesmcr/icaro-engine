@@ -53,7 +53,7 @@ import {
 	cl, cls, cl_entities, cl_static_entities, cl_lightstyle,
 	scoreboard_t } from './client.js';
 import { VectorCopy } from './mathlib.js';
-import { V_ParseDamage } from './view.js';
+import { V_ParseDamage, V_StopPitchDrift } from './view.js';
 import { Mod_ForName } from './gl_model.js';
 import { CL_SetServerState, CL_AcknowledgeCommand, CL_AcknowledgeTransportSequence,
 	CL_FindAcknowledgedSequence,
@@ -65,7 +65,9 @@ import { R_TranslatePlayerSkin } from './gl_rmisc.js';
 export let cl_playerindex = -1;
 import { R_NewMap } from './gl_rmisc.js';
 import { R_ParseParticleEffect, R_AddEfrags } from './render.js';
-import { Host_Error, Host_EndGame, realtime } from './host.js';
+import { Host_Error, Host_EndGame, realtime, sv } from './host.js';
+import { NET_SendMessage } from './net_main.js';
+import { CL_GetMessage } from './cl_demo.js';
 import { set_noclip_anglehack } from './host_cmd.js';
 import { CL_SignonReply, CL_ClearState, cl_shownet } from './cl_main.js';
 import { CL_ParseTEnt } from './cl_tent.js';
@@ -205,13 +207,53 @@ so the server doesn't disconnect.
 ==================
 */
 let _keepalive_lastmsg = 0;
+// net_message is saved here while the queued messages are read (C's olddata)
+let _keepalive_olddata = null;
 
 export function CL_KeepaliveMessage() {
 
-	// if ( sv.active )
-	//     return;  // no need if server is local
+	if ( sv.active )
+		return; // no need if server is local
 	if ( cls.demoplayback )
 		return;
+
+	// read messages from server, should just be nops
+	const oldsize = net_message.cursize;
+	if ( _keepalive_olddata === null || _keepalive_olddata.length < net_message.data.length )
+		_keepalive_olddata = new Uint8Array( net_message.data.length );
+	_keepalive_olddata.set( net_message.data.subarray( 0, oldsize ) );
+
+	let ret;
+	do {
+
+		ret = CL_GetMessage();
+		switch ( ret ) {
+
+			case 0:
+				break; // nothing waiting
+			case 1:
+				Host_Error( 'CL_KeepaliveMessage: received a message' );
+				break;
+			case 2:
+				// C reads the byte with MSG_ReadByte, which would move the
+				// read cursor of the message being parsed; peek at it instead.
+				// CL_GetMessage has already dropped the nops, so this is a
+				// real datagram. C errors here. Here WebTransport doesn't
+				// order datagrams with the reliable stream, so an entity
+				// update sent before a level change can still arrive after
+				// svc_serverinfo: drop it instead (deviation for our transport).
+				if ( net_message.data[ 0 ] !== svc_nop )
+					Con_DPrintf( 'CL_KeepaliveMessage: dropped a stale datagram\n' );
+				break;
+			default:
+				Host_Error( 'CL_KeepaliveMessage: CL_GetMessage failed' );
+
+		}
+
+	} while ( ret > 0 );
+
+	net_message.data.set( _keepalive_olddata.subarray( 0, oldsize ) );
+	net_message.cursize = oldsize;
 
 	// check time
 	const time = Sys_FloatTime();
@@ -220,10 +262,12 @@ export function CL_KeepaliveMessage() {
 	_keepalive_lastmsg = time;
 
 	// write out a nop
+	// Precaching runs synchronously, so the transport only puts this on the
+	// wire once control returns to the event loop.
 	Con_Printf( '--> client to server keepalive\n' );
 
 	MSG_WriteByte( cls.message, clc_nop );
-	// NET_SendMessage( cls.netcon, cls.message );
+	NET_SendMessage( cls.netcon, cls.message );
 	SZ_Clear( cls.message );
 
 }
@@ -934,6 +978,11 @@ export function CL_ParseClientdata( bits ) {
 		cl.idealpitch = MSG_ReadChar();
 	else
 		cl.idealpitch = 0;
+
+	// Deliberate deviation, from QuakeSpasm/Ironwail (cl_parse.c
+	// CL_ParseClientdata): preserve initial angles (mostly for savegames)
+	if ( cls.signon < SIGNONS )
+		V_StopPitchDrift();
 
 	VectorCopy( cl.mvelocity[ 0 ], cl.mvelocity[ 1 ] );
 	for ( let i = 0; i < 3; i ++ ) {

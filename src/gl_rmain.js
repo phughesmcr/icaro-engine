@@ -25,7 +25,8 @@ import {
 import { isXRActive, getXRRig, XR_SetCamera, XR_SCALE, XR_GetControllerWorldPose } from './webxr.js';
 import {
 	cl, cl_visedicts, cl_numvisedicts, cl_dlights, cl_entities,
-	cl_static_entities, cl_temp_entities, cl_lightstyle
+	cl_static_entities, cl_temp_entities, cl_lightstyle,
+	MAX_DLIGHTS, MAX_VISEDICTS
 } from './client.js';
 import { d_lightstylevalue, r_framecount, set_r_framecount, inc_r_framecount,
 	v_blend, mirrortexturenum, set_mirrortexturenum,
@@ -83,10 +84,9 @@ export const SURF_DRAWTILED = 0x20;
 export const SURF_DRAWBACKGROUND = 0x40;
 export const SURF_UNDERWATER = 0x80;
 
-// max dlights
-export const MAX_DLIGHTS = 32;
+// max dlights; MAX_DLIGHTS and MAX_VISEDICTS are defined in client.js
+export { MAX_DLIGHTS, MAX_VISEDICTS };
 export const MAXLIGHTMAPS = 4;
-export const MAX_VISEDICTS = 256;
 
 //============================================================================
 // Globals from gl_rmain.c
