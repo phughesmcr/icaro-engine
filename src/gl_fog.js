@@ -410,9 +410,12 @@ Ironwail's shaders compute exp2( -Fog.w * dist * dist ) with
 Fog.w = ( density * DensityScale )^2, DensityScale = sqrt( log2( e ) ) * 0.85 / 64,
 which is exp( -( density * 0.85 / 64 )^2 * dist^2 ) over the radial distance.
 The 0.85 compensates for that distance being radial. Three.js's FogExp2 is
-exp( -( fog.density * depth )^2 ) over the planar view depth, as FitzQuake's
-GL_EXP2 fog with GL_FOG_DENSITY = density / 64, so the fog density here is
-density / 64. In WebXR the scene is scaled to metres (scene.scale is
+exp( -( fog.density * depth )^2 ) over the planar view depth. Deliberate
+deviation from Ironwail: the fog density here is density / 64, FitzQuake's
+GL_EXP2 fog (GL_FOG_DENSITY = density / 64) over the planar depth, so the
+centre of the view is about 1 / 0.85 denser than Ironwail's and the edges
+of a wide view a little thinner. Ironwail's radial fog would need a patched
+fog_vertex chunk in every material. In WebXR the scene is scaled to metres (scene.scale is
 1 / XR_SCALE), so the density is divided by that scale.
 =============
 */
