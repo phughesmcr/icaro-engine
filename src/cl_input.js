@@ -505,7 +505,11 @@ export function CL_SendMove( cmd ) {
 	// fraction so prediction doesn't fall 4-6% short (PRED-3). With
 	// renderer/network isolation this is the tick's length, not the
 	// render frame's (host_netframetime equals host_frametime without it).
-	_sendmove_predCmd.msec = Math.min( 255, host_netframetime * 1000 );
+	// No 255 cap either: QW's msec is a byte, but this one never goes on
+	// the wire, and host_timescale (or host_framerate) can make the tick
+	// the server runs longer than 255 ms, e.g. a 0.2 s hitch at
+	// host_timescale 4. CL_PredictUsercmd splits long moves.
+	_sendmove_predCmd.msec = host_netframetime * 1000;
 	_sendmove_predCmd.forwardmove = cmd.forwardmove;
 	_sendmove_predCmd.sidemove = cmd.sidemove;
 	_sendmove_predCmd.upmove = cmd.upmove;
