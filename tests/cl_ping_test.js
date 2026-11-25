@@ -152,26 +152,21 @@ Deno.test( 'CL_GetDisplayPing: steady on a 30 ms link with a 20 Hz server', () =
 
 		};
 
-		// Commands sent, as [ sequence, senttime, arrival at the server ]
+		// Packets sent, one command each, as [ transport sequence, arrival at
+		// the server ]
 		const sent = [];
 		let nextSend = 0;
 		let nextTick = 0.0123; // server tick phase is arbitrary
-		const replies = []; // [ ackedSequence, arrival at the client ]
-		let ackedSeq = - 1;
+		const replies = []; // [ transport ack, arrival at the client ]
+		let ackedNetSeq = - 1;
 		const shown = [];
 
-		// Frame time is in the realtime clock, but realtime itself is
-		// fixed during tests, so stamp receivedtime the way
-		// CL_AcknowledgeTransportSequence would, through the frame buffer.
 		for ( let now = 0; now < 20; now += readInterval ) {
 
 			// client reads replies that have arrived (once per frame)
 			while ( replies.length > 0 && replies[ 0 ][ 1 ] <= now ) {
 
-				const seq = replies.shift()[ 0 ];
-				const frame = CL_GetFrame( seq );
-				if ( frame.sequence === seq && frame.receivedtime === - 1 )
-					frame.receivedtime = now;
+				CL_AcknowledgeTransportSequence( replies.shift()[ 0 ], now );
 
 			}
 
@@ -181,22 +176,23 @@ Deno.test( 'CL_GetDisplayPing: steady on a 30 ms link with a 20 Hz server', () =
 			// client sends its moves for this frame
 			while ( nextSend <= now ) {
 
-				const seq = CL_StoreCommand( cmd, nextSend, sent.length );
-				sent.push( [ seq, nextSend, nextSend + rtt / 2 + jitter() ] );
+				const netseq = sent.length;
+				CL_StoreCommand( cmd, nextSend, netseq );
+				sent.push( [ netseq, nextSend + rtt / 2 + jitter() ] );
 				nextSend += sendInterval;
 
 			}
 
-			// server ticks: ack the newest command that has arrived
+			// server ticks: ack the newest packet that has arrived
 			while ( nextTick <= now ) {
 
-				for ( const [ seq, , arrival ] of sent ) {
+				for ( const [ netseq, arrival ] of sent ) {
 
-					if ( arrival <= nextTick && seq > ackedSeq )
-						ackedSeq = seq;
+					if ( arrival <= nextTick && netseq > ackedNetSeq )
+						ackedNetSeq = netseq;
 
 				}
-				replies.push( [ ackedSeq, nextTick + rtt / 2 + jitter() ] );
+				replies.push( [ ackedNetSeq, nextTick + rtt / 2 + jitter() ] );
 				replies.sort( ( a, b ) => a[ 1 ] - b[ 1 ] );
 				nextTick += tick;
 

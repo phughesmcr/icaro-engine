@@ -401,10 +401,11 @@ function _CL_SequenceGTE( sequence, baseline ) {
 CL_AcknowledgeTransportSequence
 
 Map a transport-level packet ack to the newest predicted command sent
-in a packet with sequence <= transport ack.
+in a packet with sequence <= transport ack. `now` is the ack's arrival
+time (realtime; tests pass their own clock).
 =================
 */
-export function CL_AcknowledgeTransportSequence( transportAckSequence ) {
+export function CL_AcknowledgeTransportSequence( transportAckSequence, now = realtime ) {
 
 	const newestSent = outgoing_sequence - 1;
 	if ( newestSent < 0 )
@@ -426,7 +427,7 @@ export function CL_AcknowledgeTransportSequence( transportAckSequence ) {
 			// stamped: unlike QW's server, which replies once per client
 			// packet, ours sends every tick, so later datagrams can ack it again.
 			if ( incoming_sequence === seq && frame.receivedtime === - 1 )
-				frame.receivedtime = realtime;
+				frame.receivedtime = now;
 
 			return;
 
