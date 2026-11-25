@@ -1139,7 +1139,29 @@ function R_NewAliasColorAttribute( array ) {
 
 }
 
-export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
+// shadecolor: r, g and b of the shade (gl_rmain.js R_SetupAliasLighting,
+// QuakeSpasm's lightcolor), already scaled by 1/200.
+// One vertex's colour: dot times each channel of the shade, decoded to linear.
+function R_AliasSetVertexColor( colorArr, i, dot, r, g, b, mono ) {
+
+	if ( mono ) {
+
+		const l = GL_LinearLight( dot * r );
+		colorArr[ i * 3 ] = l;
+		colorArr[ i * 3 + 1 ] = l;
+		colorArr[ i * 3 + 2 ] = l;
+
+	} else {
+
+		colorArr[ i * 3 ] = GL_LinearLight( dot * r );
+		colorArr[ i * 3 + 1 ] = GL_LinearLight( dot * g );
+		colorArr[ i * 3 + 2 ] = GL_LinearLight( dot * b );
+
+	}
+
+}
+
+export function R_DrawAliasModel( entity, paliashdr, shadedots, shadecolor ) {
 
 	if ( ! paliashdr || ! paliashdr.posedata )
 		return null;
@@ -1149,7 +1171,7 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 	R_SetupEntityTransform( entity, lerpdata );
 	const posenum = lerpdata.pose2;
 	const pose1 = lerpdata.pose1;
-	const hasLighting = shadedots && shadelight !== undefined;
+	const hasLighting = shadedots && shadecolor !== undefined;
 
 	// Get cached template (shared positions/normals/uvs/indices per model+pose)
 	const template = GL_DrawAliasFrame( paliashdr, posenum );
@@ -1212,20 +1234,31 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 	}
 
 	// Update per-entity vertex colors from lighting data. They depend only on
-	// the shade table, shadelight, the two poses and the blend, so skip the
+	// the shade table, shadecolor, the two poses and the blend, so skip the
 	// loop and the upload when none of those changed since the last frame.
+	// shadecolor is one scratch array, so compare its values.
+	const shadeR = hasLighting ? shadecolor[ 0 ] : 0;
+	const shadeG = hasLighting ? shadecolor[ 1 ] : 0;
+	const shadeB = hasLighting ? shadecolor[ 2 ] : 0;
 	if ( hasLighting && (
 		entity._aliasLitDots !== shadedots ||
-		entity._aliasLitLight !== shadelight ||
+		entity._aliasLitR !== shadeR ||
+		entity._aliasLitG !== shadeG ||
+		entity._aliasLitB !== shadeB ||
 		entity._aliasLitTemplate !== template ||
 		entity._aliasLitTemplate1 !== template1 ||
 		entity._aliasLitBlend !== lerpdata.blend ) ) {
 
 		entity._aliasLitDots = shadedots;
-		entity._aliasLitLight = shadelight;
+		entity._aliasLitR = shadeR;
+		entity._aliasLitG = shadeG;
+		entity._aliasLitB = shadeB;
 		entity._aliasLitTemplate = template;
 		entity._aliasLitTemplate1 = template1;
 		entity._aliasLitBlend = lerpdata.blend;
+
+		// without a .lit the channels are equal: decode once per vertex
+		const mono = shadeR === shadeG && shadeG === shadeB;
 
 		const colorArr = entity._aliasColorArray;
 		const lni = template.lightnormalindices;
@@ -1235,10 +1268,9 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 
 				// glColor3f clamps to [0, 1], and GL modulates in display space;
 				// Three multiplies vertex colours in linear space, so decode.
-				const l = GL_LinearLight( shadedots[ lni[ i ] ] * shadelight );
-				colorArr[ i * 3 ] = l;
-				colorArr[ i * 3 + 1 ] = l;
-				colorArr[ i * 3 + 2 ] = l;
+				// QS r_alias.c GL_DrawAliasFrame: shadedots * lightcolor
+				const dot = shadedots[ lni[ i ] ];
+				R_AliasSetVertexColor( colorArr, i, dot, shadeR, shadeG, shadeB, mono );
 
 			}
 
@@ -1250,10 +1282,8 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 			const iblend = 1.0 - blend;
 			for ( let i = 0; i < template.vertexCount; i ++ ) {
 
-				const l = GL_LinearLight( ( shadedots[ lni1[ i ] ] * iblend + shadedots[ lni[ i ] ] * blend ) * shadelight );
-				colorArr[ i * 3 ] = l;
-				colorArr[ i * 3 + 1 ] = l;
-				colorArr[ i * 3 + 2 ] = l;
+				const dot = shadedots[ lni1[ i ] ] * iblend + shadedots[ lni[ i ] ] * blend;
+				R_AliasSetVertexColor( colorArr, i, dot, shadeR, shadeG, shadeB, mono );
 
 			}
 
