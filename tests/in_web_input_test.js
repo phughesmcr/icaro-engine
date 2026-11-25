@@ -2006,3 +2006,64 @@ Deno.test( 'IN-4: touch joystick run speed in IN_Move', () => {
 	} );
 
 } );
+
+Deno.test( 'touch: portrait prompt shows in game only, and a tap dismisses it for the session', () => {
+
+	const oldW = windowTarget.innerWidth;
+	const oldH = windowTarget.innerHeight;
+
+	try {
+
+		withFakeDom( ( dom ) => {
+
+			touch.Touch_Init( document.body );
+			const prompt = byId( 'touch-portrait' );
+			assertEqual( prompt !== null, true, 'prompt exists' );
+
+			// Landscape, in game: hidden
+			dom.window.innerWidth = 800;
+			dom.window.innerHeight = 400;
+			touch.Touch_Enable();
+			assertEqual( prompt.style.display, 'none', 'landscape hides it' );
+
+			// Rotate to portrait
+			dom.window.innerWidth = 400;
+			dom.window.innerHeight = 800;
+			dom.window.fire( 'resize', {} );
+			assertEqual( prompt.style.display, 'flex', 'portrait in game shows it' );
+
+			// Menus (touch controls disabled) hide it
+			touch.Touch_Disable();
+			assertEqual( prompt.style.display, 'none', 'menu hides it' );
+			touch.Touch_Enable();
+			assertEqual( prompt.style.display, 'flex', 'back in game shows it' );
+
+			// Rotating back hides it
+			dom.window.innerWidth = 800;
+			dom.window.innerHeight = 400;
+			dom.window.fire( 'orientationchange', {} );
+			assertEqual( prompt.style.display, 'none', 'orientationchange to landscape hides it' );
+
+			// A tap dismisses it for the session
+			dom.window.innerWidth = 400;
+			dom.window.innerHeight = 800;
+			dom.window.fire( 'resize', {} );
+			prompt.fire( 'click', {} );
+			assertEqual( prompt.style.display, 'none', 'tap dismisses' );
+			touch.Touch_Disable();
+			touch.Touch_Enable();
+			dom.window.fire( 'resize', {} );
+			assertEqual( prompt.style.display, 'none', 'stays dismissed' );
+
+			touch.Touch_Disable();
+
+		} );
+
+	} finally {
+
+		windowTarget.innerWidth = oldW;
+		windowTarget.innerHeight = oldH;
+
+	}
+
+} );
