@@ -65,6 +65,9 @@ export class Vector3 {
 		this.z = z;
 		return this;
 	}
+	setScalar(s) {
+		return this.set(s, s, s);
+	}
 	copy(v) {
 		this.x = v.x;
 		this.y = v.y;
@@ -334,6 +337,7 @@ export class Object3D {
 	}
 	updateMatrix() {}
 	updateMatrixWorld() {}
+	setRotationFromMatrix() {}
 }
 
 export class PointLight extends Object3D {
