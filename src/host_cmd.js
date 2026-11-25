@@ -18,7 +18,7 @@ import { STAT_TOTALSECRETS, STAT_TOTALMONSTERS, STAT_SECRETS, STAT_MONSTERS,
 	HIT_PROXIMITY_GUN, HIT_LASER_CANNON, HIT_MJOLNIR } from './quakedef.js';
 import { NUM_FOR_EDICT, EDICT_NUM, EDICT_TO_PROG, PR_GetString, pr_global_struct } from './progs.js';
 import { PR_ExecuteProgram } from './pr_exec.js';
-import { ED_NewString, ED_Write, ED_WriteGlobals, ED_ParseGlobals, ED_ParseEdict, GetEdictFieldValue } from './pr_edict.js';
+import { ED_NewString, ED_Write, ED_WriteGlobals, ED_ParseGlobals, ED_ParseEdict, GetEdictFieldValue, nomonsters } from './pr_edict.js';
 import { sv_player } from './sv_phys.js';
 import { FL_GODMODE, FL_NOTARGET,
 	MOVETYPE_WALK, MOVETYPE_FLY, MOVETYPE_NOCLIP } from './sv_phys.js';
@@ -1329,6 +1329,15 @@ function Host_Savegame_f() {
 
 	}
 
+	// Ironwail: a save made with the monsters removed would carry that into
+	// the loaded game
+	if ( sv.nomonsters ) {
+
+		Con_Printf( 'Can\'t save when using "nomonsters".\n' );
+		return;
+
+	}
+
 	if ( cl.intermission !== 0 ) {
 
 		Con_Printf( 'Can\'t save in intermission.\n' );
@@ -1467,6 +1476,15 @@ function Host_Loadgame_f() {
 
 		Con_Printf( 'load <savename> : load a game\n' );
 		return;
+
+	}
+
+	// Ironwail: the loaded game should keep its monsters. Ironwail prints this
+	// with Con_Warning, which the port doesn't have.
+	if ( nomonsters.value !== 0 ) {
+
+		Con_Printf( 'Warning: "%s" disabled automatically.\n', nomonsters.name );
+		Cvar_SetValue( nomonsters.name, 0 );
 
 	}
 
