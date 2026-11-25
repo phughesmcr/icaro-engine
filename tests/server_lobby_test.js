@@ -10,7 +10,12 @@ import {
 	checkCreateAllowed,
 	LIMITS,
 	MAX_FRAME_PAYLOAD,
+	routeLobbyRequest,
+	serveLobbySocket,
+	proxyGameSocket,
 } from '../server/lobby_server.js';
+import { WS_ClientAddress } from '../server/client_address.ts';
+import { createFakeWebSocketPair, OPEN as WS_OPEN, CLOSED as WS_CLOSED } from './fake_websocket.js';
 import {
 	createLineSplitter,
 	parseRoomStatusLine,
@@ -39,6 +44,18 @@ function captureConsoleLog( fn ) {
 	console.log = ( ...args ) => lines.push( args.join( ' ' ) );
 	try {
 		fn();
+	} finally {
+		console.log = original;
+	}
+	return lines;
+}
+
+async function captureConsoleLogAsync( fn ) {
+	const lines = [];
+	const original = console.log;
+	console.log = ( ...args ) => lines.push( args.join( ' ' ) );
+	try {
+		await fn();
 	} finally {
 		console.log = original;
 	}
@@ -282,4 +299,171 @@ Deno.test( {
 			await Deno.remove( argsFile );
 		}
 	},
+} );
+
+Deno.test( {
+	name: 'room manager gives rooms a loopback WebSocket listener when the lobby has one',
+	ignore: canRun === false,
+	sanitizeOps: false,
+	sanitizeResources: false,
+	async fn() {
+		const argsFile = await Deno.makeTempFile();
+		Deno.env.set( 'FAKE_ROOM_ARGS_FILE', argsFile );
+		RoomManager_SetConfig( { denoPath: fake, wsEnabled: true } );
+		const silence = console.log;
+		console.log = () => {};
+		try {
+			const room = await RoomManager_CreateRoom( { map: 'e1m1', maxPlayers: 4, hostName: 'host', specificId: 'WSRM01' } );
+			assert.ok( room !== null, 'room should start' );
+			const args = ( await Deno.readTextFile( argsFile ) ).split( '\n' );
+			const wsport = args.indexOf( '-wsport' );
+			assert.ok( wsport !== -1, '-wsport passed' );
+			assert.equal( args[ wsport + 1 ], String( room.port ), 'on the room port' );
+			assert.ok(
+				args.includes( '--allow-net=[::]:' + room.port + ',0.0.0.0:' + room.port + ',127.0.0.1:' + room.port ),
+				'room may listen on loopback too',
+			);
+		} finally {
+			RoomManager_ShutdownAll();
+			RoomManager_SetConfig( { wsEnabled: false } );
+			console.log = silence;
+			Deno.env.delete( 'FAKE_ROOM_ARGS_FILE' );
+			await new Promise( ( r ) => setTimeout( r, 600 ) );
+			await Deno.remove( argsFile );
+		}
+	},
+} );
+
+Deno.test( 'routeLobbyRequest matches the path tail under any prefix', () => {
+	assert.deepEqual( routeLobbyRequest( '/lobby' ), { kind: 'lobby' } );
+	assert.deepEqual( routeLobbyRequest( '/mp/lobby/' ), { kind: 'lobby' } );
+	assert.deepEqual( routeLobbyRequest( '/mp/room/abc123' ), { kind: 'room', roomId: 'ABC123' } );
+	assert.deepEqual( routeLobbyRequest( '/room/ABC123/' ), { kind: 'room', roomId: 'ABC123' } );
+	assert.deepEqual( routeLobbyRequest( '/room/' ), { kind: 'other' } );
+	assert.deepEqual( routeLobbyRequest( '/room/ABC-123' ), { kind: 'other' } );
+	assert.deepEqual( routeLobbyRequest( '/' ), { kind: 'other' } );
+	assert.deepEqual( routeLobbyRequest( '/mp/lobbyx' ), { kind: 'other' } );
+} );
+
+Deno.test( 'WS_ClientAddress trusts forwarded addresses only from loopback', () => {
+	const url = new URL( 'ws://127.0.0.1:4500/?ip=203.0.113.9' );
+	const cf = new Headers( { 'cf-connecting-ip': '198.51.100.7' } );
+	const none = new Headers();
+	assert.equal( WS_ClientAddress( url, none, '127.0.0.1', true ), '203.0.113.9', '?ip= from the lobby proxy' );
+	assert.equal( WS_ClientAddress( url, cf, '127.0.0.1', false ), '198.51.100.7', 'CF-Connecting-IP when ?ip= is not trusted' );
+	assert.equal( WS_ClientAddress( url, none, '127.0.0.1', false ), '127.0.0.1', 'loopback with nothing forwarded' );
+	assert.equal( WS_ClientAddress( url, cf, '192.0.2.4', true ), '192.0.2.4', 'a remote peer cannot forward' );
+	assert.equal( WS_ClientAddress( url, cf, '::1', false ), '198.51.100.7', 'IPv6 loopback' );
+	assert.equal( WS_ClientAddress( new URL( 'ws://x/?ip=evil%20value' ), none, '127.0.0.1', true ), '127.0.0.1', 'malformed ?ip= ignored' );
+	assert.equal( WS_ClientAddress( url, new Headers( { 'cf-connecting-ip': 'not an ip' } ), '127.0.0.1', false ), '127.0.0.1', 'malformed header ignored' );
+} );
+
+function waitUntil( predicate, label ) {
+	return waitFor( predicate, 2000 ).catch( () => {
+		throw new Error( 'timed out waiting for ' + label );
+	} );
+}
+
+Deno.test( 'serveLobbySocket answers one LIST frame and closes', async () => {
+	const pair = createFakeWebSocketPair( 'ws://127.0.0.1:4433/lobby' );
+	let released = 0;
+	const replies = [];
+	pair.client.readyState = WS_OPEN;
+	pair.client.onmessage = ( event ) => replies.push( new Uint8Array( event.data ) );
+	await captureConsoleLogAsync( async () => {
+		serveLobbySocket( pair.server, '10.0.0.1', '10.0.0.1:1', () => released++ );
+		pair.client.send( encodeFrame( 0x01, new Uint8Array( 0 ) ) );
+		await waitUntil( () => pair.client.readyState === WS_CLOSED, 'lobby socket close' );
+	} );
+	assert.equal( replies.length, 1, 'one reply' );
+	assert.equal( replies[ 0 ][ 0 ], 0x81, 'LOBBY_ROOMS' );
+	const length = replies[ 0 ][ 1 ] | ( replies[ 0 ][ 2 ] << 8 );
+	assert.ok( Array.isArray( JSON.parse( new TextDecoder().decode( replies[ 0 ].subarray( 3, 3 + length ) ) ) ), 'room list' );
+	assert.equal( released, 1, 'session released once' );
+} );
+
+Deno.test( 'serveLobbySocket closes on a malformed frame', async () => {
+	const pair = createFakeWebSocketPair();
+	let released = 0;
+	pair.client.readyState = WS_OPEN;
+	await captureConsoleLogAsync( async () => {
+		serveLobbySocket( pair.server, '10.0.0.1', '10.0.0.1:1', () => released++ );
+		pair.client.send( new Uint8Array( [ 0x01, 5, 0 ] ) );
+		await waitUntil( () => pair.client.readyState === WS_CLOSED, 'close' );
+	} );
+	assert.deepEqual( pair.server.closeCalls, [ 1002 ], 'protocol error close' );
+	assert.equal( released, 1, 'released' );
+} );
+
+// A browser <-> lobby pair and a lobby <-> room pair, joined by proxyGameSocket
+function startProxy() {
+	const browser = createFakeWebSocketPair( 'wss://lobby/mp/room/ABC123' );
+	browser.client.readyState = WS_OPEN;
+	const room = createFakeWebSocketPair( 'ws://127.0.0.1:4500/?ip=10.0.0.1' );
+	const state = { released: 0, upstreamUrl: null, toBrowser: [], toRoom: [] };
+	browser.client.onmessage = ( event ) => state.toBrowser.push( new Uint8Array( event.data ) );
+	room.server.onmessage = ( event ) => state.toRoom.push( new Uint8Array( event.data ) );
+	proxyGameSocket( browser.server, 'ws://127.0.0.1:4500/?ip=10.0.0.1', '10.0.0.1:1', () => state.released++, ( url ) => {
+		state.upstreamUrl = url;
+		return room.client;
+	} );
+	return { browser, room, state };
+}
+
+Deno.test( 'proxyGameSocket holds messages until the room opens, then relays both ways', async () => {
+	const { browser, room, state } = startProxy();
+	assert.equal( state.upstreamUrl, 'ws://127.0.0.1:4500/?ip=10.0.0.1', 'room URL' );
+	browser.client.send( new Uint8Array( [ 0x51, 0x01 ] ) );
+	await new Promise( ( r ) => setTimeout( r, 10 ) );
+	assert.equal( state.toRoom.length, 0, 'held while the room connects' );
+
+	room.client.open();
+	await waitUntil( () => state.toRoom.length === 1, 'hello relayed' );
+	assert.deepEqual( [ ...state.toRoom[ 0 ] ], [ 0x51, 0x01 ], 'hello bytes' );
+
+	room.server.send( new Uint8Array( [ 0, 0x71, 1 ] ) );
+	browser.client.send( new Uint8Array( [ 1, 0x71, 2 ] ) );
+	await waitUntil( () => state.toBrowser.length === 1 && state.toRoom.length === 2, 'game messages relayed' );
+
+	// While the browser is backed up, unreliable messages are dropped
+	browser.server.bufferedAmount = 64 * 1024;
+	room.server.send( new Uint8Array( [ 1, 0x71, 3 ] ) );
+	room.server.send( new Uint8Array( [ 0, 0x71, 4 ] ) );
+	await waitUntil( () => state.toBrowser.length === 2, 'reliable relayed' );
+	await new Promise( ( r ) => setTimeout( r, 10 ) );
+	assert.equal( state.toBrowser.length, 2, 'unreliable dropped' );
+	assert.equal( state.toBrowser[ 1 ][ 2 ], 4, 'the reliable one got through' );
+	browser.server.bufferedAmount = 0;
+
+	// The room closes: the browser side closes too, once
+	room.server.close( 1000 );
+	await waitUntil( () => browser.client.readyState === WS_CLOSED, 'browser closed' );
+	assert.equal( state.released, 1, 'released once' );
+} );
+
+Deno.test( 'proxyGameSocket closes both sides when the browser stops reading or leaves', async () => {
+	const stalled = startProxy();
+	stalled.room.client.open();
+	await new Promise( ( r ) => setTimeout( r, 5 ) );
+	stalled.browser.server.bufferedAmount = 4 * 1024 * 1024;
+	await captureConsoleLogAsync( async () => {
+		stalled.room.server.send( new Uint8Array( [ 0, 0x71, 1 ] ) );
+		await waitUntil( () => stalled.room.server.readyState === WS_CLOSED, 'room closed' );
+	} );
+	assert.equal( stalled.state.toBrowser.length, 0, 'nothing more sent' );
+	assert.equal( stalled.state.released, 1, 'released' );
+
+	const left = startProxy();
+	left.room.client.open();
+	await new Promise( ( r ) => setTimeout( r, 5 ) );
+	left.browser.client.close( 1001 );
+	await waitUntil( () => left.room.server.readyState === WS_CLOSED, 'room closed after the browser left' );
+	assert.equal( left.state.released, 1, 'released' );
+
+	// A room that never opens is closed by the connect timeout (not waited for
+	// here); a text message from the browser closes both at once.
+	const text = startProxy();
+	text.browser.client.send( 'hello' );
+	await waitUntil( () => text.room.client.closeCalls.length === 1, 'connecting room socket closed' );
+	assert.equal( text.state.released, 1, 'released' );
 } );

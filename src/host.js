@@ -18,7 +18,8 @@ import { M_Init, M_SetExternals } from './menu.js';
 import { PR_Init } from './pr_edict.js';
 import { Mod_Init, Mod_ClearAll, R_InitTextures } from './gl_model.js';
 import { NET_Init, NET_Poll, NET_Shutdown, NET_SendMessage, NET_CanSendMessage,
-	NET_GetMessage, NET_SendToAll, WT_QueryRooms, WT_CreateRoom } from './net_main.js';
+	NET_GetMessage, NET_SendToAll, NET_QueryRooms, NET_CreateRoom, NET_LobbyServer,
+	NET_LobbyJoinURL, NET_RoomURL, NET_MultiplayerAvailable } from './net_main.js';
 import { SV_Init, SV_CheckForNewClients, SV_ClearDatagram,
 	SV_SendClientMessages, SV_DropClient } from './sv_main.js';
 import { SV_RunClients } from './sv_user.js';
@@ -398,8 +399,12 @@ export async function Host_Init( parms ) {
 		host_time_get: () => host_time,
 		realtime_get: () => realtime,
 		CL_NextDemo: CL_NextDemo,
-		WT_QueryRooms: WT_QueryRooms,
-		WT_CreateRoom: WT_CreateRoom,
+		NET_QueryRooms: NET_QueryRooms,
+		NET_CreateRoom: NET_CreateRoom,
+		NET_LobbyServer: NET_LobbyServer,
+		NET_LobbyJoinURL: NET_LobbyJoinURL,
+		NET_RoomURL: NET_RoomURL,
+		NET_MultiplayerAvailable: NET_MultiplayerAvailable,
 		cl_name: cl_name,
 		Draw_TransPicTranslate: Draw_TransPicTranslate,
 		Draw_SubPic: Draw_SubPic

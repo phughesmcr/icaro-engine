@@ -34,16 +34,24 @@ export function Sys_Error( error ) {
 Sys_PageURL
 
 The page URL to put in the address bar: room= when roomId is given, and
-game= kept from the current URL, since whoever opens a shared link needs the
-same mission pack. Other parameters are dropped.
+game=, server= and transport= kept from the current URL, since whoever opens
+a shared link needs the same mission pack and the same lobby. Other
+parameters are dropped.
 ================
 */
+const _pageURLKeptParams = [ 'game', 'server', 'transport' ];
+
 export function Sys_PageURL( roomId ) {
 
 	const params = new URLSearchParams();
 	if ( roomId ) params.set( 'room', roomId );
-	const game = new URLSearchParams( globalThis.location.search ).get( 'game' );
-	if ( game !== null ) params.set( 'game', game );
+	const current = new URLSearchParams( globalThis.location.search );
+	for ( const name of _pageURLKeptParams ) {
+
+		const value = current.get( name );
+		if ( value !== null ) params.set( name, value );
+
+	}
 	const query = params.toString();
 	return globalThis.location.origin + globalThis.location.pathname + ( query.length > 0 ? '?' + query : '' );
 
@@ -61,6 +69,7 @@ const _quietLogAllowPatterns = [
 	/^SV_ReadClientMessage:/,
 	/^Unhandled promise rejection:/,
 	/^WebTransport server listening /,
+	/^WebSocket server listening /,
 	/^WebTransport server driver initialized/,
 	/^NET_Init complete/,
 	/^\[Heartbeat\]/,

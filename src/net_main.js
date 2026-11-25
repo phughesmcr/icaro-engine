@@ -38,9 +38,15 @@ import {
 	WT_CanSendMessage, WT_CanSendUnreliableMessage, WT_Close,
 	WT_QueryRooms, WT_CreateRoom
 } from './net_webtransport.js';
+import {
+	WS_Init, WS_Shutdown, WS_Listen,
+	WS_SearchForHosts, WS_Connect, WS_CheckNewConnections,
+	WS_QGetMessage, WS_QSendMessage, WS_SendUnreliableMessage,
+	WS_CanSendMessage, WS_CanSendUnreliableMessage, WS_Close,
+	WS_QueryRooms, WS_CreateRoom,
+	WS_IsWebSocketURL, WS_ToWebSocketURL, WS_DefaultServer, WS_ServerBase, WS_RoomURL
+} from './net_websocket.js';
 
-// Re-export for menu room list/creation
-export { WT_QueryRooms, WT_CreateRoom };
 import { MAX_SCOREBOARD } from './quakedef.js';
 
 //============================================================================
@@ -49,6 +55,11 @@ import { MAX_SCOREBOARD } from './quakedef.js';
 
 let listening = false;
 export function set_listening( state ) { listening = state; }
+
+// Driver levels of the browser's remote transports, -1 when not registered
+// (see NET_Init). The game server replaces these slots with its own drivers.
+let net_wtdriverlevel = - 1;
+let net_wsdriverlevel = - 1;
 
 let slistStartTime = 0;
 let slistLastShown = 0;
@@ -454,25 +465,28 @@ export function NET_Connect( host ) {
 	}
 
 	// Check if this looks like a remote address (not 'local')
-	// For remote connections, ONLY use WebTransport - never fallback to loopback
+	// For remote connections, ONLY use a remote driver - never fallback to loopback
 	if ( host && host !== 'local' ) {
 
-		// Remote connection - must use WebTransport
-		if ( net_numdrivers <= 1 || ! net_drivers[ 1 ].initialized ) {
+		// ws:// and wss:// addresses, ?transport=ws, and browsers without
+		// WebTransport use the WebSocket driver; everything else WebTransport
+		const useWebSocket = WS_IsWebSocketURL( host ) || NET_UseWebSocket();
+		const level = useWebSocket ? net_wsdriverlevel : net_wtdriverlevel;
+		if ( level < 0 || level >= net_numdrivers || ! net_drivers[ level ].initialized ) {
 
-			Con_Printf( 'NET_Connect: WebTransport not available for remote connection\n' );
+			Con_Printf( 'NET_Connect: %s not available for remote connection\n', useWebSocket ? 'WebSocket' : 'WebTransport' );
 			return null;
 
 		}
 
-		set_net_driverlevel( 1 ); // WebTransport driver
+		set_net_driverlevel( level );
 
-		// WebTransport Connect is async, return the promise
+		// Remote Connect is async, return the promise
 		// If it fails, the error will propagate - do NOT fallback to loopback
-		const ret = net_drivers[ 1 ].Connect( host );
+		const ret = net_drivers[ level ].Connect( useWebSocket ? WS_ToWebSocketURL( host ) : host );
 		if ( ret ) return ret;
 
-		// WebTransport failed to start connection
+		// The driver failed to start connection
 		Con_Printf( 'NET_Connect: failed to connect to %s\n', host );
 		return null;
 
@@ -491,6 +505,151 @@ export function NET_Connect( host ) {
 	}
 
 	return null;
+
+}
+
+/*
+===================
+Remote transport choice (no C counterpart)
+
+The browser client reaches lobbies and rooms over WebTransport or, where
+WebTransport is missing or an HTTP-only proxy sits in front (Cloudflare
+Tunnel), over WebSocket. Page parameters:
+  ?transport=ws        use WebSocket
+  ?transport=wt        use WebTransport (if the browser has it)
+  ?server=<url>        the lobby; a ws:// or wss:// URL implies WebSocket
+===================
+*/
+const NET_DEFAULT_WT_LOBBY = 'https://localhost:4433';
+
+function _NET_PageParam( name ) {
+
+	const loc = globalThis.location;
+	if ( loc == null || typeof loc.search !== 'string' ) return null;
+	return new URLSearchParams( loc.search ).get( name );
+
+}
+
+function _NET_DriverReady( level ) {
+
+	return level >= 0 && level < net_numdrivers && net_drivers[ level ].initialized === true;
+
+}
+
+/*
+===================
+NET_UseWebSocket
+
+True when remote connections should use the WebSocket driver.
+===================
+*/
+export function NET_UseWebSocket() {
+
+	if ( _NET_DriverReady( net_wtdriverlevel ) === false ) return true;
+	if ( _NET_DriverReady( net_wsdriverlevel ) === false ) return false;
+
+	const transport = _NET_PageParam( 'transport' );
+	if ( transport === 'ws' ) return true;
+	if ( transport === 'wt' ) return false;
+
+	const server = _NET_PageParam( 'server' );
+	return server !== null && WS_IsWebSocketURL( server );
+
+}
+
+/*
+===================
+NET_MultiplayerAvailable
+
+True when the browser has a remote transport at all.
+===================
+*/
+export function NET_MultiplayerAvailable() {
+
+	return _NET_DriverReady( net_wtdriverlevel ) || _NET_DriverReady( net_wsdriverlevel );
+
+}
+
+/*
+===================
+NET_LobbyServer
+
+The lobby URL: ?server=, or the transport's default.
+===================
+*/
+export function NET_LobbyServer() {
+
+	const server = _NET_PageParam( 'server' );
+	if ( server !== null && server.length > 0 ) return server;
+	return NET_UseWebSocket() ? WS_DefaultServer() : NET_DEFAULT_WT_LOBBY;
+
+}
+
+function _NET_ServerUsesWebSocket( serverUrl ) {
+
+	return WS_IsWebSocketURL( serverUrl ) || NET_UseWebSocket();
+
+}
+
+/*
+===================
+NET_QueryRooms / NET_CreateRoom
+
+The lobby's room list, and a new room, over the chosen transport.
+===================
+*/
+export function NET_QueryRooms( serverUrl ) {
+
+	return _NET_ServerUsesWebSocket( serverUrl ) ? WS_QueryRooms( serverUrl ) : WT_QueryRooms( serverUrl );
+
+}
+
+export function NET_CreateRoom( serverUrl, config ) {
+
+	return _NET_ServerUsesWebSocket( serverUrl ) ? WS_CreateRoom( serverUrl, config ) : WT_CreateRoom( serverUrl, config );
+
+}
+
+/*
+===================
+NET_LobbyJoinURL
+
+The connect address that joins room roomId through the lobby (which
+re-creates a room that has expired).
+===================
+*/
+export function NET_LobbyJoinURL( serverUrl, roomId ) {
+
+	if ( _NET_ServerUsesWebSocket( serverUrl ) )
+		return WS_ServerBase( serverUrl ) + '?room=' + encodeURIComponent( roomId );
+
+	const urlObj = new URL( serverUrl.replace( /^wt(s)?:\/\//, 'https://' ) );
+	urlObj.searchParams.set( 'room', roomId );
+	return urlObj.toString().replace( /\/$/, '' ).replace( /^https:\/\//, 'wts://' );
+
+}
+
+/*
+===================
+NET_RoomURL
+
+The connect address of a room the lobby has just returned: its own port for
+WebTransport, the lobby's /room/<id> proxy path for WebSocket.
+===================
+*/
+export function NET_RoomURL( serverUrl, room ) {
+
+	if ( _NET_ServerUsesWebSocket( serverUrl ) )
+		return WS_RoomURL( serverUrl, room.id );
+
+	if ( room.port == null )
+		return NET_LobbyJoinURL( serverUrl, room.id );
+
+	const urlObj = new URL( serverUrl.replace( /^wt(s)?:\/\//, 'https://' ) );
+	urlObj.search = '';
+	urlObj.port = String( room.port );
+	// Remove trailing slash - URL.toString() adds one which breaks wts:// URLs
+	return urlObj.toString().replace( /\/$/, '' ).replace( /^https:\/\//, 'wts://' );
 
 }
 
@@ -921,6 +1080,30 @@ export function NET_Init() {
 		net_drivers[ 1 ].CanSendUnreliableMessage = WT_CanSendUnreliableMessage;
 		net_drivers[ 1 ].Close = WT_Close;
 		net_drivers[ 1 ].Shutdown = WT_Shutdown;
+		net_wtdriverlevel = 1;
+
+	}
+
+	// Set up the WebSocket driver for browsers without WebTransport and for
+	// HTTP-only proxies (see src/net_websocket.js)
+	if ( typeof WebSocket !== 'undefined' ) {
+
+		const d = net_numdrivers;
+		set_net_numdrivers( d + 1 );
+		net_drivers[ d ].name = 'WebSocket';
+		net_drivers[ d ].Init = WS_Init;
+		net_drivers[ d ].Listen = WS_Listen;
+		net_drivers[ d ].SearchForHosts = WS_SearchForHosts;
+		net_drivers[ d ].Connect = WS_Connect;
+		net_drivers[ d ].CheckNewConnections = WS_CheckNewConnections;
+		net_drivers[ d ].QGetMessage = WS_QGetMessage;
+		net_drivers[ d ].QSendMessage = WS_QSendMessage;
+		net_drivers[ d ].SendUnreliableMessage = WS_SendUnreliableMessage;
+		net_drivers[ d ].CanSendMessage = WS_CanSendMessage;
+		net_drivers[ d ].CanSendUnreliableMessage = WS_CanSendUnreliableMessage;
+		net_drivers[ d ].Close = WS_Close;
+		net_drivers[ d ].Shutdown = WS_Shutdown;
+		net_wsdriverlevel = d;
 
 	}
 

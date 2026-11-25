@@ -2,7 +2,8 @@
 
 Icaro Engine is a function-by-function port of id Software's WinQuake/GLQuake
 (C) to JavaScript ES modules. The client renders with Three.js r183 in the
-browser. Multiplayer uses WebTransport, with QuakeWorld-style client
+browser. Multiplayer uses WebTransport (or WebSocket where WebTransport is
+missing or a Cloudflare Tunnel sits in front), with QuakeWorld-style client
 prediction, and runs on a Deno lobby server that starts one `game_server.js`
 process per room. It was forked from mrdoob's three-quake.
 
@@ -10,12 +11,12 @@ process per room. It was forked from mrdoob's three-quake.
 
 - `src/`: the engine, shared by the browser and the Deno server. File names
   mirror the C files (`sv_phys.js` is `sv_phys.c`). Web-only additions:
-  `in_web.js`, `touch.js`, `webxr.js`, `net_webtransport.js`, `pak.js`,
-  `menu_cvars.js`.
+  `in_web.js`, `touch.js`, `webxr.js`, `net_webtransport.js`,
+  `net_websocket.js`, `pak.js`, `menu_cvars.js`.
 - `main.js` and `index.html`: the browser entry. `index.html`'s import map
   loads `three` and `nipplejs` from jsDelivr. Assets are in `static/`.
-- `server/`: `lobby_server.js`, `game_server.js` and the WebTransport server
-  driver (`.ts`). Under Deno, `three` maps to `server/browser_shim.js` (root
+- `server/`: `lobby_server.js`, `game_server.js` and the WebTransport and
+  WebSocket server drivers (`.ts`). Under Deno, `three` maps to `server/browser_shim.js` (root
   `deno.json`). If `src/` starts using a new Three.js export, add it to the
   shim or the server and tests break.
 - `docs/port-review.md`: a fidelity review of the port against the C source.

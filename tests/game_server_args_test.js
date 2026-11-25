@@ -60,3 +60,22 @@ Deno.test( '-game adds one game directory after the mission packs; the rerelease
 	assertEqual( gameDirectories( '../static/pak0.pak', false, false, 'mg1' ).join(), '../static/mg1', 'static/pak0.pak layout' );
 
 } );
+
+Deno.test( 'parseArgs reads the WebSocket listener flags', () => {
+
+	const defaults = createConfig();
+	assertEqual( defaults.wsPort, null, 'no WebSocket listener by default' );
+	assertEqual( defaults.wsHost, '127.0.0.1', 'loopback by default' );
+	assertEqual( defaults.wsTls, false, 'plain ws by default' );
+
+	const config = parseArgs( [ '-port', '4500', '-wsport', '4501', '-wshost', '0.0.0.0', '-wstls' ], createConfig() );
+	assertEqual( config.wsPort, 4501, '-wsport' );
+	assertEqual( config.wsHost, '0.0.0.0', '-wshost' );
+	assertEqual( config.wsTls, true, '-wstls' );
+	assertEqual( config.port, 4500, '-port still parsed' );
+
+	assertEqual( parseArgs( [ '-wsport', '0' ], createConfig() ).wsPort, null, 'port 0 refused' );
+	assertEqual( parseArgs( [ '-wsport', '70000' ], createConfig() ).wsPort, null, 'out of range refused' );
+	assertEqual( parseArgs( [ '-wsport', 'abc' ], createConfig() ).wsPort, null, 'not a number refused' );
+
+} );

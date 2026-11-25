@@ -311,7 +311,7 @@ Deno.test( 'game options menu: hipnotic and rogue episode and level lists, rogue
 
 } );
 
-Deno.test( 'Sys_PageURL keeps game= for share links, adds room= and drops other parameters', () => {
+Deno.test( 'Sys_PageURL keeps game=, server= and transport= for share links, adds room= and drops other parameters', () => {
 
 	const saved = Object.getOwnPropertyDescriptor( globalThis, 'location' );
 	const setLocation = ( search ) => Object.defineProperty( globalThis, 'location', {
@@ -326,6 +326,10 @@ Deno.test( 'Sys_PageURL keeps game= for share links, adds room= and drops other 
 
 		setLocation( '?room=OLD1' );
 		assertEqual( sys.Sys_PageURL( null ), 'https://example.test/play/', 'nothing kept' );
+
+		// The lobby and transport choice travel with a share link
+		setLocation( '?room=OLD1&server=wss%3A%2F%2Fexample.test%2Fmp&transport=ws&foo=1' );
+		assertEqual( sys.Sys_PageURL( 'AB12' ), 'https://example.test/play/?room=AB12&server=wss%3A%2F%2Fexample.test%2Fmp&transport=ws', 'server and transport' );
 
 	} finally {
 

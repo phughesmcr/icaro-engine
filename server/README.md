@@ -1,6 +1,6 @@
 # Icaro Engine Dedicated Server
 
-Headless multiplayer server for Icaro Engine built on Deno and WebTransport (HTTP/3 over QUIC).
+Headless multiplayer server for Icaro Engine built on Deno and WebTransport (HTTP/3 over QUIC), with an optional WebSocket transport (`-wsport`) for browsers without WebTransport and for HTTP-only proxies such as a Cloudflare Tunnel.
 
 The live server uses a two-tier multi-process architecture:
 
@@ -37,9 +37,11 @@ deno task game
 which runs:
 
 ```bash
-deno run '--allow-net=[::]:4433,0.0.0.0:4433' --allow-read=static,server/cert.pem,server/key.pem --unstable-net \
-  server/game_server.js -cert server/cert.pem -key server/key.pem -pak static/pak0.pak -map start
+deno run '--allow-net=[::]:4433,0.0.0.0:4433,127.0.0.1:4433' --allow-read=static,server/cert.pem,server/key.pem --unstable-net \
+  server/game_server.js -cert server/cert.pem -key server/key.pem -pak static/pak0.pak -map start -wsport 4433
 ```
+
+`-wsport 4433` adds a plain `ws://127.0.0.1:4433` WebSocket listener (TCP) beside the WebTransport one (UDP) on the same port number.
 
 Running from the repository root picks up the root `deno.json`, which maps `"three"` to `server/browser_shim.js` so the engine modules in `src/` can run headlessly in Deno. (Pass `--config deno.json` if you run it from elsewhere.)
 
@@ -54,11 +56,12 @@ deno task lobby
 which runs:
 
 ```bash
-deno run '--allow-net=[::]:4433,0.0.0.0:4433' --allow-read=server/cert.pem,server/key.pem --allow-run=deno --unstable-net \
-  server/lobby_server.js -cert server/cert.pem -key server/key.pem -pak static/pak0.pak
+deno run '--allow-net=[::]:4433,0.0.0.0:4433,127.0.0.1:4433,127.0.0.1:4434,127.0.0.1:4435,127.0.0.1:4436,127.0.0.1:4437,127.0.0.1:4438,127.0.0.1:4439,127.0.0.1:4440,127.0.0.1:4441,127.0.0.1:4442,127.0.0.1:4443' \
+  --allow-read=server/cert.pem,server/key.pem --allow-run=deno --unstable-net \
+  server/lobby_server.js -cert server/cert.pem -key server/key.pem -pak static/pak0.pak -wsport 4433
 ```
 
-The lobby server listens on port `4433` and spawns `game_server.js` child processes on ports `4434`–`4443` (up to 10 concurrent rooms), using the same Deno binary as the lobby (`Deno.execPath()`, override with `-deno <path>`).
+The lobby server listens on port `4433` and spawns `game_server.js` child processes on ports `4434`–`4443` (up to 10 concurrent rooms), using the same Deno binary as the lobby (`Deno.execPath()`, override with `-deno <path>`). With `-wsport 4433` it also serves WebSocket clients on `ws://127.0.0.1:4433` and gives each room a loopback WebSocket listener on the room's port, which the lobby proxies to (see [WebSocket transport](#websocket-transport)). The lobby still needs the cert and key: its WebTransport listener always runs.
 
 ### Permissions
 
@@ -67,9 +70,10 @@ The lobby and the rooms run with scoped permissions:
 | Process | Flag | Scope | Why |
 |---------|------|-------|-----|
 | Lobby | `--allow-net` | `[::]:<lobby port>` and `0.0.0.0:<lobby port>` | QUIC listener (IPv6 and IPv4) |
+| Lobby | `--allow-net` | `<ws host>:<ws port>`, and `127.0.0.1:4434` to `127.0.0.1:4443` (each listed) | With `-wsport`: the WebSocket listener, and the proxy's connections to the rooms |
 | Lobby | `--allow-read` | the cert and key files | TLS |
 | Lobby | `--allow-run` | the Deno binary | Spawning room processes |
-| Room | `--allow-net` | `[::]:<room port>` and `0.0.0.0:<room port>` | QUIC listener (IPv6 and IPv4) |
+| Room | `--allow-net` | `[::]:<room port>` and `0.0.0.0:<room port>`, plus `127.0.0.1:<room port>` when the lobby has `-wsport` | QUIC listener (IPv6 and IPv4), and the loopback WebSocket listener |
 | Room | `--allow-read` | `static/`, the pak, the cert and key, and `rogue/`, `hipnotic/` or the `-game` directory in the pak's basedir when set | Game data and TLS |
 
 The lobby builds the room flags itself (`room_process_manager.ts`). If you change `-port` or the cert/key paths, change the lobby's flags to match. `--allow-run=deno` resolves `deno` on `PATH` at startup; if that is a version-manager shim rather than the real binary, Deno will refuse to spawn rooms. Pass the binary's real path instead (`deno eval 'console.log(Deno.execPath())'`).
@@ -101,6 +105,9 @@ Both `--allow-net` grants are needed in every case: a missing grant fails startu
 | `-deno <path>` | `Deno.execPath()` | Deno binary used to spawn room servers |
 | `-rogue`, `-hipnotic` | off | Mission pack for every room (forwarded to room servers) |
 | `-game <dir>` | none | Game directory for every room, e.g. `mg1` (forwarded to room servers) |
+| `-wsport <port>` | off | Also serve WebSocket clients on this TCP port (`<prefix>/lobby` and `<prefix>/room/<id>`), and start rooms with a loopback WebSocket listener |
+| `-wshost <addr>` | `127.0.0.1` | WebSocket listen address. Keep the default behind a local proxy (cloudflared); the lobby only trusts `CF-Connecting-IP` from loopback peers |
+| `-wstls` | off | Serve `wss://` with `-cert`/`-key` instead of plain `ws://` |
 
 ### `game_server.js`
 
@@ -119,6 +126,9 @@ Both `--allow-net` grants are needed in every case: a missing grant fails startu
 | `-idletimeout <sec>` | `300` | Room mode: seconds with no players before the server exits, counted from startup or from when the last player left |
 | `-statusnonce <token>` | none | Room mode: emit `@@ICARO_STATUS <token> {...}` status lines on stdout for the lobby |
 | `-parentwatch` | off | Exit when stdin closes. The lobby passes this so rooms exit when the lobby dies |
+| `-wsport <port>` | off | Also accept game clients over WebSocket on this TCP port. A room started by the lobby gets its own port here |
+| `-wshost <addr>` | `127.0.0.1` | WebSocket listen address |
+| `-wstls` | off | Serve `wss://` with `-cert`/`-key` instead of plain `ws://` |
 
 ## Connecting from Browser
 
@@ -136,6 +146,58 @@ connect wts://localhost:4433
 ```
 
 WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on the lobby port plus room ports `4434`–`4443`). For local self-signed certificates, configure your browser to trust the cert or launch Chrome with `--ignore-certificate-errors-spki-list`.
+
+### WebSocket transport
+
+A browser without WebTransport uses WebSocket automatically. Page parameters choose otherwise:
+
+| Parameter | Effect |
+|-----------|--------|
+| `?transport=ws` | Use WebSocket even where WebTransport exists |
+| `?transport=wt` | Use WebTransport (when the browser has it) |
+| `?server=wss://host/mp` | The lobby. A `ws://` or `wss://` URL implies WebSocket; an `https://` or `wts://` lobby is converted (`https` becomes `wss`) |
+
+Without `?server=`, a WebSocket client on a `localhost` page uses `ws://127.0.0.1:4433` (`deno task lobby`); a page on any other host uses `wss://<that host>/mp` (or `ws://` for an `http:` page), which is the Cloudflare Tunnel layout below. These parameters are kept in the page URL when a room code is added, so a shared link joins over the same transport.
+
+In the console, `connect ws://127.0.0.1:4433` reaches a standalone `game_server.js -wsport 4433`, and `connect wss://host/mp?room=ABC123` joins a room through a lobby.
+
+The lobby's WebSocket listener matches only the end of the request path, so it works under any prefix:
+
+- `<prefix>/lobby`: one lobby request per connection, in the same `[type][length][payload]` frames as over WebTransport, one frame per WebSocket message.
+- `<prefix>/room/<id>`: a game connection, relayed message for message to the room's own WebSocket listener on `ws://127.0.0.1:<room port>`. The lobby's room reply still carries the port, but WebSocket clients ignore it and always go through this path, so only the lobby's port needs to be reachable.
+- Anything else, or a plain HTTP request, gets a short text reply.
+
+Trade-off: WebSocket is one ordered TCP stream, so there are no unreliable datagrams. Each message starts with a channel byte (reliable or unreliable; see `WS_CHANNEL_*` in `../src/net.js`) so both sides keep Quake's split, but a lost TCP segment delays every later message (head-of-line blocking): on a lossy link the game stutters where WebTransport would drop the odd update. To stop stale updates piling up, senders drop unreliable messages while their socket is backed up, the server also drops them while the client is more than 20 packets (about a second) behind in acknowledging, and receivers deliver only the newest of consecutive queued unreliable messages.
+
+### Cloudflare Tunnel
+
+A Cloudflare Tunnel carries HTTP and WebSocket only, so players behind one use the WebSocket transport. Run the lobby with `-wsport` on the machine that runs `cloudflared`, and add an ingress rule that sends the `/mp/` path to it, **before** the rule that serves the static client. For a tunnel whose static site is `quake.example.com`:
+
+```yaml
+ingress:
+  - hostname: quake.example.com
+    path: ^/mp/
+    service: http://127.0.0.1:4433
+  - hostname: quake.example.com
+    service: http://127.0.0.1:8080   # the static client (index.html), as before
+  - service: http_status:404
+```
+
+`cloudflared` speaks plain HTTP to the origin and upgrades WebSocket requests itself, so the lobby needs no `-wstls`. Players then open:
+
+```text
+https://quake.example.com/                                    # WebSocket automatically where WebTransport is missing
+https://quake.example.com/?transport=ws                       # force WebSocket (WebTransport cannot cross the tunnel)
+https://quake.example.com/?server=wss://quake.example.com/mp  # explicit lobby
+```
+
+On a browser that has WebTransport, the page still tries WebTransport first unless `?transport=ws` or a `wss://` `?server=` is given, and WebTransport cannot reach the lobby through the tunnel. Share links with `?transport=ws`.
+
+Notes:
+
+- Keep `-wshost` at its default `127.0.0.1` so only `cloudflared` (and the lobby's own proxy) can reach the WebSocket listeners. The lobby takes the client's address from the `CF-Connecting-IP` header on loopback connections, for its per-IP limits, and passes it on to the room.
+- The lobby still starts its WebTransport listener, so it still needs `-cert` and `-key` (a self-signed pair is enough when nobody connects over WebTransport).
+- Nothing else needs a public port: the rooms' WebSocket listeners are loopback-only, and the lobby proxies to them.
 
 ## Architecture
 
@@ -187,10 +249,12 @@ WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on t
 
 **Live server:**
 
-- `lobby_server.js` — WebTransport lobby server for room listing, creation, and joining
+- `lobby_server.js` — WebTransport (and, with `-wsport`, WebSocket) lobby server for room listing, creation, and joining; proxies WebSocket game connections to rooms
 - `room_process_manager.ts` — Spawns, monitors, and cleans up isolated `game_server.js` room processes (ports `4434`–`4443`)
 - `game_server.js` — Dedicated game server running the full Quake VM, physics, and protocol from `../src/`
 - `net_webtransport_server.ts` — Deno WebTransport server network driver
+- `net_websocket_server.ts` — Deno WebSocket server network driver (`-wsport`)
+- `client_address.ts` — Client address behind a local proxy (`CF-Connecting-IP`, the lobby proxy's `?ip=`)
 - `quic_listen.ts` — Binds the dual-stack (`[::]` and `0.0.0.0`) QUIC endpoints for the lobby and rooms
 - `browser_shim.js` — Minimal `three` stubs mapped via `deno.json` for headless execution
 - `sys_server.ts` — Deno system utilities and production log filtering (`__ICARO_QUIET_LOGS`)
@@ -200,6 +264,7 @@ WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on t
 
 - `../tests/net_webtransport_server_test.ts` — Unit tests for WebTransport packet sequencing (`deno task test` from the repository root)
 - `../tests/net_webtransport_server_lifecycle_test.js` and `../tests/net_webtransport_client_lifecycle_test.js` — Handshake, session-limit, timeout and close-path tests for both drivers, run against in-memory transports (`../tests/fake_webtransport.js`, `../tests/webtransport_test_env.js`)
+- `../tests/net_websocket_test.js` — WebSocket client and server drivers against each other over in-memory sockets (`../tests/fake_websocket.js`): handshake, rejects, acks, backpressure and close paths
 - `../tests/quic_listen_test.ts` — IPv6/IPv4 bind fallback tests for `quic_listen.ts`
 - `../tests/server_lobby_test.js` — Lobby and room-manager tests (`deno task test` from the repository root). The room-process tests need run access to `tests/fixtures/fake_room_server.sh`, write access and the `FAKE_ROOM_*` env vars (the task grants them), and are skipped without them.
 - `test_imports.js` — Smoke check verifying Deno imports of `../src/` modules (`cd server && deno run --allow-read test_imports.js`)

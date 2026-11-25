@@ -77,22 +77,24 @@ let m_save_demonum = 0;
 ==============================================================================
 */
 
-// Default WebTransport server (can be overridden by URL param)
-const DEFAULT_WT_SERVER = 'https://localhost:4433';
-
 // Room list state
 let slist_rooms = []; // Array of {id, name, map, playerCount, maxPlayers}
 let slist_cursor = 0;
 let slist_fetching = false;
 let slist_error = '';
 
-// WT_QueryRooms and WT_CreateRoom will be injected via M_SetExternals
-let _WT_QueryRooms = null;
-let _WT_CreateRoom = null;
+// Lobby functions from net_main.js, injected via M_SetExternals. They pick
+// WebTransport or WebSocket and the lobby URL (?server= or a default).
+let _NET_QueryRooms = null;
+let _NET_CreateRoom = null;
+let _NET_LobbyServer = null;
+let _NET_LobbyJoinURL = null;
+let _NET_RoomURL = null;
+let _NET_MultiplayerAvailable = null;
 let _cl_name = null;
 
 /**
- * Fetch room list from server via WebTransport
+ * Fetch room list from the lobby (WebTransport or WebSocket)
  */
 async function M_FetchRooms() {
 
@@ -100,10 +102,10 @@ async function M_FetchRooms() {
 	slist_error = '';
 	slist_rooms = [];
 
-	// Check if WebTransport is available before attempting
-	if ( typeof WebTransport === 'undefined' ) {
+	// Check that the browser has a remote transport before attempting
+	if ( _NET_MultiplayerAvailable === null || _NET_MultiplayerAvailable() === false ) {
 
-		alert( 'Multiplayer requires a browser with WebTransport support (Chrome 97+, Edge 97+, Firefox 114+, or Opera 83+).' );
+		alert( 'Multiplayer requires a browser with WebTransport or WebSocket support.' );
 		M_Menu_Main_f();
 		return;
 
@@ -111,16 +113,13 @@ async function M_FetchRooms() {
 
 	try {
 
-		const params = new URLSearchParams( window.location.search );
-		const serverUrl = params.get( 'server' ) || DEFAULT_WT_SERVER;
+		if ( _NET_QueryRooms === null ) {
 
-		if ( ! _WT_QueryRooms ) {
-
-			throw new Error( 'WebTransport not available' );
+			throw new Error( 'Multiplayer not available' );
 
 		}
 
-		slist_rooms = await _WT_QueryRooms( serverUrl );
+		slist_rooms = await _NET_QueryRooms( _NET_LobbyServer() );
 
 	} catch ( e ) {
 
@@ -462,8 +461,12 @@ export function M_SetExternals( externals ) {
 	if ( externals.host_time_get ) _host_time_get = externals.host_time_get;
 	if ( externals.realtime_get ) _realtime_get = externals.realtime_get;
 	if ( externals.CL_NextDemo ) _CL_NextDemo = externals.CL_NextDemo;
-	if ( externals.WT_QueryRooms ) _WT_QueryRooms = externals.WT_QueryRooms;
-	if ( externals.WT_CreateRoom ) _WT_CreateRoom = externals.WT_CreateRoom;
+	if ( externals.NET_QueryRooms ) _NET_QueryRooms = externals.NET_QueryRooms;
+	if ( externals.NET_CreateRoom ) _NET_CreateRoom = externals.NET_CreateRoom;
+	if ( externals.NET_LobbyServer ) _NET_LobbyServer = externals.NET_LobbyServer;
+	if ( externals.NET_LobbyJoinURL ) _NET_LobbyJoinURL = externals.NET_LobbyJoinURL;
+	if ( externals.NET_RoomURL ) _NET_RoomURL = externals.NET_RoomURL;
+	if ( externals.NET_MultiplayerAvailable ) _NET_MultiplayerAvailable = externals.NET_MultiplayerAvailable;
 	if ( externals.cl_name ) _cl_name = externals.cl_name;
 	if ( externals.Draw_TransPicTranslate ) _Draw_TransPicTranslate = externals.Draw_TransPicTranslate;
 	if ( externals.Draw_SubPic ) _Draw_SubPic = externals.Draw_SubPic;
@@ -1224,7 +1227,7 @@ function M_MultiPlayer_Key( key ) {
 /*
 ==============================================================================
 
-			LAN CONFIG MENU (Join Game via WebTransport)
+			LAN CONFIG MENU (Join Game via WebTransport or WebSocket)
 
 ==============================================================================
 */
@@ -1353,14 +1356,9 @@ function M_LanConfig_Key( key ) {
 				// Join selected room
 				m_entersound = true;
 
-				const params = new URLSearchParams( window.location.search );
-				const serverUrl = params.get( 'server' ) || DEFAULT_WT_SERVER;
-
 				// Always join through the lobby using room ID.
 				// This avoids connecting to stale room-port data from an old room list.
-				const urlObj = new URL( serverUrl.replace( /^wt(s)?:\/\//, 'https://' ) );
-				urlObj.searchParams.set( 'room', room.id );
-				const connectUrl = urlObj.toString().replace( /\/$/, '' ).replace( /^https:\/\//, 'wts://' );
+				const connectUrl = _NET_LobbyJoinURL( _NET_LobbyServer(), room.id );
 
 				// Update browser URL so user can share it
 				history.replaceState( null, '', Sys_PageURL( room.id ) );
@@ -1627,24 +1625,23 @@ function M_GameOptions_Key( key ) {
 				// Begin game - create room on server first
 				const mapName = M_StartLevel().name;
 
-				// Create room on WebTransport server and connect as client
-				if ( _WT_CreateRoom ) {
+				// Create room on the lobby server and connect as client
+				if ( _NET_CreateRoom !== null ) {
 
-					// Check if WebTransport is available before attempting
-					if ( typeof WebTransport === 'undefined' ) {
+					// Check that the browser has a remote transport before attempting
+					if ( _NET_MultiplayerAvailable === null || _NET_MultiplayerAvailable() === false ) {
 
-						alert( 'Multiplayer requires a browser with WebTransport support (Chrome 97+, Edge 97+, Firefox 114+, or Opera 83+).' );
+						alert( 'Multiplayer requires a browser with WebTransport or WebSocket support.' );
 						M_Menu_Main_f();
 						return;
 
 					}
 
-					const params = new URLSearchParams( window.location.search );
-					const serverUrl = params.get( 'server' ) || DEFAULT_WT_SERVER;
+					const serverUrl = _NET_LobbyServer();
 
 					if ( _SCR_BeginLoadingPlaque ) _SCR_BeginLoadingPlaque();
 
-					_WT_CreateRoom( serverUrl, {
+					_NET_CreateRoom( serverUrl, {
 						map: mapName,
 						maxPlayers: maxplayers,
 						hostName: _cl_name ? _cl_name.string : 'Player'
@@ -1668,22 +1665,10 @@ function M_GameOptions_Key( key ) {
 							m_state = m_none;
 
 							// Connect to the remote server as a client (not local game)
-							// The remote server is the authoritative game server
-							let connectUrl;
-							if ( room.port != null ) {
-
-								// Connect directly to room server on its port
-								const urlObj = new URL( serverUrl.replace( /^wt(s)?:\/\//, 'https://' ) );
-								urlObj.port = String( room.port );
-								// Remove trailing slash - URL.toString() adds one which breaks wts:// URLs
-								connectUrl = urlObj.toString().replace( /\/$/, '' ).replace( /^https:\/\//, 'wts://' );
-
-							} else {
-
-								// Fallback: connect through lobby
-								connectUrl = serverUrl + '?room=' + room.id;
-
-							}
+							// The remote server is the authoritative game server:
+							// its own port (WebTransport) or the lobby's proxy
+							// path for it (WebSocket)
+							const connectUrl = _NET_RoomURL( serverUrl, room );
 
 							Cbuf_AddText( 'connect "' + connectUrl + '"\n' );
 							return;
@@ -1704,7 +1689,7 @@ function M_GameOptions_Key( key ) {
 
 				}
 
-				// Fallback: no WebTransport - start local game
+				// Fallback: no lobby functions - start local game
 				if ( _sv.active )
 					Cbuf_AddText( 'disconnect\n' );
 

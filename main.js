@@ -6,6 +6,7 @@ import { COM_InitArgv, rogue, hipnotic } from './src/common.js';
 import { Host_Init, Host_Frame } from './src/host.js';
 import { COM_AddPakSequence, COM_AddGameDirectory, COM_SetLooseFileBasePaths } from './src/pak.js';
 import { Cbuf_AddText } from './src/cmd.js';
+import { NET_LobbyServer, NET_LobbyJoinURL } from './src/net_main.js';
 import { cls, cl } from './src/client.js';
 import { sv } from './src/server.js';
 import { scene, camera } from './src/gl_rmain.js';
@@ -173,8 +174,9 @@ async function main() {
 
 		if ( roomId ) {
 
-			const serverUrl = urlParams.get( 'server' ) || 'https://localhost:4433';
-			const connectUrl = serverUrl + '?room=' + encodeURIComponent( roomId );
+			// ?server= or the default lobby, over WebTransport or WebSocket
+			// (see NET_UseWebSocket)
+			const connectUrl = NET_LobbyJoinURL( NET_LobbyServer(), roomId );
 			Sys_Printf( 'Auto-joining room: %s\\n', roomId );
 			Cbuf_AddText( 'connect "' + connectUrl + '"\n' );
 
