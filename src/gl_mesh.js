@@ -7,9 +7,9 @@ import { R_GetPlayerSkinTexture } from './gl_rmisc.js';
 import { gl_nocolors, gl_doubleeyes, GL_RegisterCullMaterial } from './glquake.js';
 import { r_avertexnormals } from './anorm_dots.js';
 import { VectorCopy, VectorCompare } from './mathlib.js';
-import { r_lerpmodels, r_lerpmove, r_nolerp_list,
+import { r_refdef, r_lerpmodels, r_lerpmove, r_nolerp_list,
 	LERP_MOVESTEP, LERP_RESETANIM, LERP_RESETANIM2, LERP_RESETMOVE, LERP_FINISH } from './render.js';
-import { MOD_NOLERP, Mod_SetExtraFlags } from './gl_model.js';
+import { MOD_NOLERP, MF_HOLEY, Mod_SetExtraFlags } from './gl_model.js';
 
 /*
 =================================================================
@@ -797,6 +797,119 @@ export function R_SetupEntityTransform( e, lerpdata ) {
 
 /*
 =================
+AliasMaterial
+
+Not in the C. QuakeSpasm draws an alias model's fullbright pixels in a
+second pass that ignores the light; here the fragment shader does it.
+fullbrightMap is the skin's fullbright mask (GL_LoadTexture's
+_fullbright): alpha 1 on fullbright pixels, which then show the skin (map)
+colour unlit. Only the mask's alpha is read: its colour is black off the
+fullbright pixels and would darken the filtered edges. The hooks live on the class, not the instance, so a clone (the view
+model's depth-hack copy in gl_rmain.js) keeps them; copy() carries the map
+and the r_lerpmodels blend.
+=================
+*/
+export class AliasMaterial extends THREE.MeshBasicMaterial {
+
+	constructor( parameters ) {
+
+		super( parameters );
+		// one uniform object per material, so a new fullbrightMap reaches
+		// the compiled program without a recompile
+		this._fullbrightUniform = { value: null };
+		this._lerpblend = null;	// { value } when r_lerpmodels blends poses
+
+	}
+
+	get fullbrightMap() {
+
+		return this._fullbrightUniform.value;
+
+	}
+
+	set fullbrightMap( texture ) {
+
+		this._fullbrightUniform.value = texture;
+
+	}
+
+	onBeforeCompile( shader ) {
+
+		if ( this._lerpblend !== null ) {
+
+			// r_lerpmodels: see R_GetAliasLerpMaterial
+			shader.uniforms.r_lerpblend = this._lerpblend;
+			shader.vertexShader = 'attribute vec3 pose1;\nuniform float r_lerpblend;\n' +
+				shader.vertexShader.replace( '#include <begin_vertex>',
+					'#include <begin_vertex>\n\ttransformed = mix( pose1, position, r_lerpblend );' );
+
+		}
+
+		if ( this.fullbrightMap !== null && this.map !== null ) {
+
+			shader.uniforms.fullbrightMap = this._fullbrightUniform;
+			shader.fragmentShader = 'uniform sampler2D fullbrightMap;\n' +
+				shader.fragmentShader.replace( '#include <opaque_fragment>',
+					'outgoingLight = mix( outgoingLight, texture2D( map, vMapUv ).rgb,\n' +
+					'\t\ttexture2D( fullbrightMap, vMapUv ).a );\n' +
+					'\t#include <opaque_fragment>' );
+
+		}
+
+	}
+
+	customProgramCacheKey() {
+
+		return 'alias' + ( this._lerpblend !== null ? '-lerp' : '' ) +
+			( this.fullbrightMap !== null && this.map !== null ? '-fullbright' : '' );
+
+	}
+
+	copy( source ) {
+
+		super.copy( source );
+		this.fullbrightMap = source.fullbrightMap;
+		this._lerpblend = source._lerpblend;
+		return this;
+
+	}
+
+}
+
+// MF_HOLEY skins: Ironwail's alias shader discards texels with alpha
+// below 0.666 (QuakeSpasm: glAlphaFunc GL_GREATER 0.666)
+const HOLEY_ALPHATEST = 0.666;
+
+function _skinAlphaTest( entity ) {
+
+	return entity !== null && entity.model !== null && ( entity.model.flags & MF_HOLEY ) !== 0
+		? HOLEY_ALPHATEST : 0;
+
+}
+
+// A skin's fullbright mask, or null. Unloaded gl_texturenum slots hold 0.
+function _skinFullbright( texture ) {
+
+	if ( texture === null || texture === 0 || texture._fullbright === undefined ) return null;
+	return texture._fullbright;
+
+}
+
+// The skin texture for an entity's skinnum and animation frame. Unloaded
+// gl_texturenum slots hold 0 (as in the C), hence the falsy fallbacks.
+function R_GetAliasSkinTexture( paliashdr, entity, anim ) {
+
+	if ( ! paliashdr.gl_texturenum ) return null;
+	const skinnum = entity && entity.skinnum ? entity.skinnum : 0;
+	const skinGroup = paliashdr.gl_texturenum[ skinnum ] || paliashdr.gl_texturenum[ 0 ];
+	if ( ! skinGroup ) return null;
+	// Select animated frame if skin group is an array
+	return Array.isArray( skinGroup ) ? ( skinGroup[ anim ] || skinGroup[ 0 ] ) : skinGroup;
+
+}
+
+/*
+=================
 R_GetAliasMaterial
 
 Get or create a cached material for the given alias model skin.
@@ -804,7 +917,7 @@ Materials are cached per (paliashdr, skinnum, hasLighting) to avoid
 per-frame material creation and shader compilation.
 =================
 */
-function R_GetAliasMaterial( paliashdr, entity, hasLighting, playerSkinTexture ) {
+export function R_GetAliasMaterial( paliashdr, entity, hasLighting, playerSkinTexture ) {
 
 	// Player skin textures are per-entity, not cached on the model
 	if ( playerSkinTexture != null ) {
@@ -818,10 +931,15 @@ function R_GetAliasMaterial( paliashdr, entity, hasLighting, playerSkinTexture )
 
 			}
 
-			entity._playerMaterial = GL_RegisterCullMaterial( new THREE.MeshBasicMaterial( {
+			entity._playerMaterial = GL_RegisterCullMaterial( new AliasMaterial( {
 				map: playerSkinTexture,
 				vertexColors: hasLighting
 			} ) );
+			// the translated skin has the model skin's layout, so its
+			// fullbright mask lines up
+			entity._playerMaterial.fullbrightMap = _skinFullbright( R_GetAliasSkinTexture( paliashdr, entity, 0 ) );
+			// MF_HOLEY isn't applied here: R_TranslatePlayerSkin (gl_rmisc.js)
+			// builds the translated skin fully opaque
 			entity._playerSkinTexture = playerSkinTexture;
 
 		}
@@ -844,29 +962,20 @@ function R_GetAliasMaterial( paliashdr, entity, hasLighting, playerSkinTexture )
 	let material = paliashdr._materialCache.get( cacheKey );
 	if ( material ) return material;
 
-	let texture = null;
-	if ( paliashdr.gl_texturenum ) {
-
-		const skinGroup = paliashdr.gl_texturenum[ skinnum ] || paliashdr.gl_texturenum[ 0 ];
-		if ( skinGroup ) {
-
-			// Select animated frame if skin group is an array
-			texture = Array.isArray( skinGroup ) ? ( skinGroup[ anim ] || skinGroup[ 0 ] ) : skinGroup;
-
-		}
-
-	}
+	const texture = R_GetAliasSkinTexture( paliashdr, entity, anim );
 
 	if ( texture ) {
 
-		material = new THREE.MeshBasicMaterial( {
+		material = new AliasMaterial( {
 			map: texture,
 			vertexColors: hasLighting
 		} );
+		material.fullbrightMap = _skinFullbright( texture );
+		material.alphaTest = _skinAlphaTest( entity );
 
 	} else {
 
-		material = new THREE.MeshBasicMaterial( {
+		material = new AliasMaterial( {
 			color: 0xcccccc,
 			vertexColors: hasLighting
 		} );
@@ -893,38 +1002,31 @@ material, kept in step with the cached one R_GetAliasMaterial picked.
 With r_lerpmodels 0 the cached materials are used, as before.
 =================
 */
-function _aliasLerpCompile( shader ) {
-
-	// `this` is the material (WebGLRenderer calls material.onBeforeCompile)
-	shader.uniforms.r_lerpblend = this._lerpblend;
-	shader.vertexShader = 'attribute vec3 pose1;\nuniform float r_lerpblend;\n' +
-		shader.vertexShader.replace( '#include <begin_vertex>',
-			'#include <begin_vertex>\n\ttransformed = mix( pose1, position, r_lerpblend );' );
-
-}
-
-function R_GetAliasLerpMaterial( entity, base, blend ) {
+export function R_GetAliasLerpMaterial( entity, base, blend ) {
 
 	let material = entity._aliasLerpMaterial;
 	if ( material == null ) {
 
-		material = GL_RegisterCullMaterial( new THREE.MeshBasicMaterial() );
+		// AliasMaterial.onBeforeCompile adds the blend; every lerp material
+		// shares one program per fullbright on/off (customProgramCacheKey)
+		material = GL_RegisterCullMaterial( new AliasMaterial() );
 		material._lerpblend = { value: 1 };
 		material._lerpbase = null;
-		// one shared function, so every lerp material shares one program
-		// (Three keys custom programs by onBeforeCompile's source)
-		material.onBeforeCompile = _aliasLerpCompile;
 		entity._aliasLerpMaterial = material;
 
 	}
 
 	if ( material._lerpbase !== base ) {
 
-		// map on/off and vertexColors are compiled into the program
+		// map on/off, the fullbright pass and vertexColors are compiled into
+		// the program
 		if ( ( material.map === null ) !== ( base.map === null ) ||
+			( material.fullbrightMap === null ) !== ( base.fullbrightMap === null ) ||
 			material.vertexColors !== base.vertexColors )
 			material.needsUpdate = true;
 		material.map = base.map;
+		material.fullbrightMap = base.fullbrightMap;
+		material.alphaTest = base.alphaTest;	// Three recompiles when it turns on or off
 		material.color.copy( base.color );
 		material.vertexColors = base.vertexColors;
 		material._lerpbase = base;
@@ -942,6 +1044,38 @@ const _aliasRZ = new THREE.Matrix4();
 const _aliasRY = new THREE.Matrix4();
 const _aliasRX = new THREE.Matrix4();
 const _eyesOffset = new THREE.Vector3();
+
+/*
+=================
+cl_gun_fovscale
+
+Deliberate deviation, from Ironwail (gl_screen.c, after Qrack): above a 90
+degree fov, the view model is scaled across the screen (model y and z) by
+tan( fov / 2 ), so the gun keeps its shape instead of being stretched. The
+cvar sets how much of that correction to apply. Ironwail defaults it to 1;
+this port defaults to 0, GLQuake's unscaled gun. Ironwail registers it in
+SCR_Init; here gl_model.js Mod_Init does.
+=================
+*/
+export const cl_gun_fovscale = { name: 'cl_gun_fovscale', string: '0', value: 0, archive: true };
+
+// Ironwail r_alias.c R_DrawAliasModel_Real: fovscale for the view model.
+// Ironwail reads r_refdef.basefov, the fov cvar before the "Hor+" widening.
+// The port keeps fov_y = CalcFov( fov, 4, 3 ) (gl_screen.js SCR_CalcRefdef),
+// so tan( basefov / 2 ) = tan( fov_y / 2 ) * 4 / 3, and basefov > 90 exactly
+// when that is above 1.
+export function R_GunFovScale() {
+
+	if ( cl_gun_fovscale.value === 0 )
+		return 1;
+
+	const fovscale = Math.tan( r_refdef.fov_y * ( Math.PI / 360 ) ) * ( 4 / 3 );
+	if ( fovscale <= 1 )
+		return 1;
+
+	return 1 + ( fovscale - 1 ) * cl_gun_fovscale.value;
+
+}
 const _DEG2RAD = Math.PI / 180;
 
 /*
@@ -1155,6 +1289,14 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 				- paliashdr.scale_origin[ 2 ] - ( 22 + 8 )
 			).applyQuaternion( mesh.quaternion );
 			mesh.position.add( _eyesOffset );
+
+		} else if ( entity === cl.viewent ) {
+
+			// Ironwail scales the model's y and z, and scale_origin's,
+			// by fovscale. The template holds scale * v + scale_origin,
+			// so scaling the mesh's local y and z does both.
+			const fovscale = R_GunFovScale();
+			mesh.scale.set( 1, fovscale, fovscale );
 
 		} else {
 

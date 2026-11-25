@@ -8,13 +8,16 @@ import { vid, renderer, vid_renderscale } from './vid.js';
 import { r_refdef, r_origin, vpn, vright, vup, entity_t, r_lerpmodels, r_lerpmove, r_nolerp_list } from './render.js';
 import { Cvar_RegisterVariable } from './cvar.js';
 import {
-	M_PI, DotProduct, VectorCopy, VectorAdd, VectorSubtract,
+	M_PI, DotProduct, VectorCopy, VectorAdd, VectorSubtract, VectorNormalize,
 	AngleVectors, Length, RotatePointAroundVector, BoxOnPlaneSide
 } from './mathlib.js';
 import { R_DrawWorld as R_DrawWorld_impl, R_MarkLeaves as R_MarkLeaves_impl, GL_BuildLightmaps as GL_BuildLightmaps_rsurf, R_DrawBrushModel as R_DrawBrushModel_rsurf, R_DrawWaterSurfaces as R_DrawWaterSurfaces_rsurf, R_CleanupWaterMeshes as R_CleanupWaterMeshes_rsurf, R_GetMirrorItems } from './gl_rsurf.js';
 import { R_MirrorGate, R_MirrorPass, R_MirrorCleanup } from './gl_rmirror.js';
-import { Mod_PointInLeaf, SPR_SINGLE, SPR_ORIENTED } from './gl_model.js';
-import { R_AnimateLight as R_AnimateLight_impl, R_RenderDlights as R_RenderDlights_impl, R_LightPoint, lightspot } from './gl_rlight.js';
+import {
+	Mod_PointInLeaf, SPR_SINGLE, SPR_VP_PARALLEL_UPRIGHT, SPR_FACING_UPRIGHT,
+	SPR_VP_PARALLEL, SPR_ORIENTED, SPR_VP_PARALLEL_ORIENTED
+} from './gl_model.js';
+import { R_AnimateLight as R_AnimateLight_impl, R_RenderDlights as R_RenderDlights_impl, R_DlightDistance, R_LightPoint, lightspot } from './gl_rlight.js';
 import { R_DrawAliasModel as R_DrawAliasModel_mesh, GL_DrawAliasShadow, alias_lerpdata } from './gl_mesh.js';
 import { r_avertexnormal_dots } from './anorm_dots.js';
 import { V_SetContentsColor as V_SetContentsColor_view, V_CalcBlend as V_CalcBlend_view } from './view.js';
@@ -57,6 +60,15 @@ export const ALIAS_BASE_SIZE_RATIO = ( 1.0 / 11.0 );
 export const MAX_LBM_HEIGHT = 480;
 
 export const TILE_SIZE = 128;
+
+/*
+gl_farclip, from QuakeSpasm and Ironwail (gl_rmain.c): the far clip
+distance. id's R_SetupGL hard-codes 4096, so that is the default here;
+QuakeSpasm and Ironwail default to 65536 for large custom maps. With
+zNear 4 the far plane barely changes depth precision: a 24-bit depth step
+at distance z is about z * z / ( 4 * 2^24 ) units whatever the far plane.
+*/
+export const gl_farclip = { name: 'gl_farclip', string: '4096', value: 4096, archive: true };
 export const SKYSHIFT = 7;
 export const SKYSIZE = ( 1 << SKYSHIFT );
 export const SKYMASK = ( SKYSIZE - 1 );
@@ -319,7 +331,7 @@ export function R_SetupGL() {
 			r_refdef.fov_y,
 			screenaspect,
 			4, // zNear
-			4096 // zFar
+			gl_farclip.value // zFar
 		);
 
 		// Parent camera to XR rig (if available).
@@ -337,12 +349,12 @@ export function R_SetupGL() {
 		if ( isXRActive() ) {
 
 			camera.near = 4 / XR_SCALE;
-			camera.far = 4096 / XR_SCALE;
+			camera.far = gl_farclip.value / XR_SCALE;
 
 		} else {
 
 			camera.near = 4;
-			camera.far = 4096;
+			camera.far = gl_farclip.value;
 
 		}
 
@@ -838,6 +850,26 @@ export function R_VrectToViewport( out, vrect, vrectScale, renderScale, bufferWi
 
 }
 
+/*
+=================
+R_AliasLightPoint
+
+Deliberate deviation (Ironwail R_SetupAliasLighting): if the trace from the
+model's origin finds no light at all, try again from half the model's height
+above it. This helps models whose origin is slightly below the floor (e.g. the
+candles on some mod start maps), which id's C draws pitch black. Ironwail
+computes alias bounds from the vertices; this port keeps id's fixed +/-16
+bounds (Mod_LoadAliasModel), so the retry starts 8 units up.
+=================
+*/
+export function R_AliasLightPoint( e ) {
+
+	const light = R_LightPoint( e.origin, cl );
+	if ( light !== 0 ) return light;
+	return R_LightPoint( e.origin, cl, e.model.maxs[ 2 ] * 0.5 );
+
+}
+
 function R_DrawAliasModel( e ) {
 
 	if ( ! e || ! e.model ) return;
@@ -853,7 +885,7 @@ function R_DrawAliasModel( e ) {
 
 	if ( cl && e.origin ) {
 
-		ambientlight = shadelight = R_LightPoint( e.origin, cl );
+		ambientlight = shadelight = R_AliasLightPoint( e );
 
 		// always give the gun some light
 		if ( e === cl.viewent && ambientlight < 24 )
@@ -1034,12 +1066,139 @@ function R_GetSpriteFrame( e ) {
 
 }
 
-// Sprite material cache: texture -> material
+// Sprite material caches: texture -> material. Decals (SPR_ORIENTED) get
+// their own materials with a polygon offset.
 const _spriteMaterialCache = new Map();
-// Cached vectors for SPR_ORIENTED AngleVectors output
+const _spriteDecalMaterialCache = new Map();
+// Scratch axes for R_SpriteAxes
 const _sprite_v_forward = new Float32Array( 3 );
 const _sprite_v_right = new Float32Array( 3 );
 const _sprite_v_up = new Float32Array( 3 );
+
+/*
+================
+R_SpriteAxes
+
+Sets up and right for a sprite of the given type and returns true, or
+returns false if the sprite isn't drawn this frame.
+
+id's GLQuake R_DrawSpriteModel handles only SPR_ORIENTED and draws every
+other type parallel to the view plane. The five types below are id's own,
+from WinQuake/r_sprite.c R_DrawSprite (the software renderer), which
+QuakeSpasm and Ironwail also port. Like the software renderer, the two
+upright types aren't drawn when the view is within 1 degree of straight up
+or down. Deliberate deviation: an unknown type is skipped, as in QuakeSpasm,
+rather than a Sys_Error.
+================
+*/
+export function R_SpriteAxes( type, e, up, right ) {
+
+	switch ( type ) {
+
+		case SPR_FACING_UPRIGHT: {
+
+			// vup straight up in worldspace, vright perpendicular to the
+			// line from the viewer to the sprite
+			const tvec = _sprite_v_forward;
+			VectorSubtract( e.origin, r_origin, tvec );
+			VectorNormalize( tvec );
+			const dot = tvec[ 2 ];
+			if ( ( dot > 0.999848 ) || ( dot < - 0.999848 ) ) // cos(1 degree) = 0.999848
+				return false;
+			up[ 0 ] = 0;
+			up[ 1 ] = 0;
+			up[ 2 ] = 1;
+			right[ 0 ] = tvec[ 1 ];
+			right[ 1 ] = - tvec[ 0 ];
+			right[ 2 ] = 0;
+			VectorNormalize( right );
+			return true;
+
+		}
+
+		case SPR_VP_PARALLEL:
+			VectorCopy( vup, up );
+			VectorCopy( vright, right );
+			return true;
+
+		case SPR_VP_PARALLEL_UPRIGHT: {
+
+			// vup straight up in worldspace, vright parallel to the viewplane
+			const dot = vpn[ 2 ];
+			if ( ( dot > 0.999848 ) || ( dot < - 0.999848 ) ) // cos(1 degree) = 0.999848
+				return false;
+			up[ 0 ] = 0;
+			up[ 1 ] = 0;
+			up[ 2 ] = 1;
+			right[ 0 ] = vpn[ 1 ];
+			right[ 1 ] = - vpn[ 0 ];
+			right[ 2 ] = 0;
+			VectorNormalize( right );
+			return true;
+
+		}
+
+		case SPR_ORIENTED:
+			// the sprite's world orientation (bullet marks on walls)
+			AngleVectors( e.angles, _sprite_v_forward, right, up );
+			return true;
+
+		case SPR_VP_PARALLEL_ORIENTED: {
+
+			// parallel to the viewplane, rotated by the entity's roll
+			const angle = e.angles[ 2 ] * ( M_PI * 2 / 360 ); // ROLL
+			const sr = Math.sin( angle );
+			const cr = Math.cos( angle );
+			for ( let i = 0; i < 3; i ++ ) {
+
+				right[ i ] = vright[ i ] * cr + vup[ i ] * sr;
+				up[ i ] = vright[ i ] * - sr + vup[ i ] * cr;
+
+			}
+
+			return true;
+
+		}
+
+		default:
+			return false;
+
+	}
+
+}
+
+export function R_SpriteMaterial( texture, decal ) {
+
+	const cache = decal ? _spriteDecalMaterialCache : _spriteMaterialCache;
+	let material = cache.get( texture );
+	if ( material === undefined ) {
+
+		material = new THREE.MeshBasicMaterial( {
+			map: texture,
+			transparent: true,
+			alphaTest: 0.5,
+			depthWrite: false,
+			side: THREE.DoubleSide
+		} );
+
+		if ( decal ) {
+
+			// Deliberate deviation, from QuakeSpasm (r_sprite.c,
+			// GL_PolygonOffset( OFFSET_DECAL )): pull decals towards the
+			// viewer so they don't z-fight with the wall they're on.
+			material.polygonOffset = true;
+			material.polygonOffsetFactor = - 1;
+			material.polygonOffsetUnits = - 1;
+
+		}
+
+		cache.set( texture, material );
+
+	}
+
+	return material;
+
+}
 
 function R_DrawSpriteModel( e ) {
 
@@ -1053,7 +1212,11 @@ function R_DrawSpriteModel( e ) {
 	const texture = frame.gl_texturenum;
 	if ( texture == null ) return;
 
-	// Get or create cached geometry and material for this entity
+	if ( R_SpriteAxes( psprite.type, e, _sprite_v_up, _sprite_v_right ) === false ) return;
+
+	const material = R_SpriteMaterial( texture, psprite.type === SPR_ORIENTED );
+
+	// Get or create cached geometry for this entity
 	let mesh = e._spriteMesh;
 	let positions;
 
@@ -1068,44 +1231,20 @@ function R_DrawSpriteModel( e ) {
 		geometry.setAttribute( 'uv', new THREE.BufferAttribute( uvs, 2 ) );
 		geometry.setIndex( [ 0, 1, 2, 0, 2, 3 ] );
 
-		// Get cached material
-		let material = _spriteMaterialCache.get( texture );
-		if ( ! material ) {
-
-			material = new THREE.MeshBasicMaterial( {
-				map: texture,
-				transparent: true,
-				alphaTest: 0.5,
-				depthWrite: false,
-				side: THREE.DoubleSide
-			} );
-			_spriteMaterialCache.set( texture, material );
-
-		}
-
 		mesh = new THREE.Mesh( geometry, material );
+		// The four positions are rewritten in world space every frame, but
+		// Three.js computes the bounding sphere only once, so frustum culling
+		// would test a moving sprite (or a reused entity slot) against where
+		// it was first drawn. C submits sprites without culling them.
+		mesh.frustumCulled = false;
 		e._spriteMesh = mesh;
 
-	} else {
+	} else if ( mesh.material !== material ) {
 
-		// Update material if texture changed
-		let material = _spriteMaterialCache.get( texture );
-		if ( ! material ) {
-
-			material = new THREE.MeshBasicMaterial( {
-				map: texture,
-				transparent: true,
-				alphaTest: 0.5,
-				depthWrite: false,
-				side: THREE.DoubleSide
-			} );
-			_spriteMaterialCache.set( texture, material );
-
-		}
-
-		if ( mesh.material !== material ) mesh.material = material;
+		mesh.material = material;
 
 	}
+
 	mesh._quakeOwner = e;
 	_entityMeshCacheOwners.add( e );
 
@@ -1117,24 +1256,8 @@ function R_DrawSpriteModel( e ) {
 	const oy = e.origin[ 1 ];
 	const oz = e.origin[ 2 ];
 
-	// SPR_ORIENTED uses entity angles for orientation (bullet marks on walls)
-	// Normal sprites use camera-facing vup/vright
-	let up_vec, right_vec;
-	if ( psprite.type === SPR_ORIENTED ) {
-
-		AngleVectors( e.angles, _sprite_v_forward, _sprite_v_right, _sprite_v_up );
-		up_vec = _sprite_v_up;
-		right_vec = _sprite_v_right;
-
-	} else {
-
-		up_vec = vup;
-		right_vec = vright;
-
-	}
-
-	const ux = up_vec[ 0 ], uy = up_vec[ 1 ], uz = up_vec[ 2 ];
-	const rx = right_vec[ 0 ], ry = right_vec[ 1 ], rz = right_vec[ 2 ];
+	const ux = _sprite_v_up[ 0 ], uy = _sprite_v_up[ 1 ], uz = _sprite_v_up[ 2 ];
+	const rx = _sprite_v_right[ 0 ], ry = _sprite_v_right[ 1 ], rz = _sprite_v_right[ 2 ];
 	const l = frame.left, r = frame.right, u = frame.up, d = frame.down;
 
 	positions[ 0 ] = ox + ux * d + rx * l;
@@ -1420,6 +1543,8 @@ export function R_Init() {
 	Cvar_RegisterVariable( r_lerpmodels );
 	Cvar_RegisterVariable( r_lerpmove );
 	Cvar_RegisterVariable( r_nolerp_list );
+	// QuakeSpasm and Ironwail register this in gl_rmisc.c R_Init
+	Cvar_RegisterVariable( gl_farclip );
 
 	// create the Three.js scene
 	scene = new THREE.Scene();
@@ -1502,17 +1627,22 @@ export function R_NewMap() {
 
 	_entityMeshesInScene.clear();
 	_entityMeshesThisFrame.clear();
-	for ( const material of _spriteMaterialCache.values() ) {
+	for ( const cache of [ _spriteMaterialCache, _spriteDecalMaterialCache ] ) {
 
-		if ( materials.has( material ) === false ) {
+		for ( const material of cache.values() ) {
 
-			materials.add( material );
-			material.dispose();
+			if ( materials.has( material ) === false ) {
+
+				materials.add( material );
+				material.dispose();
+
+			}
 
 		}
 
+		cache.clear();
+
 	}
-	_spriteMaterialCache.clear();
 
 	// rebuild lightmaps
 	GL_BuildLightmaps_rsurf();
@@ -1573,6 +1703,81 @@ function R_RenderDlights() {
 	if ( cl != null ) {
 
 		R_RenderDlights_impl( cl, scene );
+		R_PadDlights( scene );
+
+	}
+
+}
+
+/*
+=============
+R_PadDlights
+
+Not in C. gl_flashblend draws dlights as PointLights (gl_rlight.js), and
+Three.js compiles a new shader program for every lit material each time the
+number of lights in the scene changes. Measured in Chrome on the start map:
+each light count seen for the first time added about 7 programs and a
+20-250 ms frame. Keeping all MAX_DLIGHTS lights in the scene avoids that but
+makes every lit fragment loop over them: 64 zero-intensity lights took a
+frame from about 3 ms to 12-18 ms (2048x1536, render plus a 1-pixel
+readPixels). So pad the count with zero-intensity lights up to the next of
+4, 8, 16, 32 or 64: at most five program sets per material, and the per-pixel
+cost stays near what the frame actually uses.
+=============
+*/
+const _dlightFillers = [];
+
+export function R_CountRenderedDlights() {
+
+	if ( gl_flashblend.value === 0 || cl == null )
+		return 0;
+
+	// Same test as R_RenderDlights in gl_rlight.js
+	let count = 0;
+	for ( let i = 0; i < MAX_DLIGHTS; i ++ ) {
+
+		const l = cl_dlights[ i ];
+		if ( l != null && l.die >= cl.time && l.radius > 0 && R_DlightDistance( l ) > 0 )
+			count ++;
+
+	}
+
+	return count;
+
+}
+
+export function R_DlightBucket( count ) {
+
+	if ( count === 0 ) return 0;
+	let bucket = 4;
+	while ( bucket < count ) bucket *= 2;
+	return bucket;
+
+}
+
+export function R_PadDlights( targetScene ) {
+
+	const active = R_CountRenderedDlights();
+	const fillers = active === 0 ? 0 : R_DlightBucket( active ) - active;
+
+	for ( let i = 0; i < fillers; i ++ ) {
+
+		let light = _dlightFillers[ i ];
+		if ( light === undefined ) {
+
+			light = new THREE.PointLight( 0xffffff, 0, 1, 0 );
+			_dlightFillers[ i ] = light;
+
+		}
+
+		if ( light.parent !== targetScene && targetScene !== null ) targetScene.add( light );
+
+	}
+
+	for ( let i = fillers; i < _dlightFillers.length; i ++ ) {
+
+		const light = _dlightFillers[ i ];
+		if ( light.parent !== null ) light.parent.remove( light );
 
 	}
 

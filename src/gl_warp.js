@@ -4,6 +4,10 @@ import * as THREE from 'three';
 import { Sys_Error } from './sys.js';
 import { DotProduct } from './mathlib.js';
 import { VERTEXSIZE, glpoly_t, gl_subdivide_size } from './glquake.js';
+import { Con_Printf } from './common.js';
+
+// <float.h> FLT_MAX: the largest finite 32-bit float
+const FLT_MAX = 3.4028234663852886e+38;
 
 export const skytexturenum = 0;
 
@@ -65,8 +69,10 @@ BoundPoly
 */
 export function BoundPoly( numverts, verts, mins, maxs ) {
 
-	mins[ 0 ] = mins[ 1 ] = mins[ 2 ] = 9999;
-	maxs[ 0 ] = maxs[ 1 ] = maxs[ 2 ] = - 9999;
+	// id's gl_warp.c starts at +/-9999, which gives wrong bounds for any
+	// vertex beyond 9999 units. QuakeSpasm starts at FLT_MAX instead.
+	mins[ 0 ] = mins[ 1 ] = mins[ 2 ] = FLT_MAX;
+	maxs[ 0 ] = maxs[ 1 ] = maxs[ 2 ] = - FLT_MAX;
 
 	let vIdx = 0;
 	for ( let i = 0; i < numverts; i ++ ) {
@@ -248,25 +254,46 @@ R_InitSky
 A sky texture is 256*128, with the right side being a masked overlay.
 For Three.js, creates two textures (solid sky and alpha sky) from the
 sky texture data.
+
+Deliberate deviation, from QuakeSpasm's Sky_LoadTexture (gl_sky.c): id
+hard-codes 128*128 layers with a 256 stride, so a sky of any other size is
+read wrongly (or past its end). Each layer here is width/2 by height, with a
+warning for sizes other than 256*128. A texture too small to split gives no
+sky (null). mt.width and mt.height default to 256 and 128 when the caller
+doesn't pass them.
 ==============
 */
 export function R_InitSky( mt, d_8to24table ) {
 
 	const src = mt.data;
 	const srcOffset = mt.offsets[ 0 ];
+	const width = mt.width !== undefined ? mt.width : 256;
+	const height = mt.height !== undefined ? mt.height : 128;
+
+	if ( width !== 256 || height !== 128 ) {
+
+		const name = mt.name !== undefined ? mt.name : '';
+		Con_Printf( 'Sky texture ' + name + ' is ' + width + ' x ' + height + ', expected 256 x 128\n' );
+		if ( width < 2 || height < 1 )
+			return null;
+
+	}
+
+	const halfwidth = width >> 1;
+	const texels = halfwidth * height;
 
 	// make an average value for the back to avoid
 	// a fringe on the top level
-	const trans = new Uint32Array( 128 * 128 );
+	const trans = new Uint32Array( texels );
 	let r = 0, g = 0, b = 0;
 
-	for ( let i = 0; i < 128; i ++ ) {
+	for ( let i = 0; i < height; i ++ ) {
 
-		for ( let j = 0; j < 128; j ++ ) {
+		for ( let j = 0; j < halfwidth; j ++ ) {
 
-			const p = src[ srcOffset + i * 256 + j + 128 ];
+			const p = src[ srcOffset + i * width + j + halfwidth ];
 			const rgba = d_8to24table[ p ];
-			trans[ ( i * 128 ) + j ] = rgba;
+			trans[ ( i * halfwidth ) + j ] = rgba;
 			r += ( rgba ) & 0xff;
 			g += ( rgba >> 8 ) & 0xff;
 			b += ( rgba >> 16 ) & 0xff;
@@ -275,14 +302,14 @@ export function R_InitSky( mt, d_8to24table ) {
 
 	}
 
-	const transpix = ( ( r / ( 128 * 128 ) ) | 0 )
-		| ( ( ( g / ( 128 * 128 ) ) | 0 ) << 8 )
-		| ( ( ( b / ( 128 * 128 ) ) | 0 ) << 16 )
+	const transpix = ( ( r / texels ) | 0 )
+		| ( ( ( g / texels ) | 0 ) << 8 )
+		| ( ( ( b / texels ) | 0 ) << 16 )
 		| 0; // alpha = 0
 
 	// Create solid sky texture data (RGBA)
-	const solidData = new Uint8Array( 128 * 128 * 4 );
-	for ( let i = 0; i < 128 * 128; i ++ ) {
+	const solidData = new Uint8Array( texels * 4 );
+	for ( let i = 0; i < texels; i ++ ) {
 
 		const rgba = trans[ i ];
 		solidData[ i * 4 ] = rgba & 0xff;
@@ -292,7 +319,7 @@ export function R_InitSky( mt, d_8to24table ) {
 
 	}
 
-	const solidTexture = new THREE.DataTexture( solidData, 128, 128, THREE.RGBAFormat );
+	const solidTexture = new THREE.DataTexture( solidData, halfwidth, height, THREE.RGBAFormat );
 	solidTexture.magFilter = THREE.LinearFilter;
 	solidTexture.minFilter = THREE.LinearFilter;
 	solidTexture.wrapS = THREE.RepeatWrapping;
@@ -301,22 +328,22 @@ export function R_InitSky( mt, d_8to24table ) {
 	solidTexture.needsUpdate = true;
 
 	// Build alpha sky layer
-	for ( let i = 0; i < 128; i ++ ) {
+	for ( let i = 0; i < height; i ++ ) {
 
-		for ( let j = 0; j < 128; j ++ ) {
+		for ( let j = 0; j < halfwidth; j ++ ) {
 
-			const p = src[ srcOffset + i * 256 + j ];
+			const p = src[ srcOffset + i * width + j ];
 			if ( p === 0 )
-				trans[ ( i * 128 ) + j ] = transpix;
+				trans[ ( i * halfwidth ) + j ] = transpix;
 			else
-				trans[ ( i * 128 ) + j ] = d_8to24table[ p ];
+				trans[ ( i * halfwidth ) + j ] = d_8to24table[ p ];
 
 		}
 
 	}
 
-	const alphaData = new Uint8Array( 128 * 128 * 4 );
-	for ( let i = 0; i < 128 * 128; i ++ ) {
+	const alphaData = new Uint8Array( texels * 4 );
+	for ( let i = 0; i < texels; i ++ ) {
 
 		const rgba = trans[ i ];
 		alphaData[ i * 4 ] = rgba & 0xff;
@@ -326,7 +353,7 @@ export function R_InitSky( mt, d_8to24table ) {
 
 	}
 
-	const alphaTexture = new THREE.DataTexture( alphaData, 128, 128, THREE.RGBAFormat );
+	const alphaTexture = new THREE.DataTexture( alphaData, halfwidth, height, THREE.RGBAFormat );
 	alphaTexture.magFilter = THREE.LinearFilter;
 	alphaTexture.minFilter = THREE.LinearFilter;
 	alphaTexture.wrapS = THREE.RepeatWrapping;

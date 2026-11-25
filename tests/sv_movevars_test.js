@@ -34,7 +34,7 @@ Deno.test( 'SV_WriteMovevars sends edgefriction and sv_maxvelocity as args 11 an
 		msg.maxsize = 256;
 		SV_WriteMovevars( msg );
 		const args = stufftextOf( msg ).trim().split( ' ' );
-		assert( args[ 0 ] === '_movevars' && args.length === 13, `got ${args.join( ' ' )}` );
+		assert( args[ 0 ] === '_movevars' && args.length === 14, `got ${args.join( ' ' )}` );
 		assert( args[ 11 ] === '3' && args[ 12 ] === '1500', `got ${args.slice( 11 ).join( ' ' )}` );
 
 	} finally {

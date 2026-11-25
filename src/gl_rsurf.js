@@ -45,6 +45,19 @@ and the small value keeps float32 precision after hours of play.
 */
 const _waterWarpTime = { value: 0 };
 
+/*
+R_WarpTime: the clock for water turbulence and the sky scroll. id uses
+realtime, so both keep moving while the game is paused. Deliberate deviation
+(QuakeSpasm/Ironwail): use cl.time, which stops with the game. The underwater
+vertex warp above stays on realtime as in id; QuakeSpasm and Ironwail don't
+have it.
+*/
+function R_WarpTime() {
+
+	return cl.time;
+
+}
+
 export function R_WaterWarpTime( time ) {
 
 	const period = Math.PI * 2;
@@ -62,6 +75,93 @@ export function R_PatchWaterWarpVertexShader( shader ) {
 			'\tfloat quakeWarpZ = sin( position.z * 0.05 + quakeWarpTime );\n' +
 			'\ttransformed.x += 8.0 * sin( position.y * 0.05 + quakeWarpTime ) * quakeWarpZ;\n' +
 			'\ttransformed.y += 8.0 * sin( position.x * 0.05 + quakeWarpTime ) * quakeWarpZ;' );
+
+}
+
+/*
+Turbulent (SURF_DRAWTURB) surfaces: gl_warp.c EmitWaterPolys, per vertex:
+	s = os + turbsin[(int)((ot*0.125+realtime) * TURBSCALE) & 255];
+	s *= (1.0/64);
+	t = ot + turbsin[(int)((os*0.125+realtime) * TURBSCALE) & 255];
+	t *= (1.0/64);
+The port used to redo this on the CPU for every vertex each frame and upload
+the UVs. It now runs in the vertex shader: the geometry keeps the unwarped
+s/t in its uv attribute and _turbTime is the clock. turbsin[i] is
+8 * sin( i * 2 * PI / 256 ), so trunc() of the same index and a sin() give
+C's 256-step table, and & 255 is the sine's period. _turbTime is R_WarpTime
+(cl.time, see above) wrapped to [0, 2*PI), the period of the index.
+*/
+const _turbTime = { value: 0 };
+
+export function R_PatchTurbVertexShader( shader ) {
+
+	shader.uniforms.quakeTurbTime = _turbTime;
+	shader.vertexShader = shader.vertexShader
+		.replace( '#include <common>', '#include <common>\nuniform float quakeTurbTime;' )
+		.replace( '#include <uv_vertex>', '#include <uv_vertex>\n' +
+			'#ifdef USE_MAP\n' +
+			'\tvMapUv = ( uv + 8.0 * sin( trunc( ( uv.yx * 0.125 + quakeTurbTime ) * ( 128.0 / PI ) ) * ( PI / 128.0 ) ) ) * ( 1.0 / 64.0 );\n' +
+			'#endif' );
+
+}
+
+function R_TurbProgramKey() {
+
+	return 'quake-turb';
+
+}
+
+/*
+Sky: gl_warp.c EmitSkyPolys, per vertex:
+	VectorSubtract (v, r_origin, dir);
+	dir[2] *= 3;	// flatten the sphere
+	length = 6*63/Length (dir);
+	s = (speedscale + dir[0]*length) * (1.0/128);
+	t = (speedscale + dir[1]*length) * (1.0/128);
+Also moved from a per-frame CPU loop into the vertex shader. _skyOrigin is
+r_origin, set by R_DrawSkyChain; each layer has its own speedscale uniform.
+position is the unmoved Quake-space vertex, as the CPU loop read it.
+*/
+const _skyOrigin = { value: new THREE.Vector3() };
+const _solidSkySpeed = { value: 0 };
+const _alphaSkySpeed = { value: 0 };
+
+function R_PatchSkyVertexShader( shader, speedUniform ) {
+
+	shader.uniforms.quakeSkyOrigin = _skyOrigin;
+	shader.uniforms.quakeSkySpeed = speedUniform;
+	shader.vertexShader = shader.vertexShader
+		.replace( '#include <common>', '#include <common>\nuniform vec3 quakeSkyOrigin;\nuniform float quakeSkySpeed;' )
+		.replace( '#include <uv_vertex>', '#include <uv_vertex>\n' +
+			'#ifdef USE_MAP\n' +
+			'\tvec3 quakeSkyDir = position - quakeSkyOrigin;\n' +
+			'\tquakeSkyDir.z *= 3.0;\n' +
+			'\tvMapUv = ( quakeSkySpeed + quakeSkyDir.xy * ( 6.0 * 63.0 / length( quakeSkyDir ) ) ) * ( 1.0 / 128.0 );\n' +
+			'#endif' );
+
+}
+
+export function R_PatchSolidSkyVertexShader( shader ) {
+
+	R_PatchSkyVertexShader( shader, _solidSkySpeed );
+
+}
+
+export function R_PatchAlphaSkyVertexShader( shader ) {
+
+	R_PatchSkyVertexShader( shader, _alphaSkySpeed );
+
+}
+
+function R_SolidSkyProgramKey() {
+
+	return 'quake-sky-solid';
+
+}
+
+function R_AlphaSkyProgramKey() {
+
+	return 'quake-sky-alpha';
 
 }
 
@@ -140,7 +240,10 @@ import {
 import {
 	DotProduct, VectorCopy, VectorAdd, VectorNormalize
 } from './mathlib.js';
-import { Mod_LeafPVS, solidskytexture, alphaskytexture } from './gl_model.js';
+import { Mod_LeafPVS, solidskytexture, alphaskytexture, GL_CheckAnisotropy,
+	SURF_DRAWLAVA, SURF_DRAWSLIME, SURF_DRAWTELE, SURF_DRAWWATER,
+	r_lavaalpha, r_slimealpha, r_telealpha } from './gl_model.js';
+import { COM_Parse, com_token } from './common.js';
 import { realtime } from './host.js';
 import { LIGHTMAP_INTENSITY } from './glquake.js';
 import { MAX_MODELS } from './quakedef.js';
@@ -253,42 +356,7 @@ GL_GrowLightmaps( MAX_LIGHTMAPS );
 let skychain = null; // msurface_t
 let waterchain = null; // msurface_t
 
-// Turbulent surface sin table for water/sky warping
-const TURBSCALE = ( 256.0 / ( 2 * Math.PI ) );
-const turbsin = new Float32Array( [
-	0, 0.19633, 0.392541, 0.588517, 0.784137, 0.979285, 1.17384, 1.3677,
-	1.56072, 1.75281, 1.94384, 2.1337, 2.32228, 2.50945, 2.69512, 2.87916,
-	3.06147, 3.24193, 3.42044, 3.59689, 3.77117, 3.94319, 4.11282, 4.27998,
-	4.44456, 4.60647, 4.76559, 4.92185, 5.07515, 5.22538, 5.37247, 5.51632,
-	5.65685, 5.79398, 5.92761, 6.05767, 6.18408, 6.30677, 6.42566, 6.54068,
-	6.65176, 6.75883, 6.86183, 6.9607, 7.05537, 7.14579, 7.23191, 7.31368,
-	7.39104, 7.46394, 7.53235, 7.59623, 7.65552, 7.71021, 7.76025, 7.80562,
-	7.84628, 7.88222, 7.91341, 7.93984, 7.96148, 7.97832, 7.99036, 7.99759,
-	8, 7.99759, 7.99036, 7.97832, 7.96148, 7.93984, 7.91341, 7.88222,
-	7.84628, 7.80562, 7.76025, 7.71021, 7.65552, 7.59623, 7.53235, 7.46394,
-	7.39104, 7.31368, 7.23191, 7.14579, 7.05537, 6.9607, 6.86183, 6.75883,
-	6.65176, 6.54068, 6.42566, 6.30677, 6.18408, 6.05767, 5.92761, 5.79398,
-	5.65685, 5.51632, 5.37247, 5.22538, 5.07515, 4.92185, 4.76559, 4.60647,
-	4.44456, 4.27998, 4.11282, 3.94319, 3.77117, 3.59689, 3.42044, 3.24193,
-	3.06147, 2.87916, 2.69512, 2.50945, 2.32228, 2.1337, 1.94384, 1.75281,
-	1.56072, 1.3677, 1.17384, 0.979285, 0.784137, 0.588517, 0.392541, 0.19633,
-	0, -0.19633, -0.392541, -0.588517, -0.784137, -0.979285, -1.17384, -1.3677,
-	-1.56072, -1.75281, -1.94384, -2.1337, -2.32228, -2.50945, -2.69512, -2.87916,
-	-3.06147, -3.24193, -3.42044, -3.59689, -3.77117, -3.94319, -4.11282, -4.27998,
-	-4.44456, -4.60647, -4.76559, -4.92185, -5.07515, -5.22538, -5.37247, -5.51632,
-	-5.65685, -5.79398, -5.92761, -6.05767, -6.18408, -6.30677, -6.42566, -6.54068,
-	-6.65176, -6.75883, -6.86183, -6.9607, -7.05537, -7.14579, -7.23191, -7.31368,
-	-7.39104, -7.46394, -7.53235, -7.59623, -7.65552, -7.71021, -7.76025, -7.80562,
-	-7.84628, -7.88222, -7.91341, -7.93984, -7.96148, -7.97832, -7.99036, -7.99759,
-	-8, -7.99759, -7.99036, -7.97832, -7.96148, -7.93984, -7.91341, -7.88222,
-	-7.84628, -7.80562, -7.76025, -7.71021, -7.65552, -7.59623, -7.53235, -7.46394,
-	-7.39104, -7.31368, -7.23191, -7.14579, -7.05537, -6.9607, -6.86183, -6.75883,
-	-6.65176, -6.54068, -6.42566, -6.30677, -6.18408, -6.05767, -5.92761, -5.79398,
-	-5.65685, -5.51632, -5.37247, -5.22538, -5.07515, -4.92185, -4.76559, -4.60647,
-	-4.44456, -4.27998, -4.11282, -3.94319, -3.77117, -3.59689, -3.42044, -3.24193,
-	-3.06147, -2.87916, -2.69512, -2.50945, -2.32228, -2.1337, -1.94384, -1.75281,
-	-1.56072, -1.3677, -1.17384, -0.979285, -0.784137, -0.588517, -0.392541, -0.19633,
-] );
+// The turbsin table (gl_warp.c) is computed in R_PatchTurbVertexShader.
 
 export let gl_lightmap_format = GL_LUMINANCE;
 export const gl_solid_format = 3;
@@ -357,6 +425,158 @@ const _brushPlaneNormal = new Float32Array( 3 );
 
 /*
 ================
+Liquid alpha
+
+Deliberate deviation, from QuakeSpasm (gl_rmisc.c, by ericw): lava, slime
+and teleporters can have their own alpha (r_lavaalpha, r_slimealpha,
+r_telealpha; 0 falls back to r_wateralpha), and a map's worldspawn can set
+_wateralpha, _lavaalpha, _slimealpha and _telealpha. GLQuake applies
+r_wateralpha to every liquid, which the defaults keep.
+
+QS reparses the worldspawn in R_NewMap and its cvar callbacks override the
+map's values when a cvar is set. This port's cvars have no callbacks and
+R_NewMap is in gl_rmisc.js, so the values are parsed lazily after
+GL_BuildLightmaps (which R_NewMap calls) and a cvar is applied once its value
+changes.
+
+QS also keeps a liquid opaque, whatever the cvars say, when the map's vis
+can't see through it (contentstransparent, from Mod_CheckWaterVis). Here
+that check only gates the worldspawn keys: the cvars act on every liquid as
+r_wateralpha does in GLQuake, so the look of id's (unvised) maps with
+r_wateralpha set is unchanged.
+================
+*/
+let map_wateralpha = 1;
+let map_lavaalpha = 0;
+let map_slimealpha = 0;
+let map_telealpha = 0;
+let map_fallbackalpha = 1;
+let _liquidAlphaWorld = null;	// the worldmodel the map_*alpha values are for
+// the cvar values last applied, standing in for QS's cvar callbacks
+let _seenWaterAlpha = 1;
+let _seenLavaAlpha = 0;
+let _seenSlimeAlpha = 0;
+let _seenTeleAlpha = 0;
+
+// R_ParseWorldspawn (QS gl_rmisc.c)
+function R_ParseWorldspawn( worldmodel ) {
+
+	map_fallbackalpha = r_wateralpha.value;
+	map_wateralpha = r_wateralpha.value;
+	map_lavaalpha = r_lavaalpha.value;
+	map_slimealpha = r_slimealpha.value;
+	map_telealpha = r_telealpha.value;
+
+	if ( worldmodel === null || worldmodel.entities === null )
+		return;
+	const vised = worldmodel.contentstransparent;
+
+	let data = COM_Parse( worldmodel.entities );
+	if ( data === null || com_token !== '{' )
+		return; // error
+
+	while ( true ) {
+
+		data = COM_Parse( data );
+		if ( data === null )
+			return; // error
+		if ( com_token === '}' )
+			break; // end of worldspawn
+		const key = ( com_token.charAt( 0 ) === '_' ? com_token.substring( 1 ) : com_token ).replace( / +$/, '' );
+		data = COM_Parse( data );
+		if ( data === null )
+			return; // error
+		let value = parseFloat( com_token );
+		if ( Number.isNaN( value ) ) value = 0;	// atof
+
+		// only for liquids the vis can see through (see above)
+		if ( key === 'wateralpha' && ( vised & SURF_DRAWWATER ) !== 0 )
+			map_wateralpha = value;
+		else if ( key === 'lavaalpha' && ( vised & SURF_DRAWLAVA ) !== 0 )
+			map_lavaalpha = value;
+		else if ( key === 'telealpha' && ( vised & SURF_DRAWTELE ) !== 0 )
+			map_telealpha = value;
+		else if ( key === 'slimealpha' && ( vised & SURF_DRAWSLIME ) !== 0 )
+			map_slimealpha = value;
+
+	}
+
+}
+
+function R_UpdateLiquidAlpha() {
+
+	const worldmodel = cl != null ? cl.worldmodel : null;
+	if ( worldmodel !== _liquidAlphaWorld ) {
+
+		_liquidAlphaWorld = worldmodel;
+		R_ParseWorldspawn( worldmodel );
+		_seenWaterAlpha = r_wateralpha.value;
+		_seenLavaAlpha = r_lavaalpha.value;
+		_seenSlimeAlpha = r_slimealpha.value;
+		_seenTeleAlpha = r_telealpha.value;
+
+	}
+
+	// R_SetWateralpha_f and its siblings
+	if ( r_wateralpha.value !== _seenWaterAlpha ) {
+
+		_seenWaterAlpha = r_wateralpha.value;
+		map_wateralpha = _seenWaterAlpha;
+		map_fallbackalpha = _seenWaterAlpha;
+
+	}
+
+	if ( r_lavaalpha.value !== _seenLavaAlpha ) {
+
+		_seenLavaAlpha = r_lavaalpha.value;
+		map_lavaalpha = _seenLavaAlpha;
+
+	}
+
+	if ( r_slimealpha.value !== _seenSlimeAlpha ) {
+
+		_seenSlimeAlpha = r_slimealpha.value;
+		map_slimealpha = _seenSlimeAlpha;
+
+	}
+
+	if ( r_telealpha.value !== _seenTeleAlpha ) {
+
+		_seenTeleAlpha = r_telealpha.value;
+		map_telealpha = _seenTeleAlpha;
+
+	}
+
+}
+
+// GL_WaterAlphaForSurface (QS gl_rmisc.c GL_WaterAlphaForTextureType)
+export function GL_WaterAlphaForSurface( fa ) {
+
+	R_UpdateLiquidAlpha();
+	if ( fa.flags & SURF_DRAWLAVA )
+		return map_lavaalpha > 0 ? map_lavaalpha : map_fallbackalpha;
+	else if ( fa.flags & SURF_DRAWTELE )
+		return map_telealpha > 0 ? map_telealpha : map_fallbackalpha;
+	else if ( fa.flags & SURF_DRAWSLIME )
+		return map_slimealpha > 0 ? map_slimealpha : map_fallbackalpha;
+	else
+		return map_wateralpha;
+
+}
+
+// Whether any liquid is translucent (R_DrawWaterSurfaces' early out)
+function R_AnyLiquidTranslucent() {
+
+	R_UpdateLiquidAlpha();
+	return map_wateralpha !== 1 ||
+		( map_lavaalpha > 0 ? map_lavaalpha : map_fallbackalpha ) !== 1 ||
+		( map_telealpha > 0 ? map_telealpha : map_fallbackalpha ) !== 1 ||
+		( map_slimealpha > 0 ? map_slimealpha : map_fallbackalpha ) !== 1;
+
+}
+
+/*
+================
 _getWaterMaterial
 
 Returns a cached material for water/turb surfaces. Keyed by texture object.
@@ -379,6 +599,8 @@ function _getWaterMaterial( t, opacity ) {
 			opacity: opacity,
 			side: THREE.DoubleSide
 		} );
+		material.onBeforeCompile = R_PatchTurbVertexShader;
+		material.customProgramCacheKey = R_TurbProgramKey;
 		_waterMaterialCache.set( cacheKey, material );
 
 	}
@@ -734,10 +956,12 @@ export function DrawGLWaterPoly( p, planeNormal ) {
 // the world geometry and camera setup.
 //============================================================================
 
-function EmitWaterPolysQuake( fa, realtime ) {
+function EmitWaterPolysQuake( fa, time ) {
 
-	// Use cached geometry on the surface to avoid per-frame allocation.
-	// Positions are static; only UVs change each frame due to turbulence.
+	// The turbulence runs in the vertex shader (R_PatchTurbVertexShader), so
+	// the geometry is built once per surface and only the clock changes.
+	_turbTime.value = R_WaterWarpTime( time );
+
 	let cached = fa._waterGeoCache;
 
 	if ( ! cached ) {
@@ -778,7 +1002,7 @@ function EmitWaterPolysQuake( fa, realtime ) {
 				}
 
 				posArr.push( vx, vy, vz );
-				uvArr.push( os, ot ); // store original s/t for turbulence calc
+				uvArr.push( os, ot ); // unwarped s/t; the shader adds the turbulence
 				vertexCount ++;
 
 			}
@@ -796,41 +1020,17 @@ function EmitWaterPolysQuake( fa, realtime ) {
 
 		const positions = new Float32Array( posArr );
 		const uvs = new Float32Array( uvArr );
-		const turbUvs = new Float32Array( uvArr.length );
 
 		const geometry = new THREE.BufferGeometry();
 		geometry.setAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
-		geometry.setAttribute( 'uv', new THREE.BufferAttribute( turbUvs, 2 ) );
+		geometry.setAttribute( 'uv', new THREE.BufferAttribute( uvs, 2 ) );
 		geometry.setIndex( idxArr );
 		geometry.computeVertexNormals();
 
-		cached = { geometry, origUvs: uvs, turbUvs, vertexCount };
+		cached = { geometry, vertexCount };
 		fa._waterGeoCache = cached;
 
 	}
-
-	// Update turbulent UVs each frame
-	const origUvs = cached.origUvs;
-	const turbUvs = cached.turbUvs;
-	const count = cached.vertexCount;
-
-	for ( let i = 0; i < count; i ++ ) {
-
-		const os = origUvs[ i * 2 ];
-		const ot = origUvs[ i * 2 + 1 ];
-
-		let s = os + turbsin[ ( ( ot * 0.125 + realtime ) * TURBSCALE | 0 ) & 255 ];
-		s *= ( 1.0 / 64 );
-
-		let t = ot + turbsin[ ( ( os * 0.125 + realtime ) * TURBSCALE | 0 ) & 255 ];
-		t *= ( 1.0 / 64 );
-
-		turbUvs[ i * 2 ] = s;
-		turbUvs[ i * 2 + 1 ] = t;
-
-	}
-
-	cached.geometry.attributes.uv.needsUpdate = true;
 
 	return cached.geometry;
 
@@ -843,10 +1043,10 @@ function EmitWaterPolysQuake( fa, realtime ) {
 // layer: 0 = solid layer, 1 = alpha layer
 //============================================================================
 
-function EmitSkyPolysQuake( fa, speedscale, layer ) {
+function EmitSkyPolysQuake( fa, layer ) {
 
-	// Sky positions are static per surface; UVs depend on camera origin and speedscale.
-	// Cache the geometry and positions; update UVs in place each frame.
+	// The UVs are computed in the vertex shader (R_PatchSkyVertexShader) from
+	// r_origin and speedscale, so the geometry is static and built once.
 
 	// We use two caches per surface: _skyGeoCache (solid layer) and _skyGeoCache2 (alpha layer)
 	const cacheKey = layer === 1 ? '_skyGeoCache2' : '_skyGeoCache';
@@ -901,42 +1101,17 @@ function EmitSkyPolysQuake( fa, speedscale, layer ) {
 			return null;
 
 		const positions = new Float32Array( posArr );
-		const uvs = new Float32Array( vertexCount * 2 );
+		const uvs = new Float32Array( vertexCount * 2 ); // unused: the shader sets vMapUv
 
 		const geometry = new THREE.BufferGeometry();
 		geometry.setAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
 		geometry.setAttribute( 'uv', new THREE.BufferAttribute( uvs, 2 ) );
 		geometry.setIndex( idxArr );
 
-		cached = { geometry, positions, uvs, vertexCount };
+		cached = { geometry, vertexCount };
 		fa[ cacheKey ] = cached;
 
 	}
-
-	// Update UVs based on current camera origin and speedscale
-	const pos = cached.positions;
-	const uvs = cached.uvs;
-	const count = cached.vertexCount;
-
-	for ( let i = 0; i < count; i ++ ) {
-
-		const vx = pos[ i * 3 ];
-		const vy = pos[ i * 3 + 1 ];
-		const vz = pos[ i * 3 + 2 ];
-
-		const dx = vx - r_origin[ 0 ];
-		const dy = vy - r_origin[ 1 ];
-		const dz = ( vz - r_origin[ 2 ] ) * 3; // flatten the sphere
-
-		let length = Math.sqrt( dx * dx + dy * dy + dz * dz );
-		length = 6 * 63 / length;
-
-		uvs[ i * 2 ] = ( speedscale + dx * length ) * ( 1.0 / 128 );
-		uvs[ i * 2 + 1 ] = ( speedscale + dy * length ) * ( 1.0 / 128 );
-
-	}
-
-	cached.geometry.attributes.uv.needsUpdate = true;
 
 	return cached.geometry;
 
@@ -969,11 +1144,11 @@ export function R_DrawSequentialPoly( s ) {
 		const renderGroup = currentRenderGroup || worldGroup;
 		if ( s.polys && renderGroup ) {
 
-			const geometry = EmitWaterPolysQuake( s, realtime );
+			const geometry = EmitWaterPolysQuake( s, R_WarpTime() );
 			if ( geometry ) {
 
 				const t = R_TextureAnimation( s.texinfo.texture );
-				const material = _getWaterMaterial( t, r_wateralpha.value );
+				const material = _getWaterMaterial( t, GL_WaterAlphaForSurface( s ) );
 				_getWaterMesh( s, geometry, material, renderGroup );
 
 			}
@@ -1026,10 +1201,10 @@ export function R_RenderBrushPoly( fa ) {
 		const renderGroup = currentRenderGroup || worldGroup;
 		if ( fa.polys && renderGroup ) {
 
-			const geometry = EmitWaterPolysQuake( fa, realtime );
+			const geometry = EmitWaterPolysQuake( fa, R_WarpTime() );
 			if ( geometry ) {
 
-				const material = _getWaterMaterial( t, r_wateralpha.value );
+				const material = _getWaterMaterial( t, GL_WaterAlphaForSurface( fa ) );
 				_getWaterMesh( fa, geometry, material, renderGroup );
 
 			}
@@ -1813,6 +1988,7 @@ export function R_DrawWorld() {
 	set_currententity( r_worldentity );
 
 	VectorCopy( r_refdef.vieworg, modelorg );
+	GL_CheckAnisotropy();
 	R_UpdateWorldTextureAnimations();
 	_waterWarpTime.value = R_WaterWarpTime( realtime );
 
@@ -1922,7 +2098,7 @@ export function DrawTextureChains() {
 
 		} else {
 
-			if ( ( s.flags & SURF_DRAWTURB ) && r_wateralpha.value !== 1.0 )
+			if ( ( s.flags & SURF_DRAWTURB ) && GL_WaterAlphaForSurface( s ) !== 1.0 )
 				continue; // draw translucent water later
 
 			for ( ; s; s = s.texturechain )
@@ -2096,7 +2272,7 @@ export function R_DrawWaterSurfaces() {
 
 	const cl_ref = cl;
 
-	if ( r_wateralpha.value === 1.0 && gl_texsort.value )
+	if ( ! R_AnyLiquidTranslucent() && gl_texsort.value )
 		return;
 
 	if ( ! gl_texsort.value ) {
@@ -2108,10 +2284,10 @@ export function R_DrawWaterSurfaces() {
 
 			if ( s.polys && worldGroup ) {
 
-				const geometry = EmitWaterPolysQuake( s, realtime );
+				const geometry = EmitWaterPolysQuake( s, R_WarpTime() );
 				if ( geometry ) {
 
-					const material = _getWaterMaterial( s.texinfo.texture, r_wateralpha.value );
+					const material = _getWaterMaterial( s.texinfo.texture, GL_WaterAlphaForSurface( s ) );
 					_getWaterMesh( s, geometry, material, worldGroup );
 
 				}
@@ -2141,10 +2317,10 @@ export function R_DrawWaterSurfaces() {
 
 				if ( s.polys && worldGroup ) {
 
-					const geometry = EmitWaterPolysQuake( s, realtime );
+					const geometry = EmitWaterPolysQuake( s, R_WarpTime() );
 					if ( geometry ) {
 
-						const material = _getWaterMaterial( t, r_wateralpha.value );
+						const material = _getWaterMaterial( t, GL_WaterAlphaForSurface( s ) );
 						_getWaterMesh( s, geometry, material, worldGroup );
 
 					}
@@ -2306,6 +2482,8 @@ function R_DrawSkyChain( s ) {
 			map: solidskytexture,
 			side: THREE.DoubleSide
 		} );
+		solidSkyMaterial.onBeforeCompile = R_PatchSolidSkyVertexShader;
+		solidSkyMaterial.customProgramCacheKey = R_SolidSkyProgramKey;
 
 	}
 
@@ -2317,6 +2495,8 @@ function R_DrawSkyChain( s ) {
 			transparent: true,
 			alphaTest: 0.05
 		} );
+		alphaSkyMaterial.onBeforeCompile = R_PatchAlphaSkyVertexShader;
+		alphaSkyMaterial.customProgramCacheKey = R_AlphaSkyProgramKey;
 
 	}
 
@@ -2330,15 +2510,18 @@ function R_DrawSkyChain( s ) {
 
 	}
 
-	// Solid sky layer (background, speed = realtime*8)
-	let solidSpeed = realtime * 8;
+	// Solid sky layer (background, speed = time*8)
+	const time = R_WarpTime();
+	let solidSpeed = time * 8;
 	solidSpeed -= ( solidSpeed | 0 ) & ~127;
+	_solidSkySpeed.value = solidSpeed;
+	_skyOrigin.value.set( r_origin[ 0 ], r_origin[ 1 ], r_origin[ 2 ] );
 
 	for ( let fa = s; fa; fa = fa.texturechain ) {
 
 		if ( ! fa.polys ) continue;
 
-		const geometry = EmitSkyPolysQuake( fa, solidSpeed, 0 );
+		const geometry = EmitSkyPolysQuake( fa, 0 );
 		if ( geometry ) {
 
 			// Cache sky mesh on surface, keyed by layer
@@ -2369,17 +2552,18 @@ function R_DrawSkyChain( s ) {
 
 	}
 
-	// Alpha sky layer (overlay, speed = realtime*16)
+	// Alpha sky layer (overlay, speed = time*16)
 	if ( alphaSkyMaterial ) {
 
-		let alphaSpeed = realtime * 16;
+		let alphaSpeed = time * 16;
 		alphaSpeed -= ( alphaSpeed | 0 ) & ~127;
+		_alphaSkySpeed.value = alphaSpeed;
 
 		for ( let fa = s; fa; fa = fa.texturechain ) {
 
 			if ( ! fa.polys ) continue;
 
-			const geometry = EmitSkyPolysQuake( fa, alphaSpeed, 1 );
+			const geometry = EmitSkyPolysQuake( fa, 1 );
 			if ( geometry ) {
 
 				let mesh = fa._skyMesh2;
@@ -2948,6 +3132,9 @@ function R_UpdateWorldVisibility() {
 }
 
 export function GL_BuildLightmaps() {
+
+	// a new map: reparse its worldspawn's liquid alpha (QS R_NewMap)
+	_liquidAlphaWorld = null;
 
 	const cl_ref = cl;
 	if ( ! cl_ref ) return;

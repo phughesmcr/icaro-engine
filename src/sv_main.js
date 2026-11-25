@@ -2,7 +2,7 @@
 
 import { Sys_Error } from './sys.js';
 import {
-	Con_Printf, Con_DPrintf, SZ_Clear, SZ_Write,
+	Con_Printf, Con_DPrintf, SZ_Clear, SZ_Write, sizebuf_t,
 	MSG_WriteByte, MSG_WriteChar, MSG_WriteShort, MSG_WriteLong,
 	MSG_WriteFloat, MSG_WriteString, MSG_WriteCoord, MSG_WriteAngle,
 	MSG_WriteAngle16,
@@ -22,7 +22,7 @@ import {
 	svc_print, svc_serverinfo, svc_cdtrack, svc_setview, svc_signonnum,
 	svc_time, svc_particle, svc_sound, svc_clientdata, svc_updatestat, svc_updatefrags,
 	svc_stufftext, svc_nop, svc_spawnbaseline, svc_disconnect,
-	svc_updatename, svc_updatecolors,
+	svc_updatename, svc_updatecolors, svc_localsound,
 	SU_VIEWHEIGHT, SU_IDEALPITCH, SU_PUNCH1, SU_VELOCITY1,
 	SU_ITEMS, SU_ONGROUND, SU_INWATER, SU_WEAPONFRAME, SU_ARMOR, SU_WEAPON,
 	DEFAULT_VIEWHEIGHT, svc_damage, svc_setangle,
@@ -45,7 +45,8 @@ import {
 	FL_ONGROUND,
 	EF_MUZZLEFLASH,
 	NUM_SPAWN_PARMS,
-	deathmatch, coop, skill
+	deathmatch, coop, skill,
+	MAX_SIGNON_BUFFERS, PRESPAWN_DONE, PRESPAWN_FLUSH, PRESPAWN_SIGNONBUFS, PRESPAWN_SIGNONMSG
 } from './server.js';
 import { hostname } from './net_main.js';
 import {
@@ -57,14 +58,14 @@ import { realtime, Host_ClearMemory, Host_Error, set_host_frametime } from './ho
 import { COM_LoadFile } from './pak.js';
 import { VectorCopy, VectorAdd, DotProduct } from './mathlib.js';
 import { Mod_ForName, Mod_LeafPVS } from './gl_model.js';
-import { PR_LoadProgs, PR_AllocEdicts, ED_ClearEdict, ED_LoadFromFile, ED_NewString, GetEdictFieldValue, PR_SetCurrentSkill, PR_SetDeathmatch } from './pr_edict.js';
+import { PR_LoadProgs, PR_AllocEdicts, ED_ClearEdict, ED_LoadFromFile, ED_NewString, GetEdictFieldValue, PR_SetCurrentSkill, PR_SetDeathmatch, nomonsters } from './pr_edict.js';
 import { MAX_ENT_LEAFS, pr_global_struct, progs, pr_crc, EDICT_NUM, NUM_FOR_EDICT, PR_SetSV, PR_SetSVS, EDICT_TO_PROG, PROG_TO_EDICT, NEXT_EDICT, PR_GetString } from './progs.js';
 import { SV_ClearWorld, SV_Move, SV_TestEntityPosition, SV_LinkEdict, SV_PointContents } from './world.js';
 import { SV_Physics, SV_SetState, SV_SetCallbacks,
 	sv_maxvelocity, sv_gravity, sv_nostep, sv_friction, sv_edgefriction,
-	sv_stopspeed, sv_maxspeed, sv_accelerate, sv_idealpitchscale } from './sv_phys.js';
+	sv_stopspeed, sv_maxspeed, sv_accelerate, sv_idealpitchscale, sv_freezenonclients } from './sv_phys.js';
 import { PR_ExecuteProgram, PR_SetHostError } from './pr_exec.js';
-import { SV_User_SetCallbacks, SV_SetIdealPitch } from './sv_user.js';
+import { SV_User_SetCallbacks, SV_SetIdealPitch, sv_altnoclip } from './sv_user.js';
 import { V_CalcRoll } from './view.js';
 import { key_dest } from './keys.js';
 
@@ -125,6 +126,8 @@ export function SV_Init() {
 	Cvar_RegisterVariable( sv_idealpitchscale );
 	Cvar_RegisterVariable( sv_aim );
 	Cvar_RegisterVariable( sv_nostep );
+	Cvar_RegisterVariable( sv_altnoclip ); // johnfitz
+	Cvar_RegisterVariable( sv_freezenonclients );
 	PR_SetDeathmatch( deathmatch );
 
 	for ( let i = 0; i < MAX_MODELS; i ++ )
@@ -255,6 +258,42 @@ export function SV_StartSound( entity, channel, sample, volume, attenuation ) {
 }
 
 /*
+==================
+SV_LocalSound - for 2021 rerelease
+
+Ported from Ironwail's sv_main.c. Its SND_LARGESOUND branch is left out:
+with MAX_SOUNDS at 256 a sound number always fits in a byte.
+==================
+*/
+export function SV_LocalSound( client, sample ) {
+
+	let sound_num;
+	for ( sound_num = 1; sound_num < MAX_SOUNDS && sv.sound_precache[ sound_num ]; sound_num ++ ) {
+
+		if ( sample === sv.sound_precache[ sound_num ] )
+			break;
+
+	}
+
+	if ( sound_num === MAX_SOUNDS || sv.sound_precache[ sound_num ] == null ) {
+
+		Con_Printf( 'SV_LocalSound: %s not precached\n', sample );
+		return;
+
+	}
+
+	const field_mask = 0;
+
+	if ( client.message.cursize > client.message.maxsize - 4 )
+		return;
+
+	MSG_WriteByte( client.message, svc_localsound );
+	MSG_WriteByte( client.message, field_mask );
+	MSG_WriteByte( client.message, sound_num );
+
+}
+
+/*
 ==============================================================================
 
 CLIENT SPAWNING
@@ -315,7 +354,7 @@ export function SV_SendServerinfo( client ) {
 	MSG_WriteByte( client.message, svc_signonnum );
 	MSG_WriteByte( client.message, 1 );
 
-	client.sendsignon = true;
+	client.sendsignon = PRESPAWN_FLUSH;
 	client.spawned = false; // need prespawn, spawn, etc
 
 }
@@ -326,7 +365,8 @@ SV_WriteMovevars
 
 Writes the _movevars stufftext that feeds client-side prediction. Not in
 NetQuake: it carries the values QuakeWorld sends in svc_serverdata, then
-edgefriction and sv_maxvelocity for pmove.js's NetQuake-physics mode.
+edgefriction, sv_maxvelocity and sv_altnoclip for pmove.js's
+NetQuake-physics mode.
 ================
 */
 export function SV_WriteMovevars( msg ) {
@@ -345,12 +385,13 @@ export function SV_WriteMovevars( msg ) {
 		+ ' ' + 1.0 // entgravity
 		+ ' ' + sv_edgefriction.value
 		+ ' ' + sv_maxvelocity.value
+		+ ' ' + sv_altnoclip.value
 		+ '\n' );
 
 }
 
 // Movevar cvar values last sent to all clients
-const _movevars_sent = new Float64Array( 7 );
+const _movevars_sent = new Float64Array( 8 );
 
 function SV_SnapshotMovevars() {
 
@@ -361,6 +402,7 @@ function SV_SnapshotMovevars() {
 	_movevars_sent[ 4 ] = sv_friction.value;
 	_movevars_sent[ 5 ] = sv_edgefriction.value;
 	_movevars_sent[ 6 ] = sv_maxvelocity.value;
+	_movevars_sent[ 7 ] = sv_altnoclip.value;
 
 }
 
@@ -380,7 +422,8 @@ export function SV_CheckMovevars() {
 		&& _movevars_sent[ 3 ] === sv_accelerate.value
 		&& _movevars_sent[ 4 ] === sv_friction.value
 		&& _movevars_sent[ 5 ] === sv_edgefriction.value
-		&& _movevars_sent[ 6 ] === sv_maxvelocity.value )
+		&& _movevars_sent[ 6 ] === sv_maxvelocity.value
+		&& _movevars_sent[ 7 ] === sv_altnoclip.value )
 		return;
 
 	SV_SnapshotMovevars();
@@ -531,11 +574,47 @@ export function SV_SendClientMessages() {
 			// the player isn't totally in the game yet
 			// send small keepalive messages if too much time has passed
 			// send a full message when the next signon stage has been requested
+			// some other message data (name changes, etc) may accumulate
+			// between signon stages
 			if ( ! client.sendsignon ) {
 
 				if ( realtime - client.last_message > 5 )
 					SV_SendNop( client );
-				continue;
+				continue; // don't send out non-signon messages
+
+			}
+
+			// johnfitz/Ironwail: the signon goes out one buffer per message.
+			// Ironwail sends several at once to a local client; here a buffer
+			// is about half of client.message, so two rarely fit anyway.
+			if ( client.sendsignon === PRESPAWN_SIGNONBUFS ) {
+
+				if ( client.signonidx < sv.num_signon_buffers ) {
+
+					const signon = sv.signon_buffers[ client.signonidx ];
+					if ( client.message.cursize + signon.cursize <= client.message.maxsize ) {
+
+						SZ_Write( client.message, signon.data, signon.cursize );
+						client.signonidx ++;
+
+					}
+
+				}
+
+				if ( client.signonidx === sv.num_signon_buffers )
+					client.sendsignon = PRESPAWN_SIGNONMSG;
+
+			}
+
+			if ( client.sendsignon === PRESPAWN_SIGNONMSG ) {
+
+				if ( client.message.cursize + 2 < client.message.maxsize ) {
+
+					MSG_WriteByte( client.message, svc_signonnum );
+					MSG_WriteByte( client.message, 2 );
+					client.sendsignon = PRESPAWN_FLUSH;
+
+				}
 
 			}
 
@@ -565,7 +644,8 @@ export function SV_SendClientMessages() {
 					SV_DropClient( true );
 				SZ_Clear( client.message );
 				client.last_message = realtime;
-				client.sendsignon = false;
+				if ( client.sendsignon === PRESPAWN_FLUSH )
+					client.sendsignon = PRESPAWN_DONE;
 
 			}
 
@@ -1793,6 +1873,54 @@ export function SV_SaveSpawnparms() {
 }
 
 /*
+==============================================================================
+
+SERVER SPAWNING
+
+==============================================================================
+*/
+
+// Ironwail sizes each signon buffer at 31500 bytes, about half its 64000-byte
+// client message. This port keeps id's MAX_MSGLEN (8000) message, and a
+// buffer that can never fit in it would stall the client's signon, so each
+// buffer is half of that: a buffer, pending reliable data and the closing
+// svc_signonnum all fit in one message.
+export const SIGNON_SIZE = MAX_MSGLEN / 2;
+
+/*
+================
+SV_AddSignonBuffer -- Ironwail
+================
+*/
+function SV_AddSignonBuffer() {
+
+	if ( sv.num_signon_buffers >= MAX_SIGNON_BUFFERS )
+		Host_Error( 'SV_AddSignonBuffer overflow\n' );
+
+	const sb = new sizebuf_t();
+	sb.data = new Uint8Array( SIGNON_SIZE );
+	sb.maxsize = SIGNON_SIZE;
+	sv.signon_buffers[ sv.num_signon_buffers ++ ] = sb;
+	sv.signon = sb;
+
+}
+
+/*
+================
+SV_ReserveSignonSpace -- Ironwail
+
+Starts a new signon buffer when the current one can't take numbytes more,
+so that no message is split across two buffers.
+================
+*/
+export function SV_ReserveSignonSpace( numbytes ) {
+
+	if ( sv.signon.cursize + numbytes > sv.signon.maxsize )
+		SV_AddSignonBuffer();
+
+}
+
+/*
 ================
 SV_CreateBaseline
 ================
@@ -1834,6 +1962,7 @@ function SV_CreateBaseline() {
 		//
 		// add to the message
 		//
+		SV_ReserveSignonSpace( 35 ); // Ironwail's size, for its largest baseline
 		MSG_WriteByte( sv.signon, svc_spawnbaseline );
 		MSG_WriteShort( sv.signon, entnum );
 
@@ -1947,9 +2076,7 @@ export function SV_SpawnServer( server ) {
 	sv.reliable_datagram.data = sv.reliable_datagram_buf;
 	sv.reliable_datagram.allowoverflow = true; // will be copied to client reliables
 
-	sv.signon.maxsize = 8192;
-	sv.signon.cursize = 0;
-	sv.signon.data = sv.signon_buf;
+	SV_AddSignonBuffer();
 
 	// leave slots at start for clients only
 	sv.num_edicts = svs.maxclients + 1;
@@ -1962,6 +2089,7 @@ export function SV_SpawnServer( server ) {
 
 	sv.state = ss_loading;
 	sv.paused = false;
+	sv.nomonsters = nomonsters.value !== 0; // Ironwail: latched for the whole map
 	sv.time = 1.0;
 
 	sv.name = server;
@@ -2043,6 +2171,20 @@ export function SV_SpawnServer( server ) {
 
 	// create a baseline for more efficient communications
 	SV_CreateBaseline();
+
+	// johnfitz -- warn if signon buffer larger than standard server can handle
+	// (Ironwail's Con_DWarning; the port has no Con_DWarning, so Con_DPrintf
+	// with the same text). This server splits the signon, so these are
+	// warnings about other engines (e.g. a demo of the map played elsewhere),
+	// as in Ironwail, not limits here.
+	let signonsize = 0;
+	for ( let i = 0; i < sv.num_signon_buffers; i ++ )
+		signonsize += sv.signon_buffers[ i ].cursize;
+	if ( signonsize > 64000 - 2 )
+		Con_DPrintf( '\x02Warning: %i byte signon buffer exceeds QS limit of 63998.\n', signonsize );
+	else if ( signonsize > 8000 - 2 ) // max size that will fit into 8000-sized client->message buffer with 2 extra bytes on the end
+		Con_DPrintf( '\x02Warning: %i byte signon buffer exceeds standard limit of 7998.\n', signonsize );
+	// johnfitz
 
 	// send serverinfo to all connected clients
 	for ( let i = 0; i < svs.maxclients; i ++ ) {

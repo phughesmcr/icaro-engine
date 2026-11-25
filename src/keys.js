@@ -4,10 +4,10 @@ import { Cbuf_AddText } from './cmd.js';
 import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from './cmd.js';
 import { Con_Printf, con_forcedup, Con_SetBackscroll, con_totallines, con_vislines,
 	Con_Scroll, Con_TabComplete, Con_ResetTabComplete } from './console.js';
-import { M_Keydown, M_ToggleMenu_f } from './menu.js';
-import { SCR_UpdateScreen } from './gl_screen.js';
+import { M_Keydown, M_KeyRepeats, M_ToggleMenu_f } from './menu.js';
+import { SCR_UpdateScreen, scr_conscale } from './gl_screen.js';
 import { Sys_Error } from './sys.js';
-import { Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
+import { Draw_GetVirtualWidth, Draw_GetVirtualHeight, Draw_SetCanvasScale } from './gl_draw.js';
 
 /*
 ==============================================================================
@@ -711,6 +711,34 @@ function Key_PasteFromClipboard() {
 
 /*
 ====================
+Key_ScrollConsole
+
+Ctrl+Home (top) or Con_Scroll( lines ). Both limit the backscroll by the
+console's height, which id takes from vid.height: the console's own
+canvas here (scr_conscale), as SCR_UpdateScreen lays the console out, not
+the automatic UI scale's virtual screen.
+====================
+*/
+function Key_ScrollConsole( lines, top ) {
+
+	Draw_SetCanvasScale( scr_conscale.value );
+	try {
+
+		if ( top )
+			Con_SetBackscroll( Math.max( 0, con_totallines - ( _vid.height >> 3 ) - 1 ) );
+		else
+			Con_Scroll( lines );
+
+	} finally {
+
+		Draw_SetCanvasScale( 0 );
+
+	}
+
+}
+
+/*
+====================
 Key_Console -- johnfitz -- heavy revision
 
 Interactive line editing and console scrollback. Follows QuakeSpasm, which
@@ -781,7 +809,7 @@ function Key_Console( key ) {
 
 		case K_HOME:
 			if ( ctrl )
-				Con_SetBackscroll( Math.max( 0, con_totallines - ( _vid.height >> 3 ) - 1 ) );
+				Key_ScrollConsole( 0, true );
 			else
 				key_linepos = 1;
 			Con_ResetTabComplete();
@@ -797,12 +825,12 @@ function Key_Console( key ) {
 
 		case K_PGUP:
 		case K_MWHEELUP:
-			Con_Scroll( ctrl ? ( con_vislines >> 3 ) - 4 : 2 );
+			Key_ScrollConsole( ctrl ? ( con_vislines >> 3 ) - 4 : 2, false );
 			return;
 
 		case K_PGDN:
 		case K_MWHEELDOWN:
-			Con_Scroll( ctrl ? - ( ( con_vislines >> 3 ) - 4 ) : - 2 );
+			Key_ScrollConsole( ctrl ? - ( ( con_vislines >> 3 ) - 4 ) : - 2, false );
 			return;
 
 		case K_LEFTARROW:
@@ -1292,6 +1320,14 @@ Should NOT be called during an interrupt!
 */
 export function Key_Event( key, down ) {
 
+	// Ironwail Key_EventWithKeycode: ignore stray key up events. Browsers
+	// send key-ups for keys pressed before the page had focus (alt-tab back,
+	// a click into the page), and IN_ClearAllStates sends one for every key.
+	// Dropping them here keeps them from counting as the SCR_ModalMessage
+	// keypress or sending "-command" for a button that was never pressed.
+	if ( ! down && ! keydown[ key ] )
+		return;
+
 	const wasdown = keydown[ key ];
 	keydown[ key ] = down;
 
@@ -1343,8 +1379,11 @@ export function Key_Event( key, down ) {
 		if ( key !== K_BACKSPACE && key !== K_PAUSE && key_repeats[ key ] > 1 ) {
 
 			// QuakeSpasm lets keys repeat outside the game; here only the
-			// console's own keys do, so held arrows and Delete repeat
-			if ( ! ( consolekeys[ key ] && Key_ConsoleActive() ) )
+			// console's own keys do, so held arrows and Delete repeat.
+			// Menus let the arrow keys repeat, for scrolling through lists
+			// (Ironwail M_Keydown; id ignored all repeats in menus)
+			if ( ! ( consolekeys[ key ] && Key_ConsoleActive() )
+				&& ! ( key_dest === key_menu && M_KeyRepeats( key ) ) )
 				return; // ignore most autorepeats
 
 		}

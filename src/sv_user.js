@@ -1,6 +1,7 @@
 // Ported from: WinQuake/sv_user.c -- server code for moving users
 
 import { Sys_Printf } from './sys.js';
+import { cvar_t } from './cvar.js';
 import { Con_DPrintf, MSG_ReadFloat, MSG_ReadAngle16, MSG_ReadShort,
 	MSG_ReadByte, MSG_ReadChar, MSG_ReadString, MSG_BeginReading,
 	msg_badread } from './common.js';
@@ -14,6 +15,11 @@ import { MOVETYPE_NONE, MOVETYPE_WALK, MOVETYPE_NOCLIP, FL_ONGROUND,
 	SV_Move } from './sv_phys.js';
 
 const MAX_FORWARD = 6;
+
+// johnfitz (FitzQuake, kept by QuakeSpasm and Ironwail): noclip flies where
+// you look at sv_maxspeed. Deliberate deviation: Ironwail defaults it to 1;
+// the port defaults to 0, id's noclip
+export const sv_altnoclip = new cvar_t( 'sv_altnoclip', '0', true );
 const NUM_PING_TIMES = 16;
 
 // module-level state (matching C static/global variables)
@@ -369,6 +375,31 @@ function SV_WaterJump() {
 
 /*
 ===================
+SV_NoclipMove -- johnfitz
+
+new, alternate noclip. old noclip is still handled in SV_AirMove
+===================
+*/
+export function SV_NoclipMove() {
+
+	AngleVectors( sv_player.v.v_angle, forward, right, up );
+
+	velocity[ 0 ] = forward[ 0 ] * cmd.forwardmove + right[ 0 ] * cmd.sidemove;
+	velocity[ 1 ] = forward[ 1 ] * cmd.forwardmove + right[ 1 ] * cmd.sidemove;
+	velocity[ 2 ] = forward[ 2 ] * cmd.forwardmove + right[ 2 ] * cmd.sidemove;
+	velocity[ 2 ] += cmd.upmove * 2; // doubled to match running speed
+
+	if ( Length( velocity ) > sv_maxspeed.value ) {
+
+		VectorNormalize( velocity );
+		VectorScale( velocity, sv_maxspeed.value, velocity );
+
+	}
+
+}
+
+/*
+===================
 SV_AirMove
 ===================
 */
@@ -476,6 +507,14 @@ export function SV_ClientThink() {
 	//
 	// walk
 	//
+	// johnfitz -- alternate noclip
+	if ( sv_player.v.movetype === MOVETYPE_NOCLIP && sv_altnoclip.value !== 0 ) {
+
+		SV_NoclipMove();
+		return;
+
+	}
+
 	if ( ( sv_player.v.waterlevel >= 2 )
 		&& ( sv_player.v.movetype !== MOVETYPE_NOCLIP ) ) {
 

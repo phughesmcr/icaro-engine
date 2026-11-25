@@ -12,7 +12,7 @@ import { Con_Printf, Con_DPrintf, SZ_Clear,
 	MSG_WriteByte,
 	msg_readcount, msg_badread,
 	net_message, standard_quake } from './common.js';
-import { Sys_Error, Sys_FloatTime } from './sys.js';
+import { Sys_FloatTime } from './sys.js';
 import { COM_FindFile, COM_EnsureFile } from './pak.js';
 import { Cbuf_AddText } from './cmd.js';
 import { Cmd_ExecuteString } from './cmd.js';
@@ -27,7 +27,7 @@ import {
 	svc_temp_entity, svc_setpause, svc_signonnum, svc_centerprint,
 	svc_killedmonster, svc_foundsecret, svc_spawnstaticsound,
 	svc_intermission, svc_finale, svc_cdtrack, svc_sellscreen,
-	svc_cutscene,
+	svc_cutscene, svc_localsound,
 	svc_playerinfo, PF_MSEC, PF_COMMAND, PF_VELOCITY1, PF_VELOCITY2, PF_VELOCITY3,
 	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_TELEPORT,
 	CM_ANGLE1, CM_ANGLE2, CM_ANGLE3, CM_FORWARD, CM_SIDE, CM_UP, CM_BUTTONS, CM_IMPULSE,
@@ -53,7 +53,7 @@ import {
 	cl, cls, cl_entities, cl_static_entities, cl_lightstyle,
 	scoreboard_t } from './client.js';
 import { VectorCopy } from './mathlib.js';
-import { V_ParseDamage, V_StopPitchDrift } from './view.js';
+import { V_ParseDamage, V_StopPitchDrift, V_UpdatePunchAngles } from './view.js';
 import { Mod_ForName } from './gl_model.js';
 import { CL_SetServerState, CL_AcknowledgeCommand, CL_AcknowledgeTransportSequence,
 	CL_FindAcknowledgedSequence,
@@ -71,9 +71,9 @@ import { CL_GetMessage } from './cl_demo.js';
 import { set_noclip_anglehack } from './host_cmd.js';
 import { CL_SignonReply, CL_ClearState, cl_shownet } from './cl_main.js';
 import { CL_ParseTEnt } from './cl_tent.js';
-import { S_PrecacheSound, S_StartSound, S_StopSound, S_StaticSound } from './snd_dma.js';
+import { S_PrecacheSound, S_StartSound, S_StopSound, S_StaticSound, S_LocalSound } from './snd_dma.js';
 import { CDAudio_Play, CDAudio_Pause, CDAudio_Resume } from './cd_audio.js';
-import { SCR_CenterPrint } from './gl_screen.js';
+import { SCR_CenterPrint, Con_LogCenterPrint, Con_ClearLastCenterString } from './gl_screen.js';
 
 export const svc_strings = [
 	'svc_bad',
@@ -127,10 +127,14 @@ This error checks and tracks the total number of entities
 */
 export function CL_EntityNum( num ) {
 
+	//johnfitz -- check minimum number too (Ironwail cl_parse.c)
+	if ( num < 0 )
+		Host_Error( 'CL_EntityNum: ' + num + ' is an invalid number' );
+
 	if ( num >= cl.num_entities ) {
 
 		if ( num >= MAX_EDICTS )
-			Host_Error( 'CL_EntityNum: %i is an invalid number', num );
+			Host_Error( 'CL_EntityNum: ' + num + ' is an invalid number' );
 		while ( cl.num_entities <= num ) {
 
 			cl_entities[ cl.num_entities ].colormap = null; // vid.colormap
@@ -196,6 +200,32 @@ export function CL_ParseStartSoundPacket() {
 	}
 
 	S_StartSound( ent, ch, sfx, pos, volume / 255.0, attenuation );
+
+}
+
+/*
+==================
+CL_ParseLocalSound - for 2021 rerelease
+
+Ported from Ironwail's cl_parse.c. The server never sets SND_LARGESOUND
+(MAX_SOUNDS is 256), so the sound number is always a byte.
+==================
+*/
+export function CL_ParseLocalSound() {
+
+	MSG_ReadByte(); // field_mask
+	const sound_num = MSG_ReadByte();
+
+	const sfx = cl.sound_precache[ sound_num ];
+	if ( sfx == null ) {
+
+		// C dereferences the missing entry
+		Con_Printf( 'CL_ParseLocalSound: sound_num %d not precached\n', sound_num );
+		return;
+
+	}
+
+	S_LocalSound( sfx.name );
 
 }
 
@@ -288,22 +318,17 @@ export function CL_ParseServerInfo() {
 	CL_ClearState();
 
 	// parse protocol version number
+	// Deviation (QuakeSpasm/Ironwail): id's C prints and returns at each of
+	// the failure checks below, leaving the client half-connected with no
+	// world. Host_Error drops back to the console instead.
 	let i = MSG_ReadLong();
-	if ( i !== PROTOCOL_VERSION ) {
-
-		Con_Printf( 'Server returned version %i, not %i', i, PROTOCOL_VERSION );
-		return;
-
-	}
+	if ( i !== PROTOCOL_VERSION )
+		Host_Error( 'Server returned version ' + i + ', not ' + PROTOCOL_VERSION );
 
 	// parse maxclients
 	cl.maxclients = MSG_ReadByte();
-	if ( cl.maxclients < 1 || cl.maxclients > MAX_SCOREBOARD ) {
-
-		Con_Printf( 'Bad maxclients (%u) from server\n', cl.maxclients );
-		return;
-
-	}
+	if ( cl.maxclients < 1 || cl.maxclients > MAX_SCOREBOARD )
+		Host_Error( 'Bad maxclients (' + cl.maxclients + ') from server' );
 
 	cl.scores = [];
 	for ( let j = 0; j < cl.maxclients; j ++ )
@@ -333,12 +358,8 @@ export function CL_ParseServerInfo() {
 		const s = MSG_ReadString();
 		if ( s.length === 0 )
 			break;
-		if ( nummodels === MAX_MODELS ) {
-
-			Con_Printf( 'Server sent too many model precaches\n' );
-			return;
-
-		}
+		if ( nummodels === MAX_MODELS )
+			Host_Error( 'Server sent too many model precaches' ); // QS: was Con_Printf + return
 
 		model_precache[ nummodels ] = s;
 
@@ -357,12 +378,8 @@ export function CL_ParseServerInfo() {
 		const s = MSG_ReadString();
 		if ( ! s.length )
 			break;
-		if ( numsounds === MAX_SOUNDS ) {
-
-			Con_Printf( 'Server sent too many sound precaches\n' );
-			return;
-
-		}
+		if ( numsounds === MAX_SOUNDS )
+			Host_Error( 'Server sent too many sound precaches' ); // QS: was Con_Printf + return
 
 		sound_precache[ numsounds ] = s;
 		// S_TouchSound( s );
@@ -406,12 +423,8 @@ export function CL_ParseServerInfo() {
 	for ( i = 1; i < nummodels; i ++ ) {
 
 		cl.model_precache[ i ] = Mod_ForName( model_precache[ i ], false );
-		if ( cl.model_precache[ i ] === null ) {
-
-			Con_Printf( 'Model %s not found\n', model_precache[ i ] );
-			return;
-
-		}
+		if ( cl.model_precache[ i ] === null )
+			Host_Error( 'Model ' + model_precache[ i ] + ' not found' ); // QS: was Con_Printf + return
 
 		CL_KeepaliveMessage();
 
@@ -436,6 +449,8 @@ export function CL_ParseServerInfo() {
 	// Hunk_Check();
 
 	set_noclip_anglehack( false );
+
+	Con_ClearLastCenterString(); //johnfitz
 
 }
 
@@ -872,12 +887,10 @@ export function CL_ParseUpdate( bits ) {
 		ent.colormap = null; // vid.colormap
 	else {
 
-		if ( i > cl.maxclients ) {
-
-			console.error( 'colormap error: i=' + i + ', cl.maxclients=' + cl.maxclients + ', entity=' + num + ', bits=' + bits.toString( 16 ) );
-			Sys_Error( 'i >= cl.maxclients' );
-
-		}
+		// Deviation: id's C (and Ironwail) Sys_Error here, which in the browser
+		// replaces the page. Bad server data drops to the console instead.
+		if ( i > cl.maxclients )
+			Host_Error( 'CL_ParseUpdate: colormap ' + i + ' >= cl.maxclients (entity ' + num + ')' );
 
 		ent.colormap = cl.scores[ i - 1 ].translations;
 
@@ -1011,6 +1024,9 @@ export function CL_ParseClientdata( bits ) {
 			cl.mvelocity[ 0 ][ i ] = 0;
 
 	}
+
+	//johnfitz -- update v_punchangles (Ironwail, for v_gunkick 2)
+	V_UpdatePunchAngles();
 
 	// [always sent]  if (bits & SU_ITEMS)
 	let i = MSG_ReadLong();
@@ -1253,8 +1269,9 @@ CL_NewTranslation
 */
 export function CL_NewTranslation( slot ) {
 
+	// Deviation: Sys_Error in id's C and Ironwail; Host_Error keeps the page
 	if ( slot > cl.maxclients )
-		Sys_Error( 'CL_NewTranslation: slot > cl.maxclients' );
+		Host_Error( 'CL_NewTranslation: slot > cl.maxclients' );
 
 	R_TranslatePlayerSkin( slot );
 
@@ -1308,6 +1325,39 @@ export function CL_ParseStaticSound() {
 
 /*
 =====================
+CL_ParseStuffText
+
+QuakeSpasm/Ironwail: svc_stufftext text is held until a whole line has
+arrived, then each complete line goes to the command buffer. In id's C the
+text went straight to Cbuf_AddText, and Cbuf_Execute ran whatever was there,
+so a command split across two messages ran half-way. Ironwail's "//" and
+ProQuake handling is not ported: lines go to Cbuf_AddText as in id.
+=====================
+*/
+let cl_stuffcmdbuf = '';
+
+export function CL_ParseStuffText( msg ) {
+
+	// q_strlcat into the 1024-byte cl.stuffcmdbuf truncates the same way
+	cl_stuffcmdbuf = ( cl_stuffcmdbuf + msg ).substring( 0, 1023 );
+	const end = cl_stuffcmdbuf.lastIndexOf( '\n' );
+	if ( end === - 1 )
+		return;
+
+	Cbuf_AddText( cl_stuffcmdbuf.substring( 0, end + 1 ) );
+	cl_stuffcmdbuf = cl_stuffcmdbuf.substring( end + 1 );
+
+}
+
+// Ironwail clears cl.stuffcmdbuf with the rest of client_state_t
+export function CL_ClearStuffText() {
+
+	cl_stuffcmdbuf = '';
+
+}
+
+/*
+=====================
 CL_ParseServerMessage
 =====================
 */
@@ -1345,6 +1395,13 @@ export function CL_ParseServerMessage() {
 
 			if ( cl_shownet.value === 2 )
 				Con_Printf( '%3i:%s\n', msg_readcount - 1, 'END OF MESSAGE' );
+
+			// QS/Ironwail: some mods never send the \n, so flush a pending
+			// partial line at the end of a short message. The size check avoids
+			// flushing a line that a full (overflowing) message split in two.
+			if ( cl_stuffcmdbuf.length > 0 && net_message.cursize < 512 )
+				CL_ParseStuffText( '\n' );
+
 			return; // end of message
 
 		}
@@ -1397,12 +1454,18 @@ export function CL_ParseServerMessage() {
 				Con_Printf( '%s', MSG_ReadString() );
 				break;
 
-			case svc_centerprint:
-				SCR_CenterPrint( MSG_ReadString() );
+			case svc_centerprint: {
+
+				//johnfitz -- log centerprints to console
+				const str = MSG_ReadString();
+				SCR_CenterPrint( str );
+				Con_LogCenterPrint( str );
 				break;
 
+			}
+
 			case svc_stufftext:
-				Cbuf_AddText( MSG_ReadString() );
+				CL_ParseStuffText( MSG_ReadString() );
 				break;
 
 			case svc_damage:
@@ -1426,8 +1489,9 @@ export function CL_ParseServerMessage() {
 
 			case svc_lightstyle:
 				i = MSG_ReadByte();
+				// Deviation: Sys_Error in id's C and Ironwail; Host_Error keeps the page
 				if ( i >= MAX_LIGHTSTYLES )
-					Sys_Error( 'svc_lightstyle > MAX_LIGHTSTYLES' );
+					Host_Error( 'svc_lightstyle > MAX_LIGHTSTYLES' );
 				cl_lightstyle[ i ].map = MSG_ReadString();
 				cl_lightstyle[ i ].length = cl_lightstyle[ i ].map.length;
 				break;
@@ -1511,8 +1575,9 @@ export function CL_ParseServerMessage() {
 
 			case svc_updatestat:
 				i = MSG_ReadByte();
+				// Deviation: Sys_Error in id's C and Ironwail; Host_Error keeps the page
 				if ( i < 0 || i >= MAX_CL_STATS )
-					Sys_Error( 'svc_updatestat: %i is invalid', i );
+					Host_Error( 'svc_updatestat: ' + i + ' is invalid' );
 				cl.stats[ i ] = MSG_ReadLong();
 				break;
 
@@ -1539,14 +1604,28 @@ export function CL_ParseServerMessage() {
 				cl.intermission = 2;
 				cl.completed_time = cl.time;
 				// vid.recalc_refdef = true; // go to full screen
-				SCR_CenterPrint( MSG_ReadString() );
+				{
+
+					//johnfitz -- log centerprints to console
+					const str = MSG_ReadString();
+					SCR_CenterPrint( str );
+					Con_LogCenterPrint( str );
+
+				}
 				break;
 
 			case svc_cutscene:
 				cl.intermission = 3;
 				cl.completed_time = cl.time;
 				// vid.recalc_refdef = true; // go to full screen
-				SCR_CenterPrint( MSG_ReadString() );
+				{
+
+					//johnfitz -- log centerprints to console
+					const str = MSG_ReadString();
+					SCR_CenterPrint( str );
+					Con_LogCenterPrint( str );
+
+				}
 				break;
 
 			case svc_sellscreen:
@@ -1567,6 +1646,10 @@ export function CL_ParseServerMessage() {
 
 			case svc_deltapacketentities:
 				CL_ParsePacketEntities( true );
+				break;
+
+			case svc_localsound:
+				CL_ParseLocalSound();
 				break;
 
 		}

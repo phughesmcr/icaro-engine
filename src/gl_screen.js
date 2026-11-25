@@ -2,16 +2,17 @@
 // Master for refresh, status bar, console, chat, notify, etc
 
 import { Con_Printf, Con_CheckResize, Con_DrawConsole, Con_DrawNotify, Con_ClearNotify,
-	Con_SetForcedup, con_initialized } from './console.js';
+	Con_SetForcedup, con_initialized, con_linewidth } from './console.js';
+import { GAME_DEATHMATCH } from './protocol.js';
 import { Sbar_Draw, Sbar_Changed, Sbar_IntermissionOverlay, Sbar_FinaleOverlay, set_sb_lines as Sbar_set_sb_lines } from './sbar.js';
 import { M_Draw } from './menu.js';
 import { Draw_Character, Draw_CachePic, Draw_Pic, Draw_FadeScreen, Draw_BeginFrame,
 	GL_Set2D, Draw_TileClear, Draw_PicFromWad, Draw_GetUIScale,
-	Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
+	Draw_GetVirtualWidth, Draw_GetVirtualHeight, Draw_GetCanvasScale, Draw_SetCanvasScale } from './gl_draw.js';
 import { Cvar_RegisterVariable, Cvar_Set, Cvar_SetValue, Cvar_VariableValue } from './cvar.js';
 import { Cmd_AddCommand } from './cmd.js';
 import { key_dest, key_game, key_console, key_message, Key_BeginModal, Key_ModalYes } from './keys.js';
-import { realtime, host_frametime } from './host.js';
+import { realtime, host_frametime, host_timescale } from './host.js';
 import { renderer } from './vid.js';
 import { r_refdef as _r_refdef_canonical } from './render.js';
 import { r_framecount } from './glquake.js';
@@ -32,6 +33,8 @@ let scr_conlines = 0; // lines of console to display
 let oldfov = 0;
 let oldscreensize = 0;
 let oldsbaralpha = 1;
+let oldsbarscale = 0;
+let oldconscale = 0; // console canvas scale scr_con_current was last measured in
 
 export const scr_viewsize = { name: 'viewsize', string: '100', value: 100, archive: true };
 const scr_fov = { name: 'fov', string: '90', value: 90 };
@@ -47,6 +50,14 @@ export const scr_showfps = { name: 'scr_showfps', string: '0', value: 0 };
 export const scr_clock = { name: 'scr_clock', string: '0', value: 0 };
 // QS defaults scr_sbaralpha to 0.75; 1 keeps the opaque WinQuake status bar
 export const scr_sbaralpha = { name: 'scr_sbaralpha', string: '1', value: 1, archive: true };
+// FitzQuake/Ironwail HUD scales, in physical pixels per 320x200 pixel.
+// Deviation: Ironwail defaults them to 1; 0 here keeps the automatic UI scale.
+export const scr_sbarscale = { name: 'scr_sbarscale', string: '0', value: 0, archive: true };
+export const scr_conscale = { name: 'scr_conscale', string: '0', value: 0, archive: true };
+// FitzQuake/Ironwail (console.c): 1 logs centerprints to the console, 2 also
+// in deathmatch. Deviation: QuakeSpasm and Ironwail default to 1; the default
+// here is 0, which keeps id's behaviour.
+export const con_logcenterprint = { name: 'con_logcenterprint', string: '0', value: 0 }; //johnfitz
 
 export let scr_initialized = false;
 
@@ -149,6 +160,99 @@ export function SCR_CenterPrint( str ) {
 }
 
 /*
+==============================================================================
+
+	CENTERPRINT LOGGING (johnfitz)
+
+Ironwail keeps these in console.c; they live here because console.js is
+outside this change.
+==============================================================================
+*/
+
+let con_lastcenterstring = ''; //johnfitz
+
+/*
+================
+Con_Quakebar -- johnfitz -- returns a bar of the desired length, but never
+wider than the console. Includes a newline, unless len >= con_linewidth.
+================
+*/
+export function Con_Quakebar( len ) {
+
+	len = Math.min( len, 40 );
+	len = Math.min( len, con_linewidth );
+
+	let bar = '\x1d';
+	for ( let i = 1; i < len - 1; i ++ )
+		bar += '\x1e';
+	bar += '\x1f';
+
+	if ( len < con_linewidth )
+		bar += '\n';
+
+	return bar;
+
+}
+
+/*
+================
+Con_CenterPrintf -- pad each line with spaces to make it appear centered
+================
+*/
+function Con_CenterPrintf( linewidth, msg ) {
+
+	linewidth = Math.min( linewidth, con_linewidth );
+	for ( let src = 0; src < msg.length; ) {
+
+		let end = msg.indexOf( '\n', src );
+		if ( end === - 1 ) end = msg.length;
+		const line = msg.substring( src, end );
+		src = end < msg.length ? end + 1 : end;
+
+		if ( line.length < linewidth )
+			Con_Printf( '%s%s\n', ' '.repeat( ( linewidth - line.length ) >> 1 ), line );
+		else
+			Con_Printf( '%s\n', line );
+
+	}
+
+}
+
+/*
+==================
+Con_LogCenterPrint -- johnfitz -- echo centerprint message to the console
+==================
+*/
+export function Con_LogCenterPrint( str ) {
+
+	if ( str === con_lastcenterstring )
+		return; // ignore duplicates
+
+	if ( _cl.gametype === GAME_DEATHMATCH && con_logcenterprint.value !== 2 )
+		return; // don't log in deathmatch
+
+	con_lastcenterstring = str;
+
+	if ( con_logcenterprint.value !== 0 ) {
+
+		const trailing_newline = str.length > 0 && str[ str.length - 1 ] === '\n';
+		Con_Printf( '%s', Con_Quakebar( 40 ) );
+		Con_CenterPrintf( 40, trailing_newline ? str : str + '\n' );
+		Con_Printf( '%s', Con_Quakebar( 40 ) );
+		Con_ClearNotify();
+
+	}
+
+}
+
+// Ironwail CL_ParseServerInfo: con_lastcenterstring[0] = 0
+export function Con_ClearLastCenterString() {
+
+	con_lastcenterstring = '';
+
+}
+
+/*
 ==============
 SCR_DrawCenterString
 ==============
@@ -220,6 +324,10 @@ function SCR_CheckDrawCenterString() {
 		return;
 	if ( key_dest !== key_game )
 		return;
+	// Deviation (FitzQuake/Ironwail): not in id's C. The timer above keeps
+	// running while paused, as in Ironwail; only the drawing stops.
+	if ( _cl.paused ) //johnfitz -- don't show centerprint during a pause
+		return;
 
 	SCR_DrawCenterString();
 
@@ -266,10 +374,10 @@ function CalcFovX( fov_y, width, height ) {
 SCR_CalcRefdef
 
 Must be called whenever vid changes
-Internal use only
+Internal use only (exported for tests)
 =================
 */
-function SCR_CalcRefdef() {
+export function SCR_CalcRefdef() {
 
 	_vid.recalc_refdef = false;
 	_r_refdef.vrectScale = Draw_GetUIScale();
@@ -310,6 +418,10 @@ function SCR_CalcRefdef() {
 	// view and SCR_TileClear.
 	if ( scr_sbaralpha.value < 1 )
 		sb_lines = 0;
+
+	// Ironwail SCR_CalcRefdef: the status bar is sb_lines * scr_sbarscale
+	// physical pixels tall; convert that to the UI-scale units used here
+	sb_lines = Math.floor( sb_lines * Draw_GetCanvasScale( scr_sbarscale.value ) / _r_refdef.vrectScale );
 
 	let full = false;
 	if ( scr_viewsize.value >= 100.0 ) {
@@ -411,6 +523,7 @@ export function SCR_Init() {
 	Cvar_RegisterVariable( scr_conspeed );
 	Cvar_RegisterVariable( scr_showram );
 	Cvar_RegisterVariable( scr_showturtle );
+	Cvar_RegisterVariable( con_logcenterprint ); //johnfitz
 	Cvar_RegisterVariable( scr_showpause );
 	Cvar_RegisterVariable( scr_centertime );
 	Cvar_RegisterVariable( scr_printspeed );
@@ -418,6 +531,8 @@ export function SCR_Init() {
 	Cvar_RegisterVariable( scr_showfps );
 	Cvar_RegisterVariable( scr_clock );
 	Cvar_RegisterVariable( scr_sbaralpha );
+	Cvar_RegisterVariable( scr_sbarscale );
+	Cvar_RegisterVariable( scr_conscale );
 	R_WaterWarp_Init();
 
 	//
@@ -531,9 +646,10 @@ export function SCR_DrawLoading() {
 /*
 ==================
 SCR_SetUpToDrawConsole
+(exported for tests)
 ==================
 */
-function SCR_SetUpToDrawConsole() {
+export function SCR_SetUpToDrawConsole() {
 
 	Con_CheckResize();
 
@@ -559,15 +675,19 @@ function SCR_SetUpToDrawConsole() {
 
 	}
 
+	// johnfitz -- host_frametime is scaled by host_timescale; undo that so the
+	// console slides at the same speed at any timescale
+	const timescale = host_timescale.value > 0 ? host_timescale.value : 1;
+
 	if ( scr_conlines < scr_con_current ) {
 
-		scr_con_current -= scr_conspeed.value * host_frametime;
+		scr_con_current -= scr_conspeed.value * host_frametime / timescale; //johnfitz -- timescale
 		if ( scr_conlines > scr_con_current )
 			scr_con_current = scr_conlines;
 
 	} else if ( scr_conlines > scr_con_current ) {
 
-		scr_con_current += scr_conspeed.value * host_frametime;
+		scr_con_current += scr_conspeed.value * host_frametime / timescale; //johnfitz -- timescale
 		if ( scr_conlines < scr_con_current )
 			scr_con_current = scr_conlines;
 
@@ -584,6 +704,28 @@ function SCR_SetUpToDrawConsole() {
 	} else {
 
 		// con_notifylines = 0; -- handled via console module
+
+	}
+
+}
+
+/*
+==================
+SCR_DrawSbar
+
+Sbar_Draw on the status bar canvas (Ironwail CANVAS_SBAR, scr_sbarscale)
+==================
+*/
+function SCR_DrawSbar() {
+
+	Draw_SetCanvasScale( scr_sbarscale.value );
+	try {
+
+		Sbar_Draw();
+
+	} finally {
+
+		Draw_SetCanvasScale( 0 );
 
 	}
 
@@ -1061,13 +1203,36 @@ export function SCR_UpdateScreen() {
 
 	}
 
+	if ( oldsbarscale !== scr_sbarscale.value ) {
+
+		oldsbarscale = scr_sbarscale.value;
+		_vid.recalc_refdef = true;
+
+	}
+
 	if ( _vid.recalc_refdef )
 		SCR_CalcRefdef();
 
 	//
 	// do 3D refresh drawing, and then update the screen
 	//
-	SCR_SetUpToDrawConsole();
+	// The console is laid out on its own canvas (scr_conscale). scr_con_current
+	// is kept in its units, so rescale it when that scale changes.
+	const conscale = Draw_GetCanvasScale( scr_conscale.value );
+	if ( oldconscale > 0 && conscale !== oldconscale )
+		scr_con_current = scr_con_current * oldconscale / conscale;
+	oldconscale = conscale;
+
+	Draw_SetCanvasScale( scr_conscale.value );
+	try {
+
+		SCR_SetUpToDrawConsole();
+
+	} finally {
+
+		Draw_SetCanvasScale( 0 );
+
+	}
 
 	if ( _V_RenderView ) _V_RenderView();
 
@@ -1083,14 +1248,14 @@ export function SCR_UpdateScreen() {
 
 	if ( scr_drawdialog ) {
 
-		Sbar_Draw();
+		SCR_DrawSbar();
 		Draw_FadeScreen();
 		SCR_DrawNotifyString();
 
 	} else if ( scr_drawloading ) {
 
 		SCR_DrawLoading();
-		Sbar_Draw();
+		SCR_DrawSbar();
 
 	} else if ( _cl.intermission === 1 && key_dest === key_game ) {
 
@@ -1103,7 +1268,10 @@ export function SCR_UpdateScreen() {
 
 	} else {
 
-		if ( Cvar_VariableValue( 'crosshair' ) !== 0 && _cls.demoplayback === false )
+		// Deviation (FitzQuake/Ironwail SCR_DrawCrosshair): no crosshair during
+		// intermission. In id's C intermission 3 (svc_cutscene) reaches this
+		// branch and drew it over the cutscene.
+		if ( Cvar_VariableValue( 'crosshair' ) !== 0 && _cls.demoplayback === false && ! _cl.intermission )
 			Draw_Character( Math.floor( _vid.width / 2 + Cvar_VariableValue( 'cl_crossx' ) ) - 4,
 				Math.floor( _vid.height / 2 + Cvar_VariableValue( 'cl_crossy' ) ) - 4, 43 ); // '+' crosshair
 
@@ -1112,10 +1280,19 @@ export function SCR_UpdateScreen() {
 		SCR_DrawTurtle();
 		SCR_DrawPause();
 		SCR_CheckDrawCenterString();
-		Sbar_Draw();
+		SCR_DrawSbar();
 		SCR_DrawFPS(); //johnfitz
 		SCR_DrawClock(); //johnfitz
-		SCR_DrawConsole();
+		Draw_SetCanvasScale( scr_conscale.value );
+		try {
+
+			SCR_DrawConsole();
+
+		} finally {
+
+			Draw_SetCanvasScale( 0 );
+
+		}
 		M_Draw();
 
 	}

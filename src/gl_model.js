@@ -6,15 +6,16 @@
 
 import * as THREE from 'three';
 import { Sys_Error } from './sys.js';
+import { Host_Error } from './host.js';
 import { Con_Printf, Con_DPrintf } from './common.js';
-import { d_8to24table, vid } from './vid.js';
+import { d_8to24table, vid, renderer } from './vid.js';
 import { COM_LoadFile } from './pak.js';
 import { DotProduct, VectorCopy, Length } from './mathlib.js';
-import { Cvar_RegisterVariable } from './cvar.js';
+import { Cvar_RegisterVariable, Cvar_SetValue } from './cvar.js';
 import { r_nolerp_list } from './render.js';
 import { MAX_DLIGHTS } from './client.js';
 import { R_InitSky as R_InitSky_warp, GL_SubdivideSurface as GL_SubdivideSurface_warp, GL_Warp_SetLoadmodel } from './gl_warp.js';
-import { GL_MakeAliasModelDisplayLists as GL_MakeAliasModelDisplayLists_mesh } from './gl_mesh.js';
+import { GL_MakeAliasModelDisplayLists as GL_MakeAliasModelDisplayLists_mesh, cl_gun_fovscale } from './gl_mesh.js';
 
 // Sky textures (set by R_InitSky during level load)
 export let solidskytexture = null;
@@ -26,12 +27,12 @@ import {
 	LUMP_LIGHTING, LUMP_CLIPNODES, LUMP_LEAFS, LUMP_MARKSURFACES,
 	LUMP_EDGES, LUMP_SURFEDGES, LUMP_MODELS, HEADER_LUMPS,
 	MAX_MAP_HULLS, MAX_MAP_LEAFS,
-	CONTENTS_EMPTY,
+	CONTENTS_EMPTY, CONTENTS_WATER, CONTENTS_SLIME, CONTENTS_LAVA,
 	MIPLEVELS, MAXLIGHTMAPS, NUM_AMBIENTS,
 	TEX_SPECIAL
 } from './bspfile.js';
-import { gl_subdivide_size, GL_SetTextureFilter, GL_RegisterTexture, GL_UnregisterTexture,
-	GL_ScaledTextureSize, GL_ResampleTexture8 } from './glquake.js';
+import { gl_subdivide_size, r_novis, GL_SetTextureFilter, GL_RegisterTexture, GL_UnregisterTexture,
+	GL_ScaledTextureSize, GL_ResampleTexture8, _allGameTextures } from './glquake.js';
 
 // ============================================================================
 // modelgen.h constants
@@ -99,6 +100,20 @@ export const SURF_DRAWTURB = 0x10;
 export const SURF_DRAWTILED = 0x20;
 export const SURF_DRAWBACKGROUND = 0x40;
 export const SURF_UNDERWATER = 0x80;
+// Deliberate deviation, from QuakeSpasm (gl_model.h): which liquid a
+// SURF_DRAWTURB surface is, so gl_rsurf.js can give lava, slime and
+// teleporters their own alpha (r_lavaalpha, r_slimealpha, r_telealpha)
+export const SURF_DRAWLAVA = 0x400;
+export const SURF_DRAWSLIME = 0x800;
+export const SURF_DRAWTELE = 0x1000;
+export const SURF_DRAWWATER = 0x2000;
+
+// Deliberate deviation, from QuakeSpasm (gl_rmain.c): per-liquid alpha.
+// 0 means "use r_wateralpha", so the defaults keep GLQuake's look. QS
+// registers them in R_Init (gl_rmisc.c); here Mod_Init does.
+export const r_lavaalpha = { name: 'r_lavaalpha', string: '0', value: 0 };
+export const r_slimealpha = { name: 'r_slimealpha', string: '0', value: 0 };
+export const r_telealpha = { name: 'r_telealpha', string: '0', value: 0 };
 
 // ============================================================================
 // Plane sides
@@ -138,6 +153,11 @@ export const EF_TRACER3 = 128;		// purple trail
 // Deliberate deviation, from FitzQuake/QuakeSpasm (gl_model.h): flags that
 // aren't in the mdl, set by Mod_SetExtraFlags.
 export const MOD_NOLERP = 256;		// don't lerp when animating
+
+// Deliberate deviation, from MarkV/QSS via QuakeSpasm and Ironwail
+// (gl_model.h): a model flag that makes palette index 255 transparent in
+// the mdl's skins. Mods set it in the mdl header; id's models don't.
+export const MF_HOLEY = 1 << 14;
 
 // ============================================================================
 // Alias model limits
@@ -620,6 +640,7 @@ export class model_t {
 		this.viswarn = false;		// QuakeSpasm: Mod_DecompressVis warned once
 		this.lightdata = null;		// Uint8Array
 		this.entities = null;		// string
+		this.contentstransparent = 0;	// SURF_DRAW* liquids the vis sees through (Mod_CheckWaterVis)
 
 		// additional model data
 		this.cache = { data: null };	// cache_user_t equivalent
@@ -677,9 +698,14 @@ let decompressed = new Uint8Array( 0 );
 // gl_picmip and gl_max_size shrink the upload as GL_Upload32 does; like
 // GLQuake they take effect on the next map load. Texture coordinates are
 // normalised by the miptex size, not the upload size, so they are unaffected.
+// splitFullbright puts the fullbright pixels (palette 224-255) in a second
+// texture, texture._fullbright. keepBase leaves them in the base texture too
+// (alias skins: the fullbright texture's alpha is the mask the alias shader
+// mixes by); without it they are blacked out of the base (world textures,
+// drawn with the fullbright texture as an emissive map).
 // ============================================================================
 
-function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbright ) {
+export function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbright, keepBase = false ) {
 
 	const scaled = GL_ScaledTextureSize( width, height );
 	if ( scaled.width !== width || scaled.height !== height ) {
@@ -744,9 +770,13 @@ function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbrig
 				fbRgba[ i * 4 + 3 ] = 255;
 
 				// Black out in base texture
-				rgba[ i * 4 ] = 0;
-				rgba[ i * 4 + 1 ] = 0;
-				rgba[ i * 4 + 2 ] = 0;
+				if ( keepBase === false ) {
+
+					rgba[ i * 4 ] = 0;
+					rgba[ i * 4 + 1 ] = 0;
+					rgba[ i * 4 + 2 ] = 0;
+
+				}
 
 			}
 
@@ -758,6 +788,7 @@ function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbrig
 		fullbrightTexture.wrapS = THREE.RepeatWrapping;
 		fullbrightTexture.wrapT = THREE.RepeatWrapping;
 		fullbrightTexture.generateMipmaps = mipmap;
+		if ( mipmap ) fullbrightTexture.anisotropy = GL_TextureAnisotropy();
 		fullbrightTexture.colorSpace = THREE.SRGBColorSpace;
 		fullbrightTexture.needsUpdate = true;
 		GL_RegisterTexture( fullbrightTexture );
@@ -772,6 +803,7 @@ function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbrig
 	texture.wrapS = THREE.RepeatWrapping;
 	texture.wrapT = THREE.RepeatWrapping;
 	texture.generateMipmaps = mipmap;
+	if ( mipmap ) texture.anisotropy = GL_TextureAnisotropy();
 	texture.colorSpace = THREE.SRGBColorSpace;
 	// Note: flipY defaults to false for DataTexture, which is correct for Quake
 	// Quake's UV T=0 at top + texture row 0 at V=0 means no flip is needed
@@ -807,13 +839,22 @@ function GL_MakeAliasModelDisplayLists( mod, hdr ) {
 
 function R_InitSky( tx ) {
 
-	// Sky texture is 256*128, split into solid (right half) and alpha (left half)
-	// tx.pixels starts at mip level 0 data, tx.offsets[0] is offset from miptex header
+	// QuakeSpasm Sky_LoadTexture: the solid layer is the right half and the
+	// alpha layer the left half, at whatever size the texture is (id assumed
+	// 256x128). gl_warp.js R_InitSky warns for other sizes and returns null
+	// when the texture is too small to split (width < 2 or height < 1).
+	// tx.pixels starts at the mip level 0 data, so the offset is 0.
 	const mt = {
 		data: tx.pixels,
-		offsets: [ 0 ] // pixels already starts at the texture data
+		offsets: [ 0 ],
+		width: tx.width,
+		height: tx.height,
+		name: tx.name
 	};
 	const result = R_InitSky_warp( mt, d_8to24table );
+	if ( result === null )
+		return; // as QuakeSpasm: no sky (Mod_ClearAll already cleared the last map's)
+
 	if ( loadmodel != null ) {
 
 		loadmodel._threeTextures.add( result.solidTexture );
@@ -826,12 +867,77 @@ function R_InitSky( tx ) {
 }
 
 // ============================================================================
+// gl_texture_anisotropy
+//
+// Deliberate deviation, from QuakeSpasm (gl_texmgr.c): anisotropic filtering
+// for mipmapped textures. The default, 1, is off, as in GLQuake. QS clamps the
+// cvar to [1, the driver's maximum] in a callback (TexMgr_Anisotropy_f) and
+// re-filters every mipmapped texture; this port's cvars have no callbacks,
+// so GL_CheckAnisotropy does it when the value changes (gl_rsurf.js
+// R_DrawWorld calls it each frame). Three.js only applies anisotropy to
+// textures whose min filter is *_MIPMAP_LINEAR and mag filter isn't
+// GL_NEAREST, so it shows only with such a gl_texturemode.
+// ============================================================================
+
+export const gl_texture_anisotropy = { name: 'gl_texture_anisotropy', string: '1', value: 1, archive: true };
+let _appliedAnisotropy = 1;
+
+function GL_MaxAnisotropy() {
+
+	// Three returns 0 without EXT_texture_filter_anisotropic; QS's floor is 1.
+	return renderer !== null ? Math.max( renderer.capabilities.getMaxAnisotropy(), 1 ) : 1;
+
+}
+
+function GL_TextureAnisotropy( maxAnisotropy = GL_MaxAnisotropy() ) {
+
+	return Math.min( Math.max( gl_texture_anisotropy.value, 1 ), maxAnisotropy );
+
+}
+
+// TexMgr_Anisotropy_f. maxAnisotropy is the driver limit; tests pass it in.
+export function GL_CheckAnisotropy( maxAnisotropy = GL_MaxAnisotropy() ) {
+
+	if ( gl_texture_anisotropy.value === _appliedAnisotropy )
+		return;
+
+	if ( gl_texture_anisotropy.value < 1 ) {
+
+		Cvar_SetValue( 'gl_texture_anisotropy', 1 );
+
+	} else if ( gl_texture_anisotropy.value > maxAnisotropy ) {
+
+		Cvar_SetValue( 'gl_texture_anisotropy', maxAnisotropy );
+
+	}
+
+	_appliedAnisotropy = gl_texture_anisotropy.value;
+	const anisotropy = GL_TextureAnisotropy( maxAnisotropy );
+	for ( const texture of _allGameTextures ) {
+
+		if ( texture !== null && texture.generateMipmaps === true && texture.anisotropy !== anisotropy ) {
+
+			texture.anisotropy = anisotropy;
+			texture.needsUpdate = true;
+
+		}
+
+	}
+
+}
+
+// ============================================================================
 // Mod_Init
 // ============================================================================
 
 export function Mod_Init() {
 
 	Cvar_RegisterVariable( gl_subdivide_size );
+	Cvar_RegisterVariable( cl_gun_fovscale ); // Ironwail: SCR_Init
+	Cvar_RegisterVariable( gl_texture_anisotropy );
+	Cvar_RegisterVariable( r_lavaalpha );
+	Cvar_RegisterVariable( r_slimealpha );
+	Cvar_RegisterVariable( r_telealpha );
 	mod_novis.fill( 0xff );
 
 }
@@ -1214,8 +1320,12 @@ export function Mod_LoadModel( mod, crash ) {
 	const buf = COM_LoadFile( mod.name );
 	if ( ! buf ) {
 
+		// Deliberate deviation (QuakeSpasm/Ironwail): Host_Error, not
+		// Sys_Error, so a missing model (QuakeC precache_model, a bolt
+		// model absent from the pak) drops to the console instead of
+		// wiping the page or killing the room's game server.
 		if ( crash )
-			Sys_Error( 'Mod_NumForName: ' + mod.name + ' not found' );
+			Host_Error( 'Mod_LoadModel: ' + mod.name + ' not found' );
 		return null;
 
 	}
@@ -1360,8 +1470,10 @@ function Mod_LoadTextures( fileofs, filelen ) {
 		for ( let j = 0; j < MIPLEVELS; j ++ )
 			offsets[ j ] = mtView.getUint32( 24 + j * 4, true );
 
+		// Deliberate deviation (QuakeSpasm): a warning, not Sys_Error. Nothing
+		// here depends on the alignment; the mip offsets come from the file.
 		if ( ( width & 15 ) || ( height & 15 ) )
-			Sys_Error( 'Texture ' + name + ' is not 16 aligned' );
+			Con_Printf( 'Texture ' + name + ' (' + width + ' x ' + height + ') is not 16 aligned\n' );
 
 		// Deliberate deviation (QuakeSpasm): a zero sized texture is skipped
 		// with a warning.
@@ -1835,6 +1947,131 @@ function CalcSurfaceExtents( s ) {
 }
 
 // ============================================================================
+// Mod_LiquidFlagFromName
+//
+// Deliberate deviation, from Ironwail (gl_model.c Mod_TextureTypeFromName,
+// liquids only): which SURF_DRAW* liquid flag a '*' texture gets.
+// ============================================================================
+
+export function Mod_LiquidFlagFromName( texname ) {
+
+	if ( texname.startsWith( 'lava', 1 ) ) return SURF_DRAWLAVA;
+	if ( texname.startsWith( 'slime', 1 ) ) return SURF_DRAWSLIME;
+	if ( texname.startsWith( 'tele', 1 ) ) return SURF_DRAWTELE;
+	return SURF_DRAWWATER;
+
+}
+
+// ============================================================================
+// Mod_CheckWaterVis
+//
+// Deliberate deviation, from QuakeSpasm (gl_model.c, by Spike): finds which
+// liquids the map's vis lets you see through (a liquid leaf whose PVS holds
+// a leaf of other contents), for the worldspawn _wateralpha keys
+// (gl_rsurf.js). Liquids the map doesn't have count as see-through, so
+// submodel liquids work.
+// ============================================================================
+
+const SURF_DRAWLIQUIDS = SURF_DRAWWATER | SURF_DRAWTELE | SURF_DRAWSLIME | SURF_DRAWLAVA;
+
+function Mod_CheckWaterVis() {
+
+	// clamped to the loaded leafs, so a bad visleafs count can't read past them
+	const numclusters = loadmodel.numsubmodels > 0
+		? Math.min( loadmodel.submodels[ 0 ].visleafs, loadmodel.numleafs - 1 ) : 0;
+	let contentfound = 0;
+	let contenttransparent = 0;
+	let hascontents = 0;
+
+	if ( r_novis.value ) {
+
+		// all can be
+		loadmodel.contentstransparent = SURF_DRAWLIQUIDS;
+		return;
+
+	}
+
+	// pvs is 1-based. leaf 0 sees all (the solid leaf).
+	// leaf 0 has no pvs, and does not appear in other leafs either.
+	for ( let i = 0; i < numclusters; i ++ ) {
+
+		const leaf = loadmodel.leafs[ i + 1 ];
+		let contenttype = 0;
+		if ( leaf.contents < 0 )
+			hascontents |= 1 << - leaf.contents;
+		if ( leaf.contents === CONTENTS_WATER ) {
+
+			if ( ( contenttransparent & ( SURF_DRAWWATER | SURF_DRAWTELE ) ) === ( SURF_DRAWWATER | SURF_DRAWTELE ) )
+				continue;
+			for ( let j = 0; j < leaf.nummarksurfaces; j ++ ) {
+
+				const surf = leaf.firstmarksurface[ j ];
+				if ( surf.flags & ( SURF_DRAWWATER | SURF_DRAWTELE ) ) {
+
+					contenttype = surf.flags & ( SURF_DRAWWATER | SURF_DRAWTELE );
+					break;
+
+				}
+
+			}
+
+			// it's possible that this leaf has no surfaces in it, turb or otherwise
+			if ( contenttype === 0 )
+				continue;
+
+		} else if ( leaf.contents === CONTENTS_SLIME ) {
+
+			contenttype = SURF_DRAWSLIME;
+
+		} else if ( leaf.contents === CONTENTS_LAVA ) {
+
+			contenttype = SURF_DRAWLAVA;
+
+		} else {
+
+			continue;
+
+		}
+
+		if ( contenttransparent & contenttype )
+			continue; // found one of this type already
+
+		contentfound |= contenttype;
+		const vis = Mod_DecompressVis( leaf.compressed_vis, leaf.compressed_vis_offset, loadmodel );
+		search: for ( let j = 0; j < ( numclusters + 7 ) >> 3; j ++ ) {
+
+			if ( vis[ j ] === 0 ) continue;
+			for ( let k = 0; k < 8; k ++ ) {
+
+				if ( ( vis[ j ] & ( 1 << k ) ) === 0 ) continue;
+				const other = loadmodel.leafs[ ( j << 3 ) + k + 1 ];
+				if ( other !== undefined && leaf.contents !== other.contents ) {
+
+					contenttransparent |= contenttype;
+					break search;
+
+				}
+
+			}
+
+		}
+
+	}
+
+	if ( contenttransparent === 0 ) {
+
+		// no liquid leaf saw a non-liquid leaf; only say so if there is liquid
+		if ( hascontents & ( ( 1 << - CONTENTS_WATER ) | ( 1 << - CONTENTS_SLIME ) | ( 1 << - CONTENTS_LAVA ) ) )
+			Con_DPrintf( loadmodel.name + ' is not watervised\n' );
+
+	}
+
+	// any types that we didn't find are assumed to be transparent
+	loadmodel.contentstransparent = contenttransparent | ( ~ contentfound & SURF_DRAWLIQUIDS );
+
+}
+
+// ============================================================================
 // Mod_LoadFaces
 // ============================================================================
 
@@ -1899,6 +2136,7 @@ function Mod_LoadFaces( fileofs, filelen ) {
 		if ( s.texinfo.texture && s.texinfo.texture.name.charAt( 0 ) === '*' ) {
 
 			s.flags |= ( SURF_DRAWTURB | SURF_DRAWTILED );
+			s.flags |= Mod_LiquidFlagFromName( s.texinfo.texture.name );
 			for ( let i = 0; i < 2; i ++ ) {
 
 				s.extents[ i ] = 16384;
@@ -2038,9 +2276,10 @@ function Mod_LoadLeafs( fileofs, filelen ) {
 	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
 	const out = new Array( count );
 
-	// Deliberate deviation: QuakeSpasm's BSP29 limit check (the C has none)
+	// Deliberate deviation: QuakeSpasm's BSP29 limit check (the C has none),
+	// raised with Host_Error as Ironwail does so a bad map isn't fatal
 	if ( count > MAX_MAP_LEAFS )
-		Sys_Error( 'Mod_LoadLeafs: ' + count + ' leafs exceeds limit of ' + MAX_MAP_LEAFS + '.' );
+		Host_Error( 'Mod_LoadLeafs: ' + count + ' leafs exceeds limit of ' + MAX_MAP_LEAFS + '.' );
 
 	loadmodel.leafs = out;
 	loadmodel.numleafs = count;
@@ -2156,9 +2395,10 @@ function Mod_LoadClipnodes( fileofs, filelen ) {
 
 		cn.planenum = view.getInt32( base, true );
 
-		// Deliberate deviation (QuakeSpasm Mod_LoadClipnodes): bounds check
+		// Deliberate deviation (QuakeSpasm Mod_LoadClipnodes): bounds check,
+		// with Host_Error as Ironwail has it
 		if ( cn.planenum < 0 || cn.planenum >= loadmodel.numplanes )
-			Sys_Error( 'Mod_LoadClipnodes: planenum out of bounds' );
+			Host_Error( 'Mod_LoadClipnodes: planenum out of bounds' );
 
 		// Deliberate deviation (QuakeSpasm): read the children unsigned so
 		// maps with more than 32767 clipnodes load; values at or past count
@@ -2241,8 +2481,10 @@ function Mod_MakeHull0() {
 
 function Mod_LoadMarksurfaces( fileofs, filelen ) {
 
+	// Deliberate deviation (Ironwail Mod_LoadMarksurfaces): Host_Error, not
+	// Sys_Error, for both checks
 	if ( filelen % 2 )
-		Sys_Error( 'MOD_LoadBmodel: funny lump size in ' + loadmodel.name );
+		Host_Error( 'MOD_LoadBmodel: funny lump size in ' + loadmodel.name );
 
 	const count = filelen / 2;
 	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
@@ -2255,7 +2497,7 @@ function Mod_LoadMarksurfaces( fileofs, filelen ) {
 
 		const j = view.getUint16( i * 2, true );
 		if ( j >= loadmodel.numsurfaces )
-			Sys_Error( 'Mod_ParseMarksurfaces: bad surface number' );
+			Host_Error( 'Mod_ParseMarksurfaces: bad surface number' );
 		out[ i ] = loadmodel.surfaces[ j ];
 
 	}
@@ -2371,6 +2613,8 @@ function Mod_LoadBrushModel( mod, buffer ) {
 
 	mod.numframes = 2;		// regular and alternate animation
 
+	Mod_CheckWaterVis();
+
 	//
 	// set up the submodels (FIXME: this is confusing)
 	//
@@ -2404,6 +2648,7 @@ function Mod_LoadBrushModel( mod, buffer ) {
 
 			// Copy all properties
 			nextmodel.type = mod.type;
+			nextmodel.contentstransparent = mod.contentstransparent;	// C copies the whole struct
 			nextmodel.numframes = mod.numframes;
 			nextmodel.synctype = mod.synctype;
 			nextmodel.flags = mod.flags;
@@ -2674,6 +2919,9 @@ function Mod_FloodFillSkin( skin, skinwidth, skinheight ) {
 // Mod_LoadAllSkins
 // ============================================================================
 
+// Deliberate deviation (QuakeSpasm, gl_fullbrights 1): GLQuake has no
+// fullbright pass on alias models, so glowing eyes and lights went dark in
+// shade. Each skin also gets a fullbright mask (gl_mesh.js AliasMaterial).
 function Mod_LoadAllSkins( buf, numskins, offset ) {
 
 	if ( numskins < 1 || numskins > MAX_SKINS )
@@ -2681,6 +2929,11 @@ function Mod_LoadAllSkins( buf, numskins, offset ) {
 
 	const s = pheader.skinwidth * pheader.skinheight;
 	const SIZEOF_DALIASSKINTYPE = 4; // int type
+	// no palette (the Deno server never runs VID_Init): no masks to make
+	const splitFullbright = vid.fullbright > 0;
+	// MF_HOLEY (QuakeSpasm/Ironwail TEXPREF_ALPHA): index 255 is transparent;
+	// gl_mesh.js alpha-tests these skins
+	const holey = ( loadmodel.flags & MF_HOLEY ) !== 0;
 
 	let pos = offset;
 
@@ -2705,7 +2958,7 @@ function Mod_LoadAllSkins( buf, numskins, offset ) {
 			pheader.gl_texturenum[ i ][ 1 ] =
 			pheader.gl_texturenum[ i ][ 2 ] =
 			pheader.gl_texturenum[ i ][ 3 ] =
-				GL_LoadTexture( name, pheader.skinwidth, pheader.skinheight, skin, true, false );
+				GL_LoadTexture( name, pheader.skinwidth, pheader.skinheight, skin, true, holey, splitFullbright, true );
 
 			pos = skinDataOfs + s;
 
@@ -2734,7 +2987,7 @@ function Mod_LoadAllSkins( buf, numskins, offset ) {
 
 				const name = loadmodel.name + '_' + i + '_' + j;
 				pheader.gl_texturenum[ i ][ j & 3 ] =
-					GL_LoadTexture( name, pheader.skinwidth, pheader.skinheight, skin, true, false );
+					GL_LoadTexture( name, pheader.skinwidth, pheader.skinheight, skin, true, holey, splitFullbright, true );
 
 				pos += s;
 
@@ -2807,8 +3060,10 @@ function Mod_LoadAliasModel( mod, buffer ) {
 	pheader.numtris = view.getInt32( 64, true );
 	pheader.numframes = view.getInt32( 68, true );
 
+	// Deliberate deviation (QuakeSpasm): a developer warning, not Sys_Error.
+	// No buffer in the port is sized by MAX_LBM_HEIGHT.
 	if ( pheader.skinheight > MAX_LBM_HEIGHT )
-		Sys_Error( 'model ' + mod.name + ' has a skin taller than ' + MAX_LBM_HEIGHT );
+		Con_DPrintf( 'model ' + mod.name + ' has a skin taller than ' + MAX_LBM_HEIGHT + '\n' );
 	if ( pheader.numverts <= 0 )
 		Sys_Error( 'model ' + mod.name + ' has no vertices' );
 	if ( pheader.numverts > MAXALIASVERTS )

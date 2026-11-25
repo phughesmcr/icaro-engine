@@ -4,7 +4,7 @@ import { Sys_Error } from './sys.js';
 import { Con_Printf, Con_DPrintf, COM_Parse, com_token } from './common.js';
 import { Cmd_AddCommand, Cmd_Argv } from './cmd.js';
 import { cvar_t, Cvar_RegisterVariable } from './cvar.js';
-import { PR_InitBuiltins, PF_Format5_1f } from './pr_cmds.js';
+import { PR_InitBuiltins, PR_InitProgsBuiltins, PF_Format5_1f } from './pr_cmds.js';
 import { CRC_Init, CRC_ProcessByte, CRC_Value } from './crc.js';
 import { MAX_EDICTS } from './quakedef.js';
 import {
@@ -32,6 +32,7 @@ import {
 } from './progs.js';
 import { PR_ExecuteProgram } from './pr_exec.js';
 import { SV_UnlinkEdict } from './world.js';
+import { SV_ReserveSignonSpace } from './sv_main.js';
 
 //============================================================================
 // Module state
@@ -49,7 +50,7 @@ const gefvCache = [
 // Cvar stubs (will be replaced when cvar system is connected)
 //============================================================================
 
-const nomonsters = new cvar_t( 'nomonsters', '0' );
+export const nomonsters = new cvar_t( 'nomonsters', '0' );
 const gamecfg = new cvar_t( 'gamecfg', '0' );
 const scratch1 = new cvar_t( 'scratch1', '0' );
 const scratch2 = new cvar_t( 'scratch2', '0' );
@@ -190,7 +191,10 @@ ED_FieldAtOfs
 */
 export function ED_FieldAtOfs( ofs ) {
 
-	for ( let i = 0; i < progs.numfielddefs; i ++ ) {
+	// Deviation from id's C, which started at 0: fielddef 0 is the null def
+	// with ofs 0, so .modelindex (also ofs 0) was never found. Ironwail
+	// commit fe459b4 starts at 1.
+	for ( let i = 1; i < progs.numfielddefs; i ++ ) {
 
 		const def = pr_fielddefs[ i ];
 		if ( def.ofs === ofs )
@@ -680,6 +684,9 @@ export function ED_WriteGlobals( lines ) {
 /*
 =============
 ED_ParseGlobals
+
+Returns the text after the closing brace, as Ironwail's does (id's returns
+nothing; Host_Loadgame_f needs it to go on to the edicts).
 =============
 */
 export function ED_ParseGlobals( data ) {
@@ -718,6 +725,8 @@ export function ED_ParseGlobals( data ) {
 		}
 
 	}
+
+	return data;
 
 }
 
@@ -777,7 +786,8 @@ export function ED_ParseEpair( accessor, key, s ) {
 			break;
 
 		case ev_float:
-			accessor.setFloat( ofs, parseFloat( s ) );
+			// atof() gives 0 where parseFloat gives NaN (e.g. "wait" "")
+			accessor.setFloat( ofs, parseFloat( s ) || 0 );
 			break;
 
 		case ev_vector: {
@@ -901,7 +911,11 @@ export function ED_ParseEdict( data, ent ) {
 		const key = ED_FindField( keyname );
 		if ( ! key ) {
 
-			Con_Printf( '\'%s\' is not a field\n', keyname );
+			// Deviation from id's C (Con_Printf): Ironwail/FitzQuake print this
+			// only with developer set, and stay silent for the sky, fog and
+			// alpha keys that map editors add but defs.qc may not declare.
+			if ( ! keyname.startsWith( 'sky' ) && keyname !== 'fog' && keyname !== 'alpha' )
+				Con_DPrintf( '\'%s\' is not a field\n', keyname );
 			continue;
 
 		}
@@ -1001,6 +1015,16 @@ export function ED_LoadFromFile( data ) {
 
 		}
 
+		// remove monsters if nomonsters is set (Ironwail; id registers the
+		// cvar but never reads it)
+		if ( sv.nomonsters && classname.startsWith( 'monster_' ) ) {
+
+			ED_Free( ent );
+			inhibit ++;
+			continue;
+
+		}
+
 		// look for the spawn function
 		const func = ED_FindFunction( classname );
 
@@ -1012,6 +1036,10 @@ export function ED_LoadFromFile( data ) {
 			continue;
 
 		}
+
+		// Ironwail: room for the spawn function's MSG_INIT writes, so
+		// they don't straddle two signon buffers
+		SV_ReserveSignonSpace( 512 );
 
 		pr_global_struct.self = EDICT_TO_PROG( ent );
 		PR_ExecuteProgram( pr_functions.indexOf( func ) );
@@ -1129,6 +1157,9 @@ export function PR_LoadProgs( fileData ) {
 	}
 
 	PR_SetFunctions( functions );
+
+	// bind "= #0" builtins by name, and reset per-progs builtin state
+	PR_InitProgsBuiltins();
 
 	// Parse globaldefs
 	const globaldefs = [];

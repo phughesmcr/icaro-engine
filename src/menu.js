@@ -20,7 +20,7 @@ import { v_gamma } from './view.js';
 import { gl_filter_max, GL_LINEAR } from './glquake.js';
 import { skill, coop, teamplay, svs } from './server.js';
 import { Touch_ExitFullscreen } from './touch.js';
-import { Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
+import { Draw_GetVirtualWidth, Draw_GetVirtualHeight, Draw_SetCanvasScale } from './gl_draw.js';
 import { SAVEGAME_COMMENT_LENGTH } from './quakedef.js';
 import { registered, standard_quake, rogue, hipnotic } from './common.js';
 import { Sys_PageURL } from './sys.js';
@@ -388,6 +388,34 @@ const _vid = {
 	get width() { return Draw_GetVirtualWidth(); },
 	get height() { return Draw_GetVirtualHeight(); }
 };
+
+// Ironwail (gl_screen.c) menu scale, in physical pixels per 320x200 pixel.
+// Deviation: Ironwail defaults it to 1; 0 here keeps the automatic UI
+// scale, as scr_sbarscale and scr_conscale do (gl_screen.js).
+export const scr_menuscale = { name: 'scr_menuscale', string: '0', value: 0, archive: true };
+
+/*
+================
+M_MenuCanvasScale
+
+Ironwail GL_SetCanvas( CANVAS_MENU ): CLAMP( 1, scr_menuscale, the most
+that fits 320x200 ), for Draw_SetCanvasScale. 0 is the automatic scale.
+================
+*/
+function M_MenuCanvasScale() {
+
+	if ( ! ( scr_menuscale.value > 0 ) )
+		return 0;
+
+	// scale 1: the virtual screen is the physical one
+	Draw_SetCanvasScale( 1 );
+	const max = Math.min( Draw_GetVirtualWidth() / 320, Draw_GetVirtualHeight() / 200 );
+	Draw_SetCanvasScale( 0 );
+
+	const s = scr_menuscale.value;
+	return s < 1 ? 1 : ( s > max ? max : s );
+
+}
 let _host_time_get = () => 0;
 let _realtime_get = () => 0;
 let _Draw_CachePic = null;
@@ -2107,6 +2135,7 @@ function M_Touch_Key( key ) {
 let m_keys_cursor = 0;
 let m_keys_scroll = 0; // first row shown
 let bind_grab = false;
+let bind_grab_key = - 1; // the key the last grab bound; its autorepeats are dropped
 
 // QS/Ironwail add the previous-weapon row (impulse 12) and Ironwail the
 // weapon rows (impulse 1-8) to id's list. Labels stop before the cursor at
@@ -2313,6 +2342,7 @@ function M_Keys_Key( key ) {
 	if ( bind_grab ) {
 
 		// Grabbed a key
+		bind_grab_key = key;
 		if ( _S_LocalSound ) _S_LocalSound( 'misc/menu1.wav' );
 		if ( key === K_ESCAPE ) {
 
@@ -2813,6 +2843,8 @@ export function M_Init() {
 
 	if ( Cvar_FindVar( ui_mouse.name ) === null )
 		Cvar_RegisterVariable( ui_mouse );
+	if ( Cvar_FindVar( scr_menuscale.name ) === null )
+		Cvar_RegisterVariable( scr_menuscale );
 
 	Cmd_AddCommand( 'togglemenu', M_ToggleMenu_f );
 	Cmd_AddCommand( 'menu_main', M_Menu_Main_f );
@@ -2837,6 +2869,26 @@ export function M_Init() {
 M_Keydown
 ================
 */
+/*
+================
+M_KeyRepeats
+
+Ironwail M_Keydown: only a few navigational keys repeat in menus, which
+reduces sound spam. Escape is left out (a held Escape would back out of
+every level and close the menu), and so is a key while it is being bound
+or is still held from being bound, so the repeat doesn't move the cursor.
+================
+*/
+export function M_KeyRepeats( key ) {
+
+	if ( bind_grab || key === bind_grab_key )
+		return false;
+
+	return key === K_UPARROW || key === K_DOWNARROW
+		|| key === K_LEFTARROW || key === K_RIGHTARROW;
+
+}
+
 export function M_Keydown( key ) {
 
 	// Ironwail M_Keydown: mouse keys only work with ui_mouse, except while
@@ -2845,6 +2897,10 @@ export function M_Keydown( key ) {
 	// wheel, and the port's other menus move the cursor with it.
 	const click = m_mouse_click;
 	m_mouse_click = false;
+
+	// A fresh press (or another key's repeat) ends the hold on a grabbed key
+	if ( bind_grab === false )
+		bind_grab_key = - 1;
 
 	if ( bind_grab === false ) {
 
@@ -2926,6 +2982,29 @@ export function M_Draw() {
 
 	}
 
+	Draw_SetCanvasScale( M_MenuCanvasScale() ); // GL_SetCanvas( CANVAS_MENU )
+	try {
+
+		M_DrawState();
+
+	} finally {
+
+		Draw_SetCanvasScale( 0 );
+
+	}
+
+	if ( m_entersound ) {
+
+		if ( _S_LocalSound ) _S_LocalSound( 'misc/menu2.wav' );
+		m_entersound = false;
+
+	}
+
+}
+
+// M_Draw's switch, drawn on the menu canvas
+function M_DrawState() {
+
 	switch ( m_state ) {
 
 		case m_main: M_Main_Draw(); break;
@@ -2943,13 +3022,6 @@ export function M_Draw() {
 		case m_lanconfig: M_LanConfig_Draw(); break;
 		case m_gameoptions: M_GameOptions_Draw(); break;
 		case m_touch: M_Touch_Draw(); break;
-
-	}
-
-	if ( m_entersound ) {
-
-		if ( _S_LocalSound ) _S_LocalSound( 'misc/menu2.wav' );
-		m_entersound = false;
 
 	}
 
@@ -2984,20 +3056,37 @@ let m_mouse_click = false;
 // M_ToMenuSpace result
 let m_vx = 0;
 let m_vy = 0;
+// The same point on the automatic UI scale's virtual screen, where
+// SCR_ModalMessage's YES/NO is drawn
+let m_sx = 0;
+let m_sy = 0;
 
 /*
 ================
 M_ToMenuSpace
 
 Maps a point on the element the menu is drawn into (CSS pixels, w x h) to
-the 320x200 menu space. The menu is drawn centred in _vid, so
+the 320x200 menu space (Ironwail M_Mousemove's CANVAS_MENU transform). The
+menu is drawn centred in _vid on the menu canvas (scr_menuscale), so
 drawing x = menu x + (_vid.width - 320) / 2, and the same for y.
 ================
 */
 function M_ToMenuSpace( x, y, w, h ) {
 
-	m_vx = ( x / w ) * _vid.width - ( _vid.width - 320 ) / 2;
-	m_vy = ( y / h ) * _vid.height - ( _vid.height - 200 ) / 2;
+	m_sx = ( x / w ) * _vid.width;
+	m_sy = ( y / h ) * _vid.height;
+
+	Draw_SetCanvasScale( M_MenuCanvasScale() );
+	try {
+
+		m_vx = ( x / w ) * _vid.width - ( _vid.width - 320 ) / 2;
+		m_vy = ( y / h ) * _vid.height - ( _vid.height - 200 ) / 2;
+
+	} finally {
+
+		Draw_SetCanvasScale( 0 );
+
+	}
 
 }
 
@@ -3146,7 +3235,7 @@ export function M_Mousemove( x, y, w, h ) {
 		// the choice under the mouse takes the selection
 		if ( ui_mouse.value !== 0 ) {
 
-			const choice = SCR_ModalYesNoAt( m_vx + ( _vid.width - 320 ) / 2, m_vy + ( _vid.height - 200 ) / 2 );
+			const choice = SCR_ModalYesNoAt( m_sx, m_sy );
 			if ( choice >= 0 ) Key_SetModalYes( choice === 1 );
 
 		}
@@ -3205,7 +3294,7 @@ export function M_TouchInput( touchX, touchY, screenWidth, screenHeight ) {
 		if ( _realtime_get() - m_modal_time < MODAL_TOUCH_DELAY )
 			return;
 
-		const choice = SCR_ModalYesNoAt( vx + ( _vid.width - 320 ) / 2, vy + ( _vid.height - 200 ) / 2 );
+		const choice = SCR_ModalYesNoAt( m_sx, m_sy );
 		if ( choice < 0 )
 			return;
 

@@ -89,6 +89,14 @@ let _uiScale = 1;
 let _virtualWidth = 640;
 let _virtualHeight = 480;
 
+// Physical (CSS * devicePixelRatio) size, from _calculateUIScale
+let _physicalWidth = 640;
+let _physicalHeight = 480;
+
+// Ironwail GL_SetCanvas: the scale of the canvas being drawn (scr_sbarscale,
+// scr_conscale). 0 means the automatic _uiScale.
+let _canvasScale = 0;
+
 /*
 ================
 _calculateUIScale
@@ -104,6 +112,8 @@ function _calculateUIScale() {
 	const dpr = window.devicePixelRatio || 1;
 	const physicalWidth = Math.floor( _realVid.width * dpr );
 	const physicalHeight = Math.floor( _realVid.height * dpr );
+	_physicalWidth = physicalWidth;
+	_physicalHeight = physicalHeight;
 
 	// Calculate scale from physical pixels
 	// Use floor to avoid fractional scaling (sharper pixels)
@@ -116,8 +126,10 @@ function _calculateUIScale() {
 
 	}
 
-	_virtualWidth = Math.ceil( physicalWidth / _uiScale );
-	_virtualHeight = Math.ceil( physicalHeight / _uiScale );
+	// A canvas scale (Draw_SetCanvasScale) sizes the virtual screen while it is set
+	const scale = _canvasScale > 0 ? _canvasScale : _uiScale;
+	_virtualWidth = Math.ceil( physicalWidth / scale );
+	_virtualHeight = Math.ceil( physicalHeight / scale );
 
 	return { width: _virtualWidth, height: _virtualHeight };
 
@@ -168,6 +180,54 @@ export function Draw_GetUIScale() {
 
 	_calculateUIScale();
 	return _uiScale;
+
+}
+
+/*
+================
+Draw_GetCanvasScale
+
+The scale, in physical pixels per virtual pixel, for an Ironwail canvas
+scale cvar (scr_sbarscale, scr_conscale): CLAMP( 1, value, width / 320 ), as
+in Ironwail Draw_GetCanvasTransform. Deviation: Ironwail defaults those cvars
+to 1; here a value of 0 or less (the default) keeps the automatic _uiScale.
+================
+*/
+export function Draw_GetCanvasScale( value ) {
+
+	const saved = _canvasScale;
+	_canvasScale = 0;
+	_calculateUIScale();
+	_canvasScale = saved;
+
+	if ( ! ( value > 0 ) )
+		return _uiScale;
+
+	const max = _physicalWidth / 320;
+	return value < 1 ? 1 : ( value > max ? max : value ); // CLAMP( 1, value, max )
+
+}
+
+/*
+================
+Draw_SetCanvasScale
+
+Draws with a canvas scale until reset with 0. Draw_GetVirtualWidth/Height
+and the overlay transform follow it, so code laid out from the virtual size
+(sbar.js, console.js) needs no changes.
+================
+*/
+export function Draw_SetCanvasScale( value ) {
+
+	_canvasScale = value > 0 ? Draw_GetCanvasScale( value ) : 0;
+	_calculateUIScale();
+
+	if ( overlayCtx ) {
+
+		const scale = _canvasScale > 0 ? _canvasScale : _uiScale;
+		overlayCtx.setTransform( scale, 0, 0, scale, 0, 0 );
+
+	}
 
 }
 
@@ -558,6 +618,7 @@ export function Draw_BeginFrame() {
 
 		// Apply UI scale transform
 		// This maps virtual coordinates to canvas pixels
+		_canvasScale = 0;
 		_calculateUIScale();
 		overlayCtx.setTransform( _uiScale, 0, 0, _uiScale, 0, 0 );
 
@@ -929,6 +990,43 @@ Call after completing any disc IO
 export function Draw_EndDisc() {
 
 	// Nothing to do in GL mode
+
+}
+
+/*
+================
+Draw_SetClipRect -- Ironwail
+
+Restricts 2D drawing to a rectangle in virtual coordinates. Ironwail sets a GL
+scissor; the overlay canvas clips its 2D context instead.
+================
+*/
+let _clipping = false;
+
+export function Draw_SetClipRect( x, y, width, height ) {
+
+	if ( ! overlayCtx ) return;
+
+	if ( _clipping ) overlayCtx.restore(); // a scissor replaces the last one; keep save/restore balanced
+	overlayCtx.save();
+	overlayCtx.beginPath();
+	overlayCtx.rect( x, y, width, height );
+	overlayCtx.clip();
+	_clipping = true;
+
+}
+
+/*
+================
+Draw_ResetClipping -- Ironwail
+================
+*/
+export function Draw_ResetClipping() {
+
+	if ( ! overlayCtx || ! _clipping ) return;
+
+	overlayCtx.restore();
+	_clipping = false;
 
 }
 
