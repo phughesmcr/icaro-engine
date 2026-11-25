@@ -47,6 +47,9 @@ process per room. It was forked from mrdoob's three-quake.
 - `docs/mobile-roadmap.md`: mobile-friendliness review (controls, rendering,
   offline, lifecycle, networking, competitive landscape) with confirmed bugs
   and a ranked roadmap. A snapshot; nothing in it was tested on a device.
+- `docs/agent-interface.md`: research and plan for making the engine
+  playable by LLM agents and RL (lockstep clock, text observations, macro
+  actions, MCP/Gymnasium adapters). Nothing in it is built yet. A snapshot.
 - `tools/`: `port_inventory.py` regenerates that inventory's raw tables
   (Python, standard library only; not linted or run in CI).
   `room_bench.js` (with `room_bench_preload.js`) load-tests one room with
