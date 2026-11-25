@@ -19,7 +19,7 @@ const OFF_ON_SMOOTH = [ 'off', 'on', 'smooth' ];
 
 export const advancedPages = [
 	{
-		title: 'HUD',
+		title: 'Display & HUD',
 		items: [
 			{ label: 'Status bar size', cvar: 'scr_sbarscale', values: SCALES, names: SCALE_NAMES },
 			{ label: 'Console size', cvar: 'scr_conscale', values: SCALES, names: SCALE_NAMES },
@@ -27,14 +27,20 @@ export const advancedPages = [
 			{ label: 'HUD opacity', cvar: 'scr_sbaralpha', min: 0, max: 1, step: 0.1 },
 			{ label: 'Show FPS', cvar: 'scr_showfps' },
 			{ label: 'Show clock', cvar: 'scr_clock' },
+			{ label: 'Max FPS', cvar: 'host_maxfps', values: [ 30, 60, 72, 90, 120, 144, 240 ] },
+			{ label: 'Crosshair X', cvar: 'cl_crossx', min: - 32, max: 32, step: 4 },
+			{ label: 'Crosshair Y', cvar: 'cl_crossy', min: - 32, max: 32, step: 4 },
+			{ label: 'Notify time', cvar: 'con_notifytime', min: 0, max: 10, step: 1 },
+			{ label: 'Center msg time', cvar: 'scr_centertime', min: 1, max: 10, step: 0.5 },
 			{ label: 'Log centerprint', cvar: 'con_logcenterprint', values: [ 0, 1, 2 ], names: [ 'off', 'not dm', 'always' ] },
-			{ label: 'Field of view', cvar: 'fov', min: 60, max: 130, step: 5 },
-			{ label: 'Gun FOV scale', cvar: 'cl_gun_fovscale', min: 0, max: 1, step: 0.1 },
-			{ label: 'Max FPS', cvar: 'host_maxfps', values: [ 30, 60, 72, 90, 120, 144, 240 ] }
+			{ label: 'Finale speed', cvar: 'scr_printspeed', min: 4, max: 40, step: 2 },
+			{ label: 'Console speed', cvar: 'scr_conspeed', values: [ 150, 300, 600, 1200, 3000 ] },
+			{ label: 'Pause icon', cvar: 'showpause' },
+			{ label: 'Turtle icon', cvar: 'showturtle' }
 		]
 	},
 	{
-		title: 'Rendering',
+		title: 'Graphics',
 		items: [
 			{ label: 'Draw distance', cvar: 'gl_farclip', values: [ 2048, 4096, 8192, 16384 ] },
 			{ label: 'Anisotropy', cvar: 'gl_texture_anisotropy', values: [ 1, 2, 4, 8, 16 ] },
@@ -53,26 +59,76 @@ export const advancedPages = [
 			{ label: 'Blend contents', cvar: 'gl_cshiftpercent_contents', min: 0, max: 100, step: 10 },
 			{ label: 'Blend damage', cvar: 'gl_cshiftpercent_damage', min: 0, max: 100, step: 10 },
 			{ label: 'Blend bonus', cvar: 'gl_cshiftpercent_bonus', min: 0, max: 100, step: 10 },
-			{ label: 'Blend powerup', cvar: 'gl_cshiftpercent_powerup', min: 0, max: 100, step: 10 }
+			{ label: 'Blend powerup', cvar: 'gl_cshiftpercent_powerup', min: 0, max: 100, step: 10 },
+			{ label: 'Screen blends', cvar: 'gl_polyblend' },
+			{ label: 'Ignore colors', cvar: 'gl_nocolors' },
+			// These three apply when textures are next uploaded: the next map
+			// for gl_picmip and gl_max_size, the next skin for gl_playermip
+			{ label: 'Texture mip', cvar: 'gl_picmip', values: [ 0, 1, 2, 3 ] },
+			{ label: 'Max texture', cvar: 'gl_max_size', values: [ 256, 512, 1024, 2048, 4096 ] },
+			{ label: 'Skin mip', cvar: 'gl_playermip', values: [ 0, 1, 2, 3 ] }
 		]
 	},
 	{
-		title: 'View',
+		title: 'View & Camera',
 		items: [
-			{ label: 'Gun kick', cvar: 'v_gunkick', values: [ 0, 1, 2 ], names: OFF_ON_SMOOTH },
+			{ label: 'Field of view', cvar: 'fov', min: 60, max: 130, step: 5 },
+			{ label: 'Gun FOV scale', cvar: 'cl_gun_fovscale', min: 0, max: 1, step: 0.1 },
 			{ label: 'Show gun', cvar: 'r_drawviewmodel' },
+			{ label: 'Gun kick', cvar: 'v_gunkick', values: [ 0, 1, 2 ], names: OFF_ON_SMOOTH },
+			{ label: 'Kick pitch', cvar: 'v_kickpitch', min: 0, max: 2, step: 0.1 },
+			{ label: 'Kick roll', cvar: 'v_kickroll', min: 0, max: 2, step: 0.1 },
+			{ label: 'Kick time', cvar: 'v_kicktime', min: 0, max: 1, step: 0.1 },
 			{ label: 'View bob', cvar: 'cl_bob', min: 0, max: 0.05, step: 0.005 },
+			{ label: 'Bob cycle', cvar: 'cl_bobcycle', min: 0.2, max: 1.2, step: 0.1 },
+			{ label: 'Bob up', cvar: 'cl_bobup', min: 0, max: 1, step: 0.1 },
 			{ label: 'View roll', cvar: 'cl_rollangle', min: 0, max: 5, step: 0.5 },
+			{ label: 'Roll speed', cvar: 'cl_rollspeed', min: 0, max: 600, step: 50 },
+			{ label: 'Idle sway', cvar: 'v_idlescale', min: 0, max: 4, step: 0.5 },
 			{ label: 'Look up limit', cvar: 'cl_maxpitch', min: 45, max: 90, step: 5 },
-			{ label: 'Look down limit', cvar: 'cl_minpitch', min: - 90, max: - 45, step: 5 }
+			{ label: 'Look down limit', cvar: 'cl_minpitch', min: - 90, max: - 45, step: 5 },
+			{ label: 'Center move', cvar: 'v_centermove', min: 0, max: 1, step: 0.05 },
+			{ label: 'Center speed', cvar: 'v_centerspeed', min: 100, max: 1000, step: 50 },
+			{ label: 'Chase camera', cvar: 'chase_active' },
+			{ label: 'Chase distance', cvar: 'chase_back', min: 0, max: 300, step: 10 },
+			{ label: 'Chase height', cvar: 'chase_up', min: - 32, max: 96, step: 8 },
+			{ label: 'Chase side', cvar: 'chase_right', min: - 64, max: 64, step: 8 },
+			// Single player only: V_RenderView zeroes these in multiplayer,
+			// as the C does ("don't allow cheats in multiplayer")
+			{ label: 'View offset X', cvar: 'scr_ofsx', min: - 32, max: 32, step: 2 },
+			{ label: 'View offset Y', cvar: 'scr_ofsy', min: - 32, max: 32, step: 2 },
+			{ label: 'View offset Z', cvar: 'scr_ofsz', min: - 32, max: 32, step: 2 }
 		]
 	},
 	{
-		title: 'Input',
+		// The client's movement and turn speeds. Strafe, turn and look speed
+		// also scale the gamepad sticks (in_web.js GP_Poll); swim up and the
+		// two run multipliers act on keys only, except that the run
+		// multiplier also scales the touch stick past its run threshold.
+		title: 'Movement',
+		items: [
+			{ label: 'Strafe speed', cvar: 'cl_sidespeed', min: 100, max: 600, step: 50 },
+			{ label: 'Swim up speed', cvar: 'cl_upspeed', min: 100, max: 400, step: 50 },
+			{ label: 'Turn speed', cvar: 'cl_yawspeed', min: 50, max: 400, step: 10 },
+			{ label: 'Look speed', cvar: 'cl_pitchspeed', min: 50, max: 400, step: 10 },
+			{ label: 'Run multiplier', cvar: 'cl_movespeedkey', min: 1, max: 3, step: 0.25 },
+			{ label: 'Run turn mult', cvar: 'cl_anglespeedkey', min: 1, max: 3, step: 0.25 }
+		]
+	},
+	{
+		title: 'Mouse',
 		items: [
 			{ label: 'Mouse filter', cvar: 'm_filter' },
 			{ label: 'Raw mouse', cvar: 'in_rawmouse' },
 			{ label: 'Menu mouse', cvar: 'ui_mouse' },
+			{ label: 'Mouse yaw', cvar: 'm_yaw', min: 0.01, max: 0.04, step: 0.002 },
+			{ label: 'Mouse forward', cvar: 'm_forward', min: 0, max: 2, step: 0.1 },
+			{ label: 'Mouse side', cvar: 'm_side', min: 0, max: 2, step: 0.1 }
+		]
+	},
+	{
+		title: 'Controller',
+		items: [
 			{ label: 'Pad look yaw', cvar: 'gp_look_yaw', min: 0.25, max: 3, step: 0.25 },
 			{ label: 'Pad look pitch', cvar: 'gp_look_pitch', min: 0.25, max: 3, step: 0.25 },
 			{ label: 'Move deadzone', cvar: 'joy_deadzone_move', min: 0, max: 0.4, step: 0.01 },
@@ -88,7 +144,8 @@ export const advancedPages = [
 	{
 		title: 'Sound',
 		items: [
-			{ label: 'Ambient volume', cvar: 'ambient_level', min: 0, max: 1, step: 0.05 }
+			{ label: 'Ambient volume', cvar: 'ambient_level', min: 0, max: 1, step: 0.05 },
+			{ label: 'Ambient fade', cvar: 'ambient_fade', min: 0, max: 1000, step: 50 }
 		]
 	}
 ];
