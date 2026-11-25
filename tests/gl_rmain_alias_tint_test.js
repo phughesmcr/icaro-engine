@@ -84,6 +84,7 @@ function withClient( { world, viewent = null, maxclients = 1, dlights = [] }, fn
 			cl_dlights[ i ].origin.set( d.origin );
 			cl_dlights[ i ].radius = d.radius;
 			cl_dlights[ i ].die = 20;
+			cl_dlights[ i ].color.set( d.color ?? [ 1, 1, 1 ] );
 
 		} );
 		fn();
@@ -100,6 +101,7 @@ function withClient( { world, viewent = null, maxclients = 1, dlights = [] }, fn
 			cl_dlights[ i ].origin.set( d.origin );
 			cl_dlights[ i ].radius = d.radius;
 			cl_dlights[ i ].die = d.die;
+			cl_dlights[ i ].color.fill( 1 );
 
 		} );
 
@@ -224,6 +226,22 @@ Deno.test( 'R_SetupAliasLighting: a coloured shade over the clamp keeps its hue'
 		assertClose( c[ 0 ], 240 * k / 200, 'r' );
 		assertClose( c[ 1 ], 90 * k / 200, 'g' );
 		assertClose( c[ 2 ], 30 * k / 200, 'b' );
+
+	} );
+
+} );
+
+Deno.test( 'R_SetupAliasLighting: a coloured dlight tints the shade', () => {
+
+	// the 2021 quad glow: a blue dlight adding 20 lifts shadelight by 20 and
+	// each channel by 20 times its colour (QuakeSpasm R_SetupAliasLighting)
+	const blue = Object.assign( dlightAt( 0, 20 ), { color: [ 0.25, 0.25, 1 ] } );
+	withClient( { world: floor( [ 30, 30, 30 ] ), dlights: [ blue ] }, () => {
+
+		const { c } = shade( aliasEntity() );
+		assertClose( c[ 0 ], 35 / 200, 'r' );
+		assertClose( c[ 1 ], 35 / 200, 'g' );
+		assertClose( c[ 2 ], 50 / 200, 'b' );
 
 	} );
 
