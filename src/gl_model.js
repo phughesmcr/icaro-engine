@@ -808,13 +808,22 @@ function GL_MakeAliasModelDisplayLists( mod, hdr ) {
 
 function R_InitSky( tx ) {
 
-	// Sky texture is 256*128, split into solid (right half) and alpha (left half)
-	// tx.pixels starts at mip level 0 data, tx.offsets[0] is offset from miptex header
+	// QuakeSpasm Sky_LoadTexture: the solid layer is the right half and the
+	// alpha layer the left half, at whatever size the texture is (id assumed
+	// 256x128). gl_warp.js R_InitSky warns for other sizes and returns null
+	// when the texture is too small to split (width < 2 or height < 1).
+	// tx.pixels starts at the mip level 0 data, so the offset is 0.
 	const mt = {
 		data: tx.pixels,
-		offsets: [ 0 ] // pixels already starts at the texture data
+		offsets: [ 0 ],
+		width: tx.width,
+		height: tx.height,
+		name: tx.name
 	};
 	const result = R_InitSky_warp( mt, d_8to24table );
+	if ( result === null )
+		return; // as QuakeSpasm: no sky (Mod_ClearAll already cleared the last map's)
+
 	if ( loadmodel != null ) {
 
 		loadmodel._threeTextures.add( result.solidTexture );
