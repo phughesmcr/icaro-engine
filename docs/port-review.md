@@ -153,7 +153,27 @@ PRs #157 to #160 (Part 3's low-medium findings):
 - **Server:** PROTO-1 (#159). A network client whose datagram can't take `sv.datagram` whole now gets its first whole sound and particle messages instead of none; section 7 has the entry. On a full frame only about 54 bytes are left, so two or three messages survive, not all of them. `PROG_TO_EDICT` grows the edict array up to `max_edicts`, as `EDICT_NUM` does, so QuakeC reads a zeroed edict there, as in C. Not tested over a live connection.
 - **Web multiplayer menus:** MENU-4 (#160). Stale room-list replies are dropped, the cursor is clamped and malformed entries are skipped; `m_return_onerror` is cleared when a connect succeeds, as `net_dgrm.c` does; and Setup's Accept sends `name` only when it changed. The missing hostname row and the game options that do nothing online are not fixed: both now have a deviation comment, and sending the options needs a lobby protocol change. Not tested against a live lobby.
 
-Still open in Part 3, all ranked low: XR-3, the rest of CD-3, MENU-4's game options and hostname row, TEX-2, TEX-3, BSP-3 and REND-1.
+PRs #163 to #166 (Part 3's low findings):
+
+- **CD music:** the rest of CD-3 (#163). One control sets the music level: the gain node when the element is routed through Web Audio, with the element at full volume, or the element's own volume when it isn't, so the level is no longer applied twice. An unrouted element pauses while the tab is hidden, as the sound system does. `cd eject` stops the music first, as `cd_win.c` does. `cd close` has nothing to do without a tray. Not checked in a browser; #163 lists the manual steps.
+- **Textures and WebXR:** TEX-2, TEX-3 and XR-3 (#164).
+  - `VID_SetPalette` clears only the alpha of palette index 255, as `gl_vidnt.c` does, so it keeps its colour (159, 91, 83). `GL_LoadTexture` in `gl_model.js` (#166) and the 2D paths in `gl_draw.js` carry that colour under transparent texels, as `GL_Upload8` does. The 2D pictures go through a canvas, which drops the colour under alpha 0, so only the 3D textures change on screen.
+  - The sky's `GL_LINEAR` already matches `R_InitSky`, so it is unchanged.
+  - In XR, the window `resize` handler no longer resizes the renderer while a session is presenting, and it resyncs when the session ends. The rig ignores `cl.viewangles` pitch, which the headset supplies; section 7 has the entry. `r_origin`, the view leaf, `R_MarkLeaves` and `V_SetContentsColor` use the head's position from the previous frame, as C uses the camera's. That position is reset on a new map and on a jump of more than 128 units. The desktop path is unchanged.
+  - No headset or browser check was done.
+- **Game options online:** MENU-4's last fixable item (#165). Start Game sends Game Type, Teamplay, Skill, Frag Limit and Time Limit with the room request. The lobby accepts only those five keys, as finite numbers truncated to integers and clamped to the menu's ranges (teamplay 0 to 6 with `-rogue`, else 0 to 2), and passes them to the room process as `-coop`, `-teamplay`, `-skill`, `-fraglimit` and `-timelimit`. The room sets the cvars before the map spawns. Not tested against a live lobby.
+- **Loaders and lighting:** BSP-3 and REND-1 (#166). `CalcSurfaceExtents` seeds with `FLT_MAX`, as Ironwail does; faces within id's old seeds get the same extents. `RecursiveLightPoint` and `R_AddDynamicLights` truncate their light-sample coordinates to integers, as the C's `int` variables do. The `MAX_MOD_KNOWN` comments now give Ironwail's 4096. `COM_EnsureFile` handles a failed `.lit` fetch, so it can't become an unhandled rejection. No browser check was done.
+
+Recorded, not changed. Each of these matches the C, has no C counterpart, or can't be checked here:
+
+- TEX-3: Three.js re-uploads a texture to change its filter, mipmaps are built from linear colour, and skins are never freed, as in GLQuake.
+- BSP-3: there are no bounds checks on corrupt maps; Ironwail has none either.
+- REND-1: the crosshair position and intermission rule are documented in `SCR_DrawCrosshair`, and no path changes the player material.
+- CD-3: `cd close` (no tray).
+- XR-3: the HUD upload cost (not measured on a headset) and the view model without a tracked controller.
+- MENU-4: the Setup hostname row, because the browser can't host a server.
+
+With #163 to #166 merged, every Part 3 finding is fixed or recorded above. The combined tree passes 719 tests.
 
 At `a560a14` (`dev`, after #160), `deno task test` passes 700 tests. At `10e13c4` (after #156) it passed 684, at `055c52f` (after #150) it passed 661, including `tests/net_webtransport_server_test.ts`. At `3d1947b` (after #146) it passed 651, at `772379d` (after #140) it passed 611, and at `223a180` (after #114) 546.
 
@@ -475,7 +495,8 @@ Later PRs changed some of these on purpose: the `MSG_Write*` rounding, the wire 
   - A no-op `vibrate` command (#142), which neither id's Quake nor Ironwail has. The rerelease's published QuakeC stuffs `vibrate tactile/<name>.bnvib` at sites that are all commented out, so it only keeps a mod that turns them back on from printing "Unknown command". It drives no gamepad haptics.
   - Datagram size, as FitzQuake and QuakeSpasm: `MAX_DATAGRAM` (id: 1024) sizes the server's buffers and the local client's datagram, and a network client gets at most `DATAGRAM_MTU` (1400), so the 2021 rerelease maps stop printing `packet overflow` in single player. It is 4096 rather than QuakeSpasm's 32000 or more, because the loopback driver puts the datagram and a reliable message in one 8192-byte buffer and demos cap a message at `MAX_MSGLEN`. Unlike QuakeSpasm, a WebTransport client's limit is the session's `maxDatagramSize` less the 9-byte transport header, re-read every frame and clamped to 1024–1400, with 1024 when it is unknown (`SV_ClientDatagramSize`, `sock.maxdatagram`). `sv.reliable_datagram` keeps id's 1024 bytes, because it is appended to each client's 8000-byte reliable message, where an overflow drops the client.
   - New cvars and commands that WinQuake lacks. `r_lerpmodels` and `r_lerpmove` default to 0, so id's unlerped animation stays the default.
-- **The port's own departures, with no C source port behind them** (#158, #159):
+- **The port's own departures, with no C source port behind them** (#158, #159, #164):
+  - In WebXR the rig ignores the pitch in `cl.viewangles`, because the headset supplies pitch (#164). `svc_setangle`, `V_DriftPitch` and the chase camera can still set the desktop pitch, but in a headset that would tilt the world around the player.
   - `R_BlendLightmaps` uploads changed lightmap blocks whatever `gl_texsort` is (#158). GLQuake returns early under `gl_texsort 0` because its `R_DrawSequentialPoly` uploads them itself; the port's doesn't bind lightmaps, so the upload stays in `R_BlendLightmaps`, at the same point in the frame.
   - When `sv.datagram` doesn't fit a network client's datagram, `SV_CopyServerDatagram` copies the longest run of whole sound and particle messages from the start, where id drops all of them (#159). A datagram that fits is copied whole, as in id, so the loopback client and quiet frames are unchanged. QuakeC `MSG_BROADCAST` bytes between two messages are copied whole or not at all.
 
@@ -760,7 +781,7 @@ The method is the one Part 1 used. Reviewers, one per area, compared the port wi
 8. **Low-medium:** `gl_texsort 0` freezes lightmaps (TEX-1), liquid alpha is gated on vis the other way round from Ironwail (BSP-2), remote players lose all sounds and particles on a busy frame (PROTO-1), and the room list races (MENU-4).
 9. **Low:** the rest of sections 13 to 17.
 
-**Status:** items 1 to 8 are fixed in `dev`: 1 to 7 by #153 to #156, with CD-3 partly fixed, and 8 by #158 to #160. See "PRs #151 to #156" and "PRs #157 to #160" in the fix status at the top. The sections below still describe the port at `055c52f`.
+**Status:** items 1 to 8 are fixed in `dev`: 1 to 7 by #153 to #156, with CD-3 partly fixed, and 8 by #158 to #160. Item 9, the low findings, is fixed or recorded by #163 to #166. See "PRs #151 to #156", "PRs #157 to #160" and "PRs #163 to #166" in the fix status at the top. The sections below still describe the port at `055c52f`.
 
 Nothing in #115 to #150 changed what id's data does: BSP29 maps, mono lighting, protocol 15 demos and progs without the rerelease effects all take id's path (section 17).
 
