@@ -30,7 +30,7 @@ function arg( name, def ) {
 
 }
 
-const RUNS = Number( arg( '-runs', '1' ) );
+const RUNS = Math.max( 1, Number( arg( '-runs', '1' ) ) );
 const JSON_DIR = arg( '-json', null );
 const opts = {
 	grid: Number( arg( '-grid', '32' ) ),

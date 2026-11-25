@@ -139,6 +139,9 @@ Deno.test( 'Nav_Build: e1m1 builds quickly into a connected graph', async () => 
 	assert( biggest > g.node_count * 0.95, `largest component ${biggest} of ${g.node_count}` );
 
 	// CSR links are in range
+	assert( g.link_start[ 0 ] === 0 && g.link_start[ g.node_count ] === g.link_count, 'link_start bounds' );
+	for ( let i = 0; i < g.node_count; i ++ )
+		assert( g.link_start[ i ] <= g.link_start[ i + 1 ], `link_start not monotonic at ${i}` );
 	for ( let l = 0; l < g.link_count; l ++ )
 		assert( g.link_to[ l ] >= 0 && g.link_to[ l ] < g.node_count, `link ${l} to ${g.link_to[ l ]}` );
 
@@ -155,9 +158,11 @@ Deno.test( 'Nav_Build: e1m1 builds quickly into a connected graph', async () => 
 Deno.test( 'Nav_Build: e1m1 entities mark doors, plats, the teleporter and the exit', async () => {
 
 	const g = await build();
-	let doorLinks = 0, platLinks = 0, teleLinks = 0;
+	let doorLinks = 0, platLinks = 0, teleLinks = 0, dropLinks = 0, jumpLinks = 0;
 	for ( let l = 0; l < g.link_count; l ++ ) {
 
+		if ( ( g.link_flags[ l ] & nav.NAV_LINK_DROP ) !== 0 ) dropLinks ++;
+		if ( ( g.link_flags[ l ] & nav.NAV_LINK_JUMP ) !== 0 ) jumpLinks ++;
 		if ( ( g.link_flags[ l ] & nav.NAV_LINK_DOOR ) !== 0 ) doorLinks ++;
 		if ( ( g.link_flags[ l ] & nav.NAV_LINK_PLAT ) !== 0 ) platLinks ++;
 		if ( ( g.link_flags[ l ] & nav.NAV_LINK_TELEPORT ) !== 0 ) teleLinks ++;
@@ -167,9 +172,20 @@ Deno.test( 'Nav_Build: e1m1 entities mark doors, plats, the teleporter and the e
 	assert( doorLinks > 0, 'door links' );
 	assert( platLinks > 0, 'plat ride links' );
 	assert( teleLinks > 0, 'teleport links' );
+	assert( dropLinks > 0, 'drop links' );
+	assert( jumpLinks > 0, 'jump links' );
 
 	const tele = g.ents.find( ( e ) => e.classname === 'trigger_teleport' );
 	assert( tele !== undefined && tele.dest_node >= 0, 'teleporter has a destination node' );
+
+	// a node in the teleporter leads straight to the destination
+	const te = g.ents.indexOf( tele );
+	let inside = - 1;
+	for ( let i = 0; i < g.node_count && inside < 0; i ++ )
+		if ( ( g.node_flags[ i ] & nav.NAV_NODE_TELEPORT ) !== 0 && g.node_ent[ i ] === te ) inside = i;
+	assert( inside >= 0, 'teleporter nodes' );
+	const tp = nav.Nav_FindPathNodes( g, inside, tele.dest_node );
+	assert( tp !== null && tp.count === 2 && ( tp.flags[ 1 ] & nav.NAV_LINK_TELEPORT ) !== 0 && tp.cost === 16, 'teleport hop' );
 	const exit = g.ents.find( ( e ) => e.classname === 'trigger_changelevel' );
 	assert( exit !== undefined && exit.map === 'e1m2' && exit.nodes > 0, 'exit nodes' );
 
@@ -265,5 +281,8 @@ Deno.test( 'Nav_FindPath: queries reuse the graph\'s path buffer', async () => {
 	const s = nav.Nav_NearestNode( g, START );
 	const p = nav.Nav_FindPathNodes( g, s, s );
 	assert( p !== null && p.count === 1 && p.cost === 0, 'path to itself' );
+
+	// bad node indices
+	assert( nav.Nav_FindPathNodes( g, - 1, s ) === null && nav.Nav_FindPathNodes( g, s, g.node_count ) === null, 'out-of-range nodes' );
 
 } );

@@ -3,9 +3,9 @@
 //
 // Web-only addition: not in id's C. Quake has no navigation mesh (the 2021
 // rerelease's bot .nav files are commercial data and cover only id1), so
-// the graph is generated here from the loaded world model. It is used both
-// offline (tools/nav/nav_build.js, under Deno) and in the browser at map
-// load. Nothing here touches window or document.
+// the graph is generated here from the loaded world model. It runs offline
+// (tools/nav/nav_build.js, under Deno) and is meant to run in the browser at
+// map load (not wired in yet). Nothing here touches window or document.
 //
 // How the graph is built (Nav_Build):
 //   1. Floor faces (plane normal z > 0.7, not sky or liquid) of the world,
@@ -403,7 +403,8 @@ const NUDGES = [ 0, 0, 8, 0, - 8, 0, 0, 8, 0, - 8, 8, 8, - 8, 8, 8, - 8, - 8, - 
 Nav_Build
 
 Builds the walk graph for a loaded brush model (sv.worldmodel or
-cl.worldmodel). opts: grid (32), maxdrop (256), skill (1), deathmatch (false).
+cl.worldmodel). opts: grid (32), maxdrop (256), jump (40), skill (1),
+deathmatch (false).
 ==================
 */
 export function Nav_Build( worldmodel, opts = {} ) {
@@ -466,7 +467,8 @@ export function Nav_Build( worldmodel, opts = {} ) {
 		if ( rec.classname === 'func_plat' ) {
 
 			// plats.qc: pos2_z = origin_z - height, or size_z - 8
-			const h = e.height !== undefined ? Number( e.height ) : ( rec.maxs[ 2 ] - rec.mins[ 2 ] ) - 8;
+			// (a height of 0 counts as unset, as in the QuakeC's if ( self.height ))
+			const h = e.height !== undefined && Number( e.height ) !== 0 ? Number( e.height ) : ( rec.maxs[ 2 ] - rec.mins[ 2 ] ) - 8;
 			rec.drop = h;
 
 		}
@@ -981,10 +983,33 @@ export function Nav_Build( worldmodel, opts = {} ) {
 		if ( bz > az + o.jump - 2 )
 			return - 1;
 		if ( jump_at( a, b, az + o.jump ) === true )
-			return NAV_LINK_JUMP;
+			return jump_trig( a, b, az + o.jump ) === true ? - 1 : NAV_LINK_JUMP;
 		if ( bz + 1 > az && jump_at( a, b, bz + 1 ) === true )
-			return NAV_LINK_JUMP;
+			return jump_trig( a, b, bz + 1 ) === true ? - 1 : NAV_LINK_JUMP;
 		return - 1;
+
+	}
+
+	// Whether a jump's box (up to top) touches a teleporter or exit trigger:
+	// such jumps aren't linked, as walk() alone handles those triggers
+	function jump_trig( a, b, top ) {
+
+		const ax = node_pos[ a * 3 ], ay = node_pos[ a * 3 + 1 ];
+		const bx = node_pos[ b * 3 ], by = node_pos[ b * 3 + 1 ];
+		const z0 = Math.min( node_pos[ a * 3 + 2 ], node_pos[ b * 3 + 2 ] ) + PLAYER_MINS[ 2 ];
+		const z1 = top + PLAYER_MAXS[ 2 ];
+		const x0 = Math.min( ax, bx ) + PLAYER_MINS[ 0 ], x1 = Math.max( ax, bx ) + PLAYER_MAXS[ 0 ];
+		const y0 = Math.min( ay, by ) + PLAYER_MINS[ 1 ], y1 = Math.max( ay, by ) + PLAYER_MAXS[ 1 ];
+		for ( const e of sweep_trig ) {
+
+			const r = ents[ e ];
+			if ( x1 < r.mins[ 0 ] || x0 > r.maxs[ 0 ] || y1 < r.mins[ 1 ] || y0 > r.maxs[ 1 ] || z1 < r.mins[ 2 ] || z0 > r.maxs[ 2 ] )
+				continue;
+			return true;
+
+		}
+
+		return false;
 
 	}
 
@@ -1040,11 +1065,11 @@ export function Nav_Build( worldmodel, opts = {} ) {
 	for ( let a = 0; a < N; a ++ ) {
 
 		// a node in a teleporter leads only to its destination
-		if ( ( node_flags[ a ] & NAV_NODE_TELEPORT ) !== 0 ) {
+		// (one whose destination has no node walks on as usual)
+		if ( ( node_flags[ a ] & NAV_NODE_TELEPORT ) !== 0 && ents[ node_tele[ a ] ].dest_node >= 0 ) {
 
 			const te = node_tele[ a ];
-			if ( ents[ te ].dest_node >= 0 )
-				add_link( a, ents[ te ].dest_node, NAV_LINK_TELEPORT, te, 16 );
+			add_link( a, ents[ te ].dest_node, NAV_LINK_TELEPORT, te, 16 );
 			continue;
 
 		}
@@ -1126,8 +1151,10 @@ export function Nav_Build( worldmodel, opts = {} ) {
 
 					}
 
+					// the mover is what b (or a) stands on: node_ent may name a
+					// button or trigger instead
 					if ( ( flags & NAV_LINK_MOVER ) !== 0 && ent === - 1 )
-						ent = node_ent[ b ] !== - 1 ? node_ent[ b ] : node_ent[ a ];
+						ent = pclip[ b ] !== - 1 ? b_clips[ pclip[ b ] ].ent : ( pclip[ a ] !== - 1 ? b_clips[ pclip[ a ] ].ent : - 1 );
 					if ( ( flags & NAV_LINK_EXIT ) !== 0 ) {
 
 						// reaching b this way changes level (e1m6 falls into it)
@@ -1283,7 +1310,8 @@ export function Nav_NearestNode( graph, p, maxdist = 256 ) {
 	const G = graph.grid;
 	const cx = Math.round( p[ 0 ] / G ) - graph.cell_x0;
 	const cy = Math.round( p[ 1 ] / G ) - graph.cell_y0;
-	const r = Math.ceil( maxdist / G );
+	// a node can sit 16 units off its cell's sample point (NUDGES)
+	const r = Math.ceil( ( maxdist + 16 ) / G ) + 1;
 	const pos = graph.node_pos;
 	let count = 0;
 	const max2 = maxdist * maxdist;
@@ -1325,8 +1353,6 @@ export function Nav_NearestNode( graph, p, maxdist = 256 ) {
 
 	if ( count === 0 )
 		return - 1;
-	if ( graph.worldmodel === null || graph.worldmodel === undefined )
-		return near_node[ 0 ];
 	for ( let k = 0; k < count; k ++ )
 		if ( node_visible( graph, p, near_node[ k ] ) === true )
 			return near_node[ k ];
@@ -1334,6 +1360,8 @@ export function Nav_NearestNode( graph, p, maxdist = 256 ) {
 
 }
 
+// Straight-line distance. Teleport links (cost 16) make it overestimate,
+// so a path that could use a teleporter may not be the shortest
 function heuristic( graph, a, b ) {
 
 	const pos = graph.node_pos;
