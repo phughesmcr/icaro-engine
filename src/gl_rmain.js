@@ -13,6 +13,7 @@ import {
 } from './mathlib.js';
 import { R_DrawWorld as R_DrawWorld_impl, R_MarkLeaves as R_MarkLeaves_impl, GL_BuildLightmaps as GL_BuildLightmaps_rsurf, R_DrawBrushModel as R_DrawBrushModel_rsurf, R_DrawWaterSurfaces as R_DrawWaterSurfaces_rsurf, R_CleanupWaterMeshes as R_CleanupWaterMeshes_rsurf, R_GetMirrorItems } from './gl_rsurf.js';
 import { R_MirrorGate, R_MirrorPass, R_MirrorCleanup } from './gl_rmirror.js';
+import { R_EntAlpha_Apply } from './gl_entalpha.js';
 import {
 	Mod_PointInLeaf, SPR_SINGLE, SPR_VP_PARALLEL_UPRIGHT, SPR_FACING_UPRIGHT,
 	SPR_VP_PARALLEL, SPR_ORIENTED, SPR_VP_PARALLEL_ORIENTED
@@ -1027,6 +1028,7 @@ function R_DrawAliasModel( e ) {
 function R_DrawBrushModel( e ) {
 
 	R_DrawBrushModel_rsurf( e );
+	R_EntAlpha_Apply( e ); //johnfitz -- entity alpha (gl_entalpha.js)
 
 }
 
