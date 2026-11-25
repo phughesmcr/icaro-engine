@@ -154,6 +154,14 @@ export class Matrix4 {
 }
 
 // Vector4 - renderer.getViewport target in gl_rmirror.js
+// Sphere - the alias cull sphere in gl_mesh.js R_DrawAliasModel
+export class Sphere {
+	constructor( center = new Vector3(), radius = - 1 ) {
+		this.center = center;
+		this.radius = radius;
+	}
+}
+
 export class Vector4 {
 	constructor(x = 0, y = 0, z = 0, w = 1) {
 		this.x = x;

@@ -9,13 +9,14 @@ import { Sys_Error } from './sys.js';
 import { Host_Error } from './host.js';
 import { Con_Printf, Con_DPrintf, COM_StripExtension } from './common.js';
 import { d_8to24table, vid, renderer } from './vid.js';
-import { COM_LoadFile, COM_FindFile } from './pak.js';
+import { COM_LoadFile, COM_FindFile, COM_FileExists, COM_EnsureFile } from './pak.js';
 import { DotProduct, VectorCopy, Length } from './mathlib.js';
 import { Cvar_RegisterVariable, Cvar_SetValue } from './cvar.js';
 import { r_nolerp_list } from './render.js';
 import { MAX_DLIGHTS, cls, ca_dedicated } from './client.js';
 import { R_InitSky as R_InitSky_warp, GL_SubdivideSurface as GL_SubdivideSurface_warp, GL_Warp_SetLoadmodel } from './gl_warp.js';
 import { GL_MakeAliasModelDisplayLists as GL_MakeAliasModelDisplayLists_mesh, cl_gun_fovscale } from './gl_mesh.js';
+import { Mod_LoadMD5MeshModel } from './gl_md5.js';
 
 // Sky textures (set by R_InitSky during level load)
 export let solidskytexture = null;
@@ -587,6 +588,10 @@ export class model_t {
 		this.flags = 0;
 		this.extraflags_list = null;	// r_nolerp_list the MOD_ flags were built from (Mod_SetExtraFlags)
 
+		// alias model: the .md5mesh replacement (Mod_LoadMD5Replacement)
+		this.md5state = 0;			// MD5_UNTRIED, MD5_PENDING or MD5_DONE
+		this.md5hdr = null;			// its aliashdr_t, or null when there is none
+
 		// volume occupied by the model graphics
 		this.mins = new Float32Array( 3 );
 		this.maxs = new Float32Array( 3 );
@@ -947,6 +952,7 @@ export function Mod_Init() {
 	Cvar_RegisterVariable( r_lavaalpha );
 	Cvar_RegisterVariable( r_slimealpha );
 	Cvar_RegisterVariable( r_telealpha );
+	Cvar_RegisterVariable( r_enhancedmodels );
 	mod_novis.fill( 0xff );
 
 }
@@ -3404,6 +3410,137 @@ function Mod_LoadAliasModel( mod, buffer ) {
 	mod.cache.data = pheader;
 
 	Mod_SetExtraFlags( mod ); //johnfitz
+
+	// Ironwail: an .md5mesh beside the .mdl replaces it (see
+	// Mod_LoadMD5Replacement for what the .mdl still does)
+	mod.md5state = MD5_UNTRIED;
+	mod.md5hdr = null;
+	if ( r_enhancedmodels.value !== 0 )
+		Mod_LoadMD5Replacement( mod );
+
+}
+
+/*
+=================
+r_enhancedmodels
+
+Deliberate deviation, from Ironwail (gl_model.c): draw the 2021 rerelease's
+MD5 replacement models (gl_md5.js) where there is one. Ironwail defaults it
+to 1, and so does this port: only rerelease data has .md5mesh files, so it
+changes nothing for the original game. Ironwail reloads every alias model
+when it changes; here the .mdl is always loaded and the choice is made when
+an entity is drawn (Mod_EnhancedAliasHeader). Ironwail's
+r_enhancedmodels_priority picks between MD3 and MD5; the port has no MD3
+loader, so it is not ported.
+=================
+*/
+export const r_enhancedmodels = { name: 'r_enhancedmodels', string: '1', value: 1, archive: true };
+
+// model_t.md5state
+export const MD5_UNTRIED = 0;	// not looked for yet (r_enhancedmodels was 0)
+export const MD5_PENDING = 1;	// its files are being fetched
+export const MD5_DONE = 2;		// looked for: md5hdr is the model, or null
+
+const md5decoder = new TextDecoder( 'latin1' );
+
+/*
+=================
+Mod_LoadMD5Replacement
+
+Ironwail loadMd5Replacement: use progs/<name>.md5mesh, with its .md5anim,
+when it is in the same game directory as the .mdl or a later one. Unlike
+Ironwail, which loads the MD5 instead of the .mdl, the .mdl is loaded as
+before and stays the model's cache data: the server (setmodel, the bounds),
+the frame names and the flags read it, and the renderer draws md5hdr in
+its place (Mod_EnhancedAliasHeader). A dedicated server never draws, so it
+does not look.
+
+A lazily opened pak (pak.js) defers .md5mesh and .md5anim entries; they
+are fetched here with COM_EnsureFile, and the .mdl is drawn until they
+arrive. The skins (.lmp) are fetched with the pak.
+=================
+*/
+export function Mod_LoadMD5Replacement( mod ) {
+
+	if ( mod.md5state !== MD5_UNTRIED )
+		return;
+	mod.md5state = MD5_DONE;
+	mod.md5hdr = null;
+	if ( cls.state === ca_dedicated )
+		return;
+
+	const base = COM_StripExtension( mod.name );
+	const meshname = base + '.md5mesh';
+	const animname = base + '.md5anim';
+	const md5_path_id = COM_FileExists( meshname );
+	if ( md5_path_id < 0 || md5_path_id < COM_FileExists( mod.name ) )
+		return;
+
+	const animExists = COM_FileExists( animname ) >= 0;
+	if ( COM_FindFile( meshname ) === null || ( animExists && COM_FindFile( animname ) === null ) ) {
+
+		mod.md5state = MD5_PENDING;
+		Promise.all( [ COM_EnsureFile( meshname ), animExists ? COM_EnsureFile( animname ) : true ] ).then( () => {
+
+			mod.md5state = MD5_DONE;
+			Mod_LoadMD5Files( mod, meshname, animname );
+
+		} ).catch( ( e ) => Con_Printf( 'Warning: %s: %s\n', meshname, e.message ) );
+		return;
+
+	}
+
+	Mod_LoadMD5Files( mod, meshname, animname );
+
+}
+
+// Mod_LoadMD5Replacement once the files are in the search path. A missing
+// .md5anim fails the load as in Ironwail ("has no poses").
+function Mod_LoadMD5Files( mod, meshname, animname ) {
+
+	const mesh = COM_FindFile( meshname );
+	if ( mesh === null )
+		return;
+	const anim = COM_FindFile( animname );
+
+	// GL_LoadTexture gives the skins to loadmodel, which a fetch may have
+	// left on another model
+	const oldloadmodel = loadmodel;
+	loadmodel = mod;
+	try {
+
+		mod.md5hdr = Mod_LoadMD5MeshModel( mod, md5decoder.decode( mesh.data ),
+			anim !== null ? md5decoder.decode( anim.data ) : null );
+
+	} finally {
+
+		loadmodel = oldloadmodel;
+
+	}
+
+	if ( mod.md5hdr !== null )
+		Con_DPrintf( '%s replaced by %s\n', mod.name, meshname );
+
+}
+
+/*
+=================
+Mod_EnhancedAliasHeader
+
+Not in the C. The alias header to draw mod with: its MD5 replacement when
+r_enhancedmodels is on and it has one, else the .mdl's. Turning
+r_enhancedmodels on looks for replacements the first time each model is
+drawn.
+=================
+*/
+export function Mod_EnhancedAliasHeader( mod ) {
+
+	const hdr = mod.cache.data;
+	if ( r_enhancedmodels.value === 0 || mod.type !== mod_alias )
+		return hdr;
+	if ( mod.md5state === MD5_UNTRIED )
+		Mod_LoadMD5Replacement( mod );
+	return mod.md5hdr != null ? mod.md5hdr : hdr;
 
 }
 

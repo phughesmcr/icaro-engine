@@ -256,6 +256,26 @@ export function COM_FindFile( filename ) {
 
 }
 
+/*
+=================
+COM_FileExists
+
+Ironwail common.c: is filename in the search path, and in which game
+directory? Returns its path_id, or -1. Unlike COM_FindFile it counts a
+lazily opened pak's entries that are not fetched yet, and it does not look
+for loose files on the server.
+=================
+*/
+export function COM_FileExists( filename ) {
+
+	const search = filename.toLowerCase();
+	const found = COM_FindPackFile( search );
+	if ( found !== null )
+		return found.path_id;
+	return virtualFiles.has( search ) ? 0 : - 1;
+
+}
+
 // Not in id's common.c. The first entry named search (lower case) in the
 // search path, as { pack, file, path_id }, or null.
 function COM_FindPackFile( search ) {
@@ -641,9 +661,10 @@ let com_fetchmissing = false;
 const RANGE_GAP = 256 * 1024;
 
 // Files the engine reads only on demand (.lit coloured lighting, fetched with
-// its map by COM_EnsureFile; skybox .tga faces, fetched by Sky_LoadSkyBox) or
-// never (editor and KEX assets; archive/ is the source and tools tree, about
-// 97 MB, in the re-release ctf pak)
+// its map by COM_EnsureFile; skybox .tga faces, fetched by Sky_LoadSkyBox;
+// .md5mesh and .md5anim, fetched with their .mdl by gl_model.js
+// Mod_LoadMD5Replacement) or never (editor and KEX assets; archive/ is the
+// source and tools tree, about 97 MB, in the re-release ctf pak)
 const DEFERRED_EXTENSIONS = [ '.lit', '.map', '.ent', '.png', '.tga', '.jpg', '.md5mesh', '.md5anim', '.nav', '.fgd' ];
 const DEFERRED_DIRS = [ 'tactile/', 'vault/', 'archive/' ];
 

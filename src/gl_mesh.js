@@ -3,7 +3,8 @@
 import * as THREE from 'three';
 import { Con_Printf, Con_DPrintf } from './common.js';
 import { cl } from './client.js';
-import { R_GetPlayerSkinTexture } from './gl_rmisc.js';
+import { R_GetPlayerSkinTexture, R_TranslatePlayerSkin } from './gl_rmisc.js';
+import { GL_DrawMD5Frame } from './gl_md5.js';
 import { gl_nocolors, gl_doubleeyes, GL_RegisterCullMaterial } from './glquake.js';
 import { r_avertexnormals } from './anorm_dots.js';
 import { VectorCopy, VectorCompare } from './mathlib.js';
@@ -444,6 +445,10 @@ const _castIntBuf = new Int32Array( 1 );
 const _castFloatView = new Float32Array( _castIntBuf.buffer );
 
 export function GL_DrawAliasFrame( paliashdr, posenum ) {
+
+	// an MD5 replacement (r_enhancedmodels) makes its templates by skinning
+	if ( paliashdr.md5 != null )
+		return GL_DrawMD5Frame( paliashdr, posenum );
 
 	const verts = paliashdr.posedata[ posenum ];
 	if ( ! verts ) return null;
@@ -1163,7 +1168,7 @@ function R_AliasSetVertexColor( colorArr, i, dot, r, g, b, mono ) {
 
 export function R_DrawAliasModel( entity, paliashdr, shadedots, shadecolor ) {
 
-	if ( ! paliashdr || ! paliashdr.posedata )
+	if ( ! paliashdr || ( ! paliashdr.posedata && ! paliashdr.md5 ) )
 		return null;
 
 	const lerpdata = alias_lerpdata;
@@ -1303,6 +1308,25 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadecolor ) {
 
 			playerSkinTexture = R_GetPlayerSkinTexture( entIdx - 1 );
 
+			// translated from another header's skin (the .mdl's, before its
+			// MD5 replacement arrived or r_enhancedmodels changed): its
+			// layout doesn't match these uvs, so translate again, once per
+			// header change
+			if ( playerSkinTexture != null && playerSkinTexture._paliashdr !== paliashdr ) {
+
+				if ( entity._skinRetranslated !== paliashdr ) {
+
+					entity._skinRetranslated = paliashdr;
+					R_TranslatePlayerSkin( entIdx - 1 );
+					playerSkinTexture = R_GetPlayerSkinTexture( entIdx - 1 );
+
+				}
+
+				if ( playerSkinTexture != null && playerSkinTexture._paliashdr !== paliashdr )
+					playerSkinTexture = null;	// no skin to translate: the base skin
+
+			}
+
 		}
 
 	}
@@ -1427,7 +1451,7 @@ const _shadowRX = new THREE.Matrix4();
 // transform as the model does.
 export function GL_DrawAliasShadow( entity, paliashdr, lerpdata, lightspot, shadevector ) {
 
-	if ( paliashdr == null || paliashdr.posedata == null ) return null;
+	if ( paliashdr == null || ( paliashdr.posedata == null && paliashdr.md5 == null ) ) return null;
 
 	const template = GL_DrawAliasFrame( paliashdr, lerpdata.pose2 );
 	if ( template == null ) return null;
@@ -1441,7 +1465,9 @@ export function GL_DrawAliasShadow( entity, paliashdr, lerpdata, lightspot, shad
 	let shadowGeo = entity._aliasShadowGeo;
 	let shadowPosArray = entity._aliasShadowPosArray;
 
-	if ( shadowGeo == null || entity._aliasShadowVertCount !== template.vertexCount ) {
+	// the index too: an .mdl and its MD5 replacement can have as many vertices
+	if ( shadowGeo == null || entity._aliasShadowVertCount !== template.vertexCount ||
+		shadowGeo.index !== template.indexAttr ) {
 
 		// The renderer keeps a geometry's GL buffers until dispose()
 		if ( shadowGeo != null ) shadowGeo.dispose();
