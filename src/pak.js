@@ -20,6 +20,7 @@ class packfile_t {
 		this.name = '';
 		this.filepos = 0;
 		this.filelen = 0;
+		this.data = null; // Uint8Array, once fetched from a lazily opened pack
 
 	}
 
@@ -31,7 +32,8 @@ class pack_t {
 
 		this.filename = '';
 		this.files = []; // array of packfile_t
-		this.data = null; // ArrayBuffer of the entire pak
+		this.data = null; // ArrayBuffer of the entire pak, or null when lazy
+		this.reader = null; // pak_reader_t of a lazily opened pak (see COM_FetchPak)
 
 	}
 
@@ -45,6 +47,12 @@ const loadedPacks = [];
 
 // Virtual files (for loose files not in pak)
 const virtualFiles = new Map();
+
+// Entries of lazily opened paks already reported missing by COM_FindFile
+const warnedUnfetched = new Set();
+
+// COM_EnsureFile's Range fetches in flight, by packfile_t
+const pendingFetches = new Map();
 
 // Base path for on-demand loose file fetching
 // Browser: 'static/' (relative URLs like 'static/maps/foo.bsp')
@@ -61,30 +69,42 @@ Returns a pack_t or null
 */
 export function COM_LoadPackFile( filename, buffer ) {
 
-	const view = new DataView( buffer );
-
-	// Check header
-	const id0 = view.getUint8( 0 );
-	const id1 = view.getUint8( 1 );
-	const id2 = view.getUint8( 2 );
-	const id3 = view.getUint8( 3 );
-
-	if ( id0 !== 0x50 || id1 !== 0x41 || id2 !== 0x43 || id3 !== 0x4B ) { // 'PACK'
+	if ( ! isPack( new Uint8Array( buffer ) ) ) {
 
 		Sys_Error( filename + ' is not a packfile' );
 		return null;
 
 	}
 
+	const view = new DataView( buffer );
 	const dirofs = view.getInt32( 4, true );
 	const dirlen = view.getInt32( 8, true );
+
+	const pack = COM_LoadPackDirectory( filename, new Uint8Array( buffer, dirofs, dirlen ) );
+	pack.data = buffer;
+	return pack;
+
+}
+
+/*
+=================
+COM_LoadPackDirectory
+
+The directory half of common.c COM_LoadPackFile: builds a pack_t from the
+directory's bytes alone, so a lazily opened pak (see COM_FetchPak) never
+needs the rest of the file in memory. The caller sets pack.data or
+pack.reader.
+=================
+*/
+function COM_LoadPackDirectory( filename, dir ) {
+
+	const dirlen = dir.byteLength;
+	const view = new DataView( dir.buffer, dir.byteOffset, dirlen );
 
 	const numpackfiles = Math.floor( dirlen / 64 ); // each dir entry is 64 bytes
 
 	if ( numpackfiles > MAX_FILES_IN_PACK )
 		Sys_Error( filename + ' has too many files (' + numpackfiles + ')' );
-
-	const bytes = new Uint8Array( buffer );
 
 	if ( numpackfiles !== PAK0_COUNT )
 		COM_SetModified( true ); // not the original file
@@ -92,24 +112,23 @@ export function COM_LoadPackFile( filename, buffer ) {
 	// crc the directory to check for modifications
 	let crc = CRC_Init();
 	for ( let i = 0; i < dirlen; i ++ )
-		crc = CRC_ProcessByte( crc, bytes[ dirofs + i ] );
+		crc = CRC_ProcessByte( crc, dir[ i ] );
 	if ( crc !== PAK0_CRC )
 		COM_SetModified( true );
 
 	const pack = new pack_t();
 	pack.filename = filename;
-	pack.data = buffer;
 
 	for ( let i = 0; i < numpackfiles; i ++ ) {
 
-		const entryOffset = dirofs + i * 64;
+		const entryOffset = i * 64;
 		const file = new packfile_t();
 
 		// Read filename (56 bytes, null terminated)
 		let name = '';
 		for ( let j = 0; j < 56; j ++ ) {
 
-			const c = bytes[ entryOffset + j ];
+			const c = dir[ entryOffset + j ];
 			if ( c === 0 ) break;
 			name += String.fromCharCode( c );
 
@@ -179,23 +198,42 @@ export function COM_FindFile( filename ) {
 	const search = filename.toLowerCase();
 
 	// Search through loaded packs (reverse order - last added has priority)
-	for ( let i = 0; i < com_searchpaths.length; i ++ ) {
+	const found = COM_FindPackFile( search );
+	if ( found !== null ) {
 
-		const sp = com_searchpaths[ i ];
-		if ( ! sp.pack ) continue;
+		const pack = found.pack;
+		const file = found.file;
 
-		const pack = sp.pack;
-		for ( let j = 0; j < pack.files.length; j ++ ) {
+		if ( pack.data !== null ) {
 
-			if ( pack.files[ j ].name === search ) {
-
-				const file = pack.files[ j ];
-				const data = new Uint8Array( pack.data, file.filepos, file.filelen );
-				return { data: data, size: file.filelen };
-
-			}
+			const data = new Uint8Array( pack.data, file.filepos, file.filelen );
+			return { data: data, size: file.filelen };
 
 		}
+
+		if ( file.data !== null )
+			return { data: file.data, size: file.filelen };
+
+		// Deno reads a lazily opened pak synchronously from disk, once: the
+		// map commands look a map up before loading it
+		if ( pack.reader.readSync !== null ) {
+
+			file.data = pack.reader.readSync( file.filepos, file.filelen );
+			return { data: file.data, size: file.filelen };
+
+		}
+
+		// Browser: the entry is in the directory but not fetched yet. Stop
+		// here rather than fall through to a lower-priority copy; the map
+		// commands and the world model fetch it with COM_EnsureFile.
+		if ( ! COM_PakEntryIsDeferred( file.name, file.filelen ) && ! warnedUnfetched.has( search ) ) {
+
+			warnedUnfetched.add( search );
+			Con_Printf( 'Warning: %s is in %s but was not fetched\n', search, pack.filename );
+
+		}
+
+		return null;
 
 	}
 
@@ -204,6 +242,28 @@ export function COM_FindFile( filename ) {
 
 		const data = virtualFiles.get( search );
 		return { data: data, size: data.length };
+
+	}
+
+	return null;
+
+}
+
+// Not in id's common.c. The first entry named search (lower case) in the
+// search path, as { pack, file }, or null.
+function COM_FindPackFile( search ) {
+
+	for ( let i = 0; i < com_searchpaths.length; i ++ ) {
+
+		const pack = com_searchpaths[ i ].pack;
+		if ( pack === null ) continue;
+
+		for ( let j = 0; j < pack.files.length; j ++ ) {
+
+			if ( pack.files[ j ].name === search )
+				return { pack: pack, file: pack.files[ j ] };
+
+		}
 
 	}
 
@@ -285,6 +345,43 @@ export async function COM_EnsureFile( filename ) {
 	if ( COM_FindFile( filename ) !== null ) {
 
 		return true;
+
+	}
+
+	// In a lazily opened pak but not fetched yet: fetch just that entry
+	const found = COM_FindPackFile( filename.toLowerCase() );
+	if ( found !== null ) {
+
+		const file = found.file;
+		try {
+
+			// one fetch per entry, however many callers wait for it
+			let pending = pendingFetches.get( file );
+			if ( pending === undefined ) {
+
+				pending = found.pack.reader.read( file.filepos, file.filelen );
+				pendingFetches.set( file, pending );
+
+			}
+
+			try {
+
+				file.data = await pending;
+
+			} finally {
+
+				pendingFetches.delete( file );
+
+			}
+
+			return true;
+
+		} catch ( e ) {
+
+			Con_Printf( 'Failed to fetch %s from %s: %s\n', file.name, found.pack.filename, e.message );
+			return false;
+
+		}
 
 	}
 
@@ -432,12 +529,208 @@ export function COM_LoadFileAsString( filename ) {
 
 }
 
-// True when buffer starts with the 'PACK' magic
-function isPack( buffer ) {
+// True when bytes (a Uint8Array) start with the 'PACK' magic
+function isPack( bytes ) {
 
-	if ( buffer.byteLength < 12 ) return false;
-	const b = new Uint8Array( buffer, 0, 4 );
-	return b[ 0 ] === 0x50 && b[ 1 ] === 0x41 && b[ 2 ] === 0x43 && b[ 3 ] === 0x4B;
+	if ( bytes.byteLength < 12 ) return false;
+	return bytes[ 0 ] === 0x50 && bytes[ 1 ] === 0x41 && bytes[ 2 ] === 0x43 && bytes[ 3 ] === 0x4B;
+
+}
+
+/*
+Lazy paks (not in id's common.c, which reads entries from an open file
+handle). A pak bigger than com_lazypaksize, such as the 2021 rerelease's
+id1/pak0.pak (221 MB) or mg1/pak0.pak (497 MB), is not read whole: only its
+header and directory are, and entries are read through a pak_reader_t:
+
+	read( filepos, filelen )     Promise<Uint8Array>
+	readSync( filepos, filelen ) Uint8Array, or null when only async reads work
+
+Deno reads from disk with a seek, synchronously, so COM_FindFile works as
+before. The browser uses HTTP Range requests: at load it fetches every entry
+the engine reads synchronously (see COM_PakEntryIsDeferred), and the rest,
+mainly maps, when COM_EnsureFile asks for them (the map, changelevel and load
+commands and the client's world model already do). Smaller paks, including
+the shareware and registered id1 paks, still load whole.
+*/
+export const COM_LAZY_PAK_SIZE = 64 * 1024 * 1024;
+let com_lazypaksize = COM_LAZY_PAK_SIZE;
+
+// Coalesce eager entries closer together than this into one Range request
+const RANGE_GAP = 256 * 1024;
+
+// Files the engine never reads (rerelease lighting, editor and KEX assets)
+const DEFERRED_EXTENSIONS = [ '.lit', '.map', '.ent', '.png', '.tga', '.jpg', '.md5mesh', '.md5anim', '.nav', '.fgd' ];
+const DEFERRED_DIRS = [ 'tactile/', 'vault/' ];
+
+/*
+=================
+COM_SetLazyPakSize
+
+Sets the size above which COM_FetchPak opens a pak lazily (tests use it).
+=================
+*/
+export function COM_SetLazyPakSize( size ) {
+
+	com_lazypaksize = size;
+
+}
+
+/*
+=================
+COM_PakEntryIsDeferred
+
+True when a lazily opened pak's entry is fetched only on demand through
+COM_EnsureFile rather than at load: maps bigger than 32k (not the b_*.bsp
+item models, as in COM_ListFiles), the mapper texture wads in gfx/, and file
+types and directories the engine never reads.
+=================
+*/
+export function COM_PakEntryIsDeferred( name, filelen ) {
+
+	if ( name.startsWith( 'maps/' ) && name.endsWith( '.bsp' ) )
+		return filelen > 32 * 1024;
+	if ( name.startsWith( 'gfx/' ) && name.endsWith( '.wad' ) )
+		return true;
+	for ( const dir of DEFERRED_DIRS )
+		if ( name.startsWith( dir ) ) return true;
+	for ( const ext of DEFERRED_EXTENSIONS )
+		if ( name.endsWith( ext ) ) return true;
+	return false;
+
+}
+
+// pak_reader_t over a file on disk (Deno). Each read opens the file, so no
+// handle stays open between reads.
+function COM_FileReader( path ) {
+
+	const readSync = ( pos, len ) => {
+
+		const out = new Uint8Array( len );
+		const f = Deno.openSync( path, { read: true } );
+		try {
+
+			f.seekSync( pos, Deno.SeekMode.Start );
+			let off = 0;
+			while ( off < len ) {
+
+				const n = f.readSync( out.subarray( off ) );
+				if ( n === null || n === 0 ) throw new Error( 'unexpected end of ' + path );
+				off += n;
+
+			}
+
+		} finally {
+
+			f.close();
+
+		}
+
+		return out;
+
+	};
+
+	return { read: ( pos, len ) => Promise.resolve().then( () => readSync( pos, len ) ), readSync: readSync };
+
+}
+
+// pak_reader_t over HTTP Range requests (browser)
+function COM_RangeReader( url ) {
+
+	const read = async ( pos, len ) => {
+
+		if ( len === 0 ) return new Uint8Array( 0 );
+		const response = await fetch( url, { headers: { Range: 'bytes=' + pos + '-' + ( pos + len - 1 ) } } );
+		if ( response.status !== 206 ) {
+
+			if ( response.body !== null ) await response.body.cancel();
+			throw new Error( 'HTTP ' + response.status + ' for a byte range of ' + url );
+
+		}
+
+		const data = new Uint8Array( await response.arrayBuffer() );
+		if ( data.length !== len ) throw new Error( 'short byte range from ' + url );
+		return data;
+
+	};
+
+	return { read: read, readSync: null };
+
+}
+
+/*
+=================
+COM_OpenLazyPack
+
+Builds a pack_t from header (the pak's first 12 bytes) and the directory read
+through reader. Without readSync, also fetches every entry that is not
+deferred, coalescing neighbours into few requests.
+=================
+*/
+async function COM_OpenLazyPack( url, filename, reader, header, onProgress ) {
+
+	const view = new DataView( header.buffer, header.byteOffset, 12 );
+	const dirofs = view.getInt32( 4, true );
+	const dirlen = view.getInt32( 8, true );
+
+	const pack = COM_LoadPackDirectory( filename, await reader.read( dirofs, dirlen ) );
+	pack.reader = reader;
+
+	if ( reader.readSync !== null ) {
+
+		if ( onProgress ) onProgress( 1 );
+		return pack;
+
+	}
+
+	const files = [];
+	for ( const f of pack.files ) {
+
+		if ( COM_PakEntryIsDeferred( f.name, f.filelen ) ) continue;
+		if ( f.filelen === 0 ) f.data = new Uint8Array( 0 );
+		else files.push( f );
+
+	}
+
+	files.sort( ( a, b ) => a.filepos - b.filepos );
+
+	let total = 0;
+	for ( const f of files ) total += f.filelen;
+
+	let done = 0;
+	let requests = 0;
+	for ( let i = 0; i < files.length; ) {
+
+		// one group: files[ i .. j ), each starting within RANGE_GAP of the last's end
+		const start = files[ i ].filepos;
+		let end = start + files[ i ].filelen;
+		let j = i + 1;
+		while ( j < files.length && files[ j ].filepos <= end + RANGE_GAP ) {
+
+			end = Math.max( end, files[ j ].filepos + files[ j ].filelen );
+			j ++;
+
+		}
+
+		const chunk = await reader.read( start, end - start );
+		requests ++;
+		for ( let k = i; k < j; k ++ ) {
+
+			const f = files[ k ];
+			f.data = chunk.subarray( f.filepos - start, f.filepos - start + f.filelen );
+			done += f.filelen;
+
+		}
+
+		if ( onProgress && total > 0 ) onProgress( done / total );
+		i = j;
+
+	}
+
+	if ( onProgress ) onProgress( 1 );
+
+	Sys_Printf( 'Fetched %d of %d files from %s (%d bytes, %d requests)\n', files.length, pack.files.length, url, done, requests );
+	return pack;
 
 }
 
@@ -445,8 +738,12 @@ function isPack( buffer ) {
 =================
 COM_FetchPak
 
-Fetches a .pak file from a URL using fetch(), returns a Promise<pack_t>
-In Deno, loads from filesystem. In browser, uses fetch().
+Fetches a .pak file and returns a Promise<pack_t>. A local path is read in
+Deno; an http(s) URL, or any URL in the browser, is fetched. A pak bigger
+than com_lazypaksize opens lazily (see COM_OpenLazyPack). In the browser
+that needs a server that honours Range requests: one that ignores them
+(python3 -m http.server does) answers the first, 12-byte request with the
+whole pak, which then loads whole as before.
 With optional set, a missing file (Deno NotFound, HTTP 404, or a body that
 is not a PACK, such as a web host's index.html fallback) returns null
 without a message, as COM_AddGameDirectory stops quietly at the first
@@ -457,14 +754,30 @@ export async function COM_FetchPak( url, filename, onProgress, optional = false 
 
 	if ( ! optional ) Sys_Printf( 'Fetching ' + url + '...\\n' );
 
-	// Check if running in Deno
-	if ( typeof Deno !== 'undefined' ) {
+	if ( typeof Deno !== 'undefined' && ! /^https?:/.test( url ) ) {
 
 		// Load from filesystem in Deno
 		try {
 
+			const size = Deno.statSync( url ).size;
+			if ( size > com_lazypaksize ) {
+
+				const reader = COM_FileReader( url );
+				const header = reader.readSync( 0, 12 );
+				if ( ! isPack( header ) ) {
+
+					if ( optional ) return null;
+					Sys_Error( url + ' is not a packfile' );
+					return null;
+
+				}
+
+				return await COM_OpenLazyPack( url, filename, reader, header, onProgress );
+
+			}
+
 			const data = await Deno.readFile( url );
-			if ( optional && ! isPack( data.buffer ) ) return null;
+			if ( optional && ! isPack( data ) ) return null;
 			if ( onProgress ) onProgress( 1 );
 			return COM_LoadPackFile( filename, data.buffer );
 
@@ -478,16 +791,59 @@ export async function COM_FetchPak( url, filename, onProgress, optional = false 
 
 	}
 
-	// Browser: use fetch
-	const response = await fetch( url );
+	// Browser: ask for the header only, to learn the pak's size
+	let response = await fetch( url, { headers: { Range: 'bytes=0-11' } } );
 	if ( ! response.ok ) {
 
-		if ( ! ( optional && response.status === 404 ) )
+		// 416: an empty file, which has no byte 0
+		if ( ! ( optional && ( response.status === 404 || response.status === 416 ) ) )
 			Con_Printf( 'Failed to fetch ' + url + ': ' + response.statusText + '\\n' );
 		return null;
 
 	}
 
+	if ( response.status === 206 ) {
+
+		const header = new Uint8Array( await response.arrayBuffer() );
+		if ( ! isPack( header ) ) {
+
+			if ( optional ) return null;
+			Sys_Error( url + ' is not a packfile' );
+			return null;
+
+		}
+
+		const range = /\/(\d+)\s*$/.exec( response.headers.get( 'content-range' ) || '' );
+		const size = range !== null ? parseInt( range[ 1 ], 10 ) : 0;
+		if ( range === null )
+			Con_Printf( 'No pak size in the Content-Range of %s (cross-origin servers must expose it); loading it whole\n', url );
+		if ( size > com_lazypaksize ) {
+
+			try {
+
+				return await COM_OpenLazyPack( url, filename || url, COM_RangeReader( url ), header, onProgress );
+
+			} catch ( e ) {
+
+				Con_Printf( 'Failed to fetch ' + url + ': ' + e.message + '\n' );
+				return null;
+
+			}
+
+		}
+
+		// a small pak loads whole, as before
+		response = await fetch( url );
+		if ( ! response.ok ) {
+
+			Con_Printf( 'Failed to fetch ' + url + ': ' + response.statusText + '\\n' );
+			return null;
+
+		}
+
+	}
+
+	// 200: the whole pak, either asked for or because Range was ignored
 	let buffer;
 	const contentLength = response.headers.get( 'content-length' );
 
@@ -526,7 +882,7 @@ export async function COM_FetchPak( url, filename, onProgress, optional = false 
 
 	}
 
-	if ( optional && ! isPack( buffer ) ) return null;
+	if ( optional && ! isPack( new Uint8Array( buffer ) ) ) return null;
 
 	Sys_Printf( 'Loaded ' + url + ' (' + buffer.byteLength + ' bytes)\\n' );
 
