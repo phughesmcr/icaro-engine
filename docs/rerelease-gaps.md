@@ -10,7 +10,7 @@ rows 1a, 1b, 1c, 1e, 1f, 6h and 6j, and half of 6i, so both blockers in the
 summary are gone. The fixed rows keep their original evidence, with the fix
 noted, and every row's source line numbers were rechecked at `223a180`. The
 measurements (counts from the paks, the headless spawn) were not rerun; they
-are from `d6f2058`.
+are from `d6f2058`, apart from the BSP2 rerun below.
 
 **Item 3 (BSP2) fixed in #NNN.** Its row, the BSP2 summary bullet, the
 headless spawn table and the phase 3 and 4 notes were updated from a new
@@ -32,8 +32,8 @@ The findings come from four sources:
 
 ## Summary
 
-- **The BSP29 content loads.** That covers 66 of id1's 68 maps (all but the
-  2 BSP2 vault maps), hipnotic's 18, rogue's 17, ctf's 10, mg1's 3 deathmatch
+- **The BSP29 content loads.** That covers 66 of id1's 68 maps (the 2 BSP2
+  vault maps load since #NNN), hipnotic's 18, rogue's 17, ctf's 10, mg1's 3 deathmatch
   maps and mg3's `secret1`. Each spawns and runs 100 server frames
   headless. At `d6f2058`, two bugs made it unplayable; both are now fixed:
   1. **Picking up any weapon or ammo stopped the server.** The rerelease
@@ -170,12 +170,12 @@ not have to adopt Ironwail's 666 or 999 wire formats, because the client and ser
 ### What can run in parallel
 
 These share files, so run them in sequence or bundle them. Items already done
-(#111–#114) are left out:
+(#111–#114, and BSP2 in #NNN) are left out:
 
 - **`src/pr_cmds.js`:** localisation (2) and the `PF_makestatic` part of the index widening (4c).
 - **`src/protocol.js` and `src/cl_parse.js`:** protocol limits (4b–4d), alpha (6c), and `svc_fog` if it is ever sent.
-- **`src/gl_model.js`:** BSP2 (3), `.lit` (5) and MD5 (6k). They change different
-  functions, but conflict in the `Mod_LoadBrushModel` dispatch.
+- **`src/gl_model.js`:** `.lit` (5) and MD5 (6k). They change different
+  functions, but may both touch `Mod_LoadBrushModel`.
 - **`src/pak.js`:** `.lit` (5), skybox `.tga` (6b) and MD5 (6k). Each changes
   `DEFERRED_EXTENSIONS` or `DEFERRED_DIRS`, or adds a `COM_EnsureFile` at map load.
 - **`src/host.js`:** `LOC_Init` (2), and the `vibrate` no-op (6i) if it goes there. Both are small additions, so the conflict is trivial.
@@ -189,11 +189,9 @@ These share files, so run them in sequence or bundle them. Items already done
 
 Groups that can run at the same time:
 
-- **Now:**
+- **Now** (BSP2 landed in #NNN and `svc_achievement` in #112):
   - Localisation (one owner of `pr_cmds.js`).
   - The `vibrate` no-op.
-  - BSP2.
-- **After BSP2 lands** (`svc_achievement` landed in #112):
   - Protocol limits with alpha (network files).
   - `.lit` (`gl_model.js`, `gl_rsurf.js`, `gl_rlight.js`, `pak.js`).
   - Fog (new `gl_fog.js`, `gl_rmain.js`). It shares `gl_rmain.js` with alpha, so
