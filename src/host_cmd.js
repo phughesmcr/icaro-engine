@@ -8,9 +8,13 @@ import { Con_Printf, SZ_Write, SZ_Clear,
 import { svc_signonnum, svc_time, svc_updatename, svc_updatefrags,
 	svc_updatecolors, svc_lightstyle, svc_updatestat, svc_setangle,
 	svc_setpause } from './protocol.js';
+import { Q_atof } from './common.js';
 import { STAT_TOTALSECRETS, STAT_TOTALMONSTERS, STAT_SECRETS, STAT_MONSTERS,
 	MAX_LIGHTSTYLES, SAVEGAME_COMMENT_LENGTH, VERSION,
 	IT_SHOTGUN, IT_GRENADE_LAUNCHER, IT_LIGHTNING,
+	IT_SUPER_SHOTGUN, IT_NAILGUN, IT_SUPER_NAILGUN, IT_ROCKET_LAUNCHER,
+	IT_ARMOR1, IT_ARMOR2, IT_ARMOR3,
+	RIT_LAVA_NAILGUN, RIT_LAVA_SUPER_NAILGUN, RIT_MULTI_GRENADE, RIT_MULTI_ROCKET, RIT_PLASMA_GUN,
 	HIT_PROXIMITY_GUN, HIT_LASER_CANNON, HIT_MJOLNIR } from './quakedef.js';
 import { NUM_FOR_EDICT, EDICT_NUM, EDICT_TO_PROG, PR_GetString, pr_global_struct } from './progs.js';
 import { PR_ExecuteProgram } from './pr_exec.js';
@@ -759,11 +763,35 @@ function Host_God_f() {
 	if ( pr_global_struct.deathmatch && ! host_client.privileged )
 		return;
 
-	sv_player.v.flags = ( sv_player.v.flags | 0 ) ^ FL_GODMODE;
-	if ( ! ( ( sv_player.v.flags | 0 ) & FL_GODMODE ) )
-		SV_ClientPrintf( 'godmode OFF\n' );
-	else
-		SV_ClientPrintf( 'godmode ON\n' );
+	// johnfitz: "god 0" and "god 1" set it explicitly
+	switch ( Cmd_Argc() ) {
+
+		case 1:
+			sv_player.v.flags = ( sv_player.v.flags | 0 ) ^ FL_GODMODE;
+			if ( ! ( ( sv_player.v.flags | 0 ) & FL_GODMODE ) )
+				SV_ClientPrintf( 'godmode OFF\n' );
+			else
+				SV_ClientPrintf( 'godmode ON\n' );
+			break;
+		case 2:
+			if ( Q_atof( Cmd_Argv( 1 ) ) !== 0 ) {
+
+				sv_player.v.flags = ( sv_player.v.flags | 0 ) | FL_GODMODE;
+				SV_ClientPrintf( 'godmode ON\n' );
+
+			} else {
+
+				sv_player.v.flags = ( sv_player.v.flags | 0 ) & ~ FL_GODMODE;
+				SV_ClientPrintf( 'godmode OFF\n' );
+
+			}
+
+			break;
+		default:
+			Con_Printf( 'god [value] : toggle god mode. values: 0 = off, 1 = on\n' );
+			break;
+
+	}
 
 }
 
@@ -779,11 +807,35 @@ function Host_Notarget_f() {
 	if ( pr_global_struct.deathmatch && ! host_client.privileged )
 		return;
 
-	sv_player.v.flags = ( sv_player.v.flags | 0 ) ^ FL_NOTARGET;
-	if ( ! ( ( sv_player.v.flags | 0 ) & FL_NOTARGET ) )
-		SV_ClientPrintf( 'notarget OFF\n' );
-	else
-		SV_ClientPrintf( 'notarget ON\n' );
+	// johnfitz: "notarget 0" and "notarget 1" set it explicitly
+	switch ( Cmd_Argc() ) {
+
+		case 1:
+			sv_player.v.flags = ( sv_player.v.flags | 0 ) ^ FL_NOTARGET;
+			if ( ! ( ( sv_player.v.flags | 0 ) & FL_NOTARGET ) )
+				SV_ClientPrintf( 'notarget OFF\n' );
+			else
+				SV_ClientPrintf( 'notarget ON\n' );
+			break;
+		case 2:
+			if ( Q_atof( Cmd_Argv( 1 ) ) !== 0 ) {
+
+				sv_player.v.flags = ( sv_player.v.flags | 0 ) | FL_NOTARGET;
+				SV_ClientPrintf( 'notarget ON\n' );
+
+			} else {
+
+				sv_player.v.flags = ( sv_player.v.flags | 0 ) & ~ FL_NOTARGET;
+				SV_ClientPrintf( 'notarget OFF\n' );
+
+			}
+
+			break;
+		default:
+			Con_Printf( 'notarget [value] : toggle notarget mode. values: 0 = off, 1 = on\n' );
+			break;
+
+	}
 
 }
 
@@ -1019,7 +1071,63 @@ function Host_Give_f() {
 
 			break;
 
+		// johnfitz -- give armour
+		case 'a':
+			if ( v > 150 )
+				Host_GiveArmor( 0.8, v, IT_ARMOR3 );
+			else if ( v > 100 )
+				Host_GiveArmor( 0.6, v, IT_ARMOR2 );
+			else if ( v >= 0 )
+				Host_GiveArmor( 0.3, v, IT_ARMOR1 );
+			break;
+
 	}
+
+	// johnfitz -- update currentammo to match new ammo (so statusbar updates correctly)
+	switch ( sv_player.v.weapon | 0 ) {
+
+		case IT_SHOTGUN:
+		case IT_SUPER_SHOTGUN:
+			sv_player.v.currentammo = sv_player.v.ammo_shells;
+			break;
+		case IT_NAILGUN:
+		case IT_SUPER_NAILGUN:
+		case RIT_LAVA_SUPER_NAILGUN:
+			sv_player.v.currentammo = sv_player.v.ammo_nails;
+			break;
+		case IT_GRENADE_LAUNCHER:
+		case IT_ROCKET_LAUNCHER:
+		case RIT_MULTI_GRENADE:
+		case RIT_MULTI_ROCKET:
+			sv_player.v.currentammo = sv_player.v.ammo_rockets;
+			break;
+		case IT_LIGHTNING:
+		case HIT_LASER_CANNON:
+		case HIT_MJOLNIR:
+			sv_player.v.currentammo = sv_player.v.ammo_cells;
+			break;
+		case RIT_LAVA_NAILGUN: // same as IT_AXE
+			if ( rogue )
+				sv_player.v.currentammo = sv_player.v.ammo_nails;
+			break;
+		case RIT_PLASMA_GUN: // same as HIT_PROXIMITY_GUN
+			if ( rogue )
+				sv_player.v.currentammo = sv_player.v.ammo_cells;
+			if ( hipnotic )
+				sv_player.v.currentammo = sv_player.v.ammo_rockets;
+			break;
+
+	}
+
+}
+
+// johnfitz: "give a" replaces the armour type, as picking up armour does
+function Host_GiveArmor( armortype, value, item ) {
+
+	const items = sv_player.v.items | 0;
+	sv_player.v.armortype = armortype;
+	sv_player.v.armorvalue = value;
+	sv_player.v.items = items - ( items & ( IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3 ) ) + item;
 
 }
 
