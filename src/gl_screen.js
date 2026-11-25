@@ -2,7 +2,8 @@
 // Master for refresh, status bar, console, chat, notify, etc
 
 import { Con_Printf, Con_CheckResize, Con_DrawConsole, Con_DrawNotify, Con_ClearNotify,
-	Con_SetForcedup, con_initialized } from './console.js';
+	Con_SetForcedup, con_initialized, con_linewidth } from './console.js';
+import { GAME_DEATHMATCH } from './protocol.js';
 import { Sbar_Draw, Sbar_Changed, Sbar_IntermissionOverlay, Sbar_FinaleOverlay, set_sb_lines as Sbar_set_sb_lines } from './sbar.js';
 import { M_Draw } from './menu.js';
 import { Draw_Character, Draw_CachePic, Draw_Pic, Draw_FadeScreen, Draw_BeginFrame,
@@ -47,6 +48,10 @@ export const scr_showfps = { name: 'scr_showfps', string: '0', value: 0 };
 export const scr_clock = { name: 'scr_clock', string: '0', value: 0 };
 // QS defaults scr_sbaralpha to 0.75; 1 keeps the opaque WinQuake status bar
 export const scr_sbaralpha = { name: 'scr_sbaralpha', string: '1', value: 1, archive: true };
+// FitzQuake/Ironwail (console.c): 1 logs centerprints to the console, 2 also
+// in deathmatch. Deviation: QuakeSpasm and Ironwail default to 1; the default
+// here is 0, which keeps id's behaviour.
+export const con_logcenterprint = { name: 'con_logcenterprint', string: '0', value: 0 }; //johnfitz
 
 export let scr_initialized = false;
 
@@ -145,6 +150,99 @@ export function SCR_CenterPrint( str ) {
 			scr_center_lines ++;
 
 	}
+
+}
+
+/*
+==============================================================================
+
+	CENTERPRINT LOGGING (johnfitz)
+
+Ironwail keeps these in console.c; they live here because console.js is
+outside this change.
+==============================================================================
+*/
+
+let con_lastcenterstring = ''; //johnfitz
+
+/*
+================
+Con_Quakebar -- johnfitz -- returns a bar of the desired length, but never
+wider than the console. Includes a newline, unless len >= con_linewidth.
+================
+*/
+export function Con_Quakebar( len ) {
+
+	len = Math.min( len, 40 );
+	len = Math.min( len, con_linewidth );
+
+	let bar = '\x1d';
+	for ( let i = 1; i < len - 1; i ++ )
+		bar += '\x1e';
+	bar += '\x1f';
+
+	if ( len < con_linewidth )
+		bar += '\n';
+
+	return bar;
+
+}
+
+/*
+================
+Con_CenterPrintf -- pad each line with spaces to make it appear centered
+================
+*/
+function Con_CenterPrintf( linewidth, msg ) {
+
+	linewidth = Math.min( linewidth, con_linewidth );
+	for ( let src = 0; src < msg.length; ) {
+
+		let end = msg.indexOf( '\n', src );
+		if ( end === - 1 ) end = msg.length;
+		const line = msg.substring( src, end );
+		src = end < msg.length ? end + 1 : end;
+
+		if ( line.length < linewidth )
+			Con_Printf( '%s%s\n', ' '.repeat( ( linewidth - line.length ) >> 1 ), line );
+		else
+			Con_Printf( '%s\n', line );
+
+	}
+
+}
+
+/*
+==================
+Con_LogCenterPrint -- johnfitz -- echo centerprint message to the console
+==================
+*/
+export function Con_LogCenterPrint( str ) {
+
+	if ( str === con_lastcenterstring )
+		return; // ignore duplicates
+
+	if ( _cl.gametype === GAME_DEATHMATCH && con_logcenterprint.value !== 2 )
+		return; // don't log in deathmatch
+
+	con_lastcenterstring = str;
+
+	if ( con_logcenterprint.value !== 0 ) {
+
+		const trailing_newline = str.length > 0 && str[ str.length - 1 ] === '\n';
+		Con_Printf( '%s', Con_Quakebar( 40 ) );
+		Con_CenterPrintf( 40, trailing_newline ? str : str + '\n' );
+		Con_Printf( '%s', Con_Quakebar( 40 ) );
+		Con_ClearNotify();
+
+	}
+
+}
+
+// Ironwail CL_ParseServerInfo: con_lastcenterstring[0] = 0
+export function Con_ClearLastCenterString() {
+
+	con_lastcenterstring = '';
 
 }
 
@@ -415,6 +513,7 @@ export function SCR_Init() {
 	Cvar_RegisterVariable( scr_conspeed );
 	Cvar_RegisterVariable( scr_showram );
 	Cvar_RegisterVariable( scr_showturtle );
+	Cvar_RegisterVariable( con_logcenterprint ); //johnfitz
 	Cvar_RegisterVariable( scr_showpause );
 	Cvar_RegisterVariable( scr_centertime );
 	Cvar_RegisterVariable( scr_printspeed );
