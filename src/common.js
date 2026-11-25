@@ -982,7 +982,7 @@ Ported from Ironwail Quake/common.c: LOC_* and UTF8_ToQuake. The rerelease
 QuakeC prints "$key" strings (for example "$qc_item_health") that these
 resolve from localization/loc_<language>.txt in id1's pak0.pak.
 
-Deliberate deviations from Ironwail, noted in docs/port-review.md:
+Deliberate deviations from Ironwail (docs/port-review.md section 7 names the main ones):
 - Only the game's paks are searched. Ironwail also opens QuakeEX.kpf (a zip)
   and the Steam and Epic install folders; the port reads neither.
 - The file is decoded with TextDecoder, which turns invalid UTF-8 into U+FFFD
@@ -997,6 +997,12 @@ Deliberate deviations from Ironwail, noted in docs/port-review.md:
 - A missing file is reported with Con_DPrintf, not Con_Printf, so the
   shareware game (which has none) boots without a new console line.
 - "auto" reads navigator.languages instead of SDL_GetPreferredLocales.
+- LOC_Load doesn't retry loc_english.txt when that was the file that failed.
+- PF_VarString and LOC_Format have no 1024-byte output buffer, so no
+  overflow warnings (the port's PF_VarString never had a limit).
+- Not ported: LOC_Init's "Language initialization" banner, the developer 2
+  list of entries with unprintable characters, "[skipnotify]" on the
+  "Loaded N strings" line, and language completion.
 
 ============================================================================
 */
