@@ -177,6 +177,7 @@ Deno.test( 'static sounds of one sfx combine into the first channel', () => {
 
 		assertEqual( hasSource( staticChannel( 0 ) ), true, 'first channel plays' );
 		assertEqual( staticChannel( 0 )._leftGain.gain.value, 1, 'summed volume clamped to 255 as the C mixer does' );
+		assertEqual( staticChannel( 0 )._rightGain.gain.value, 1, 'each side clamped' );
 
 	} );
 
