@@ -741,8 +741,6 @@ function CL_LinkPacketEntities( frac ) {
 
 		}
 
-		CL_QexEffectLights( s1.effects, s1.number, s1.origin );
-
 		if ( s1.effects & 0x0002 ) { // EF_MUZZLEFLASH
 
 			const dl = CL_AllocDlight( s1.number );
@@ -760,6 +758,9 @@ function CL_LinkPacketEntities( frac ) {
 				CL_NoLerpMuzzleFlash( s1.number );
 
 		}
+
+		// after the muzzle flash, which would take the slot (Ironwail's order)
+		CL_QexEffectLights( s1.effects, s1.number, s1.origin );
 
 		// create a new entity
 		if ( cl_numvisedicts >= MAX_VISEDICTS )

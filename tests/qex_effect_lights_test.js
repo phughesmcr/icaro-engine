@@ -16,8 +16,10 @@ import { SV_WriteEntitiesToClient, SV_WritePlayersToClient } from '../src/sv_mai
 
 // Bootstrap the client renderer graph in its established safe import order.
 await import( '../src/gl_rsurf.js' );
-const { CL_AllocDlight, CL_QexEffectLights } = await import( '../src/cl_main.js' );
-const { cl, cl_dlights } = await import( '../src/client.js' );
+const { CL_AllocDlight, CL_QexEffectLights, CL_RelinkEntities } = await import( '../src/cl_main.js' );
+const { cl, cls, cl_dlights } = await import( '../src/client.js' );
+const { CL_ResetPrediction, CL_SetValidSequence, CL_SetServerSequence, CL_GetEntityFrame } =
+	await import( '../src/cl_pred.js' );
 
 const QEX_BITS = EF_QEX_QUADLIGHT | EF_QEX_PENTALIGHT | EF_QEX_CANDLELIGHT;
 
@@ -258,6 +260,73 @@ Deno.test( 'CL_QexEffectLights gives quad a blue and pent a red dlight, and none
 
 			cl_dlights[ i ].key = s.key;
 			cl_dlights[ i ].die = s.die;
+			cl_dlights[ i ].color.fill( 1 );
+
+		} );
+
+	}
+
+} );
+
+Deno.test( 'CL_LinkPacketEntities keeps the quad glow over a muzzle flash', () => {
+
+	const old = {
+		active: sv.active, maxclients: cl.maxclients, num: cl.num_entities,
+		model: cl.model_precache[ 1 ], time: cl.time, m0: cl.mtime[ 0 ], m1: cl.mtime[ 1 ],
+		demo: cls.demoplayback, timedemo: cls.timedemo
+	};
+	const saved = cl_dlights.map( ( dl ) => ( { key: dl.key, die: dl.die } ) );
+
+	try {
+
+		CL_ResetPrediction();
+		sv.active = false;
+		cls.demoplayback = false;
+		cls.timedemo = false;
+		cl.maxclients = 1;
+		cl.num_entities = 3;
+		cl.model_precache[ 1 ] = { name: 'progs/soldier.mdl', flags: 0, synctype: 0 };
+		cl.mtime[ 1 ] = 0.9;
+		cl.mtime[ 0 ] = 1.0;
+		cl.time = 1.0;
+		for ( const dl of cl_dlights ) {
+
+			dl.key = 0;
+			dl.die = 0;
+
+		}
+
+		// a quad monster that fires: Ironwail lets the quad light win the slot
+		CL_SetServerSequence( 1 );
+		CL_SetValidSequence( 1 );
+		const pak = CL_GetEntityFrame( 1 ).packet_entities;
+		pak.num_entities = 1;
+		const s = pak.state( 0 );
+		s.number = 2;
+		s.modelindex = 1;
+		s.effects = 0x0002 | EF_QEX_QUADLIGHT; // EF_MUZZLEFLASH
+		CL_RelinkEntities();
+
+		const lights = cl_dlights.filter( ( dl ) => dl.key === 2 && dl.die >= cl.time );
+		assert( lights.length === 1, `expected 1 dlight for entity 2, got ${lights.length}` );
+		assert( lights[ 0 ].color[ 2 ] === 1 && lights[ 0 ].color[ 0 ] === 0.25, `color ${lights[ 0 ].color}` );
+
+	} finally {
+
+		CL_ResetPrediction();
+		sv.active = old.active;
+		cl.maxclients = old.maxclients;
+		cl.num_entities = old.num;
+		cl.model_precache[ 1 ] = old.model;
+		cl.time = old.time;
+		cl.mtime[ 0 ] = old.m0;
+		cl.mtime[ 1 ] = old.m1;
+		cls.demoplayback = old.demo;
+		cls.timedemo = old.timedemo;
+		saved.forEach( ( d, i ) => {
+
+			cl_dlights[ i ].key = d.key;
+			cl_dlights[ i ].die = d.die;
 			cl_dlights[ i ].color.fill( 1 );
 
 		} );
