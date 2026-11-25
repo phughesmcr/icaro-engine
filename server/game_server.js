@@ -178,6 +178,27 @@ export function applyGameOptions(options) {
 }
 
 /**
+ * Level exits in a room. A deathmatch room keeps its map: noexit 1 makes
+ * id1's changelevel_touch kill a player who walks into an exit, and
+ * samelevel 2 makes GotoNextMap reload the same map after a fraglimit or
+ * timelimit intermission (QuakeC treats any non-zero samelevel that way). A
+ * co-op room plays through the episode, so both are 0 there, as in a
+ * listen server's co-op game. QuakeC reads them with cvar(), which goes
+ * through the cvar list, and Host_InitLocal (which registers them) never runs
+ * in this process, so register them first. Called before SV_SpawnServer,
+ * while sv.active is false, so the server-flagged noexit isn't broadcast.
+ */
+export function applyExitRules(options) {
+	const coopRoom = options.coop === 1;
+	for (const [cvar, value] of [[noexit, coopRoom ? 0 : 1], [samelevel, coopRoom ? 0 : 2]]) {
+		if (Cvar_FindVar(cvar.name) === null) Cvar_RegisterVariable(cvar);
+		Cvar_SetValue(cvar.name, value);
+	}
+	Sys_Printf('Level exits: noexit %d, samelevel %d%s\n', noexit.value, samelevel.value,
+		coopRoom ? ' (co-op: exits change the map)' : ' (exits kill the player; the room keeps its map)');
+}
+
+/**
  * A -game directory name: one path component, no '..' (common.c takes any).
  */
 export function isGameDirName(dir) {
@@ -425,18 +446,6 @@ async function Host_Init_Server() {
 	deathmatch.string = '1';
 	Sys_Printf('Deathmatch mode enabled (deathmatch=%d)\n', deathmatch.value);
 
-	// Set samelevel to prevent level exits from changing maps (QuakeWorld progs)
-	// 0 = normal (allow exit), 1 = same map, 2 = kill on exit, 3 = kill if not on "start" map
-	samelevel.value = 2;
-	samelevel.string = '2';
-	Sys_Printf('Samelevel mode enabled (samelevel=%d - kills players trying to exit)\n', samelevel.value);
-
-	// Set noexit to prevent level exits from changing maps (standard Quake progs)
-	// 0 = normal (allow exit), 1 = kill on exit, 2 = kill if not on "start" map
-	noexit.value = 1;
-	noexit.string = '1';
-	Sys_Printf('Noexit mode enabled (noexit=%d - kills players trying to exit)\n', noexit.value);
-
 	// Load PAK file
 	Sys_Printf('Loading game data...\n');
 	// pak0.pak plus any pak1.pak, pak2.pak... next to it (registered data)
@@ -483,6 +492,7 @@ async function Host_Init_Server() {
 		throw new Error('Map not found: maps/' + CONFIG.defaultMap + '.bsp');
 	}
 	applyGameOptions(CONFIG.gameOptions);
+	applyExitRules(CONFIG.gameOptions);
 	SV_SpawnServer(CONFIG.defaultMap);
 	if (sv.active !== true) {
 		throw new Error('Could not spawn map ' + CONFIG.defaultMap);
