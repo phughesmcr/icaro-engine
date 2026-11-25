@@ -132,7 +132,14 @@ PRs #141 to #146:
 - **2021 rerelease:** these finish the plan in [`rerelease-gaps.md`](rerelease-gaps.md), which now records how each gap was closed. Section 7 has an entry for each except #145, whose changes are under "Wire format" above. The PRs are: a no-op `vibrate` command (#142), the quad and pentagram dlights `EF_QEX_QUADLIGHT` and `EF_QEX_PENTALIGHT` (#143), skyboxes from the worldspawn `sky` key (#144), alpha for alias models, the player and the view model, with `U_FRAME2` and the `max_edicts` cvar (#145), and MD5 replacement models (#146). `vibrate` is a deliberate addition: neither id's Quake nor Ironwail has it, and the rerelease's own QuakeC that sends it is commented out.
 - **Docs:** this fix status up to #140 (#141).
 
-At `3d1947b` (`dev`, after #146), `deno task test` passes 651 tests, including `tests/net_webtransport_server_test.ts`. At `772379d` (after #140) it passed 611, and at `223a180` (after #114) 546.
+PRs #147 to #150:
+
+- **Back to id's C:** `Mod_CheckWaterVis` sizes each PVS row from the world's `visleafs` rather than its full leaf count, so maps no longer print `Mod_DecompressVis: output overrun` (#148). The C runs the check after the submodel loop has set `numleafs`; the port ran it before.
+- **Datagram size:** `MAX_DATAGRAM` is 4096, as FitzQuake and QuakeSpasm raise it, and a network client gets at most `DATAGRAM_MTU` (1400), read per client from the WebTransport session (#150). Section 7 has the entry. A live WebTransport session over loopback on mg1 `mge2m2` read a `maxDatagramSize` of 1421, so the client was allowed 1400 bytes. Over 70 teleports, 9 datagrams went above 1024 bytes (the largest 1,113) and all 9 arrived. No `packet overflow` was printed. A real network path was not tested.
+- **Three.js rendering:** world batches with no instance in the PVS are hidden, so Three.js no longer binds and draws empty batches on big BSP2 maps (#149).
+- **Docs:** this fix status up to #146 (#147).
+
+At `055c52f` (`dev`, after #150), `deno task test` passes 661 tests, including `tests/net_webtransport_server_test.ts`. At `3d1947b` (after #146) it passed 651, at `772379d` (after #140) it passed 611, and at `223a180` (after #114) 546.
 
 ### Residuals and follow-ups
 
@@ -437,7 +444,7 @@ Later PRs changed some of these on purpose: the `MSG_Write*` rounding, the wire 
 - **Registered-content checks kept looser on purpose** (decided in [#10]):
   - `COM_FindFile`'s shareware rule that refuses loose files whose path contains `/` is not ported. The port ships its deathmatch maps as loose `static/maps/*.bsp` files next to the shareware pak, and the rule would refuse them.
   - WinQuake's `#if WINDED` check in `COM_CheckRegistered`, which stops a dedicated server without the registered `gfx/pop.lmp`, is not ported. The Deno room server is a dedicated server that runs on the shareware pak by design.
-- **Behaviour taken from QuakeSpasm and Ironwail** (added after this review, #42 to #146): these C source ports fix bugs in id's code and raise its limits. The port takes some of their changes, so in these places it no longer matches WinQuake:
+- **Behaviour taken from QuakeSpasm and Ironwail** (added after this review, #42 to #150): these C source ports fix bugs in id's code and raise its limits. The port takes some of their changes, so in these places it no longer matches WinQuake:
   - `MSG_WriteCoord` and `MSG_WriteAngle` round with `Q_rint` (#69, #42), where WinQuake truncates. QW's `MSG_WriteAngle16` no longer drops the fraction of a degree before quantising (#42).
   - The wire format changed at the same `PROTOCOL_VERSION` 15 until #140 moved the server to `PROTOCOL_ICARO` (1015); the client still reads 15 for demos. `clc_move` carries 16-bit angles (#42), the movevars include `sv_altnoclip` (#93), and `svc_localsound` is new (#106). See "Wire format" under the fix status.
   - The QuakeC builtin table goes past index 78, with Ironwail's extension builtins (#80, #106) and two rerelease builtins (#111).
