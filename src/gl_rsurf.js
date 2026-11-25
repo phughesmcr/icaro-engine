@@ -397,6 +397,12 @@ const _cullBoxMaxs = new Float32Array( 3 ); // for R_CullBox in R_RecursiveWorld
 let _waterMeshesInScene = new Set();
 let _waterMeshesThisFrame = new Set();
 
+// Surfaces holding a cached water or sky geometry (EmitWaterPolysQuake,
+// EmitSkyPolysQuake). The renderer keeps a geometry's GL buffers until
+// dispose(), so GL_BuildLightmaps disposes them all, not just the meshes
+// still in the scene at the map change.
+const _turbSkySurfaces = new Set();
+
 // Water/sky material caches: texture -> material (avoid per-frame material creation)
 const _waterMaterialCache = new Map();
 
@@ -1029,10 +1035,36 @@ function EmitWaterPolysQuake( fa, time ) {
 
 		cached = { geometry, vertexCount };
 		fa._waterGeoCache = cached;
+		_turbSkySurfaces.add( fa );
 
 	}
 
 	return cached.geometry;
+
+}
+
+/*
+================
+R_DisposeTurbSkyGeometry
+
+Disposes every cached water and sky geometry and drops the caches, so a
+surface that is drawn again rebuilds its geometry.
+================
+*/
+function R_DisposeTurbSkyGeometry() {
+
+	for ( const fa of _turbSkySurfaces ) {
+
+		if ( fa._waterGeoCache ) fa._waterGeoCache.geometry.dispose();
+		if ( fa._skyGeoCache ) fa._skyGeoCache.geometry.dispose();
+		if ( fa._skyGeoCache2 ) fa._skyGeoCache2.geometry.dispose();
+		fa._waterGeoCache = null;
+		fa._skyGeoCache = null;
+		fa._skyGeoCache2 = null;
+
+	}
+
+	_turbSkySurfaces.clear();
 
 }
 
@@ -1110,6 +1142,7 @@ function EmitSkyPolysQuake( fa, layer ) {
 
 		cached = { geometry, vertexCount };
 		fa[ cacheKey ] = cached;
+		_turbSkySurfaces.add( fa );
 
 	}
 
@@ -3181,6 +3214,8 @@ export function GL_BuildLightmaps() {
 
 	_waterMeshesInScene = new Set();
 	_waterMeshesThisFrame = new Set();
+	R_DisposeTurbSkyGeometry();
+	for ( const mat of _waterMaterialCache.values() ) mat.dispose();
 	_waterMaterialCache.clear();
 
 	// Clear brush entity material cache (dispose old materials first)

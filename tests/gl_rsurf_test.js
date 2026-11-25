@@ -658,3 +658,60 @@ Deno.test( 'underwater surfaces get their own unculled world batches', () => {
 	assertEqual( wetBatch.name, 'world_wbrick1_5_lm3_underwater', 'underwater batch name' );
 
 } );
+
+Deno.test( 'rebuilding lightmaps disposes water geometry no longer in the scene', () => {
+
+	const oldWorldmodel = cl.worldmodel;
+	const oldModels = cl.model_precache.slice();
+	const oldFrame = gl_rmain.r_framecount;
+	const surface = {
+		flags: gl_rmain.SURF_DRAWTURB,
+		polys: {
+			next: null,
+			numverts: 3,
+			verts: [ [ 0, 0, 0, 0, 0 ], [ 64, 0, 0, 1, 0 ], [ 0, 64, 0, 0, 1 ] ]
+		},
+		texinfo: {
+			texture: { anim_total: 0, gl_texture: { id: 987655 } }
+		}
+	};
+
+	try {
+
+		cl.worldmodel = {
+			numleafs: 0,
+			leafs: [],
+			firstmodelsurface: 0,
+			nummodelsurfaces: 0,
+			numsurfaces: 0,
+			surfaces: []
+		};
+		cl.model_precache.fill( null );
+		gl_rsurf.GL_BuildLightmaps();
+
+		gl_rsurf.R_DrawSequentialPoly( surface );
+		const geometry = surface._waterGeoCache.geometry;
+		let disposed = 0;
+		geometry.dispose = () => disposed ++;
+
+		// Off screen at the map change: R_CleanupWaterMeshes took it out
+		const mesh = surface._waterMesh;
+		mesh.parent.remove( mesh );
+		let materialDisposed = 0;
+		mesh.material.dispose = () => materialDisposed ++;
+
+		gl_rsurf.GL_BuildLightmaps();
+		assertEqual( disposed, 1, 'geometry disposed once' );
+		assertEqual( materialDisposed, 1, 'cached water material disposed' );
+		assertEqual( surface._waterGeoCache, null, 'geometry cache dropped' );
+
+	} finally {
+
+		gl_rsurf.GL_BuildLightmaps();
+		cl.worldmodel = oldWorldmodel;
+		cl.model_precache.splice( 0, cl.model_precache.length, ...oldModels );
+		gl_rmain.set_r_framecount( oldFrame );
+
+	}
+
+} );

@@ -219,6 +219,7 @@ export class BufferGeometry {
 	}
 	computeBoundingBox() {}
 	computeBoundingSphere() {}
+	computeVertexNormals() {}
 	dispose() {}
 }
 
