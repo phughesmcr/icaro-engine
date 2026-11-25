@@ -99,6 +99,20 @@ export const SURF_DRAWTURB = 0x10;
 export const SURF_DRAWTILED = 0x20;
 export const SURF_DRAWBACKGROUND = 0x40;
 export const SURF_UNDERWATER = 0x80;
+// Deliberate deviation, from QuakeSpasm (gl_model.h): which liquid a
+// SURF_DRAWTURB surface is, so gl_rsurf.js can give lava, slime and
+// teleporters their own alpha (r_lavaalpha, r_slimealpha, r_telealpha)
+export const SURF_DRAWLAVA = 0x400;
+export const SURF_DRAWSLIME = 0x800;
+export const SURF_DRAWTELE = 0x1000;
+export const SURF_DRAWWATER = 0x2000;
+
+// Deliberate deviation, from QuakeSpasm (gl_rmain.c): per-liquid alpha.
+// 0 means "use r_wateralpha", so the defaults keep GLQuake's look. QS
+// registers them in R_Init (gl_rmisc.c); here Mod_Init does.
+export const r_lavaalpha = { name: 'r_lavaalpha', string: '0', value: 0 };
+export const r_slimealpha = { name: 'r_slimealpha', string: '0', value: 0 };
+export const r_telealpha = { name: 'r_telealpha', string: '0', value: 0 };
 
 // ============================================================================
 // Plane sides
@@ -832,6 +846,9 @@ function R_InitSky( tx ) {
 export function Mod_Init() {
 
 	Cvar_RegisterVariable( gl_subdivide_size );
+	Cvar_RegisterVariable( r_lavaalpha );
+	Cvar_RegisterVariable( r_slimealpha );
+	Cvar_RegisterVariable( r_telealpha );
 	mod_novis.fill( 0xff );
 
 }
@@ -1835,6 +1852,22 @@ function CalcSurfaceExtents( s ) {
 }
 
 // ============================================================================
+// Mod_LiquidFlagFromName
+//
+// Deliberate deviation, from Ironwail (gl_model.c Mod_TextureTypeFromName,
+// liquids only): which SURF_DRAW* liquid flag a '*' texture gets.
+// ============================================================================
+
+export function Mod_LiquidFlagFromName( texname ) {
+
+	if ( texname.startsWith( 'lava', 1 ) ) return SURF_DRAWLAVA;
+	if ( texname.startsWith( 'slime', 1 ) ) return SURF_DRAWSLIME;
+	if ( texname.startsWith( 'tele', 1 ) ) return SURF_DRAWTELE;
+	return SURF_DRAWWATER;
+
+}
+
+// ============================================================================
 // Mod_LoadFaces
 // ============================================================================
 
@@ -1899,6 +1932,7 @@ function Mod_LoadFaces( fileofs, filelen ) {
 		if ( s.texinfo.texture && s.texinfo.texture.name.charAt( 0 ) === '*' ) {
 
 			s.flags |= ( SURF_DRAWTURB | SURF_DRAWTILED );
+			s.flags |= Mod_LiquidFlagFromName( s.texinfo.texture.name );
 			for ( let i = 0; i < 2; i ++ ) {
 
 				s.extents[ i ] = 16384;
