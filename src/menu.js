@@ -2182,9 +2182,12 @@ function M_Menu_Advanced_f() {
 
 }
 
-function M_Advanced_DrawHeader( title ) {
+// The pages leave out the Quake plaque, as the Keys menu does: their
+// labels reach x 16, where the plaque is drawn
+function M_Advanced_DrawHeader( title, plaque ) {
 
-	M_DrawTransPic( 16, 4, _Draw_CachePic( 'gfx/qplaque.lmp' ) );
+	if ( plaque === true )
+		M_DrawTransPic( 16, 4, _Draw_CachePic( 'gfx/qplaque.lmp' ) );
 	const p = _Draw_CachePic( 'gfx/p_option.lmp' );
 	M_DrawPic( ( 320 - ( p ? p.width : 0 ) ) / 2, 4, p );
 	M_PrintWhite( ( 320 - title.length * 8 ) >> 1, 32, title );
@@ -2195,7 +2198,7 @@ function M_Advanced_Draw() {
 
 	if ( ! _Draw_CachePic ) return;
 
-	M_Advanced_DrawHeader( 'Advanced' );
+	M_Advanced_DrawHeader( 'Advanced', true );
 
 	for ( let i = 0; i < advancedPages.length; i ++ ) {
 
@@ -2292,7 +2295,7 @@ function M_AdvPage_Draw() {
 
 	if ( ! _Draw_CachePic ) return;
 
-	M_Advanced_DrawHeader( advancedPages[ adv_page ].title );
+	M_Advanced_DrawHeader( advancedPages[ adv_page ].title, false );
 
 	if ( adv_scroll > 0 )
 		M_DrawEllipsisBar( 0, ADV_TOP - 8, 40 );
