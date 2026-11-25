@@ -843,10 +843,13 @@ export function DrawGLPoly( p, planeNormal ) {
 	const verts = p.verts;
 	const numTriangles = numverts - 2;
 
-	const positions = new Float32Array( numTriangles * 3 * 3 );
-	const normals = new Float32Array( numTriangles * 3 * 3 );
-	const uvs = new Float32Array( numTriangles * 3 * 2 );
-	const lmUvs = new Float32Array( numTriangles * 3 * 2 );
+	// One buffer for the four attribute arrays: a big map builds tens of
+	// thousands of these, and one allocation costs less than four.
+	const slab = new ArrayBuffer( numTriangles * 30 * 4 );
+	const positions = new Float32Array( slab, 0, numTriangles * 9 );
+	const normals = new Float32Array( slab, numTriangles * 36, numTriangles * 9 );
+	const uvs = new Float32Array( slab, numTriangles * 72, numTriangles * 6 );
+	const lmUvs = new Float32Array( slab, numTriangles * 96, numTriangles * 6 );
 
 	// Use plane normal for flat shading (BSP surfaces are planar)
 	const nx = planeNormal ? planeNormal[ 0 ] : 0;
@@ -3300,23 +3303,26 @@ export function R_CollectWorldBatchGroups( worldmodel, surfaceToLeaves ) {
 		const isMirrorTexture = R_IsMirrorTexture( t );
 
 		const lmNum = surf.lightmaptexturenum;
-		const texKey = ( t._buildId || ( t._buildId = ++ _batchBuildId ) ) + '_' + lmNum +
-			( underwater ? '_underwater' : '' );
+		// numeric key (texture id, lightmap block < 2^20, underwater bit): no
+		// string built per surface
+		const texKey = ( t._buildId || ( t._buildId = ++ _batchBuildId ) ) * 2097152 + lmNum * 2 +
+			( underwater ? 1 : 0 );
 
-		if ( ! batchGroups.has( texKey ) ) {
+		let group = batchGroups.get( texKey );
+		if ( group === undefined ) {
 
-			batchGroups.set( texKey, {
+			group = {
 				texture: t,
 				lmNum: lmNum,
 				underwater: underwater,
 				totalVerts: 0,
 				totalGeoms: 0,
 				surfaceData: []
-			} );
+			};
+			batchGroups.set( texKey, group );
 
 		}
 
-		const group = batchGroups.get( texKey );
 		const vertCount = geom.getAttribute( 'position' ).count;
 
 		group.totalVerts += vertCount;
