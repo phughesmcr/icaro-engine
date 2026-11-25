@@ -883,12 +883,11 @@ export function Draw_TransPicTranslate( x, y, pic, translation ) {
 		for ( let u = 0; u < 64; u ++ ) {
 
 			const srcCol = ( u * srcW ) >> 6;
-			let p = menuplyr_pixels[ srcRow + srcCol ];
+			const p = menuplyr_pixels[ srcRow + srcCol ];
 
-			// Apply translation table
-			p = translation[ p ];
-
-			// C: dest[u] = p for 255, i.e. the bytes ( 255, 0, 0, 0 ): alpha 0
+			// C tests the source pixel before translating (gl_draw.c
+			// Draw_TransPicTranslate): dest[u] = p for 255, i.e. the bytes
+			// ( 255, 0, 0, 0 ), alpha 0; otherwise d_8to24table[ translation[ p ] ]
 			if ( p === 255 ) {
 
 				dest[ ( v * 64 + u ) * 4 ] = 255;
@@ -898,7 +897,7 @@ export function Draw_TransPicTranslate( x, y, pic, translation ) {
 
 			} else {
 
-				const rgba = pal[ p ];
+				const rgba = pal[ translation[ p ] ];
 				dest[ ( v * 64 + u ) * 4 ] = rgba & 0xff;
 				dest[ ( v * 64 + u ) * 4 + 1 ] = ( rgba >> 8 ) & 0xff;
 				dest[ ( v * 64 + u ) * 4 + 2 ] = ( rgba >> 16 ) & 0xff;
