@@ -365,13 +365,18 @@ results choose between A and B, and confirm mobile joining.
 PRs 2 and 4 can be developed in parallel. 3 needs 2 for an end-to-end test,
 and 5 needs 2–4.
 
-## Decisions for the maintainer
+## Decisions
+
+Decided by the maintainer on 2026-11-25:
 
 - **Hosting rule for v1:** the host keeps the tab in front, phones included.
-  Acceptable, or should B or C come first?
-- **TURN:** create a Cloudflare Realtime TURN key. If it asks for a billing
-  method, is that acceptable for a free allowance of 1,000 GB a month? The
-  alternative is STUN only, which leaves some mobile players unable to join.
+  A Worker or a desktop host (B or C) comes later, if at all.
+- **TURN:** the maintainer will create the Cloudflare Realtime TURN key,
+  including a billing method if it asks for one. The lobby Worker holds the
+  key's token as a secret; no agent creates keys or accounts.
+
+Still open:
+
 - **Room listing:** a public list of browser-hosted rooms, or codes only
   (private by default, nothing to moderate)?
 - **Snapshot rate:** the 20 Hz cap for joiners proposed above, or the C's
