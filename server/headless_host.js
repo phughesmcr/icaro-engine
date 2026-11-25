@@ -123,7 +123,8 @@ function memoryStorage() {
 /**
  * Installs the browser globals Host_Init and the frame loop reach for: a
  * window and document with fake elements, and an in-memory localStorage.
- * An existing window or document is kept.
+ * An existing window or document is kept. localStorage is always replaced,
+ * since Deno's own persists to disk.
  */
 export function headless_install_globals() {
 	Object.defineProperty(globalThis, 'localStorage', { value: memoryStorage(), configurable: true, writable: true });
@@ -231,7 +232,8 @@ export async function headless_wait_signon(max_frames = 1000, dt = HEADLESS_FRAM
  * Starts a new game on the named map and resolves, with the number of frames
  * run, once the client has signed on to it. The signon count has to drop
  * first, so a client already in a level doesn't count as ready on the old
- * one while the map file is fetched. Rejects after max_frames (a missing map,
+ * one while the map file is fetched. That relies on signon taking more than
+ * one frame, as it does over loopback (one signon reply per frame). Rejects after max_frames (a missing map,
  * or a Host_Error while spawning, which the frame loop prints and swallows).
  */
 export async function headless_map(name, max_frames = 1000, dt = HEADLESS_FRAMETIME) {
