@@ -48,6 +48,13 @@ import {
 	WS_IsWebSocketURL, WS_ToWebSocketURL, WS_DefaultServer, WS_ServerBase, WS_RoomURL,
 	WS_PageIsLocal
 } from './net_websocket.js';
+import {
+	RTC_Init, RTC_Shutdown, RTC_Listen,
+	RTC_SearchForHosts, RTC_Connect, RTC_CheckNewConnections,
+	RTC_QGetMessage, RTC_QSendMessage, RTC_SendUnreliableMessage,
+	RTC_CanSendMessage, RTC_CanSendUnreliableMessage, RTC_Close,
+	RTC_SetDriverLevel, RTC_IsRoomAddress
+} from './net_webrtc.js';
 
 import { MAX_SCOREBOARD } from './quakedef.js';
 
@@ -62,6 +69,7 @@ export function set_listening( state ) { listening = state; }
 // (see NET_Init). The game server replaces these slots with its own drivers.
 let net_wtdriverlevel = - 1;
 let net_wsdriverlevel = - 1;
+let net_rtcdriverlevel = - 1;
 
 let slistStartTime = 0;
 let slistLastShown = 0;
@@ -463,6 +471,21 @@ export function NET_Connect( host ) {
 			}
 
 		}
+
+	}
+
+	// rtc:<ROOMCODE> joins a browser-hosted room over WebRTC
+	if ( RTC_IsRoomAddress( host ) === true ) {
+
+		if ( _NET_DriverReady( net_rtcdriverlevel ) === false ) {
+
+			Con_Printf( 'NET_Connect: WebRTC not available for remote connection\n' );
+			return null;
+
+		}
+
+		set_net_driverlevel( net_rtcdriverlevel );
+		return net_drivers[ net_rtcdriverlevel ].Connect( host );
 
 	}
 
@@ -1155,6 +1178,30 @@ export function NET_Init() {
 		net_drivers[ d ].Close = WS_Close;
 		net_drivers[ d ].Shutdown = WS_Shutdown;
 		net_wsdriverlevel = d;
+
+	}
+
+	// Set up the WebRTC driver for browser-hosted rooms: joining one, and
+	// hosting one (see src/net_webrtc.js)
+	if ( typeof RTCPeerConnection !== 'undefined' ) {
+
+		const d = net_numdrivers;
+		set_net_numdrivers( d + 1 );
+		net_drivers[ d ].name = 'WebRTC';
+		net_drivers[ d ].Init = RTC_Init;
+		net_drivers[ d ].Listen = RTC_Listen;
+		net_drivers[ d ].SearchForHosts = RTC_SearchForHosts;
+		net_drivers[ d ].Connect = RTC_Connect;
+		net_drivers[ d ].CheckNewConnections = RTC_CheckNewConnections;
+		net_drivers[ d ].QGetMessage = RTC_QGetMessage;
+		net_drivers[ d ].QSendMessage = RTC_QSendMessage;
+		net_drivers[ d ].SendUnreliableMessage = RTC_SendUnreliableMessage;
+		net_drivers[ d ].CanSendMessage = RTC_CanSendMessage;
+		net_drivers[ d ].CanSendUnreliableMessage = RTC_CanSendUnreliableMessage;
+		net_drivers[ d ].Close = RTC_Close;
+		net_drivers[ d ].Shutdown = RTC_Shutdown;
+		net_rtcdriverlevel = d;
+		RTC_SetDriverLevel( d );
 
 	}
 
