@@ -214,8 +214,15 @@ and have their intensity updated each frame based on decaying radius.
 */
 export function R_RenderDlights( cl, scene ) {
 
-	if ( gl_flashblend.value === 0 )
+	if ( gl_flashblend.value === 0 ) {
+
+		// C draws nothing here and has nothing to undo. The port's
+		// PointLights stay in the scene until removed, so take out any left
+		// from frames drawn with gl_flashblend 1.
+		R_RemoveDlights();
 		return;
+
+	}
 
 	r_dlightframecount = r_framecount + 1;
 
@@ -252,6 +259,19 @@ export function R_RenderDlights( cl, scene ) {
 			}
 
 		}
+
+	}
+
+}
+
+// Not in C: removes every pooled PointLight from its scene.
+export function R_RemoveDlights() {
+
+	for ( let i = 0; i < _dlightPool.length; i ++ ) {
+
+		const light = _dlightPool[ i ];
+		if ( light != null && light.parent != null )
+			light.parent.remove( light );
 
 	}
 
