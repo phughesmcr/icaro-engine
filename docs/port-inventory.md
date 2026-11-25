@@ -207,9 +207,13 @@ own fix PR.
 - **Seen:** a new player gets a crosshair. Turning it off in Options isn't
   remembered across sessions.
 
-- **Status: partly fixed.** `crosshair` defaults to `"0"` and is archived.
-  Still different: the `cl_crossx`/`cl_crossy` offset and the hiding during
-  demos (`src/gl_screen.js`).
+- **Status: fixed.** `crosshair` defaults to `"0"` and is archived.
+  `SCR_DrawCrosshair` (`src/gl_screen.js`) draws it at the centre of
+  `scr_vrect`, during demos too, and doesn't read `cl_crossx`/`cl_crossy`.
+  Their Crosshair X/Y rows left the Advanced Options page.
+  Two FitzQuake/Ironwail deviations stay, commented there: the glyph is
+  centred on that point (C puts its top-left corner there), and it is
+  hidden during intermission.
 
 ### G6 · 2D UI scale differs from GLQuake's 640-wide console — **low-medium**
 

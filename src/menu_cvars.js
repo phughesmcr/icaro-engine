@@ -28,8 +28,6 @@ export const advancedPages = [
 			{ label: 'Show FPS', cvar: 'scr_showfps' },
 			{ label: 'Show clock', cvar: 'scr_clock' },
 			{ label: 'Max FPS', cvar: 'host_maxfps', values: [ 30, 60, 72, 90, 120, 144, 240 ] },
-			{ label: 'Crosshair X', cvar: 'cl_crossx', min: - 32, max: 32, step: 4 },
-			{ label: 'Crosshair Y', cvar: 'cl_crossy', min: - 32, max: 32, step: 4 },
 			{ label: 'Notify time', cvar: 'con_notifytime', min: 0, max: 10, step: 1 },
 			{ label: 'Center msg time', cvar: 'scr_centertime', min: 1, max: 10, step: 0.5 },
 			{ label: 'Log centerprint', cvar: 'con_logcenterprint', values: [ 0, 1, 2 ], names: [ 'off', 'not dm', 'always' ] },
