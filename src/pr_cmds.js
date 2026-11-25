@@ -1981,17 +1981,26 @@ const pr_builtin_names = [
 	'precache_sound2', 'precache_file2', 'setspawnparms',
 ];
 
-// Extension builtins, with Ironwail's numbers. Number 0 means Ironwail gives
-// it none: QuakeC declares it "= #0" and PR_InitProgsBuiltins binds it by
-// name to a free slot at the top of the table.
+// Extension builtins: Ironwail's pr_builtindefs past id's #1-#78, in its
+// order and with its numbers. Number 0 means Ironwail gives it none: QuakeC
+// declares it "= #0" and PR_InitProgsBuiltins binds it by name to a slot
+// counting down from the top of the table, in this order. Unported ones stay
+// PF_Fixme, so calling them is "unimplemented builtin", as in Ironwail.
 const pr_extbuiltins = [
 	[ 'sin', PF_Sin, 60 ],					// float(float angle)
 	[ 'cos', PF_Cos, 61 ],					// float(float angle)
 	[ 'sqrt', PF_Sqrt, 62 ],				// float(float value)
 	[ 'etos', PF_etos, 65 ],				// string(entity ent)
 	[ 'finaleFinished', PF_finalefinished, 79 ],	// float() (2021 re-release)
-	// #80 localsound (2021 re-release) is not ported: it needs a client message
+	[ 'localsound', PF_Fixme, 80 ],			// not ported: needs a client message
 	[ 'stof', PF_stof, 81 ],				// float(string)
+	[ 'ex_centerprint', PF_centerprint, 0 ],	// void(entity client, string s, ...)
+	[ 'ex_bprint', PF_bprint, 0 ],			// void(string s, ...)
+	[ 'ex_sprint', PF_sprint, 0 ],			// void(entity client, string s, ...)
+	[ 'ex_finalefinished', PF_finalefinished, 0 ],	// float()
+	[ 'ex_CheckPlayerEXFlags', PF_Fixme, 0 ],	// not ported
+	[ 'ex_walkpathtogoal', PF_Fixme, 0 ],	// not ported
+	[ 'ex_localsound', PF_Fixme, 0 ],		// not ported
 	[ 'min', PF_min, 94 ],					// float(float a, float b, ...)
 	[ 'max', PF_max, 95 ],					// float(float a, float b, ...)
 	[ 'bound', PF_bound, 96 ],				// float(float minimum, float val, float maximum)
@@ -2003,12 +2012,44 @@ const pr_extbuiltins = [
 	[ 'stov', PF_stov, 117 ],				// vector(string s)
 	[ 'strzone', PF_strzone, 118 ],			// string(string s, ...)
 	[ 'strunzone', PF_strunzone, 119 ],		// void(string s)
+	[ 'str2chr', PF_Fixme, 222 ],			// not ported
+	[ 'chr2str', PF_Fixme, 223 ],			// not ported
+	[ 'strconv', PF_Fixme, 224 ],			// not ported
+	[ 'clientstat', PF_Fixme, 232 ],		// not ported
 	[ 'mod', PF_mod, 245 ],					// float(float a, float n)
 	[ 'ftoi', PF_ftoi, 0 ],					// int(float)
 	[ 'itof', PF_itof, 0 ],					// float(int)
+	[ 'checkcommand', PF_Fixme, 294 ],		// not ported
+	// #316-#352 are CSQC-only in Ironwail: names bound, server slots PF_Fixme
+	[ 'iscachedpic', PF_Fixme, 316 ],
+	[ 'precache_pic', PF_Fixme, 317 ],
+	[ 'drawgetimagesize', PF_Fixme, 318 ],
+	[ 'drawcharacter', PF_Fixme, 320 ],
+	[ 'drawrawstring', PF_Fixme, 321 ],
+	[ 'drawpic', PF_Fixme, 322 ],
+	[ 'drawfill', PF_Fixme, 323 ],
+	[ 'drawsetcliparea', PF_Fixme, 324 ],
+	[ 'drawresetcliparea', PF_Fixme, 325 ],
+	[ 'drawstring', PF_Fixme, 326 ],
+	[ 'stringwidth', PF_Fixme, 327 ],
+	[ 'drawsubpic', PF_Fixme, 328 ],
+	[ 'getstati', PF_Fixme, 330 ],
+	[ 'getstatf', PF_Fixme, 331 ],
+	[ 'getstats', PF_Fixme, 332 ],
+	[ 'getplayerkeyvalue', PF_Fixme, 348 ],
+	[ 'getplayerkeyfloat', PF_Fixme, 0 ],
+	[ 'registercommand', PF_Fixme, 352 ],
+	[ 'vectorvectors', PF_Fixme, 432 ],		// not ported
+	[ 'clientcommand', PF_Fixme, 440 ],		// not ported
 	[ 'tokenize', PF_Tokenize, 441 ],		// float(string s)
 	[ 'argv', PF_ArgV, 442 ],				// string(float n)
 	[ 'argc', PF_ArgC, 0 ],					// float()
+	[ 'asin', PF_Fixme, 471 ],				// not ported
+	[ 'acos', PF_Fixme, 472 ],				// not ported
+	[ 'atan', PF_Fixme, 473 ],				// not ported
+	[ 'atan2', PF_Fixme, 474 ],				// not ported
+	[ 'tan', PF_Fixme, 475 ],				// not ported
+	[ 'tokenize_console', PF_Fixme, 514 ],	// not ported
 	[ 'sprintf', PF_sprintf, 627 ],			// string(string fmt, ...)
 ];
 

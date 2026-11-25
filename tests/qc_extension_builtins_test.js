@@ -245,6 +245,11 @@ Deno.test( 'strzone keeps a string until strunzone, which recycles its block', (
 		pr_builtins[ 119 ]();
 		assertEqual( printed.some( ( m ) => m.includes( 'wasn\'t strzoned' ) ), true, 'warns for a string that was not zoned' );
 
+		// growing the string table keeps zoned strings
+		str( 'z'.repeat( pr_strings_data.length + 10 ) );
+		assertEqual( PR_GetString( a ), 'xyz', 'zoned string survives table growth' );
+		assertEqual( PR_GetString( b ), 'a much longer string than before', 'appended zone block survives table growth' );
+
 		printed.length = 0;
 		pr_globals_int[ OFS_PARM0 ] = b;
 		pr_builtins[ 119 ]();
@@ -262,7 +267,7 @@ Deno.test( 'strzone keeps a string until strunzone, which recycles its block', (
 Deno.test( 'tokenize, argv and argc', () => {
 
 	const restore = setup();
-	const argcNumber = 1280 - 2 - 2; // third numberless builtin, after ftoi and itof
+	const argcNumber = 1268; // Ironwail's eleventh numberless builtin
 
 	try {
 
@@ -294,10 +299,10 @@ Deno.test( 'ftoi and itof convert between float and int bits', () => {
 
 	try {
 
-		call( 1278, - 7.9 );
+		call( 1271, - 7.9 ); // ftoi
 		assertEqual( pr_globals_int[ OFS_RETURN ], - 7, 'ftoi truncates' );
 		pr_globals_int[ OFS_PARM0 ] = 12;
-		pr_builtins[ 1277 ]();
+		pr_builtins[ 1270 ](); // itof
 		assertEqual( retF(), 12, 'itof' );
 
 	} finally {
@@ -359,6 +364,14 @@ Deno.test( 'sprintf formats as C printf', () => {
 		assertEqual( retS(), 'a', 'bad directive stops the output' );
 		call( 627, '%s', 'x'.repeat( 2000 ) );
 		assertEqual( retS().length, STRINGTEMP_LENGTH - 1, 'output cut to the temp buffer' );
+		call( 627, '%*d|', 2000000000, 5 );
+		assertEqual( retS(), ' '.repeat( STRINGTEMP_LENGTH - 1 ), 'huge width is cut, not thrown' );
+		call( 627, '%-2000000000d|', 5 );
+		assertEqual( retS(), '5' + ' '.repeat( STRINGTEMP_LENGTH - 2 ), 'huge left-justified width' );
+		call( 627, '%.2000000000f', 5.5 );
+		assertEqual( retS(), '5.5' + '0'.repeat( STRINGTEMP_LENGTH - 4 ), 'huge precision' );
+		call( 627, '%.2000000000e', 5.5 );
+		assertEqual( retS(), '5.5' + '0'.repeat( STRINGTEMP_LENGTH - 4 ), 'huge %e precision' );
 
 	} finally {
 
@@ -453,7 +466,7 @@ Deno.test( 'PR_InitProgsBuiltins binds "= #0" functions by name', () => {
 
 	try {
 
-		const names = [ 'ftoi', 'sin', 'makevectors', 'not_a_builtin', 'strlen' ];
+		const names = [ 'ftoi', 'sin', 'makevectors', 'not_a_builtin', 'strlen', 'localsound', 'ex_bprint' ];
 		const functions = [ makeFunction( 0 ) ];
 		for ( const name of names )
 			functions.push( makeFunction( 0, str( name ) ) );
@@ -462,12 +475,15 @@ Deno.test( 'PR_InitProgsBuiltins binds "= #0" functions by name', () => {
 
 		PR_InitProgsBuiltins();
 
-		assertEqual( functions[ 1 ].first_statement, - 1278, 'ftoi' );
+		assertEqual( functions[ 1 ].first_statement, - 1271, 'ftoi' );
 		assertEqual( functions[ 2 ].first_statement, - 60, 'sin' );
 		assertEqual( functions[ 3 ].first_statement, - 1, 'makevectors' );
 		assertEqual( functions[ 4 ].first_statement, 0, 'unknown name' );
 		assertEqual( functions[ 5 ].first_statement, 0, 'function with locals' );
-		assertEqual( pr_builtins[ 1278 ] !== pr_builtins[ 0 ], true, 'slot 1278 is a real builtin' );
+		assertEqual( functions[ 6 ].first_statement, - 80, 'unported localsound is bound to its slot' );
+		assertEqual( pr_builtins[ 80 ], pr_builtins[ 0 ], 'localsound slot is PF_Fixme' );
+		assertEqual( functions[ 7 ].first_statement, - 1277, 'ex_bprint' );
+		assertEqual( pr_builtins[ 1277 ], pr_builtins[ 23 ], 'ex_bprint is bprint' );
 
 	} finally {
 

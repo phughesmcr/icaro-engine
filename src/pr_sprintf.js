@@ -34,13 +34,25 @@ function Q_FloatToUint( f ) {
 
 }
 
+// C formats into a fixed buffer, so a huge width or precision is just cut
+// off. A run longer than any output buffer leaves nothing after it visible,
+// so cap each run here rather than build a string of that size (or throw
+// RangeError past the JS string limit).
+const FILL_MAX = 65536;
+
+function fill( ch, n ) {
+
+	return ch.repeat( Math.min( n, FILL_MAX ) );
+
+}
+
 function pad( s, width, flags ) {
 
 	if ( s.length >= width )
 		return s;
 	if ( flags & PRINTF_LEFT )
-		return s + ' '.repeat( width - s.length );
-	return ' '.repeat( width - s.length ) + s;
+		return s + fill( ' ', width - s.length );
+	return fill( ' ', width - s.length ) + s;
 
 }
 
@@ -49,7 +61,7 @@ function padNumber( sign, prefix, digits, width, flags, zeroAllowed ) {
 
 	const len = sign.length + prefix.length + digits.length;
 	if ( ( flags & PRINTF_ZEROPAD ) && ! ( flags & PRINTF_LEFT ) && zeroAllowed && len < width )
-		return sign + prefix + '0'.repeat( width - len ) + digits;
+		return sign + prefix + fill( '0', width - len ) + digits;
 	return pad( sign + prefix + digits, width, flags );
 
 }
@@ -70,10 +82,10 @@ function signOf( negative, flags ) {
 function fixedDigits( v, prec ) {
 
 	if ( v >= 1e21 ) // toFixed switches to exponent form; doubles this big are integers
-		return BigInt( v ).toString() + ( prec > 0 ? '.' + '0'.repeat( prec ) : '' );
+		return BigInt( v ).toString() + ( prec > 0 ? '.' + fill( '0', prec ) : '' );
 	if ( prec <= MAX_JS_DIGITS )
 		return v.toFixed( prec );
-	return v.toFixed( MAX_JS_DIGITS ) + '0'.repeat( prec - MAX_JS_DIGITS );
+	return v.toFixed( MAX_JS_DIGITS ) + fill( '0', prec - MAX_JS_DIGITS );
 
 }
 
@@ -85,7 +97,7 @@ function expDigits( v, prec, upper ) {
 	const e = s.indexOf( 'e' );
 	let mant = s.slice( 0, e );
 	if ( prec > p )
-		mant += '0'.repeat( prec - p );
+		mant += fill( '0', prec - p );
 	const exp = parseInt( s.slice( e + 1 ), 10 );
 	const expAbs = Math.abs( exp );
 	s = mant + ( upper ? 'E' : 'e' ) + ( exp < 0 ? '-' : '+' ) + ( expAbs < 10 ? '0' : '' ) + expAbs;
@@ -230,7 +242,7 @@ export function Q_FormatInt( conv, flags, width, precision, v ) {
 	if ( precision === 0 && v === 0 )
 		digits = '';
 	if ( precision > digits.length )
-		digits = '0'.repeat( precision - digits.length ) + digits;
+		digits = fill( '0', precision - digits.length ) + digits;
 
 	if ( flags & PRINTF_ALTERNATE ) {
 
