@@ -156,6 +156,22 @@ Deno.test( 'Host_PageHide: a listen server sends svc_disconnect to its players; 
 		quiet( () => host.Host_PageHide() );
 		assertEqual( sent.length, 0, 'no server, nothing sent' );
 
+		// A backed-up connection: a closing tab tries once instead of waiting
+		// 3 s for the flush and 5 s in NET_SendToAll
+		driver.CanSendMessage = () => false;
+		closed = 0;
+		svs.maxclients = 4;
+		svs.clients = [ remotePlayer(), new client_t(), new client_t(), new client_t() ];
+		const stuck = svs.clients[ 0 ];
+		stuck.message.cursize = 1; // a pending message the flush loop can't send
+		sv.active = true;
+		const stuckStart = performance.now();
+		quiet( () => host.Host_PageHide() );
+		assertEqual( performance.now() - stuckStart < 1000, true, 'no wait on a backed-up connection' );
+		assertEqual( sv.active, false, 'server shut down' );
+		assertEqual( closed, 1, 'connection closed' );
+		assertEqual( stuck.active, false, 'player dropped' );
+
 	} finally {
 
 		net.set_net_activeSockets( null );

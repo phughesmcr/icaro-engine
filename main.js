@@ -45,10 +45,11 @@ const PARTICLES_ARG = /^[0-9]+$/;
 const PARTICLES_URL_MAX = 262144;
 
 // ?listen=<n> stands in for -listen <n> (host.c Host_FindMaxClients): this
-// tab can host n players (MAX_SCOREBOARD, 16, caps it; 0 means 8) and starts
-// in deathmatch mode when n > 1, as the C does with the flag. ?listen with no value is
-// -listen alone, 8 players. Other values are ignored.
-const LISTEN_ARG = /^[0-9]{1,2}$/;
+// tab can host n players (MAX_SCOREBOARD, 16, caps larger values; 0 means 8)
+// and starts in deathmatch mode when n > 1, as the C does with the flag.
+// ?listen with no value is -listen alone, 8 players. Values that aren't a
+// whole number of up to three digits are ignored.
+const LISTEN_ARG = /^[0-9]{1,3}$/;
 
 // Web-only agent flags (docs/agent-interface.md): ?agent=lockstep or
 // ?agent=realtime attaches window.icaro at startup, and ?map=<name> with

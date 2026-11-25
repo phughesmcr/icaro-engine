@@ -1082,6 +1082,11 @@ This only happens at the end of a game, not between levels
 const _shutdownBuf = new Uint8Array( 4 );
 const _shutdownMsg = { allowoverflow: false, overflowed: false, data: _shutdownBuf, maxsize: 4, cursize: 0 };
 
+// Web addition: set by Host_PageHide. A closing tab can't wait up to 3 s for
+// a backed-up connection to drain and 5 s more in NET_SendToAll, so it tries
+// each send once.
+let host_shutdown_nowait = false;
+
 export function Host_ShutdownServer( crash ) {
 
 	if ( sv.active === false )
@@ -1120,7 +1125,7 @@ export function Host_ShutdownServer( crash ) {
 
 		}
 
-		if ( ( Sys_FloatTime() - start ) > 3.0 )
+		if ( ( Sys_FloatTime() - start ) > ( host_shutdown_nowait === true ? 0 : 3.0 ) )
 			break;
 
 	} while ( count > 0 );
@@ -1128,7 +1133,7 @@ export function Host_ShutdownServer( crash ) {
 	// make sure all the clients know we're disconnecting
 	_shutdownMsg.cursize = 0;
 	MSG_WriteByte( _shutdownMsg, svc_disconnect );
-	count = NET_SendToAll( _shutdownMsg, 5 );
+	count = NET_SendToAll( _shutdownMsg, host_shutdown_nowait === true ? 0 : 5 );
 	if ( count > 0 )
 		Con_Printf( 'Host_ShutdownServer: NET_SendToAll failed for ' + count + ' clients\n' );
 
@@ -1157,13 +1162,28 @@ Web addition. A listen server's tab going away ends its game as quitting
 does (Host_Quit_f -> CL_Disconnect -> Host_ShutdownServer), so the other
 players get svc_disconnect instead of waiting out net_messagetimeout. A
 page that is going away may not flush what it sends; joiners then see
-their connection close. Single player has no one to tell.
+their connection close. Single player has no one to tell. Each send is
+tried once, with no waiting, so closing the tab doesn't hang. pagehide also
+fires when the page enters the back-forward cache; ending the game then is
+deliberate, since a frozen page can't serve its players.
 ==================
 */
 export function Host_PageHide() {
 
-	if ( sv.active === true && svs.maxclients > 1 )
-		Host_ShutdownServer( false );
+	if ( sv.active === true && svs.maxclients > 1 ) {
+
+		host_shutdown_nowait = true;
+		try {
+
+			Host_ShutdownServer( false );
+
+		} finally {
+
+			host_shutdown_nowait = false;
+
+		}
+
+	}
 
 }
 

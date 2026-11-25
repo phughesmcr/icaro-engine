@@ -1,12 +1,12 @@
 // Web addition: the game rules a multiplayer room applies before its map
 // spawns. server/game_server.js uses them for lobby rooms; a browser-hosted
-// room (docs/browser-hosted-rooms.md) is to use the same ones, so both kinds
-// of room behave alike. Moved here from server/game_server.js.
+// room (docs/browser-hosted-rooms.md, added in #195) is to use the same ones,
+// so both kinds of room behave alike. Moved here from server/game_server.js.
 //
 // Call these before SV_SpawnServer, while sv.active is false: noexit is a
 // server cvar, and setting it on a running server broadcasts the change.
 
-import { Con_Printf } from './common.js';
+import { Sys_Printf } from './sys.js';
 import { Cvar_RegisterVariable, Cvar_FindVar, Cvar_SetValue } from './cvar.js';
 import { deathmatch, coop, skill, teamplay, fraglimit, timelimit, samelevel, noexit } from './host.js';
 
@@ -67,7 +67,7 @@ export function Room_ApplyExitRules( options ) {
 
 	}
 
-	Con_Printf( 'Level exits: noexit %d, samelevel %d%s\n', noexit.value, samelevel.value,
+	Sys_Printf( 'Level exits: noexit %d, samelevel %d%s\n', noexit.value, samelevel.value,
 		coopRoom ? ' (co-op: exits change the map)' : ' (exits kill the player; the room keeps its map)' );
 
 }

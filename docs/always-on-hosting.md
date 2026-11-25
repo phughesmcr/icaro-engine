@@ -140,6 +140,10 @@ What the numbers say:
 
 ### Level changes: `noexit` doesn't reach QuakeC
 
+Since fixed: rooms now register `noexit` and `samelevel` before the map
+spawns (`Room_ApplyExitRules` in `src/room_rules.js`); deathmatch rooms keep
+their map and co-op rooms change level. The findings below are as measured.
+
 In three of the first matrix runs (`start` with 4 bots, e1m1 with 8 and
 16), the room stopped sending datagrams to every bot partway through. The
 cause is a level change. A bot ran into the exit, the room loaded the next
@@ -332,9 +336,8 @@ so it would need testing [unverified].
 
 ## Plan: rooms on Cloudflare Containers
 
-Each step is its own PR against `dev`, except where noted. Separately, and
-whichever option is chosen, register `noexit` in rooms (see "Level changes"
-above).
+Each step is its own PR against `dev`, except where noted. (Registering
+`noexit` in rooms, once listed here, is done; see "Level changes" above.)
 
 1. **Paid spike (needs your go-ahead: Workers Paid, $5/month).** Deploy one
    container running a room with the shareware pak and a Worker that proxies
