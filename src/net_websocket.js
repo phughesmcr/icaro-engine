@@ -188,6 +188,26 @@ export function WS_RoomURL( serverUrl, roomId ) {
 
 /*
 =============
+WS_PageIsLocal
+
+True when the page is on this machine (localhost, a loopback address, a
+file: page with no host) or there is no page at all (Deno). Such a page
+expects a local `deno task lobby`; any other page is hosted.
+=============
+*/
+export function WS_PageIsLocal() {
+
+	const loc = globalThis.location;
+	if ( loc == null || typeof loc.hostname !== 'string' || loc.hostname.length === 0 )
+		return true;
+
+	const host = loc.hostname.toLowerCase();
+	return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+
+}
+
+/*
+=============
 WS_DefaultServer
 
 The lobby to use when the page has no ?server=: see WS_DEFAULT_LOBBY_PATH.
@@ -195,14 +215,9 @@ The lobby to use when the page has no ?server=: see WS_DEFAULT_LOBBY_PATH.
 */
 export function WS_DefaultServer() {
 
+	if ( WS_PageIsLocal() ) return WS_DEFAULT_LOCAL_LOBBY;
+
 	const loc = globalThis.location;
-	if ( loc == null || typeof loc.hostname !== 'string' || loc.hostname.length === 0 )
-		return WS_DEFAULT_LOCAL_LOBBY;
-
-	const host = loc.hostname.toLowerCase();
-	if ( host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1' )
-		return WS_DEFAULT_LOCAL_LOBBY;
-
 	return ( loc.protocol === 'https:' ? 'wss://' : 'ws://' ) + loc.host + WS_DEFAULT_LOBBY_PATH;
 
 }

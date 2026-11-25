@@ -927,6 +927,87 @@ Deno.test( 'WS: URL helpers', () => {
 
 } );
 
+Deno.test( 'NET: transport choice by page', () => {
+
+	const choose = netMain.NET_ChooseWebSocket;
+	const PUBLIC = false, LOCAL = true;
+
+	// Both drivers ready, no parameters: the page's host decides
+	assertEqual( choose( true, true, null, null, LOCAL ), false, 'local page keeps WebTransport' );
+	assertEqual( choose( true, true, null, null, PUBLIC ), true, 'public page defaults to WebSocket' );
+	assertEqual( choose( true, true, null, '', PUBLIC ), true, 'empty ?server= is absent (public)' );
+	assertEqual( choose( true, true, null, '', LOCAL ), false, 'empty ?server= is absent (local)' );
+
+	// ?transport= wins everywhere
+	assertEqual( choose( true, true, 'wt', null, PUBLIC ), false, '?transport=wt on a public page' );
+	assertEqual( choose( true, true, 'ws', null, LOCAL ), true, '?transport=ws on a local page' );
+	assertEqual( choose( true, true, 'wt', 'wss://a.example/mp', PUBLIC ), false, '?transport=wt beats a wss:// ?server=' );
+	assertEqual( choose( true, true, 'ws', 'https://a.example:4433', LOCAL ), true, '?transport=ws beats an https:// ?server=' );
+
+	// Otherwise ?server='s scheme decides, on any host
+	assertEqual( choose( true, true, null, 'https://mp.example:4433', PUBLIC ), false, 'https:// lobby on a public page' );
+	assertEqual( choose( true, true, null, 'wts://mp.example:4433', PUBLIC ), false, 'wts:// lobby on a public page' );
+	assertEqual( choose( true, true, null, 'wss://mp.example/mp', PUBLIC ), true, 'wss:// lobby on a public page' );
+	assertEqual( choose( true, true, null, 'ws://127.0.0.1:4433', LOCAL ), true, 'ws:// lobby on a local page' );
+	assertEqual( choose( true, true, null, 'mp.example:4433', PUBLIC ), false, 'bare host lobby is WebTransport' );
+
+	// A missing driver overrides everything
+	assertEqual( choose( false, true, 'wt', 'https://a.example:4433', LOCAL ), true, 'no WebTransport: WebSocket' );
+	assertEqual( choose( true, false, 'ws', 'wss://a.example/mp', PUBLIC ), false, 'no WebSocket: WebTransport' );
+	assertEqual( choose( true, false, null, null, PUBLIC ), false, 'no WebSocket on a public page' );
+
+} );
+
+Deno.test( 'NET: page locality and default lobbies', () => {
+
+	const savedLocation = globalThis.location;
+	try {
+
+		const page = ( hostname, search = '', protocol = 'https:' ) => {
+
+			globalThis.location = { hostname, host: hostname, protocol, search };
+
+		};
+
+		delete globalThis.location;
+		assertEqual( client.WS_PageIsLocal(), true, 'no page is local' );
+		for ( const host of [ 'localhost', 'LOCALHOST', '127.0.0.1', '::1', '[::1]', '' ] ) {
+
+			page( host );
+			assertEqual( client.WS_PageIsLocal(), true, 'local: ' + host );
+
+		}
+
+		for ( const host of [ 'quake.example', '192.168.1.5', 'localhost.example' ] ) {
+
+			page( host );
+			assertEqual( client.WS_PageIsLocal(), false, 'public: ' + host );
+
+		}
+
+		// The public page's default WebSocket lobby is /mp on its own host,
+		// so the lobby socket is /mp/lobby and rooms /mp/room/<id>
+		page( 'quake.example' );
+		const lobby = netMain.NET_LobbyServer();
+		assertEqual( lobby, 'wss://quake.example/mp', 'public https page lobby' );
+		assertEqual( client.WS_LobbyURL( lobby ), 'wss://quake.example/mp/lobby', 'lobby socket path' );
+		assertEqual( netMain.NET_RoomURL( lobby, { id: 'R1', port: 4500 } ), 'wss://quake.example/mp/room/R1', 'room path' );
+		assertEqual( netMain.NET_LobbyJoinURL( lobby, 'R1' ), 'wss://quake.example/mp?room=R1', 'share-link join' );
+		page( 'quake.example', '', 'http:' );
+		assertEqual( netMain.NET_LobbyServer(), 'ws://quake.example/mp', 'public http page lobby' );
+		page( 'quake.example', '?server=' );
+		assertEqual( netMain.NET_LobbyServer(), 'wss://quake.example/mp', 'empty ?server= uses the default' );
+		page( 'quake.example', '?server=https://mp.example:4433' );
+		assertEqual( netMain.NET_LobbyServer(), 'https://mp.example:4433', 'self-hosted lobby kept' );
+
+	} finally {
+
+		globalThis.location = savedLocation;
+
+	}
+
+} );
+
 Deno.test( 'WS: WS_Init fails without WebSocket', async () => {
 
 	const saved = globalThis.WebSocket;
