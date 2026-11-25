@@ -12,7 +12,7 @@ import { Draw_Character, Draw_CachePic, Draw_Pic, Draw_FadeScreen, Draw_BeginFra
 import { Cvar_RegisterVariable, Cvar_Set, Cvar_SetValue, Cvar_VariableValue } from './cvar.js';
 import { Cmd_AddCommand } from './cmd.js';
 import { key_dest, key_game, key_console, key_message, Key_BeginModal, Key_ModalYes } from './keys.js';
-import { realtime, host_frametime } from './host.js';
+import { realtime, host_frametime, host_timescale } from './host.js';
 import { renderer } from './vid.js';
 import { r_refdef as _r_refdef_canonical } from './render.js';
 import { r_framecount } from './glquake.js';
@@ -634,9 +634,10 @@ export function SCR_DrawLoading() {
 /*
 ==================
 SCR_SetUpToDrawConsole
+(exported for tests)
 ==================
 */
-function SCR_SetUpToDrawConsole() {
+export function SCR_SetUpToDrawConsole() {
 
 	Con_CheckResize();
 
@@ -662,15 +663,19 @@ function SCR_SetUpToDrawConsole() {
 
 	}
 
+	// johnfitz -- host_frametime is scaled by host_timescale; undo that so the
+	// console slides at the same speed at any timescale
+	const timescale = host_timescale.value > 0 ? host_timescale.value : 1;
+
 	if ( scr_conlines < scr_con_current ) {
 
-		scr_con_current -= scr_conspeed.value * host_frametime;
+		scr_con_current -= scr_conspeed.value * host_frametime / timescale; //johnfitz -- timescale
 		if ( scr_conlines > scr_con_current )
 			scr_con_current = scr_conlines;
 
 	} else if ( scr_conlines > scr_con_current ) {
 
-		scr_con_current += scr_conspeed.value * host_frametime;
+		scr_con_current += scr_conspeed.value * host_frametime / timescale; //johnfitz -- timescale
 		if ( scr_conlines < scr_con_current )
 			scr_con_current = scr_conlines;
 

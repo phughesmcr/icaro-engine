@@ -252,6 +252,7 @@ export class client_static_t {
 		this.demorecording = false;
 		this.demoplayback = false;
 		this.timedemo = false;
+		this.demopaused = false; // Ironwail client.h: demo playback paused (cl_demo.js, host_cmd.js)
 		this.forcetrack = - 1; // -1 = use normal cd track
 		this.demofile = null; // ArrayBuffer or file handle
 		this.demodata = null; // Uint8Array for demo file data
