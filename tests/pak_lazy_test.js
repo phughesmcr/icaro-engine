@@ -113,6 +113,8 @@ Deno.test( 'COM_PakEntryIsDeferred: maps and unread rerelease files are deferred
 	assertEqual( COM_PakEntryIsDeferred( 'progs/player.mdl', 100 ), false, 'model' );
 	assertEqual( COM_PakEntryIsDeferred( 'progs/player.md5mesh', 100 ), true, 'md5' );
 	assertEqual( COM_PakEntryIsDeferred( 'vault/x.png', 100 ), true, 'vault' );
+	assertEqual( COM_PakEntryIsDeferred( 'archive/Worldcraft/ctf.wad', 100 ), true, 'ctf archive' );
+	assertEqual( COM_PakEntryIsDeferred( 'archive/ctf1.bsp', 100 ), true, 'ctf archive map' );
 
 } );
 
