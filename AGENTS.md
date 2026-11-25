@@ -12,7 +12,8 @@ process per room. It was forked from mrdoob's three-quake.
 - `src/`: the engine, shared by the browser and the Deno server. File names
   mirror the C files (`sv_phys.js` is `sv_phys.c`). Web-only additions:
   `in_web.js`, `touch.js`, `webxr.js`, `net_webtransport.js`,
-  `net_websocket.js`, `pak.js`, `menu_cvars.js`. Some files port features
+  `net_websocket.js`, `pak.js`, `menu_cvars.js`, `agent.js` (the agent API,
+  `window.icaro`; see `docs/agent-interface.md`). Some files port features
   from Ironwail or QuakeSpasm rather than id's C, and their headers cite it
   (`gl_fog.js`, `gl_sky.js`, `gl_md5.js`, `gl_entalpha.js`,
   `gl_screenwarp.js`, `image.js`, `pr_sprintf.js`, `default_cfg.js`,
@@ -50,6 +51,10 @@ process per room. It was forked from mrdoob's three-quake.
 - `docs/mobile-roadmap.md`: mobile-friendliness review (controls, rendering,
   offline, lifecycle, networking, competitive landscape) with confirmed bugs
   and a ranked roadmap. A snapshot; nothing in it was tested on a device.
+- `docs/agent-interface.md`: research and plan for making the engine
+  playable by LLM agents and RL (lockstep clock, text observations, macro
+  actions, MCP/Gymnasium adapters). Phase 1 (`src/agent.js`) is built; the
+  rest is a plan. A snapshot.
 - `tools/`: `port_inventory.py` regenerates that inventory's raw tables
   (Python, standard library only; not linted or run in CI).
   `room_bench.js` (with `room_bench_preload.js`) load-tests one room with
@@ -92,7 +97,9 @@ process per room. It was forked from mrdoob's three-quake.
 - `deno task lobby` and `deno task game` need `server/cert.pem` and
   `server/key.pem` (see `server/README.md`). Both are gitignored.
 - To run the client, serve the repo root with any static file server
-  (`python3 -m http.server`) and open `index.html`.
+  (`python3 -m http.server`) and open `index.html`. To drive it as an
+  agent, open `?agent=lockstep&map=e1m1&skill=1` and call `icaro.help()`
+  in the page.
 - CI (`.github/workflows/ci.yml`) runs on PRs to `dev` and `main`: test, lint
   and check, on the Deno version pinned in `.tool-versions`, and, in a second
   job, `tools/check_container_image.sh`. The Dockerfile pins the same Deno

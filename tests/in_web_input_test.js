@@ -2142,6 +2142,7 @@ Deno.test( 'IN: hiding the page opens the menu in single player only', async () 
 	// The menu reaches key_dest through these hooks. They match the wiring in
 	// Host_Init (src/host.js), so leaving them in place is the real app state.
 	const { M_SetExternals } = await import( '../src/menu.js' );
+	const agent = await import( '../src/agent.js' );
 	M_SetExternals( { key_dest_get: () => keys.key_dest, key_dest_set: ( v ) => keys.set_key_dest( v ) } );
 
 	// Hides the page and returns the resulting key_dest
@@ -2169,6 +2170,8 @@ Deno.test( 'IN: hiding the page opens the menu in single player only', async () 
 			assertEqual( hide( dom, () => { cls.demoplayback = true; } ), keys.key_game, 'demo keeps playing' );
 			assertEqual( hide( dom, () => { sv.active = false; } ), keys.key_game, 'no local server (remote game)' );
 			assertEqual( hide( dom, () => { keys.set_key_dest( keys.key_console ); } ), keys.key_console, 'console is left alone' );
+			assertEqual( hide( dom, () => { agent.Agent_Attach( 'lockstep' ); } ), keys.key_game, 'an attached agent keeps playing' );
+			agent.Agent_Detach();
 
 		} );
 
