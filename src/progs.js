@@ -472,8 +472,21 @@ export function EDICT_TO_PROG( e ) {
 
 }
 
+/*
+C's PROG_TO_EDICT is pointer arithmetic into an array of sv.max_edicts
+edicts, all zeroed at map load. sv.edicts grows on demand here (see
+ED_GrowEdicts), so an edict number past the allocated ones but below
+sv.max_edicts grows the array, as EDICT_NUM does, and reads a zeroed edict.
+Numbers outside [0, sv.max_edicts) still return undefined: C reads past the
+array there, and PR_ExecuteProgram turns the TypeError into a PR_RunError.
+*/
 export function PROG_TO_EDICT( e ) {
 
+	const ed = sv.edicts[ e ];
+	if ( ed !== undefined || e < sv.edicts.length || e >= sv.max_edicts )
+		return ed;
+
+	ED_GrowEdicts( e + 1 );
 	return sv.edicts[ e ];
 
 }
