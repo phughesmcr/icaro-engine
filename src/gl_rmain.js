@@ -29,7 +29,7 @@ import {
 	R_InitParticles, R_SetParticleExternals, R_ClearParticles,
 	R_DrawParticles as R_DrawParticles_impl
 } from './r_part.js';
-import { isXRActive, getXRRig, XR_SetCamera, XR_SCALE, XR_GetControllerWorldPose, XR_RenderHUD } from './webxr.js';
+import { isXRActive, getXRRig, XR_SetCamera, XR_SCALE, XR_GetControllerWorldPose, XR_RenderHUD, XR_SetupFrusta, XR_PolyBlend } from './webxr.js';
 import {
 	cl, cl_visedicts, cl_numvisedicts, cl_dlights, cl_entities,
 	cl_static_entities, cl_temp_entities, cl_lightstyle,
@@ -139,6 +139,14 @@ export const frustum = [
 	new mplane_t(), new mplane_t(), new mplane_t(), new mplane_t()
 ];
 
+// WebXR: one frustum per eye, built from the headset pose by
+// R_SetupXRFrustum. Four views covers stereo and quad-view headsets.
+const MAX_XR_VIEWS = 4;
+const r_xrfrustum = [];
+for ( let v = 0; v < MAX_XR_VIEWS; v ++ )
+	r_xrfrustum.push( [ new mplane_t(), new mplane_t(), new mplane_t(), new mplane_t() ] );
+let r_xrviews = - 1; // -1: not in XR, R_CullBox uses frustum[]
+
 export let c_brush_polys = 0;
 export let c_alias_polys = 0;
 
@@ -204,6 +212,10 @@ export let camera = null; // THREE.PerspectiveCamera
 
 export function R_CullBox( mins, maxs ) {
 
+	// WebXR: the headset's eyes, not the body (see R_SetupXRFrustum)
+	if ( r_xrviews >= 0 )
+		return R_CullBoxViews( mins, maxs, r_xrfrustum, r_xrviews );
+
 	for ( let i = 0; i < 4; i ++ ) {
 
 		if ( BoxOnPlaneSide( mins, maxs, frustum[ i ] ) === 2 )
@@ -212,6 +224,72 @@ export function R_CullBox( mins, maxs ) {
 	}
 
 	return false;
+
+}
+
+// Web addition for WebXR: true if the box is outside each of the first
+// numviews four-plane frusta in views, so a box any eye can see is kept.
+// With no views (no headset pose yet) nothing is culled.
+export function R_CullBoxViews( mins, maxs, views, numviews ) {
+
+	for ( let v = 0; v < numviews; v ++ ) {
+
+		const planes = views[ v ];
+		let outside = false;
+		for ( let i = 0; i < 4; i ++ ) {
+
+			if ( BoxOnPlaneSide( mins, maxs, planes[ i ] ) === 2 ) {
+
+				outside = true;
+				break;
+
+			}
+
+		}
+
+		if ( outside === false )
+			return false;
+
+	}
+
+	return numviews > 0;
+
+}
+
+//============================================================================
+// R_SetupXRFrustum
+//
+// Web addition for WebXR (XR-1). R_SetFrustum builds frustum[] from
+// r_refdef.viewangles, the body's view, as GLQuake does for its one camera.
+// In XR the headset looks around on its own, and culling BSP nodes and brush
+// models with the body's frustum dropped sky, water, doors and torches the
+// head could see. Runs after R_SetupGL has posed the XR rig, and points
+// R_CullBox at one frustum per eye. Outside XR it leaves R_CullBox on
+// frustum[], unchanged.
+//============================================================================
+
+export function R_SetupXRFrustum() {
+
+	if ( isXRActive() === false ) {
+
+		r_xrviews = - 1;
+		return;
+
+	}
+
+	r_xrviews = XR_SetupFrusta( r_xrfrustum );
+
+	for ( let v = 0; v < r_xrviews; v ++ ) {
+
+		for ( let i = 0; i < 4; i ++ ) {
+
+			const p = r_xrfrustum[ v ][ i ];
+			p.type = PLANE_ANYZ;
+			p.signbits = SignbitsForPlane( p );
+
+		}
+
+	}
 
 }
 
@@ -1406,6 +1484,10 @@ function R_DrawSpriteModel( e ) {
 //
 // Draws a full-screen color blend for damage flashes, powerups, etc.
 // In Three.js, we use a screen-space overlay.
+//
+// In WebXR a 2D overlay can't cover both eyes, so the blend goes to
+// XR_PolyBlend, which draws it head-locked with GLQuake's quad (see there)
+// when R_RenderView calls XR_RenderHUD.
 //============================================================================
 
 let polyBlendMesh = null;
@@ -1419,6 +1501,13 @@ export function R_PolyBlend() {
 
 	if ( v_blend[ 3 ] === 0 )
 		return;
+
+	if ( isXRActive() ) {
+
+		XR_PolyBlend( v_blend );
+		return;
+
+	}
 
 	if ( renderer == null )
 		return;
@@ -1471,6 +1560,8 @@ export function R_RenderScene() {
 	R_SetFrustum();
 
 	R_SetupGL();
+
+	R_SetupXRFrustum(); // WebXR: cull with the headset's eyes, not frustum[]
 
 	Fog_SetupFrame( scene ); // johnfitz (Ironwail R_SetupView)
 
@@ -1556,15 +1647,13 @@ export function R_RenderView() {
 	R_MirrorCleanup();
 	mirror = false;
 
-	// Draw screen blend overlay AFTER main scene (damage flash, powerups, underwater tint)
-	// Skip in XR mode — the 2D ortho overlay doesn't work with stereo rendering
-	if ( isXRActive() === false ) {
+	// Draw screen blend overlay AFTER main scene (damage flash, powerups, underwater tint).
+	// In XR this only hands v_blend to XR_RenderHUD, which draws it.
+	R_PolyBlend();
 
-		R_PolyBlend();
+	if ( isXRActive() && camera ) {
 
-	} else if ( camera ) {
-
-		// The 2D overlay quad, on top of the world and particles
+		// The blend, then the 2D overlay quad, on top of the world and particles
 		XR_RenderHUD( camera );
 
 	}
