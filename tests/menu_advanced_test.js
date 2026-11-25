@@ -280,18 +280,46 @@ Deno.test( 'advanced menu: Options row, page list, slider taps, wrapping, scroll
 		// and a 'local' row are left out
 		menu.M_SetExternals( { cls: { state: 2, demonum: - 1, demoplayback: false }, sv: { active: false }, cl: { maxclients: 4 } } );
 		items.unshift( { label: 'Local', cvar: 'test_adv_toggle0', when: 'local' } );
+		items.unshift( { label: 'Single', cvar: 'test_adv_toggle1', when: 'single' } );
 		tap( 100, 32 + 15 * 8 + 4 );
 		assertEqual( menu.m_state, menu.m_advanced, 'Advanced row opens the page list online' );
 		assertEqual( menu.M_MenuRowAt( 100, row( last ) ), - 1, 'online, the list is a page shorter' );
-		tap( 100, row( last - 1 ) );
-		assertEqual( menu.m_state, menu.m_advpage, 'the test page is now the last row' );
+		// The cursor was on the test page, and stays on it as it moves up
+		menu.M_Keydown( keys.K_ENTER );
+		assertEqual( menu.m_state, menu.m_advpage, 'the cursor followed the test page up a row' );
 		tap( 300, row( 0 ) );
-		assertEqual( value( 'test_adv_slider' ), - 45, 'online, row 0 is the slider: the local row is left out' );
+		assertEqual( value( 'test_adv_slider' ), - 45, 'online, row 0 is the slider: the local and single rows are left out' );
 		assertEqual( value( 'test_adv_toggle0' ), 0, 'the local row was not stepped' );
+		assertEqual( value( 'test_adv_toggle1' ), 0, 'the single row was not stepped' );
+
+		// The shorter list wraps at its own end
+		menu.M_Keydown( keys.K_ESCAPE );
+		menu.M_Keydown( keys.K_DOWNARROW );
+		menu.M_Keydown( keys.K_UPARROW );
+		menu.M_Keydown( keys.K_ENTER );
+		tap( 210, row( 0 ) );
+		assertEqual( value( 'test_adv_slider' ), - 90, 'down wrapped to the first page and up back to the test page' );
+		menu.M_Keydown( keys.K_ESCAPE );
+
+		// A cursor on Local game when it is hidden moves to the page before
+		// it, so one Down reaches the test page
+		menu.M_SetExternals( { cls: { state: 0, demonum: - 1, demoplayback: false } } );
+		menu.M_Keydown( keys.K_ESCAPE );
+		tap( 100, 32 + 15 * 8 + 4 );
+		menu.M_Keydown( keys.K_UPARROW );
+		menu.M_Keydown( keys.K_ESCAPE );
+		menu.M_SetExternals( { cls: { state: 2, demonum: - 1, demoplayback: false } } );
+		tap( 100, 32 + 15 * 8 + 4 );
+		menu.M_Keydown( keys.K_DOWNARROW );
+		menu.M_Keydown( keys.K_ENTER );
+		tap( 300, row( 0 ) );
+		assertEqual( value( 'test_adv_slider' ), - 45, 'the cursor moved from hidden Local game to Sound' );
+		menu.M_Keydown( keys.K_ESCAPE );
 
 		// A demo playing isn't online: the title screen lists every page
 		menu.M_SetExternals( { cls: { state: 2, demonum: 0, demoplayback: true } } );
 		menu.M_Keydown( keys.K_ESCAPE );
+		tap( 100, 32 + 15 * 8 + 4 );
 		assertEqual( menu.M_MenuRowAt( 100, row( last ) ), last, 'during a demo, every page is listed' );
 
 	} finally {

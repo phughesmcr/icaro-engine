@@ -163,7 +163,8 @@ export const advancedPages = [
 			// PF_aim picks the target nearest the crosshair whose direction's
 			// dot product with the view is above sv_aim; nothing is above 1
 			{ label: 'Autoaim', cvar: 'sv_aim', values: [ 0.93, 1 ], names: [ 'on', 'off' ] },
-			// FitzQuake's host_timescale: it scales the host's frame time
+			// FitzQuake's host_timescale: it scales the host's frame time, and
+			// so the client's clock too (hidden online with the page)
 			{ label: 'Game speed', cvar: 'host_timescale', values: [ 0, 0.25, 0.5, 0.75, 1.5, 2 ], names: [ 'normal', '0.25x', '0.5x', '0.75x', '1.5x', '2x' ] },
 			{ label: 'Gravity', cvar: 'sv_gravity', min: 100, max: 1600, step: 50 },
 			{ label: 'Friction', cvar: 'sv_friction', min: 0, max: 10, step: 0.5 },
@@ -210,7 +211,8 @@ export const advancedPages = [
 			{ label: 'Roll sway size', cvar: 'v_iroll_level', min: 0, max: 1, step: 0.1 },
 			{ label: 'Developer', cvar: 'developer' },
 			{ label: 'Host speeds', cvar: 'host_speeds' },
-			// A fixed frame time, so it would also run an online game's clock
+			// A fixed frame time, so it would also run an online game's clock.
+			// Game speed (host_timescale), when set, overrides it.
 			{ label: 'Fixed frame', cvar: 'host_framerate', values: [ 0, 0.01, 0.0125, 0.05 ], names: [ 'off', '100Hz', '80Hz', '20Hz' ], when: 'local' },
 			{ label: 'Show net', cvar: 'cl_shownet', values: [ 0, 1, 2 ] },
 			{ label: 'Show sound', cvar: 'snd_show' },
