@@ -12,7 +12,7 @@ noted, and every row's source line numbers were rechecked at `223a180`. The
 measurements (counts from the paks, the headless spawn) were not rerun; they
 are from `d6f2058`, apart from the BSP2 rerun below.
 
-**Item 3 (BSP2) fixed in #NNN.** Its row, the BSP2 summary bullet, the
+**Item 3 (BSP2) fixed in #126.** Its row, the BSP2 summary bullet, the
 headless spawn table and the phase 3 and 4 notes were updated from a new
 headless run of every BSP2 map on that branch.
 
@@ -33,7 +33,7 @@ The findings come from four sources:
 ## Summary
 
 - **The BSP29 content loads.** That covers 66 of id1's 68 maps (the 2 BSP2
-  vault maps load since #NNN), hipnotic's 18, rogue's 17, ctf's 10, mg1's 3 deathmatch
+  vault maps load since #126), hipnotic's 18, rogue's 17, ctf's 10, mg1's 3 deathmatch
   maps and mg3's `secret1`. Each spawns and runs 100 server frames
   headless. At `d6f2058`, two bugs made it unplayable; both are now fixed:
   1. **Picking up any weapon or ammo stopped the server.** The rerelease
@@ -51,7 +51,7 @@ The findings come from four sources:
   all 13 maps of Dimension of the Past (`dopa`), 22 of 25 in Dimension of the
   Machine (`mg1`), 19 of 20 in Dimension of the Doomed (`mg3`) plus its 2
   `maps/bmodel/b_*` models, and 2 id1 vault maps. At `d6f2058` every one
-  failed on `Mod_LoadBrushModel`'s version check. #NNN loads them all, and
+  failed on `Mod_LoadBrushModel`'s version check. #126 loads them all, and
   47 of the 56 maps spawn and run headless.
 - **The 9 BSP2 maps that still fail hit the protocol's limits:**
   - All 9 need more than 256 models (`MAX_MODELS`), counting the QC's
@@ -75,10 +75,10 @@ week or more.
 | 1e | `svc_achievement` (52) | **done** (#112) | Fixed: `svc_achievement` is defined in `src/protocol.js:103`, and `src/cl_parse.js:1653` reads and ignores the string. Before #112: QC writes it in id1 (18 sites), hipnotic (13), mg1 (11), mg3 (16), rogue (8) and ctf (1). It comes from `multi_trigger` on every secret, and from intermissions and kills. The `src/cl_parse.js:1425` default case called `Host_Error`. Ironwail reads and ignores the string (`Quake/cl_parse.c:1374`). No other KEX svc is written by QC. | – | – |
 | 1f | `campaign`, `horde`, `sv_cheats` cvars | **done** (#113) | Fixed: `src/host.js:109-111` defines them, `Host_InitLocal` registers them (`:242-244`), and `server/game_server.js` registers them for the game server, which doesn't call `Host_InitLocal`. Before #113: every `StartFrame` runs `cvar_set("campaign", …)` (`quakec/world.qc:369`). With no such cvar, `Cvar_Set` (`src/cvar.js:186`) printed "variable campaign not found" every server frame: 101 times in a 100-frame headless run. `horde` turns on mg1's horde mode. Ironwail registers all three (`Quake/host.c:91-93`). | – | – |
 | 2 | Localisation | **missing** | `loc_<language>.txt` is in id1's `pak0.pak` under `localization/` (1645 keys, 213 `{}` placeholders, UTF-8) and in `QuakeEX.kpf`. Ironwail resolves keys on the server: in `PF_VarString` (`Quake/pr_cmds.c:60-95`, with `{}` placeholders) and `PF_WriteString` (`:1583`, which covers `svc_finale "$qc_finale_end"`). Its loader is `LOC_*` in `Quake/common.c:3687-4070`, with a `language` cvar. Map names are plain text, and the classic `.lmp` menus need no keys. Only `mapdb.json` episode names use them (menu only). | M | `src/common.js` (`LOC_*`, `UTF8_ToQuake`), `src/pr_cmds.js` (`PF_VarString`, `PF_WriteString`), `src/host.js` (`LOC_Init`), new tests |
-| 3 | BSP2 maps | **done** (#NNN) | Fixed: `Mod_LoadBrushModel` (`src/gl_model.js:2713`) accepts `BSP2VERSION_BSP2` (`src/bspfile.js:44`) and passes a `bsp2` flag to `Mod_LoadEdges`, `Mod_LoadFaces`, `Mod_LoadMarksurfaces`, `Mod_LoadLeafs`, `Mod_LoadNodes` and `Mod_LoadClipnodes`, ported from Ironwail's `Quake/gl_model.c` (`Mod_LoadNodes_L2` `:1549`, `Mod_ProcessLeafs_L2`, `Mod_LoadClipnodes(…, bsp2)` `:1923`). BSP2 has no leaf limit. `medge_t.v` and `edict_t.leafnums` (`src/progs.js:111`) widened to 32 bits as in Ironwail. Clipnode children were already `Int32Array`, and `world.js` and `pmove.js` walk them unchanged. BSP29 loads byte-for-byte as before (176 BSP29 maps compared). 2PSB is still refused: the rerelease has none. Before #NNN: `src/gl_model.js:2578` accepted only version 29. The rerelease has 58 BSP2 files (56 maps and 2 box models). The largest is `mg1/hub`: 68228 leafs, 228829 vertexes, 412867 edges. | – | – |
+| 3 | BSP2 maps | **done** (#126) | Fixed: `Mod_LoadBrushModel` (`src/gl_model.js:2713`) accepts `BSP2VERSION_BSP2` (`src/bspfile.js:44`) and passes a `bsp2` flag to `Mod_LoadEdges`, `Mod_LoadFaces`, `Mod_LoadMarksurfaces`, `Mod_LoadLeafs`, `Mod_LoadNodes` and `Mod_LoadClipnodes`, ported from Ironwail's `Quake/gl_model.c` (`Mod_LoadNodes_L2` `:1549`, `Mod_ProcessLeafs_L2`, `Mod_LoadClipnodes(…, bsp2)` `:1923`). BSP2 has no leaf limit. `medge_t.v` and `edict_t.leafnums` (`src/progs.js:111`) widened to 32 bits as in Ironwail. Clipnode children were already `Int32Array`, and `world.js` and `pmove.js` walk them unchanged. BSP29 loads byte-for-byte as before (176 BSP29 maps compared). 2PSB is still refused: the rerelease has none. Before #126: `src/gl_model.js:2578` accepted only version 29. The rerelease has 58 BSP2 files (56 maps and 2 box models). The largest is `mg1/hub`: 68228 leafs, 228829 vertexes, 412867 edges. | – | – |
 | 4a | Signon size | **done** (#96) | Signon buffers of `MAX_MSGLEN/2`, up to 256 of them (`MAX_SIGNON_BUFFERS`, `src/server.js`), allow about 1 MB of signon. Even 2000 baselines at 35 bytes each fit. | – | – |
 | 4b | Edict count | **partial** | `MAX_EDICTS` 1024 (`src/quakedef.js:29`) is bounded by `PE_ENT_BITS` 10 (`src/protocol.js:187`). Before skill filtering, `mg3/secret2` has 1572 entities that aren't lights or `info_null`, and `mg3/map8` has 988. Runtime spawns add to that. Ironwail: `MAX_EDICTS` 32000 (`Quake/quakedef.h:106`). | L (with 4c, 4d) | `src/protocol.js`, `src/quakedef.js`, `src/sv_main.js` (packet entities), `src/cl_parse.js`, `src/cl_main.js` |
-| 4c | Model and sound indexes | **missing** | Models are sent as bytes in packet entities (`src/sv_main.js:854`), `svc_playerinfo` (`:1572`), baselines (`:1969`) and `svc_spawnstatic` (`src/pr_cmds.js:1472`). Sounds are bytes at `src/sv_main.js:254`. Six maps have more than 200 brush submodels before the QC precaches: `mg1/mge2m2` 285, `mge5m2` 202; `mg3/map2b` 255, `map7` 230, `map8` 364, `secret2` 525. With the QC's precaches, `mg1/mge2m1` and `mg3/map4` and `map6` pass 256 too: the headless run after #NNN ends them in `PF_precache_model: overflow`. The `SV_SpawnServer` submodel loop (`src/sv_main.js:2119-2123`) also reads `localmodels[ i ]` past `MAX_MODELS` with no bounds check, so it fails with a crash rather than an error (`Mod_ForName: NULL name` on `mge2m2` and `map8`). `secret2` first fills `mod_known` (`MAX_MOD_KNOWN` 512, `src/gl_model.js:667`; Ironwail 2048). Ironwail: `MAX_MODELS` 4096, `MAX_SOUNDS` 2048, `U_MODEL2` and large-sound flags (`Quake/protocol.h:64`). Sound precache counts were not measured. | (in 4b) | as 4b, plus `src/pr_cmds.js` (`PF_makestatic`, precache) |
+| 4c | Model and sound indexes | **missing** | Models are sent as bytes in packet entities (`src/sv_main.js:854`), `svc_playerinfo` (`:1572`), baselines (`:1969`) and `svc_spawnstatic` (`src/pr_cmds.js:1472`). Sounds are bytes at `src/sv_main.js:254`. Six maps have more than 200 brush submodels before the QC precaches: `mg1/mge2m2` 285, `mge5m2` 202; `mg3/map2b` 255, `map7` 230, `map8` 364, `secret2` 525. With the QC's precaches, `mg1/mge2m1` and `mg3/map4` and `map6` pass 256 too: the headless run after #126 ends them in `PF_precache_model: overflow`. The `SV_SpawnServer` submodel loop (`src/sv_main.js:2119-2123`) also reads `localmodels[ i ]` past `MAX_MODELS` with no bounds check, so it fails with a crash rather than an error (`Mod_ForName: NULL name` on `mge2m2` and `map8`). `secret2` first fills `mod_known` (`MAX_MOD_KNOWN` 512, `src/gl_model.js:667`; Ironwail 2048). Ironwail: `MAX_MODELS` 4096, `MAX_SOUNDS` 2048, `U_MODEL2` and large-sound flags (`Quake/protocol.h:64`). Sound precache counts were not measured. | (in 4b) | as 4b, plus `src/pr_cmds.js` (`PF_makestatic`, precache) |
 | 4d | Coordinate range | **missing** | `MSG_WriteCoord` (`src/common.js:423`) writes a short in eighths of a unit, ±4096. World bounds pass ±4096 on `id1/vault/jrwiz3`, `mg1/mge1m2`, `mge4m1` and `mge4m2` (±5183), and `mg3/secret1`. Ironwail uses `PROTOCOL_RMQ` with `PRFL_INT32COORD` or float coords (`Quake/protocol.h:31-37`, default `sv_protocol` 999). | (in 4b) | `src/common.js`, `src/protocol.js`, `src/cl_parse.js`, prediction (`src/pmove.js`, `src/cl_pred.js`) |
 | 5 | `.lit` coloured lighting | **missing** | 127 `.lit` files, all QLIT version 1: id1 42, mg1 25, mg3 20, dopa 13, hipnotic 18, ctf 9, rogue none. `src/gl_model.js:1643` loads mono light data; `src/gl_rsurf.js:277` has `lightmap_bytes = 1`. `src/pak.js:588` defers `.lit`, so map load would have to `COM_EnsureFile` it. Ironwail: `Quake/gl_model.c:860-895`. | M | `src/gl_model.js` (`Mod_LoadLighting`), `src/gl_rsurf.js`, `src/gl_rlight.js` (`R_LightPoint`), `src/pak.js` |
 | 6a | Fog | **missing** | The worldspawn `fog` key appears in 42 id1, 17 hipnotic, 9 ctf, 3 mg1 and 2 mg3 maps (as `fog_*`). mg1, mg3 and dopa also set fog from QuakeC with `stuffcmd(…, "fog …")` (`quakec_mg1/fog.qc`), which prints "Unknown command" here. Ironwail: `Quake/gl_fog.c` (`Fog_ParseWorldspawn`, the `fog` command, `svc_fog`). | M | new `src/gl_fog.js`, `src/gl_rmain.js`, `src/cl_parse.js` (`svc_fog` only if the server sends it) |
@@ -101,12 +101,12 @@ week or more.
 `static/rerelease/<game>/pak0.pak` was loaded on the Deno server code with a
 throwaway script, not committed. For each map it ran `SV_SpawnServer` and then
 100 frames of `SV_Physics` at 0.05 s, with `svs.maxclients` 1 and no client
-connected. The BSP2 maps were rerun the same way on the #NNN branch, over
+connected. The BSP2 maps were rerun the same way on the #126 branch, over
 id1's `pak0.pak`.
 
 | pak | maps (excluding `b_*`) | spawn and run | fail |
 |-----|----------------|---------------|------|
-| id1 | 68 (42, plus 15 `test/` and 11 `vault/`) | 68 (`tboss` and `tim14` since #NNN) | – |
+| id1 | 68 (42, plus 15 `test/` and 11 `vault/`) | 68 (`tboss` and `tim14` since #126) | – |
 | hipnotic | 18 | 18 | – |
 | rogue | 17 | 17 | – |
 | ctf | 10 | 10 | – |
@@ -114,9 +114,9 @@ id1's `pak0.pak`.
 | mg3 | 20 | 14 | 6 over `MAX_MODELS` (`map2b`, `map4`, `map6`, `map7`, `map8`, `secret2`) |
 | dopa | 13 | 13 | – |
 
-Before #NNN, all 56 BSP2 maps failed: 22 in mg1, 19 in mg3 and all 13 in
+Before #126, all 56 BSP2 maps failed: 22 in mg1, 19 in mg3 and all 13 in
 dopa, plus the 2 vault maps. The 2 BSP2 `maps/bmodel/b_*` models in mg3 load
-since #NNN too. Run in one process, the mg3 maps after `secret2` fail on a
+since #126 too. Run in one process, the mg3 maps after `secret2` fail on a
 full `mod_known`, since `Mod_ClearAll` keeps the slots as in the C. Each was
 rerun in its own process. Of the 47 BSP2 maps that run, the most edicts
 after 100 frames is 680 (`mg3/map2`, `map5`), and 3 have more than 32767
@@ -146,7 +146,7 @@ rogue, ctf, and the BSP29 maps in mg1 and mg3. All but the `vibrate` no-op is do
 **Phase 2: localisation (M).** Item 2. Pickups, triggers and the finale need it to read
 properly. It touches `src/pr_cmds.js`, as step 1 did; step 1 is in (#111), so nothing blocks it.
 
-**Phase 3: BSP2 (L).** Item 3. Done in #NNN. This unlocks dopa, the rest of mg1 and mg3, and the two vault
+**Phase 3: BSP2 (L).** Item 3. Done in #126. This unlocks dopa, the rest of mg1 and mg3, and the two vault
 maps. Of those, all but the 9 maps named in phase 4 run within today's
 limits. That relies on the `walkpathtogoal` fix from phase 1 (#111).
 
@@ -170,7 +170,7 @@ not have to adopt Ironwail's 666 or 999 wire formats, because the client and ser
 ### What can run in parallel
 
 These share files, so run them in sequence or bundle them. Items already done
-(#111–#114, and BSP2 in #NNN) are left out:
+(#111–#114, and BSP2 in #126) are left out:
 
 - **`src/pr_cmds.js`:** localisation (2) and the `PF_makestatic` part of the index widening (4c).
 - **`src/protocol.js` and `src/cl_parse.js`:** protocol limits (4b–4d), alpha (6c), and `svc_fog` if it is ever sent.
@@ -189,7 +189,7 @@ These share files, so run them in sequence or bundle them. Items already done
 
 Groups that can run at the same time:
 
-- **Now** (BSP2 landed in #NNN and `svc_achievement` in #112):
+- **Now** (BSP2 landed in #126 and `svc_achievement` in #112):
   - Localisation (one owner of `pr_cmds.js`).
   - The `vibrate` no-op.
   - Protocol limits with alpha (network files).
