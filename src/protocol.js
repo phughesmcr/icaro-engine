@@ -96,6 +96,11 @@ export const svc_finale = 31; // [string] music [string] text
 export const svc_cdtrack = 32; // [byte] track [byte] looptrack
 export const svc_sellscreen = 33;
 export const svc_cutscene = 34;
+// 2021 re-release: [string] id. The re-release QuakeC writes it with
+// WriteByte/WriteString (on every secret, at intermissions and on some
+// kills), so the server only passes it through. Ironwail protocol.h; it
+// shares its number with DP's svcdp_effect.
+export const svc_achievement = 52;
 // Ironwail (2021 re-release): [byte] field_mask [byte] sound_num. 56 is the
 // number Ironwail and the re-release use; it is free in this protocol.
 export const svc_localsound = 56;
