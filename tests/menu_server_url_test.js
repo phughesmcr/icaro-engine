@@ -365,6 +365,41 @@ Deno.test( 'a failed Start Game stays on the menu and lets Enter try again', asy
 
 } );
 
+Deno.test( 'Start Game sends the Game Options rows in the room request', async () => {
+
+	const cvar = await import( '../src/cvar.js' );
+	const host = await import( '../src/host.js' );
+	const names = [ 'coop', 'teamplay', 'skill', 'fraglimit', 'timelimit' ];
+	// The client registers these in Host_InitLocal, which this test doesn't run
+	for ( const n of names ) if ( cvar.Cvar_FindVar( n ) === null ) cvar.Cvar_RegisterVariable( host[ n ] );
+	const saved = names.map( ( n ) => [ n, cvar.Cvar_VariableString( n ) ] );
+
+	await withGlobals( startGameGlobals(), () => {
+
+		try {
+
+			initMenu();
+			cvar.Cvar_Set( 'coop', '1' );
+			cvar.Cvar_Set( 'teamplay', '2' );
+			cvar.Cvar_Set( 'skill', '3' );
+			cvar.Cvar_Set( 'fraglimit', '40' );
+			cvar.Cvar_Set( 'timelimit', '15' );
+			menu.M_Keydown( keys.K_ENTER );
+			assertEqual( createCalls.length, 1, 'one create request' );
+			assertEqual( JSON.stringify( createCalls[ 0 ].config.options ),
+				JSON.stringify( { coop: 1, teamplay: 2, skill: 3, fraglimit: 40, timelimit: 15 } ), 'options' );
+
+		} finally {
+
+			for ( const [ n, v ] of saved ) cvar.Cvar_Set( n, v );
+			keys.set_key_dest( keys.key_game );
+
+		}
+
+	} );
+
+} );
+
 Deno.test( 'Start Game refuses an invalid ?server= without sending a request', async () => {
 
 	const globals = startGameGlobals();

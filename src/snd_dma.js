@@ -52,6 +52,10 @@ const snd_ambient = true; // whether ambient sounds are enabled
 let _getHostFrametime = () => 0;
 // Callback run by S_UnlockAudio inside a user gesture (cd_audio's autoplay retry)
 let _onUnlockAudio = () => {};
+// Callbacks run when sound is blocked or unblocked (cd_audio pauses an element
+// the AudioContext doesn't carry). Web-only: C has no focus handling for CD.
+let _onBlockSound = () => {};
+let _onUnblockSound = () => {};
 
 // Rate sounds are cached and played at: WinQuake's snd_win.c sets
 // shm->speed = 11025, and QuakeSpasm/Ironwail cache sounds at sndspeed 11025
@@ -207,6 +211,12 @@ export function S_SetCallbacks( callbacks ) {
 	if ( callbacks.onUnlockAudio )
 		_onUnlockAudio = callbacks.onUnlockAudio;
 
+	if ( callbacks.onBlockSound )
+		_onBlockSound = callbacks.onBlockSound;
+
+	if ( callbacks.onUnblockSound )
+		_onUnblockSound = callbacks.onUnblockSound;
+
 }
 
 /*
@@ -248,6 +258,9 @@ export function S_BlockSound() {
 	if ( snd_blocked === 1 && audioContext !== null && audioContext.state !== 'closed' )
 		audioContext.suspend().catch( () => {} );
 
+	if ( snd_blocked === 1 )
+		_onBlockSound();
+
 }
 
 /*
@@ -264,6 +277,9 @@ export function S_UnblockSound() {
 	// suspended, and iOS reports 'interrupted' after a call or backgrounding.
 	if ( snd_blocked <= 0 && audioContext !== null && audioContext.state !== 'closed' )
 		audioContext.resume().catch( () => {} );
+
+	if ( snd_blocked <= 0 )
+		_onUnblockSound();
 
 }
 

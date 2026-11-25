@@ -1491,12 +1491,10 @@ function M_Menu_GameOptions_f() {
 
 }
 
-// Deliberate deviation (MENU-4): the menu draws every C row, but Start Game
-// creates a lobby room, and the room request carries only the map,
-// maxPlayers and host name. Game Type, Teamplay, Skill, Frag Limit and Time
-// Limit set this browser's cvars and do not reach the room's server, which
-// uses its own defaults. Sending them needs a lobby protocol change in
-// server/.
+// Start Game sends Game Type, Teamplay, Skill, Frag Limit and Time Limit in
+// the room request (M_GameOptions_Key sets these cvars before "map" in C);
+// the lobby clamps them and the room process applies them before its map
+// spawns.
 function M_GameOptions_Draw() {
 
 	if ( ! _Draw_CachePic ) return;
@@ -1802,7 +1800,14 @@ function M_GameOptions_Key( key ) {
 					_NET_CreateRoom( serverUrl, {
 						map: mapName,
 						maxPlayers: maxplayers,
-						hostName: _cl_name ? _cl_name.string : 'Player'
+						hostName: _cl_name ? _cl_name.string : 'Player',
+						options: {
+							coop: coop.value ? 1 : 0,
+							teamplay: Math.trunc( teamplay.value ),
+							skill: Math.trunc( skill.value ),
+							fraglimit: Math.trunc( Cvar_VariableValue( 'fraglimit' ) ),
+							timelimit: Math.trunc( Cvar_VariableValue( 'timelimit' ) )
+						}
 					} ).then( ( room ) => {
 
 						if ( M_CreateRoomCurrent( token ) === false ) {

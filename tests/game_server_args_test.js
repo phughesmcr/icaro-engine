@@ -79,3 +79,44 @@ Deno.test( 'parseArgs reads the WebSocket listener flags', () => {
 	assertEqual( parseArgs( [ '-wsport', 'abc' ], createConfig() ).wsPort, null, 'not a number refused' );
 
 } );
+
+Deno.test( 'room options are parsed as clamped integers and applied as cvars before the map spawns (MENU-4)', async () => {
+
+	const { applyGameOptions } = await import( '../server/game_server.js' );
+	const host = await import( '../src/host.js' );
+	const cvar = await import( '../src/cvar.js' );
+	const names = [ 'coop', 'teamplay', 'skill', 'fraglimit', 'timelimit' ];
+
+	const none = parseArgs( [ '-port', '4500' ], createConfig() );
+	assertEqual( JSON.stringify( none.gameOptions ), '{}', 'no options by default' );
+
+	const config = parseArgs( [ '-coop', '1', '-teamplay', '9', '-skill', '2', '-fraglimit', '40', '-timelimit', '1e9', '-map', 'e1m1' ], createConfig() );
+	assertEqual( JSON.stringify( config.gameOptions ), JSON.stringify( { coop: 1, teamplay: 2, skill: 2, fraglimit: 40 } ), 'clamped; non-integer dropped' );
+	assertEqual( config.defaultMap, 'e1m1', 'other args still parsed' );
+	assertEqual( JSON.stringify( parseArgs( [ '-skill', '-3', '-fraglimit', ';quit', '-coop' ], createConfig() ).gameOptions ), '{}', 'hostile values ignored' );
+	assertEqual( parseArgs( [ '-rogue', '-teamplay', '9' ], createConfig() ).gameOptions.teamplay, 6, 'rogue teamplay modes' );
+
+	const savedDeathmatch = [ host.deathmatch.value, host.deathmatch.string ];
+	const saved = names.map( ( n ) => [ n, cvar.Cvar_FindVar( n ) === null ? null : cvar.Cvar_VariableString( n ) ] );
+	try {
+
+		applyGameOptions( {} );
+		assertEqual( host.deathmatch.value, savedDeathmatch[ 0 ], 'no options: deathmatch untouched' );
+
+		applyGameOptions( config.gameOptions );
+		assertEqual( host.coop.value, 1, 'coop' );
+		assertEqual( host.teamplay.value, 2, 'teamplay' );
+		assertEqual( host.skill.value, 2, 'skill' );
+		assertEqual( host.fraglimit.value, 40, 'fraglimit' );
+		assertEqual( host.timelimit.value, 0, 'timelimit untouched' );
+		assertEqual( host.deathmatch.value, 0, 'coop clears deathmatch' );
+
+	} finally {
+
+		for ( const [ n, v ] of saved ) if ( v !== null ) cvar.Cvar_Set( n, v );
+		host.deathmatch.value = savedDeathmatch[ 0 ];
+		host.deathmatch.string = savedDeathmatch[ 1 ];
+
+	}
+
+} );

@@ -21,6 +21,7 @@ import {
 	RoomManager_GetRoomCount,
 	RoomManager_HasRoom,
 	RoomManager_ClampMaxPlayers,
+	RoomManager_SanitizeGameOptions,
 	RoomManager_SanitizeHostName,
 	RoomManager_SanitizeMapName,
 	MAX_ROOMS,
@@ -172,11 +173,15 @@ export function parseCreateConfig( data ) {
 		map = RoomManager_SanitizeMapName( config.map );
 		if ( map === null ) throw new Error( 'Invalid map name' );
 	}
-	return {
+	const parsed = {
 		map,
 		maxPlayers: config.maxPlayers == null ? undefined : RoomManager_ClampMaxPlayers( config.maxPlayers ),
 		hostName: RoomManager_SanitizeHostName( config.hostName ),
 	};
+	// Game Options menu rows: whitelisted and clamped; absent when not sent
+	const gameOptions = RoomManager_SanitizeGameOptions( config.options );
+	if ( gameOptions !== undefined ) parsed.gameOptions = gameOptions;
+	return parsed;
 }
 
 // Lobby message types

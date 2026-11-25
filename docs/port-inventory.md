@@ -189,9 +189,10 @@ own fix PR.
   10) and Time Limit (0–60 by 5) wrap as in C, and Episode and Level are
   back at y 112 and 120. `maxplayers` is capped by `svs.maxclientslimit`.
   Left out: C's "More than 4 players … see techinfo.txt" box, since the
-  browser has no command line. Like Game Type, Teamplay and Skill, the new
-  rows set the local cvars only: the room request sends just the map and
-  `maxplayers`, so none of these settings reach the room server yet.
+  browser has no command line. The room request also carries these five
+  values (`options`), and the lobby passes them to the room process as
+  `-coop`, `-teamplay`, `-skill`, `-fraglimit` and `-timelimit`, so they
+  reach the room server.
 
 ### G5 · Crosshair defaults on, isn't saved, and is drawn differently — **low-medium**
 

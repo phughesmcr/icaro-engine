@@ -678,7 +678,7 @@ let loadmodel = null;
 // model's leaf count in Mod_LoadLeafs (Mod_AllocVisBuffers), never per frame.
 let mod_novis = new Uint8Array( 0 );
 
-// Deliberate deviation: Ironwail's 2048 (id: 512). mg3/secret2 alone has
+// Deliberate deviation: 2048 (id: 512; Ironwail's is 4096). mg3/secret2 alone has
 // 525 brush submodels. Only the first 512 are allocated up front; Mod_FindName
 // adds the rest on demand.
 const MAX_MOD_KNOWN = 2048;
@@ -746,22 +746,22 @@ export function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitF
 
 		const palIdx = data[ i ];
 
+		// gl_draw.c GL_Upload8 copies d_8to24table[ p ] for every texel; the
+		// table's entry 255 has alpha 0 (VID_SetPalette), so a transparent
+		// texel ('{' textures, MF_HOLEY skins) keeps the palette RGB for the
+		// filter and mipmaps to blend, not black.
+		const color = d_8to24table[ palIdx ];
+		rgba[ i * 4 ] = color & 0xff;
+		rgba[ i * 4 + 1 ] = ( color >> 8 ) & 0xff;
+		rgba[ i * 4 + 2 ] = ( color >> 16 ) & 0xff;
+
 		if ( alpha && palIdx === 255 ) {
 
-			// Transparent pixel (used for '{' textures)
-			rgba[ i * 4 ] = 0;
-			rgba[ i * 4 + 1 ] = 0;
-			rgba[ i * 4 + 2 ] = 0;
 			rgba[ i * 4 + 3 ] = 0;
 
 		} else {
 
-			const color = d_8to24table[ palIdx ];
-			rgba[ i * 4 ] = color & 0xff;
-			rgba[ i * 4 + 1 ] = ( color >> 8 ) & 0xff;
-			rgba[ i * 4 + 2 ] = ( color >> 16 ) & 0xff;
 			rgba[ i * 4 + 3 ] = 255;
-
 			if ( palIdx >= fullbrightStart ) hasFullbright = true;
 
 		}
@@ -1995,10 +1995,16 @@ function Mod_LoadTexinfo( fileofs, filelen ) {
 // Fills in s->texturemins[] and s->extents[]
 // ============================================================================
 
+const FLT_MAX = 3.4028234663852886e+38;
+
 function CalcSurfaceExtents( s ) {
 
-	const mins = [ 999999, 999999 ];
-	const maxs = [ - 99999, - 99999 ];
+	// id seeds 999999 / -99999. Ironwail (gl_model.c CalcSurfaceExtents) uses
+	// +/-FLT_MAX. Both give the same result for any face inside the old seeds
+	// (any BSP29 map id could build, and every shipped map); only a face
+	// entirely beyond them (possible in BSP2) differs, where id's is wrong.
+	const mins = [ FLT_MAX, FLT_MAX ];
+	const maxs = [ - FLT_MAX, - FLT_MAX ];
 
 	const tex = s.texinfo;
 

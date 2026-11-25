@@ -1579,12 +1579,14 @@ export function R_AddDynamicLights( surf ) {
 
 		for ( let t = 0; t < tmax; t ++ ) {
 
-			let td = local[ 1 ] - t * 16;
+			// gl_rsurf.c R_AddDynamicLights: sd and td are int, so the float
+			// difference truncates toward zero.
+			let td = ( local[ 1 ] - t * 16 ) | 0;
 			if ( td < 0 ) td = - td;
 
 			for ( let s = 0; s < smax; s ++ ) {
 
-				let sd = local[ 0 ] - s * 16;
+				let sd = ( local[ 0 ] - s * 16 ) | 0;
 				if ( sd < 0 ) sd = - sd;
 
 				if ( sd > td )

@@ -106,8 +106,11 @@ export function VID_SetPalette( palette ) {
 
 	}
 
-	// index 255 is transparent (used for sprites, etc.)
-	d_8to24table[ 255 ] = 0; // fully transparent black
+	// index 255 is transparent (used for sprites, etc.). C clears only the
+	// alpha and keeps the palette colour (gl_vidnt.c VID_SetPalette:
+	// d_8to24table[255] &= 0xffffff), so filtered alpha textures fringe
+	// towards that colour, not black.
+	d_8to24table[ 255 ] &= 0xffffff;
 
 }
 
@@ -232,24 +235,55 @@ export function VID_Init( palette, gammaparm = null ) {
 	// listen for window resize
 	window.addEventListener( 'resize', function () {
 
-		canvas.width = window.innerWidth;
-		canvas.height = window.innerHeight;
-		vid.width = canvas.width;
-		vid.height = canvas.height;
-		vid.aspect = vid.width / vid.height;
-		vid.rowbytes = vid.width;
-		vid.conwidth = vid.width;
-		vid.conheight = vid.height;
-		vid.recalc_refdef = 1;
-
-		// Re-read devicePixelRatio: browser zoom and moving the window to a
-		// screen with another DPI change it and fire 'resize'.
-		renderer.setSize( canvas.width, canvas.height );
-		renderer.setPixelRatio( window.devicePixelRatio * vid_renderscale );
+		VID_Resize();
 
 	} );
 
+	// Web-only: Three.js restores the size it saved when the session began,
+	// and any resize during the session was skipped (see VID_Resize), so
+	// resync canvas, vid and renderer once it ends.
+	if ( renderer.xr != null && typeof renderer.xr.addEventListener === 'function' ) {
+
+		renderer.xr.addEventListener( 'sessionend', function () {
+
+			VID_Resize();
+
+		} );
+
+	}
+
 	Con_Printf( 'WebGLRenderer initialized (' + vid.width + 'x' + vid.height + ')\n' );
+
+}
+
+//============================================================================
+// VID_Resize
+//
+// Web-only, no C equivalent: the window 'resize' handler. While an XR
+// session is presenting, the headset owns the drawing buffer size, so
+// setSize/setPixelRatio are skipped; the sessionend listener calls this
+// again so canvas, vid and renderer agree afterwards.
+//============================================================================
+
+export function VID_Resize( r = renderer, c = canvas ) {
+
+	if ( r === null || c === null ) return;
+	if ( r.xr != null && r.xr.isPresenting === true ) return;
+
+	c.width = window.innerWidth;
+	c.height = window.innerHeight;
+	vid.width = c.width;
+	vid.height = c.height;
+	vid.aspect = vid.width / vid.height;
+	vid.rowbytes = vid.width;
+	vid.conwidth = vid.width;
+	vid.conheight = vid.height;
+	vid.recalc_refdef = 1;
+
+	// Re-read devicePixelRatio: browser zoom and moving the window to a
+	// screen with another DPI change it and fire 'resize'.
+	r.setSize( c.width, c.height );
+	r.setPixelRatio( window.devicePixelRatio * vid_renderscale );
 
 }
 
