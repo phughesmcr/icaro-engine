@@ -1290,7 +1290,9 @@ Deno.test( 'IN-3: XR session uses local-floor, falling back to local', async () 
 			assertEqual( scene.scale.value, 1 / webxr.XR_SCALE, 'scene scaled to meters' );
 
 		}, {
-			offerSession( _mode, i ) { offers ++; init = i; return Promise.resolve( session ); }
+			// Only the first offer is accepted: the re-offer after the closing
+			// sessionend must not start a session in the next iteration
+			offerSession( _mode, i ) { offers ++; init = i; return offers === 1 ? Promise.resolve( session ) : new Promise( () => {} ); }
 		} );
 
 	}

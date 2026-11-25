@@ -66,7 +66,7 @@ const controllers = [ null, null ]; // targetRay (pointer) spaces for input slot
 let aimController = null; // controller used for aiming: the right hand if present
 let _scene = null; // scene reference for scale toggling
 let _onSessionEnd = null; // in_web.js releases held XR buttons
-let _enterButton = null; // "Enter VR" button for browsers without offerSession
+let _enterButton = null; // "ENTER VR" button, shown while no session is active
 
 // 2D overlay quad. It lives in its own scene, drawn after the world by
 // XR_RenderHUD (see there).
@@ -788,9 +788,11 @@ export function XR_GetAimAngles( outAngles ) {
 //============================================================================
 // Internal: start a VR session
 //
-// Browsers with navigator.xr.offerSession (Quest Browser) show their own
-// "Enter VR" UI. Elsewhere, if immersive VR is supported, a button calls
-// requestSession from its click (a user activation).
+// Wherever immersive VR is supported, an "ENTER VR" button on the page calls
+// requestSession from its click (a user activation). Browsers with
+// navigator.xr.offerSession (Quest Browser) also get their own "Enter VR"
+// prompt, but that prompt sits in the browser's UI, is easy to miss and is
+// gone once dismissed, so the button is shown there too.
 //============================================================================
 
 const _sessionInit = {
@@ -798,16 +800,15 @@ const _sessionInit = {
 	optionalFeatures: [ 'local-floor' ]
 };
 
+let _sessionStarting = false; // _onSessionStarted is setting up a session
+
 function _offerSession() {
 
 	if ( typeof navigator === 'undefined' || ! ( 'xr' in navigator ) || navigator.xr == null ) return;
 
-	if ( navigator.xr.offerSession == null ) {
+	_createEnterButton();
 
-		_createEnterButton();
-		return;
-
-	}
+	if ( navigator.xr.offerSession == null ) return;
 
 	navigator.xr.offerSession( 'immersive-vr', _sessionInit )
 		.then( _onSessionStarted )
@@ -815,6 +816,20 @@ function _offerSession() {
 
 			// Rejected when the user dismisses the offer or another session is active
 			console.log( 'WebXR offerSession failed:', err && err.message );
+
+		} );
+
+}
+
+function _onEnterButtonClick() {
+
+	if ( xrSessionActive || _sessionStarting ) return;
+
+	navigator.xr.requestSession( 'immersive-vr', _sessionInit )
+		.then( _onSessionStarted )
+		.catch( function ( err ) {
+
+			console.log( 'WebXR requestSession failed:', err && err.message );
 
 		} );
 
@@ -829,6 +844,7 @@ function _createEnterButton() {
 
 		if ( ! supported || _enterButton != null ) return;
 
+		// Large enough to hit with a controller's laser pointer
 		_enterButton = document.createElement( 'button' );
 		_enterButton.textContent = 'ENTER VR';
 		_enterButton.style.cssText = `
@@ -836,29 +852,19 @@ function _createEnterButton() {
 			left: 20px;
 			bottom: 20px;
 			z-index: 150;
-			padding: 8px 14px;
+			padding: 14px 28px;
 			font-family: sans-serif;
-			font-size: 13px;
+			font-size: 22px;
+			font-weight: bold;
 			color: #fff;
-			background: rgba(0, 0, 0, 0.6);
-			border: 1px solid rgba(255, 255, 255, 0.6);
-			border-radius: 4px;
+			background: rgba(0, 0, 0, 0.7);
+			border: 2px solid rgba(255, 255, 255, 0.8);
+			border-radius: 6px;
 			cursor: pointer;
 		`;
+		if ( xrSessionActive ) _enterButton.style.display = 'none';
 
-		_enterButton.addEventListener( 'click', function () {
-
-			if ( xrSessionActive ) return;
-
-			navigator.xr.requestSession( 'immersive-vr', _sessionInit )
-				.then( _onSessionStarted )
-				.catch( function ( err ) {
-
-					console.log( 'WebXR requestSession failed:', err && err.message );
-
-				} );
-
-		} );
+		_enterButton.addEventListener( 'click', _onEnterButtonClick );
 
 		document.body.appendChild( _enterButton );
 
@@ -867,6 +873,16 @@ function _createEnterButton() {
 }
 
 async function _onSessionStarted( session ) {
+
+	// The offer and the button can both produce a session: keep the first
+	if ( xrSessionActive || _sessionStarting ) {
+
+		session.end().catch( function () {} );
+		return;
+
+	}
+
+	_sessionStarting = true;
 
 	// Prefer a floor-level origin so the real floor matches the Quake floor
 	let floor = false;
@@ -893,6 +909,10 @@ async function _onSessionStarted( session ) {
 		console.log( 'WebXR session setup failed:', err && err.message );
 		session.end().catch( function () {} );
 		if ( ! xrSessionActive ) _offerSession();
+
+	} finally {
+
+		_sessionStarting = false;
 
 	}
 
