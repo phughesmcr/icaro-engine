@@ -123,14 +123,51 @@ Deno.test( 'worldspawn keys set the map alpha until a cvar changes', () => {
 
 } );
 
-Deno.test( 'worldspawn keys only apply to liquids the vis sees through', () => {
+// Ironwail gl_rmisc.c R_ParseWorldspawn: the keys apply whatever the vis.
+Deno.test( 'worldspawn keys apply to liquids the vis can\'t see through', () => {
 
 	setCvar( r_wateralpha, 1 );
 	withWorld( '{\n"_wateralpha" "0.4"\n"_lavaalpha" "0.3"\n}', ( world ) => {
 
 		world.contentstransparent = gl_model.SURF_DRAWLAVA;	// water isn't vised
-		assertEqual( gl_rsurf.GL_WaterAlphaForSurface( water ), 1, 'unvised water stays opaque' );
+		assertEqual( gl_rsurf.GL_WaterAlphaForSurface( water ), 0.4, 'unvised water takes the key' );
 		assertEqual( gl_rsurf.GL_WaterAlphaForSurface( lava ), 0.3, 'vised lava' );
+
+	} );
+
+} );
+
+// Ironwail gl_rmisc.c R_ParseWorldspawn: at map load the cvars apply only to
+// liquids the vis sees through; a cvar set during the map applies to all.
+Deno.test( 'liquid cvars at map load apply only to liquids the vis sees through', () => {
+
+	withWorld( '{\n"classname" "worldspawn"\n}', ( world ) => {
+
+		// set before the first lookup, so the map's parse sees them
+		world.contentstransparent = gl_model.SURF_DRAWLAVA;	// only lava is vised
+		setCvar( r_wateralpha, 0.5 );
+		setCvar( gl_model.r_lavaalpha, 0.25 );
+		setCvar( gl_model.r_telealpha, 0.75 );
+		assertEqual( gl_rsurf.GL_WaterAlphaForSurface( water ), 1, 'unvised water stays opaque' );
+		assertEqual( gl_rsurf.GL_WaterAlphaForSurface( tele ), 1, 'unvised tele stays opaque' );
+		assertEqual( gl_rsurf.GL_WaterAlphaForSurface( slime ), 1, 'unvised slime stays opaque' );
+		assertEqual( gl_rsurf.GL_WaterAlphaForSurface( lava ), 0.25, 'vised lava takes r_lavaalpha' );
+
+		// R_SetWateralpha_f and its siblings only warn about the vis
+		setCvar( r_wateralpha, 0.6 );
+		setCvar( gl_model.r_telealpha, 0.4 );
+		assertEqual( gl_rsurf.GL_WaterAlphaForSurface( water ), 0.6, 'cvar change applies to water' );
+		assertEqual( gl_rsurf.GL_WaterAlphaForSurface( tele ), 0.4, 'cvar change applies to tele' );
+		assertEqual( gl_rsurf.GL_WaterAlphaForSurface( slime ), 1, 'slime keeps its map value' );
+
+	} );
+
+	// the next unvised map is gated again
+	withWorld( '{\n"classname" "worldspawn"\n}', ( world ) => {
+
+		world.contentstransparent = 0;
+		setCvar( r_wateralpha, 0.5 );
+		assertEqual( gl_rsurf.GL_WaterAlphaForSurface( water ), 1, 'next unvised map' );
 
 	} );
 
