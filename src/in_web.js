@@ -18,13 +18,14 @@ import { Con_Printf } from './console.js';
 import { cl, cls, ca_connected } from './client.js';
 import { sensitivity, m_pitch, m_yaw, m_forward, m_side, lookstrafe } from './cl_main.js';
 import {
-	in_mlook, in_strafe, in_speed,
+	in_mlook, in_strafe,
 	cl_forwardspeed, cl_backspeed, cl_sidespeed, cl_yawspeed, cl_pitchspeed, cl_movespeedkey,
 	CL_ClampPitch
 } from './cl_input.js';
 import { V_StopPitchDrift } from './view.js';
 import { host_frametime } from './host.js';
 import { PITCH, YAW } from './quakedef.js';
+import { movevars } from './pmove.js';
 import {
 	Touch_IsMobile, Touch_IsTouchCapable, Touch_Init, Touch_Enable, Touch_Disable, Touch_IsEnabled,
 	Touch_GetMoveInput, Touch_GetLookDelta, Touch_ReleaseButtons,
@@ -1881,15 +1882,18 @@ export function IN_Move( cmd ) {
 
 		}
 
-		// Add touch joystick movement. Past the run threshold the stick
-		// acts like +speed (cl_movespeedkey), unless +speed is already held
-		// (CL_BaseMove has then scaled the keyboard part, not ours).
+		// Add touch joystick movement. The stick magnitude (0..1) ramps
+		// continuously up to run speed (cl_movespeedkey) at full deflection,
+		// capped at the server's maxspeed: the server clamps past it anyway,
+		// so capping keeps the whole throw useful with Always Run (web-only;
+		// the C has no touch stick).
 		const touchMove = Touch_GetMoveInput();
-		const speed = ( touchMove.run || ( in_speed.state & 1 ) ) ? cl_movespeedkey.value : 1;
+		const key = cl_movespeedkey.value;
+		const maxspeed = movevars.maxspeed > 0 ? movevars.maxspeed : Infinity;
 		const forwardspeed = touchMove.forward >= 0 ? cl_forwardspeed.value : cl_backspeed.value;
 
-		cmd.forwardmove += forwardspeed * touchMove.forward * speed;
-		cmd.sidemove += cl_sidespeed.value * touchMove.right * speed;
+		cmd.forwardmove += Math.min( forwardspeed * key, maxspeed ) * touchMove.forward;
+		cmd.sidemove += Math.min( cl_sidespeed.value * key, maxspeed ) * touchMove.right;
 
 	}
 

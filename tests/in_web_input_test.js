@@ -1966,14 +1966,15 @@ Deno.test( 'IN: browser Back sends Escape once the guard is armed, and keeps the
 
 } );
 
-Deno.test( 'IN-4: touch joystick run speed in IN_Move', () => {
+Deno.test( 'IN-4: touch joystick run speed in IN_Move', async () => {
+
+	const { movevars } = await import( '../src/pmove.js' );
+	const oldFwd = cl_input.cl_forwardspeed.value;
 
 	withFakeDom( () => {
 
 		touch.Touch_Init( document.body );
 		touch.Touch_Enable();
-		const fwd = cl_input.cl_forwardspeed.value;
-		const back = cl_input.cl_backspeed.value;
 		const key = cl_input.cl_movespeedkey.value;
 		const near = ( a, b, m ) => assertEqual( Math.abs( a - b ) < 1e-6, true, m + ': ' + a + ' vs ' + b );
 		const move = () => {
@@ -1986,19 +1987,56 @@ Deno.test( 'IN-4: touch joystick run speed in IN_Move', () => {
 
 		cl_input.in_speed.state = 0;
 
-		touch.Touch_SetJoystick( 0, - 0.5 );
-		near( move().forwardmove, fwd * ( 0.5 - 0.15 ) / 0.75, 'half deflection walks' );
+		try {
 
-		touch.Touch_SetJoystick( 0, - 1 );
-		near( move().forwardmove, fwd * key, 'full deflection forward runs' );
+			// Default speeds, then Always Run (cl_forwardspeed 400)
+			for ( const fwdspeed of [ 200, 400 ] ) {
 
-		touch.Touch_SetJoystick( 0, 1 );
-		near( move().forwardmove, - back * key, 'full deflection backward runs at cl_backspeed' );
+				cl_input.cl_forwardspeed.value = fwdspeed;
+				const fwd = fwdspeed;
+				const back = cl_input.cl_backspeed.value;
+				const top = Math.min( fwd * key, movevars.maxspeed );
+				const tag = ' (cl_forwardspeed ' + fwd + ')';
 
-		touch.Touch_SetJoystick( 0, - 0.5 );
-		cl_input.in_speed.state = 1;
-		near( move().forwardmove, fwd * ( 0.5 - 0.15 ) / 0.75 * key, '+speed held scales a walk' );
-		cl_input.in_speed.state = 0;
+				// Continuous ramp: stick magnitude (0..1 past the deadzone)
+				// times run speed, capped at maxspeed
+				touch.Touch_SetJoystick( 0, - 0.5 );
+				near( move().forwardmove, top * ( 0.5 - 0.15 ) / 0.75, 'half deflection' + tag );
+
+				touch.Touch_SetJoystick( 0, - 0.9 );
+				near( move().forwardmove, top, 'full speed at the outer threshold' + tag );
+
+				touch.Touch_SetJoystick( 0, - 1 );
+				near( move().forwardmove, top, 'full deflection forward' + tag );
+
+				touch.Touch_SetJoystick( 0, 1 );
+				near( move().forwardmove, - Math.min( back * key, movevars.maxspeed ), 'full deflection backward' + tag );
+
+				// Monotonic with no jump: a small step in deflection is a small step in speed
+				let prev = 0;
+				for ( let d = 0.15; d <= 1; d += 0.005 ) {
+
+					touch.Touch_SetJoystick( 0, - d );
+					const f = move().forwardmove;
+					assertEqual( f >= prev - 1e-9, true, 'monotonic at ' + d + tag );
+					assertEqual( f - prev < top * 0.02, true, 'no jump at ' + d + tag );
+					prev = f;
+
+				}
+
+			}
+
+			// Walk speed is reached mid-throw at default speeds
+			cl_input.cl_forwardspeed.value = 200;
+			const top = Math.min( 200 * key, movevars.maxspeed );
+			touch.Touch_SetJoystick( 0, - ( 0.15 + 0.75 * 200 / top ) );
+			near( move().forwardmove, 200, 'mid-throw walks at cl_forwardspeed' );
+
+		} finally {
+
+			cl_input.cl_forwardspeed.value = oldFwd;
+
+		}
 
 		touch.Touch_Disable();
 		near( move().forwardmove, 0, 'released' );
