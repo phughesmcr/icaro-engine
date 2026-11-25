@@ -44,6 +44,7 @@ const _vec3_origin = new Float32Array( 3 );
 
 // Ambient sounds
 const ambient_sfx = new Array( NUM_AMBIENTS ).fill( null );
+let s_updateframe = 0; // counts S_Update calls, stands in for C's unmixed ch->pos == 0
 let sound_started = false;
 const snd_ambient = true; // whether ambient sounds are enabled
 
@@ -522,6 +523,34 @@ export function S_StartSound( entnum, entchannel, sfx, origin, fvol, attenuation
 	target_chan.sfx = sfx;
 	target_chan.pos = 0;
 	target_chan.end = paintedtime + sc.length;
+	target_chan.startframe = s_updateframe;
+
+	// if an identical sound has also been started this frame, offset the pos
+	// a bit to keep it from just making the first one louder.
+	// C tests !check->pos (not mixed yet); with no mixer, startframe says
+	// the channel was started since the last S_Update.
+	for ( let ch_idx = NUM_AMBIENTS; ch_idx < NUM_AMBIENTS + MAX_DYNAMIC_CHANNELS; ch_idx ++ ) {
+
+		const check = channels[ ch_idx ];
+		if ( check === target_chan )
+			continue;
+
+		if ( check.sfx === sfx && check.startframe === s_updateframe ) {
+
+			// QuakeSpasm/Ironwail (LordHavoc) skip: id's clamp against
+			// target_chan->end let the skip run past the end of short sounds
+			let skip = Math.floor( 0.1 * shm.speed );
+			if ( skip > sc.length )
+				skip = sc.length;
+			if ( skip > 0 )
+				skip = Math.floor( Math.random() * skip ); // rand() % skip
+			target_chan.pos += skip;
+			target_chan.end -= skip;
+			break;
+
+		}
+
+	}
 
 	// Play using Web Audio API
 	_playWebAudio( sc, target_chan );
@@ -583,6 +612,7 @@ export function S_StopAllSounds( clear ) {
 		channels[ i ].origin[ 2 ] = 0;
 		channels[ i ].dist_mult = 0;
 		channels[ i ].master_vol = 0;
+		channels[ i ].startframe = - 1;
 
 	}
 
@@ -726,6 +756,9 @@ export function S_Update( origin, forward, right, up ) {
 
 	if ( ! sound_started || nosound.value )
 		return;
+
+	// Sounds started before this point count as mixed (see S_StartSound)
+	s_updateframe ++;
 
 	listener_origin[ 0 ] = origin[ 0 ];
 	listener_origin[ 1 ] = origin[ 1 ];
@@ -1170,7 +1203,11 @@ function _playWebAudio( sc, chan ) {
 
 		}
 
-		source.start();
+		// S_StartSound may have offset the start (identical sounds this frame)
+		if ( chan.pos > 0 && chan.pos < numSamples )
+			source.start( 0, chan.pos / sampleRate );
+		else
+			source.start();
 
 	} catch ( e ) {
 

@@ -109,6 +109,7 @@ export class channel_t {
 		this.origin = new Float32Array( 3 ); // origin of sound effect
 		this.dist_mult = 0; // distance multiplier (attenuation/clipK)
 		this.master_vol = 0; // 0-255 master volume
+		this.startframe = - 1; // web-only: S_Update count when started, see S_StartSound
 
 	}
 
