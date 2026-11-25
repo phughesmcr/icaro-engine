@@ -194,6 +194,23 @@ Deno.test( 'joy_outer_threshold and joy_exponent shape the response', () => {
 
 	} );
 
+	withPad( { joy_deadzone_look: '0.2', joy_outer_threshold_look: '0.2', joy_exponent: '2' }, () => {
+
+		// the look stick has its own threshold and exponent
+		assertNear( poll( [ 0, 0, 0.5, 0 ] ).yaw, - 140 * 0.25, 'eased half look' );
+		assertNear( poll( [ 0, - 0.5, 0, 0 ] ).forward, 200 * 0.35 / 0.85, 'move stick unchanged' );
+
+	} );
+
+	withPad( { joy_deadzone_move: '-0.1' }, () => {
+
+		// a negative deadzone must not turn a centred stick into NaN
+		const idle = poll( [ 0, 0, 0, 0 ] );
+		assertNear( idle.forward, 0, 'centred stick, negative deadzone: forward' );
+		assertNear( idle.side, 0, 'centred stick, negative deadzone: side' );
+
+	} );
+
 	withPad( { joy_deadzone_look: '0.5', joy_outer_threshold_look: '0.5' }, () => {
 
 		// no room between the two: past the deadzone is full scale, not NaN

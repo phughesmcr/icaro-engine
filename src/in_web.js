@@ -328,7 +328,9 @@ function GP_ApplyDeadzone( out, x, y, deadzone, outer_threshold ) {
 
 	const magnitude = Math.sqrt( x * x + y * y );
 
-	if ( magnitude > deadzone ) {
+	// magnitude > 0 also guards a negative deadzone (Ironwail would
+	// divide 0 by 0 for a centred stick)
+	if ( magnitude > deadzone && magnitude > 0 ) {
 
 		// Ironwail expects deadzone + outer_threshold < 1; if they meet, any
 		// push past the deadzone is full scale rather than a division by 0
