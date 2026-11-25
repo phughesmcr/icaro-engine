@@ -37,7 +37,7 @@ deno task game
 which runs:
 
 ```bash
-deno run --allow-net=0.0.0.0:4433 --allow-read=static,server/cert.pem,server/key.pem --unstable-net \
+deno run '--allow-net=[::]:4433,0.0.0.0:4433' --allow-read=static,server/cert.pem,server/key.pem --unstable-net \
   server/game_server.js -cert server/cert.pem -key server/key.pem -pak static/pak0.pak -map start
 ```
 
@@ -54,7 +54,7 @@ deno task lobby
 which runs:
 
 ```bash
-deno run --allow-net=0.0.0.0:4433 --allow-read=server/cert.pem,server/key.pem --allow-run=deno --unstable-net \
+deno run '--allow-net=[::]:4433,0.0.0.0:4433' --allow-read=server/cert.pem,server/key.pem --allow-run=deno --unstable-net \
   server/lobby_server.js -cert server/cert.pem -key server/key.pem -pak static/pak0.pak
 ```
 
@@ -66,13 +66,27 @@ The lobby and the rooms run with scoped permissions:
 
 | Process | Flag | Scope | Why |
 |---------|------|-------|-----|
-| Lobby | `--allow-net` | `0.0.0.0:<lobby port>` | QUIC listener |
+| Lobby | `--allow-net` | `[::]:<lobby port>` and `0.0.0.0:<lobby port>` | QUIC listener (IPv6 and IPv4) |
 | Lobby | `--allow-read` | the cert and key files | TLS |
 | Lobby | `--allow-run` | the Deno binary | Spawning room processes |
-| Room | `--allow-net` | `0.0.0.0:<room port>` | QUIC listener |
+| Room | `--allow-net` | `[::]:<room port>` and `0.0.0.0:<room port>` | QUIC listener (IPv6 and IPv4) |
 | Room | `--allow-read` | `static/`, the pak, the cert and key, and `rogue/`, `hipnotic/` or the `-game` directory in the pak's basedir when set | Game data and TLS |
 
 The lobby builds the room flags itself (`room_process_manager.ts`). If you change `-port` or the cert/key paths, change the lobby's flags to match. `--allow-run=deno` resolves `deno` on `PATH` at startup; if that is a version-manager shim rather than the real binary, Deno will refuse to spawn rooms. Pass the binary's real path instead (`deno eval 'console.log(Deno.execPath())'`).
+
+Quote the `--allow-net` value in a shell: zsh and bash treat `[::]` as a glob.
+
+### Listening addresses
+
+The lobby and the rooms listen on both IPv6 and IPv4 (`quic_listen.ts`), so `wts://localhost` works when the browser resolves `localhost` to `::1`. Each server binds `[::]` first, then tries `0.0.0.0` on the same port:
+
+- On macOS and Linux, `[::]` is dual-stack and also accepts IPv4. The `0.0.0.0` bind then fails with "address in use", which is expected, and the startup line says `[::] (IPv6 and IPv4)`.
+- Where `[::]` is IPv6-only (Windows, or Linux with `net.ipv6.bindv6only=1`), both binds succeed: `[::] (IPv6) and 0.0.0.0 (IPv4)`.
+- Where IPv6 is unavailable (some containers), only `0.0.0.0 (IPv4 only)` is bound.
+
+The server can't tell a dual-stack `[::]` from another process already holding `0.0.0.0` on the same port. In that case it still starts, and IPv4 clients reach the other process, so keep the lobby and room ports free.
+
+Both `--allow-net` grants are needed in every case: a missing grant fails startup rather than silently dropping one address family. Clients connecting over IPv4 show up as plain IPv4 addresses (`127.0.0.1`, not `::ffff:127.0.0.1`), so the per-IP limits are unchanged for them.
 
 ## Command Line Options
 
@@ -177,6 +191,7 @@ WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on t
 - `room_process_manager.ts` — Spawns, monitors, and cleans up isolated `game_server.js` room processes (ports `4434`–`4443`)
 - `game_server.js` — Dedicated game server running the full Quake VM, physics, and protocol from `../src/`
 - `net_webtransport_server.ts` — Deno WebTransport server network driver
+- `quic_listen.ts` — Binds the dual-stack (`[::]` and `0.0.0.0`) QUIC endpoints for the lobby and rooms
 - `browser_shim.js` — Minimal `three` stubs mapped via `deno.json` for headless execution
 - `sys_server.ts` — Deno system utilities and production log filtering (`__ICARO_QUIET_LOGS`)
 - `deno.json` — Maps `"three"` to `browser_shim.js` when running from `server/` (the root `deno.json` does the same from the repository root)
@@ -185,16 +200,17 @@ WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on t
 
 - `../tests/net_webtransport_server_test.ts` — Unit tests for WebTransport packet sequencing (`deno task test` from the repository root)
 - `../tests/net_webtransport_server_lifecycle_test.js` and `../tests/net_webtransport_client_lifecycle_test.js` — Handshake, session-limit, timeout and close-path tests for both drivers, run against in-memory transports (`../tests/fake_webtransport.js`, `../tests/webtransport_test_env.js`)
+- `../tests/quic_listen_test.ts` — IPv6/IPv4 bind fallback tests for `quic_listen.ts`
 - `../tests/server_lobby_test.js` — Lobby and room-manager tests (`deno task test` from the repository root). The room-process tests need run access to `tests/fixtures/fake_room_server.sh`, write access and the `FAKE_ROOM_*` env vars (the task grants them), and are skipped without them.
 - `test_imports.js` — Smoke check verifying Deno imports of `../src/` modules (`cd server && deno run --allow-read test_imports.js`)
 
 ## Production Deployment
 
-Use valid TLS certificates (e.g. Let's Encrypt) and open UDP ports `4433` (lobby) and `4434`–`4443` (room servers):
+Use valid TLS certificates (e.g. Let's Encrypt) and open UDP ports `4433` (lobby) and `4434`–`4443` (room servers), for IPv6 as well as IPv4 if the host has an IPv6 address:
 
 ```bash
 deno run --unstable-net \
-  --allow-net=0.0.0.0:4433 \
+  '--allow-net=[::]:4433,0.0.0.0:4433' \
   --allow-read=/etc/letsencrypt/live/your-domain.com/fullchain.pem,/etc/letsencrypt/live/your-domain.com/privkey.pem \
   --allow-run="$(command -v deno)" \
   /opt/icaro-engine/server/lobby_server.js \
@@ -205,6 +221,8 @@ deno run --unstable-net \
 ```
 
 Rooms need to read `static/`, the pak, and the cert and key, so the user running the lobby must be able to read all of them.
+
+The lobby only tells clients a room's port. The client reuses the host it reached the lobby on, so a remote client reaches its room over the same address family it used for the lobby.
 
 ## License
 
