@@ -139,6 +139,7 @@ export class frame_t {
 		this.sequence = - 1; // Absolute client command sequence stored in this slot
 		this.netsequence = - 1; // Transport-level packet sequence used to send this command
 		this.senttime = 0; // Time command was sent
+		this.receivedtime = - 1; // time the ack for this command arrived, or -1 (QW frame_t)
 		this.playerstate = new player_state_t();
 	}
 }
@@ -182,6 +183,12 @@ export let cl_prediction_active = false; // true once CL_PredictMove has produce
 
 // Estimated latency for timing
 let cls_latency = 0;
+
+// HUD ping readout (Sbar_DrawPing): the last CL_CalcPing result, in ms or
+// -1, and when it was taken. QW's scoreboard asks for new ping times every
+// two seconds (QW/client/sbar.c Sbar_DeathmatchOverlay, cl.last_ping_request).
+let cl_displayping = - 1;
+let cl_last_ping_request = 0;
 
 // Prediction target time, in the realtime / senttime clock. QW stores this
 // in cl.time, but here cl.time stays in server time for CL_LerpPoint,
@@ -312,6 +319,77 @@ export function CL_AcknowledgeCommand( sequence ) {
 	}
 }
 
+/*
+=================
+CL_CalcPing
+
+QW/server/sv_main.c SV_CalcPing, measured on the client: the average round
+trip, in ms, of the commands in the frame window that the server
+acknowledged (receivedtime - senttime, as QW's CL_ParseClientdata computes
+latency). Our server only acks inside its sys_ticrate tick, so a sample
+includes the wait for that tick (up to one client send interval, since the
+ack names the newest command that arrived) and up to a client frame before
+the reply is read: input-to-response time, as QW's ping also counts the
+client's reply delay.
+
+The HUD can't use the server's NQ sample (SV_ReadClientMove's sv.time minus
+the echoed svc_time): on a dedicated server both are tick times, so every
+sample is 0 or 50 ms.
+
+Deviation: returns -1, not QW's 9999, when there is no sample, so the caller
+can fall back to STAT_PING (loopback and the guessed-ack path have none).
+=================
+*/
+export function CL_CalcPing() {
+
+	let ping = 0;
+	let count = 0;
+	for ( let i = 0; i < UPDATE_BACKUP; i ++ ) {
+
+		const frame = frames[ i ];
+		if ( frame.receivedtime === - 1 )
+			continue;
+
+		// QW's "Odd latency" bounds (CL_ParseClientdata)
+		const latency = frame.receivedtime - frame.senttime;
+		if ( latency < 0 || latency > 1.0 )
+			continue;
+
+		ping += latency;
+		count ++;
+
+	}
+
+	if ( count === 0 )
+		return - 1;
+
+	return Math.round( ( ping / count ) * 1000 );
+
+}
+
+/*
+=================
+CL_GetDisplayPing
+
+The ping the HUD shows, in ms, or -1 if there is no client measurement.
+Refreshed from CL_CalcPing every two seconds, as QW's scoreboard refreshes
+its ping times (QW/client/sbar.c). Until the first sample it keeps trying
+every call.
+=================
+*/
+export function CL_GetDisplayPing( now ) {
+
+	if ( cl_displayping === - 1 || now - cl_last_ping_request > 2 ) {
+
+		cl_last_ping_request = now;
+		cl_displayping = CL_CalcPing();
+
+	}
+
+	return cl_displayping;
+
+}
+
 function _CL_SequenceGTE( sequence, baseline ) {
 
 	return ( ( sequence - baseline ) | 0 ) >= 0;
@@ -323,10 +401,11 @@ function _CL_SequenceGTE( sequence, baseline ) {
 CL_AcknowledgeTransportSequence
 
 Map a transport-level packet ack to the newest predicted command sent
-in a packet with sequence <= transport ack.
+in a packet with sequence <= transport ack. `now` is the ack's arrival
+time (realtime; tests pass their own clock).
 =================
 */
-export function CL_AcknowledgeTransportSequence( transportAckSequence ) {
+export function CL_AcknowledgeTransportSequence( transportAckSequence, now = realtime ) {
 
 	const newestSent = outgoing_sequence - 1;
 	if ( newestSent < 0 )
@@ -342,6 +421,14 @@ export function CL_AcknowledgeTransportSequence( transportAckSequence ) {
 		if ( _CL_SequenceGTE( transportAckSequence, frame.netsequence ) ) {
 
 			CL_AcknowledgeCommand( seq );
+
+			// QW/client/cl_parse.c CL_ParseClientdata: frame->receivedtime =
+			// realtime for the acknowledged command. Only the first ack is
+			// stamped: unlike QW's server, which replies once per client
+			// packet, ours sends every tick, so later datagrams can ack it again.
+			if ( incoming_sequence === seq && frame.receivedtime === - 1 )
+				frame.receivedtime = now;
+
 			return;
 
 		}
@@ -457,6 +544,7 @@ export function CL_StoreCommand( cmd, senttime, netsequence = - 1 ) {
 	frame.sequence = sequence;
 	frame.netsequence = netsequence;
 	frame.senttime = senttime;
+	frame.receivedtime = - 1; // we haven't gotten a reply yet (QW CL_SendCmd)
 
 	outgoing_sequence++;
 
@@ -1213,6 +1301,8 @@ export function CL_ResetPrediction() {
 	server_sequence = 0;
 	has_server_state = false;
 	cls_latency = 0;
+	cl_displayping = - 1;
+	cl_last_ping_request = 0;
 	cl_predtime = 0;
 	_cl_predmovetype = PM_MOVETYPE_WALK;
 	_cl_servermovetype = PM_MOVETYPE_WALK;
@@ -1228,6 +1318,7 @@ export function CL_ResetPrediction() {
 		frames[ i ].sequence = - 1;
 		frames[ i ].netsequence = - 1;
 		frames[ i ].senttime = 0;
+		frames[ i ].receivedtime = - 1;
 		frames[ i ].playerstate.clear(); // incl. waterjumptime, oldbuttons, onground
 		entity_frames[ i ].packet_entities.num_entities = 0;
 		entity_frames[ i ].invalid = false;

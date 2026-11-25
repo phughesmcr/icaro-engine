@@ -6,6 +6,7 @@ import { Con_Printf } from './console.js';
 import { Draw_GetVirtualWidth, Draw_GetVirtualHeight, Draw_GetOverlayCanvas, Draw_SetClipRect, Draw_ResetClipping } from './gl_draw.js';
 import { COM_SkipPath, COM_StripExtension } from './common.js';
 import { scr_sbaralpha } from './gl_screen.js';
+import { CL_GetDisplayPing } from './cl_pred.js';
 import {
 	IT_SHOTGUN,
 	IT_SHELLS, IT_NAILS, IT_ROCKETS, IT_CELLS,
@@ -1249,14 +1250,21 @@ export function Sbar_Draw() {
 ==================
 Sbar_DrawPing
 
-Draw ping (latency) in the top-right corner during deathmatch
+Draw ping (latency) in the top-right corner during deathmatch. Not in the C.
+The round trip is measured on the client from the transport ack, as QW's
+client does (CL_GetDisplayPing). STAT_PING, the server's tick-quantised NQ
+sample, is the fallback when there is no ack (loopback). It reads above the
+network round trip by the wait for the server tick and for the client frame
+that reads the reply: about 12 ms at a 72 Hz send rate and 60 fps.
 ==================
 */
 function Sbar_DrawPing() {
 
 	if ( _Draw_Character == null ) return;
 
-	const pingMs = _cl.stats[ STAT_PING ];
+	let pingMs = CL_GetDisplayPing( realtime );
+	if ( pingMs === - 1 )
+		pingMs = _cl.stats[ STAT_PING ];
 	const str = pingMs + 'ms';
 
 	// Draw in top-right corner
