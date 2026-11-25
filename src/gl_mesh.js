@@ -550,11 +550,23 @@ export function GL_DrawAliasFrame( paliashdr, posenum ) {
 		const normalAttr = new THREE.BufferAttribute( new Float32Array( normals ), 3 );
 		const uvAttr = new THREE.BufferAttribute( new Float32Array( uvs ), 2 );
 
+		// The triangle list comes from paliashdr.commands alone, so every
+		// pose has the same one. Build one index attribute per model and
+		// share it: setIndex( array ) would make a new attribute, and the
+		// renderer a new GL buffer, on every pose change.
+		if ( paliashdr._indexAttr == null ) {
+
+			paliashdr._indexAttr = vertexCount > 65535
+				? new THREE.Uint32BufferAttribute( indices, 1 )
+				: new THREE.Uint16BufferAttribute( indices, 1 );
+
+		}
+
 		cached = {
 			posAttr,
 			normalAttr,
 			uvAttr,
-			indices,
+			indexAttr: paliashdr._indexAttr,
 			lightnormalindices,
 			vertexCount
 		};
@@ -1160,7 +1172,7 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 		geometry.setAttribute( 'pose1', template1.posAttr );
 		geometry.setAttribute( 'normal', template.normalAttr );
 		geometry.setAttribute( 'uv', template.uvAttr );
-		geometry.setIndex( template.indices );
+		if ( geometry.index !== template.indexAttr ) geometry.setIndex( template.indexAttr );
 
 		// Resize color buffer if vertex count changed between poses
 		if ( entity._aliasColorArray.length < template.vertexCount * 3 ) {
@@ -1365,10 +1377,13 @@ export function GL_DrawAliasShadow( entity, paliashdr, lerpdata, lightspot, shad
 
 	if ( shadowGeo == null || entity._aliasShadowVertCount !== template.vertexCount ) {
 
+		// The renderer keeps a geometry's GL buffers until dispose()
+		if ( shadowGeo != null ) shadowGeo.dispose();
+
 		shadowPosArray = new Float32Array( template.vertexCount * 3 );
 		shadowGeo = new THREE.BufferGeometry();
 		shadowGeo.setAttribute( 'position', new THREE.BufferAttribute( shadowPosArray, 3 ) );
-		shadowGeo.setIndex( template.indices );
+		shadowGeo.setIndex( template.indexAttr );
 		entity._aliasShadowGeo = shadowGeo;
 		entity._aliasShadowPosArray = shadowPosArray;
 		entity._aliasShadowVertCount = template.vertexCount;
