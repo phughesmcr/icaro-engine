@@ -70,6 +70,12 @@ function loadEntities( nomonstersSet ) {
 		sv.max_edicts = 16;
 		sv.time = 1;
 		sv.nomonsters = nomonstersSet;
+		// ED_LoadFromFile reserves signon space before each spawn function
+		const signon = new common.sizebuf_t();
+		common.SZ_Alloc( signon, 4000 );
+		sv.signon = signon;
+		sv.signon_buffers = [ signon ];
+		sv.num_signon_buffers = 1;
 		PR_SetSV( sv );
 		PR_SetSVS( svs );
 
