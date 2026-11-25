@@ -13,6 +13,7 @@ import { STAT_HEALTH, STAT_ARMOR, STAT_AMMO, STAT_SHELLS, STAT_NAILS, STAT_ROCKE
 	IT_INVISIBILITY, IT_INVULNERABILITY, IT_SUIT, IT_QUAD, PITCH, YAW } from './quakedef.js';
 import { Cbuf_AddText, Cbuf_Execute, Cmd_ExecuteString, src_command } from './cmd.js';
 import { Cvar_FindVar } from './cvar.js';
+import { IN_SetAgentDriven } from './in_web.js';
 import { Host_Frame } from './host.js';
 import { Con_SetAgentHook } from './console.js';
 import { SCR_SetAgentHook, SCR_UpdateScreen } from './gl_screen.js';
@@ -306,6 +307,7 @@ export function Agent_Attach( mode = 'realtime' ) {
 	}
 
 	agent_mode = mode;
+	IN_SetAgentDriven( true );
 	return agent_mode;
 
 }
@@ -337,6 +339,7 @@ export function Agent_Detach() {
 	Con_SetAgentHook( null );
 	SCR_SetAgentHook( null );
 	agent_mode = 'off';
+	IN_SetAgentDriven( false );
 	con_partial = '';
 
 }

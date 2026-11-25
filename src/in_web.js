@@ -1290,6 +1290,14 @@ export function IN_SoundActivate( active ) {
 
 }
 
+// Set by src/agent.js while an agent drives the game
+let in_agent_driven = false;
+export function IN_SetAgentDriven( driven ) {
+
+	in_agent_driven = driven;
+
+}
+
 function handleVisibilityChange() {
 
 	if ( ! in_initialized ) return;
@@ -1304,8 +1312,9 @@ function handleVisibilityChange() {
 		// key_dest == key_game), so the game is paused when the player
 		// returns. The same Escape that handlePointerLockChange sends on
 		// desktop; whichever runs first leaves key_dest at key_menu, so the
-		// other does nothing. Never in multiplayer or demos.
-		if ( key_dest === key_game && sv.active === true && svs.maxclients === 1 &&
+		// other does nothing. Never in multiplayer or demos, or while an
+		// agent drives the game (agents often run in a background tab).
+		if ( key_dest === key_game && sv.active === true && svs.maxclients === 1 && in_agent_driven === false &&
 			cls.state === ca_connected && ! cls.demoplayback ) {
 
 			Key_Event( K_ESCAPE, true );
