@@ -16,7 +16,7 @@ import {
 	WT_ParseHandshakeReply
 } from './net.js';
 import { clc_disconnect } from './protocol.js';
-import { M_ConnectionError, M_Menu_Main_f } from './menu.js';
+import { M_ClearReturnOnError, M_ConnectionError, M_Menu_Main_f } from './menu.js';
 import { set_key_dest, key_menu } from './keys.js';
 
 // WebTransport connection state
@@ -1278,6 +1278,9 @@ async function _WT_ConnectDirect( url, originalHost, roomId, attempt ) {
 
 		}
 
+		// Connected: a later failure no longer returns to the Join menu
+		// (_Datagram_Connect clears m_return_onerror here).
+		M_ClearReturnOnError();
 		return sock;
 
 	} catch ( error ) {
