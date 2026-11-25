@@ -17,6 +17,7 @@ import { d_lightstylevalue, r_norefresh, r_lightmap,
 import { mod_alias, r_worldentity, R_Init as R_Init_rmain, R_NewMap as R_NewMap_rmain, R_RenderView } from './gl_rmain.js';
 import { set_skytexturenum as set_skytexturenum_rsurf } from './gl_rsurf.js';
 import { R_ReadPointFile_f } from './r_part.js';
+import { Fog_Init, Fog_NewMap } from './gl_fog.js';
 import { cl, cl_entities } from './client.js';
 import { d_8to24table, renderer } from './vid.js';
 
@@ -207,6 +208,8 @@ export function R_Init() {
 
 	const particleTex = R_InitParticleTexture();
 
+	Fog_Init(); // johnfitz (Ironwail gl_rmisc.c R_Init)
+
 	// Initialize gl_rmain scene/camera
 	R_Init_rmain();
 
@@ -383,6 +386,8 @@ export function R_NewMap( cl ) {
 	// Set sky texture number in gl_rsurf.js for DrawTextureChains
 	set_skytexturenum_rsurf( skyTexNum );
 	set_mirrortexturenum( mirrorTexNum );
+
+	Fog_NewMap( cl.worldmodel ); // johnfitz -- global fog in worldspawn (Ironwail gl_rmisc.c R_NewMap)
 
 	return {
 		worldEntity: r_worldentity,

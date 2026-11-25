@@ -425,6 +425,14 @@ export class Color {
 	}
 }
 
+// FogExp2 - gl_fog.js (created only while a map has fog)
+export class FogExp2 {
+	constructor(_color = 0xffffff, density = 0.00025) {
+		this.color = new Color();
+		this.density = density;
+	}
+}
+
 // Texture
 export class Texture {
 	constructor() {

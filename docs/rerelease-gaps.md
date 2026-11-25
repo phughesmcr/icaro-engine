@@ -83,7 +83,7 @@ week or more.
 | 4c | Model and sound indexes | **missing** | Models are sent as bytes in packet entities (`src/sv_main.js:854`), `svc_playerinfo` (`:1572`), baselines (`:1969`) and `svc_spawnstatic` (`src/pr_cmds.js:1472`). Sounds are bytes at `src/sv_main.js:254`. Six maps have more than 200 brush submodels before the QC precaches: `mg1/mge2m2` 285, `mge5m2` 202; `mg3/map2b` 255, `map7` 230, `map8` 364, `secret2` 525. With the QC's precaches, `mg1/mge2m1` and `mg3/map4` and `map6` pass 256 too: the headless run after #126 ends them in `PF_precache_model: overflow`. The `SV_SpawnServer` submodel loop (`src/sv_main.js:2119-2123`) also reads `localmodels[ i ]` past `MAX_MODELS` with no bounds check, so it fails with a crash rather than an error (`Mod_ForName: NULL name` on `mge2m2` and `map8`). `secret2` first fills `mod_known` (`MAX_MOD_KNOWN` 512, `src/gl_model.js:667`; Ironwail 2048). Ironwail: `MAX_MODELS` 4096, `MAX_SOUNDS` 2048, `U_MODEL2` and large-sound flags (`Quake/protocol.h:64`). Sound precache counts were not measured. | (in 4b) | as 4b, plus `src/pr_cmds.js` (`PF_makestatic`, precache) |
 | 4d | Coordinate range | **missing** | `MSG_WriteCoord` (`src/common.js:423`) writes a short in eighths of a unit, ±4096. World bounds pass ±4096 on `id1/vault/jrwiz3`, `mg1/mge1m2`, `mge4m1` and `mge4m2` (±5183), and `mg3/secret1`. Ironwail uses `PROTOCOL_RMQ` with `PRFL_INT32COORD` or float coords (`Quake/protocol.h:31-37`, default `sv_protocol` 999). | (in 4b) | `src/common.js`, `src/protocol.js`, `src/cl_parse.js`, prediction (`src/pmove.js`, `src/cl_pred.js`) |
 | 5 | `.lit` coloured lighting | **missing** | 127 `.lit` files, all QLIT version 1: id1 42, mg1 25, mg3 20, dopa 13, hipnotic 18, ctf 9, rogue none. `src/gl_model.js:1643` loads mono light data; `src/gl_rsurf.js:277` has `lightmap_bytes = 1`. `src/pak.js:588` defers `.lit`, so map load would have to `COM_EnsureFile` it. Ironwail: `Quake/gl_model.c:860-895`. | M | `src/gl_model.js` (`Mod_LoadLighting`), `src/gl_rsurf.js`, `src/gl_rlight.js` (`R_LightPoint`), `src/pak.js` |
-| 6a | Fog | **missing** | The worldspawn `fog` key appears in 42 id1, 17 hipnotic, 9 ctf, 3 mg1 and 2 mg3 maps (as `fog_*`). mg1, mg3 and dopa also set fog from QuakeC with `stuffcmd(…, "fog …")` (`quakec_mg1/fog.qc`), which prints "Unknown command" here. Ironwail: `Quake/gl_fog.c` (`Fog_ParseWorldspawn`, the `fog` command, `svc_fog`). | M | new `src/gl_fog.js`, `src/gl_rmain.js`, `src/cl_parse.js` (`svc_fog` only if the server sends it) |
+| 6a | Fog | **done** (#134) | Fixed: `src/gl_fog.js` ports Ironwail's `Quake/gl_fog.c`: `Fog_ParseWorldspawn` reads the worldspawn `fog` key (42 id1, 17 hipnotic and 9 ctf maps), and the `fog` command takes all its argument forms, timed fades included, so mg1, mg3 and dopa's `stuffcmd(…, "fog …")` (`quakec_mg1/fog.qc`) works. Their `fog_*` entity keys are QuakeC fields that feed those commands. Three.js draws it as `FogExp2`, set only while the fog is on. The sky gets Ironwail's flat `r_skyfog` mix (worldspawn `skyfog`, set by 35 mg1, mg3, dopa and ctf maps) instead of distance fog. `svc_fog` isn't needed: QuakeC uses `stuffcmd`. | – | – |
 | 6b | Skyboxes | **missing** | 15 mg1 and mg3 maps set `_sky` (for example `mge2m1/mge2m1_`), and their paks ship `gfx/env/*.tga` (mg1 66, mg3 78). Ironwail strips the leading `_` and loads the box (`Quake/gl_sky.c:557-600`). Here `pak.js` defers `.tga`, and there is no skybox renderer or TGA loader. | M | `src/gl_warp.js` or a new `src/gl_sky.js`, `src/pak.js`, an image loader |
 | 6c | Entity `alpha` | **missing** | 233 mg1 and 321 mg3 entities have an `alpha` key, and the mg1 progs declares `.float alpha`. `src/pr_edict.js:917` only suppresses the "not a field" warning. The protocol carries no alpha. Ironwail: `U_ALPHA` (`Quake/protocol.h:62`), with `ENTALPHA_ENCODE` in `ED_ParseEdict` (`Quake/pr_edict.c:1391`). | M (with 4b) | `src/protocol.js`, `src/sv_main.js`, `src/cl_parse.js`, `src/gl_rmain.js`, `src/pr_edict.js` |
 | 6d | `EF_QUADLIGHT`, `EF_PENTALIGHT`, `EF_CANDLELIGHT` (16, 32, 64) | **missing** | The rerelease `defs.qc` defines them. `src/cl_main.js:682-693` handles only 4 and 8. Ironwail: `Quake/cl_main.c:654`, gated by `PR_FindSupportedEffects` (`Quake/pr_edict.c`) so mods that use those bits differently are left alone. | S | `src/cl_main.js`, `src/pr_edict.js` |
@@ -164,7 +164,7 @@ not have to adopt Ironwail's 666 or 999 wire formats, because the client and ser
 **Phase 5: fidelity (M each).** In rough order of visible effect:
 
 1. `.lit` (5)
-2. Fog (6a)
+2. Fog (6a). Done in #134.
 3. Skyboxes (6b)
 4. The QEX effect lights (6d)
 5. MD5 models (6k), last
@@ -194,9 +194,8 @@ Groups that can run at the same time:
   - The `vibrate` no-op.
   - Protocol limits with alpha (network files).
   - `.lit` (`gl_model.js`, `gl_rsurf.js`, `gl_rlight.js`, `pak.js`).
-  - Fog (new `gl_fog.js`, `gl_rmain.js`). It shares `gl_rmain.js` with alpha, so
-    keep its `gl_rmain.js` change to a call into `gl_fog.js`, or land it after
-    the protocol PR.
+  - Fog (new `gl_fog.js`, `gl_rmain.js`). Done in #134; its `gl_rmain.js`
+    change is one call into `gl_fog.js`.
   - Skyboxes (`gl_warp.js` or `gl_sky.js`). Skyboxes need `pak.js` after `.lit`.
 
 ## Not verified
