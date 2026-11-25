@@ -10,8 +10,9 @@ import { COM_AddPakSequence, COM_AddGameDirectory, COM_SetLooseFileBasePaths, CO
 import { COM_InitArgv, LOC_Init, rogue, hipnotic } from '../src/common.js';
 import { Cbuf_Init, Cbuf_Execute, Cmd_Init } from '../src/cmd.js';
 import { Host_InitCommands } from '../src/host_cmd.js';
-import { deathmatch, coop, skill, teamplay, fraglimit, timelimit, samelevel, noexit, sys_ticrate, campaign, horde, sv_cheats, Host_ShutdownServer } from '../src/host.js';
-import { Cvar_RegisterVariable, Cvar_FindVar, Cvar_SetValue } from '../src/cvar.js';
+import { deathmatch, sys_ticrate, campaign, horde, sv_cheats, Host_ShutdownServer } from '../src/host.js';
+import { Cvar_RegisterVariable } from '../src/cvar.js';
+import { Room_ApplyGameOptions, Room_ApplyExitRules } from '../src/room_rules.js';
 import { cls, ca_dedicated } from '../src/client.js';
 import { Memory_Init } from '../src/zone.js';
 import { PR_Init } from '../src/pr_edict.js';
@@ -184,49 +185,6 @@ export function wsTrustConfig(config) {
 		trustQueryIp: config.roomId !== null || config.trustProxy,
 		trustAnyPeer: config.trustProxy,
 	};
-}
-
-/**
- * menu.c M_GameOptions_Key sets coop, teamplay, skill, fraglimit and
- * timelimit before "map". Same here, before SV_SpawnServer. Only the options
- * given are touched; with none, the room is exactly as before. These cvars
- * are not registered in this process (Host_InitLocal never runs), so
- * register them first or Cvar_SetValue finds nothing.
- */
-export function applyGameOptions(options) {
-	const cvars = { coop, teamplay, skill, fraglimit, timelimit };
-	for (const name of Object.keys(cvars)) {
-		if (Object.hasOwn(options, name) === false) continue;
-		if (Cvar_FindVar(name) === null) Cvar_RegisterVariable(cvars[name]);
-		Cvar_SetValue(name, options[name]);
-	}
-	// SV_SpawnServer zeroes deathmatch when coop is set, but only through the
-	// cvar list, where this process keeps deathmatch unregistered.
-	if (options.coop === 1) {
-		deathmatch.value = 0;
-		deathmatch.string = '0';
-	}
-}
-
-/**
- * Level exits in a room. A deathmatch room keeps its map: noexit 1 makes
- * id1's changelevel_touch kill a player who walks into an exit, and
- * samelevel 2 makes GotoNextMap reload the same map after a fraglimit or
- * timelimit intermission (QuakeC treats any non-zero samelevel that way). A
- * co-op room plays through the episode, so both are 0 there, as in a
- * listen server's co-op game. QuakeC reads them with cvar(), which goes
- * through the cvar list, and Host_InitLocal (which registers them) never runs
- * in this process, so register them first. Called before SV_SpawnServer,
- * while sv.active is false, so the server-flagged noexit isn't broadcast.
- */
-export function applyExitRules(options) {
-	const coopRoom = options.coop === 1;
-	for (const [cvar, value] of [[noexit, coopRoom ? 0 : 1], [samelevel, coopRoom ? 0 : 2]]) {
-		if (Cvar_FindVar(cvar.name) === null) Cvar_RegisterVariable(cvar);
-		Cvar_SetValue(cvar.name, value);
-	}
-	Sys_Printf('Level exits: noexit %d, samelevel %d%s\n', noexit.value, samelevel.value,
-		coopRoom ? ' (co-op: exits change the map)' : ' (exits kill the player; the room keeps its map)');
 }
 
 /**
@@ -527,8 +485,8 @@ async function Host_Init_Server() {
 	if (await COM_EnsureFile('maps/' + CONFIG.defaultMap + '.bsp') !== true) {
 		throw new Error('Map not found: maps/' + CONFIG.defaultMap + '.bsp');
 	}
-	applyGameOptions(CONFIG.gameOptions);
-	applyExitRules(CONFIG.gameOptions);
+	Room_ApplyGameOptions(CONFIG.gameOptions);
+	Room_ApplyExitRules(CONFIG.gameOptions);
 	SV_SpawnServer(CONFIG.defaultMap);
 	if (sv.active !== true) {
 		throw new Error('Could not spawn map ' + CONFIG.defaultMap);

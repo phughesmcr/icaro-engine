@@ -4,14 +4,15 @@ import { Sys_Printf, Sys_Error, Sys_FloatTime } from './sys.js';
 import { Con_Printf, Con_DPrintf, Con_SetPrintFunctions, SZ_Clear,
 	MSG_WriteByte, MSG_WriteString, COM_SetHostError } from './common.js';
 import { svc_print, svc_disconnect } from './protocol.js';
-import { cvar_t, Cvar_RegisterVariable, Cvar_SetServerBroadcast, Cvar_WriteVariables } from './cvar.js';
+import { MAX_SCOREBOARD } from './quakedef.js';
+import { cvar_t, Cvar_RegisterVariable, Cvar_SetServerBroadcast, Cvar_WriteVariables, Cvar_SetValue } from './cvar.js';
 import { Cmd_Init, Cbuf_Init, Cbuf_Execute, Cbuf_AddText, Cbuf_InsertText, Cmd_SetClientCallbacks } from './cmd.js';
 import { Memory_Init } from './zone.js';
 import { V_Init } from './view.js';
 import { Chase_Init } from './chase.js';
 import { W_LoadWadFile } from './wad.js';
 import { COM_LoadFile } from './pak.js';
-import { COM_Init, COM_CheckParm, com_argv, Q_atof, rogue, hipnotic, LOC_Init, LOC_Shutdown } from './common.js';
+import { COM_Init, COM_CheckParm, com_argc, com_argv, Q_atoi, Q_atof, rogue, hipnotic, LOC_Init, LOC_Shutdown } from './common.js';
 import { Key_Init, Key_WriteBindings } from './keys.js';
 import { Con_Init, Con_SetExternals, Con_Printf as RealConPrintf, Con_DPrintf as RealConDPrintf } from './console.js';
 import { M_Init, M_SetExternals } from './menu.js';
@@ -256,11 +257,31 @@ function Host_InitLocal() {
 /*
 ======================
 Host_FindMaxClients
+
+Mirrors WinQuake/host.c Host_FindMaxClients, without -dedicated: the
+dedicated room is server/game_server.js, which never runs Host_Init. In the
+browser, main.js passes -listen from ?listen=N.
 ======================
 */
-function Host_FindMaxClients() {
+export function Host_FindMaxClients() {
 
 	svs.maxclients = 1;
+
+	const i = COM_CheckParm( '-listen' );
+	if ( i !== 0 ) {
+
+		if ( i !== com_argc - 1 )
+			svs.maxclients = Q_atoi( com_argv[ i + 1 ] );
+		else
+			svs.maxclients = 8;
+
+	}
+
+	if ( svs.maxclients < 1 )
+		svs.maxclients = 8;
+	else if ( svs.maxclients > MAX_SCOREBOARD )
+		svs.maxclients = MAX_SCOREBOARD;
+
 	svs.maxclientslimit = svs.maxclients;
 	if ( svs.maxclientslimit < 4 )
 		svs.maxclientslimit = 4;
@@ -274,6 +295,11 @@ function Host_FindMaxClients() {
 	}
 
 	cls.state = 1; // ca_disconnected
+
+	if ( svs.maxclients > 1 )
+		Cvar_SetValue( 'deathmatch', 1.0 );
+	else
+		Cvar_SetValue( 'deathmatch', 0.0 );
 
 }
 
@@ -512,6 +538,8 @@ export async function Host_Init( parms ) {
 			Host_WriteConfiguration();
 
 		} );
+
+		window.addEventListener( 'pagehide', Host_PageHide );
 
 	}
 
@@ -1118,6 +1146,24 @@ export function Host_ShutdownServer( crash ) {
 
 	// clear structures
 	Object.assign( sv, new ( sv.constructor )() );
+
+}
+
+/*
+==================
+Host_PageHide
+
+Web addition. A listen server's tab going away ends its game as quitting
+does (Host_Quit_f -> CL_Disconnect -> Host_ShutdownServer), so the other
+players get svc_disconnect instead of waiting out net_messagetimeout. A
+page that is going away may not flush what it sends; joiners then see
+their connection close. Single player has no one to tell.
+==================
+*/
+export function Host_PageHide() {
+
+	if ( sv.active === true && svs.maxclients > 1 )
+		Host_ShutdownServer( false );
 
 }
 

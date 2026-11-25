@@ -157,7 +157,7 @@ This is a room bug, not only a bench artifact. `server/game_server.js` sets
 through `cvar("noexit")`, which looks in the cvar list, finds nothing and
 returns 0. So in any room, one player walking into an exit changes the map
 for everyone. Real clients follow the reconnect, so players see a level
-change rather than a freeze [unverified]. `applyGameOptions` already registers the
+change rather than a freeze [unverified]. `applyGameOptions` (now `Room_ApplyGameOptions` in `src/room_rules.js`) already registers the
 cvars it sets for this reason. A fix should register `noexit` the same
 way. It also needs to decide what co-op rooms want, since `noexit 1` blocks
 exits in co-op too. That fix is separate from this document.
