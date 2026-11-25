@@ -45,6 +45,10 @@ On phones and tablets the game shows touch controls. Play in landscape.
 - **Back button:** once you have clicked, tapped or pressed a key (other than Escape or a modifier), the browser's Back (a TV remote's Back key, Android's back gesture, Alt+Left) acts as Escape instead of leaving the page: it opens the menu in game and goes back a level in menus. To leave, use the address bar or close the tab. This is a web-only addition.
 - **Gamepads:** controllers that report the browser's `standard` mapping work as they are. Paired to a Samsung TV, a DualSense works in its browser. The sticks' dead zones and response curves can be tuned in Options > Advanced > Controller, or in the console with Ironwail's `joy_deadzone_move`, `joy_deadzone_look`, `joy_outer_threshold_move`, `joy_outer_threshold_look`, `joy_exponent` and `joy_exponent_move` cvars.
 
+### Multiplayer
+
+The page joins online games through a lobby (`deno task lobby`). `?server=` picks the lobby, `?transport=ws` or `?transport=wt` picks WebSocket or WebTransport, and `?room=` joins a room. [server/README.md](server/README.md) covers running the servers, these parameters, and serving through a Cloudflare Tunnel.
+
 ### License
 
 Code: GPL v2

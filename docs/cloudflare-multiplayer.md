@@ -1,7 +1,11 @@
 # Hosting Icaro Engine multiplayer with Cloudflare
 
-Research notes, 2026-11-25. Nothing here has been built or tested. Each
-Cloudflare fact is tagged with how it was checked:
+Research notes, 2026-11-25. They were written just before the WebSocket
+driver landed (#161) and were then updated to match `dev`: the WebSocket
+transport and the Cloudflare Tunnel layout now exist and are documented in
+[server/README.md](../server/README.md) ("WebSocket transport" and
+"Cloudflare Tunnel"). The other options were researched only, not built.
+Each Cloudflare fact is tagged with how it was checked:
 
 - **[docs]**: read on the cited `developers.cloudflare.com` or
   `blog.cloudflare.com` page on 2026-11-25.
@@ -12,30 +16,27 @@ Cloudflare fact is tagged with how it was checked:
 ## Summary
 
 No self-serve Cloudflare product accepts public UDP/QUIC traffic and forwards
-it to an origin. Multiplayer today is WebTransport (HTTP/3 over QUIC/UDP) end
-to end, so it can't sit behind Cloudflare as it is. That leaves two routes:
+it to an origin, so WebTransport (HTTP/3 over QUIC/UDP) can't sit behind
+Cloudflare. The game has two transports, and each has a route:
 
-1. **Game traffic bypasses Cloudflare.** Cloudflare keeps serving the static
+1. **WebTransport bypasses Cloudflare.** Cloudflare keeps serving the static
    client and provides DNS. The lobby and rooms run on a host with public UDP
    (the home Mac with port forwarding, or a VPS), behind a DNS-only record
-   with a Let's Encrypt certificate. The server needs no code changes. The
-   client needs a **one-line change**: `?server=` gets lost after the first
-   join (see option 5), so the default lobby URL has to become the
-   production one.
-2. **The game gets a second transport that Cloudflare can carry.** That means
-   WebSocket (through a Tunnel, a Container or a Durable Object) or WebRTC
-   (with Cloudflare TURN for NAT traversal). This is real porting work in both
-   the client and the server, and WebSocket loses unreliable datagrams.
+   with a Let's Encrypt certificate. No code changes: share links keep
+   `?server=` (see option 5).
+2. **WebSocket goes through Cloudflare.** The WebSocket driver (#161) runs
+   through a Cloudflare Tunnel with one ingress rule and no open ports
+   (option 1, set up as in server/README.md). Containers or Durable Objects
+   could host the same driver on Cloudflare itself. WebSocket loses
+   unreliable datagrams (TCP head-of-line blocking). WebRTC with Cloudflare
+   TURN would keep them, but that is still unbuilt porting work.
 
-**Recommendation:** the targets are desktop and mobile browsers, which
-mostly have WebTransport, so take route 1 on the home Mac (cost: nothing).
-Add a WebSocket net driver behind a Cloudflare Tunnel (also free) if:
-
-- you don't want to open router ports or expose the home IP, or
-- too many players turn out to have no WebTransport (iOS before 26.4) or
-  blocked UDP. Cloudflare Containers is the paid, fully Cloudflare-hosted
-version of the same driver. Durable Objects, Spectrum and the Realtime SFU are
-poor fits; see below.
+**Recommendation:** the Tunnel route is free, needs no router ports and
+doesn't expose the home IP, and it works in every browser, so it is the
+simplest default. Add route 1 for players who have WebTransport if stalls
+under packet loss turn out to matter. Cloudflare Containers is the paid,
+fully Cloudflare-hosted version of the Tunnel route. Durable Objects,
+Spectrum and the Realtime SFU are poor fits; see below.
 
 ## How multiplayer works today
 
@@ -51,20 +52,27 @@ poor fits; see below.
   20 Hz). It reads `static/pak0.pak` (18.7 MB) from disk. Engine state is
   module-level globals (C globals ported as module exports), which is why
   rooms are separate processes.
-- **Transport** (`server/net_webtransport_server.ts`, `src/net_webtransport.js`):
+- **WebTransport** (`server/net_webtransport_server.ts`, `src/net_webtransport.js`):
   - One bidirectional stream carries reliable Quake messages (signon,
     stringcmds).
   - WebTransport **datagrams** carry unreliable ones (entity updates,
     clientdata, `clc_move`), with a fallback to the reliable stream.
   - A `0x71` header carries sequence and ack, which drive client prediction.
-- **Client discovery** (`src/menu.js`, `main.js`):
-  - The lobby URL is `?server=` or `DEFAULT_WT_SERVER = 'https://localhost:4433'`.
-  - When a room is joined or created, the lobby replies with **only a port**.
-    The client keeps the lobby's host and swaps the port
-    (`urlObj.port = roomPort` in `_WT_Connect` and `menu.js`).
-  - Share links come from `Sys_PageURL` (`src/sys.js`) and carry only
-    `?room=` and `?game=`. They **drop `?server=`**, and so does
-    `_WT_ClearRoomFromUrl` after a failed connect.
+- **WebSocket** (`server/net_websocket_server.ts`, `src/net_websocket.js`,
+  #161): the same messages as frames on one socket. The lobby and rooms
+  listen with `-wsport`. A client reaches a room through the lobby's
+  `<prefix>/room/<id>` proxy, so only the lobby's port has to be reachable.
+  Browsers without WebTransport use it automatically; `?transport=ws` or a
+  `wss://` `?server=` forces it.
+- **Client discovery** (`src/menu.js`, `main.js`, `src/sys.js`):
+  - The WebTransport lobby is `?server=` or `SYS_DEFAULT_LOBBY`
+    (`https://localhost:4433`). The WebSocket lobby defaults to
+    `ws://127.0.0.1:4433` on a localhost page and `wss://<page host>/mp`
+    elsewhere, which is the Tunnel layout.
+  - For WebTransport, the lobby replies with **only a port**: the client
+    keeps the lobby's host and swaps the port.
+  - Share links come from `Sys_PageURL` (`src/sys.js`). They keep `?room=`,
+    `?game=`, a valid `?server=` and `?transport=`.
 - **Certificates:** the client never passes `serverCertificateHashes`, so the
   lobby and rooms need a **publicly trusted** certificate for the hostname.
   Self-signed certificates work only with Chrome flags. The server doesn't
@@ -79,16 +87,16 @@ poor fits; see below.
     ordered transport (TCP/WebSocket) stalls everything behind the lost
     packet (head-of-line blocking).
   - Bandwidth is small: roughly tens of KB/s per room [unverified estimate].
-- **Engine structure that helps:** `src/net_main.js` keeps the NetQuake
-  driver table (`net_drivers`: loopback + WebTransport). A new transport can
-  be one more driver, as in C (`net_dgrm`/`net_loop`).
+- **Engine structure:** `src/net_main.js` keeps the NetQuake driver table
+  (`net_drivers`: loopback, WebTransport and WebSocket), as in C
+  (`net_dgrm`/`net_loop`). A WebRTC transport would be one more driver.
 
 ## Options
 
 ### 1. Cloudflare Tunnel (`cloudflared`)
 
-**Verdict:** it can't carry WebTransport or UDP. It *could* carry a WebSocket
-transport, if the game had one.
+**Verdict:** it can't carry WebTransport or UDP. It carries the WebSocket
+transport, and this is the layout server/README.md documents.
 
 - **Public hostnames** route HTTP/HTTPS, plus TCP/SSH/RDP/SMB. The non-HTTP
   types need `cloudflared` on the *client* ("Streams TCP over a WebSocket
@@ -114,12 +122,9 @@ transport, if the game had one.
     [docs]. [Tunnel FAQ](https://developers.cloudflare.com/cloudflare-one/faq/tunnel/)
   - That FAQ sits in the Cloudflare One section and doesn't name public
     hostnames specifically. Treat it as very likely but test it.
-- **Code changes, if used with a WebSocket transport** (see "WebSocket
-  driver" below):
-  - Rooms can't each have a port, so routing becomes path-based: for example
-    `wss://mp.anglezarke.games/room/<id>`, proxied by the lobby to the room's
-    localhost port, or by tunnel ingress rules.
-  - The lobby's reply needs a URL or path instead of a bare port.
+- **Code changes:** none left. Rooms can't each have a port, so the lobby
+  proxies `<prefix>/room/<id>` to the room's loopback WebSocket port, and one
+  ingress rule (`path: ^/mp/`) sends the lobby path to it.
 - **Cost:** free.
 - **Latency:** every packet goes client → nearest Cloudflare PoP → the PoP
   `cloudflared` is attached to → Mac. That's a small detour for remote
@@ -216,8 +221,8 @@ module-level globals. It would be a large refactor, not a port.
 ### 3b. Cloudflare Containers
 
 **Verdict:** the only fully Cloudflare-hosted option that keeps the engine
-as it is (Deno, pak on disk, one process per room). It still needs the
-WebSocket driver.
+as it is (Deno, pak on disk, one process per room). It would use the
+WebSocket driver, with the lobby reworked as below.
 
 - **Plan:** Workers Paid only [docs].
   [Containers](https://developers.cloudflare.com/containers/)
@@ -286,8 +291,8 @@ traversal aid, but only if the game moves to WebRTC data channels.
 
 ### 5. Hybrid: Cloudflare for the web, game servers elsewhere
 
-**Verdict:** the servers work unchanged; the client needs one small fix. This
-is the recommended starting point.
+**Verdict:** the servers and the client work unchanged. It is the
+WebTransport route, with real unreliable datagrams.
 
 - **Setup:**
   - The static client stays where it is (the existing tunnel, or Workers
@@ -309,17 +314,11 @@ is the recommended starting point.
 - **Client:**
   - `menu.js` reads `?server=` for listing, creating and joining, so
     `https://quake.anglezarke.games/?server=https://mp.anglezarke.games:4433`
-    works for the first action.
-  - But `Sys_PageURL` (`src/sys.js`) rewrites the address bar after a create
-    or join to `?room=<id>` without `server`, and `_WT_ClearRoomFromUrl`
-    strips everything after a failed connect.
-  - After that, the next menu action, a reload, or a shared room link falls
-    back to `DEFAULT_WT_SERVER` (`https://localhost:4433`). `main.js`'s
-    `?room=` auto-join does the same.
-  - **Required change (small):** either keep `server` in `Sys_PageURL` and
-    `_WT_ClearRoomFromUrl`, or make `DEFAULT_WT_SERVER` the production lobby
-    when the page isn't served from `localhost`. The second is simpler and
-    makes share links short.
+    works, and `Sys_PageURL` keeps `server=` in room links, reloads and the
+    address bar after a failed connect.
+  - The WebTransport default lobby is still `https://localhost:4433` off
+    localhost, so links without `?server=` don't reach it. Making the
+    default the production lobby would shorten links; that is optional.
 - **Home Mac:**
   - Forward UDP 4433–4443 on the router.
   - Keep the DNS record current with a small DDNS updater against the
@@ -364,32 +363,16 @@ This is possible, but not worth it for a single game host:
   regions). With one host, the Deno lobby next to the rooms is simpler and
   already hardened.
 
-## The WebSocket driver (needed by options 1, 3 and 3b)
+## The WebSocket driver (used by options 1, 3 and 3b)
 
-What adding one would take:
+Built in #161: `src/net_websocket.js` on the client, and
+`server/net_websocket_server.ts` with `Deno.upgradeWebSocket` on the lobby
+and rooms. It reuses the existing framing and `0x71` sequence header, and
+sends "unreliable" messages as frames on the same socket. The lobby proxies
+`<prefix>/room/<id>` to each room's loopback listener, so behind a Tunnel TLS
+ends at Cloudflare and no room port is public. Containers or Durable Objects
+would still need the lobby reworked (see 3b and 5b).
 
-- **Client:**
-  - `src/net_websocket.js`, registered in `net_drivers` next to
-    WebTransport and chosen by URL scheme (`wss://`) or as a fallback when
-    `typeof WebTransport === 'undefined'`.
-  - Reuse the existing framing: `[length:2][transport_packet]` and the `0x71`
-    sequence header, sending "unreliable" messages as frames over the same
-    socket.
-  - The existing datagram→stream fallback shows the engine already works
-    with unreliable messages on a reliable path.
-- **Server:**
-  - A Deno `Deno.serve` + `Deno.upgradeWebSocket` driver alongside
-    `net_webtransport_server.ts`.
-  - Rooms on Containers or behind a tunnel need path routing instead of
-    per-room ports.
-  - TLS terminates at Cloudflare, so the origin needs no public certificate.
-- **Lobby:**
-  - Move the `LOBBY_*` frames to HTTP/JSON or WebSocket.
-  - The join/create reply carries a URL rather than a port.
-  - The client must stop swapping the port (`_WT_Connect` redirect,
-    `menu.js` create path).
-- **Protocol:** client and server ship together. The `ICARO` handshake
-  version would need a bump if the framing changes.
 - **Gameplay cost:**
   - TCP head-of-line blocking: a lost packet delays every later update until
     it is retransmitted, so stutter appears under loss rather than
@@ -411,7 +394,9 @@ What adding one would take:
     later. Older iPhones get the client's "requires a browser with
     WebTransport" alert (`menu.js`).
 - **Networks:** some corporate, school and public Wi-Fi block or throttle
-  UDP/QUIC [unverified]. A WebSocket fallback would cover those players too.
+  UDP/QUIC [unverified]. The WebSocket transport covers those players, but
+  only if they reach it through `?transport=ws` or the Tunnel's `wss://`
+  lobby: the page tries WebTransport first where the browser has it.
 - **Mobile data needs nothing special:** players behind carrier CGNAT are
   fine, because the client starts the connection. Only the *server* needs a
   reachable public IP.
@@ -420,18 +405,21 @@ What adding one would take:
 
 | Option | Works with today's code | Cloudflare plan | Rough cost | Latency |
 |---|---|---|---|---|
-| 1 Tunnel | No: needs WebSocket driver | Free | Free | +PoP detour, TCP HOL |
+| 1 Tunnel | **Yes** (WebSocket, #161) | Free | Free | +PoP detour, TCP HOL |
 | 2 Spectrum UDP | Yes | Spectrum Enterprise | Unpublished (sales) | Best |
-| 3 Durable Objects | No: WS driver + de-globalising the engine | Free (limits bite) / Paid | Cents/evening on Paid | DO placement, TCP HOL |
-| 3b Containers | No: WS driver + lobby rework | Workers Paid | ~$5–6/month light use | Placement/cold start unknown, TCP HOL |
+| 3 Durable Objects | No: de-globalising the engine | Free (limits bite) / Paid | Cents/evening on Paid | DO placement, TCP HOL |
+| 3b Containers | No: lobby rework | Workers Paid | ~$5–6/month light use | Placement/cold start unknown, TCP HOL |
 | 4 Realtime TURN/SFU | No: WebRTC driver + Deno WebRTC lib | Free tier 1,000 GB | Free at this scale | Direct/relay, no HOL |
-| 5 Hybrid (Mac/VPS) | **Servers yes; client one-line default-lobby fix** | Free (DNS only) | Free / VPS few $ | Direct UDP |
+| 5 Hybrid (Mac/VPS) | **Yes** (WebTransport, with `?server=`) | Free (DNS only) | Free / VPS few $ | Direct UDP |
 
 ## Recommended path and next steps
 
-1. **Try the hybrid on the home Mac.** First make the
-   client keep the production lobby (default `DEFAULT_WT_SERVER` off
-   localhost, or preserve `?server=`). That's a small PR against `dev`.
+1. **Run the Tunnel route** (option 1) as server/README.md describes: the
+   lobby with `-wsport`, and an `^/mp/` ingress rule ahead of the static
+   site. Test on desktop, then from a phone on mobile data, with
+   `?transport=ws` on browsers that have WebTransport.
+2. **If stalls under loss matter, add the hybrid on the home Mac** for
+   WebTransport players:
    - Check the router's WAN IP is public (no CGNAT).
    - Forward UDP 4433–4443.
    - Add a DNS-only `mp` record.
@@ -439,12 +427,7 @@ What adding one would take:
    - Run `deno task lobby` with that cert, and play via `?server=https://mp.anglezarke.games:4433`.
    - Test on desktop, then from a phone on mobile data (outside the LAN).
    - Then test from a device on the home LAN, to check hairpin NAT.
-2. **If you'd rather not expose the home IP or open ports, or players hit
-   missing WebTransport or blocked UDP:** write the WebSocket net driver
-   (client + server + lobby URL reply) as one PR, used as a fallback when
-   WebTransport is missing or fails. Then route it through a new tunnel
-   ingress on the Mac, which is free. Move to Containers later if you want it
-   off the Mac.
+3. **Move to Containers** later if you want the game off the Mac.
 
 ## Not verified
 
