@@ -1,7 +1,7 @@
 // Ported from: WinQuake/host_cmd.c
 
 import { Sys_Printf, Sys_Error, Sys_FloatTime } from './sys.js';
-import { Con_Printf, SZ_Write, SZ_Clear,
+import { Con_Printf, SZ_Clear,
 	MSG_WriteByte, MSG_WriteShort, MSG_WriteLong, MSG_WriteFloat,
 	MSG_WriteString, MSG_WriteAngle, COM_Parse, com_token, rogue, hipnotic } from './common.js';
 import { svc_signonnum, svc_time, svc_updatename, svc_updatefrags,
@@ -25,6 +25,7 @@ import { SV_SpawnServer, SV_SaveSpawnparms, SV_DropClient,
 	SV_WriteClientdataToMessage, current_skill } from './sv_main.js';
 import { sv, svs, host_client, set_host_client,
 	NUM_SPAWN_PARMS, NUM_PING_TIMES } from './server.js';
+import { PRESPAWN_SIGNONBUFS } from './server.js';
 import { cls, cl, ca_connected, ca_dedicated, MAX_DEMOS } from './client.js';
 import { key_game, set_key_dest } from './keys.js';
 import { CL_Disconnect, CL_EstablishConnection, CL_NextDemo,
@@ -1651,10 +1652,10 @@ function Host_PreSpawn_f() {
 
 	}
 
-	SZ_Write( host_client.message, sv.signon.data, sv.signon.cursize );
-	MSG_WriteByte( host_client.message, svc_signonnum );
-	MSG_WriteByte( host_client.message, 2 );
-	host_client.sendsignon = true;
+	// johnfitz/Ironwail: SV_SendClientMessages sends the signon buffers,
+	// one per message, then svc_signonnum 2
+	host_client.sendsignon = PRESPAWN_SIGNONBUFS;
+	host_client.signonidx = 0;
 
 }
 

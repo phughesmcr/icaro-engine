@@ -32,6 +32,7 @@ import {
 } from './progs.js';
 import { PR_ExecuteProgram } from './pr_exec.js';
 import { SV_UnlinkEdict } from './world.js';
+import { SV_ReserveSignonSpace } from './sv_main.js';
 
 //============================================================================
 // Module state
@@ -1012,6 +1013,10 @@ export function ED_LoadFromFile( data ) {
 			continue;
 
 		}
+
+		// Ironwail: room for the spawn function's MSG_INIT writes, so
+		// they don't straddle two signon buffers
+		SV_ReserveSignonSpace( 512 );
 
 		pr_global_struct.self = EDICT_TO_PROG( ent );
 		PR_ExecuteProgram( pr_functions.indexOf( func ) );

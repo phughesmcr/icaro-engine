@@ -2,7 +2,7 @@
 
 import { Sys_Error } from './sys.js';
 import {
-	Con_Printf, Con_DPrintf, SZ_Clear, SZ_Write,
+	Con_Printf, Con_DPrintf, SZ_Clear, SZ_Write, sizebuf_t,
 	MSG_WriteByte, MSG_WriteChar, MSG_WriteShort, MSG_WriteLong,
 	MSG_WriteFloat, MSG_WriteString, MSG_WriteCoord, MSG_WriteAngle,
 	MSG_WriteAngle16,
@@ -45,7 +45,8 @@ import {
 	FL_ONGROUND,
 	EF_MUZZLEFLASH,
 	NUM_SPAWN_PARMS,
-	deathmatch, coop, skill
+	deathmatch, coop, skill,
+	MAX_SIGNON_BUFFERS, PRESPAWN_DONE, PRESPAWN_FLUSH, PRESPAWN_SIGNONBUFS, PRESPAWN_SIGNONMSG
 } from './server.js';
 import { hostname } from './net_main.js';
 import {
@@ -315,7 +316,7 @@ export function SV_SendServerinfo( client ) {
 	MSG_WriteByte( client.message, svc_signonnum );
 	MSG_WriteByte( client.message, 1 );
 
-	client.sendsignon = true;
+	client.sendsignon = PRESPAWN_FLUSH;
 	client.spawned = false; // need prespawn, spawn, etc
 
 }
@@ -531,11 +532,47 @@ export function SV_SendClientMessages() {
 			// the player isn't totally in the game yet
 			// send small keepalive messages if too much time has passed
 			// send a full message when the next signon stage has been requested
+			// some other message data (name changes, etc) may accumulate
+			// between signon stages
 			if ( ! client.sendsignon ) {
 
 				if ( realtime - client.last_message > 5 )
 					SV_SendNop( client );
-				continue;
+				continue; // don't send out non-signon messages
+
+			}
+
+			// johnfitz/Ironwail: the signon goes out one buffer per message.
+			// Ironwail sends several at once to a local client; here a buffer
+			// is about half of client.message, so two rarely fit anyway.
+			if ( client.sendsignon === PRESPAWN_SIGNONBUFS ) {
+
+				if ( client.signonidx < sv.num_signon_buffers ) {
+
+					const signon = sv.signon_buffers[ client.signonidx ];
+					if ( client.message.cursize + signon.cursize <= client.message.maxsize ) {
+
+						SZ_Write( client.message, signon.data, signon.cursize );
+						client.signonidx ++;
+
+					}
+
+				}
+
+				if ( client.signonidx === sv.num_signon_buffers )
+					client.sendsignon = PRESPAWN_SIGNONMSG;
+
+			}
+
+			if ( client.sendsignon === PRESPAWN_SIGNONMSG ) {
+
+				if ( client.message.cursize + 2 < client.message.maxsize ) {
+
+					MSG_WriteByte( client.message, svc_signonnum );
+					MSG_WriteByte( client.message, 2 );
+					client.sendsignon = PRESPAWN_FLUSH;
+
+				}
 
 			}
 
@@ -565,7 +602,10 @@ export function SV_SendClientMessages() {
 					SV_DropClient( true );
 				SZ_Clear( client.message );
 				client.last_message = realtime;
-				client.sendsignon = false;
+				// Host_Spawn_f (host_cmd.js) still sets id's sendsignon = true,
+				// which means the same as PRESPAWN_FLUSH
+				if ( client.sendsignon === PRESPAWN_FLUSH || client.sendsignon === true )
+					client.sendsignon = PRESPAWN_DONE;
 
 			}
 
@@ -1793,6 +1833,54 @@ export function SV_SaveSpawnparms() {
 }
 
 /*
+==============================================================================
+
+SERVER SPAWNING
+
+==============================================================================
+*/
+
+// Ironwail sizes each signon buffer at 31500 bytes, about half its 64000-byte
+// client message. This port keeps id's MAX_MSGLEN (8000) message, and a
+// buffer that can never fit in it would stall the client's signon, so each
+// buffer is half of that: a buffer, pending reliable data and the closing
+// svc_signonnum all fit in one message.
+export const SIGNON_SIZE = MAX_MSGLEN / 2;
+
+/*
+================
+SV_AddSignonBuffer -- Ironwail
+================
+*/
+function SV_AddSignonBuffer() {
+
+	if ( sv.num_signon_buffers >= MAX_SIGNON_BUFFERS )
+		Host_Error( 'SV_AddSignonBuffer overflow\n' );
+
+	const sb = new sizebuf_t();
+	sb.data = new Uint8Array( SIGNON_SIZE );
+	sb.maxsize = SIGNON_SIZE;
+	sv.signon_buffers[ sv.num_signon_buffers ++ ] = sb;
+	sv.signon = sb;
+
+}
+
+/*
+================
+SV_ReserveSignonSpace -- Ironwail
+
+Starts a new signon buffer when the current one can't take numbytes more,
+so that no message is split across two buffers.
+================
+*/
+export function SV_ReserveSignonSpace( numbytes ) {
+
+	if ( sv.signon.cursize + numbytes > sv.signon.maxsize )
+		SV_AddSignonBuffer();
+
+}
+
+/*
 ================
 SV_CreateBaseline
 ================
@@ -1834,6 +1922,7 @@ function SV_CreateBaseline() {
 		//
 		// add to the message
 		//
+		SV_ReserveSignonSpace( 35 ); // Ironwail's size, for its largest baseline
 		MSG_WriteByte( sv.signon, svc_spawnbaseline );
 		MSG_WriteShort( sv.signon, entnum );
 
@@ -1947,9 +2036,7 @@ export function SV_SpawnServer( server ) {
 	sv.reliable_datagram.data = sv.reliable_datagram_buf;
 	sv.reliable_datagram.allowoverflow = true; // will be copied to client reliables
 
-	sv.signon.maxsize = 8192;
-	sv.signon.cursize = 0;
-	sv.signon.data = sv.signon_buf;
+	SV_AddSignonBuffer();
 
 	// leave slots at start for clients only
 	sv.num_edicts = svs.maxclients + 1;
@@ -2043,6 +2130,20 @@ export function SV_SpawnServer( server ) {
 
 	// create a baseline for more efficient communications
 	SV_CreateBaseline();
+
+	// johnfitz -- warn if signon buffer larger than standard server can handle
+	// (Ironwail's Con_DWarning; the port has no Con_DWarning, so Con_DPrintf
+	// with the same text). This server splits the signon, so these are
+	// warnings about other engines (e.g. a demo of the map played elsewhere),
+	// as in Ironwail, not limits here.
+	let signonsize = 0;
+	for ( let i = 0; i < sv.num_signon_buffers; i ++ )
+		signonsize += sv.signon_buffers[ i ].cursize;
+	if ( signonsize > 64000 - 2 )
+		Con_DPrintf( '\x02Warning: %i byte signon buffer exceeds QS limit of 63998.\n', signonsize );
+	else if ( signonsize > 8000 - 2 ) // max size that will fit into 8000-sized client->message buffer with 2 extra bytes on the end
+		Con_DPrintf( '\x02Warning: %i byte signon buffer exceeds standard limit of 7998.\n', signonsize );
+	// johnfitz
 
 	// send serverinfo to all connected clients
 	for ( let i = 0; i < svs.maxclients; i ++ ) {
