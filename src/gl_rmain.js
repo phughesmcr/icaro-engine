@@ -26,7 +26,7 @@ import {
 	R_InitParticles, R_SetParticleExternals, R_ClearParticles,
 	R_DrawParticles as R_DrawParticles_impl
 } from './r_part.js';
-import { isXRActive, getXRRig, XR_SetCamera, XR_SCALE, XR_GetControllerWorldPose } from './webxr.js';
+import { isXRActive, getXRRig, XR_SetCamera, XR_SCALE, XR_GetControllerWorldPose, XR_RenderHUD } from './webxr.js';
 import {
 	cl, cl_visedicts, cl_numvisedicts, cl_dlights, cl_entities,
 	cl_static_entities, cl_temp_entities, cl_lightstyle,
@@ -1472,6 +1472,11 @@ export function R_RenderView() {
 	if ( isXRActive() === false ) {
 
 		R_PolyBlend();
+
+	} else if ( camera ) {
+
+		// The 2D overlay quad, on top of the world and particles
+		XR_RenderHUD( camera );
 
 	}
 
