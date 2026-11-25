@@ -201,8 +201,7 @@ Deno.test( 'map teardown clears persistent entity mesh caches', () => {
 		entity._aliasShadowGeo = shadowGeometry;
 		entity._aliasShadowPosArray = new Float32Array( 3 );
 		entity._aliasShadowVertCount = 1;
-		entity._viewmodelMaterial = viewmodelMaterial;
-		entity._viewmodelMaterialBase = {};
+		entity._viewmodelMaterials = new Map( [ [ {}, viewmodelMaterial ] ] );
 		entity._playerMaterial = playerMaterial;
 		entity._playerSkinTexture = {};
 		cl.worldmodel = worldmodel;
@@ -223,8 +222,7 @@ Deno.test( 'map teardown clears persistent entity mesh caches', () => {
 		assertEqual( entity._aliasShadowGeo, null, 'shadow geometry cache' );
 		assertEqual( entity._aliasShadowPosArray, null, 'shadow position cache' );
 		assertEqual( entity._aliasShadowVertCount, undefined, 'shadow count cache' );
-		assertEqual( entity._viewmodelMaterial, null, 'viewmodel material cache' );
-		assertEqual( entity._viewmodelMaterialBase, null, 'viewmodel base cache' );
+		assertEqual( entity._viewmodelMaterials, null, 'viewmodel material cache' );
 		assertEqual( entity._playerMaterial, null, 'player material cache' );
 		assertEqual( entity._playerSkinTexture, null, 'player skin cache' );
 

@@ -925,7 +925,7 @@ function R_GetAliasSkinTexture( paliashdr, entity, anim ) {
 R_GetAliasMaterial
 
 Get or create a cached material for the given alias model skin.
-Materials are cached per (paliashdr, skinnum, hasLighting) to avoid
+Materials are cached per (paliashdr, skin texture, hasLighting) to avoid
 per-frame material creation and shader compilation.
 =================
 */
@@ -962,21 +962,28 @@ export function R_GetAliasMaterial( paliashdr, entity, hasLighting, playerSkinTe
 
 	if ( ! paliashdr._materialCache ) paliashdr._materialCache = new Map();
 
-	const skinnum = entity && entity.skinnum ? entity.skinnum : 0;
-
 	// Animated skins cycle through frames 0-3 every 0.1 seconds
 	// Original: anim = (int)(cl.time*10) & 3
 	const anim = cl && cl.time ? ( Math.floor( cl.time * 10 ) & 3 ) : 0;
 
-	// Cache key includes animation frame for animated skins
-	const cacheKey = skinnum * 8 + anim * 2 + ( hasLighting ? 1 : 0 );
+	// Cache by the skin texture, not by anim: Mod_LoadAllSkins fills all
+	// four gl_texturenum slots of a single-frame skin with one texture, so
+	// keying by anim built four identical materials and switched between
+	// them every 0.1 seconds.
+	const texture = R_GetAliasSkinTexture( paliashdr, entity, anim ) || null;
+	let pair = paliashdr._materialCache.get( texture );
+	if ( pair === undefined ) {
 
-	let material = paliashdr._materialCache.get( cacheKey );
-	if ( material ) return material;
+		pair = [ null, null ]; // [ unlit, lit ]
+		paliashdr._materialCache.set( texture, pair );
 
-	const texture = R_GetAliasSkinTexture( paliashdr, entity, anim );
+	}
 
-	if ( texture ) {
+	const lit = hasLighting ? 1 : 0;
+	let material = pair[ lit ];
+	if ( material !== null ) return material;
+
+	if ( texture !== null ) {
 
 		material = new AliasMaterial( {
 			map: texture,
@@ -995,7 +1002,7 @@ export function R_GetAliasMaterial( paliashdr, entity, hasLighting, playerSkinTe
 	}
 
 	GL_RegisterCullMaterial( material );
-	paliashdr._materialCache.set( cacheKey, material );
+	pair[ lit ] = material;
 	return material;
 
 }
