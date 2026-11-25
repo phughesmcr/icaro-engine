@@ -67,6 +67,21 @@ The test counts in the table were taken on each PR's own branch with `deno test 
 - #93 adds `sv_altnoclip` to the movevars the server sends for prediction.
 - #106 adds `svc_localsound` (56) from Ironwail and the 2021 rerelease.
 - #112 has the client read and ignore the rerelease's `svc_achievement` (52).
+- Phase 4 of `docs/rerelease-gaps.md` gives the server its own version,
+  `PROTOCOL_ICARO` (1015, `src/protocol.js`), for the 2021 rerelease limits
+  (`MAX_EDICTS` 32000, `MAX_MODELS` 4096, `MAX_SOUNDS` 2048), rather than
+  Ironwail's 666 or 999 formats. Under it, coordinates are int32 eighths of a
+  unit; models are shorts in baselines, `svc_spawnstatic`, `svc_clientdata`
+  and `svc_playerinfo`; `svc_spawnstaticsound` sends a short; baselines and
+  statics end with an alpha byte; and packet entities carry 15-bit entity
+  numbers, a short model and an alpha byte (`PE_ALPHA`). `svc_sound` and
+  `svc_localsound` use Ironwail's `SND_LARGEENTITY` and `SND_LARGESOUND`
+  flags. The client still accepts protocol 15 and reads it in the NetQuake
+  form, so the attract demos play; demos recorded by Icaro before this
+  change (15 with packet entities) no longer do. Deviations from Ironwail:
+  only brush models draw alpha (`src/gl_entalpha.js`), there is no
+  `max_edicts` cvar (the edict arrays grow on demand), and a map with more
+  submodels than `MAX_MODELS` stops with a `Host_Error` in `SV_SpawnServer`.
 
 Deploy the client and server together, and make sure clients don't keep a cached bundle from before these changes.
 

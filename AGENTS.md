@@ -34,7 +34,7 @@ process per room. It was forked from mrdoob's three-quake.
 
 - `deno task ci` runs what CI runs: `deno task test`, `deno task lint` and
   `deno task check`. Run it before calling work done.
-- `deno task test`: the whole suite (~560 tests, ~13 s). Its permissions are
+- `deno task test`: the whole suite (~580 tests, ~13 s). Its permissions are
   scoped: no network, env limited to the `FAKE_ROOM_*` variables, and run
   limited to `tests/fixtures/fake_room_server.sh`. A test that needs more must
   widen the task deliberately. For one file:
