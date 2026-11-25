@@ -556,7 +556,8 @@ export function CL_SendMove( cmd ) {
 CL_ClampPitch
 
 johnfitz -- variable pitch clamping: cl_maxpitch / cl_minpitch replace
-id's hard-coded 80 / -70 in CL_AdjustAngles and IN_MouseMove
+id's hard-coded 80 / -70 in CL_AdjustAngles and the mouse look (in_win.c
+IN_MouseMove, here IN_Move), plus the port's gamepad and touch look
 ============
 */
 export function CL_ClampPitch() {
