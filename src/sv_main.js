@@ -11,7 +11,7 @@ import {
 import { Cmd_ExecuteString, Cbuf_InsertText } from './cmd.js';
 import { cvar_t, Cvar_RegisterVariable, Cvar_Set, Cvar_SetValue } from './cvar.js';
 import {
-	MAX_MODELS, MAX_SOUNDS, MAX_DATAGRAM, MAX_EDICTS, MAX_MSGLEN,
+	MAX_MODELS, MAX_SOUNDS, MAX_DATAGRAM, MIN_EDICTS, MAX_EDICTS, MAX_MSGLEN,
 	STAT_PING
 } from './quakedef.js';
 import {
@@ -25,15 +25,16 @@ import {
 	svc_updatename, svc_updatecolors, svc_localsound,
 	SU_VIEWHEIGHT, SU_IDEALPITCH, SU_PUNCH1, SU_VELOCITY1,
 	SU_ITEMS, SU_ONGROUND, SU_INWATER, SU_WEAPONFRAME, SU_ARMOR, SU_WEAPON,
+	SU_EXTEND1, SU_EXTEND2, SU_WEAPONFRAME2, SU_WEAPONALPHA,
 	DEFAULT_VIEWHEIGHT, svc_damage, svc_setangle,
 	svc_playerinfo, PF_MSEC, PF_COMMAND, PF_VELOCITY1,
-	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_DEAD, PF_GIB, PF_FLY, PF_NOCLIP, PF_TELEPORT,
+	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_DEAD, PF_GIB, PF_FLY, PF_NOCLIP, PF_TELEPORT, PF_ALPHA,
 	CM_ANGLE1, CM_ANGLE2, CM_ANGLE3, CM_FORWARD, CM_SIDE, CM_UP, CM_BUTTONS, CM_IMPULSE,
 	svc_packetentities, svc_deltapacketentities, svc_serversequence,
 	PE_ENT_MASK, PE_ORIGIN1, PE_ORIGIN2, PE_ORIGIN3,
 	PE_ANGLE2, PE_REMOVE, PE_MOREBITS,
 	PE_FRAME, PE_ANGLE1, PE_ANGLE3, PE_MODEL, PE_COLORMAP, PE_SKIN, PE_EFFECTS, PE_SOLID,
-	PE_ALPHA, ENTALPHA_DEFAULT, ENTALPHA_ZERO, ENTALPHA_ENCODE,
+	PE_ALPHA, PE_FRAME2, ENTALPHA_DEFAULT, ENTALPHA_ZERO, ENTALPHA_ENCODE,
 	PS_BSP, PS_BOX, PS_NOLERP,
 	MAX_PACKET_ENTITIES, PE_UPDATE_BACKUP, PE_UPDATE_MASK
 } from './protocol.js';
@@ -111,6 +112,12 @@ export function SV_AllocFatPVS( worldmodel ) {
 // sv_aim is only used in sv_main.js (not a physics cvar shared with sv_phys/sv_user)
 export const sv_aim = new cvar_t( 'sv_aim', '0.93' );
 
+// Ironwail host.c: read by SV_SpawnServer, so a change applies from the next
+// map. Deviation: registered in SV_Init, not Host_InitLocal, and without
+// Ironwail's Max_Edicts_f callback ("Changes to max_edicts will not take
+// effect until the next time a map is loaded."), as cvar.js has no callbacks.
+export const max_edicts = new cvar_t( 'max_edicts', '16384' ); //johnfitz //ericw -- changed from 2048 to 8192, removed CVAR_ARCHIVE
+
 export let current_skill = 0;
 
 /*
@@ -133,6 +140,7 @@ export function SV_Init() {
 	Cvar_RegisterVariable( sv_nostep );
 	Cvar_RegisterVariable( sv_altnoclip ); // johnfitz
 	Cvar_RegisterVariable( sv_freezenonclients );
+	Cvar_RegisterVariable( max_edicts ); //johnfitz
 	PR_SetDeathmatch( deathmatch );
 
 	for ( let i = 0; i < MAX_MODELS; i ++ )
@@ -861,6 +869,10 @@ function SV_WriteDelta( from, to, msg, force ) {
 	if ( to.alpha !== from.alpha )
 		bits |= PE_ALPHA;
 
+	// Ironwail sv_main.c SV_WriteEntitiesToClient: U_FRAME2
+	if ( ( bits & PE_FRAME ) && ( ( to.frame | 0 ) & 0xFF00 ) )
+		bits |= PE_FRAME2;
+
 	// Check if the second byte of bits is needed
 	if ( bits & 0xFF00 )
 		bits |= PE_MOREBITS;
@@ -919,6 +931,8 @@ function SV_WriteDelta( from, to, msg, force ) {
 	}
 	if ( bits & PE_ALPHA )
 		MSG_WriteByte( msg, to.alpha );
+	if ( bits & PE_FRAME2 )
+		MSG_WriteByte( msg, ( to.frame | 0 ) >> 8 );
 
 }
 
@@ -986,13 +1000,14 @@ export function SV_SetStateSolid( state, ent, clent ) {
 // Largest single entry SV_WriteDelta can write: entity number short + 2
 // bytes of bits + model short + frame, colormap, skin, effects + 3 coords
 // (4 bytes each, MSG_WriteCoord) + 3 angles + PE_SOLID byte and box
-// (6 coords) + alpha
-const MAX_PACKETENTITY_BYTES = 2 + 2 + 2 + 4 + 3 * 4 + 3 + 1 + 6 * 4 + 1;
+// (6 coords) + alpha + frame high byte (PE_FRAME2)
+const MAX_PACKETENTITY_BYTES = 2 + 2 + 2 + 4 + 3 * 4 + 3 + 1 + 6 * 4 + 1 + 1;
 
 // Largest svc_playerinfo SV_WritePlayersToClient can write: svc + num + flags
-// + origin + frame + msec + usercmd (bits, 3 angle16, 3 moves, buttons,
-// impulse) + velocity + model short, skin, effects, weaponframe, teleport time
-const MAX_PLAYERINFO_BYTES = 1 + 1 + 2 + 3 * 4 + 1 + 1 + ( 1 + 3 * 2 + 3 * 2 + 1 + 1 ) + 3 * 2 + 2 + 4;
+// + origin + frame short + msec + usercmd (bits, 3 angle16, 3 moves, buttons,
+// impulse) + velocity + model short + weaponframe short + skin, effects,
+// teleport time, alpha
+const MAX_PLAYERINFO_BYTES = 1 + 1 + 2 + 3 * 4 + 2 + 1 + ( 1 + 3 * 2 + 3 * 2 + 1 + 1 ) + 3 * 2 + 2 + 2 + 4;
 
 // An empty packetentities: svc_deltapacketentities + sequence + terminator
 const MIN_PACKETENTITIES_BYTES = 2 + 2;
@@ -1208,8 +1223,7 @@ export function SV_WriteEntitiesToClient( client, clent, pvs, msg ) {
 			continue;
 
 		//johnfitz -- alpha (Ironwail sv_main.c SV_WriteEntitiesToClient)
-		if ( pr_extfields.alpha >= 0 )
-			ent.alpha = ENTALPHA_ENCODE( ent._fieldAccessor.getFloat( pr_extfields.alpha ) );
+		SV_UpdateEntAlpha( ent );
 
 		// Ironwail: qcvm->effects_mask drops the 2021 rerelease light bits
 		// for a progs that doesn't define them
@@ -1248,6 +1262,24 @@ export function SV_WriteEntitiesToClient( client, clent, pvs, msg ) {
 	// encode the packet entities as a delta from the
 	// last packetentities acknowledged by the client
 	SV_EmitPacketEntities( client, pack, msg );
+
+}
+
+/*
+==================
+SV_UpdateEntAlpha
+
+Ironwail sv_main.c SV_WriteEntitiesToClient, which refreshes ent->alpha
+from the progs field while it builds the entity list. Players are sent
+with svc_playerinfo here, not in that list, so SV_WritePlayersToClient
+and SV_WriteClientdataToMessage call this too. Ironwail's clientdata reads
+the alpha from the previous frame's SV_WriteEntitiesToClient.
+==================
+*/
+function SV_UpdateEntAlpha( ent ) {
+
+	if ( pr_extfields.alpha >= 0 )
+		ent.alpha = ENTALPHA_ENCODE( ent._fieldAccessor.getFloat( pr_extfields.alpha ) );
 
 }
 
@@ -1341,9 +1373,29 @@ export function SV_WriteClientdataToMessage( ent, msg ) {
 	// always send weapon
 	bits |= SU_WEAPON;
 
+	//johnfitz -- PROTOCOL_FITZQUAKE (Ironwail; Icaro sends only these, see
+	// SU_EXTEND1 in protocol.js)
+	SV_UpdateEntAlpha( ent );
+	if ( ( bits & SU_WEAPONFRAME ) && ( ( ent.v.weaponframe | 0 ) & 0xFF00 ) )
+		bits |= SU_WEAPONFRAME2;
+	if ( ( bits & SU_WEAPON ) && ent.alpha !== ENTALPHA_DEFAULT )
+		bits |= SU_WEAPONALPHA; //for now, weaponalpha = client entity alpha
+	if ( bits >= 65536 )
+		bits |= SU_EXTEND1;
+	if ( bits >= 16777216 )
+		bits |= SU_EXTEND2;
+	//johnfitz
+
 	// send the data
 	MSG_WriteByte( msg, svc_clientdata );
-	MSG_WriteShort( msg, bits );
+	MSG_WriteShort( msg, bits & 0xFFFF );
+
+	//johnfitz -- PROTOCOL_FITZQUAKE
+	if ( bits & SU_EXTEND1 )
+		MSG_WriteByte( msg, ( bits >> 16 ) & 0xFF );
+	if ( bits & SU_EXTEND2 )
+		MSG_WriteByte( msg, ( bits >> 24 ) & 0xFF );
+	//johnfitz
 
 	if ( bits & SU_VIEWHEIGHT )
 		MSG_WriteChar( msg, ent.v.view_ofs[ 2 ] );
@@ -1398,6 +1450,13 @@ export function SV_WriteClientdataToMessage( ent, msg ) {
 		}
 
 	}
+
+	//johnfitz -- PROTOCOL_FITZQUAKE
+	if ( bits & SU_WEAPONFRAME2 )
+		MSG_WriteByte( msg, ( ent.v.weaponframe | 0 ) >> 8 );
+	if ( bits & SU_WEAPONALPHA )
+		MSG_WriteByte( msg, ent.alpha ); //for now, weaponalpha = client entity alpha
+	//johnfitz
 
 }
 
@@ -1550,6 +1609,9 @@ export function SV_WritePlayersToClient( _client, clent, pvs, msg ) {
 			pflags |= PF_DEAD;
 		if ( ent.v.mins[ 2 ] !== - 24 )
 			pflags |= PF_GIB;
+		SV_UpdateEntAlpha( ent );
+		if ( ent.alpha !== ENTALPHA_DEFAULT )
+			pflags |= PF_ALPHA;
 
 		// For self, don't send msec/command (already known), but send weaponframe
 		if ( ent === clent ) {
@@ -1575,7 +1637,7 @@ export function SV_WritePlayersToClient( _client, clent, pvs, msg ) {
 		for ( let i = 0; i < 3; i ++ )
 			MSG_WriteCoord( msg, ent.v.origin[ i ] );
 
-		MSG_WriteByte( msg, ent.v.frame );
+		MSG_WriteShort( msg, ent.v.frame ); // QW: a byte (Ironwail's U_FRAME2)
 
 		if ( pflags & PF_MSEC ) {
 
@@ -1635,10 +1697,13 @@ export function SV_WritePlayersToClient( _client, clent, pvs, msg ) {
 			MSG_WriteByte( msg, effects );
 
 		if ( pflags & PF_WEAPONFRAME )
-			MSG_WriteByte( msg, ent.v.weaponframe );
+			MSG_WriteShort( msg, ent.v.weaponframe ); // QW: a byte
 
 		if ( pflags & PF_TELEPORT )
 			MSG_WriteByte( msg, Math.min( 255, Math.ceil( ( ent.v.teleport_time - sv.time ) * 100 ) ) );
+
+		if ( pflags & PF_ALPHA )
+			MSG_WriteByte( msg, ent.alpha );
 
 	}
 
@@ -2022,15 +2087,16 @@ function SV_CreateBaseline() {
 		//
 		// add to the message
 		//
-		// PROTOCOL_ICARO's baseline (protocol.js): a short model index, 4-byte
-		// coords and an alpha byte. svc + entnum + model + frame, colormap,
-		// skin + 3 coords and angles + alpha.
-		SV_ReserveSignonSpace( 1 + 2 + 2 + 3 + 3 * ( 4 + 1 ) + 1 );
+		// PROTOCOL_ICARO's baseline (protocol.js): a short model index, a
+		// short frame (Ironwail B_LARGEFRAME), 4-byte coords and an alpha
+		// byte. svc + entnum + model + frame + colormap, skin + 3 coords and
+		// angles + alpha.
+		SV_ReserveSignonSpace( 1 + 2 + 2 + 2 + 2 + 3 * ( 4 + 1 ) + 1 );
 		MSG_WriteByte( sv.signon, svc_spawnbaseline );
 		MSG_WriteShort( sv.signon, entnum );
 
 		MSG_WriteShort( sv.signon, svent.baseline.modelindex );
-		MSG_WriteByte( sv.signon, svent.baseline.frame );
+		MSG_WriteShort( sv.signon, svent.baseline.frame );
 		MSG_WriteByte( sv.signon, svent.baseline.colormap );
 		MSG_WriteByte( sv.signon, svent.baseline.skin );
 		for ( let i = 0; i < 3; i ++ ) {
@@ -2123,13 +2189,13 @@ export function SV_SpawnServer( server ) {
 	} );
 
 	// allocate server memory
-	sv.max_edicts = MAX_EDICTS;
+	sv.max_edicts = Math.min( Math.max( MIN_EDICTS, max_edicts.value | 0 ), MAX_EDICTS ); //johnfitz -- max_edicts cvar
 
 	// Allocate edicts array using entityfields from loaded progs. Unlike C,
 	// only the first SV_INITIAL_EDICTS: EDICT_NUM and ED_Alloc grow the
 	// array up to sv.max_edicts (progs.js ED_GrowEdicts).
 	const entityfields = progs ? progs.entityfields : 105; // 105 is default for standard Quake
-	sv.edicts = PR_AllocEdicts( SV_INITIAL_EDICTS, entityfields );
+	sv.edicts = PR_AllocEdicts( Math.min( SV_INITIAL_EDICTS, sv.max_edicts ), entityfields );
 
 	// set up sizebuf data pointers
 	sv.datagram.maxsize = MAX_DATAGRAM;

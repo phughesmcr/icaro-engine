@@ -1,4 +1,4 @@
-// Ported from: Ironwail gl_rmain.c / r_brush.c -- entity alpha for brush models
+// Ported from: Ironwail gl_rmain.c / r_brush.c / r_alias.c -- entity alpha
 //
 // FitzQuake added an alpha field to entities (protocol.js ENTALPHA_*);
 // Ironwail's R_DrawBrushModel draws an entity whose ENTALPHA_DECODE( alpha )
@@ -11,9 +11,20 @@
 // transparent clone keyed by (base material, alpha byte), and swaps the base
 // back when the entity turns opaque again. gl_rsurf.js is left untouched.
 //
-// Deviation: alias models and sprites ignore alpha. Ironwail blends them too,
-// but no rerelease content relies on it.
+// Alias models (Ironwail r_alias.c R_DrawAliasModel, ENTALPHA_DECODE into
+// the instance alpha): R_EntAlpha_ApplyMesh swaps the one mesh's material
+// the same way, after gl_mesh.js R_DrawAliasModel has set it. Ironwail
+// draws a translucent alias model without depth writes and without back
+// face culling (GLS_NO_ZWRITE, ~GLS_CULL_BACK), so those clones are double
+// sided. The view model gets the alpha svc_clientdata's SU_WEAPONALPHA
+// gives cl.viewent, and players the alpha svc_playerinfo's PF_ALPHA gives.
+//
+// Sprites ignore alpha, as in Ironwail: r_sprite.c draws every sprite in the
+// opaque pass (GLS_BLEND_OPAQUE) whatever its alpha. Like every other entity,
+// a sprite at ENTALPHA_ZERO is not drawn (gl_rmain.js R_DrawEntitiesOnList,
+// as Ironwail's R_SortEntities drops it).
 
+import * as THREE from 'three';
 import { ENTALPHA_DEFAULT, ENTALPHA_ONE, ENTALPHA_DECODE } from './protocol.js';
 import { GL_RegisterCullMaterial } from './glquake.js';
 
@@ -34,7 +45,9 @@ function _onBaseDispose( event ) {
 
 }
 
-function _alphaClone( base, alpha ) {
+// double: Ironwail's translucent alias state drops GLS_CULL_BACK; brush
+// clones keep gl_cull's side
+function _alphaClone( base, alpha, double ) {
 
 	let clones = _clonesByBase.get( base );
 	if ( clones === undefined ) {
@@ -55,7 +68,10 @@ function _alphaClone( base, alpha ) {
 		clone.transparent = true;
 		clone.opacity = ENTALPHA_DECODE( alpha );
 		clone.depthWrite = false; // Ironwail: glDepthMask( GL_FALSE )
-		GL_RegisterCullMaterial( clone );
+		if ( double === true )
+			clone.side = THREE.DoubleSide;
+		else
+			GL_RegisterCullMaterial( clone );
 		clones.set( alpha, clone );
 		_baseByClone.set( clone, base );
 
@@ -94,7 +110,7 @@ export function R_EntAlpha_Apply( e ) {
 		if ( blended ) {
 
 			const from = base !== undefined ? base : current;
-			const want = _alphaClone( from, alpha );
+			const want = _alphaClone( from, alpha, false );
 			if ( current !== want ) mesh.material = want;
 
 		} else if ( base !== undefined ) {
@@ -106,5 +122,70 @@ export function R_EntAlpha_Apply( e ) {
 	}
 
 	e._entalphaApplied = blended;
+
+}
+
+// gl_mesh.js changes some alias materials in place: an entity's
+// r_lerpmodels material (R_GetAliasLerpMaterial) takes the map, fullbright
+// mask, alphaTest and vertexColors of whichever cached skin it follows. A
+// clone made earlier would keep the old skin, so copy them across when they
+// differ. The lerp blend is one shared uniform object (AliasMaterial.copy).
+function _syncClone( clone, base ) {
+
+	if ( clone.map === base.map && clone.alphaTest === base.alphaTest &&
+		clone.vertexColors === base.vertexColors && clone.fullbrightMap === base.fullbrightMap )
+		return;
+
+	clone.map = base.map;
+	clone.alphaTest = base.alphaTest;
+	clone.vertexColors = base.vertexColors;
+	if ( base.fullbrightMap !== undefined )
+		clone.fullbrightMap = base.fullbrightMap;
+	clone.needsUpdate = true; // the map, fullbright and vertex colour paths are compiled in
+
+}
+
+/*
+=================
+R_EntAlpha_ApplyMesh
+
+Called once per drawn alias entity (the view model included), after
+gl_mesh.js R_DrawAliasModel has set the mesh's material for this frame.
+=================
+*/
+export function R_EntAlpha_ApplyMesh( e, mesh ) {
+
+	const alpha = e.alpha;
+	const blended = alpha !== ENTALPHA_DEFAULT && alpha !== ENTALPHA_ONE;
+
+	// opaque and never blended: nothing to do (the common case)
+	if ( blended === false && e._entalphaApplied !== true ) return;
+
+	const current = mesh.material;
+	if ( current == null ) return;
+	const base = _baseByClone.get( current );
+
+	if ( blended ) {
+
+		const from = base !== undefined ? base : current;
+		const want = _alphaClone( from, alpha, true );
+		_syncClone( want, from );
+		if ( current !== want ) mesh.material = want;
+
+	} else if ( base !== undefined ) {
+
+		mesh.material = base;
+
+	}
+
+	e._entalphaApplied = blended;
+
+}
+
+// True for a transparent clone made here (gl_rmain.js R_DrawViewModel uses
+// it as is instead of cloning it again for the depth range hack).
+export function R_EntAlpha_IsClone( material ) {
+
+	return _baseByClone.has( material );
 
 }

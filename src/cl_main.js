@@ -1110,6 +1110,7 @@ function CL_LinkPlayers() {
 		ent.skinnum = pplayer.skin;
 		ent.frame = pplayer.frame;
 		ent.effects = pplayer.effects;
+		ent.alpha = pplayer.alpha; //johnfitz -- alpha (svc_playerinfo PF_ALPHA)
 
 		// QW cl_ents.c: ent->colormap = info->translations
 		// (NQ cl_parse.c: ent->colormap = cl.scores[i-1].translations)

@@ -73,15 +73,28 @@ The test counts in the table were taken on each PR's own branch with `deno test 
   Ironwail's 666 or 999 formats. Under it, coordinates are int32 eighths of a
   unit; models are shorts in baselines, `svc_spawnstatic`, `svc_clientdata`
   and `svc_playerinfo`; `svc_spawnstaticsound` sends a short; baselines and
-  statics end with an alpha byte; and packet entities carry 15-bit entity
-  numbers, a short model and an alpha byte (`PE_ALPHA`). `svc_sound` and
-  `svc_localsound` use Ironwail's `SND_LARGEENTITY` and `SND_LARGESOUND`
-  flags. The client still accepts protocol 15 and reads it in the NetQuake
-  form, so the attract demos play; demos recorded by Icaro before this
-  change (15 with packet entities) no longer do. Deviations from Ironwail:
-  only brush models draw alpha (`src/gl_entalpha.js`), there is no
-  `max_edicts` cvar (the edict arrays grow on demand), and a map with more
-  submodels than `MAX_MODELS` stops with a `Host_Error` in `SV_SpawnServer`.
+  statics send the frame as a short (Ironwail's `B_LARGEFRAME`) and end
+  with an alpha byte; and packet entities carry 15-bit entity numbers, a
+  short model, an alpha byte (`PE_ALPHA`) and the frame's high byte
+  (`PE_FRAME2`, Ironwail's `U_FRAME2`). `svc_clientdata` sends Ironwail's
+  `SU_EXTEND1` and `SU_EXTEND2` bytes with `SU_WEAPONFRAME2` and
+  `SU_WEAPONALPHA` only (the weapon model is already a short, and armor
+  and ammo stay bytes). `svc_playerinfo`, which Ironwail doesn't have,
+  sends the frame and weaponframe as shorts and the player's alpha with
+  `PF_ALPHA`. `svc_sound` and `svc_localsound` use Ironwail's
+  `SND_LARGEENTITY` and `SND_LARGESOUND` flags. The client still accepts
+  protocol 15 and reads it in the NetQuake form, so the attract demos play;
+  demos recorded by Icaro before this change (15 with packet entities) no
+  longer do. Ironwail's `max_edicts` cvar (default 16384, clamped to
+  256..32000) caps the server's edicts at map spawn; the edict arrays still
+  grow on demand up to it. Brush and alias models, the player and the view
+  model draw alpha (`src/gl_entalpha.js`); sprites ignore it except
+  `ENTALPHA_ZERO`, as in Ironwail. Deviations from Ironwail: `max_edicts`
+  is registered in `SV_Init` and has no "will not take effect until the
+  next map" callback, the view model and player alpha are read in the
+  same frame rather than from the previous frame's entity pass, and a map
+  with more submodels than `MAX_MODELS` stops with a `Host_Error` in
+  `SV_SpawnServer`.
 
 Deploy the client and server together, and make sure clients don't keep a cached bundle from before these changes.
 

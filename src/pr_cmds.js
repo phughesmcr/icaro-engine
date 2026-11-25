@@ -1499,13 +1499,14 @@ function PF_makestatic() {
 	}
 	//johnfitz
 
-	// PROTOCOL_ICARO (protocol.js): a short model index, 4-byte coords and
-	// an alpha byte (Ironwail's svc_spawnstatic2 sends them with B_* bits)
-	SV_ReserveSignonSpace( 1 + 2 + 3 + 3 * ( 4 + 1 ) + 1 );
+	// PROTOCOL_ICARO (protocol.js): a short model index, a short frame,
+	// 4-byte coords and an alpha byte (Ironwail's svc_spawnstatic2 sends
+	// them with B_LARGEMODEL, B_LARGEFRAME and B_ALPHA)
+	SV_ReserveSignonSpace( 1 + 2 + 2 + 2 + 3 * ( 4 + 1 ) + 1 );
 
 	MSG_WriteByte( sv.signon, svc_spawnstatic );
 	MSG_WriteShort( sv.signon, ent.v.modelindex | 0 );
-	MSG_WriteByte( sv.signon, ent.v.frame | 0 );
+	MSG_WriteShort( sv.signon, ent.v.frame | 0 );
 	MSG_WriteByte( sv.signon, ent.v.colormap | 0 );
 	MSG_WriteByte( sv.signon, ent.v.skin | 0 );
 	for ( let i = 0; i < 3; i ++ ) {

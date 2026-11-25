@@ -13,8 +13,9 @@ import {
 } from './mathlib.js';
 import { R_DrawWorld as R_DrawWorld_impl, R_MarkLeaves as R_MarkLeaves_impl, GL_BuildLightmaps as GL_BuildLightmaps_rsurf, R_DrawBrushModel as R_DrawBrushModel_rsurf, R_DrawWaterSurfaces as R_DrawWaterSurfaces_rsurf, R_CleanupWaterMeshes as R_CleanupWaterMeshes_rsurf, R_GetMirrorItems } from './gl_rsurf.js';
 import { R_MirrorGate, R_MirrorPass, R_MirrorCleanup } from './gl_rmirror.js';
-import { R_EntAlpha_Apply } from './gl_entalpha.js';
+import { R_EntAlpha_Apply, R_EntAlpha_ApplyMesh, R_EntAlpha_IsClone } from './gl_entalpha.js';
 import { Fog_SetupFrame } from './gl_fog.js';
+import { ENTALPHA_ZERO } from './protocol.js';
 import {
 	Mod_PointInLeaf, SPR_SINGLE, SPR_VP_PARALLEL_UPRIGHT, SPR_FACING_UPRIGHT,
 	SPR_VP_PARALLEL, SPR_ORIENTED, SPR_VP_PARALLEL_ORIENTED, Mod_EnhancedAliasHeader
@@ -550,6 +551,10 @@ export function R_DrawEntitiesOnList() {
 		if ( ! currententity || ! currententity.model )
 			continue;
 
+		// Ironwail R_SortEntities: entities at ENTALPHA_ZERO are not drawn
+		if ( currententity.alpha === ENTALPHA_ZERO )
+			continue;
+
 		switch ( currententity.model.type ) {
 
 			case mod_alias:
@@ -573,6 +578,9 @@ export function R_DrawEntitiesOnList() {
 		currententity = cl_visedicts[ i ];
 
 		if ( ! currententity || ! currententity.model )
+			continue;
+
+		if ( currententity.alpha === ENTALPHA_ZERO )
 			continue;
 
 		switch ( currententity.model.type ) {
@@ -650,6 +658,10 @@ export function R_DrawViewModel() {
 	if ( currententity == null || currententity.model == null )
 		return;
 
+	// Ironwail r_alias.c R_DrawAliasModel: "if (entalpha == 0) return;"
+	if ( currententity.alpha === ENTALPHA_ZERO )
+		return;
+
 	// Draw normally — stays in main scene with all lights
 	R_DrawAliasModel( currententity );
 
@@ -702,7 +714,11 @@ export function R_DrawViewModel() {
 
 		// Non-XR: apply depthRange hack so weapon renders on top of world
 		const baseMaterial = mesh.material;
-		if ( baseMaterial === currententity._aliasLerpMaterial ) {
+		if ( R_EntAlpha_IsClone( baseMaterial ) ) {
+
+			// SU_WEAPONALPHA: gl_entalpha.js's clone is already transparent
+
+		} else if ( baseMaterial === currententity._aliasLerpMaterial ) {
 
 			// r_lerpmodels: the gun's own lerp material (gl_mesh.js), not
 			// shared, so mark it directly. A clone would lose its
@@ -1049,6 +1065,7 @@ function R_DrawAliasModel( e ) {
 	const mesh = R_DrawAliasModel_mesh( e, paliashdr, shadedots, shadecolor );
 	if ( mesh != null ) {
 
+		R_EntAlpha_ApplyMesh( e, mesh ); //johnfitz -- entity alpha (gl_entalpha.js)
 		mesh._quakeOwner = e;
 		_entityMeshCacheOwners.add( e );
 
