@@ -1253,7 +1253,9 @@ Sbar_DrawPing
 Draw ping (latency) in the top-right corner during deathmatch. Not in the C.
 The round trip is measured on the client from the transport ack, as QW's
 client does (CL_GetDisplayPing). STAT_PING, the server's tick-quantised NQ
-sample, is the fallback when there is no ack (loopback).
+sample, is the fallback when there is no ack (loopback). It reads above the
+network round trip by the wait for the server tick and for the client frame
+that reads the reply: about 12 ms at a 72 Hz send rate and 60 fps.
 ==================
 */
 function Sbar_DrawPing() {

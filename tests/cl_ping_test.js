@@ -213,8 +213,8 @@ Deno.test( 'CL_GetDisplayPing: steady on a 30 ms link with a 20 Hz server', () =
 		}
 
 		// 30 ms of network plus the wait for the tick (up to one 72 Hz send
-		// interval) and for the next 60 Hz frame
-		if ( min < 30 || max > 30 + 14 + 17 )
+		// interval) and for the next 60 Hz frame: about 42 ms (40-44 here)
+		if ( min < 36 || max > 46 )
 			throw new Error( `readout out of range: ${min}..${max}` );
 		if ( max - min > 6 )
 			throw new Error( `readout not steady: ${min}..${max}` );
