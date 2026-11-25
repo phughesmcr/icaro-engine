@@ -1,12 +1,13 @@
 // Ported from: WinQuake/host_cmd.c
 
 import { Sys_Printf, Sys_Error, Sys_FloatTime } from './sys.js';
-import { Con_Printf, Q_atof, SZ_Write, SZ_Clear,
+import { Con_Printf, SZ_Write, SZ_Clear,
 	MSG_WriteByte, MSG_WriteShort, MSG_WriteLong, MSG_WriteFloat,
 	MSG_WriteString, MSG_WriteAngle, COM_Parse, com_token, rogue, hipnotic } from './common.js';
 import { svc_signonnum, svc_time, svc_updatename, svc_updatefrags,
 	svc_updatecolors, svc_lightstyle, svc_updatestat, svc_setangle,
 	svc_setpause } from './protocol.js';
+import { Q_atof } from './common.js';
 import { STAT_TOTALSECRETS, STAT_TOTALMONSTERS, STAT_SECRETS, STAT_MONSTERS,
 	MAX_LIGHTSTYLES, SAVEGAME_COMMENT_LENGTH, VERSION,
 	IT_SHOTGUN, IT_GRENADE_LAUNCHER, IT_LIGHTNING,
