@@ -146,7 +146,7 @@ What the PRs above leave open, on purpose or because it can't be checked here.
 
 ### SP-3 · Dynamic light brightness depends on lifetime, not radius — **medium-high**, Verified
 
-- **Port:** [`src/gl_rlight.js:172-181`](../src/gl_rlight.js)
+- **Port:** [`src/gl_rlight.js:177-186`](../src/gl_rlight.js)
 
   ```js
   const timeLeft = Math.min( l.die - cl.time, 0.5 );
@@ -415,6 +415,7 @@ Later PRs changed some of these on purpose: the `MSG_Write*` rounding, the wire 
   - The QuakeC builtin table goes past index 78, with Ironwail's extension builtins (#80, #106) and two rerelease builtins (#111).
   - Limits are higher than C's, for example `MAX_EDICTS` 32000 (phase 4; it was 1024), `MAX_DLIGHTS` 64 and `MAX_PARTICLES` 16384 (#45 to #48, #51, #72).
   - 2021 rerelease localisation (#124): Ironwail's `LOC_*` loader reads `localization/loc_<language>.txt` (`language` cvar, default `auto`), and on the server `PF_VarString` and `PF_WriteString` resolve `$key` strings (`PF_VarString` also fills `{}` placeholders). With no such file (the shareware and original registered data) prints are unchanged. It differs from Ironwail in a few places, listed in the comment that opens the localisation section of `src/common.js`. The main ones: it doesn't read `QuakeEX.kpf`, a change to `language` takes effect at the next lookup, and a missing file is only a developer message.
+  - `.lit` coloured lighting (#137): `Mod_LoadLighting` reads `maps/<name>.lit` as Ironwail does (`QLIT` version 1, the right size, and from the map's own search path or a higher one), and the lightmaps, dynamic lights and `R_LightPoint` carry r, g and b as in QuakeSpasm. WinQuake has only mono lighting. Maps without a `.lit` (all the shareware and original registered data) keep one-byte lightmaps and render as before. Unlike Ironwail, mono data is not expanded to RGB, a dedicated server does not read the `.lit`, and there is no overbright. Alias models take `R_LightPoint`'s mean but not yet its tint.
   - Global fog (#134), which WinQuake and GLQuake lack: `src/gl_fog.js` ports Ironwail's `gl_fog.c` (the worldspawn `fog` key and the `fog` command, with timed fades) and the `r_skyfog` part of `gl_sky.c` (the worldspawn `skyfog` key, a flat mix of the sky towards the fog colour, default 0.5). The 2021 rerelease maps and QuakeC depend on it. Three.js draws it with `FogExp2` over the planar view depth at `density / 64`, as FitzQuake's `GL_EXP2` fog, where Ironwail uses the radial distance with a 0.85 correction. A map without fog leaves `scene.fog` null, so it renders as before. `svc_fog` and volumetric fog (a stub in Ironwail) are not ported.
   - New cvars and commands that WinQuake lacks. `r_lerpmodels` and `r_lerpmove` default to 0, so id's unlerped animation stays the default.
 
