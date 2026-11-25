@@ -978,8 +978,14 @@ export function NET_SendToAll( data, blocktime ) {
 
 	const start = Sys_FloatTime();
 	let count = 0;
-	const state1 = new Array( MAX_SCOREBOARD ).fill( false );
-	const state2 = new Array( MAX_SCOREBOARD ).fill( false );
+	// The C leaves these uninitialized, so a slot with no netconnection,
+	// which the first loop skips, holds whatever was on the stack. Starting
+	// at false made the second loop wait on empty slots until blocktime ran
+	// out (5 s in Host_ShutdownServer) whenever a remote client was
+	// connected. True means "nothing to send", which is what an empty slot
+	// needs.
+	const state1 = new Array( MAX_SCOREBOARD ).fill( true );
+	const state2 = new Array( MAX_SCOREBOARD ).fill( true );
 
 	for ( let i = 0; i < svs.maxclients; i ++ ) {
 

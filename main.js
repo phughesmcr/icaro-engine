@@ -44,6 +44,13 @@ const BASE_DIRS = { rerelease: 'static/rerelease' };
 const PARTICLES_ARG = /^[0-9]+$/;
 const PARTICLES_URL_MAX = 262144;
 
+// ?listen=<n> stands in for -listen <n> (host.c Host_FindMaxClients): this
+// tab can host n players (MAX_SCOREBOARD, 16, caps larger values; 0 means 8)
+// and starts in deathmatch mode when n > 1, as the C does with the flag.
+// ?listen with no value is -listen alone, 8 players. Values that aren't a
+// whole number of up to three digits are ignored.
+const LISTEN_ARG = /^[0-9]{1,3}$/;
+
 // Web-only agent flags (docs/agent-interface.md): ?agent=lockstep or
 // ?agent=realtime attaches window.icaro at startup, and ?map=<name> with
 // optional ?skill=<0-3> starts that map instead of the intro demos. The map
@@ -120,6 +127,19 @@ async function main() {
 		} else if ( particles !== null ) {
 
 			Sys_Printf( 'Ignoring particles "%s" (expected a whole number up to %d)\n', particles, PARTICLES_URL_MAX );
+
+		}
+
+		const listen = urlParams.get( 'listen' );
+		if ( listen === '' || ( listen !== null && LISTEN_ARG.test( listen ) ) ) {
+
+			if ( parms.argv.length === 0 ) parms.argv = [ 'quake' ];
+			parms.argv = listen === '' ? [ ...parms.argv, '-listen' ] : [ ...parms.argv, '-listen', listen ];
+			parms.argc = parms.argv.length;
+
+		} else if ( listen !== null ) {
+
+			Sys_Printf( 'Ignoring listen "%s" (expected a player count)\n', listen );
 
 		}
 

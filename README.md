@@ -52,7 +52,7 @@ The page has a JavaScript API for LLM agents and scripts, `window.icaro`: run `i
 
 ### Multiplayer
 
-The page joins online games through a lobby (`deno task lobby`). `?server=` picks the lobby, `?transport=ws` or `?transport=wt` picks WebSocket or WebTransport, and `?room=` joins a room. [server/README.md](server/README.md) covers running the servers, these parameters, and serving through a Cloudflare Tunnel.
+The page joins online games through a lobby (`deno task lobby`). `?server=` picks the lobby, `?transport=ws` or `?transport=wt` picks WebSocket or WebTransport, and `?room=` joins a room. `?listen=N` starts the page with N player slots and deathmatch on, as `-listen N` does in Quake, for hosting a game in the browser. [server/README.md](server/README.md) covers running the servers, these parameters, and serving through a Cloudflare Tunnel.
 
 ### License
 
