@@ -678,9 +678,14 @@ let decompressed = new Uint8Array( 0 );
 // gl_picmip and gl_max_size shrink the upload as GL_Upload32 does; like
 // GLQuake they take effect on the next map load. Texture coordinates are
 // normalised by the miptex size, not the upload size, so they are unaffected.
+// splitFullbright puts the fullbright pixels (palette 224-255) in a second
+// texture, texture._fullbright. keepBase leaves them in the base texture too
+// (alias skins: the fullbright texture's alpha is the mask the alias shader
+// mixes by); without it they are blacked out of the base (world textures,
+// drawn with the fullbright texture as an emissive map).
 // ============================================================================
 
-function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbright ) {
+export function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbright, keepBase = false ) {
 
 	const scaled = GL_ScaledTextureSize( width, height );
 	if ( scaled.width !== width || scaled.height !== height ) {
@@ -745,9 +750,13 @@ function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbrig
 				fbRgba[ i * 4 + 3 ] = 255;
 
 				// Black out in base texture
-				rgba[ i * 4 ] = 0;
-				rgba[ i * 4 + 1 ] = 0;
-				rgba[ i * 4 + 2 ] = 0;
+				if ( keepBase === false ) {
+
+					rgba[ i * 4 ] = 0;
+					rgba[ i * 4 + 1 ] = 0;
+					rgba[ i * 4 + 2 ] = 0;
+
+				}
 
 			}
 
@@ -2685,6 +2694,9 @@ function Mod_FloodFillSkin( skin, skinwidth, skinheight ) {
 // Mod_LoadAllSkins
 // ============================================================================
 
+// Deliberate deviation (QuakeSpasm, gl_fullbrights 1): GLQuake has no
+// fullbright pass on alias models, so glowing eyes and lights went dark in
+// shade. Each skin also gets a fullbright mask (gl_mesh.js AliasMaterial).
 function Mod_LoadAllSkins( buf, numskins, offset ) {
 
 	if ( numskins < 1 || numskins > MAX_SKINS )
@@ -2692,6 +2704,8 @@ function Mod_LoadAllSkins( buf, numskins, offset ) {
 
 	const s = pheader.skinwidth * pheader.skinheight;
 	const SIZEOF_DALIASSKINTYPE = 4; // int type
+	// no palette (the Deno server never runs VID_Init): no masks to make
+	const splitFullbright = vid.fullbright > 0;
 
 	let pos = offset;
 
@@ -2716,7 +2730,7 @@ function Mod_LoadAllSkins( buf, numskins, offset ) {
 			pheader.gl_texturenum[ i ][ 1 ] =
 			pheader.gl_texturenum[ i ][ 2 ] =
 			pheader.gl_texturenum[ i ][ 3 ] =
-				GL_LoadTexture( name, pheader.skinwidth, pheader.skinheight, skin, true, false );
+				GL_LoadTexture( name, pheader.skinwidth, pheader.skinheight, skin, true, false, splitFullbright, true );
 
 			pos = skinDataOfs + s;
 
@@ -2745,7 +2759,7 @@ function Mod_LoadAllSkins( buf, numskins, offset ) {
 
 				const name = loadmodel.name + '_' + i + '_' + j;
 				pheader.gl_texturenum[ i ][ j & 3 ] =
-					GL_LoadTexture( name, pheader.skinwidth, pheader.skinheight, skin, true, false );
+					GL_LoadTexture( name, pheader.skinwidth, pheader.skinheight, skin, true, false, splitFullbright, true );
 
 				pos += s;
 
