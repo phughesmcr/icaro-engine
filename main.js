@@ -1,7 +1,7 @@
 // Icaro Engine entry point
 // Equivalent to WinQuake/sys_win.c WinMain() + main()
 
-import { Sys_Init, Sys_Printf, Sys_Error } from './src/sys.js';
+import { Sys_Init, Sys_Printf, Sys_Error, Sys_LobbyURL, Sys_ConnectURL } from './src/sys.js';
 import { COM_InitArgv, rogue, hipnotic } from './src/common.js';
 import { Host_Init, Host_Frame } from './src/host.js';
 import { COM_AddPakSequence, COM_AddGameDirectory, COM_SetLooseFileBasePaths } from './src/pak.js';
@@ -173,10 +173,19 @@ async function main() {
 
 		if ( roomId ) {
 
-			const serverUrl = urlParams.get( 'server' ) || 'https://localhost:4433';
-			const connectUrl = serverUrl + '?room=' + encodeURIComponent( roomId );
-			Sys_Printf( 'Auto-joining room: %s\\n', roomId );
-			Cbuf_AddText( 'connect "' + connectUrl + '"\n' );
+			// Sys_ConnectURL checks the lobby and encodes the room id, so a
+			// crafted link can't end the quoted argument and run commands.
+			const connectUrl = Sys_ConnectURL( Sys_LobbyURL(), roomId, null );
+			if ( connectUrl !== null ) {
+
+				Sys_Printf( 'Auto-joining room: %s\\n', roomId );
+				Cbuf_AddText( 'connect "' + connectUrl + '"\n' );
+
+			} else {
+
+				Sys_Printf( 'Not auto-joining: ?server= is not a valid lobby address (wts:// or https:// host[:port])\n' );
+
+			}
 
 		}
 

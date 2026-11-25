@@ -25,7 +25,7 @@ import { Touch_ExitFullscreen } from './touch.js';
 import { Draw_GetVirtualWidth, Draw_GetVirtualHeight, Draw_SetCanvasScale } from './gl_draw.js';
 import { SAVEGAME_COMMENT_LENGTH } from './quakedef.js';
 import { registered, standard_quake, rogue, hipnotic } from './common.js';
-import { Sys_PageURL } from './sys.js';
+import { Sys_PageURL, Sys_LobbyURL, Sys_ConnectURL } from './sys.js';
 
 /*
 ==============================================================================
@@ -77,8 +77,9 @@ let m_save_demonum = 0;
 ==============================================================================
 */
 
-// Default WebTransport server (can be overridden by URL param)
-const DEFAULT_WT_SERVER = 'https://localhost:4433';
+// The lobby comes from the page's ?server= parameter (Sys_LobbyURL), which
+// falls back to https://localhost:4433 and is null when the address is invalid.
+const M_BAD_LOBBY_REASON = 'Invalid ?server= lobby address';
 
 // Room list state
 let slist_rooms = []; // Array of {id, name, map, playerCount, maxPlayers}
@@ -111,8 +112,12 @@ async function M_FetchRooms() {
 
 	try {
 
-		const params = new URLSearchParams( window.location.search );
-		const serverUrl = params.get( 'server' ) || DEFAULT_WT_SERVER;
+		const serverUrl = Sys_LobbyURL();
+		if ( serverUrl === null ) {
+
+			throw new Error( M_BAD_LOBBY_REASON );
+
+		}
 
 		if ( ! _WT_QueryRooms ) {
 
@@ -147,6 +152,12 @@ const NUM_GAMEOPTIONS = 9;
 
 let maxplayers = 4;
 let startepisode = 2; // Default to Deathmatch Arena
+
+// Start Game's room request (web only). Enter is ignored while one is in
+// flight, and a reply is acted on only if its token is still current and the
+// player is still on this menu: leaving the menu bumps the token.
+let m_createroom_pending = false;
+let m_createroom_token = 0;
 let startlevel = 1;   // Default to rapture1
 
 // Level data - shareware Episode 1 + community deathmatch maps
@@ -1350,17 +1361,21 @@ function M_LanConfig_Key( key ) {
 
 				}
 
-				// Join selected room
-				m_entersound = true;
-
-				const params = new URLSearchParams( window.location.search );
-				const serverUrl = params.get( 'server' ) || DEFAULT_WT_SERVER;
-
 				// Always join through the lobby using room ID.
 				// This avoids connecting to stale room-port data from an old room list.
-				const urlObj = new URL( serverUrl.replace( /^wt(s)?:\/\//, 'https://' ) );
-				urlObj.searchParams.set( 'room', room.id );
-				const connectUrl = urlObj.toString().replace( /\/$/, '' ).replace( /^https:\/\//, 'wts://' );
+				// Sys_ConnectURL checks the lobby and encodes the id, so neither
+				// can end the quoted connect argument.
+				const connectUrl = Sys_ConnectURL( Sys_LobbyURL(), room.id, null );
+				if ( connectUrl === null ) {
+
+					if ( _S_LocalSound ) _S_LocalSound( 'misc/menu2.wav' );
+					m_return_reason = M_BAD_LOBBY_REASON;
+					break;
+
+				}
+
+				// Join selected room
+				m_entersound = true;
 
 				// Update browser URL so user can share it
 				history.replaceState( null, '', Sys_PageURL( room.id ) );
@@ -1396,6 +1411,8 @@ function M_LanConfig_Key( key ) {
 
 function M_Menu_GameOptions_f() {
 
+	M_CancelCreateRoom();
+	m_return_reason = '';
 	setKeyDest( key_menu );
 	m_state = m_gameoptions;
 	m_entersound = true;
@@ -1496,6 +1513,12 @@ function M_GameOptions_Draw() {
 	M_Print( 160, 120, level.description );
 	M_Print( 160, 128, level.name );
 
+	// Start Game's room request: progress, or why it failed
+	if ( m_createroom_pending === true )
+		M_PrintWhite( 0, 144, 'Creating room...' );
+	else if ( m_return_reason )
+		M_PrintWhite( 0, 144, m_return_reason.substring( 0, 40 ) );
+
 	// Cursor
 	M_DrawCharacter( 144, gameoptions_cursor_table[ gameoptions_cursor ], 12 + ( ( Math.floor( _realtime_get() * 4 ) ) & 1 ) );
 
@@ -1584,11 +1607,57 @@ function M_NetStart_Change( dir ) {
 
 }
 
+/*
+================
+M_CancelCreateRoom
+
+Drop a Start Game room request in flight, so its reply is ignored. The lobby
+still creates the room; it is reaped when it stays empty.
+================
+*/
+function M_CancelCreateRoom() {
+
+	if ( m_createroom_pending === false )
+		return;
+
+	m_createroom_pending = false;
+	m_createroom_token ++;
+	if ( _SCR_EndLoadingPlaque ) _SCR_EndLoadingPlaque();
+
+}
+
+// True when the reply for token should still be acted on.
+function M_CreateRoomCurrent( token ) {
+
+	return m_createroom_pending === true && token === m_createroom_token
+		&& m_state === m_gameoptions && getKeyDest() !== key_game;
+
+}
+
+// A reply that came after the player left the menu by a path that didn't
+// cancel the request (the console, another menu command): release Enter.
+function M_CreateRoomStale( token ) {
+
+	if ( token === m_createroom_token )
+		m_createroom_pending = false;
+
+}
+
+function M_CreateRoomFailed( reason ) {
+
+	Con_Printf( 'Failed to create room: ' + reason + '\n' );
+	m_createroom_pending = false;
+	m_return_reason = reason;
+	if ( _SCR_EndLoadingPlaque ) _SCR_EndLoadingPlaque();
+
+}
+
 function M_GameOptions_Key( key ) {
 
 	switch ( key ) {
 
 		case K_ESCAPE:
+			M_CancelCreateRoom();
 			M_Menu_MultiPlayer_f();
 			break;
 
@@ -1621,6 +1690,10 @@ function M_GameOptions_Key( key ) {
 			break;
 
 		case K_ENTER:
+			// A room request is already in flight: a second Enter would
+			// create a second room.
+			if ( gameoptions_cursor === 0 && m_createroom_pending === true )
+				break;
 			if ( _S_LocalSound ) _S_LocalSound( 'misc/menu2.wav' );
 			if ( gameoptions_cursor === 0 ) {
 
@@ -1639,8 +1712,17 @@ function M_GameOptions_Key( key ) {
 
 					}
 
-					const params = new URLSearchParams( window.location.search );
-					const serverUrl = params.get( 'server' ) || DEFAULT_WT_SERVER;
+					const serverUrl = Sys_LobbyURL();
+					if ( serverUrl === null ) {
+
+						m_return_reason = M_BAD_LOBBY_REASON;
+						return;
+
+					}
+
+					m_return_reason = '';
+					m_createroom_pending = true;
+					const token = ++ m_createroom_token;
 
 					if ( _SCR_BeginLoadingPlaque ) _SCR_BeginLoadingPlaque();
 
@@ -1650,53 +1732,69 @@ function M_GameOptions_Key( key ) {
 						hostName: _cl_name ? _cl_name.string : 'Player'
 					} ).then( ( room ) => {
 
-						if ( room != null && typeof room.id === 'string' && room.id.length > 0 ) {
+						if ( M_CreateRoomCurrent( token ) === false ) {
 
-							let roomInfo = room.id;
-							if ( room.port != null ) {
-
-								roomInfo += ' on port ' + room.port;
-
-							}
-
-							Con_Printf( 'Room created: ' + roomInfo + '\n' );
-							// Update browser URL so user can share it
-							history.replaceState( null, '', Sys_PageURL( room.id ) );
-
-							// Dismiss the menu before connecting (like original Quake)
-							setKeyDest( key_game );
-							m_state = m_none;
-
-							// Connect to the remote server as a client (not local game)
-							// The remote server is the authoritative game server
-							let connectUrl;
-							if ( room.port != null ) {
-
-								// Connect directly to room server on its port
-								const urlObj = new URL( serverUrl.replace( /^wt(s)?:\/\//, 'https://' ) );
-								urlObj.port = String( room.port );
-								// Remove trailing slash - URL.toString() adds one which breaks wts:// URLs
-								connectUrl = urlObj.toString().replace( /\/$/, '' ).replace( /^https:\/\//, 'wts://' );
-
-							} else {
-
-								// Fallback: connect through lobby
-								connectUrl = serverUrl + '?room=' + room.id;
-
-							}
-
-							Cbuf_AddText( 'connect "' + connectUrl + '"\n' );
+							// The player left Start Game; don't pull them into the room.
+							Con_Printf( 'Ignoring room created after Start Game was left\n' );
+							M_CreateRoomStale( token );
 							return;
 
 						}
 
-						Con_Printf( 'Failed to create room: Invalid room response from server\n' );
-						if ( _SCR_EndLoadingPlaque ) _SCR_EndLoadingPlaque();
+						if ( room == null || typeof room.id !== 'string' || room.id.length === 0 ) {
+
+							M_CreateRoomFailed( 'Invalid room response from server' );
+							return;
+
+						}
+
+						// Connect directly to the room server on its port, or
+						// through the lobby by room id. Sys_ConnectURL encodes the
+						// id and checks the port, so neither can end the quoted
+						// connect argument.
+						const connectUrl = room.port != null
+							? Sys_ConnectURL( serverUrl, null, Number( room.port ) )
+							: Sys_ConnectURL( serverUrl, room.id, null );
+						if ( connectUrl === null ) {
+
+							M_CreateRoomFailed( 'Invalid room response from server' );
+							return;
+
+						}
+
+						m_createroom_pending = false;
+
+						let roomInfo = room.id;
+						if ( room.port != null ) {
+
+							roomInfo += ' on port ' + room.port;
+
+						}
+
+						Con_Printf( 'Room created: ' + roomInfo + '\n' );
+						// Update browser URL so user can share it
+						history.replaceState( null, '', Sys_PageURL( room.id ) );
+
+						// Dismiss the menu before connecting (like original Quake)
+						setKeyDest( key_game );
+						m_state = m_none;
+
+						// Connect to the remote server as a client (not local game)
+						// The remote server is the authoritative game server
+						Cbuf_AddText( 'connect "' + connectUrl + '"\n' );
 
 					} ).catch( ( e ) => {
 
-						Con_Printf( 'Failed to create room: ' + e.message + '\n' );
-						if ( _SCR_EndLoadingPlaque ) _SCR_EndLoadingPlaque();
+						const reason = e instanceof Error ? e.message : String( e );
+						if ( M_CreateRoomCurrent( token ) === false ) {
+
+							Con_Printf( 'Failed to create room: ' + reason + '\n' );
+							M_CreateRoomStale( token );
+							return;
+
+						}
+
+						M_CreateRoomFailed( reason );
 
 					} );
 
