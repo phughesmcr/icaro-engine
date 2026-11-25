@@ -1,0 +1,22 @@
+# Build context for server/Dockerfile (the game-room image). A second guard
+# behind the Dockerfile's COPY allowlist: exclude everything, re-include only
+# the allowlist, then drop secrets and every .pak except the shareware one.
+# Registered and rerelease data must never reach an image.
+# tools/check_container_image.sh (CI) checks this.
+*
+!deno.json
+!server/
+!src/
+!static/pak0.pak
+
+# TLS files and env files, even inside the allowlisted directories
+# (server/README.md generates server/cert.pem and server/key.pem).
+**/*.pem
+**/*.key
+**/*.crt
+**/.env
+**/.env.*
+
+# Any pak, in any case. The last matching line wins, so pak0.pak comes back.
+**/*.[pP][aA][kK]
+!static/pak0.pak
