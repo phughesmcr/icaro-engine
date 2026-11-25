@@ -18,7 +18,11 @@
 //     https://icaro-do-cpu-probe.<your-subdomain>.workers.dev
 //   npx wrangler delete                       (when done)
 //
-// Options: --only=http,ws,timer,memory (default all). It takes about 6
+// Options: --only=http,ws,timer,memory (default all), and --dry-run, for
+// `npx wrangler dev --var PROBE_TOKEN:<token>` on this machine: ramps only to
+// 120 ms and runs each timer test for 10 s. wrangler dev enforces none of
+// the limits and ran this loop about 18 times slower than Deno, so a dry
+// run checks the plumbing only. A full run takes about 6
 // minutes and uses a few hundred requests and well under 1% of a day's free
 // Durable Object duration. The dashboard's Workers Logs show each
 // invocation's real CPU time; this script's millisecond figures are local
@@ -30,6 +34,7 @@ const base = Deno.args.find( ( a ) => a.startsWith( 'http' ) );
 const only_arg = Deno.args.find( ( a ) => a.startsWith( '--only=' ) );
 const only = only_arg !== undefined ? only_arg.slice( 7 ).split( ',' ) : [ 'http', 'ws', 'timer', 'memory' ];
 const token = Deno.env.get( 'PROBE_TOKEN' ) ?? '';
+const dry_run = Deno.args.includes( '--dry-run' );
 if ( base === undefined || token === '' ) {
 
 	console.error( 'usage: PROBE_TOKEN=... deno run --allow-net --allow-env=PROBE_TOKEN probe.js https://<worker>.workers.dev' );
@@ -101,7 +106,16 @@ if ( forbidden.status === 403 ) {
 
 // ------------------------------------------------- 1. CPU per invocation
 
-const RAMP_MS = [ 1, 5, 9, 15, 30, 60, 120, 500, 2000, 10000, 25000, 40000 ];
+const RAMP_MS = [ 1, 5, 9, 15, 30, 60, 120, 500, 2000, 10000, 25000, 40000 ].filter( ( ms ) => dry_run === false || ms <= 120 );
+report.dry_run = dry_run;
+
+// reset_before: the burn ran in a fresh instance (the last one died).
+// reset_after: the instance changed after the burn returned, e.g. evicted.
+function resets( before, during, after ) {
+
+	return { reset_before: during !== null && during !== before, reset_after: during !== null ? after !== during : after !== before };
+
+}
 
 async function rampHttp() {
 
@@ -113,8 +127,10 @@ async function rampHttp() {
 		const r = await get( '/burn', { iters: iters( ms ) } );
 		const after = await instance();
 		const ok = r.status === 200 && typeof r.body === 'object' && r.body.result !== undefined;
-		rows.push( { local_ms: ms, status: r.status, ok, reset: before !== after, detail: ok ? undefined : r.body } );
-		console.log( 'http', ms, 'ms:', ok ? 'ok' : 'FAILED', before !== after ? '(instance reset)' : '' );
+		const during = ok ? r.body.instance : null;
+		const row = { local_ms: ms, status: r.status, ok, ...resets( before, during, after ), detail: ok ? undefined : r.body };
+		rows.push( row );
+		console.log( 'http', ms, 'ms:', ok ? 'ok' : 'FAILED', row.reset_before ? '(fresh instance)' : '', row.reset_after ? '(instance changed after)' : '' );
 		if ( ok === false && ++ failures >= 2 ) break;
 
 	}
@@ -170,8 +186,10 @@ async function rampWs() {
 		const before = await instance();
 		const r = await wsBurn( ws, iters( ms ), ms * 4 + 10000 );
 		const after = await instance();
-		rows.push( { local_ms: ms, ok: r.ok, reset: before !== after, detail: r.ok ? undefined : r.detail } );
-		console.log( 'ws', ms, 'ms:', r.ok ? 'ok' : 'FAILED', before !== after ? '(instance reset)' : '' );
+		const during = r.ok ? r.detail.instance : null;
+		const row = { local_ms: ms, ok: r.ok, ...resets( before, during, after ), detail: r.ok ? undefined : r.detail };
+		rows.push( row );
+		console.log( 'ws', ms, 'ms:', r.ok ? 'ok' : 'FAILED', row.reset_before ? '(fresh instance)' : '', row.reset_after ? '(instance changed after)' : '' );
 		if ( r.ok === false ) {
 
 			if ( ++ failures >= 2 ) break;
@@ -245,12 +263,13 @@ async function timerRun( label, tick_ms, seconds, busy ) {
 
 async function timers() {
 
+	const short = dry_run ? 10 : null;
 	return [
 		// A room's tick at about 2x the M4 Pro's busy average
-		await timerRun( 'quiet, light', 2, 60, false ),
+		await timerRun( 'quiet, light', 2, short ?? 60, false ),
 		// 400 ms of CPU a second: crosses 30 s of CPU at about 75 s
-		await timerRun( 'quiet, heavy', 20, 120, false ),
-		await timerRun( 'busy, heavy', 20, 120, true ),
+		await timerRun( 'quiet, heavy', 20, short ?? 120, false ),
+		await timerRun( 'busy, heavy', 20, short ?? 120, true ),
 	];
 
 }
