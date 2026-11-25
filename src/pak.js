@@ -583,9 +583,10 @@ let com_fetchmissing = false;
 // Coalesce eager entries closer together than this into one Range request
 const RANGE_GAP = 256 * 1024;
 
-// Files the engine never reads (rerelease lighting, editor and KEX assets)
+// Files the engine never reads (rerelease lighting, editor and KEX assets;
+// archive/ is the source and tools tree, about 97 MB, in the re-release ctf pak)
 const DEFERRED_EXTENSIONS = [ '.lit', '.map', '.ent', '.png', '.tga', '.jpg', '.md5mesh', '.md5anim', '.nav', '.fgd' ];
-const DEFERRED_DIRS = [ 'tactile/', 'vault/' ];
+const DEFERRED_DIRS = [ 'tactile/', 'vault/', 'archive/' ];
 
 /*
 =================
