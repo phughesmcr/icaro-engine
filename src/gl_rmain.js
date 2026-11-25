@@ -8,12 +8,15 @@ import { vid, renderer, vid_renderscale } from './vid.js';
 import { r_refdef, r_origin, vpn, vright, vup, entity_t, r_lerpmodels, r_lerpmove, r_nolerp_list } from './render.js';
 import { Cvar_RegisterVariable } from './cvar.js';
 import {
-	M_PI, DotProduct, VectorCopy, VectorAdd, VectorSubtract,
+	M_PI, DotProduct, VectorCopy, VectorAdd, VectorSubtract, VectorNormalize,
 	AngleVectors, Length, RotatePointAroundVector, BoxOnPlaneSide
 } from './mathlib.js';
 import { R_DrawWorld as R_DrawWorld_impl, R_MarkLeaves as R_MarkLeaves_impl, GL_BuildLightmaps as GL_BuildLightmaps_rsurf, R_DrawBrushModel as R_DrawBrushModel_rsurf, R_DrawWaterSurfaces as R_DrawWaterSurfaces_rsurf, R_CleanupWaterMeshes as R_CleanupWaterMeshes_rsurf, R_GetMirrorItems } from './gl_rsurf.js';
 import { R_MirrorGate, R_MirrorPass, R_MirrorCleanup } from './gl_rmirror.js';
-import { Mod_PointInLeaf, SPR_SINGLE, SPR_ORIENTED } from './gl_model.js';
+import {
+	Mod_PointInLeaf, SPR_SINGLE, SPR_VP_PARALLEL_UPRIGHT, SPR_FACING_UPRIGHT,
+	SPR_VP_PARALLEL, SPR_ORIENTED, SPR_VP_PARALLEL_ORIENTED
+} from './gl_model.js';
 import { R_AnimateLight as R_AnimateLight_impl, R_RenderDlights as R_RenderDlights_impl, R_DlightDistance, R_LightPoint, lightspot } from './gl_rlight.js';
 import { R_DrawAliasModel as R_DrawAliasModel_mesh, GL_DrawAliasShadow, alias_lerpdata } from './gl_mesh.js';
 import { r_avertexnormal_dots } from './anorm_dots.js';
@@ -1043,12 +1046,139 @@ function R_GetSpriteFrame( e ) {
 
 }
 
-// Sprite material cache: texture -> material
+// Sprite material caches: texture -> material. Decals (SPR_ORIENTED) get
+// their own materials with a polygon offset.
 const _spriteMaterialCache = new Map();
-// Cached vectors for SPR_ORIENTED AngleVectors output
+const _spriteDecalMaterialCache = new Map();
+// Scratch axes for R_SpriteAxes
 const _sprite_v_forward = new Float32Array( 3 );
 const _sprite_v_right = new Float32Array( 3 );
 const _sprite_v_up = new Float32Array( 3 );
+
+/*
+================
+R_SpriteAxes
+
+Sets up and right for a sprite of the given type and returns true, or
+returns false if the sprite isn't drawn this frame.
+
+id's GLQuake R_DrawSpriteModel handles only SPR_ORIENTED and draws every
+other type parallel to the view plane. The five types below are id's own,
+from WinQuake/r_sprite.c R_DrawSprite (the software renderer), which
+QuakeSpasm and Ironwail also port. Like the software renderer, the two
+upright types aren't drawn when the view is within 1 degree of straight up
+or down. Deliberate deviation: an unknown type is skipped, as in QuakeSpasm,
+rather than a Sys_Error.
+================
+*/
+export function R_SpriteAxes( type, e, up, right ) {
+
+	switch ( type ) {
+
+		case SPR_FACING_UPRIGHT: {
+
+			// vup straight up in worldspace, vright perpendicular to the
+			// line from the viewer to the sprite
+			const tvec = _sprite_v_forward;
+			VectorSubtract( e.origin, r_origin, tvec );
+			VectorNormalize( tvec );
+			const dot = tvec[ 2 ];
+			if ( ( dot > 0.999848 ) || ( dot < - 0.999848 ) ) // cos(1 degree) = 0.999848
+				return false;
+			up[ 0 ] = 0;
+			up[ 1 ] = 0;
+			up[ 2 ] = 1;
+			right[ 0 ] = tvec[ 1 ];
+			right[ 1 ] = - tvec[ 0 ];
+			right[ 2 ] = 0;
+			VectorNormalize( right );
+			return true;
+
+		}
+
+		case SPR_VP_PARALLEL:
+			VectorCopy( vup, up );
+			VectorCopy( vright, right );
+			return true;
+
+		case SPR_VP_PARALLEL_UPRIGHT: {
+
+			// vup straight up in worldspace, vright parallel to the viewplane
+			const dot = vpn[ 2 ];
+			if ( ( dot > 0.999848 ) || ( dot < - 0.999848 ) ) // cos(1 degree) = 0.999848
+				return false;
+			up[ 0 ] = 0;
+			up[ 1 ] = 0;
+			up[ 2 ] = 1;
+			right[ 0 ] = vpn[ 1 ];
+			right[ 1 ] = - vpn[ 0 ];
+			right[ 2 ] = 0;
+			VectorNormalize( right );
+			return true;
+
+		}
+
+		case SPR_ORIENTED:
+			// the sprite's world orientation (bullet marks on walls)
+			AngleVectors( e.angles, _sprite_v_forward, right, up );
+			return true;
+
+		case SPR_VP_PARALLEL_ORIENTED: {
+
+			// parallel to the viewplane, rotated by the entity's roll
+			const angle = e.angles[ 2 ] * ( M_PI * 2 / 360 ); // ROLL
+			const sr = Math.sin( angle );
+			const cr = Math.cos( angle );
+			for ( let i = 0; i < 3; i ++ ) {
+
+				right[ i ] = vright[ i ] * cr + vup[ i ] * sr;
+				up[ i ] = vright[ i ] * - sr + vup[ i ] * cr;
+
+			}
+
+			return true;
+
+		}
+
+		default:
+			return false;
+
+	}
+
+}
+
+export function R_SpriteMaterial( texture, decal ) {
+
+	const cache = decal ? _spriteDecalMaterialCache : _spriteMaterialCache;
+	let material = cache.get( texture );
+	if ( material === undefined ) {
+
+		material = new THREE.MeshBasicMaterial( {
+			map: texture,
+			transparent: true,
+			alphaTest: 0.5,
+			depthWrite: false,
+			side: THREE.DoubleSide
+		} );
+
+		if ( decal ) {
+
+			// Deliberate deviation, from QuakeSpasm (r_sprite.c,
+			// GL_PolygonOffset( OFFSET_DECAL )): pull decals towards the
+			// viewer so they don't z-fight with the wall they're on.
+			material.polygonOffset = true;
+			material.polygonOffsetFactor = - 1;
+			material.polygonOffsetUnits = - 1;
+
+		}
+
+		cache.set( texture, material );
+
+	}
+
+	return material;
+
+}
 
 function R_DrawSpriteModel( e ) {
 
@@ -1062,7 +1192,11 @@ function R_DrawSpriteModel( e ) {
 	const texture = frame.gl_texturenum;
 	if ( texture == null ) return;
 
-	// Get or create cached geometry and material for this entity
+	if ( R_SpriteAxes( psprite.type, e, _sprite_v_up, _sprite_v_right ) === false ) return;
+
+	const material = R_SpriteMaterial( texture, psprite.type === SPR_ORIENTED );
+
+	// Get or create cached geometry for this entity
 	let mesh = e._spriteMesh;
 	let positions;
 
@@ -1077,21 +1211,6 @@ function R_DrawSpriteModel( e ) {
 		geometry.setAttribute( 'uv', new THREE.BufferAttribute( uvs, 2 ) );
 		geometry.setIndex( [ 0, 1, 2, 0, 2, 3 ] );
 
-		// Get cached material
-		let material = _spriteMaterialCache.get( texture );
-		if ( ! material ) {
-
-			material = new THREE.MeshBasicMaterial( {
-				map: texture,
-				transparent: true,
-				alphaTest: 0.5,
-				depthWrite: false,
-				side: THREE.DoubleSide
-			} );
-			_spriteMaterialCache.set( texture, material );
-
-		}
-
 		mesh = new THREE.Mesh( geometry, material );
 		// The four positions are rewritten in world space every frame, but
 		// Three.js computes the bounding sphere only once, so frustum culling
@@ -1100,26 +1219,12 @@ function R_DrawSpriteModel( e ) {
 		mesh.frustumCulled = false;
 		e._spriteMesh = mesh;
 
-	} else {
+	} else if ( mesh.material !== material ) {
 
-		// Update material if texture changed
-		let material = _spriteMaterialCache.get( texture );
-		if ( ! material ) {
-
-			material = new THREE.MeshBasicMaterial( {
-				map: texture,
-				transparent: true,
-				alphaTest: 0.5,
-				depthWrite: false,
-				side: THREE.DoubleSide
-			} );
-			_spriteMaterialCache.set( texture, material );
-
-		}
-
-		if ( mesh.material !== material ) mesh.material = material;
+		mesh.material = material;
 
 	}
+
 	mesh._quakeOwner = e;
 	_entityMeshCacheOwners.add( e );
 
@@ -1131,24 +1236,8 @@ function R_DrawSpriteModel( e ) {
 	const oy = e.origin[ 1 ];
 	const oz = e.origin[ 2 ];
 
-	// SPR_ORIENTED uses entity angles for orientation (bullet marks on walls)
-	// Normal sprites use camera-facing vup/vright
-	let up_vec, right_vec;
-	if ( psprite.type === SPR_ORIENTED ) {
-
-		AngleVectors( e.angles, _sprite_v_forward, _sprite_v_right, _sprite_v_up );
-		up_vec = _sprite_v_up;
-		right_vec = _sprite_v_right;
-
-	} else {
-
-		up_vec = vup;
-		right_vec = vright;
-
-	}
-
-	const ux = up_vec[ 0 ], uy = up_vec[ 1 ], uz = up_vec[ 2 ];
-	const rx = right_vec[ 0 ], ry = right_vec[ 1 ], rz = right_vec[ 2 ];
+	const ux = _sprite_v_up[ 0 ], uy = _sprite_v_up[ 1 ], uz = _sprite_v_up[ 2 ];
+	const rx = _sprite_v_right[ 0 ], ry = _sprite_v_right[ 1 ], rz = _sprite_v_right[ 2 ];
 	const l = frame.left, r = frame.right, u = frame.up, d = frame.down;
 
 	positions[ 0 ] = ox + ux * d + rx * l;
@@ -1518,17 +1607,22 @@ export function R_NewMap() {
 
 	_entityMeshesInScene.clear();
 	_entityMeshesThisFrame.clear();
-	for ( const material of _spriteMaterialCache.values() ) {
+	for ( const cache of [ _spriteMaterialCache, _spriteDecalMaterialCache ] ) {
 
-		if ( materials.has( material ) === false ) {
+		for ( const material of cache.values() ) {
 
-			materials.add( material );
-			material.dispose();
+			if ( materials.has( material ) === false ) {
+
+				materials.add( material );
+				material.dispose();
+
+			}
 
 		}
 
+		cache.clear();
+
 	}
-	_spriteMaterialCache.clear();
 
 	// rebuild lightmaps
 	GL_BuildLightmaps_rsurf();

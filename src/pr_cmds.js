@@ -37,7 +37,7 @@ import {
 import { PR_HostError, PR_RunError } from './pr_exec.js';
 import { SV_Move, SV_LinkEdict, SV_PointContents } from './world.js';
 import { SV_movestep, SV_CheckBottom, SV_MoveToGoal as SV_MoveToGoal_Real, SV_Move_SetCallbacks } from './sv_move.js';
-import { SV_StartSound, SV_StartParticle, sv_aim } from './sv_main.js';
+import { SV_StartSound, SV_StartParticle, sv_aim, SV_ReserveSignonSpace } from './sv_main.js';
 import { Cbuf_AddText } from './cmd.js';
 import { Cvar_VariableValue, Cvar_Set } from './cvar.js';
 import { FL_ONGROUND, FL_FLY, FL_SWIM, svs, ss_loading, ss_active, teamplay } from './server.js';
@@ -483,6 +483,8 @@ function PF_ambientsound() {
 		return;
 
 	}
+
+	SV_ReserveSignonSpace( 17 ); // Ironwail's size, for svc_spawnstaticsound2
 
 	// write it to the signon buffer
 	MSG_WriteByte( sv.signon, svc_spawnstaticsound );
@@ -1463,6 +1465,8 @@ function PF_WriteEntity() {
 function PF_makestatic() {
 
 	const ent = G_EDICT( OFS_PARM0 );
+
+	SV_ReserveSignonSpace( 34 ); // Ironwail's size, for its largest svc_spawnstatic2
 
 	MSG_WriteByte( sv.signon, svc_spawnstatic );
 	MSG_WriteByte( sv.signon, ent.v.modelindex | 0 );

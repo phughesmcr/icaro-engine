@@ -11,6 +11,15 @@ import { PE_UPDATE_BACKUP } from './protocol.js';
 export const ss_loading = 0;
 export const ss_active = 1;
 
+export const MAX_SIGNON_BUFFERS = 256; // Ironwail server.h
+
+// client_t.sendsignon (Ironwail server.h, enum sendsignon_e). PRESPAWN_DONE
+// is falsy, as id's sendsignon = false was.
+export const PRESPAWN_DONE = 0;
+export const PRESPAWN_FLUSH = 1;
+export const PRESPAWN_SIGNONBUFS = 2;
+export const PRESPAWN_SIGNONMSG = 3;
+
 //============================================================================
 // server_static_t -- persistant server info
 //============================================================================
@@ -66,8 +75,12 @@ export class server_t {
 		this.reliable_datagram = new sizebuf_t(); // copied to all clients at end of frame
 		this.reliable_datagram_buf = new Uint8Array( MAX_DATAGRAM );
 
-		this.signon = new sizebuf_t();
-		this.signon_buf = new Uint8Array( 8192 );
+		// johnfitz/Ironwail: the signon is a list of buffers, filled by
+		// SV_ReserveSignonSpace and sent one per frame (SV_SendClientMessages).
+		// SV_SpawnServer adds the first one.
+		this.signon = null; // sizebuf_t * -- the buffer being filled
+		this.num_signon_buffers = 0;
+		this.signon_buffers = []; // sizebuf_t *[MAX_SIGNON_BUFFERS]
 
 	}
 
@@ -104,7 +117,8 @@ export class client_t {
 		this.spawned = false; // false = don't send datagrams
 		this.dropasap = false; // has been told to go to another level
 		this.privileged = false; // can execute any host command
-		this.sendsignon = false; // only valid before spawned
+		this.sendsignon = PRESPAWN_DONE; // only valid before spawned
+		this.signonidx = 0; // next sv.signon_buffers entry to send
 
 		this.last_message = 0; // reliable messages must be sent periodically
 
