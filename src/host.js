@@ -2,7 +2,7 @@
 
 import { Sys_Printf, Sys_Error, Sys_FloatTime } from './sys.js';
 import { Con_Printf, Con_DPrintf, Con_SetPrintFunctions, SZ_Clear,
-	MSG_WriteByte, MSG_WriteString } from './common.js';
+	MSG_WriteByte, MSG_WriteString, COM_SetHostError } from './common.js';
 import { svc_print, svc_disconnect } from './protocol.js';
 import { cvar_t, Cvar_RegisterVariable, Cvar_SetServerBroadcast, Cvar_WriteVariables } from './cvar.js';
 import { Cmd_Init, Cbuf_Init, Cbuf_Execute, Cbuf_AddText, Cbuf_InsertText, Cmd_SetClientCallbacks } from './cmd.js';
@@ -965,6 +965,7 @@ export function Host_Error( error ) {
 
 	CL_Disconnect();
 	cls.demonum = - 1;
+	cl.intermission = 0; // johnfitz (QuakeSpasm/Ironwail) -- for errors during intermissions (changelevel with no map found, etc.)
 
 	host_error_reentrancy = false;
 
@@ -972,6 +973,11 @@ export function Host_Error( error ) {
 	throw new Error( 'Host_Error: ' + error );
 
 }
+
+// common.js can't import this module, so SZ_GetSpace reaches Host_Error
+// through this hook. Installed at load so the room server, which doesn't run
+// Host_Init, has it too.
+COM_SetHostError( Host_Error );
 
 /*
 ================

@@ -74,9 +74,27 @@ export function InsertLinkAfter( l, after ) {
 // Q_ato* functions - parse numbers same way as Quake
 //============================================================================
 
-export function Q_atoi( str ) {
+// QuakeSpasm/Ironwail: Q_atoi and Q_atof skip leading whitespace (q_isspace),
+// so a value such as " 1" reads as 1. id's C reads it as 0.
+function Q_SkipSpace( str ) {
 
 	let pos = 0;
+	while ( pos < str.length ) {
+
+		const c = str.charCodeAt( pos );
+		if ( c !== 32 && ( c < 9 || c > 13 ) )
+			break;
+		pos ++;
+
+	}
+
+	return pos;
+
+}
+
+export function Q_atoi( str ) {
+
+	let pos = Q_SkipSpace( str );
 	let sign = 1;
 	let val = 0;
 
@@ -134,7 +152,7 @@ export function Q_atoi( str ) {
 
 export function Q_atof( str ) {
 
-	let pos = 0;
+	let pos = Q_SkipSpace( str );
 	let sign = 1;
 	let val = 0;
 
@@ -245,18 +263,35 @@ export function SZ_Clear( buf ) {
 
 }
 
+// Host_Error lives in host.js, which imports this module, so host.js installs
+// it here (COM_SetHostError) for SZ_GetSpace. Until then Sys_Error stands in.
+let _hostError = null;
+
+export function COM_SetHostError( fn ) {
+
+	_hostError = fn;
+
+}
+
 export function SZ_GetSpace( buf, length ) {
 
 	if ( buf.cursize + length > buf.maxsize ) {
 
-		if ( ! buf.allowoverflow )
+		if ( ! buf.allowoverflow ) {
+
+			// ericw (QuakeSpasm/Ironwail): Host_Error instead of id's Sys_Error,
+			// which would wipe the page or end the room process
+			if ( _hostError !== null )
+				_hostError( 'SZ_GetSpace: overflow without allowoverflow set' );
 			Sys_Error( 'SZ_GetSpace: overflow without allowoverflow set' );
+
+		}
 
 		if ( length > buf.maxsize )
 			Sys_Error( 'SZ_GetSpace: ' + length + ' is > full buffer size' );
 
 		buf.overflowed = true;
-		Con_Printf( 'SZ_GetSpace: overflow' );
+		Con_Printf( 'SZ_GetSpace: overflow\n' );
 		SZ_Clear( buf );
 
 	}
@@ -627,26 +662,46 @@ export function COM_Parse( data ) {
 	if ( data === null || data === undefined )
 		return null;
 
-	// skip whitespace
+	const len = data.length;
+	let c;
+
+	// skip whitespace and comments
 	while ( true ) {
 
-		if ( pos >= data.length )
-			return null; // end of file
+		while ( true ) {
 
-		const c = data.charCodeAt( pos );
-		if ( c > 32 ) break; // 32 = space
-		pos ++;
+			if ( pos >= len )
+				return null; // end of file
 
-	}
-
-	let c = data.charAt( pos );
-
-	// skip // comments
-	if ( c === '/' && data.charAt( pos + 1 ) === '/' ) {
-
-		while ( pos < data.length && data.charAt( pos ) !== '\n' )
+			if ( data.charCodeAt( pos ) > 32 ) break; // 32 = space
 			pos ++;
-		return COM_Parse( data.substring( pos ) );
+
+		}
+
+		c = data.charAt( pos );
+
+		// skip // comments
+		if ( c === '/' && data.charAt( pos + 1 ) === '/' ) {
+
+			while ( pos < len && data.charAt( pos ) !== '\n' )
+				pos ++;
+			continue;
+
+		}
+
+		// QuakeSpasm: skip /*..*/ comments
+		if ( c === '/' && data.charAt( pos + 1 ) === '*' ) {
+
+			pos += 2;
+			while ( pos < len && ! ( data.charAt( pos ) === '*' && data.charAt( pos + 1 ) === '/' ) )
+				pos ++;
+			if ( pos < len )
+				pos += 2;
+			continue;
+
+		}
+
+		break;
 
 	}
 
@@ -655,11 +710,11 @@ export function COM_Parse( data ) {
 
 		pos ++;
 		let token = '';
-		while ( pos < data.length ) {
+		while ( pos < len ) {
 
 			c = data.charAt( pos );
 			pos ++;
-			if ( c === '"' || ! c ) {
+			if ( c === '"' ) {
 
 				com_token = token;
 				return data.substring( pos );
@@ -683,12 +738,13 @@ export function COM_Parse( data ) {
 
 	}
 
-	// parse a regular word
+	// parse a regular word. QuakeSpasm: ':' only ends a word in id's C, so
+	// that is left out here and ip:port (or a wts:// URL) stays one token.
 	let token = '';
-	while ( pos < data.length ) {
+	while ( pos < len ) {
 
 		c = data.charAt( pos );
-		if ( c === '{' || c === '}' || c === ')' || c === '(' || c === '\'' || c === ':' )
+		if ( c === '{' || c === '}' || c === ')' || c === '(' || c === '\'' )
 			break;
 		if ( c.charCodeAt( 0 ) <= 32 )
 			break;
