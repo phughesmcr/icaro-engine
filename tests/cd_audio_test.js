@@ -3,6 +3,8 @@
 
 const cmd = await import( '../src/cmd.js' );
 const cd_audio = await import( '../src/cd_audio.js' );
+const snd_dma = await import( '../src/snd_dma.js' );
+const sound = await import( '../src/sound.js' );
 
 function assertEqual( actual, expected, message ) {
 
@@ -225,6 +227,192 @@ Deno.test( 'Shutdown while paused forgets the paused track', async () => {
 		cd_audio.CDAudio_Play( 2, true );
 		const el = FakeAudio.last;
 		assertEqual( el !== null && el.src, 'a/track02.ogg', 'same track loads after re-init' );
+
+	} );
+
+} );
+
+// Runs fn with a stub AudioContext and the sound system started.
+// mode: 'ok' routes the element, 'nocontext' has no AudioContext at all,
+// 'throws' makes createMediaElementSource throw.
+async function withSound( mode, fn ) {
+
+	const hadWindow = 'window' in globalThis;
+	const oldWindow = globalThis.window;
+	const oldVolume = sound.bgmvolume.value;
+	const gains = [];
+
+	class FakeAudioContext {
+
+		constructor() {
+
+			this.state = 'running';
+			this.sampleRate = 44100;
+			this.destination = {};
+
+		}
+
+		createGain() {
+
+			const g = { gain: { value: 1 }, connect() {}, disconnect() {} };
+			gains.push( g );
+			return g;
+
+		}
+
+		createMediaElementSource() {
+
+			if ( mode === 'throws' ) throw new Error( 'InvalidStateError' );
+			return { connect() {}, disconnect() {} };
+
+		}
+
+		suspend() { this.state = 'suspended'; return Promise.resolve(); }
+		resume() { this.state = 'running'; return Promise.resolve(); }
+		close() { return Promise.resolve(); }
+
+	}
+
+	globalThis.window = mode === 'nocontext' ? {} : { AudioContext: FakeAudioContext };
+
+	try {
+
+		snd_dma.S_Init();
+		await withCD( () => fn( gains ) );
+
+	} finally {
+
+		snd_dma.S_Shutdown();
+		sound.Sound_SetBlocked( 0 );
+		sound.bgmvolume.value = oldVolume;
+		if ( hadWindow ) globalThis.window = oldWindow;
+		else delete globalThis.window;
+
+	}
+
+}
+
+Deno.test( 'CD-3: routed through the gain node, the node alone sets the level', async () => {
+
+	await withSound( 'ok', ( gains ) => {
+
+		sound.bgmvolume.value = 0.5;
+		cd_audio.CDAudio_Play( 2, true );
+		const el = FakeAudio.last;
+		const gain = gains[ gains.length - 1 ];
+		assertEqual( el.volume, 1, 'element stays at 1.0' );
+		assertEqual( gain.gain.value, 0.5, 'gain node follows bgmvolume at play' );
+
+		sound.bgmvolume.value = 0.25;
+		cd_audio.CDAudio_Update();
+		assertEqual( el.volume, 1, 'element still 1.0 after a change' );
+		assertEqual( gain.gain.value, 0.25, 'gain node follows bgmvolume' );
+
+	} );
+
+} );
+
+Deno.test( 'CD-3: unrouted (routing throws), the element volume follows bgmvolume', async () => {
+
+	await withSound( 'throws', () => {
+
+		sound.bgmvolume.value = 0.5;
+		cd_audio.CDAudio_Play( 2, true );
+		const el = FakeAudio.last;
+		assertEqual( el.volume, 0.5, 'element volume at play' );
+
+		sound.bgmvolume.value = 0.25;
+		cd_audio.CDAudio_Update();
+		assertEqual( el.volume, 0.25, 'element follows bgmvolume' );
+
+	} );
+
+} );
+
+Deno.test( 'CD-3: unrouted (no AudioContext), the element volume follows bgmvolume', async () => {
+
+	await withSound( 'nocontext', () => {
+
+		sound.bgmvolume.value = 0.75;
+		cd_audio.CDAudio_Play( 2, true );
+		const el = FakeAudio.last;
+		assertEqual( el.volume, 0.75, 'element volume at play' );
+
+		sound.bgmvolume.value = 0.5;
+		cd_audio.CDAudio_Update();
+		assertEqual( el.volume, 0.5, 'element follows bgmvolume' );
+
+	} );
+
+} );
+
+Deno.test( 'CD-3: an unrouted element pauses with the hidden tab and resumes with it', async () => {
+
+	await withSound( 'throws', () => {
+
+		cd_audio.CDAudio_Play( 2, true );
+		const el = FakeAudio.last;
+		const plays = el.plays.length;
+		const pauses = el.pauses;
+
+		snd_dma.S_BlockSound();
+		assertEqual( el.pauses, pauses + 1, 'paused when sound is blocked' );
+		snd_dma.S_BlockSound();
+		assertEqual( el.pauses, pauses + 1, 'a second block does not pause again' );
+		snd_dma.S_UnblockSound();
+		assertEqual( el.plays.length, plays, 'still blocked once' );
+		snd_dma.S_UnblockSound();
+		assertEqual( el.plays.length, plays + 1, 'plays again on unblock' );
+		assertEqual( el.plays[ el.plays.length - 1 ], 'a/track02.ogg', 'same track' );
+
+	} );
+
+} );
+
+Deno.test( 'CD-3: a hidden tab leaves a routed element and a paused track alone', async () => {
+
+	await withSound( 'ok', () => {
+
+		cd_audio.CDAudio_Play( 2, true );
+		const el = FakeAudio.last;
+		const pauses = el.pauses;
+		const plays = el.plays.length;
+		snd_dma.S_BlockSound();
+		snd_dma.S_UnblockSound();
+		assertEqual( el.pauses, pauses, 'the AudioContext silences a routed element' );
+		assertEqual( el.plays.length, plays, 'no extra play()' );
+
+	} );
+
+	await withSound( 'throws', () => {
+
+		cd_audio.CDAudio_Play( 2, true );
+		const el = FakeAudio.last;
+		cd_audio.CDAudio_Pause();
+		const pauses = el.pauses;
+		const plays = el.plays.length;
+		snd_dma.S_BlockSound();
+		snd_dma.S_UnblockSound();
+		assertEqual( el.pauses, pauses, 'a user-paused track is not paused again' );
+		assertEqual( el.plays.length, plays, 'and not resumed' );
+
+	} );
+
+} );
+
+Deno.test( 'CD-3: cd eject stops the playing track, cd close does nothing', async () => {
+
+	await withCD( () => {
+
+		cd_audio.CDAudio_Play( 2, true );
+		const el = FakeAudio.last;
+		const pauses = el.pauses;
+		cdCommand( 'close' );
+		assertEqual( el.pauses, pauses, 'close leaves the music playing' );
+		cdCommand( 'EJECT' );
+		assertEqual( el.pauses, pauses + 1, 'eject stops the music' );
+		cd_audio.CDAudio_Resume();
+		assertEqual( el.plays.length, 1, 'a stopped track is not resumed' );
 
 	} );
 
