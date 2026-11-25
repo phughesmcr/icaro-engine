@@ -1104,7 +1104,8 @@ function deferred() {
 
 const flush = () => new Promise( ( r ) => setTimeout( r, 0 ) );
 
-// Fake THREE objects (browser_shim.js has no PlaneGeometry or WebGLRenderer)
+// Fake THREE objects (browser_shim.js has no PlaneGeometry, and its
+// WebGLRenderer is a no-op stub)
 function makeFakeThree() {
 
 	const created = { textures: [], meshes: [], scenes: [] };
