@@ -215,6 +215,9 @@ function CDAudio_GestureRetry() {
 /*
 ================
 CDAudio_Play
+
+As in cd_win.c, a bad or missing track is rejected before the current track
+is stopped, so a map without a CD track (svc_cdtrack 0) keeps the music.
 ================
 */
 export function CDAudio_Play( track, looping ) {
@@ -222,7 +225,30 @@ export function CDAudio_Play( track, looping ) {
 	if ( ! initialized || ! enabled )
 		return;
 
-	track = remap[ track ];
+	// C takes the track as a byte
+	track = remap[ track & 0xff ];
+
+	if ( track < 1 || track >= MAXIMUM_TRACKS ) {
+
+		Con_DPrintf( 'CDAudio_Play: Bad track number %d.\n', track );
+		return;
+
+	}
+
+	// Get the track's candidate URLs. A track with none is rejected here, as
+	// cd_win.c rejects a track MCI_STATUS can't read before it stops the CD.
+	let urls = null;
+	if ( _getTrackURL !== null )
+		urls = _getTrackURL( track );
+	if ( typeof urls === 'string' )
+		urls = [ urls ];
+
+	if ( urls === null || urls === undefined || urls.length === 0 ) {
+
+		Con_DPrintf( 'CDAudio_Play: no URL for track %d\n', track );
+		return;
+
+	}
 
 	if ( playing ) {
 
@@ -233,14 +259,6 @@ export function CDAudio_Play( track, looping ) {
 	}
 
 	playLooping = looping;
-
-	if ( track < 1 || track >= MAXIMUM_TRACKS ) {
-
-		Con_DPrintf( 'CDAudio_Play: Bad track number %d.\n', track );
-		return;
-
-	}
-
 	playTrack = track;
 
 	let vol = Math.floor( bgmvolume.value * 255.0 );
@@ -257,20 +275,6 @@ export function CDAudio_Play( track, looping ) {
 	}
 
 	cdvolume = vol;
-
-	// Get the track's candidate URLs
-	let urls = null;
-	if ( _getTrackURL !== null )
-		urls = _getTrackURL( track );
-	if ( typeof urls === 'string' )
-		urls = [ urls ];
-
-	if ( urls === null || urls === undefined || urls.length === 0 ) {
-
-		Con_DPrintf( 'CDAudio_Play: no URL for track %d\n', track );
-		return;
-
-	}
 
 	try {
 
@@ -348,6 +352,12 @@ export function CDAudio_Stop() {
 	if ( ! initialized || ! enabled )
 		return;
 
+	// As in C, stopping while paused does nothing, so CDAudio_Resume still
+	// restarts the paused track. A load still falling through its candidates
+	// while paused keeps going.
+	if ( ! playing )
+		return;
+
 	if ( musicElement ) {
 
 		try {
@@ -363,7 +373,8 @@ export function CDAudio_Stop() {
 	playAttempt ++;
 	gestureRetry = false;
 
-	wasPlaying = playing;
+	// only CDAudio_Pause sets wasPlaying (cd_win.c CDAudio_Stop clears it)
+	wasPlaying = false;
 	playing = false;
 
 }
@@ -503,6 +514,14 @@ export function CDAudio_Shutdown() {
 
 	CDAudio_Stop();
 
+	// CDAudio_Stop does nothing while paused. Web-only: drop a pending
+	// candidate fallthrough or gesture retry on the element being released,
+	// and forget the paused track, so a later CDAudio_Init starts clean.
+	playAttempt ++;
+	gestureRetry = false;
+	playing = false;
+	wasPlaying = false;
+
 	if ( musicSource ) {
 
 		try {
@@ -545,7 +564,7 @@ function CD_f() {
 	if ( Cmd_Argc() < 2 )
 		return;
 
-	const command = Cmd_Argv( 1 );
+	const command = Cmd_Argv( 1 ).toLowerCase(); // Q_strcasecmp
 
 	if ( command === 'on' ) {
 
@@ -636,6 +655,8 @@ function CD_f() {
 
 		if ( playing )
 			Con_Printf( 'Currently %s track %d\n', playLooping ? 'looping' : 'playing', playTrack );
+		else if ( wasPlaying )
+			Con_Printf( 'Paused %s track %d\n', playLooping ? 'looping' : 'playing', playTrack );
 		else
 			Con_Printf( 'Not playing\n' );
 
