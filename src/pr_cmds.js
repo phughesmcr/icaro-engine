@@ -2,7 +2,7 @@
 
 import { SV_BroadcastPrintf } from './host.js';
 import {
-	Con_Printf, Con_DPrintf,
+	Con_Printf, Con_DPrintf, COM_Parse, com_token,
 	MSG_WriteByte, MSG_WriteChar, MSG_WriteShort, MSG_WriteLong,
 	MSG_WriteCoord, MSG_WriteAngle, MSG_WriteString,
 } from './common.js';
@@ -27,7 +27,10 @@ import {
 	sv,
 	PR_SetBuiltins,
 	PR_SetTempString,
+	pr_functions, STRINGTEMP_LENGTH,
+	PR_ZoneString, PR_UnzoneString, PR_ClearZoneStrings,
 } from './progs.js';
+import { PF_sprintf_internal, Q_FloatToInt } from './pr_sprintf.js';
 import {
 	ED_Alloc, ED_Free, ED_Print, ED_PrintNum, ED_PrintEdicts,
 } from './pr_edict.js';
@@ -107,7 +110,9 @@ function PF_objerror() {
 	ED_Print( ed );
 	ED_Free( ed );
 
-	PR_HostError( 'Program error' );
+	// Deviation from id's C, which called Host_Error( "Program error" ) here
+	// and ended the level. Ironwail and QuakeSpasm comment it out (johnfitz:
+	// "by design, this should not be fatal"): self is freed and play goes on.
 
 }
 
@@ -597,6 +602,19 @@ valid target.
 */
 let checkpvs = null;
 
+// Scratch vectors for builtins (Golden Rule #4). None of these builtins runs
+// QuakeC while its scratch is live, except PF_walkmove, whose SV_movestep
+// calls touch functions only after its last use of move.
+const newcheck_org = new Float32Array( 3 );
+const checkclient_view = new Float32Array( 3 );
+const findradius_eorg = new Float32Array( 3 );
+const walkmove_move = new Float32Array( 3 );
+const droptofloor_end = new Float32Array( 3 );
+const aim_start = new Float32Array( 3 );
+const aim_dir = new Float32Array( 3 );
+const aim_end = new Float32Array( 3 );
+const aim_bestdir = new Float32Array( 3 );
+
 function PF_newcheckclient( check ) {
 
 	// cycle to the next one
@@ -637,7 +655,7 @@ function PF_newcheckclient( check ) {
 	// get the PVS for the entity
 	if ( sv.worldmodel ) {
 
-		const org = new Float32Array( 3 );
+		const org = newcheck_org;
 		VectorAdd( ent.v.origin, ent.v.view_ofs, org );
 		const leaf = Mod_PointInLeaf( org, sv.worldmodel );
 		const pvs = Mod_LeafPVS( leaf, sv.worldmodel );
@@ -675,7 +693,7 @@ function PF_checkclient() {
 	if ( sv.worldmodel && checkpvs ) {
 
 		const self = PROG_TO_EDICT( pr_global_struct.self );
-		const view = new Float32Array( 3 );
+		const view = checkclient_view;
 		VectorAdd( self.v.origin, self.v.view_ofs, view );
 		const leaf = Mod_PointInLeaf( view, sv.worldmodel );
 		// get leaf index: leaf._leafIndex is set during BSP load
@@ -781,7 +799,7 @@ function PF_findradius() {
 	const org = G_VECTOR( OFS_PARM0 );
 	const rad = G_FLOAT( OFS_PARM1 );
 
-	const eorg = new Float32Array( 3 );
+	const eorg = findradius_eorg;
 
 	for ( let i = 1; i < sv.num_edicts; i ++ ) {
 
@@ -1027,7 +1045,7 @@ function PF_walkmove() {
 	}
 
 	const yawRad = yaw * M_PI / 180;
-	const move = new Float32Array( 3 );
+	const move = walkmove_move;
 	move[ 0 ] = Math.cos( yawRad ) * dist;
 	move[ 1 ] = Math.sin( yawRad ) * dist;
 	move[ 2 ] = 0;
@@ -1055,7 +1073,7 @@ function PF_droptofloor() {
 
 	const ent = PROG_TO_EDICT( pr_global_struct.self );
 
-	const end = new Float32Array( 3 );
+	const end = droptofloor_end;
 	VectorCopy( ent.v.origin, end );
 	end[ 2 ] -= 256;
 
@@ -1221,10 +1239,10 @@ function PF_aim() {
 	const teamplayValue = teamplay.value;
 	// speed = G_FLOAT( OFS_PARM1 ); // not used in original C
 
-	const start = new Float32Array( 3 );
-	const dir = new Float32Array( 3 );
-	const end = new Float32Array( 3 );
-	const bestdir = new Float32Array( 3 );
+	const start = aim_start;
+	const dir = aim_dir;
+	const end = aim_end;
+	const bestdir = aim_bestdir;
 
 	VectorCopy( ent.v.origin, start );
 	start[ 2 ] += 20;
@@ -1511,6 +1529,356 @@ function SV_MoveToGoal() {
 
 }
 
+/*
+===============================================================================
+
+EXTENSION BUILT-INS
+
+Not in id's Quake. Ported from Ironwail's pr_cmds.c, with its builtin
+numbers, so that mods written for QuakeSpasm-family engines (Arcane
+Dimensions and others) load. Before these, any call past #78 ended the map
+with "Bad builtin call number".
+
+===============================================================================
+*/
+
+// Ironwail's Con_Warning and Con_DWarning
+function PF_Warning( msg ) {
+
+	Con_Printf( '%s', 'Warning: ' + msg );
+
+}
+
+function PF_DWarning( msg ) {
+
+	Con_DPrintf( '%s', 'Warning: ' + msg );
+
+}
+
+// C's atof: like parseFloat, but 0 where nothing parses
+function PF_atof( s ) {
+
+	const f = parseFloat( s );
+	return Number.isNaN( f ) ? 0 : f;
+
+}
+
+// 2021 re-release: float() finaleFinished = #79
+function PF_finalefinished() {
+
+	G_FLOAT_SET( OFS_RETURN, 0 );
+
+}
+
+/*
+=================
+PF_checkextension
+
+float(string extname) checkextension = #99
+
+Deviation from Ironwail, which answers true for FTE_QC_CHECKCOMMAND (and
+implements checkcommand, #294) so that older Arcane Dimensions builds take
+their FTE code path. Neither is ported, so every extension is reported as
+missing and mods fall back to their plain-Quake paths.
+=================
+*/
+function PF_checkextension() {
+
+	G_FLOAT_SET( OFS_RETURN, 0 );
+
+}
+
+// maths stuff
+function PF_Sin() {
+
+	G_FLOAT_SET( OFS_RETURN, Math.sin( G_FLOAT( OFS_PARM0 ) ) );
+
+}
+
+function PF_Cos() {
+
+	G_FLOAT_SET( OFS_RETURN, Math.cos( G_FLOAT( OFS_PARM0 ) ) );
+
+}
+
+function PF_Sqrt() {
+
+	G_FLOAT_SET( OFS_RETURN, Math.sqrt( G_FLOAT( OFS_PARM0 ) ) );
+
+}
+
+function PF_pow() {
+
+	G_FLOAT_SET( OFS_RETURN, Math.pow( G_FLOAT( OFS_PARM0 ), G_FLOAT( OFS_PARM1 ) ) );
+
+}
+
+function PF_mod() {
+
+	const a = G_FLOAT( OFS_PARM0 );
+	const n = G_FLOAT( OFS_PARM1 );
+
+	if ( n === 0 ) {
+
+		PF_DWarning( 'PF_mod: mod by zero\n' );
+		G_FLOAT_SET( OFS_RETURN, 0 );
+
+	} else {
+
+		// because QC is inherantly floaty, lets use floats.
+		// C: a - ( n * (int)( a / n ) ), all in single precision
+		const q = Q_FloatToInt( Math.fround( a / n ) );
+		G_FLOAT_SET( OFS_RETURN, Math.fround( a - Math.fround( n * q ) ) );
+
+	}
+
+}
+
+function PF_min() {
+
+	let r = G_FLOAT( OFS_PARM0 );
+	for ( let i = 1; i < pr_argc; i ++ ) {
+
+		if ( r > G_FLOAT( OFS_PARM0 + i * 3 ) )
+			r = G_FLOAT( OFS_PARM0 + i * 3 );
+
+	}
+
+	G_FLOAT_SET( OFS_RETURN, r );
+
+}
+
+function PF_max() {
+
+	let r = G_FLOAT( OFS_PARM0 );
+	for ( let i = 1; i < pr_argc; i ++ ) {
+
+		if ( r < G_FLOAT( OFS_PARM0 + i * 3 ) )
+			r = G_FLOAT( OFS_PARM0 + i * 3 );
+
+	}
+
+	G_FLOAT_SET( OFS_RETURN, r );
+
+}
+
+function PF_bound() {
+
+	const minval = G_FLOAT( OFS_PARM0 );
+	let curval = G_FLOAT( OFS_PARM1 );
+	const maxval = G_FLOAT( OFS_PARM2 );
+	if ( curval > maxval )
+		curval = maxval;
+	if ( curval < minval )
+		curval = minval;
+	G_FLOAT_SET( OFS_RETURN, curval );
+
+}
+
+// string stuff
+function PF_strlen() {
+
+	// FIXME: doesn't try to handle utf-8
+	G_FLOAT_SET( OFS_RETURN, G_STRING( OFS_PARM0 ).length );
+
+}
+
+function PF_strcat() {
+
+	let out = '';
+	for ( let i = 0; i < pr_argc; i ++ ) {
+
+		out += G_STRING( OFS_PARM0 + i * 3 );
+		if ( out.length >= STRINGTEMP_LENGTH ) {
+
+			PF_Warning( 'PF_strcat: overflow (string truncated)\n' );
+			break;
+
+		}
+
+	}
+
+	// PR_SetTempString cuts it to STRINGTEMP_LENGTH - 1, as q_strlcat does
+	G_INT_SET( OFS_RETURN, PR_SetTempString( out ) );
+
+}
+
+function PF_substring() {
+
+	const s = G_STRING( OFS_PARM0 );
+	let start = Q_FloatToInt( G_FLOAT( OFS_PARM1 ) );
+	let length = Q_FloatToInt( G_FLOAT( OFS_PARM2 ) );
+
+	let slen = s.length; // utf-8 should use chars, not bytes.
+
+	if ( start < 0 )
+		start = slen + start;
+	if ( length < 0 )
+		length = slen - start + ( length + 1 );
+	if ( start < 0 ) {
+
+		// length += start;
+		start = 0;
+
+	}
+
+	if ( start >= slen || length <= 0 ) {
+
+		G_INT_SET( OFS_RETURN, PR_SetTempString( '' ) );
+		return;
+
+	}
+
+	slen -= start;
+	if ( length > slen )
+		length = slen;
+
+	if ( length >= STRINGTEMP_LENGTH ) {
+
+		length = STRINGTEMP_LENGTH - 1;
+		PF_Warning( 'PF_substring: truncation\n' );
+
+	}
+
+	G_INT_SET( OFS_RETURN, PR_SetTempString( s.substr( start, length ) ) );
+
+}
+
+/*
+=================
+PF_strzone
+
+Copies its arguments, joined, into a string that lasts until strunzone
+(see PR_ZoneString)
+=================
+*/
+function PF_strzone() {
+
+	let s = '';
+	for ( let i = 0; i < pr_argc; i ++ )
+		s += G_STRING( OFS_PARM0 + i * 3 );
+
+	G_INT_SET( OFS_RETURN, PR_ZoneString( s ) );
+
+}
+
+function PF_strunzone() {
+
+	const ofs = G_INT( OFS_PARM0 );
+	if ( ofs === 0 )
+		return; // don't bug out if they gave a null string
+
+	if ( ! PR_UnzoneString( ofs ) )
+		PF_Warning( 'PF_strunzone: string wasn\'t strzoned\n' );
+
+}
+
+// string tokenizing (gah)
+const MAXQCTOKENS = 64;
+const qctoken = [];
+
+function PF_ArgC() {
+
+	G_FLOAT_SET( OFS_RETURN, qctoken.length );
+
+}
+
+function tokenizeqc( str ) {
+
+	qctoken.length = 0;
+	let pos = 0;
+	while ( qctoken.length < MAXQCTOKENS ) {
+
+		// skip whitespace here so the token's start is accurate
+		while ( pos < str.length && str.charCodeAt( pos ) <= 32 )
+			pos ++;
+
+		if ( pos >= str.length )
+			break;
+
+		const rest = COM_Parse( str.slice( pos ) );
+		if ( rest === null )
+			break;
+
+		qctoken.push( com_token );
+		pos = str.length - rest.length;
+
+	}
+
+	return qctoken.length;
+
+}
+
+// KRIMZON_SV_PARSECLIENTCOMMAND added these two - note that for
+// compatibility with DP, this tokenize builtin is veeery vauge and doesn't
+// match the console
+function PF_Tokenize() {
+
+	G_FLOAT_SET( OFS_RETURN, tokenizeqc( G_STRING( OFS_PARM0 ) ) );
+
+}
+
+function PF_ArgV() {
+
+	let idx = Q_FloatToInt( G_FLOAT( OFS_PARM0 ) );
+
+	// negative indexes are relative to the end
+	if ( idx < 0 )
+		idx += qctoken.length;
+
+	if ( idx < 0 || idx >= qctoken.length )
+		G_INT_SET( OFS_RETURN, 0 );
+	else
+		G_INT_SET( OFS_RETURN, PR_SetTempString( qctoken[ idx ] ) );
+
+}
+
+function PF_sprintf() {
+
+	const out = PF_sprintf_internal( G_STRING( OFS_PARM0 ), 1, STRINGTEMP_LENGTH );
+	G_INT_SET( OFS_RETURN, PR_SetTempString( out ) );
+
+}
+
+// conversions (mostly string)
+function PF_stof() {
+
+	G_FLOAT_SET( OFS_RETURN, PF_atof( G_STRING( OFS_PARM0 ) ) );
+
+}
+
+function PF_stov() {
+
+	let s = G_STRING( OFS_PARM0 );
+	const v = G_VECTOR( OFS_RETURN );
+	for ( let i = 0; i < 3; i ++ ) {
+
+		s = COM_Parse( s );
+		v[ i ] = PF_atof( com_token );
+
+	}
+
+}
+
+function PF_etos() {
+
+	// yes, this is lame
+	G_INT_SET( OFS_RETURN, PR_SetTempString( 'entity ' + G_EDICTNUM( OFS_PARM0 ) ) );
+
+}
+
+function PF_ftoi() {
+
+	G_INT_SET( OFS_RETURN, Q_FloatToInt( G_FLOAT( OFS_PARM0 ) ) );
+
+}
+
+function PF_itof() {
+
+	G_FLOAT_SET( OFS_RETURN, G_INT( OFS_PARM0 ) );
+
+}
+
 function PF_Fixme() {
 
 	PR_RunError( 'unimplemented builtin' );
@@ -1585,12 +1953,12 @@ const pr_builtin = [
 	PF_WriteString,		// #58
 	PF_WriteEntity,		// #59
 
-	PF_Fixme,			// #60 (Quake2: sin)
-	PF_Fixme,			// #61 (Quake2: cos)
-	PF_Fixme,			// #62 (Quake2: sqrt)
+	PF_Fixme,			// #60 (Quake2: sin; set from pr_extbuiltins)
+	PF_Fixme,			// #61 (Quake2: cos; set from pr_extbuiltins)
+	PF_Fixme,			// #62 (Quake2: sqrt; set from pr_extbuiltins)
 	PF_Fixme,			// #63 (Quake2: changepitch)
 	PF_Fixme,			// #64 (Quake2: TraceToss)
-	PF_Fixme,			// #65 (Quake2: etos)
+	PF_Fixme,			// #65 (Quake2: etos; set from pr_extbuiltins)
 	PF_Fixme,			// #66 (Quake2: WaterMove)
 
 	SV_MoveToGoal,		// #67
@@ -1612,6 +1980,157 @@ const pr_builtin = [
 	PF_setspawnparms,	// #78
 ];
 
+// Names of id's builtins, for the name remap in PR_InitProgsBuiltins
+// (Ironwail's pr_builtindefs). Index is the builtin number.
+const pr_builtin_names = [
+	null, 'makevectors', 'setorigin', 'setmodel', 'setsize', null, 'break', 'random',
+	'sound', 'normalize', 'error', 'objerror', 'vlen', 'vectoyaw', 'spawn', 'remove',
+	'traceline', 'checkclient', 'find', 'precache_sound', 'precache_model', 'stuffcmd',
+	'findradius', 'bprint', 'sprint', 'dprint', 'ftos', 'vtos', 'coredump', 'traceon',
+	'traceoff', 'eprint', 'walkmove', null, 'droptofloor', 'lightstyle', 'rint', 'floor',
+	'ceil', null, 'checkbottom', 'pointcontents', null, 'fabs', 'aim', 'cvar', 'localcmd',
+	'nextent', 'particle', 'ChangeYaw', null, 'vectoangles', 'WriteByte', 'WriteChar',
+	'WriteShort', 'WriteLong', 'WriteCoord', 'WriteAngle', 'WriteString', 'WriteEntity',
+	null, null, null, null, null, null, null, 'movetogoal', 'precache_file', 'makestatic',
+	'changelevel', null, 'cvar_set', 'centerprint', 'ambientsound', 'precache_model2',
+	'precache_sound2', 'precache_file2', 'setspawnparms',
+];
+
+// Extension builtins: Ironwail's pr_builtindefs past id's #1-#78, in its
+// order and with its numbers. Number 0 means Ironwail gives it none: QuakeC
+// declares it "= #0" and PR_InitProgsBuiltins binds it by name to a slot
+// counting down from the top of the table, in this order. Unported ones stay
+// PF_Fixme, so calling them is "unimplemented builtin", as in Ironwail.
+const pr_extbuiltins = [
+	[ 'sin', PF_Sin, 60 ],					// float(float angle)
+	[ 'cos', PF_Cos, 61 ],					// float(float angle)
+	[ 'sqrt', PF_Sqrt, 62 ],				// float(float value)
+	[ 'etos', PF_etos, 65 ],				// string(entity ent)
+	[ 'finaleFinished', PF_finalefinished, 79 ],	// float() (2021 re-release)
+	[ 'localsound', PF_Fixme, 80 ],			// not ported: needs a client message
+	[ 'stof', PF_stof, 81 ],				// float(string)
+	[ 'ex_centerprint', PF_centerprint, 0 ],	// void(entity client, string s, ...)
+	[ 'ex_bprint', PF_bprint, 0 ],			// void(string s, ...)
+	[ 'ex_sprint', PF_sprint, 0 ],			// void(entity client, string s, ...)
+	[ 'ex_finalefinished', PF_finalefinished, 0 ],	// float()
+	[ 'ex_CheckPlayerEXFlags', PF_Fixme, 0 ],	// not ported
+	[ 'ex_walkpathtogoal', PF_Fixme, 0 ],	// not ported
+	[ 'ex_localsound', PF_Fixme, 0 ],		// not ported
+	[ 'min', PF_min, 94 ],					// float(float a, float b, ...)
+	[ 'max', PF_max, 95 ],					// float(float a, float b, ...)
+	[ 'bound', PF_bound, 96 ],				// float(float minimum, float val, float maximum)
+	[ 'pow', PF_pow, 97 ],					// float(float value, float exp)
+	[ 'checkextension', PF_checkextension, 99 ],	// float(string extname)
+	[ 'strlen', PF_strlen, 114 ],			// float(string s)
+	[ 'strcat', PF_strcat, 115 ],			// string(string s1, ...)
+	[ 'substring', PF_substring, 116 ],		// string(string s, float start, float length)
+	[ 'stov', PF_stov, 117 ],				// vector(string s)
+	[ 'strzone', PF_strzone, 118 ],			// string(string s, ...)
+	[ 'strunzone', PF_strunzone, 119 ],		// void(string s)
+	[ 'str2chr', PF_Fixme, 222 ],			// not ported
+	[ 'chr2str', PF_Fixme, 223 ],			// not ported
+	[ 'strconv', PF_Fixme, 224 ],			// not ported
+	[ 'clientstat', PF_Fixme, 232 ],		// not ported
+	[ 'mod', PF_mod, 245 ],					// float(float a, float n)
+	[ 'ftoi', PF_ftoi, 0 ],					// int(float)
+	[ 'itof', PF_itof, 0 ],					// float(int)
+	[ 'checkcommand', PF_Fixme, 294 ],		// not ported
+	// #316-#352 are CSQC-only in Ironwail: names bound, server slots PF_Fixme
+	[ 'iscachedpic', PF_Fixme, 316 ],
+	[ 'precache_pic', PF_Fixme, 317 ],
+	[ 'drawgetimagesize', PF_Fixme, 318 ],
+	[ 'drawcharacter', PF_Fixme, 320 ],
+	[ 'drawrawstring', PF_Fixme, 321 ],
+	[ 'drawpic', PF_Fixme, 322 ],
+	[ 'drawfill', PF_Fixme, 323 ],
+	[ 'drawsetcliparea', PF_Fixme, 324 ],
+	[ 'drawresetcliparea', PF_Fixme, 325 ],
+	[ 'drawstring', PF_Fixme, 326 ],
+	[ 'stringwidth', PF_Fixme, 327 ],
+	[ 'drawsubpic', PF_Fixme, 328 ],
+	[ 'getstati', PF_Fixme, 330 ],
+	[ 'getstatf', PF_Fixme, 331 ],
+	[ 'getstats', PF_Fixme, 332 ],
+	[ 'getplayerkeyvalue', PF_Fixme, 348 ],
+	[ 'getplayerkeyfloat', PF_Fixme, 0 ],
+	[ 'registercommand', PF_Fixme, 352 ],
+	[ 'vectorvectors', PF_Fixme, 432 ],		// not ported
+	[ 'clientcommand', PF_Fixme, 440 ],		// not ported
+	[ 'tokenize', PF_Tokenize, 441 ],		// float(string s)
+	[ 'argv', PF_ArgV, 442 ],				// string(float n)
+	[ 'argc', PF_ArgC, 0 ],					// float()
+	[ 'asin', PF_Fixme, 471 ],				// not ported
+	[ 'acos', PF_Fixme, 472 ],				// not ported
+	[ 'atan', PF_Fixme, 473 ],				// not ported
+	[ 'atan2', PF_Fixme, 474 ],				// not ported
+	[ 'tan', PF_Fixme, 475 ],				// not ported
+	[ 'tokenize_console', PF_Fixme, 514 ],	// not ported
+	[ 'sprintf', PF_sprintf, 627 ],			// string(string fmt, ...)
+];
+
+// Ironwail's MAX_BUILTINS. Every slot is filled (PF_Fixme where nothing is
+// ported), so an unported extension number is "unimplemented builtin" when
+// called, not "Bad builtin call number" when reached.
+const MAX_BUILTINS = 1280;
+
+// name -> builtin number, for every builtin (id's and the extensions)
+const pr_builtin_numbers = new Map();
+
+const pr_builtin_table = ( function () {
+
+	const table = new Array( MAX_BUILTINS ).fill( PF_Fixme );
+	for ( let i = 0; i < pr_builtin.length; i ++ ) {
+
+		table[ i ] = pr_builtin[ i ];
+		if ( pr_builtin_names[ i ] )
+			pr_builtin_numbers.set( pr_builtin_names[ i ], i );
+
+	}
+
+	// as Ironwail, numberless builtins count down from MAX_BUILTINS - 2
+	let next = MAX_BUILTINS - 2;
+	for ( const [ name, func, number ] of pr_extbuiltins ) {
+
+		const n = number !== 0 ? number : next --;
+		table[ n ] = func;
+		pr_builtin_numbers.set( name, n );
+
+	}
+
+	return table;
+
+} )();
+
+/*
+===============
+PR_InitProgsBuiltins
+
+Called by PR_LoadProgs once the functions are parsed. Mirrors the second
+half of Ironwail's PR_InitBuiltins: a function declared "= #0" (no
+statements, parms or locals) is bound by name to the builtin with that name.
+Also resets the string state the extension builtins keep per progs (zoned
+strings live in the string table that PR_LoadProgs replaces).
+===============
+*/
+export function PR_InitProgsBuiltins() {
+
+	for ( let i = 0; i < pr_functions.length; i ++ ) {
+
+		const func = pr_functions[ i ];
+		if ( func.first_statement !== 0 || func.parm_start !== 0 || func.locals !== 0 )
+			continue;
+
+		const number = pr_builtin_numbers.get( PR_GetString( func.s_name ) );
+		if ( number !== undefined )
+			func.first_statement = - number;
+
+	}
+
+	PR_ClearZoneStrings();
+	qctoken.length = 0;
+
+}
+
 /*
 ===============
 PR_InitBuiltins
@@ -1621,7 +2140,7 @@ Registers the builtin function table. Called during PR_Init.
 */
 export function PR_InitBuiltins() {
 
-	PR_SetBuiltins( pr_builtin, pr_builtin.length );
+	PR_SetBuiltins( pr_builtin_table, MAX_BUILTINS );
 
 	// Wire up sv_move.js callbacks
 	SV_Move_SetCallbacks( {

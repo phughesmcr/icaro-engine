@@ -2,7 +2,7 @@
 
 import { Sys_Printf, Sys_Error, Sys_FloatTime } from './sys.js';
 import { Con_Printf, Con_DPrintf, Con_SetPrintFunctions, SZ_Clear,
-	MSG_WriteByte, MSG_WriteString } from './common.js';
+	MSG_WriteByte, MSG_WriteString, COM_SetHostError } from './common.js';
 import { svc_print, svc_disconnect } from './protocol.js';
 import { cvar_t, Cvar_RegisterVariable, Cvar_SetServerBroadcast, Cvar_WriteVariables } from './cvar.js';
 import { Cmd_Init, Cbuf_Init, Cbuf_Execute, Cbuf_AddText, Cbuf_InsertText, Cmd_SetClientCallbacks } from './cmd.js';
@@ -76,6 +76,8 @@ export let host_basepal = null;
 export let host_colormap = null;
 
 const host_framerate = new cvar_t( 'host_framerate', '0' ); // set for slow motion
+// johnfitz: scales game time (0.5 = half speed); 0 is off
+export const host_timescale = new cvar_t( 'host_timescale', '0' );
 // QuakeSpasm/Ironwail: render frame cap. Values above 72, or 0 (uncapped),
 // turn on renderer/network isolation (see _Host_FilterTime). Ironwail's
 // default is 250; 72 keeps WinQuake's single 72 Hz loop.
@@ -208,6 +210,7 @@ function Host_InitLocal() {
 	Host_InitCommands();
 
 	Cvar_RegisterVariable( host_framerate );
+	Cvar_RegisterVariable( host_timescale ); // johnfitz
 	Cvar_RegisterVariable( host_maxfps );
 	Cvar_RegisterVariable( host_speeds );
 	Cvar_RegisterVariable( sys_ticrate );
@@ -824,7 +827,13 @@ export function _Host_FilterTime( time ) {
 	host_frametime = host_rawframetime = realtime - oldrealtime;
 	oldrealtime = realtime;
 
-	if ( host_framerate.value > 0 ) {
+	// johnfitz -- host_timescale is more intuitive than host_framerate.
+	// As in Ironwail, a scaled frame skips the long/short frame clamp.
+	if ( host_timescale.value > 0 ) {
+
+		host_frametime *= host_timescale.value;
+
+	} else if ( host_framerate.value > 0 ) {
 
 		host_frametime = host_framerate.value;
 
@@ -879,7 +888,13 @@ export function _Host_NetFrame() {
 
 	host_netaccum -= tick;
 
-	if ( host_framerate.value > 0 ) {
+	// Ironwail scales the tick, so ticks keep their real-time rate and
+	// each one covers more or less game time
+	if ( host_timescale.value > 0 ) {
+
+		host_netframetime = tick * host_timescale.value;
+
+	} else if ( host_framerate.value > 0 ) {
 
 		host_netframetime = host_framerate.value;
 
@@ -965,6 +980,7 @@ export function Host_Error( error ) {
 
 	CL_Disconnect();
 	cls.demonum = - 1;
+	cl.intermission = 0; // johnfitz (QuakeSpasm/Ironwail) -- for errors during intermissions (changelevel with no map found, etc.)
 
 	host_error_reentrancy = false;
 
@@ -972,6 +988,11 @@ export function Host_Error( error ) {
 	throw new Error( 'Host_Error: ' + error );
 
 }
+
+// common.js can't import this module, so SZ_GetSpace reaches Host_Error
+// through this hook. Installed at load so the room server, which doesn't run
+// Host_Init, has it too.
+COM_SetHostError( Host_Error );
 
 /*
 ================

@@ -178,7 +178,10 @@ export function GetWavinfo( name, wav, wavlength ) {
 	info.channels = GetLittleShort();
 	info.rate = GetLittleLong();
 	data_p += 4 + 2; // skip avgBytesPerSec and blockAlign
-	info.width = GetLittleShort() / 8;
+	const bits = GetLittleShort();
+	if ( bits !== 8 && bits !== 16 )
+		return info; // Ironwail: width stays 0, S_LoadSound refuses it
+	info.width = bits / 8;
 
 	// get cue chunk
 	FindChunk( 'cue ' );
@@ -231,6 +234,15 @@ export function GetWavinfo( name, wav, wavlength ) {
 
 	} else {
 
+		info.samples = samples;
+
+	}
+
+	// QuakeSpasm/Ironwail: a cue point at or past the end can't loop
+	if ( info.loopstart >= info.samples ) {
+
+		Con_Printf( '%s has loop start >= end\n', name );
+		info.loopstart = - 1;
 		info.samples = samples;
 
 	}
@@ -354,6 +366,14 @@ export function S_LoadSound( s ) {
 
 	}
 
+	// QuakeSpasm/Ironwail S_LoadSound: refuse what the resampler can't read
+	if ( info.width !== 1 && info.width !== 2 ) {
+
+		Con_Printf( '%s is not 8 or 16 bit\n', s.name );
+		return null;
+
+	}
+
 	if ( ! shm ) {
 
 		Con_Printf( 'S_LoadSound: sound system not initialized\n' );
@@ -364,6 +384,13 @@ export function S_LoadSound( s ) {
 	const stepscale = info.rate / shm.speed;
 	let len = Math.floor( info.samples / stepscale );
 	len = len * info.width * info.channels;
+
+	if ( info.samples === 0 || len === 0 ) {
+
+		Con_Printf( '%s has zero samples\n', s.name );
+		return null;
+
+	}
 
 	const sc = new sfxcache_t();
 	sc.length = info.samples;
