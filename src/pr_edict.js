@@ -49,7 +49,7 @@ const gefvCache = [
 // Cvar stubs (will be replaced when cvar system is connected)
 //============================================================================
 
-const nomonsters = new cvar_t( 'nomonsters', '0' );
+export const nomonsters = new cvar_t( 'nomonsters', '0' );
 const gamecfg = new cvar_t( 'gamecfg', '0' );
 const scratch1 = new cvar_t( 'scratch1', '0' );
 const scratch2 = new cvar_t( 'scratch2', '0' );
@@ -1005,6 +1005,16 @@ export function ED_LoadFromFile( data ) {
 			Con_Printf( 'No classname for:\n' );
 			ED_Print( ent );
 			ED_Free( ent );
+			continue;
+
+		}
+
+		// remove monsters if nomonsters is set (Ironwail; id registers the
+		// cvar but never reads it)
+		if ( sv.nomonsters && classname.startsWith( 'monster_' ) ) {
+
+			ED_Free( ent );
+			inhibit ++;
 			continue;
 
 		}
