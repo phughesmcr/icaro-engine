@@ -10,7 +10,8 @@ import { COM_AddPakSequence, COM_AddGameDirectory, COM_SetLooseFileBasePaths, CO
 import { COM_InitArgv, rogue, hipnotic } from '../src/common.js';
 import { Cbuf_Init, Cbuf_Execute, Cmd_Init } from '../src/cmd.js';
 import { Host_InitCommands } from '../src/host_cmd.js';
-import { deathmatch, samelevel, noexit, sys_ticrate, Host_ShutdownServer } from '../src/host.js';
+import { deathmatch, samelevel, noexit, sys_ticrate, campaign, horde, sv_cheats, Host_ShutdownServer } from '../src/host.js';
+import { Cvar_RegisterVariable } from '../src/cvar.js';
 import { cls, ca_dedicated } from '../src/client.js';
 import { Memory_Init } from '../src/zone.js';
 import { PR_Init } from '../src/pr_edict.js';
@@ -307,6 +308,12 @@ async function Host_Init_Server() {
 	Mod_Init();
 	R_InitTextures();
 	SV_Init();
+
+	// The 2021 re-release QuakeC reads and writes these every frame. Host_InitLocal
+	// registers them on the client; this process never calls it.
+	Cvar_RegisterVariable(campaign);
+	Cvar_RegisterVariable(horde);
+	Cvar_RegisterVariable(sv_cheats);
 
 	// Set deathmatch mode - this ensures respawn() doesn't restart the entire server
 	// We set the value directly on the imported cvar object (same object that sv_main.js uses)
