@@ -101,7 +101,8 @@ let suppressLockEscape = false;
 // requests in a row are refused before any lock has worked, clicks ask for
 // fullscreen instead, which those browsers do allow. One refusal may be
 // transient (an unfocused page), and a refusal after a lock has worked
-// (e.g. Chrome's cooldown after Escape) changes nothing.
+// (e.g. Chrome's cooldown after Escape) changes nothing. A raw request
+// (in_rawmouse) is counted from its promise instead of the event.
 let pointerLockWorked = false;
 let pointerLockRefusals = 0;
 let pointerLockUnavailable = false;
@@ -116,8 +117,12 @@ let pointerLockUnavailable = false;
 const in_rawmouse = { name: 'in_rawmouse', string: '0', value: 0, archive: true };
 // Set once the browser rejects unadjustedMovement: later locks don't ask
 let rawMouseUnsupported = false;
-// A raw request's promise is unsettled: its pointerlockerror is decided there
-let rawMousePending = false;
+// The raw request whose promise is unsettled, or null. Its outcome is
+// counted from the promise, not from pointerlockerror: Chrome does both, in
+// either order, and NotSupportedError mustn't count as a refusal.
+let rawMouseRequest = null;
+// pointerlockerror events still to come for raw requests already settled
+let rawLockErrorsToSkip = 0;
 
 // Quake key sent down for each physical key (event.code), so keyup releases
 // the same Quake key even if Shift or the layout changed event.key meanwhile.
@@ -186,7 +191,7 @@ function requestPointerLock() {
 
 	if ( targetElement.requestPointerLock == null ) return;
 
-	if ( in_rawmouse.value !== 0 && rawMouseUnsupported === false && rawMousePending === false ) {
+	if ( in_rawmouse.value !== 0 && rawMouseUnsupported === false ) {
 
 		requestRawPointerLock();
 		return;
@@ -224,25 +229,31 @@ function requestRawPointerLock() {
 
 	if ( result == null || typeof result.then !== 'function' ) return;
 
-	rawMousePending = true;
+	// A later click supersedes this request; IN_Init and IN_Shutdown drop it
+	const request = { errorSeen: false };
+	rawMouseRequest = request;
 	result.then( () => {
 
-		rawMousePending = false;
+		if ( rawMouseRequest === request ) rawMouseRequest = null;
 
 	}, ( error ) => {
 
-		rawMousePending = false;
+		if ( rawMouseRequest !== request ) return;
+		rawMouseRequest = null;
+
+		// This request's pointerlockerror hasn't fired yet: skip it when it does
+		if ( request.errorSeen === false ) rawLockErrorsToSkip ++;
 
 		if ( error != null && error.name === 'NotSupportedError' ) {
 
 			rawMouseUnsupported = true;
 			Con_Printf( 'in_rawmouse: raw mouse input not supported, using normal pointer lock\n' );
-			if ( targetElement === element ) requestPointerLock();
+			if ( in_initialized && targetElement === element ) requestPointerLock();
 			return;
 
 		}
 
-		// Refused for another reason: count it like any refusal
+		// Refused for another reason: count it, once, like any refusal
 		pointerLockRefused();
 
 	} );
@@ -1127,10 +1138,22 @@ function handlePointerLockChange() {
 
 // See pointerLockUnavailable. The error follows the request within the
 // click's user activation, so fullscreen can still be requested here.
+// Raw requests (in_rawmouse) are counted from their promise instead.
 function handlePointerLockError() {
 
-	// A raw request's promise says whether this was NotSupportedError
-	if ( rawMousePending ) return;
+	if ( rawLockErrorsToSkip > 0 ) {
+
+		rawLockErrorsToSkip --;
+		return;
+
+	}
+
+	if ( rawMouseRequest !== null ) {
+
+		rawMouseRequest.errorSeen = true;
+		return;
+
+	}
 
 	pointerLockRefused();
 
@@ -1411,7 +1434,8 @@ export function IN_Init( element ) {
 	pointerLockRefusals = 0;
 	pointerLockUnavailable = false;
 	rawMouseUnsupported = false;
-	rawMousePending = false;
+	rawMouseRequest = null;
+	rawLockErrorsToSkip = 0;
 	document.addEventListener( 'pointerlockchange', handlePointerLockChange );
 	document.addEventListener( 'pointerlockerror', handlePointerLockError );
 	document.addEventListener( 'fullscreenchange', updateKeyboardLock );
@@ -1516,6 +1540,8 @@ export function IN_Shutdown() {
 
 	mouseactive = false;
 	in_initialized = false;
+	rawMouseRequest = null;
+	rawLockErrorsToSkip = 0;
 	updateKeyboardLock();
 
 }

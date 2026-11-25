@@ -206,3 +206,109 @@ Deno.test( 'a raw request refused for another reason still counts as a refusal',
 	} );
 
 } );
+
+Deno.test( 'one refusal counts once whichever of event and rejection comes first', async () => {
+
+	await withFakeDom( () => Promise.reject( new DOMException( 'no user activation', 'NotAllowedError' ) ), async ( dom ) => {
+
+		cvar.Cvar_Set( 'in_rawmouse', '1' );
+
+		// The rejection settles first, then the event arrives
+		click( dom );
+		await flush();
+		dom.doc.fire( 'pointerlockerror', {} );
+		assertEqual( dom.fullscreen(), 0, 'one refusal: no fullscreen fallback' );
+
+		// The second refusal, event first this time, reaches the fallback
+		click( dom );
+		dom.doc.fire( 'pointerlockerror', {} );
+		await flush();
+		assertEqual( dom.fullscreen(), 1, 'two refusals fall back to fullscreen' );
+
+	} );
+
+} );
+
+Deno.test( 'NotSupportedError with a late event does not count the raw request', async () => {
+
+	let plain = 0;
+	await withFakeDom( ( options ) => {
+
+		if ( options !== undefined ) return Promise.reject( notSupported() );
+		plain ++;
+		return Promise.reject( new DOMException( 'refused', 'NotAllowedError' ) );
+
+	}, async ( dom ) => {
+
+		cvar.Cvar_Set( 'in_rawmouse', '1' );
+
+		// Raw rejected, retried plain; both events arrive after the rejections
+		click( dom );
+		await flush();
+		dom.doc.fire( 'pointerlockerror', {} );
+		dom.doc.fire( 'pointerlockerror', {} );
+		assertEqual( dom.requests.join( ',' ), RAW + ',plain', 'retried without the option' );
+		assertEqual( dom.fullscreen(), 0, 'only the plain refusal counted' );
+
+		click( dom );
+		dom.doc.fire( 'pointerlockerror', {} );
+		await flush();
+		assertEqual( plain, 2, 'second click is plain' );
+		assertEqual( dom.fullscreen(), 1, 'second plain refusal falls back to fullscreen' );
+
+	} );
+
+} );
+
+Deno.test( 'a request that throws on the option or returns no promise still locks', async () => {
+
+	await withFakeDom( ( options ) => {
+
+		if ( options !== undefined ) throw new TypeError( 'no arguments' );
+		return undefined;
+
+	}, ( dom ) => {
+
+		cvar.Cvar_Set( 'in_rawmouse', '1' );
+		click( dom );
+		click( dom );
+		assertEqual( dom.requests.join( ',' ), RAW + ',plain,plain', 'throw: retried plain, then plain only' );
+
+	} );
+
+	await withFakeDom( () => undefined, ( dom ) => {
+
+		cvar.Cvar_Set( 'in_rawmouse', '1' );
+		click( dom );
+		dom.doc.fire( 'pointerlockerror', {} );
+		click( dom );
+		dom.doc.fire( 'pointerlockerror', {} );
+		assertEqual( dom.requests.join( ',' ), RAW + ',' + RAW, 'no promise: option kept' );
+		assertEqual( dom.fullscreen(), 1, 'events count as refusals' );
+
+	} );
+
+} );
+
+Deno.test( 'a raw request settling after IN_Shutdown is ignored', async () => {
+
+	let reject = null;
+	let after = 0;
+	await withFakeDom( ( options ) => {
+
+		if ( options === undefined ) after ++;
+		return new Promise( ( _resolve, r ) => { reject = r; } );
+
+	}, ( dom ) => {
+
+		cvar.Cvar_Set( 'in_rawmouse', '1' );
+		click( dom );
+		assertEqual( dom.requests.join( ',' ), RAW, 'raw request pending' );
+
+	} );
+
+	reject( notSupported() );
+	await flush();
+	assertEqual( after, 0, 'no retry after shutdown' );
+
+} );
