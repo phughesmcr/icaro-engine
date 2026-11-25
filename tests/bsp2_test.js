@@ -272,3 +272,25 @@ Deno.test( 'other BSP versions are refused', () => {
 	assertThrows( () => loadBsp( bytes ), /unsupported version number/, '2PSB' );
 
 } );
+
+Deno.test( 'BSP2 faces beyond id\'s 999999 / -99999 extents seeds get the right extents (Ironwail FLT_MAX seeds)', () => {
+
+	// s = x and t = y. A face at x = 2000000..2000064 is above id's 999999
+	// min seed, and one at y = -200000..-199936 is below its -99999 max seed.
+	const map = smallMap();
+	const base = map.vertexes.length;
+	map.vertexes.push( [ 2000000, - 200000, 0 ], [ 2000064, - 200000, 0 ], [ 2000064, - 199936, 0 ] );
+	const firstedge = map.surfedges.length;
+	const e = map.edges.length;
+	map.edges.push( [ base, base + 1 ], [ base + 1, base + 2 ], [ base + 2, base ] );
+	map.surfedges.push( e, e + 1, e + 2 );
+	map.faces.push( { planenum: 2, side: 0, firstedge: firstedge, numedges: 3, texinfo: 0, styles: [ 0, 255, 255, 255 ], lightofs: - 1 } );
+
+	const mod = loadBsp( writeMap( true, map ) );
+	const s = mod.surfaces[ map.faces.length - 1 ];
+	assertEqual( s.texturemins[ 0 ], 2000000, 'texturemins[0] above the old min seed' );
+	assertEqual( s.texturemins[ 1 ], - 200000, 'texturemins[1]' );
+	assertEqual( s.extents[ 0 ], 64, 'extents[0]' );
+	assertEqual( s.extents[ 1 ], 64, 'extents[1]' );
+
+} );

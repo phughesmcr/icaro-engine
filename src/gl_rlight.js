@@ -472,8 +472,10 @@ function RecursiveLightPoint( node, start, end, surfaces, depth = 0 ) {
 
 		const tex = surf.texinfo;
 
-		const s = DotProduct( mid, tex.vecs[ 0 ] ) + tex.vecs[ 0 ][ 3 ];
-		const t = DotProduct( mid, tex.vecs[ 1 ] ) + tex.vecs[ 1 ][ 3 ];
+		// r_light.c RecursiveLightPoint declares s, t, ds and dt as int, so the
+		// assignment truncates toward zero (`| 0`), as Ironwail's (int) casts do.
+		const s = ( DotProduct( mid, tex.vecs[ 0 ] ) + tex.vecs[ 0 ][ 3 ] ) | 0;
+		const t = ( DotProduct( mid, tex.vecs[ 1 ] ) + tex.vecs[ 1 ][ 3 ] ) | 0;
 
 		if ( s < surf.texturemins[ 0 ] || t < surf.texturemins[ 1 ] )
 			continue;

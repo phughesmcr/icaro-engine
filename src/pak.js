@@ -387,7 +387,10 @@ without changing the result.
 */
 export async function COM_EnsureFile( filename ) {
 
-	const lit = COM_EnsureLitFile( filename );
+	// The .lit fetch runs alongside the map's. Its failure is ignored (see
+	// COM_EnsureLitFile), and the handler is attached now so that it cannot be
+	// an unhandled rejection if the map's own load throws first.
+	const lit = COM_EnsureLitFile( filename ).catch( () => {} );
 	const found = await COM_EnsureOneFile( filename );
 	await lit;
 	return found;
