@@ -1,6 +1,6 @@
 // Web addition: the game rules a multiplayer room applies before its map
 // spawns. server/game_server.js uses them for lobby rooms; a browser-hosted
-// room (docs/browser-hosted-rooms.md, added in #195) is to use the same ones,
+// room (docs/browser-hosted-rooms.md) is to use the same ones,
 // so both kinds of room behave alike. Moved here from server/game_server.js.
 //
 // Call these before SV_SpawnServer, while sv.active is false: noexit is a

@@ -1,0 +1,48 @@
+<!doctype html>
+<!--
+WebRTC spike for docs/browser-hosted-rooms.md. Not part of the game or CI.
+
+Two RTCPeerConnections in this one page, wired to each other: no signalling,
+server, STUN or account. From the repo root:
+
+	python3 -m http.server 8137
+
+then open http://localhost:8137/tools/webrtc_spike/ in each browser to test.
+Phones: serve on the LAN and open http://<this machine's IP>:8137/... ; some
+browsers only allow WebRTC and Workers on localhost or https, and the page
+says so if they refuse.
+
+Tests 1, 2 and 4 run on load. Test 3 records while the page is hidden: switch
+to another tab or app for a while (10 minutes is a good run), come back, and
+its summary appears. "Copy results" copies everything as JSON.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Icaro WebRTC spike</title>
+<script type="importmap">
+{ "imports": { "spike-dep": "./importmap_dep.js" } }
+</script>
+<style>
+	body { font: 14px/1.4 system-ui, sans-serif; margin: 1em; max-width: 60em; }
+	pre { background: #f4f4f4; padding: 0.6em; overflow-x: auto; white-space: pre-wrap; }
+	button { font-size: 1em; margin: 0.2em 0.4em 0.2em 0; }
+	.status { font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>Icaro WebRTC spike</h1>
+<p class="status" id="status">Running tests 1, 2 and 4...</p>
+<p>
+	Test 3: hide this page (switch tab or app) for a while, then come back.
+	Recording: <span id="recording">starting</span>.
+</p>
+<p>
+	<button id="copy">Copy results</button>
+	<button id="wakelock">Request Screen Wake Lock</button>
+</p>
+<pre id="out"></pre>
+<script type="module" src="./spike.js"></script>
+</body>
+</html>
