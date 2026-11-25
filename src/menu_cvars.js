@@ -55,6 +55,9 @@ export const advancedPages = [
 			{ label: 'Movement lerp', cvar: 'r_lerpmove' },
 			{ label: 'Double eyes', cvar: 'gl_doubleeys' },
 			{ label: 'Shadows', cvar: 'r_shadows' },
+			// GLQuake's mirrors: below 1, the window02_1 windows (start, e1m5)
+			// reflect, with this as the window texture's opacity
+			{ label: 'Mirrors', cvar: 'r_mirroralpha', values: [ 1, 0.75, 0.5, 0.25, 0 ], names: [ 'off', '0.75', '0.5', '0.25', 'full' ] },
 			{ label: 'Blend all', cvar: 'gl_cshiftpercent', min: 0, max: 100, step: 10 },
 			{ label: 'Blend contents', cvar: 'gl_cshiftpercent_contents', min: 0, max: 100, step: 10 },
 			{ label: 'Blend damage', cvar: 'gl_cshiftpercent_damage', min: 0, max: 100, step: 10 },
