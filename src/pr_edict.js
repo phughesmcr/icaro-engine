@@ -4,7 +4,7 @@ import { Sys_Error } from './sys.js';
 import { Con_Printf, Con_DPrintf, COM_Parse, com_token } from './common.js';
 import { Cmd_AddCommand, Cmd_Argv } from './cmd.js';
 import { cvar_t, Cvar_RegisterVariable } from './cvar.js';
-import { PR_InitBuiltins, PF_Format5_1f } from './pr_cmds.js';
+import { PR_InitBuiltins, PR_InitProgsBuiltins, PF_Format5_1f } from './pr_cmds.js';
 import { CRC_Init, CRC_ProcessByte, CRC_Value } from './crc.js';
 import { MAX_EDICTS } from './quakedef.js';
 import {
@@ -1129,6 +1129,9 @@ export function PR_LoadProgs( fileData ) {
 	}
 
 	PR_SetFunctions( functions );
+
+	// bind "= #0" builtins by name, and reset per-progs builtin state
+	PR_InitProgsBuiltins();
 
 	// Parse globaldefs
 	const globaldefs = [];
