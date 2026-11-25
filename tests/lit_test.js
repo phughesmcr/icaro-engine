@@ -494,3 +494,94 @@ Deno.test( 'R_LightPoint reads RGB samples into lightcolor and returns their mea
 	assertEqual( lightPoint( { lightdata: null } ), '255 255,255,255', 'no light data' );
 
 } );
+
+// ----------------------------------------------------------------------------
+// Search-path priority across pak sequences
+// ----------------------------------------------------------------------------
+
+Deno.test( 'paks of one game directory share a search path; a .lit from a lower directory is ignored', async () => {
+
+	const map = smallMap();
+	map.lighting = monoLighting();
+	const bsp = writeMap( false, map );
+	const lit = makeLit( LIGHT_LEN );
+	const files = new Map( [
+		// base directory: a map in pak0 with its .lit in pak1, and a .lit
+		// for the game directory's map
+		[ 'http://lit.test/base/pak0.pak', makePak( [ [ 'maps/__seq_a.bsp', bsp ] ] ) ],
+		[ 'http://lit.test/base/pak1.pak', makePak( [ [ 'maps/__seq_a.lit', lit ], [ 'maps/__seq_b.lit', lit ] ] ) ],
+		// game directory, searched first
+		[ 'http://lit.test/game/pak0.pak', makePak( [ [ 'maps/__seq_b.bsp', bsp ], [ 'maps/__seq_c.lit', lit ] ] ) ],
+	] );
+	await withStubFetch( files, async () => {
+
+		assertEqual( await COM_AddPakSequence( 'http://lit.test/base/pak0.pak' ), 2, 'base paks' );
+		assertEqual( await COM_AddPakSequence( 'http://lit.test/game/pak0.pak' ), 1, 'game pak' );
+		// a base map with a game-directory .lit
+		COM_AddPack( { files: [ { name: 'maps/__seq_c.bsp', filepos: 0, filelen: bsp.length } ], data: bsp.buffer }, 0 );
+
+		for ( const name of [ 'maps/__seq_a.bsp', 'maps/__seq_b.bsp', 'maps/__seq_c.bsp' ] )
+			assertEqual( await COM_EnsureFile( name ), true, name );
+		assertEqual( COM_FindFile( 'maps/__seq_a.lit' ).path_id, COM_FindFile( 'maps/__seq_a.bsp' ).path_id, 'one id per directory' );
+
+		assertEqual( gl_model.Mod_ForName( 'maps/__seq_a.bsp', true ).litfile, true, '.lit in pak1 for a map in pak0' );
+		assertMono( gl_model.Mod_ForName( 'maps/__seq_b.bsp', true ), '.lit in a lower directory' );
+		assertEqual( gl_model.Mod_ForName( 'maps/__seq_c.bsp', true ).litfile, true, '.lit in a higher directory' );
+
+	} );
+
+} );
+
+// ----------------------------------------------------------------------------
+// Lightmap rebuilds
+// ----------------------------------------------------------------------------
+
+Deno.test( 'r_fullbright rebuilds RGB lightmaps at the right offsets', () => {
+
+	const rgb = makeSurface( new Uint8Array( [ 10, 50, 100, 0, 0, 0, 200, 1, 2, 3, 4, 5 ] ), true );
+	const mono = makeSurface( new Uint8Array( [ 30, 0, 0, 0 ] ), false );
+	const oldFullbright = glquake.r_fullbright.value;
+	const oldTexsort = glquake.gl_texsort.value;
+	withLightmaps( true, [ rgb, mono ], () => {
+
+		try {
+
+			glquake.gl_texsort.value = 1;
+			glquake.r_fullbright.value = 1;
+			gl_rsurf.R_BlendLightmaps();
+			assertEqual( texel( rgb, 1, 1 ), '255,255,255', 'fullbright rgb surface' );
+			assertEqual( texel( mono, 0, 0 ), '255,255,255', 'fullbright mono surface' );
+
+			glquake.r_fullbright.value = 0;
+			gl_rsurf.R_BlendLightmaps();
+			assertEqual( texel( rgb, 0, 0 ), '20,100,200', 'rgb surface restored' );
+			assertEqual( texel( rgb, 1, 1 ), '6,8,10', 'last rgb luxel restored' );
+			assertEqual( texel( mono, 0, 0 ), '60,60,60', 'mono surface restored' );
+
+		} finally {
+
+			glquake.r_fullbright.value = oldFullbright;
+			gl_rsurf.R_BlendLightmaps();
+			glquake.gl_texsort.value = oldTexsort;
+
+		}
+
+	} );
+
+} );
+
+Deno.test( 'a mono map after a lit map goes back to one-byte lightmaps', () => {
+
+	withLightmaps( true, [ makeSurface( new Uint8Array( 12 ).fill( 9 ), true ) ], () => {} );
+
+	const mono = makeSurface( new Uint8Array( [ 30, 40, 50, 60 ] ), false );
+	withLightmaps( false, [ mono ], () => {
+
+		assertEqual( texel( mono, 1, 1 ), '120,120,120', 'mono texel' );
+		const dest = new Uint8Array( 4 );
+		gl_rsurf.R_BuildLightMap( mono, dest, 0, 2 );
+		assertEqual( Array.from( dest ).join( ',' ), [ 255 - 60, 255 - 80, 255 - 100, 255 - 120 ].join( ',' ), 'luminance bytes' );
+
+	} );
+
+} );

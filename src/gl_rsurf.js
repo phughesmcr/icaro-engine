@@ -2322,21 +2322,6 @@ function R_CheckLightmapCvars() {
 }
 
 /*
-R_UploadLightmapRect
-
-The upload half of R_BlendLightmaps for lightmap block i. GLQuake sends only
-the changed rows:
-	glTexSubImage2D (GL_TEXTURE_2D, 0, 0, theRect->t, BLOCK_WIDTH, theRect->h, ...)
-Three.js has no sub-image upload on the texture itself, so convert those rows
-of the GL_LUMINANCE block (255 - light) to the texture's RGBA brightness and
-hand them to renderer.copyTextureToTexture. For CPU data that is one
-texSubImage2D, and it uploads the destination first if it is still pending.
-
-The source must be a texture the renderer has never seen: once a texture has
-GPU state, copyTextureToTexture copies through a framebuffer instead. Without
-a renderer (tests, server) fall back to a full re-upload.
-*/
-/*
 R_LightmapToRGBA
 
 Converts texels start to end of a lightmap block (255 - light: GL_LUMINANCE,
@@ -2372,6 +2357,21 @@ function R_LightmapToRGBA( src, dstData, start, end ) {
 
 }
 
+/*
+R_UploadLightmapRect
+
+The upload half of R_BlendLightmaps for lightmap block i. GLQuake sends only
+the changed rows:
+	glTexSubImage2D (GL_TEXTURE_2D, 0, 0, theRect->t, BLOCK_WIDTH, theRect->h, ...)
+Three.js has no sub-image upload on the texture itself, so convert those rows
+of the block (255 - light) to the texture's RGBA brightness and
+hand them to renderer.copyTextureToTexture. For CPU data that is one
+texSubImage2D, and it uploads the destination first if it is still pending.
+
+The source must be a texture the renderer has never seen: once a texture has
+GPU state, copyTextureToTexture copies through a framebuffer instead. Without
+a renderer (tests, server) fall back to a full re-upload.
+*/
 let _lightmapUploadSrc = null; // THREE.DataTexture sharing the block's image
 const _lightmapSrcRegion = { min: { x: 0, y: 0 }, max: { x: BLOCK_WIDTH, y: 0 } };
 const _lightmapDstPosition = { x: 0, y: 0, z: 0 };

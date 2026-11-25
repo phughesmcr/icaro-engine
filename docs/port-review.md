@@ -131,7 +131,7 @@ What the PRs above leave open, on purpose or because it can't be checked here.
 
 ### SP-3 · Dynamic light brightness depends on lifetime, not radius — **medium-high**, Verified
 
-- **Port:** [`src/gl_rlight.js:172-181`](../src/gl_rlight.js)
+- **Port:** [`src/gl_rlight.js:177-186`](../src/gl_rlight.js)
 
   ```js
   const timeLeft = Math.min( l.die - cl.time, 0.5 );
