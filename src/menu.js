@@ -86,6 +86,9 @@ let slist_rooms = []; // Array of {id, name, map, playerCount, maxPlayers}
 let slist_cursor = 0;
 let slist_fetching = false;
 let slist_error = '';
+// Bumped by each fetch; a reply from an older fetch is dropped, so a slow
+// early reply can't replace a newer list or end "Searching..." early.
+let slist_generation = 0;
 
 // WT_QueryRooms and WT_CreateRoom will be injected via M_SetExternals
 let _WT_QueryRooms = null;
@@ -97,6 +100,7 @@ let _cl_name = null;
  */
 async function M_FetchRooms() {
 
+	const generation = ++ slist_generation;
 	slist_fetching = true;
 	slist_error = '';
 	slist_rooms = [];
@@ -104,11 +108,15 @@ async function M_FetchRooms() {
 	// Check if WebTransport is available before attempting
 	if ( typeof WebTransport === 'undefined' ) {
 
+		slist_fetching = false;
 		alert( 'Multiplayer requires a browser with WebTransport support (Chrome 97+, Edge 97+, Firefox 114+, or Opera 83+).' );
 		M_Menu_Main_f();
 		return;
 
 	}
+
+	let reply = null;
+	let error = null;
 
 	try {
 
@@ -125,16 +133,52 @@ async function M_FetchRooms() {
 
 		}
 
-		slist_rooms = await _WT_QueryRooms( serverUrl );
+		reply = await _WT_QueryRooms( serverUrl );
 
 	} catch ( e ) {
 
-		slist_error = e.message || 'Failed to fetch rooms';
-		Con_Printf( 'Room fetch error: %s\n', slist_error );
+		error = e;
 
 	}
 
+	// A newer fetch has started: its reply decides the list.
+	if ( generation !== slist_generation ) return;
+
+	if ( error !== null ) {
+
+		slist_error = ( error instanceof Error && error.message ) ? error.message : 'Failed to fetch rooms';
+		Con_Printf( 'Room fetch error: %s\n', slist_error );
+
+	} else {
+
+		slist_rooms = M_ValidRooms( reply );
+
+	}
+
+	// The list may be shorter than the one the cursor was on.
+	if ( slist_cursor >= slist_rooms.length )
+		slist_cursor = Math.max( 0, slist_rooms.length - 1 );
 	slist_fetching = false;
+
+}
+
+// Keep the room entries M_LanConfig_Draw and Join can use; the lobby reply is
+// parsed JSON, so anything else (null, a string, a missing field) is skipped.
+function M_ValidRooms( reply ) {
+
+	const valid = [];
+	if ( Array.isArray( reply ) === false ) return valid;
+
+	for ( const room of reply ) {
+
+		if ( room === null || typeof room !== 'object' ) continue;
+		if ( typeof room.id !== 'string' || typeof room.map !== 'string' ) continue;
+		if ( Number.isFinite( room.playerCount ) === false || Number.isFinite( room.maxPlayers ) === false ) continue;
+		valid.push( room );
+
+	}
+
+	return valid;
 
 }
 
@@ -371,6 +415,18 @@ export function M_ConnectionError( reason ) {
 		m_state = m_multiplayer;
 
 	}
+
+}
+
+/**
+ * A connection was accepted: a later failure, such as a console `connect`,
+ * no longer returns to the menu Join came from. The C clears
+ * m_return_onerror in _Datagram_Connect (net_dgrm.c) once the server
+ * accepts; the port calls this from the WebTransport driver's equivalent.
+ */
+export function M_ClearReturnOnError() {
+
+	m_return_onerror = false;
 
 }
 
@@ -1424,6 +1480,12 @@ function M_Menu_GameOptions_f() {
 
 }
 
+// Deliberate deviation (MENU-4): the menu draws every C row, but Start Game
+// creates a lobby room, and the room request carries only the map,
+// maxPlayers and host name. Game Type, Teamplay, Skill, Frag Limit and Time
+// Limit set this browser's cvars and do not reach the room's server, which
+// uses its own defaults. Sending them needs a lobby protocol change in
+// server/.
 function M_GameOptions_Draw() {
 
 	if ( ! _Draw_CachePic ) return;
@@ -2865,6 +2927,11 @@ let setup_oldtop = 0;
 let setup_oldbottom = 0;
 let setup_top = 0;
 let setup_bottom = 0;
+// Deliberate deviation (MENU-4): C's setup menu has a Hostname row first
+// (NUM_SETUP_CMDS 5, menu.c M_Setup_Draw). The browser can't host a network
+// server: Start Game's room request sends cl_name as the host name, and the
+// hostname cvar never leaves this browser. So the row is left out, and the
+// cursor table, Accept and the mouse hit-test use 4 rows.
 const NUM_SETUP_CMDS = 4;
 
 function M_Menu_Setup_f() {
@@ -2966,8 +3033,10 @@ function M_Setup_Key( key ) {
 
 			}
 
-			// setup_cursor == 3 (Accept)
-			Cbuf_AddText( 'name "' + setup_myname + '"\n' );
+			// setup_cursor == 3 (Accept). As in C, send name only when it
+			// changed (menu.c M_Setup_Key).
+			if ( _cl_name === null || _cl_name.string !== setup_myname )
+				Cbuf_AddText( 'name "' + setup_myname + '"\n' );
 			if ( setup_top !== setup_oldtop || setup_bottom !== setup_oldbottom )
 				Cbuf_AddText( 'color ' + setup_top + ' ' + setup_bottom + '\n' );
 			m_entersound = true;
