@@ -335,14 +335,17 @@ Deno.test( 'water turbulence follows cl.time, so it stops while paused', () => {
 	const oldModels = cl.model_precache.slice();
 	const oldTime = cl.time;
 	const oldFrame = gl_rmain.r_framecount;
-	const turbUvs = new Float32Array( 2 );
 	const geometry = { attributes: { uv: { needsUpdate: false } }, dispose() {} };
 	const surf = {
 		flags: gl_rmain.SURF_DRAWTURB,
 		polys: {},
 		texinfo: { texture: { anim_total: 0, gl_texture: { id: 876543 } } },
-		_waterGeoCache: { geometry: geometry, origUvs: new Float32Array( 2 ), turbUvs: turbUvs, vertexCount: 1 }
+		_waterGeoCache: { geometry: geometry, vertexCount: 1 }
 	};
+	// The turbulence runs in the vertex shader; read its clock uniform.
+	const shader = { uniforms: {}, vertexShader: '' };
+	gl_rsurf.R_PatchTurbVertexShader( shader );
+	const clock = shader.uniforms.quakeTurbTime;
 
 	try {
 
@@ -351,14 +354,19 @@ Deno.test( 'water turbulence follows cl.time, so it stops while paused', () => {
 		cl.model_precache.fill( null );
 		gl_rsurf.GL_BuildLightmaps();
 
-		// s = turbsin[ time * 256 / 2PI ] / 64; turbsin peaks at +-8
 		cl.time = Math.PI / 2 + 0.001;
 		gl_rsurf.R_DrawSequentialPoly( surf );
-		assertEqual( turbUvs[ 0 ], 0.125, 'quarter turn' );
+		assertEqual( clock.value, gl_rsurf.R_WaterWarpTime( cl.time ), 'clock is cl.time' );
 
-		cl.time = Math.PI * 3 / 2 + 0.001;
+		// realtime is 0 here: a clock on realtime (id), which keeps running
+		// while paused, would read 0.
+		if ( clock.value === 0 )
+			throw new Error( 'clock follows realtime, not cl.time' );
+
+		cl.time = Math.PI * 5 / 2 + 0.001;
 		gl_rsurf.R_DrawSequentialPoly( surf );
-		assertEqual( turbUvs[ 0 ], - 0.125, 'three quarter turn' );
+		if ( Math.abs( clock.value - ( Math.PI / 2 + 0.001 ) ) > 1e-9 )
+			throw new Error( `clock wraps at 2 PI: got ${clock.value}` );
 
 	} finally {
 

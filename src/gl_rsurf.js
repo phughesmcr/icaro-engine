@@ -78,6 +78,93 @@ export function R_PatchWaterWarpVertexShader( shader ) {
 
 }
 
+/*
+Turbulent (SURF_DRAWTURB) surfaces: gl_warp.c EmitWaterPolys, per vertex:
+	s = os + turbsin[(int)((ot*0.125+realtime) * TURBSCALE) & 255];
+	s *= (1.0/64);
+	t = ot + turbsin[(int)((os*0.125+realtime) * TURBSCALE) & 255];
+	t *= (1.0/64);
+The port used to redo this on the CPU for every vertex each frame and upload
+the UVs. It now runs in the vertex shader: the geometry keeps the unwarped
+s/t in its uv attribute and _turbTime is the clock. turbsin[i] is
+8 * sin( i * 2 * PI / 256 ), so trunc() of the same index and a sin() give
+C's 256-step table, and & 255 is the sine's period. _turbTime is R_WarpTime
+(cl.time, see above) wrapped to [0, 2*PI), the period of the index.
+*/
+const _turbTime = { value: 0 };
+
+export function R_PatchTurbVertexShader( shader ) {
+
+	shader.uniforms.quakeTurbTime = _turbTime;
+	shader.vertexShader = shader.vertexShader
+		.replace( '#include <common>', '#include <common>\nuniform float quakeTurbTime;' )
+		.replace( '#include <uv_vertex>', '#include <uv_vertex>\n' +
+			'#ifdef USE_MAP\n' +
+			'\tvMapUv = ( uv + 8.0 * sin( trunc( ( uv.yx * 0.125 + quakeTurbTime ) * ( 128.0 / PI ) ) * ( PI / 128.0 ) ) ) * ( 1.0 / 64.0 );\n' +
+			'#endif' );
+
+}
+
+function R_TurbProgramKey() {
+
+	return 'quake-turb';
+
+}
+
+/*
+Sky: gl_warp.c EmitSkyPolys, per vertex:
+	VectorSubtract (v, r_origin, dir);
+	dir[2] *= 3;	// flatten the sphere
+	length = 6*63/Length (dir);
+	s = (speedscale + dir[0]*length) * (1.0/128);
+	t = (speedscale + dir[1]*length) * (1.0/128);
+Also moved from a per-frame CPU loop into the vertex shader. _skyOrigin is
+r_origin, set by R_DrawSkyChain; each layer has its own speedscale uniform.
+position is the unmoved Quake-space vertex, as the CPU loop read it.
+*/
+const _skyOrigin = { value: new THREE.Vector3() };
+const _solidSkySpeed = { value: 0 };
+const _alphaSkySpeed = { value: 0 };
+
+function R_PatchSkyVertexShader( shader, speedUniform ) {
+
+	shader.uniforms.quakeSkyOrigin = _skyOrigin;
+	shader.uniforms.quakeSkySpeed = speedUniform;
+	shader.vertexShader = shader.vertexShader
+		.replace( '#include <common>', '#include <common>\nuniform vec3 quakeSkyOrigin;\nuniform float quakeSkySpeed;' )
+		.replace( '#include <uv_vertex>', '#include <uv_vertex>\n' +
+			'#ifdef USE_MAP\n' +
+			'\tvec3 quakeSkyDir = position - quakeSkyOrigin;\n' +
+			'\tquakeSkyDir.z *= 3.0;\n' +
+			'\tvMapUv = ( quakeSkySpeed + quakeSkyDir.xy * ( 6.0 * 63.0 / length( quakeSkyDir ) ) ) * ( 1.0 / 128.0 );\n' +
+			'#endif' );
+
+}
+
+export function R_PatchSolidSkyVertexShader( shader ) {
+
+	R_PatchSkyVertexShader( shader, _solidSkySpeed );
+
+}
+
+export function R_PatchAlphaSkyVertexShader( shader ) {
+
+	R_PatchSkyVertexShader( shader, _alphaSkySpeed );
+
+}
+
+function R_SolidSkyProgramKey() {
+
+	return 'quake-sky-solid';
+
+}
+
+function R_AlphaSkyProgramKey() {
+
+	return 'quake-sky-alpha';
+
+}
+
 function R_PatchUnderwaterLightmapShader( shader ) {
 
 	R_PatchLightmapShader( shader );
@@ -266,42 +353,7 @@ GL_GrowLightmaps( MAX_LIGHTMAPS );
 let skychain = null; // msurface_t
 let waterchain = null; // msurface_t
 
-// Turbulent surface sin table for water/sky warping
-const TURBSCALE = ( 256.0 / ( 2 * Math.PI ) );
-const turbsin = new Float32Array( [
-	0, 0.19633, 0.392541, 0.588517, 0.784137, 0.979285, 1.17384, 1.3677,
-	1.56072, 1.75281, 1.94384, 2.1337, 2.32228, 2.50945, 2.69512, 2.87916,
-	3.06147, 3.24193, 3.42044, 3.59689, 3.77117, 3.94319, 4.11282, 4.27998,
-	4.44456, 4.60647, 4.76559, 4.92185, 5.07515, 5.22538, 5.37247, 5.51632,
-	5.65685, 5.79398, 5.92761, 6.05767, 6.18408, 6.30677, 6.42566, 6.54068,
-	6.65176, 6.75883, 6.86183, 6.9607, 7.05537, 7.14579, 7.23191, 7.31368,
-	7.39104, 7.46394, 7.53235, 7.59623, 7.65552, 7.71021, 7.76025, 7.80562,
-	7.84628, 7.88222, 7.91341, 7.93984, 7.96148, 7.97832, 7.99036, 7.99759,
-	8, 7.99759, 7.99036, 7.97832, 7.96148, 7.93984, 7.91341, 7.88222,
-	7.84628, 7.80562, 7.76025, 7.71021, 7.65552, 7.59623, 7.53235, 7.46394,
-	7.39104, 7.31368, 7.23191, 7.14579, 7.05537, 6.9607, 6.86183, 6.75883,
-	6.65176, 6.54068, 6.42566, 6.30677, 6.18408, 6.05767, 5.92761, 5.79398,
-	5.65685, 5.51632, 5.37247, 5.22538, 5.07515, 4.92185, 4.76559, 4.60647,
-	4.44456, 4.27998, 4.11282, 3.94319, 3.77117, 3.59689, 3.42044, 3.24193,
-	3.06147, 2.87916, 2.69512, 2.50945, 2.32228, 2.1337, 1.94384, 1.75281,
-	1.56072, 1.3677, 1.17384, 0.979285, 0.784137, 0.588517, 0.392541, 0.19633,
-	0, -0.19633, -0.392541, -0.588517, -0.784137, -0.979285, -1.17384, -1.3677,
-	-1.56072, -1.75281, -1.94384, -2.1337, -2.32228, -2.50945, -2.69512, -2.87916,
-	-3.06147, -3.24193, -3.42044, -3.59689, -3.77117, -3.94319, -4.11282, -4.27998,
-	-4.44456, -4.60647, -4.76559, -4.92185, -5.07515, -5.22538, -5.37247, -5.51632,
-	-5.65685, -5.79398, -5.92761, -6.05767, -6.18408, -6.30677, -6.42566, -6.54068,
-	-6.65176, -6.75883, -6.86183, -6.9607, -7.05537, -7.14579, -7.23191, -7.31368,
-	-7.39104, -7.46394, -7.53235, -7.59623, -7.65552, -7.71021, -7.76025, -7.80562,
-	-7.84628, -7.88222, -7.91341, -7.93984, -7.96148, -7.97832, -7.99036, -7.99759,
-	-8, -7.99759, -7.99036, -7.97832, -7.96148, -7.93984, -7.91341, -7.88222,
-	-7.84628, -7.80562, -7.76025, -7.71021, -7.65552, -7.59623, -7.53235, -7.46394,
-	-7.39104, -7.31368, -7.23191, -7.14579, -7.05537, -6.9607, -6.86183, -6.75883,
-	-6.65176, -6.54068, -6.42566, -6.30677, -6.18408, -6.05767, -5.92761, -5.79398,
-	-5.65685, -5.51632, -5.37247, -5.22538, -5.07515, -4.92185, -4.76559, -4.60647,
-	-4.44456, -4.27998, -4.11282, -3.94319, -3.77117, -3.59689, -3.42044, -3.24193,
-	-3.06147, -2.87916, -2.69512, -2.50945, -2.32228, -2.1337, -1.94384, -1.75281,
-	-1.56072, -1.3677, -1.17384, -0.979285, -0.784137, -0.588517, -0.392541, -0.19633,
-] );
+// The turbsin table (gl_warp.c) is computed in R_PatchTurbVertexShader.
 
 export let gl_lightmap_format = GL_LUMINANCE;
 export const gl_solid_format = 3;
@@ -392,6 +444,8 @@ function _getWaterMaterial( t, opacity ) {
 			opacity: opacity,
 			side: THREE.DoubleSide
 		} );
+		material.onBeforeCompile = R_PatchTurbVertexShader;
+		material.customProgramCacheKey = R_TurbProgramKey;
 		_waterMaterialCache.set( cacheKey, material );
 
 	}
@@ -749,8 +803,10 @@ export function DrawGLWaterPoly( p, planeNormal ) {
 
 function EmitWaterPolysQuake( fa, time ) {
 
-	// Use cached geometry on the surface to avoid per-frame allocation.
-	// Positions are static; only UVs change each frame due to turbulence.
+	// The turbulence runs in the vertex shader (R_PatchTurbVertexShader), so
+	// the geometry is built once per surface and only the clock changes.
+	_turbTime.value = R_WaterWarpTime( time );
+
 	let cached = fa._waterGeoCache;
 
 	if ( ! cached ) {
@@ -791,7 +847,7 @@ function EmitWaterPolysQuake( fa, time ) {
 				}
 
 				posArr.push( vx, vy, vz );
-				uvArr.push( os, ot ); // store original s/t for turbulence calc
+				uvArr.push( os, ot ); // unwarped s/t; the shader adds the turbulence
 				vertexCount ++;
 
 			}
@@ -809,41 +865,17 @@ function EmitWaterPolysQuake( fa, time ) {
 
 		const positions = new Float32Array( posArr );
 		const uvs = new Float32Array( uvArr );
-		const turbUvs = new Float32Array( uvArr.length );
 
 		const geometry = new THREE.BufferGeometry();
 		geometry.setAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
-		geometry.setAttribute( 'uv', new THREE.BufferAttribute( turbUvs, 2 ) );
+		geometry.setAttribute( 'uv', new THREE.BufferAttribute( uvs, 2 ) );
 		geometry.setIndex( idxArr );
 		geometry.computeVertexNormals();
 
-		cached = { geometry, origUvs: uvs, turbUvs, vertexCount };
+		cached = { geometry, vertexCount };
 		fa._waterGeoCache = cached;
 
 	}
-
-	// Update turbulent UVs each frame
-	const origUvs = cached.origUvs;
-	const turbUvs = cached.turbUvs;
-	const count = cached.vertexCount;
-
-	for ( let i = 0; i < count; i ++ ) {
-
-		const os = origUvs[ i * 2 ];
-		const ot = origUvs[ i * 2 + 1 ];
-
-		let s = os + turbsin[ ( ( ot * 0.125 + time ) * TURBSCALE | 0 ) & 255 ];
-		s *= ( 1.0 / 64 );
-
-		let t = ot + turbsin[ ( ( os * 0.125 + time ) * TURBSCALE | 0 ) & 255 ];
-		t *= ( 1.0 / 64 );
-
-		turbUvs[ i * 2 ] = s;
-		turbUvs[ i * 2 + 1 ] = t;
-
-	}
-
-	cached.geometry.attributes.uv.needsUpdate = true;
 
 	return cached.geometry;
 
@@ -856,10 +888,10 @@ function EmitWaterPolysQuake( fa, time ) {
 // layer: 0 = solid layer, 1 = alpha layer
 //============================================================================
 
-function EmitSkyPolysQuake( fa, speedscale, layer ) {
+function EmitSkyPolysQuake( fa, layer ) {
 
-	// Sky positions are static per surface; UVs depend on camera origin and speedscale.
-	// Cache the geometry and positions; update UVs in place each frame.
+	// The UVs are computed in the vertex shader (R_PatchSkyVertexShader) from
+	// r_origin and speedscale, so the geometry is static and built once.
 
 	// We use two caches per surface: _skyGeoCache (solid layer) and _skyGeoCache2 (alpha layer)
 	const cacheKey = layer === 1 ? '_skyGeoCache2' : '_skyGeoCache';
@@ -914,42 +946,17 @@ function EmitSkyPolysQuake( fa, speedscale, layer ) {
 			return null;
 
 		const positions = new Float32Array( posArr );
-		const uvs = new Float32Array( vertexCount * 2 );
+		const uvs = new Float32Array( vertexCount * 2 ); // unused: the shader sets vMapUv
 
 		const geometry = new THREE.BufferGeometry();
 		geometry.setAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
 		geometry.setAttribute( 'uv', new THREE.BufferAttribute( uvs, 2 ) );
 		geometry.setIndex( idxArr );
 
-		cached = { geometry, positions, uvs, vertexCount };
+		cached = { geometry, vertexCount };
 		fa[ cacheKey ] = cached;
 
 	}
-
-	// Update UVs based on current camera origin and speedscale
-	const pos = cached.positions;
-	const uvs = cached.uvs;
-	const count = cached.vertexCount;
-
-	for ( let i = 0; i < count; i ++ ) {
-
-		const vx = pos[ i * 3 ];
-		const vy = pos[ i * 3 + 1 ];
-		const vz = pos[ i * 3 + 2 ];
-
-		const dx = vx - r_origin[ 0 ];
-		const dy = vy - r_origin[ 1 ];
-		const dz = ( vz - r_origin[ 2 ] ) * 3; // flatten the sphere
-
-		let length = Math.sqrt( dx * dx + dy * dy + dz * dz );
-		length = 6 * 63 / length;
-
-		uvs[ i * 2 ] = ( speedscale + dx * length ) * ( 1.0 / 128 );
-		uvs[ i * 2 + 1 ] = ( speedscale + dy * length ) * ( 1.0 / 128 );
-
-	}
-
-	cached.geometry.attributes.uv.needsUpdate = true;
 
 	return cached.geometry;
 
@@ -2319,6 +2326,8 @@ function R_DrawSkyChain( s ) {
 			map: solidskytexture,
 			side: THREE.DoubleSide
 		} );
+		solidSkyMaterial.onBeforeCompile = R_PatchSolidSkyVertexShader;
+		solidSkyMaterial.customProgramCacheKey = R_SolidSkyProgramKey;
 
 	}
 
@@ -2330,6 +2339,8 @@ function R_DrawSkyChain( s ) {
 			transparent: true,
 			alphaTest: 0.05
 		} );
+		alphaSkyMaterial.onBeforeCompile = R_PatchAlphaSkyVertexShader;
+		alphaSkyMaterial.customProgramCacheKey = R_AlphaSkyProgramKey;
 
 	}
 
@@ -2347,12 +2358,14 @@ function R_DrawSkyChain( s ) {
 	const time = R_WarpTime();
 	let solidSpeed = time * 8;
 	solidSpeed -= ( solidSpeed | 0 ) & ~127;
+	_solidSkySpeed.value = solidSpeed;
+	_skyOrigin.value.set( r_origin[ 0 ], r_origin[ 1 ], r_origin[ 2 ] );
 
 	for ( let fa = s; fa; fa = fa.texturechain ) {
 
 		if ( ! fa.polys ) continue;
 
-		const geometry = EmitSkyPolysQuake( fa, solidSpeed, 0 );
+		const geometry = EmitSkyPolysQuake( fa, 0 );
 		if ( geometry ) {
 
 			// Cache sky mesh on surface, keyed by layer
@@ -2388,12 +2401,13 @@ function R_DrawSkyChain( s ) {
 
 		let alphaSpeed = time * 16;
 		alphaSpeed -= ( alphaSpeed | 0 ) & ~127;
+		_alphaSkySpeed.value = alphaSpeed;
 
 		for ( let fa = s; fa; fa = fa.texturechain ) {
 
 			if ( ! fa.polys ) continue;
 
-			const geometry = EmitSkyPolysQuake( fa, alphaSpeed, 1 );
+			const geometry = EmitSkyPolysQuake( fa, 1 );
 			if ( geometry ) {
 
 				let mesh = fa._skyMesh2;
