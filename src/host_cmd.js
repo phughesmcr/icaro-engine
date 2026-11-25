@@ -1435,30 +1435,6 @@ function Host_Savegame_f() {
 Host_Loadgame_f
 ===============
 */
-/*
-===============
-Host_SkipGlobals
-
-Returns the text after the globals block that ED_ParseGlobals has just read.
-C's ED_ParseGlobals returns it; pr_edict.js's returns nothing, so this walks
-the same key/value tokens to the closing brace.
-===============
-*/
-export function Host_SkipGlobals( data ) {
-
-	while ( true ) {
-
-		data = COM_Parse( data );
-		if ( com_token === '}' || data === null )
-			return data;
-		data = COM_Parse( data );
-		if ( data === null )
-			return data;
-
-	}
-
-}
-
 function Host_Loadgame_f() {
 
 	if ( cmd_source !== src_command ) return;
@@ -1593,8 +1569,7 @@ function Host_Loadgame_f() {
 		if ( entnum === - 1 ) {
 
 			// parse the global vars
-			ED_ParseGlobals( data );
-			data = Host_SkipGlobals( data );
+			data = ED_ParseGlobals( data );
 
 		} else {
 

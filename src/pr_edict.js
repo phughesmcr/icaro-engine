@@ -684,6 +684,9 @@ export function ED_WriteGlobals( lines ) {
 /*
 =============
 ED_ParseGlobals
+
+Returns the text after the closing brace, as Ironwail's does (id's returns
+nothing; Host_Loadgame_f needs it to go on to the edicts).
 =============
 */
 export function ED_ParseGlobals( data ) {
@@ -722,6 +725,8 @@ export function ED_ParseGlobals( data ) {
 		}
 
 	}
+
+	return data;
 
 }
 
