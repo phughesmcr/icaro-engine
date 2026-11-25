@@ -10,7 +10,12 @@ import { isXRActive, XR_SCALE } from './webxr.js';
 import { Con_Printf, COM_StripExtension } from './common.js';
 import { COM_EnsureFile, COM_LoadFileAsString } from './pak.js';
 
-const MAX_PARTICLES = 2048;
+// Deliberate deviation, from Ironwail (r_part.c): id's limit is 2048, and
+// one R_ParticleExplosion takes 1024 of them, so two explosions at once used
+// up the pool and later effects were dropped. Only the live particles are
+// uploaded each frame (see R_DrawParticles), so the bigger pool costs memory
+// (about 3 MB) but no per-frame upload.
+const MAX_PARTICLES = 16384;
 
 // Precomputed sRGB -> linear lookup table (256 entries)
 // Quake palette values are sRGB; Three.js expects vertex colors in linear space.
@@ -783,6 +788,28 @@ export function R_EntityParticles( ent ) {
 
 /*
 ===============
+R_MarkParticleUpload
+
+Not in C. Three.js uploads a whole buffer attribute when needsUpdate is set;
+limit the upload to the first count particles, which are the live ones.
+(The server's Three.js shim has no update ranges, hence the check.)
+===============
+*/
+export function R_MarkParticleUpload( attribute, count ) {
+
+	if ( attribute.clearUpdateRanges !== undefined ) {
+
+		attribute.clearUpdateRanges();
+		attribute.addUpdateRange( 0, count * attribute.itemSize );
+
+	}
+
+	attribute.needsUpdate = true;
+
+}
+
+/*
+===============
 R_DrawParticles
 ===============
 */
@@ -945,8 +972,17 @@ export function R_DrawParticles() {
 	if ( ! pointsGeometry ) {
 
 		pointsGeometry = new THREE.BufferGeometry();
-		pointsGeometry.setAttribute( 'position', new THREE.BufferAttribute( positionArray, 3 ) );
-		pointsGeometry.setAttribute( 'color', new THREE.BufferAttribute( colorArray, 3 ) );
+		const positionAttribute = new THREE.BufferAttribute( positionArray, 3 );
+		const colorAttribute = new THREE.BufferAttribute( colorArray, 3 );
+		if ( positionAttribute.setUsage !== undefined ) {
+
+			positionAttribute.setUsage( THREE.DynamicDrawUsage );
+			colorAttribute.setUsage( THREE.DynamicDrawUsage );
+
+		}
+
+		pointsGeometry.setAttribute( 'position', positionAttribute );
+		pointsGeometry.setAttribute( 'color', colorAttribute );
 
 		pointsMaterial = new THREE.PointsMaterial( {
 			size: PARTICLE_SIZE,
@@ -979,8 +1015,8 @@ export function R_DrawParticles() {
 
 	}
 
-	pointsGeometry.attributes.position.needsUpdate = true;
-	pointsGeometry.attributes.color.needsUpdate = true;
+	R_MarkParticleUpload( pointsGeometry.attributes.position, count );
+	R_MarkParticleUpload( pointsGeometry.attributes.color, count );
 	pointsGeometry.setDrawRange( 0, count );
 
 	if ( ! pointsMesh.parent ) {
