@@ -582,14 +582,15 @@ export function GL_DrawAliasFrame( paliashdr, posenum ) {
 ================
 GL_ClearAliasCache
 
-Clears all cached alias model geometries. Called on map change.
+Port-only hook for clearing cached alias model geometries. Unused.
 ================
 */
 export function GL_ClearAliasCache() {
 
-	// Caches are stored on paliashdr objects which are replaced on map load,
-	// so they are garbage collected automatically. This function exists
-	// as a hook if explicit cleanup is ever needed.
+	// Caches are stored on paliashdr objects. Mod_ClearAll keeps alias
+	// models across map changes, as C does, so the caches stay valid and
+	// are reused. Nothing calls this; it is a hook if explicit cleanup is
+	// ever needed.
 
 }
 

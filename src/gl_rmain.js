@@ -1340,10 +1340,14 @@ export function R_PolyBlend() {
 		polyBlendCamera = new THREE.OrthographicCamera( - 1, 1, 1, - 1, 0, 1 );
 
 		const geometry = new THREE.PlaneGeometry( 2, 2 );
+		// toneMapped: false keeps the blend out of the gamma exposure, like
+		// GLQuake, where gamma is baked into textures and R_PolyBlend's
+		// glColor4fv( v_blend ) is drawn as is.
 		const material = new THREE.MeshBasicMaterial( {
 			transparent: true,
 			depthTest: false,
-			depthWrite: false
+			depthWrite: false,
+			toneMapped: false
 		} );
 		polyBlendMesh = new THREE.Mesh( geometry, material );
 		polyBlendScene.add( polyBlendMesh );

@@ -575,10 +575,12 @@ export function R_RunParticleEffect( org, dir, color, count ) {
 R_LavaSplash
 ===============
 */
+const _lavasplash_dir = new Float32Array( 3 );
+
 export function R_LavaSplash( org ) {
 
 	if ( ! client_cl ) return;
-	const dir = new Float32Array( 3 );
+	const dir = _lavasplash_dir;
 
 	for ( let i = - 16; i < 16; i ++ ) {
 
@@ -616,10 +618,12 @@ export function R_LavaSplash( org ) {
 R_TeleportSplash
 ===============
 */
+const _teleportsplash_dir = new Float32Array( 3 );
+
 export function R_TeleportSplash( org ) {
 
 	if ( ! client_cl ) return;
-	const dir = new Float32Array( 3 );
+	const dir = _teleportsplash_dir;
 
 	for ( let i = - 16; i < 16; i += 4 ) {
 
@@ -661,12 +665,16 @@ export function R_TeleportSplash( org ) {
 R_RocketTrail
 ===============
 */
+// Scratch for R_RocketTrail, called per trailing entity per frame
+const _rockettrail_vec = new Float32Array( 3 );
+const _rockettrail_s = new Float32Array( 3 );
+
 export function R_RocketTrail( start, end, type ) {
 
 	if ( ! client_cl ) return;
 
-	const vec = new Float32Array( 3 );
-	const s = new Float32Array( 3 );
+	const vec = _rockettrail_vec;
+	const s = _rockettrail_s;
 	VectorCopy( start, s );
 	VectorSubtract( end, s, vec );
 	let len = VectorNormalize( vec );
