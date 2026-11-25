@@ -6,6 +6,7 @@ const cmd = await import( '../src/cmd.js' );
 const common = await import( '../src/common.js' );
 const keys = await import( '../src/keys.js' );
 const menu = await import( '../src/menu.js' );
+const sys = await import( '../src/sys.js' );
 
 function assertEqual( actual, expected, message ) {
 
@@ -97,8 +98,12 @@ for ( const name of Object.keys( executed ) ) {
 common.COM_Init();
 keys.Key_Init();
 menu.M_Init();
+// The lobby helpers net_main.js injects, as they behave over WebTransport
 menu.M_SetExternals( {
-	WT_QueryRooms: fakeQueryRooms,
+	NET_QueryRooms: fakeQueryRooms,
+	NET_MultiplayerAvailable: () => true,
+	NET_LobbyServer: () => sys.Sys_LobbyURL(),
+	NET_LobbyJoinURL: ( lobby, roomId ) => sys.Sys_ConnectURL( lobby, roomId, null ),
 	cl_name: cl_name,
 	key_dest_set: keys.set_key_dest,
 	key_dest_get: () => keys.key_dest,

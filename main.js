@@ -1,11 +1,12 @@
 // Icaro Engine entry point
 // Equivalent to WinQuake/sys_win.c WinMain() + main()
 
-import { Sys_Init, Sys_Printf, Sys_Error, Sys_LobbyURL, Sys_ConnectURL } from './src/sys.js';
+import { Sys_Init, Sys_Printf, Sys_Error } from './src/sys.js';
 import { COM_InitArgv, rogue, hipnotic } from './src/common.js';
 import { Host_Init, Host_Frame } from './src/host.js';
 import { COM_AddPakSequence, COM_AddGameDirectory, COM_SetLooseFileBasePaths } from './src/pak.js';
 import { Cbuf_AddText } from './src/cmd.js';
+import { NET_LobbyServer, NET_LobbyJoinURL } from './src/net_main.js';
 import { cls, cl } from './src/client.js';
 import { sv } from './src/server.js';
 import { scene, camera } from './src/gl_rmain.js';
@@ -173,9 +174,11 @@ async function main() {
 
 		if ( roomId ) {
 
-			// Sys_ConnectURL checks the lobby and encodes the room id, so a
-			// crafted link can't end the quoted argument and run commands.
-			const connectUrl = Sys_ConnectURL( Sys_LobbyURL(), roomId, null );
+			// ?server= or the default lobby, over WebTransport or WebSocket
+			// (see NET_UseWebSocket). NET_LobbyServer checks the lobby and
+			// NET_LobbyJoinURL encodes the room id, so a crafted link can't end
+			// the quoted argument and run commands.
+			const connectUrl = NET_LobbyJoinURL( NET_LobbyServer(), roomId );
 			if ( connectUrl !== null ) {
 
 				Sys_Printf( 'Auto-joining room: %s\\n', roomId );
@@ -183,7 +186,7 @@ async function main() {
 
 			} else {
 
-				Sys_Printf( 'Not auto-joining: ?server= is not a valid lobby address (wts:// or https:// host[:port])\n' );
+				Sys_Printf( 'Not auto-joining: ?server= is not a valid lobby address (wts://, https://, or ws:// or wss:// with a path)\n' );
 
 			}
 

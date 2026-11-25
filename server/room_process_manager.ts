@@ -78,6 +78,9 @@ let pakPath = '../static/pak0.pak';
 let denoPath = Deno.execPath();
 let gameFlags: string[] = []; // '-rogue' and/or '-hipnotic', passed to every room
 let gameDir: string | null = null; // -game <dir>, passed to every room
+// Rooms also take WebSocket connections from the lobby's proxy (-wsport on
+// the lobby): -wsport <room port> on 127.0.0.1, over TCP
+let wsEnabled = false;
 
 /**
  * Configure paths for room servers
@@ -89,12 +92,14 @@ export function RoomManager_SetConfig( config: {
 	denoPath?: string;
 	gameFlags?: string[];
 	gameDir?: string | null;
+	wsEnabled?: boolean;
 } ): void {
 	if ( config.certFile != null ) certFile = config.certFile;
 	if ( config.keyFile != null ) keyFile = config.keyFile;
 	if ( config.pakPath != null ) pakPath = config.pakPath;
 	if ( config.denoPath != null ) denoPath = config.denoPath;
 	if ( config.gameFlags != null ) gameFlags = config.gameFlags.filter( ( f ) => f === '-rogue' || f === '-hipnotic' );
+	if ( config.wsEnabled !== undefined ) wsEnabled = config.wsEnabled === true;
 	if ( config.gameDir !== undefined ) gameDir = config.gameDir !== null && /^[A-Za-z0-9_-]+$/.test( config.gameDir ) ? config.gameDir : null;
 }
 
@@ -459,13 +464,14 @@ export async function RoomManager_CreateRoom( config: {
 
 		// Spawn dedicated server process for this room. Permissions are
 		// scoped to what the room needs: listen on its own UDP port (IPv6 and
-		// IPv4, see quic_listen.ts), read the pak, the TLS files, loose files
-		// under static/ and the game directories (in the pak's basedir, which
-		// may be outside static/).
+		// IPv4, see quic_listen.ts), and on the same TCP port on 127.0.0.1
+		// for the lobby's WebSocket proxy, read the pak, the TLS files, loose
+		// files under static/ and the game directories (in the pak's basedir,
+		// which may be outside static/).
 		const command = new Deno.Command( denoPath, {
 			args: [
 				'run',
-				'--allow-net=[::]:' + port + ',0.0.0.0:' + port,
+				'--allow-net=[::]:' + port + ',0.0.0.0:' + port + ( wsEnabled ? ',127.0.0.1:' + port : '' ),
 				'--allow-read=' + readPaths.join( ',' ),
 				'--unstable-net',
 				'--config', denoJsonPath,
@@ -482,6 +488,7 @@ export async function RoomManager_CreateRoom( config: {
 				...gameFlags,
 				...gameOptionArgs( gameOptions ),
 				...( gameDir !== null ? [ '-game', gameDir ] : [] ),
+				...( wsEnabled ? [ '-wsport', String( port ) ] : [] ),
 			],
 			stdin: 'piped',
 			stdout: 'piped',

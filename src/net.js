@@ -373,3 +373,27 @@ export function WT_ParseHandshakeReply( payload ) {
 	};
 
 }
+
+//============================================================================
+// WebSocket wire protocol (shared by src/net_websocket.js and
+// server/net_websocket_server.ts)
+//
+// One WebSocket binary message carries one packet; WebSocket frames the
+// messages, so there is no length prefix.
+//   First message each way: the WebTransport handshake payload without its
+//     length prefix (WT_BuildHelloFrame / WT_BuildHandshakeReplyFrame
+//     .subarray( 2 )).
+//   Every later message:     [channel:u8][magic:u8][sequence:u32le][ack:u32le][quake payload]
+// The channel byte keeps Quake's reliable/unreliable split on one ordered
+// stream: the receiver still returns 1 or 2 from QGetMessage, coalesces
+// queued unreliable updates, and a sender (or the lobby's proxy) may drop
+// unreliable messages when the socket is backed up.
+//============================================================================
+
+export const WS_CHANNEL_RELIABLE = 0;
+export const WS_CHANNEL_UNRELIABLE = 1;
+export const WS_CHANNEL_BYTES = 1;
+
+// Largest message either side accepts: the channel byte plus one reliable
+// frame payload.
+export const WS_MAX_MESSAGE_BYTES = WS_CHANNEL_BYTES + WT_MAX_FRAME_PAYLOAD;

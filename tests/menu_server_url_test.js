@@ -112,6 +112,21 @@ Deno.test( 'Sys_ParseLobbyURL refuses anything that is not a plain lobby host', 
 
 } );
 
+Deno.test( 'Sys_ParseLobbyURL accepts a WebSocket lobby with a plain path, and nothing unsafe', () => {
+
+	assertEqual( sys.Sys_ParseLobbyURL( 'wss://quake.example/mp' ), 'wss://quake.example/mp', 'tunnel prefix' );
+	assertEqual( sys.Sys_ParseLobbyURL( 'wss://quake.example/mp/' ), 'wss://quake.example/mp', 'trailing slash' );
+	assertEqual( sys.Sys_ParseLobbyURL( 'WS://127.0.0.1:4433' ), 'ws://127.0.0.1:4433', 'ws, no path' );
+	const bad = [
+		'wss://a.example/mp";bind w quit;"', 'wss://a.example/m p', 'wss://a.example/mp?room=x',
+		'wss://a.example/mp#x', 'wss://u:p@a.example/mp', 'wss://a.example/%22', "wss://a.example/it's",
+		'wss://a.example/mp\nquit', 'wss://a.example\\mp',
+	];
+	for ( const raw of bad )
+		assertEqual( sys.Sys_ParseLobbyURL( raw ), null, JSON.stringify( raw ) );
+
+} );
+
 Deno.test( 'Sys_LobbyURL falls back to localhost only when ?server= is absent', async () => {
 
 	await withGlobals( { location: fakeLocation( '?room=AB12' ) }, () => {
@@ -225,8 +240,14 @@ function initMenu() {
 		common.COM_Init(); // registered cvar, read by the episode list
 		keys.Key_Init();
 		menu.M_Init();
+		// The lobby helpers net_main.js injects, as they behave over WebTransport
 		menu.M_SetExternals( {
-			WT_CreateRoom: fakeCreateRoom,
+			NET_CreateRoom: fakeCreateRoom,
+			NET_MultiplayerAvailable: () => true,
+			NET_LobbyServer: () => sys.Sys_LobbyURL(),
+			NET_RoomURL: ( lobby, room ) => room.port != null
+				? sys.Sys_ConnectURL( lobby, null, Number( room.port ) )
+				: sys.Sys_ConnectURL( lobby, room.id, null ),
 			key_dest_set: keys.set_key_dest,
 			key_dest_get: () => keys.key_dest,
 		} );

@@ -331,6 +331,14 @@ export function WT_SetSocketAllocator(
 }
 
 /**
+ * Sockets handed out but not yet accepted; the WebSocket driver's allocator
+ * adds them to its own count (game_server.js).
+ */
+export function WT_GetPendingConnectionCount(): number {
+  return pendingConnections.length;
+}
+
+/**
  * Set the socket freer callback
  */
 export function WT_SetSocketFreer(

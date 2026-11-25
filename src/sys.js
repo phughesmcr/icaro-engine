@@ -49,6 +49,8 @@ export const SYS_DEFAULT_LOBBY = 'https://localhost:4433';
 const _lobbyHostPattern = /^(?:[a-z0-9_-]+\.)*[a-z0-9_-]+$|^\[[0-9a-f:.]+\]$/;
 // Anything that could end a quoted argument or a command line.
 const _unsafeCommandChars = /["';\\\s\p{Cc}]/u;
+// A WebSocket lobby's path (e.g. the tunnel's /mp): plain segments only.
+const _lobbyPathPattern = /^(?:\/[A-Za-z0-9._~-]+)*\/?$/;
 
 /*
 ================
@@ -56,7 +58,10 @@ Sys_ParseLobbyURL
 
 Returns raw as 'https://host[:port]' if it names a lobby: an https://, wts://
 or wt:// URL (or a bare host[:port]) with no user info, path, query or
-fragment. Returns null for anything else.
+fragment. A WebSocket lobby (src/net_websocket.js) may also be a ws:// or
+wss:// URL with a path of plain segments, returned as
+'wss://host[:port]/path' (or ws://) without a trailing slash. Returns null
+for anything else.
 ================
 */
 export function Sys_ParseLobbyURL( raw ) {
@@ -66,6 +71,8 @@ export function Sys_ParseLobbyURL( raw ) {
 
 	let url = raw;
 	const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec( url );
+	if ( scheme !== null && /^wss?$/i.test( scheme[ 1 ] ) )
+		return _Sys_ParseWebSocketLobbyURL( raw );
 	if ( scheme === null )
 		url = 'https://' + url;
 	else if ( /^(?:https|wts?)$/i.test( scheme[ 1 ] ) )
@@ -92,6 +99,44 @@ export function Sys_ParseLobbyURL( raw ) {
 		return null;
 
 	return 'https://' + u.host;
+
+}
+
+function _Sys_ParseWebSocketLobbyURL( raw ) {
+
+	let u;
+	try {
+
+		u = new URL( raw );
+
+	} catch {
+
+		return null;
+
+	}
+
+	if ( ( u.protocol !== 'wss:' && u.protocol !== 'ws:' ) || u.username !== '' || u.password !== '' )
+		return null;
+	if ( u.search !== '' || u.hash !== '' || _lobbyPathPattern.test( u.pathname ) === false )
+		return null;
+	if ( _lobbyHostPattern.test( u.hostname ) === false )
+		return null;
+
+	return u.protocol + '//' + u.host + u.pathname.replace( /\/+$/, '' );
+
+}
+
+/*
+================
+Sys_CommandArgIsSafe
+
+True when s can be quoted into a command line as one argument: no quote,
+semicolon, backslash, whitespace or control character.
+================
+*/
+export function Sys_CommandArgIsSafe( s ) {
+
+	return typeof s === 'string' && _unsafeCommandChars.test( s ) === false;
 
 }
 
@@ -161,9 +206,10 @@ export function Sys_ConnectURL( lobby, roomId, port ) {
 Sys_PageURL
 
 The page URL to put in the address bar: room= when roomId is given, and
-game= and server= kept from the current URL, since whoever opens a shared
-link needs the same mission pack and lobby. server= is kept only when it is a
-valid lobby address. Other parameters are dropped.
+game=, server= and transport= kept from the current URL, since whoever opens
+a shared link needs the same mission pack, lobby and transport. server= is
+kept only when it is a valid lobby address, and transport= only when it is
+ws or wt. Other parameters are dropped.
 ================
 */
 export function Sys_PageURL( roomId ) {
@@ -175,6 +221,8 @@ export function Sys_PageURL( roomId ) {
 	if ( game !== null ) params.set( 'game', game );
 	const server = current.get( 'server' );
 	if ( server !== null && Sys_ParseLobbyURL( server ) !== null ) params.set( 'server', server );
+	const transport = current.get( 'transport' );
+	if ( transport === 'ws' || transport === 'wt' ) params.set( 'transport', transport );
 	const query = params.toString();
 	return globalThis.location.origin + globalThis.location.pathname + ( query.length > 0 ? '?' + query : '' );
 
@@ -192,6 +240,7 @@ const _quietLogAllowPatterns = [
 	/^SV_ReadClientMessage:/,
 	/^Unhandled promise rejection:/,
 	/^WebTransport server listening /,
+	/^WebSocket server listening /,
 	/^WebTransport server driver initialized/,
 	/^NET_Init complete/,
 	/^\[Heartbeat\]/,

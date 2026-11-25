@@ -159,6 +159,7 @@ Deno.test( 'MENU-4: an accepted connection clears the Join menu error return', a
 	// Set m_return_onerror the way the player does: Join on a room list.
 	const cmd = await import( '../src/cmd.js' );
 	const menu = await import( '../src/menu.js' );
+	const sys = await import( '../src/sys.js' );
 	const saved = {};
 	for ( const name of [ 'location', 'history' ] ) saved[ name ] = globalThis[ name ];
 	globalThis.location = { origin: 'https://example.test', pathname: '/', search: '' };
@@ -171,7 +172,11 @@ Deno.test( 'MENU-4: an accepted connection clears the Join menu error return', a
 		cmd.Cmd_Init();
 		menu.M_Init();
 		menu.M_SetExternals( {
-			WT_QueryRooms: () => Promise.resolve( [ { id: 'AB12', map: 'e1m1', playerCount: 0, maxPlayers: 4 } ] ),
+			// The lobby helpers net_main.js injects, as they behave over WebTransport
+			NET_QueryRooms: () => Promise.resolve( [ { id: 'AB12', map: 'e1m1', playerCount: 0, maxPlayers: 4 } ] ),
+			NET_MultiplayerAvailable: () => true,
+			NET_LobbyServer: () => sys.Sys_LobbyURL(),
+			NET_LobbyJoinURL: ( lobby, roomId ) => sys.Sys_ConnectURL( lobby, roomId, null ),
 			key_dest_set: keys.set_key_dest,
 			key_dest_get: () => keys.key_dest,
 		} );

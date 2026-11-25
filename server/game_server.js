@@ -41,7 +41,28 @@ import {
 	WT_SetSocketAllocator,
 	WT_SetSocketFreer,
 	WT_GetMaxPendingWrites,
+	WT_GetPendingConnectionCount,
 } from './net_webtransport_server.ts';
+// WebSocket server driver (-wsport), for browsers without WebTransport and
+// HTTP-only proxies such as a Cloudflare Tunnel
+import {
+	WS_Init as WS_Server_Init,
+	WS_Listen,
+	WS_CheckNewConnections,
+	WS_QGetMessage,
+	WS_QSendMessage,
+	WS_SendUnreliableMessage,
+	WS_CanSendMessage,
+	WS_CanSendUnreliableMessage,
+	WS_Close,
+	WS_Shutdown,
+	WS_SetConfig,
+	WS_SearchForHosts,
+	WS_SetDriverLevel,
+	WS_SetSocketAllocator,
+	WS_SetSocketFreer,
+	WS_GetPendingConnectionCount,
+} from './net_websocket_server.ts';
 import { NET_NewQSocket, NET_FreeQSocket } from '../src/net_main.js';
 import { formatRoomStatusLine, MAX_PLAYERS_LIMIT, DEFAULT_MAX_PLAYERS, GAME_OPTION_RANGES } from './room_process_manager.ts';
 
@@ -61,6 +82,9 @@ export function createConfig() {
 		parentWatch: false,  // Exit when stdin closes (the lobby holds the other end)
 		gameFlags: [],       // -rogue and/or -hipnotic: load <basedir>/rogue or hipnotic too
 		gameDir: null,       // -game <dir>: load <basedir>/<dir> too (e.g. the rerelease's mg1)
+		wsPort: null,        // -wsport <port>: also accept WebSocket clients (TCP)
+		wsHost: '127.0.0.1', // -wshost <addr>: WebSocket listen address
+		wsTls: false,        // -wstls: wss:// with -cert/-key instead of plain ws://
 		gameOptions: {},     // -coop/-teamplay/-skill/-fraglimit/-timelimit N: cvars set before the map spawns
 	};
 }
@@ -109,6 +133,13 @@ export function parseArgs(args = Deno.args, config = CONFIG) {
 		} else if (arg === '-game' && args[i + 1]) {
 			const dir = args[++i];
 			if (isGameDirName(dir)) config.gameDir = dir;
+		} else if (arg === '-wsport' && args[i + 1]) {
+			const port = parseInt(args[++i], 10);
+			if (Number.isInteger(port) && port > 0 && port < 65536) config.wsPort = port;
+		} else if (arg === '-wshost' && args[i + 1]) {
+			config.wsHost = args[++i];
+		} else if (arg === '-wstls') {
+			config.wsTls = true;
 		} else if (arg.length > 1 && arg[0] === '-' && Object.hasOwn(GAME_OPTION_RANGES, arg.slice(1)) && args[i + 1] !== undefined) {
 			// The lobby has already clamped these; this re-checks them (a
 			// room can also be started by hand) and ignores anything else.
@@ -332,9 +363,49 @@ async function Host_Init_Server() {
 	set_net_driverlevel(1);
 	WT_SetDriverLevel(1);
 
-	// Pass the socket allocator and freer to the WebTransport driver so it uses the shared pool
-	WT_SetSocketAllocator(NET_NewQSocket);
+	// Pass the socket allocator and freer to the WebTransport driver so it uses
+	// the shared pool. Each driver's allocator also counts the other's sockets
+	// still waiting to be accepted (NET-1).
+	WT_SetSocketAllocator((pending = 0) => NET_NewQSocket(pending + WS_GetPendingConnectionCount()));
 	WT_SetSocketFreer(NET_FreeQSocket);
+
+	// Register the WebSocket server driver (driver 2) when -wsport is given
+	if (CONFIG.wsPort !== null) {
+		WS_SetConfig({
+			port: CONFIG.wsPort,
+			hostname: CONFIG.wsHost,
+			tls: CONFIG.wsTls,
+			certFile: CONFIG.certFile,
+			keyFile: CONFIG.keyFile,
+			// A lobby-spawned room is reached only through the lobby's proxy,
+			// which passes the client's address as ?ip=
+			trustQueryIp: CONFIG.roomId !== null,
+		});
+		set_net_numdrivers(3);
+		net_drivers[2] = {
+			name: 'WebSocket Server',
+			initialized: false,
+			controlSock: null,
+			Init: WS_Server_Init,
+			Listen: WS_Listen,
+			SearchForHosts: WS_SearchForHosts,
+			Connect: () => null, // Server doesn't connect out
+			CheckNewConnections: WS_CheckNewConnections,
+			QGetMessage: WS_QGetMessage,
+			QSendMessage: WS_QSendMessage,
+			SendUnreliableMessage: WS_SendUnreliableMessage,
+			CanSendMessage: WS_CanSendMessage,
+			CanSendUnreliableMessage: WS_CanSendUnreliableMessage,
+			Close: WS_Close,
+			Shutdown: WS_Shutdown,
+		};
+		if (net_drivers[2].Init() !== -1) {
+			net_drivers[2].initialized = true;
+		}
+		WS_SetDriverLevel(2);
+		WS_SetSocketAllocator((pending = 0) => NET_NewQSocket(pending + WT_GetPendingConnectionCount()));
+		WS_SetSocketFreer(NET_FreeQSocket);
+	}
 
 	// Initialize server systems
 	PR_Init();
@@ -393,8 +464,13 @@ async function Host_Init_Server() {
 		decodeURIComponent(new URL('../static/', import.meta.url).pathname),
 	]);
 
-	// Start listening for connections
-	// WT_Listen resolves false when the listener can't bind or load its cert.
+	// Start listening for connections. The WebSocket listener starts first, so
+	// "WebTransport server listening" (what the lobby waits for) still means
+	// every listener is up. Each resolves false when it can't bind or load its
+	// cert.
+	if (CONFIG.wsPort !== null && await net_drivers[2].Listen(true) === false) {
+		throw new Error('WebSocket listener failed to start on port ' + CONFIG.wsPort);
+	}
 	if (await net_drivers[1].Listen(true) === false) {
 		throw new Error('WebTransport listener failed to start on port ' + CONFIG.port);
 	}
