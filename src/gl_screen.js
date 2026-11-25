@@ -613,6 +613,33 @@ function SCR_DrawNet() {
 
 /*
 ==============
+SCR_DrawCrosshair
+
+The crosshair draw from gl_screen.c SCR_UpdateScreen, split out under
+FitzQuake's name. GLQuake draws '+' at the centre of scr_vrect, during demo
+playback too. cl_crossx and cl_crossy are registered but, as in GLQuake,
+not read: only the software renderer's view.c V_RenderView (#ifndef
+GLQUAKE) offsets the crosshair by them.
+
+Deviations, both from FitzQuake/Ironwail SCR_DrawCrosshair:
+- The glyph is centred (- 4). id's C puts its top-left corner at the
+  centre, half a character down and right of the aim point.
+- No crosshair during intermission. In id's C intermission 3
+  (svc_cutscene) reaches this branch and drew it over the cutscene.
+==============
+*/
+export function SCR_DrawCrosshair() {
+
+	if ( Cvar_VariableValue( 'crosshair' ) === 0 || _cl.intermission !== 0 )
+		return;
+
+	Draw_Character( scr_vrect.x + Math.floor( scr_vrect.width / 2 ) - 4,
+		scr_vrect.y + Math.floor( scr_vrect.height / 2 ) - 4, 43 ); // '+'
+
+}
+
+/*
+==============
 SCR_DrawPause
 ==============
 */
@@ -1273,12 +1300,7 @@ export function SCR_UpdateScreen() {
 
 	} else {
 
-		// Deviation (FitzQuake/Ironwail SCR_DrawCrosshair): no crosshair during
-		// intermission. In id's C intermission 3 (svc_cutscene) reaches this
-		// branch and drew it over the cutscene.
-		if ( Cvar_VariableValue( 'crosshair' ) !== 0 && _cls.demoplayback === false && ! _cl.intermission )
-			Draw_Character( Math.floor( _vid.width / 2 + Cvar_VariableValue( 'cl_crossx' ) ) - 4,
-				Math.floor( _vid.height / 2 + Cvar_VariableValue( 'cl_crossy' ) ) - 4, 43 ); // '+' crosshair
+		SCR_DrawCrosshair();
 
 		SCR_DrawRam();
 		SCR_DrawNet();

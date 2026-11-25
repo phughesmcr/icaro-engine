@@ -25,7 +25,7 @@ process per room. It was forked from mrdoob's three-quake.
   GLQuake build's files checked for a counterpart in the port, with the
   ranked list of gaps.
 - `docs/rerelease-gaps.md`: what still blocks the 2021 rerelease content
-  (localisation, protocol limits, `.lit`, fog and skyboxes), with a
+  (protocol limits, `.lit`, fog and skyboxes), with a
   suggested order. It is a snapshot too.
 - `tools/`: `port_inventory.py` regenerates that inventory's raw tables
   (Python, standard library only; not linted or run in CI).

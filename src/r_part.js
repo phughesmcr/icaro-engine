@@ -7,7 +7,7 @@ import { d_8to24table } from './vid.js';
 import { cl as client_cl } from './client.js';
 import { GL_RegisterTexture } from './glquake.js';
 import { isXRActive, XR_SCALE } from './webxr.js';
-import { Con_Printf, COM_StripExtension } from './common.js';
+import { Con_Printf, COM_StripExtension, COM_CheckParm, com_argc, com_argv, Q_atoi } from './common.js';
 import { COM_EnsureFile, COM_LoadFileAsString } from './pak.js';
 
 // Deliberate deviation, from Ironwail (r_part.c): id's limit is 2048, and
@@ -15,7 +15,11 @@ import { COM_EnsureFile, COM_LoadFileAsString } from './pak.js';
 // up the pool and later effects were dropped. Only the live particles are
 // uploaded each frame (see R_DrawParticles), so the bigger pool costs memory
 // (about 3 MB) but no per-frame upload.
-const MAX_PARTICLES = 16384;
+const MAX_PARTICLES = 16384; // default max # of particles at one time
+const ABSOLUTE_MIN_PARTICLES = 512; // no fewer than this no matter what's on the command line
+
+// r_part.c: the pool's size, MAX_PARTICLES unless -particles sets it
+export let r_numparticles = MAX_PARTICLES;
 
 // Precomputed sRGB -> linear lookup table (256 entries)
 // Quake palette values are sRGB; Three.js expects vertex colors in linear space.
@@ -56,9 +60,10 @@ class particle_t {
 
 }
 
-// Particle pool — use array index as linked list via nextIndex
-const particles = new Array( MAX_PARTICLES );
-const particleNext = new Int32Array( MAX_PARTICLES ); // -1 = end of list
+// Particle pool — use array index as linked list via nextIndex. Sized by
+// R_InitParticles (C's Hunk_AllocName), never per frame.
+let particles = new Array( r_numparticles );
+let particleNext = new Int32Array( r_numparticles ); // -1 = end of list
 
 let activeList = - 1; // head index of active list
 let freeList = - 1; // head index of free list
@@ -115,8 +120,8 @@ export function R_PatchParticleShader( shader ) {
 
 }
 
-const positionArray = new Float32Array( MAX_PARTICLES * 3 );
-const colorArray = new Float32Array( MAX_PARTICLES * 3 );
+let positionArray = new Float32Array( r_numparticles * 3 );
+let colorArray = new Float32Array( r_numparticles * 3 );
 
 let tracercount = 0;
 
@@ -171,13 +176,54 @@ function R_InitParticleTexture() {
 /*
 ===============
 R_InitParticles
+
+-particles <n> sizes the pool, with C's 512 minimum and no maximum. The
+"i < com_argc - 1" check, which keeps the default when no number follows,
+is Ironwail's.
 ===============
 */
 export function R_InitParticles() {
 
-	for ( let i = 0; i < MAX_PARTICLES; i ++ ) {
+	const i = COM_CheckParm( '-particles' );
 
-		particles[ i ] = new particle_t();
+	if ( i !== 0 && i < com_argc - 1 ) {
+
+		r_numparticles = Q_atoi( com_argv[ i + 1 ] );
+		if ( r_numparticles < ABSOLUTE_MIN_PARTICLES )
+			r_numparticles = ABSOLUTE_MIN_PARTICLES;
+
+	} else {
+
+		r_numparticles = MAX_PARTICLES;
+
+	}
+
+	// Hunk_AllocName. The pool and its upload buffers are reallocated only
+	// when the size changes; the points geometry wraps the old buffers, so
+	// it is dropped and R_DrawParticles builds a new one.
+	if ( particleNext.length !== r_numparticles ) {
+
+		particles = new Array( r_numparticles );
+		particleNext = new Int32Array( r_numparticles );
+		positionArray = new Float32Array( r_numparticles * 3 );
+		colorArray = new Float32Array( r_numparticles * 3 );
+
+		if ( pointsMesh !== null ) {
+
+			if ( pointsMesh.parent ) pointsMesh.parent.remove( pointsMesh );
+			pointsGeometry.dispose();
+			pointsMaterial.dispose();
+			pointsMesh = null;
+			pointsGeometry = null;
+			pointsMaterial = null;
+
+		}
+
+	}
+
+	for ( let j = 0; j < r_numparticles; j ++ ) {
+
+		particles[ j ] = new particle_t();
 
 	}
 
@@ -208,13 +254,13 @@ export function R_ClearParticles() {
 	activeList = - 1;
 
 	freeList = 0;
-	for ( let i = 0; i < MAX_PARTICLES - 1; i ++ ) {
+	for ( let i = 0; i < r_numparticles - 1; i ++ ) {
 
 		particleNext[ i ] = i + 1;
 
 	}
 
-	particleNext[ MAX_PARTICLES - 1 ] = - 1;
+	particleNext[ r_numparticles - 1 ] = - 1;
 
 }
 

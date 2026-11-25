@@ -207,9 +207,13 @@ own fix PR.
 - **Seen:** a new player gets a crosshair. Turning it off in Options isn't
   remembered across sessions.
 
-- **Status: partly fixed.** `crosshair` defaults to `"0"` and is archived.
-  Still different: the `cl_crossx`/`cl_crossy` offset and the hiding during
-  demos (`src/gl_screen.js`).
+- **Status: fixed.** `crosshair` defaults to `"0"` and is archived.
+  `SCR_DrawCrosshair` (`src/gl_screen.js`) draws it at the centre of
+  `scr_vrect`, during demos too, and doesn't read `cl_crossx`/`cl_crossy`.
+  Their Crosshair X/Y rows left the Advanced Options page.
+  Two FitzQuake/Ironwail deviations stay, commented there: the glyph is
+  centred on that point (C puts its top-left corner there), and it is
+  hidden during intermission.
 
 ### G6 · 2D UI scale differs from GLQuake's 640-wide console — **low-medium**
 
@@ -238,8 +242,12 @@ own fix PR.
 
 - **C:** `Draw_Init` stamps `(gl 1.00) 1.09` onto `gfx/conback.lmp`, in the
   bottom-right corner (`gl_draw.c:410-419`, `Draw_CharToConback`).
-- **JS:** `_loadConback` (`src/gl_draw.js:376-405`) uses the picture
-  unchanged.
+- **JS:** `_loadConback` (`src/gl_draw.js`) used the picture unchanged.
+
+- **Status: fixed.** `Draw_CharToConback` is ported, and `_loadConback`
+  stamps `(gl 1.00) 1.09` with it (`Draw_ConbackVersion`, the C block from
+  `Draw_Init`), into a copy of the PAK's pixels. C assumes a 320×200
+  conback; one of any other size is left unstamped rather than corrupted.
 
 ### G8 · `sv_gravity`, `sv_friction`, `sv_maxspeed` lack the server flag — **low**
 
@@ -285,26 +293,28 @@ own fix PR.
 - **`host_speeds` and `serverprofile`:** registered (`src/host.js:83`,
   `:86`) but never read. In C they print per-frame timings
   (`host.c:697-720`, `:736-762`).
-- **`-particles <n>`:** ignored. `MAX_PARTICLES` is fixed at 2048
-  (`src/r_part.js:13`), the same as C's default (`r_part.c:50-58`).
+- **`-particles <n>`:** was ignored. `MAX_PARTICLES` was fixed at 2048,
+  the same as C's default (`r_part.c:50-58`).
 
-- **Status: partly fixed.** `host_speeds` prints the
+- **Status: fixed.** `host_speeds` prints the
   `tot`/`server`/`gfx`/`snd` line each frame, and `serverprofile` the
   1000-frame average, as in `host.c`. Both run in the browser's
   `Host_Frame` only; the room server has its own frame loop
   (`server/game_server.js`). `MAX_PARTICLES` is now 16384
   (`src/r_part.js:18`), a deliberate deviation from C's 2048 taken from
-  Ironwail. `-particles` is still ignored.
+  Ironwail. `-particles <n>` sizes the pool in `R_InitParticles`, as in C
+  and Ironwail: at least 512, no maximum, and the default when no number
+  follows (Ironwail's check). The browser passes it from `?particles=<n>`, which ignores values over
+  262144 because a link can carry it (a port addition).
 
 ## Command-line parms
 
 C's `COM_CheckParm` arguments that JS never checks. The browser builds
-`com_argv` from the URL (`main.js`: `?game=` → `-rogue`/`-hipnotic`/`-game <dir>`; `?base=rerelease` sets the basedir).
+`com_argv` from the URL (`main.js`: `?game=` → `-rogue`/`-hipnotic`/`-game <dir>`; `?base=rerelease` sets the basedir; `?particles=<n>` → `-particles <n>`).
 The room server builds it from its own flags (`server/game_server.js:200`).
 
 | Parm | C | Verdict |
 |---|---|---|
-| `-particles` | `r_part.c` | (b) G10 |
 | `-conwidth`, `-conheight` | `gl_vidnt.c` | (b) G6 |
 | `-game`, `-basedir`, `-path`, `-cachedir`, `-proghack` | `common.c` | (a) no filesystem; `?game=` covers the mission packs and the rerelease add-ons (`-game`), `?base=rerelease` the rerelease basedir |
 | `-dedicated` | `host.c`, `sys_win.c` | (a) `game_server.js` is always dedicated, the browser never |
@@ -320,7 +330,7 @@ The room server builds it from its own flags (`server/game_server.js:200`).
 | `-HFILE`, `-HPARENT`, `-HCHILD`, `-starttime` | `sys_win.c` | (a) Win32 |
 
 These are ported: `-rogue`, `-hipnotic`, `-port`, `-udpport`, `-ipxport`,
-`-listen`, `-nocdaudio` and `-gamma`.
+`-listen`, `-nocdaudio`, `-gamma` and `-particles` (G10).
 
 ## Platform files (cvars and commands only)
 
@@ -479,7 +489,7 @@ The name appears only in a comment, a string, or as a different symbol.
 
 | Kind | C name | C source | JS status | Reason |
 |---|---|---|---|---|
-| function | `Draw_CharToConback` | `gl_draw.c:276` | missing | G7: conback version string |
+| function | `Draw_CharToConback` | `gl_draw.c:276` | missing | fixed: G7, ported to `src/gl_draw.js` |
 | function | `Draw_TextureMode_f` | `gl_draw.c:320` | missing | fixed: G3, ported to `src/gl_draw.js` |
 | command | `gl_texturemode` | `gl_draw.c:390` | string-only (`src/glquake.js`) | fixed: G3, the C command again (`src/gl_draw.js`) |
 | function | `DrawGLWaterPolyLightmap` | `gl_rsurf.c:617` | missing | fixed: G1, folded into the underwater world material (`src/gl_rsurf.js`) |
