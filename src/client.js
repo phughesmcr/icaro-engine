@@ -123,6 +123,7 @@ export class dlight_t {
 		this.decay = 0; // drop this each second
 		this.minlight = 0; // don't add when contributing less
 		this.key = 0;
+		this.color = new Float32Array( [ 1, 1, 1 ] ); //johnfitz -- lit support via lordhavoc
 
 	}
 

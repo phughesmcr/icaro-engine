@@ -957,9 +957,11 @@ export function R_SetupAliasLighting( e ) {
 
 				ambientlight += add;
 				shadelight += add;
-				shadecolor[ 0 ] += add;
-				shadecolor[ 1 ] += add;
-				shadecolor[ 2 ] += add;
+				// QuakeSpasm R_SetupAliasLighting: lightcolor += add * color
+				const color = cl_dlights[ lnum ].color;
+				shadecolor[ 0 ] += add * color[ 0 ];
+				shadecolor[ 1 ] += add * color[ 1 ];
+				shadecolor[ 2 ] += add * color[ 2 ];
 
 			}
 

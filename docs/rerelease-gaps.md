@@ -20,6 +20,10 @@ headless run of every BSP2 map on that branch.
 Their rows, the limits summary bullet, the headless spawn table and the
 phase 4 note were updated from a headless run of 109 maps on that branch.
 
+**Item 6i finished** with a no-op `vibrate` command. A rescan of every
+shipped `progs.dat` found no `vibrate`, so its row now corrects the original
+"20 sites" claim.
+
 The findings come from four sources:
 
 - **The rerelease data.** The 2021 paks in a local `static/rerelease/`
@@ -91,12 +95,12 @@ week or more.
 | 6a | Fog | **done** (#134) | Fixed: `src/gl_fog.js` ports Ironwail's `Quake/gl_fog.c`: `Fog_ParseWorldspawn` reads the worldspawn `fog` key (42 id1, 17 hipnotic and 9 ctf maps), and the `fog` command takes all its argument forms, timed fades included, so mg1, mg3 and dopa's `stuffcmd(…, "fog …")` (`quakec_mg1/fog.qc`) works. Their `fog_*` entity keys are QuakeC fields that feed those commands. Three.js draws it as `FogExp2`, set only while the fog is on. The sky gets Ironwail's flat `r_skyfog` mix (worldspawn `skyfog`, set by 35 mg1, mg3, dopa and ctf maps) instead of distance fog. `svc_fog` isn't needed: QuakeC uses `stuffcmd`. | – | – |
 | 6b | Skyboxes | **missing** | 15 mg1 and mg3 maps set `_sky` (for example `mge2m1/mge2m1_`), and their paks ship `gfx/env/*.tga` (mg1 66, mg3 78). Ironwail strips the leading `_` and loads the box (`Quake/gl_sky.c:557-600`). Here `pak.js` defers `.tga`, and there is no skybox renderer or TGA loader. | M | `src/gl_warp.js` or a new `src/gl_sky.js`, `src/pak.js`, an image loader |
 | 6c | Entity `alpha` | **done** (phase 4, brush models only) | Fixed: `ED_ParseEdict` reads the `alpha` key with `ENTALPHA_ENCODE` (`src/pr_edict.js`), and the progs field is read when it exists. Packet entities carry it as `PE_ALPHA`, and baselines and statics carry it under `PROTOCOL_ICARO`. Entities at `ENTALPHA_ZERO` with no effects are not sent, and such statics are freed, as in Ironwail. `src/gl_entalpha.js` draws brush entities blended. Alias models, sprites, the player and the view model ignore alpha. Before: 233 mg1 and 321 mg3 entities have an `alpha` key, and the mg1 progs declares `.float alpha`. `src/pr_edict.js:917` only suppresses the "not a field" warning. The protocol carries no alpha. Ironwail: `U_ALPHA` (`Quake/protocol.h:62`), with `ENTALPHA_ENCODE` in `ED_ParseEdict` (`Quake/pr_edict.c:1391`). | – | – |
-| 6d | `EF_QUADLIGHT`, `EF_PENTALIGHT`, `EF_CANDLELIGHT` (16, 32, 64) | **missing** | The rerelease `defs.qc` defines them. `src/cl_main.js:682-693` handles only 4 and 8. Ironwail: `Quake/cl_main.c:654`, gated by `PR_FindSupportedEffects` (`Quake/pr_edict.c`) so mods that use those bits differently are left alone. | S | `src/cl_main.js`, `src/pr_edict.js` |
+| 6d | `EF_QUADLIGHT`, `EF_PENTALIGHT`, `EF_CANDLELIGHT` (16, 32, 64) | **done** (#143) | Fixed: `PR_FindSupportedEffects` (`src/pr_edict.js`) ports Ironwail's gate (`Quake/pr_edict.c`): the bits are on only when the progs defines `EF_QUADLIGHT` 16 and `EF_PENTALIGHT` (or `EF_PENTLIGHT`) 32 as floats, as the rerelease `defs.qc` does. Otherwise the server masks them out of the effects byte (`SV_WriteEntitiesToClient`, `SV_WritePlayersToClient`), so mods that use those bits differently are left alone. No wire change: the client handles the bits whenever they arrive. `CL_QexEffectLights` (`src/cl_main.js`) gives quad a blue and pent a red dlight, as Ironwail's `Quake/cl_main.c:654`, from all three linking paths (players, packet entities, NQ demos). `EF_CANDLELIGHT` gets no light, as in Ironwail. `dlight_t` now has QuakeSpasm's `color`: it tints the RGB lightmaps of `.lit` maps, the alias-model shade and the `gl_flashblend 1` PointLights. Mono lightmaps (maps without a `.lit`) stay white. | – | – |
 | 6e | Liquid alpha keys | **done** | `R_ParseWorldspawn` strips the leading `_` (`src/gl_rsurf.js:474-516`), so the rerelease's `_lavaalpha` and `_slimealpha` keys work. | – | – |
 | 6f | Music | **done** | `music/trackNN.ogg` is looked up per game dir (`main.js:123-127`). id1, hipnotic, rogue and mg3 ship `music/`. | – | – |
 | 6g | `menu_credits` | **done** | `src/menu.js:3157`. `finale_6` runs it after the end. | – | – |
 | 6h | Missing `default.cfg` | **done** (#113) | Fixed: when `default.cfg` isn't found, `Cmd_Exec_f` runs the embedded QuakeSpasm one (`src/cmd.js:490-493`, `src/default_cfg.js`), as Ironwail does (`Quake/cmd.c:277`, `default_cfg.h`). Before #113: the rerelease id1 has no `default.cfg`, but its `quake.rc` runs `exec default.cfg`. `src/host.js:471-477` adds WASD, jump and attack bindings, but weapon keys and the rest of id's defaults were missing. | – | – |
-| 6i | Console noise | **partial** | `quake.rc` sets `scr_usekfont 1`; #113 registered that cvar (`src/gl_screen.js:64`, read by nothing yet). QC still stuffs `vibrate` at 20 sites (pickups, damage), and each prints "Unknown command" (`src/cmd.js:455`). A no-op `vibrate`, or one mapped to Gamepad haptics, would silence it. | S | `src/host.js` or `src/in_web.js` |
+| 6i | Console noise | **done** (#113, `vibrate`) | `quake.rc` sets `scr_usekfont 1`; #113 registered that cvar (`src/gl_screen.js:64`, read by nothing yet). `vibrate` is registered as a no-op (`src/host_cmd.js:101`, `Host_Vibrate_f` at `:1847`; `tests/host_vibrate_test.js`). The earlier claim that QC stuffs it at 20 sites was wrong: no shipped `progs.dat` (id1, hipnotic, rogue, mg1, mg3, ctf, dopa), pak or `QuakeEX.kpf` contains `vibrate`. The 20 were id1's `tactile/*.bnvib` files. The published QC has `stuffcmd (self, "vibrate tactile/....bnvib")` at ten sites in `weapons.qc`, all commented out, so no "Unknown command" was ever printed for it. The command is there for a mod that re-enables those lines; Ironwail has none. It ignores its arguments and drives no haptics. | – | – |
 | 6j | ctf `archive/` in the browser | **done** (#114) | Fixed: `DEFERRED_DIRS` (`src/pak.js:647`) now lists `archive/` with `tactile/` and `vault/`. Before #114: ctf's `pak0.pak` has an `archive/` tree of 172 entries (93 MB of `.exe`, `.zip`, `.bsp`, …), and `?game=ctf` fetched all of it at load. | – | – |
 | 6k | MD5 replacement models | **done** | `r_enhancedmodels` (default 1, archived, as in Ironwail) draws `progs/<name>.md5mesh` with its `.md5anim` in place of the `.mdl` when it is in the `.mdl`'s search path or a higher one (`Mod_LoadMD5Replacement`, `src/gl_model.js`). The parser and skinning are in `src/gl_md5.js`, after Ironwail's `Mod_LoadMD5MeshModel` (`Quake/gl_model.c`): Quake frame n is anim frame n, and skins are `progs/<shader>_SS_FF.lmp`. The `.mdl` stays loaded for bounds, flags, frame names and the server. Each pose is skinned on the CPU once and drawn through the `.mdl` path, so lerping, `.lit` tint, alpha, fog, shadows and the colormap work. Lazy paks fetch the MD5 files when the model loads. id1 has 59 `.md5mesh` and 58 `.md5anim`, mg3 5 of each. | – | – |
 | 6l | `.mdl`, `.spr` and `.wav` formats | **done** | Every `.mdl` is IDPO version 6, at most 1912 vertices, 1923 triangles and 250 frames, with skins up to 512×480. That is within `MAXALIASVERTS` 2400, `MAXALIASTRIS` 4096 and `MAX_LBM_HEIGHT` 480. Sprites are IDSP version 1. The `.wav` files are PCM, mostly 44.1 kHz 16-bit mono (378 files). Wav playback was not tested. | – | – |
@@ -146,14 +150,14 @@ mission-pack flags (`-hipnotic`, `-rogue`) were not set. Calling the rerelease's
 The order follows how much content each step makes playable.
 
 **Phase 1: make the BSP29 remasters playable (all S).** This covers id1, hipnotic,
-rogue, ctf, and the BSP29 maps in mg1 and mg3. All but the `vibrate` no-op is done.
+rogue, ctf, and the BSP29 maps in mg1 and mg3. All done.
 
 1. Builtins 1a, 1b and 1c (`src/pr_cmds.js`). Done in #111.
 2. `svc_achievement` 1e (`src/protocol.js`, `src/cl_parse.js`). This is client-side only: the
    server already passes QC's bytes through. Done in #112.
-3. Cvars 1f, plus the 6i no-ops (`src/host.js`, plus `src/in_web.js` if
-   `vibrate` drives haptics). The cvars and `scr_usekfont` are done (#113);
-   `vibrate` is left.
+3. Cvars 1f, plus the 6i no-ops. The cvars and `scr_usekfont` are done
+   (#113); the `vibrate` no-op is in `src/host_cmd.js`, though no shipped
+   progs sends it (see 6i).
 4. `default.cfg` fallback 6h (`src/cmd.js`). Done in #113.
 5. The `archive/` deferral 6j (`src/pak.js`). Done in #114.
 
@@ -179,7 +183,7 @@ not have to adopt Ironwail's 666 or 999 wire formats, because the client and ser
 1. `.lit` (5). Done in #137, with the alias-model tint after it.
 2. Fog (6a). Done in #134.
 3. Skyboxes (6b)
-4. The QEX effect lights (6d)
+4. The QEX effect lights (6d). Done in #143.
 5. MD5 models (6k). Done.
 
 ### What can run in parallel
@@ -198,7 +202,6 @@ the protocol limits and alpha of phase 4) are left out:
 Groups that can run at the same time:
 
 - **Now:**
-  - The `vibrate` no-op.
   - Fog (new `gl_fog.js`, `gl_rmain.js`). Done in #134; its `gl_rmain.js`
     change is one call into `gl_fog.js`.
   - Skyboxes (`gl_warp.js` or `gl_sky.js`). `.lit` has landed in `pak.js`.
