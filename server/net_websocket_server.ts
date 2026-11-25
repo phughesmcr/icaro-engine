@@ -50,9 +50,13 @@ let serverHostname = "127.0.0.1";
 let useTls = false;
 let certFile = "cert.pem";
 let keyFile = "key.pem";
-// Trust ?ip= from loopback peers: set for lobby-spawned rooms, whose
-// WebSocket clients all arrive through the lobby's proxy (lobby_server.js).
+// Trust ?ip=: set for lobby-spawned rooms, whose WebSocket clients all
+// arrive through the lobby's proxy (lobby_server.js), and with -trustproxy.
+// Only from loopback peers unless trustAnyPeer is set.
 let trustQueryIp = false;
+// Trust the forwarded address from any peer (a room's -trustproxy): for a
+// listener only a non-loopback proxy can reach (client_address.ts).
+let trustAnyPeer = false;
 
 // Minimal structural type so tests can drive the driver with in-memory fakes.
 export interface WebSocketLike {
@@ -303,6 +307,7 @@ export function WS_HandleRequest(
     req.headers,
     remote.hostname,
     trustQueryIp,
+    trustAnyPeer,
   );
   const address = ip + ":" + remote.port;
 
@@ -1001,7 +1006,8 @@ export function WS_Close(sock: QSocket): void {
 
 /**
  * Configure the server. hostname defaults to 127.0.0.1: the WebSocket
- * listener is meant to sit behind a local proxy (the lobby, cloudflared).
+ * listener is meant to sit behind a local proxy (the lobby, cloudflared), or
+ * with trustAnyPeer, behind a proxy that is the only way to reach it.
  */
 export function WS_SetConfig(config: {
   port?: number;
@@ -1010,6 +1016,7 @@ export function WS_SetConfig(config: {
   certFile?: string;
   keyFile?: string;
   trustQueryIp?: boolean;
+  trustAnyPeer?: boolean;
   maxSessionsPerIp?: number;
   maxHandshakingSessions?: number;
   handshakeTimeoutMs?: number;
@@ -1022,6 +1029,7 @@ export function WS_SetConfig(config: {
   if (config.certFile) certFile = config.certFile;
   if (config.keyFile) keyFile = config.keyFile;
   if (config.trustQueryIp !== undefined) trustQueryIp = config.trustQueryIp;
+  if (config.trustAnyPeer !== undefined) trustAnyPeer = config.trustAnyPeer;
   if (config.maxSessionsPerIp && config.maxSessionsPerIp > 0) {
     maxSessionsPerIp = config.maxSessionsPerIp;
   }

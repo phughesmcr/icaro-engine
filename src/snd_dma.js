@@ -109,6 +109,9 @@ export function S_Init() {
 	try {
 
 		audioContext = new ( window.AudioContext || window.webkitAudioContext )();
+		// old webkitAudioContext is not an EventTarget
+		if ( typeof audioContext.addEventListener === 'function' )
+			audioContext.addEventListener( 'statechange', S_OnContextStateChange );
 		masterGain = audioContext.createGain();
 		masterGain.connect( audioContext.destination );
 		masterGain.gain.value = volume.value;
@@ -186,11 +189,7 @@ export function S_Startup() {
 	if ( ! snd_initialized )
 		return;
 
-	if ( audioContext && audioContext.state === 'suspended' && snd_blocked <= 0 ) {
-
-		audioContext.resume();
-
-	}
+	S_ResumeContext();
 
 	sound_started = true;
 
@@ -221,6 +220,32 @@ export function S_SetCallbacks( callbacks ) {
 
 /*
 ================
+S_ResumeContext
+
+Web-only (no C equivalent). iOS leaves the context 'interrupted' after a
+call, Siri or an alarm without hiding the page, so resume from any state
+but 'running' or 'closed'. May reject without a user gesture; the next
+gesture's S_UnlockAudio retries.
+================
+*/
+function S_ResumeContext() {
+
+	if ( audioContext === null || snd_blocked > 0 ) return;
+	if ( audioContext.state === 'running' || audioContext.state === 'closed' ) return;
+
+	audioContext.resume().catch( () => {} );
+
+}
+
+// Web-only: try to recover when the context leaves 'running' unblocked.
+function S_OnContextStateChange() {
+
+	S_ResumeContext();
+
+}
+
+/*
+================
 S_UnlockAudio
 
 Called from user gesture handlers (mouse/keyboard/touch) to unlock the AudioContext.
@@ -230,11 +255,7 @@ Web Audio API requires a user gesture before audio can play.
 export function S_UnlockAudio() {
 
 	// A blocked (hidden) page stays silent until S_UnblockSound.
-	if ( audioContext && audioContext.state === 'suspended' && snd_blocked <= 0 ) {
-
-		audioContext.resume();
-
-	}
+	S_ResumeContext();
 
 	if ( snd_blocked <= 0 )
 		_onUnlockAudio();

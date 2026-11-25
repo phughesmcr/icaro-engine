@@ -63,7 +63,8 @@ Deno process per room through `server/room_process_manager.ts`. A room:
 - **Startup requirements:** a loadable certificate and key (`-cert`/`-key`,
   default `cert.pem`/`key.pem`), because the room always opens a
   WebTransport listener and exits if it can't. A
-  WebSocket-only room needs a small change (plan step 3).
+  WebSocket-only room needs a small change (plan step 3; since done:
+  `-nowt`, see `server/README.md`).
 - **Timers:** one `setInterval` at `sys_ticrate` (50 ms, 20 Hz) plus a 5 s
   watchdog. `Sys_FloatTime` is `performance.now()`.
 - **Startup time:** about 120–130 ms from the start of the main module to the
@@ -356,13 +357,14 @@ above).
    listener optional (for example, skip it when no `-port`/`-cert` is
    given, or add `-nowt`), so a room starts without a certificate. Listen
    with `-wshost 0.0.0.0` inside the container. Add tests next to
-   `tests/game_server_args_test.js`.
+   `tests/game_server_args_test.js`. *Done: `-nowt`.*
 4. **Client address in rooms** (`server/client_address.ts`): inside a
    container, the peer is Cloudflare's network, not loopback, so the room
    needs to trust a header the room DO sets (for example `cf-connecting-ip`
    forwarded by the DO, or `?ip=` as the lobby proxy does today). Only the
    DO can reach the container, so trusting it is safe [docs: "only through
-   its Durable Object"].
+   its Durable Object"]. *Done: `-trustproxy` (`CF-Connecting-IP`, then
+   `?ip=`, from any peer).*
 5. **Lobby as a Worker** (new `cloudflare/` directory: `worker.js`,
    `wrangler.jsonc`):
    - `/mp/lobby`: accept the WebSocket and speak the existing framed

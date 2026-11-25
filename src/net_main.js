@@ -45,7 +45,8 @@ import {
 	WS_QGetMessage, WS_QSendMessage, WS_SendUnreliableMessage,
 	WS_CanSendMessage, WS_CanSendUnreliableMessage, WS_Close,
 	WS_QueryRooms, WS_CreateRoom,
-	WS_IsWebSocketURL, WS_ToWebSocketURL, WS_DefaultServer, WS_ServerBase, WS_RoomURL
+	WS_IsWebSocketURL, WS_ToWebSocketURL, WS_DefaultServer, WS_ServerBase, WS_RoomURL,
+	WS_PageIsLocal
 } from './net_websocket.js';
 
 import { MAX_SCOREBOARD } from './quakedef.js';
@@ -469,8 +470,8 @@ export function NET_Connect( host ) {
 	// For remote connections, ONLY use a remote driver - never fallback to loopback
 	if ( host && host !== 'local' ) {
 
-		// ws:// and wss:// addresses, ?transport=ws, and browsers without
-		// WebTransport use the WebSocket driver; everything else WebTransport
+		// ws:// and wss:// addresses use the WebSocket driver; any other
+		// address uses the page's transport (NET_UseWebSocket)
 		const useWebSocket = WS_IsWebSocketURL( host ) || NET_UseWebSocket();
 		const level = useWebSocket ? net_wsdriverlevel : net_wtdriverlevel;
 		if ( level < 0 || level >= net_numdrivers || ! net_drivers[ level ].initialized ) {
@@ -518,7 +519,13 @@ WebTransport is missing or an HTTP-only proxy sits in front (Cloudflare
 Tunnel), over WebSocket. Page parameters:
   ?transport=ws        use WebSocket
   ?transport=wt        use WebTransport (if the browser has it)
-  ?server=<url>        the lobby; a ws:// or wss:// URL implies WebSocket
+  ?server=<url>        the lobby; a ws:// or wss:// URL implies WebSocket,
+                       any other scheme WebTransport
+Without either, a page on localhost uses WebTransport and the local lobby
+(SYS_DEFAULT_LOBBY), and a page on any other host uses WebSocket and the
+lobby at /mp on its own host (WS_DefaultServer): WebTransport's default
+lobby, https://localhost:4433, can't work for a public page, and WebTransport
+doesn't reach a lobby behind Cloudflare (docs/always-on-hosting.md).
 ===================
 */
 
@@ -538,6 +545,30 @@ function _NET_DriverReady( level ) {
 
 /*
 ===================
+NET_ChooseWebSocket
+
+The transport decision behind NET_UseWebSocket, from its inputs: whether
+each driver is ready, the page's ?transport= and ?server= (null when
+absent), and whether the page is local (WS_PageIsLocal). An empty ?server=
+counts as absent, as in NET_LobbyServer.
+===================
+*/
+export function NET_ChooseWebSocket( wtReady, wsReady, transport, server, pageIsLocal ) {
+
+	if ( wtReady === false ) return true;
+	if ( wsReady === false ) return false;
+
+	if ( transport === 'ws' ) return true;
+	if ( transport === 'wt' ) return false;
+
+	if ( server !== null && server.length > 0 ) return WS_IsWebSocketURL( server );
+
+	return pageIsLocal === false;
+
+}
+
+/*
+===================
 NET_UseWebSocket
 
 True when remote connections should use the WebSocket driver.
@@ -545,15 +576,13 @@ True when remote connections should use the WebSocket driver.
 */
 export function NET_UseWebSocket() {
 
-	if ( _NET_DriverReady( net_wtdriverlevel ) === false ) return true;
-	if ( _NET_DriverReady( net_wsdriverlevel ) === false ) return false;
-
-	const transport = _NET_PageParam( 'transport' );
-	if ( transport === 'ws' ) return true;
-	if ( transport === 'wt' ) return false;
-
-	const server = _NET_PageParam( 'server' );
-	return server !== null && WS_IsWebSocketURL( server );
+	return NET_ChooseWebSocket(
+		_NET_DriverReady( net_wtdriverlevel ),
+		_NET_DriverReady( net_wsdriverlevel ),
+		_NET_PageParam( 'transport' ),
+		_NET_PageParam( 'server' ),
+		WS_PageIsLocal()
+	);
 
 }
 

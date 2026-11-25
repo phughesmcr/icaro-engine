@@ -85,6 +85,8 @@ export function createConfig() {
 		wsPort: null,        // -wsport <port>: also accept WebSocket clients (TCP)
 		wsHost: '127.0.0.1', // -wshost <addr>: WebSocket listen address
 		wsTls: false,        // -wstls: wss:// with -cert/-key instead of plain ws://
+		noWebTransport: false, // -nowt: no WebTransport listener (needs -wsport; no cert unless -wstls)
+		trustProxy: false,   // -trustproxy: trust the forwarded client address from any peer
 		gameOptions: {},     // -coop/-teamplay/-skill/-fraglimit/-timelimit N: cvars set before the map spawns
 	};
 }
@@ -140,6 +142,10 @@ export function parseArgs(args = Deno.args, config = CONFIG) {
 			config.wsHost = args[++i];
 		} else if (arg === '-wstls') {
 			config.wsTls = true;
+		} else if (arg === '-nowt') {
+			config.noWebTransport = true;
+		} else if (arg === '-trustproxy') {
+			config.trustProxy = true;
 		} else if (arg.length > 1 && arg[0] === '-' && Object.hasOwn(GAME_OPTION_RANGES, arg.slice(1)) && args[i + 1] !== undefined) {
 			// The lobby has already clamped these; this re-checks them (a
 			// room can also be started by hand) and ignores anything else.
@@ -153,6 +159,31 @@ export function parseArgs(args = Deno.args, config = CONFIG) {
 		}
 	}
 	return config;
+}
+
+/**
+ * Why config can't start, or null. A room needs at least one listener, so
+ * -nowt needs -wsport.
+ */
+export function configError(config) {
+	if (config.noWebTransport && config.wsPort === null) {
+		return '-nowt needs -wsport: the room would have no listener';
+	}
+	return null;
+}
+
+/**
+ * The WebSocket driver's trust settings. A lobby-spawned room is reached only
+ * through the lobby's proxy, which passes the client's address as ?ip= from
+ * loopback. -trustproxy is for a room that only a proxy can reach but whose
+ * peer isn't loopback (a Cloudflare Container behind its Durable Object): the
+ * forwarded address is then trusted from any peer.
+ */
+export function wsTrustConfig(config) {
+	return {
+		trustQueryIp: config.roomId !== null || config.trustProxy,
+		trustAnyPeer: config.trustProxy,
+	};
 }
 
 /**
@@ -335,11 +366,15 @@ async function Host_Init_Server() {
 
 	// Initialize network
 	Sys_Printf('Configuring network...\n');
-	WT_SetConfig({
-		port: CONFIG.port,
-		certFile: CONFIG.certFile,
-		keyFile: CONFIG.keyFile,
-	});
+	if (CONFIG.noWebTransport) {
+		Sys_Printf('WebTransport listener off (-nowt): WebSocket only\n');
+	} else {
+		WT_SetConfig({
+			port: CONFIG.port,
+			certFile: CONFIG.certFile,
+			keyFile: CONFIG.keyFile,
+		});
+	}
 
 	// Room servers accept connections directly (no lobby protocol); the
 	// driver has no separate mode for it.
@@ -353,7 +388,9 @@ async function Host_Init_Server() {
 	// Enable listening mode (dedicated server accepts connections)
 	set_listening(true);
 
-	// Register server WebTransport driver (driver 1)
+	// Register server WebTransport driver (driver 1). With -nowt it is never
+	// initialized, so the net loops skip it; it still replaces the client
+	// driver NET_Init put in this slot.
 	set_net_numdrivers(2);
 	net_drivers[1] = {
 		name: 'WebTransport Server',
@@ -374,7 +411,7 @@ async function Host_Init_Server() {
 	};
 
 	// Initialize the server driver
-	const controlSocket = net_drivers[1].Init();
+	const controlSocket = CONFIG.noWebTransport ? -1 : net_drivers[1].Init();
 	if (controlSocket !== -1) {
 		net_drivers[1].initialized = true;
 		net_drivers[1].controlSock = controlSocket;
@@ -398,9 +435,7 @@ async function Host_Init_Server() {
 			tls: CONFIG.wsTls,
 			certFile: CONFIG.certFile,
 			keyFile: CONFIG.keyFile,
-			// A lobby-spawned room is reached only through the lobby's proxy,
-			// which passes the client's address as ?ip=
-			trustQueryIp: CONFIG.roomId !== null,
+			...wsTrustConfig(CONFIG),
 		});
 		set_net_numdrivers(3);
 		net_drivers[2] = {
@@ -475,12 +510,13 @@ async function Host_Init_Server() {
 
 	// Start listening for connections. The WebSocket listener starts first, so
 	// "WebTransport server listening" (what the lobby waits for) still means
-	// every listener is up. Each resolves false when it can't bind or load its
-	// cert.
+	// every listener is up. With -nowt there is no such line, so the lobby
+	// can't start that room; "WebSocket server listening" is the last one.
+	// Each resolves false when it can't bind or load its cert.
 	if (CONFIG.wsPort !== null && await net_drivers[2].Listen(true) === false) {
 		throw new Error('WebSocket listener failed to start on port ' + CONFIG.wsPort);
 	}
-	if (await net_drivers[1].Listen(true) === false) {
+	if (CONFIG.noWebTransport === false && await net_drivers[1].Listen(true) === false) {
 		throw new Error('WebTransport listener failed to start on port ' + CONFIG.port);
 	}
 
@@ -499,7 +535,7 @@ async function Host_Init_Server() {
 	}
 
 	Sys_Printf('\nServer initialized!\n');
-	Sys_Printf('  Port: ' + CONFIG.port + '\n');
+	Sys_Printf('  Port: ' + (CONFIG.noWebTransport ? 'off (WebSocket ' + CONFIG.wsPort + ')' : CONFIG.port) + '\n');
 	Sys_Printf('  Max clients: ' + CONFIG.maxClients + '\n');
 	Sys_Printf('  Map: ' + CONFIG.defaultMap + '\n\n');
 }
@@ -674,6 +710,11 @@ async function main() {
 	});
 
 	parseArgs();
+	const configProblem = configError(CONFIG);
+	if (configProblem !== null) {
+		console.error('Fatal error: ' + configProblem);
+		Deno.exit(1);
+	}
 	startWatchdog();
 
 	if (CONFIG.parentWatch) {

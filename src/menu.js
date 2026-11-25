@@ -2194,7 +2194,7 @@ const touchItems = [
 	{ label: '            Gyro Speed', cvar: 'touch_gyro_sensitivity', min: 0.25, max: 3, step: 0.25 },
 	{ label: '           Invert Look', get: () => m_pitch.value < 0, set: () => Cvar_SetValue( 'm_pitch', - m_pitch.value ) },
 	{ label: '           Left-Handed', cvar: 'touch_lefthanded' },
-	{ label: '           Button Size', cvar: 'touch_size', min: 0.6, max: 1.6, step: 0.1 },
+	{ label: '           Button Size', cvar: 'touch_size', min: 0.6, max: 2, step: 0.1 },
 	{ label: '        Button Opacity', cvar: 'touch_opacity', min: 0.2, max: 1, step: 0.1 },
 	{ label: '             Vibration', cvar: 'touch_haptics' }
 ];

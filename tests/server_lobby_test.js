@@ -459,6 +459,21 @@ Deno.test( 'WS_ClientAddress trusts forwarded addresses only from loopback', () 
 	assert.equal( WS_ClientAddress( url, new Headers( { 'cf-connecting-ip': 'not an ip' } ), '127.0.0.1', false ), '127.0.0.1', 'malformed header ignored' );
 } );
 
+Deno.test( 'WS_ClientAddress with trustAnyPeer (-trustproxy) takes the forwarded address from any peer, header first', () => {
+	const url = new URL( 'ws://10.0.0.5:4500/?ip=203.0.113.9' );
+	const bare = new URL( 'ws://10.0.0.5:4500/' );
+	const cf = new Headers( { 'cf-connecting-ip': ' 198.51.100.7 ' } );
+	const none = new Headers();
+	assert.equal( WS_ClientAddress( url, cf, '10.0.0.2', true, true ), '198.51.100.7', 'header wins over a client-supplied ?ip=' );
+	assert.equal( WS_ClientAddress( url, none, '10.0.0.2', true, true ), '203.0.113.9', '?ip= when the proxy sets no header' );
+	assert.equal( WS_ClientAddress( url, none, '10.0.0.2', false, true ), '10.0.0.2', '?ip= still needs trustQuery' );
+	assert.equal( WS_ClientAddress( bare, none, '10.0.0.2', true, true ), '10.0.0.2', 'nothing forwarded: the peer' );
+	assert.equal( WS_ClientAddress( url, cf, '127.0.0.1', true, true ), '198.51.100.7', 'loopback peer too' );
+	assert.equal( WS_ClientAddress( new URL( 'ws://x/?ip=evil%20value' ), new Headers( { 'cf-connecting-ip': 'not an ip' } ), '10.0.0.2', true, true ), '10.0.0.2', 'malformed values ignored' );
+	assert.equal( WS_ClientAddress( url, new Headers( { 'cf-connecting-ip': 'not an ip' } ), '10.0.0.2', true, true ), '10.0.0.2', 'a malformed header does not fall through to ?ip=' );
+	assert.equal( WS_ClientAddress( url, cf, '10.0.0.2', true, false ), '10.0.0.2', 'without it a remote peer still cannot forward' );
+} );
+
 function waitUntil( predicate, label ) {
 	return waitFor( predicate, 2000 ).catch( () => {
 		throw new Error( 'timed out waiting for ' + label );

@@ -35,3 +35,14 @@ jobs:
 
       - name: Type check
         run: deno task check
+
+  # The game-room image (server/Dockerfile) must hold no .pak but the
+  # shareware static/pak0.pak: registered and rerelease data must never reach
+  # an image. Docker is preinstalled on the runner. Nothing is pushed.
+  container-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check the game-room image
+        run: sh tools/check_container_image.sh

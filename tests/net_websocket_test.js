@@ -116,7 +116,9 @@ const DEFAULT_CONFIG = {
 	maxHandshakingSessions: 16,
 	handshakeTimeoutMs: 10000,
 	pendingAcceptTimeoutMs: 30000,
-	closeFlushMs: 1000
+	closeFlushMs: 1000,
+	trustQueryIp: false,
+	trustAnyPeer: false
 };
 
 function setupServer( { maxclients = 2, sockets = 8, config = {} } = {} ) {
@@ -510,6 +512,38 @@ Deno.test( 'WS: per-IP session limit', async () => {
 			assertEqual( server.WS_AcceptSocketForTest( b.server, '10.9.9.9:2', '10.9.9.9' ), true, 'second' );
 			assertEqual( server.WS_AcceptSocketForTest( c.server, '10.9.9.9:3', '10.9.9.9' ), false, 'third refused' );
 			assertEqual( server.WS_GetSessionStatsForTest().handshaking, 2, 'two handshaking' );
+
+		} );
+
+	} finally {
+
+		await captureOutput( () => teardown() );
+
+	}
+
+} );
+
+Deno.test( 'WS: WS_HandleRequest counts a -trustproxy room\'s players by the forwarded address', async () => {
+
+	const teardown = setupServer( { maxclients: 4, sockets: 10, config: { maxSessionsPerIp: 1 } } );
+	const request = () => new Request( 'http://10.0.0.5:4500/?ip=203.0.113.9', {
+		headers: { upgrade: 'websocket', 'cf-connecting-ip': '198.51.100.7' }
+	} );
+	const info = { remoteAddr: { hostname: '10.0.0.2', port: 5000, transport: 'tcp' } };
+	try {
+
+		await captureOutput( () => {
+
+			// 198.51.100.7 already has its one session
+			const a = createFakeWebSocketPair();
+			assertEqual( server.WS_AcceptSocketForTest( a.server, '198.51.100.7:1', '198.51.100.7' ), true, 'first session' );
+
+			// Default: the non-loopback peer is the address, so the limit
+			// passes and the (unserved) request fails to upgrade
+			assertEqual( server.WS_HandleRequest( request(), info ).status, 400, 'peer address by default' );
+
+			server.WS_SetConfig( { trustQueryIp: true, trustAnyPeer: true } );
+			assertEqual( server.WS_HandleRequest( request(), info ).status, 503, 'forwarded address hits its per-IP limit' );
 
 		} );
 
@@ -918,6 +952,87 @@ Deno.test( 'WS: URL helpers', () => {
 		assertEqual( netMain.NET_LobbyServer(), 'wss://other.example/mp', '?server= wins' );
 		globalThis.location = { hostname: 'quake.example', host: 'quake.example', protocol: 'https:', search: '?server=wss://a.example/mp%22;bind%20w%20quit;%22' };
 		assertEqual( netMain.NET_LobbyServer(), null, 'crafted ?server= is refused, not replaced by the default' );
+
+	} finally {
+
+		globalThis.location = savedLocation;
+
+	}
+
+} );
+
+Deno.test( 'NET: transport choice by page', () => {
+
+	const choose = netMain.NET_ChooseWebSocket;
+	const PUBLIC = false, LOCAL = true;
+
+	// Both drivers ready, no parameters: the page's host decides
+	assertEqual( choose( true, true, null, null, LOCAL ), false, 'local page keeps WebTransport' );
+	assertEqual( choose( true, true, null, null, PUBLIC ), true, 'public page defaults to WebSocket' );
+	assertEqual( choose( true, true, null, '', PUBLIC ), true, 'empty ?server= is absent (public)' );
+	assertEqual( choose( true, true, null, '', LOCAL ), false, 'empty ?server= is absent (local)' );
+
+	// ?transport= wins everywhere
+	assertEqual( choose( true, true, 'wt', null, PUBLIC ), false, '?transport=wt on a public page' );
+	assertEqual( choose( true, true, 'ws', null, LOCAL ), true, '?transport=ws on a local page' );
+	assertEqual( choose( true, true, 'wt', 'wss://a.example/mp', PUBLIC ), false, '?transport=wt beats a wss:// ?server=' );
+	assertEqual( choose( true, true, 'ws', 'https://a.example:4433', LOCAL ), true, '?transport=ws beats an https:// ?server=' );
+
+	// Otherwise ?server='s scheme decides, on any host
+	assertEqual( choose( true, true, null, 'https://mp.example:4433', PUBLIC ), false, 'https:// lobby on a public page' );
+	assertEqual( choose( true, true, null, 'wts://mp.example:4433', PUBLIC ), false, 'wts:// lobby on a public page' );
+	assertEqual( choose( true, true, null, 'wss://mp.example/mp', PUBLIC ), true, 'wss:// lobby on a public page' );
+	assertEqual( choose( true, true, null, 'ws://127.0.0.1:4433', LOCAL ), true, 'ws:// lobby on a local page' );
+	assertEqual( choose( true, true, null, 'mp.example:4433', PUBLIC ), false, 'bare host lobby is WebTransport' );
+
+	// A missing driver overrides everything
+	assertEqual( choose( false, true, 'wt', 'https://a.example:4433', LOCAL ), true, 'no WebTransport: WebSocket' );
+	assertEqual( choose( true, false, 'ws', 'wss://a.example/mp', PUBLIC ), false, 'no WebSocket: WebTransport' );
+	assertEqual( choose( true, false, null, null, PUBLIC ), false, 'no WebSocket on a public page' );
+
+} );
+
+Deno.test( 'NET: page locality and default lobbies', () => {
+
+	const savedLocation = globalThis.location;
+	try {
+
+		const page = ( hostname, search = '', protocol = 'https:' ) => {
+
+			globalThis.location = { hostname, host: hostname, protocol, search };
+
+		};
+
+		delete globalThis.location;
+		assertEqual( client.WS_PageIsLocal(), true, 'no page is local' );
+		for ( const host of [ 'localhost', 'LOCALHOST', '127.0.0.1', '::1', '[::1]', '' ] ) {
+
+			page( host );
+			assertEqual( client.WS_PageIsLocal(), true, 'local: ' + host );
+
+		}
+
+		for ( const host of [ 'quake.example', '192.168.1.5', 'localhost.example' ] ) {
+
+			page( host );
+			assertEqual( client.WS_PageIsLocal(), false, 'public: ' + host );
+
+		}
+
+		// The public page's default WebSocket lobby is /mp on its own host,
+		// so the lobby socket is /mp/lobby and rooms /mp/room/<id>
+		page( 'quake.example' );
+		const lobby = netMain.NET_LobbyServer();
+		assertEqual( lobby, 'wss://quake.example/mp', 'public https page lobby' );
+		assertEqual( client.WS_LobbyURL( lobby ), 'wss://quake.example/mp/lobby', 'lobby socket path' );
+		assertEqual( netMain.NET_RoomURL( lobby, { id: 'R1', port: 4500 } ), 'wss://quake.example/mp/room/R1', 'room path' );
+		assertEqual( netMain.NET_LobbyJoinURL( lobby, 'R1' ), 'wss://quake.example/mp?room=R1', 'share-link join' );
+		page( 'quake.example', '', 'http:' );
+		assertEqual( netMain.NET_LobbyServer(), 'ws://quake.example/mp', 'public http page lobby' );
+		page( 'quake.example', '?server=' );
+		assertEqual( netMain.NET_LobbyServer(), 'wss://quake.example/mp', 'empty ?server= uses the default' );
+		page( 'quake.example', '?server=https://mp.example:4433' );
+		assertEqual( netMain.NET_LobbyServer(), 'https://mp.example:4433', 'self-hosted lobby kept' );
 
 	} finally {
 
