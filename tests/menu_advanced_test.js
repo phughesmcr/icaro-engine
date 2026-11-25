@@ -157,6 +157,10 @@ Deno.test( 'advanced menu: Options row, page list, slider taps, wrapping, scroll
 		items.push( { label: 'Toggle ' + i, cvar: 'test_adv_toggle' + i } );
 	const page = { title: 'Test', items };
 
+	// menu.js sizes its row buffers from the longest real page at import
+	const longest = Math.max( ...advancedPages.map( ( p ) => p.items.length ) );
+	assertEqual( items.length <= longest, true, 'the test page fits the row buffers' );
+
 	const hadWindow = 'window' in globalThis;
 	if ( ! hadWindow ) globalThis.window = { devicePixelRatio: 1 };
 	advancedPages.push( page );

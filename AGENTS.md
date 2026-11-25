@@ -10,7 +10,8 @@ process per room. It was forked from mrdoob's three-quake.
 
 - `src/`: the engine, shared by the browser and the Deno server. File names
   mirror the C files (`sv_phys.js` is `sv_phys.c`). Web-only additions:
-  `in_web.js`, `touch.js`, `webxr.js`, `net_webtransport.js`, `pak.js`.
+  `in_web.js`, `touch.js`, `webxr.js`, `net_webtransport.js`, `pak.js`,
+  `menu_cvars.js`.
 - `main.js` and `index.html`: the browser entry. `index.html`'s import map
   loads `three` and `nipplejs` from jsDelivr. Assets are in `static/`.
 - `server/`: `lobby_server.js`, `game_server.js` and the WebTransport server
