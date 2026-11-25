@@ -2006,3 +2006,86 @@ Deno.test( 'IN-4: touch joystick run speed in IN_Move', () => {
 	} );
 
 } );
+
+Deno.test( 'IN-2: gamepad stick input hides the touch overlay until the next touch', async () => {
+
+	const { cls } = await import( '../src/client.js' );
+	const { ca_connected } = await import( '../src/client.js' );
+	const oldDest = keys.key_dest;
+	const oldState = cls.state;
+	const oldDemo = cls.demoplayback;
+	const savedNav = Object.getOwnPropertyDescriptor( globalThis, 'navigator' );
+	const pad = {
+		index: 0, connected: true, axes: [ 0, 0, 0, 0 ],
+		buttons: Array.from( { length: 16 }, () => ( { pressed: false, value: 0 } ) ),
+	};
+	Object.defineProperty( globalThis, 'navigator', { configurable: true, value: { getGamepads: () => [ pad ] } } );
+
+	try {
+
+		withFakeDom( ( dom ) => {
+
+			keys.set_key_dest( keys.key_game );
+			cls.state = ca_connected;
+			cls.demoplayback = false;
+			touch.Touch_Init( document.body );
+
+			dom.document.fire( 'pointerdown', { pointerType: 'touch' } );
+			input.IN_UpdateTouch();
+			assertEqual( touch.Touch_IsEnabled(), true, 'touch overlay is up in game' );
+
+			// Stick inside the deadzone changes nothing
+			pad.axes = [ 0.05, 0, 0, 0 ];
+			input.IN_Move( { forwardmove: 0, sidemove: 0, upmove: 0 } );
+			input.IN_UpdateTouch();
+			assertEqual( touch.Touch_IsEnabled(), true, 'a resting stick keeps the overlay' );
+
+			// Stick past the deadzone hides it, and the per-frame update keeps it hidden
+			pad.axes = [ 0, - 1, 0, 0 ];
+			input.IN_Move( { forwardmove: 0, sidemove: 0, upmove: 0 } );
+			input.IN_UpdateTouch();
+			input.IN_UpdateTouch();
+			assertEqual( touch.Touch_IsEnabled(), false, 'pad input hides the overlay' );
+			assertEqual( input.IN_IsMobile(), true, 'touch mode itself stays on' );
+
+			// A touch brings it back
+			pad.axes = [ 0, 0, 0, 0 ];
+			dom.document.fire( 'pointerdown', { pointerType: 'touch' } );
+			input.IN_UpdateTouch();
+			assertEqual( touch.Touch_IsEnabled(), true, 'touch shows the overlay again' );
+
+			// Hidden again, then a disconnect: the next game starts with the overlay
+			pad.axes = [ 0, - 1, 0, 0 ];
+			input.IN_Move( { forwardmove: 0, sidemove: 0, upmove: 0 } );
+			input.IN_UpdateTouch();
+			assertEqual( touch.Touch_IsEnabled(), false, 'pad input hides it again' );
+			cls.state = 0;
+			input.IN_UpdateTouch();
+			cls.state = ca_connected;
+			pad.axes = [ 0, 0, 0, 0 ];
+			input.IN_UpdateTouch();
+			assertEqual( touch.Touch_IsEnabled(), true, 'a new game shows the overlay' );
+
+			// Hidden again, then the pad is unplugged: the overlay comes back
+			pad.axes = [ 0, - 1, 0, 0 ];
+			input.IN_Move( { forwardmove: 0, sidemove: 0, upmove: 0 } );
+			input.IN_UpdateTouch();
+			assertEqual( touch.Touch_IsEnabled(), false, 'pad input hides it once more' );
+			Object.defineProperty( globalThis, 'navigator', { configurable: true, value: { getGamepads: () => [] } } );
+			input.IN_Move( { forwardmove: 0, sidemove: 0, upmove: 0 } );
+			input.IN_UpdateTouch();
+			assertEqual( touch.Touch_IsEnabled(), true, 'unplugging the pad shows the overlay' );
+
+		} );
+
+	} finally {
+
+		keys.set_key_dest( oldDest );
+		cls.state = oldState;
+		cls.demoplayback = oldDemo;
+		if ( savedNav ) Object.defineProperty( globalThis, 'navigator', savedNav );
+		else delete globalThis.navigator;
+
+	}
+
+} );

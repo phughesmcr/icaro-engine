@@ -133,6 +133,10 @@ const keyForCode = new Map();
 // pointerdown switches to touch controls, mouse movement switches back to
 // pointer lock and mouse look. Touchscreen laptops start in mouse mode.
 let touchMode = false;
+// A gamepad drove the game while touch controls were showing: keep the touch
+// overlay hidden (IN_UpdateTouch re-enables it every frame otherwise) until
+// the next touch pointerdown. Web-only; there is no C counterpart.
+let gamepadHidTouch = false;
 
 // Meta Quest — disables pointer lock and fullscreen
 let isQuest = false;
@@ -488,6 +492,8 @@ function GP_Poll( cmd ) {
 	const gp = GP_GetPrimary();
 	if ( ! gp ) {
 
+		// The pad went away: the touch overlay comes back
+		gamepadHidTouch = false;
 		if ( _gpPrev != null ) GP_ReleaseAll();
 		_gpPrev = null;
 		return;
@@ -565,6 +571,16 @@ function GP_Poll( cmd ) {
 	const ly = _gpMove[ 1 ];
 	const rx = _gpLook[ 0 ];
 	const ry = _gpLook[ 1 ];
+
+	// Real pad input (past the deadzone) while the touch overlay is up hides it
+	if ( touchMode && ! gamepadHidTouch && ( lx !== 0 || ly !== 0 || rx !== 0 || ry !== 0 ) ) {
+
+		gamepadHidTouch = true;
+		Touch_ReleaseButtons();
+		Touch_Disable();
+		mouseactive = false;
+
+	}
 
 	// Left stick → movement
 	cmd.forwardmove -= cl_forwardspeed.value * ly;
@@ -1342,6 +1358,7 @@ function handlePointerDown( event ) {
 
 	if ( event.pointerType === 'touch' || event.pointerType === 'pen' ) {
 
+		gamepadHidTouch = false;
 		IN_SetTouchMode( true );
 
 	} else if ( event.pointerType === 'mouse' ) {
@@ -2026,10 +2043,23 @@ export function IN_UpdateTouch() {
 
 	Touch_Frame();
 
+	// A new game starts with the touch overlay, even if a pad hid it last time
+	if ( cls.state !== ca_connected ) gamepadHidTouch = false;
+
 	if ( key_dest === key_game && cls.state === ca_connected && ! cls.demoplayback ) {
 
 		// In game (not demo, actually connected) - show game controls, hide menu controls
-		if ( ! Touch_IsEnabled() ) {
+		// unless a gamepad took over (gamepadHidTouch)
+		if ( gamepadHidTouch ) {
+
+			if ( Touch_IsEnabled() ) {
+
+				Touch_Disable();
+				mouseactive = false;
+
+			}
+
+		} else if ( ! Touch_IsEnabled() ) {
 
 			Touch_Enable();
 			mouseactive = true;
