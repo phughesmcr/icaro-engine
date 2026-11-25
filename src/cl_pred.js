@@ -941,9 +941,9 @@ Console command handler for _movevars. The server sends this via svc_stufftext
 during signon to sync physics parameters for client-side prediction.
 Matches original QuakeWorld's movevars protocol (QW/server/sv_user.c:98-108).
 
-Optional extra arguments 11 and 12 carry the NetQuake edgefriction and
-sv_maxvelocity cvars for the NetQuake-physics mode; servers that don't
-send them leave the WinQuake defaults.
+Optional extra arguments 11, 12 and 13 carry the NetQuake edgefriction,
+sv_maxvelocity and sv_altnoclip cvars for the NetQuake-physics mode;
+servers that don't send them leave the WinQuake defaults.
 ==============
 */
 function CL_Movevars_f() {
@@ -964,6 +964,8 @@ function CL_Movevars_f() {
 		movevars.edgefriction = Q_atof( Cmd_Argv( 11 ) );
 	if ( Cmd_Argc() >= 13 )
 		movevars.maxvelocity = Q_atof( Cmd_Argv( 12 ) );
+	if ( Cmd_Argc() >= 14 )
+		movevars.altnoclip = Q_atof( Cmd_Argv( 13 ) );
 }
 
 // Renderer/network isolation: the partial command CL_PredictMove runs

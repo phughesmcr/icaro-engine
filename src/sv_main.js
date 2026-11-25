@@ -64,7 +64,7 @@ import { SV_Physics, SV_SetState, SV_SetCallbacks,
 	sv_maxvelocity, sv_gravity, sv_nostep, sv_friction, sv_edgefriction,
 	sv_stopspeed, sv_maxspeed, sv_accelerate, sv_idealpitchscale } from './sv_phys.js';
 import { PR_ExecuteProgram, PR_SetHostError } from './pr_exec.js';
-import { SV_User_SetCallbacks, SV_SetIdealPitch } from './sv_user.js';
+import { SV_User_SetCallbacks, SV_SetIdealPitch, sv_altnoclip } from './sv_user.js';
 import { V_CalcRoll } from './view.js';
 import { key_dest } from './keys.js';
 
@@ -125,6 +125,7 @@ export function SV_Init() {
 	Cvar_RegisterVariable( sv_idealpitchscale );
 	Cvar_RegisterVariable( sv_aim );
 	Cvar_RegisterVariable( sv_nostep );
+	Cvar_RegisterVariable( sv_altnoclip ); // johnfitz
 	PR_SetDeathmatch( deathmatch );
 
 	for ( let i = 0; i < MAX_MODELS; i ++ )
@@ -326,7 +327,8 @@ SV_WriteMovevars
 
 Writes the _movevars stufftext that feeds client-side prediction. Not in
 NetQuake: it carries the values QuakeWorld sends in svc_serverdata, then
-edgefriction and sv_maxvelocity for pmove.js's NetQuake-physics mode.
+edgefriction, sv_maxvelocity and sv_altnoclip for pmove.js's
+NetQuake-physics mode.
 ================
 */
 export function SV_WriteMovevars( msg ) {
@@ -345,12 +347,13 @@ export function SV_WriteMovevars( msg ) {
 		+ ' ' + 1.0 // entgravity
 		+ ' ' + sv_edgefriction.value
 		+ ' ' + sv_maxvelocity.value
+		+ ' ' + sv_altnoclip.value
 		+ '\n' );
 
 }
 
 // Movevar cvar values last sent to all clients
-const _movevars_sent = new Float64Array( 7 );
+const _movevars_sent = new Float64Array( 8 );
 
 function SV_SnapshotMovevars() {
 
@@ -361,6 +364,7 @@ function SV_SnapshotMovevars() {
 	_movevars_sent[ 4 ] = sv_friction.value;
 	_movevars_sent[ 5 ] = sv_edgefriction.value;
 	_movevars_sent[ 6 ] = sv_maxvelocity.value;
+	_movevars_sent[ 7 ] = sv_altnoclip.value;
 
 }
 
@@ -380,7 +384,8 @@ export function SV_CheckMovevars() {
 		&& _movevars_sent[ 3 ] === sv_accelerate.value
 		&& _movevars_sent[ 4 ] === sv_friction.value
 		&& _movevars_sent[ 5 ] === sv_edgefriction.value
-		&& _movevars_sent[ 6 ] === sv_maxvelocity.value )
+		&& _movevars_sent[ 6 ] === sv_maxvelocity.value
+		&& _movevars_sent[ 7 ] === sv_altnoclip.value )
 		return;
 
 	SV_SnapshotMovevars();
