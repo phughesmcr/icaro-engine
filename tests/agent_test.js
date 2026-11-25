@@ -1,9 +1,10 @@
 // Tests for src/agent.js, the web-only agent API (docs/agent-interface.md):
-// console and centerprint events, held buttons, menu text and the
-// egocentric entity list.
+// console and centerprint events, held buttons, lockstep cvars, call
+// ordering, menu text and the egocentric entity list.
 
 await import( '../src/gl_rsurf.js' );
 const cmd = await import( '../src/cmd.js' );
+const cvar = await import( '../src/cvar.js' );
 const con = await import( '../src/console.js' );
 const scr = await import( '../src/gl_screen.js' );
 const keys = await import( '../src/keys.js' );
@@ -68,19 +69,20 @@ Deno.test( 'agent: Quake text is cleaned to ASCII', () => {
 
 } );
 
-Deno.test( 'agent: held buttons press and release the client buttons', () => {
+Deno.test( 'agent: held buttons press and release the client buttons', async () => {
 
+	agent.Agent_Attach( 'realtime' );
 	try {
 
-		agent.Agent_HoldButtons( 'forward,attack' );
+		await agent.Agent_Step( { buttons: 'forward,attack', hold: true }, 0, { ents: 0 } );
 		assert( ( input.in_forward.state & 1 ) === 1 && ( input.in_attack.state & 1 ) === 1, 'forward and attack down' );
-		agent.Agent_HoldButtons( [ 'attack' ] );
+		await agent.Agent_Step( { buttons: [ 'attack' ], hold: true }, 0, { ents: 0 } );
 		assert( ( input.in_forward.state & 1 ) === 0, 'forward released' );
 		assert( ( input.in_attack.state & 1 ) === 1, 'attack still down' );
 		let threw = false;
 		try {
 
-			agent.Agent_HoldButtons( 'fly' );
+			await agent.Agent_Step( { buttons: 'fly' }, 0, { ents: 0 } );
 
 		} catch {
 
@@ -89,14 +91,119 @@ Deno.test( 'agent: held buttons press and release the client buttons', () => {
 		}
 
 		assert( threw, 'unknown button rejected' );
+		await agent.Agent_Step( {}, 0, { ents: 0 } ); // not held: released after the step
+		assert( ( input.in_attack.state & 1 ) === 0, 'released when not held' );
+		await agent.Agent_Step( { buttons: 'jump', hold: true }, 0, { ents: 0 } );
 
 	} finally {
 
-		agent.Agent_HoldButtons( '' );
+		agent.Agent_Detach();
 
 	}
 
-	assert( ( input.in_attack.state & 1 ) === 0, 'all released' );
+	assert( ( input.in_jump.state & 1 ) === 0, 'detach releases held buttons' );
+
+} );
+
+Deno.test( 'agent: lockstep pins the frame cvars without saving them, detach restores them', () => {
+
+	const saved_storage = globalThis.localStorage;
+	let writes = 0;
+	globalThis.localStorage = { getItem: () => null, setItem: () => { writes ++; } };
+	const values = [ [ 'host_framerate', '0' ], [ 'host_timescale', '0.5' ], [ 'host_maxfps', '250' ] ];
+	const vars = values.map( ( [ name, value ] ) => {
+
+		let v = cvar.Cvar_FindVar( name );
+		if ( v === null ) {
+
+			v = new cvar.cvar_t( name, value, name === 'host_maxfps' );
+			cvar.Cvar_RegisterVariable( v );
+
+		}
+
+		const old = v.string;
+		v.string = value;
+		v.value = Number.parseFloat( value );
+		return { v, old };
+
+	} );
+
+	try {
+
+		agent.Agent_Attach( 'lockstep' );
+		assert( agent.Agent_Lockstep() === true, 'lockstep on' );
+		assert( Math.abs( vars[ 0 ].v.value - 1 / 72 ) < 1e-9, 'host_framerate pinned to one tic: ' + vars[ 0 ].v.value );
+		assert( vars[ 1 ].v.value === 0, 'host_timescale pinned off' );
+		assert( vars[ 2 ].v.value === 72 && vars[ 2 ].v.string === '72', 'host_maxfps pinned to 72' );
+		agent.Agent_Attach( 'realtime' );
+		assert( agent.Agent_Lockstep() === false, 'lockstep off' );
+		for ( let i = 0; i < values.length; i ++ )
+			assert( vars[ i ].v.string === values[ i ][ 1 ], values[ i ][ 0 ] + ' restored: ' + vars[ i ].v.string );
+		assert( vars[ 2 ].v.value === 250, 'host_maxfps value restored' );
+		assert( writes === 0, 'archived cvars not written to storage: ' + writes );
+
+	} finally {
+
+		agent.Agent_Detach();
+		for ( const { v, old } of vars ) {
+
+			v.string = old;
+			v.value = Number.parseFloat( old ) || 0;
+
+		}
+
+		globalThis.localStorage = saved_storage;
+
+	}
+
+} );
+
+Deno.test( 'agent: commands that load a map are recognised', () => {
+
+	for ( const text of [ 'map e1m1', 'restart', 'reconnect', 'god; changelevel e1m2', 'skill 1\nmap start', 'load s0' ] )
+		assert( agent.Agent_StartsLoad( text ) === true, 'loads: ' + JSON.stringify( text ) );
+	for ( const text of [ 'god', 'mapname', 'give s 100', 'impulse 9', 'restarted' ] )
+		assert( agent.Agent_StartsLoad( text ) === false, 'does not load: ' + JSON.stringify( text ) );
+
+} );
+
+Deno.test( 'agent: async calls run one at a time in call order', async () => {
+
+	const order = [];
+	const a = agent.Agent_Serial( async () => {
+
+		await new Promise( ( r ) => setTimeout( r, 20 ) );
+		order.push( 'a' );
+
+	} );
+	const b = agent.Agent_Serial( () => {
+
+		order.push( 'b' );
+		throw new Error( 'b failed' );
+
+	} );
+	const c = agent.Agent_Serial( () => {
+
+		order.push( 'c' );
+		return 'c';
+
+	} );
+
+	await a;
+	let failed = false;
+	try {
+
+		await b;
+
+	} catch {
+
+		failed = true;
+
+	}
+
+	assert( failed, 'a failed call rejects its own promise' );
+	assert( await c === 'c', 'later calls still run after a failure' );
+	assert( order.join( '' ) === 'abc', 'order ' + order.join( '' ) );
 
 } );
 

@@ -285,13 +285,16 @@ document it. A useful `goto` needs a graph. Options, in order:
 ### Adapters
 
 - **`window.icaro`**, browser.
-  - Calls: `help()` returns about 300 tokens of usage. Also `attach( opts )`,
-    `observe( opts )`, `step( action, tics )`, `act( macro )`, `events(
-    since )` and `detach()`.
+  - Calls (as built): `help()` returns about 300 tokens of usage. Also
+    `attach( mode )`, `detach()`, `mode()`, `new_game( map, skill )`,
+    `step( action, tics )`, `observe( opts )`, `cmd( text )`, `key( name )`,
+    `menu( label )` and `screenshot( width )`. Events come back inside each
+    observation. Macro actions (`act`) are not built.
   - Typical use: one `javascript_tool` call does `icaro.step(...)` and gets
     the next observation back, so each turn is one round trip.
-  - URL flags: `?agent=1` turns it on. `?agent=1&map=e1m1&skill=1` skips the
-    intro demo and menus. `?lockstep=1` starts paused.
+  - URL flags (as built): `window.icaro` is always present.
+    `?agent=lockstep` or `?agent=realtime` attaches at startup, and
+    `?map=e1m1&skill=1` starts that map instead of the intro demos.
   - Discovery: serve a short `/agent.md` (or `llms.txt`), and link it from a
     `<meta>` tag and a visually hidden line in `index.html`, so an agent
     landing on the page can learn the API in one read.
@@ -353,7 +356,7 @@ document it. A useful `goto` needs a graph. Options, in order:
 ## Phased plan
 
 1. **Core and `window.icaro`**: clock modes, `status`, `ents` and `events`
-   tiers, low-level actions, `ui` tier with menu text, `?agent=1` flags,
+   tiers, low-level actions, `ui` tier with menu text, `?agent=` flags,
    `/agent.md`. Test it by having Claude play e1m1 through the browser
    pane.
 2. **Headless MCP server**: prove a headless loopback client under Deno, then
@@ -369,7 +372,8 @@ document it. A useful `goto` needs a graph. Options, in order:
 
 ## Open questions
 
-- Should the agent API be on in production builds, or only with `?agent=1`?
+- Should the agent API be on in production builds, or only with `?agent=`?
+  As built it is always on (it does nothing until called).
   It is cheap either way, but `window.icaro` widens what page scripts can
   do.
 - Should agents be allowed on the public lobby, and how should they be

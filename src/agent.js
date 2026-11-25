@@ -12,7 +12,7 @@ import { STAT_HEALTH, STAT_ARMOR, STAT_AMMO, STAT_SHELLS, STAT_NAILS, STAT_ROCKE
 	IT_ROCKET_LAUNCHER, IT_LIGHTNING, IT_AXE, IT_ARMOR1, IT_ARMOR2, IT_ARMOR3, IT_KEY1, IT_KEY2,
 	IT_INVISIBILITY, IT_INVULNERABILITY, IT_SUIT, IT_QUAD, PITCH, YAW } from './quakedef.js';
 import { Cbuf_AddText, Cbuf_Execute, Cmd_ExecuteString, src_command } from './cmd.js';
-import { Cvar_FindVar, Cvar_Set } from './cvar.js';
+import { Cvar_FindVar } from './cvar.js';
 import { Host_Frame } from './host.js';
 import { Con_SetAgentHook } from './console.js';
 import { SCR_SetAgentHook, SCR_UpdateScreen } from './gl_screen.js';
@@ -98,6 +98,8 @@ const MODEL_KINDS = {
 	laser: 'laser_proj', k_spike: 'knight_proj', w_spike: 'scrag_proj', v_spike: 'vore_proj',
 	zom_gib: 'zombie_gib_proj', lavaball: 'lavaball'
 };
+const FL_MONSTER = 32; // server.h
+
 const ARMOR_SKINS = [ 'green_armor', 'yellow_armor', 'red_armor' ];
 
 // Models never worth listing: gibs, heads, sprites, the view model
@@ -174,7 +176,7 @@ export function Agent_CleanText( txt ) {
 }
 
 // Console lines that are loading chatter, not game events
-const AGENT_NOISE = /^(meshing |Connecting to local|VERSION [0-9.]+ SERVER|Loading |execing |Unknown command "?(startdemos|demos)|couldn't exec)/;
+const AGENT_NOISE = /^(meshing |Connecting to local|VERSION [0-9.]+ SERVER|Loading |execing |Unknown command "?(startdemos|demos)|couldn't exec|Client .* removed$)/;
 
 function Agent_ConsoleHook( txt ) {
 
@@ -232,7 +234,8 @@ function Agent_StatEvents() {
 	const st = cl.stats;
 	if ( prev_valid === false || map !== prev_map ) {
 
-		if ( map !== prev_map ) Agent_PushEvent( 'level: ' + map + ( cl.levelname ? ' "' + cl.levelname + '"' : '' ) );
+		// A new level, or the same one reloaded after a disconnect
+		Agent_PushEvent( 'level: ' + map + ( cl.levelname !== '' ? ' "' + cl.levelname + '"' : '' ) );
 		prev_map = map;
 
 	} else {
@@ -284,12 +287,15 @@ export function Agent_Attach( mode = 'realtime' ) {
 
 	if ( mode === 'lockstep' && agent_mode !== 'lockstep' ) {
 
+		// Set the fields directly: Cvar_Set would save the archived
+		// host_maxfps to localStorage, losing the player's value if the page
+		// closes before detach
 		for ( const [ name, value ] of LOCKSTEP_CVARS ) {
 
 			const v = Cvar_FindVar( name );
 			if ( v === null ) continue;
 			saved_cvars.set( name, v.string );
-			Cvar_Set( name, value );
+			Agent_PinCvar( v, value );
 
 		}
 
@@ -304,10 +310,22 @@ export function Agent_Attach( mode = 'realtime' ) {
 
 }
 
+function Agent_PinCvar( v, value ) {
+
+	v.string = value;
+	v.value = Number.parseFloat( value ) || 0;
+
+}
+
 function Agent_RestoreCvars() {
 
-	for ( const [ name, value ] of saved_cvars )
-		Cvar_Set( name, value );
+	for ( const [ name, value ] of saved_cvars ) {
+
+		const v = Cvar_FindVar( name );
+		if ( v !== null ) Agent_PinCvar( v, value );
+
+	}
+
 	saved_cvars.clear();
 
 }
@@ -348,7 +366,7 @@ function Agent_Tic() {
 // Let promises and fetches (map loads) settle. A MessageChannel task is not
 // throttled in background tabs the way setTimeout is.
 let yield_channel = null;
-let yield_resolve = null;
+const yield_waiting = []; // one resolver per posted message, in order
 function Agent_Yield() {
 
 	if ( typeof MessageChannel === 'undefined' )
@@ -359,9 +377,8 @@ function Agent_Yield() {
 		yield_channel = new MessageChannel();
 		yield_channel.port1.onmessage = () => {
 
-			const r = yield_resolve;
-			yield_resolve = null;
-			if ( r !== null ) r();
+			const resolve = yield_waiting.shift();
+			if ( resolve !== undefined ) resolve();
 
 		};
 
@@ -369,10 +386,21 @@ function Agent_Yield() {
 
 	return new Promise( ( resolve ) => {
 
-		yield_resolve = resolve;
+		yield_waiting.push( resolve );
 		yield_channel.port2.postMessage( 0 );
 
 	} );
+
+}
+
+// The async calls run one at a time, in call order, so two never step the
+// game together (which would break "exactly N tics")
+let agent_queue = Promise.resolve();
+export function Agent_Serial( fn ) {
+
+	const run = agent_queue.then( fn, fn );
+	agent_queue = run.catch( () => {} );
+	return run;
 
 }
 
@@ -436,14 +464,6 @@ function Agent_SetButtons( names ) {
 
 }
 
-// Holds exactly these buttons until the next change (tests and adapters)
-export function Agent_HoldButtons( buttons ) {
-
-	Agent_SetButtons( Agent_ParseButtons( buttons ) );
-	return [ ...held_buttons ];
-
-}
-
 function Agent_ReleaseButtons() {
 
 	Agent_SetButtons( new Set() );
@@ -503,7 +523,13 @@ action: { buttons: 'forward,attack', yaw: deg (+ turns left), pitch: deg
 Returns the observation text (with the events since the last observation).
 ==================
 */
-export async function Agent_Step( action = {}, tics = 1, opts = {} ) {
+export function Agent_Step( action = {}, tics = 1, opts = {} ) {
+
+	return Agent_Serial( () => Agent_StepNow( action, tics, opts ) );
+
+}
+
+async function Agent_StepNow( action, tics, opts ) {
 
 	if ( agent_mode === 'off' ) Agent_Attach( 'realtime' );
 	tics = Math.max( 0, Math.min( 72 * 60, Math.floor( Number( tics ) || 0 ) ) );
@@ -544,6 +570,15 @@ export async function Agent_Step( action = {}, tics = 1, opts = {} ) {
 
 }
 
+const AGENT_LOAD_CMDS = /(^|[\s;])(map|changelevel|restart|load|connect|reconnect)(\s|;|$)/;
+
+// True if console text starts a map load or connection
+export function Agent_StartsLoad( text ) {
+
+	return AGENT_LOAD_CMDS.test( text );
+
+}
+
 /*
 ==================
 Agent_Command
@@ -552,25 +587,33 @@ Runs console text (e.g. 'map e1m2' or 'god'), lets it take effect, and
 returns the console lines it printed.
 ==================
 */
-export async function Agent_Command( text ) {
+export function Agent_Command( text ) {
+
+	return Agent_Serial( () => Agent_CommandNow( text ) );
+
+}
+
+async function Agent_CommandNow( text ) {
 
 	if ( agent_mode === 'off' ) Agent_Attach( 'realtime' );
 	const first = event_seq;
-	Cbuf_AddText( String( text ) + '\n' );
+	text = String( text );
+	Cbuf_AddText( text + '\n' );
 	if ( agent_mode === 'lockstep' ) {
 
 		Cbuf_Execute();
-		Agent_Tic();
+		// Commands the server runs (god, give, kill) go over the connection
+		// and print their reply there: one tic carries it back
+		if ( Agent_Ready() ) Agent_Tic();
 
-	}
+	} else await new Promise( ( r ) => setTimeout( r, 2000 / 72 ) ); // the next frame runs it
 
-	// A command may start async work (map loads fetch files): give it a few
-	// frames, then wait for any load it started
-	for ( let i = 0; i < 4; i ++ ) {
+	// Map loads fetch files before the server spawns: let those settle
+	// (without tics) until the load shows, then run it to signon
+	if ( Agent_StartsLoad( text ) ) {
 
-		await Agent_Yield();
-		if ( agent_mode === 'lockstep' ) Agent_Tic();
-		else await new Promise( ( r ) => setTimeout( r, 1000 / 72 ) );
+		const start = performance.now();
+		while ( Agent_Loading() === false && performance.now() - start < 2000 ) await Agent_Yield();
 
 	}
 
@@ -591,16 +634,24 @@ Starts a single-player map at a skill (0 easy to 3 nightmare). Host_Map_f
 closes the console and menu, as in C.
 ==================
 */
-export async function Agent_NewGame( map = 'start', skill = 1 ) {
+export function Agent_NewGame( map = 'start', skill = 1 ) {
+
+	return Agent_Serial( () => Agent_NewGameNow( map, skill ) );
+
+}
+
+async function Agent_NewGameNow( map, skill ) {
 
 	if ( /^[A-Za-z0-9_]+$/.test( map ) === false ) throw new Error( 'bad map name' );
 	skill = Math.max( 0, Math.min( 3, Math.floor( Number( skill ) || 0 ) ) );
 	if ( agent_mode === 'off' ) Agent_Attach( 'realtime' );
+	const first = Math.min( event_seq, event_read );
 	// Disconnect first, so the level counts as loaded only once the new one is
 	// (the same map reloaded keeps its cached world model)
 	Cmd_ExecuteString( 'disconnect', src_command );
-	await Agent_Command( 'skill ' + skill + '\nmaxplayers 1\ndeathmatch 0\ncoop 0\nmap ' + map );
+	await Agent_CommandNow( 'skill ' + skill + '\nmaxplayers 1\ndeathmatch 0\ncoop 0\nmap ' + map );
 	const ok = await Agent_WaitFor( () => Agent_Ready() && Agent_MapName() === map.toLowerCase() );
+	event_read = first; // the load's events (level, intro text) come with the observation
 	if ( ok === false ) return 'failed to load ' + map + '\n' + Agent_Observe();
 	return Agent_Observe();
 
@@ -802,7 +853,7 @@ function Agent_Edict( num ) {
 
 	if ( sv.active !== true || num >= sv.num_edicts ) return null;
 	const ed = sv.edicts[ num ];
-	return ed === undefined || ed === null || ed.free ? null : ed;
+	return ed === undefined || ed === null || ed.free === true ? null : ed;
 
 }
 
@@ -856,7 +907,7 @@ export function Agent_Entities( max = 10, truth = true ) {
 			los_end[ 0 ] = ent.origin[ 0 ] + ( m.mins[ 0 ] + m.maxs[ 0 ] ) / 2;
 			los_end[ 1 ] = ent.origin[ 1 ] + ( m.mins[ 1 ] + m.maxs[ 1 ] ) / 2;
 			los_end[ 2 ] = ent.origin[ 2 ] + ( m.mins[ 2 ] + m.maxs[ 2 ] ) / 2;
-			if ( ed !== null && ( ed.v.flags & 32 ) !== 0 ) { // FL_MONSTER
+			if ( ed !== null && ( ed.v.flags & FL_MONSTER ) !== 0 ) {
 
 				if ( ed.v.health <= 0 ) continue; // corpse
 				hp = Math.round( ed.v.health );
@@ -975,7 +1026,7 @@ image. This is for adapters (MCP) that return it as an image.
 export function Agent_Screenshot( gl_canvas, overlay_canvas, width = 320, type = 'image/jpeg', quality = 0.7 ) {
 
 	SCR_UpdateScreen(); // draw now, so the WebGL buffer is still readable
-	const w = Math.max( 32, Math.min( 1920, Math.floor( width ) ) );
+	const w = Number.isFinite( width ) ? Math.max( 32, Math.min( 1920, Math.floor( width ) ) ) : 320;
 	const h = Math.round( w * gl_canvas.height / gl_canvas.width );
 	const c = gl_canvas.ownerDocument.createElement( 'canvas' );
 	c.width = w;
@@ -991,6 +1042,7 @@ export const AGENT_HELP = `Icaro Engine (Quake) agent API: window.icaro
 Start:  await icaro.new_game('e1m1', 1)   // map, skill 0-3; returns an observation
 Clock:  icaro.attach('lockstep')  // game frozen between steps (best for agents)
         icaro.attach('realtime')  // game runs; steps wait in real time
+        icaro.mode(), icaro.detach()  // current mode; stop (game runs again)
 Act:    await icaro.step({ buttons: 'forward,attack', yaw: 30, pitch: 0, impulse: 2 }, 18)
         buttons held for N tics (72 tics = 1 s), then released.
         buttons: ${ Object.keys( AGENT_BUTTONS ).join( ' ' ) }
@@ -1002,6 +1054,6 @@ Look:   icaro.observe()   // status line, ui, nearest entities, events since las
         yawN is the yaw change that faces it: step({ yaw: N }).
         exit = level exit trigger (walk into it).
 Menus:  icaro.key('down'|'up'|'enter'|'escape'|'y'|...), icaro.menu('Single Player')
-Console: await icaro.cmd('god')   // returns what it printed
+Console: await icaro.cmd('god')   // returns what it printed (lockstep, in game: runs one tic)
 Image:  use your browser's own screenshot tool (icaro.screenshot() returns a data URL)
 Options: icaro.observe({ ents: 20, format: 'json', truth: false })`;

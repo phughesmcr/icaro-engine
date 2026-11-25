@@ -231,8 +231,9 @@ async function main() {
 
 			if ( AGENT_MAP_ARG.test( agentMap ) ) {
 
-				const skillArg = Number( urlParams.get( 'skill' ) ?? 1 );
-				Agent_NewGame( agentMap, Number.isInteger( skillArg ) ? skillArg : 1 ).catch( ( e ) => console.error( e ) );
+				const skillParam = urlParams.get( 'skill' );
+				const skillArg = skillParam !== null && /^[0-3]$/.test( skillParam ) ? Number( skillParam ) : 1;
+				Agent_NewGame( agentMap, skillArg ).catch( ( e ) => console.error( e ) );
 
 			} else {
 
