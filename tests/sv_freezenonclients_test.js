@@ -36,7 +36,7 @@ function runFrames() {
 	};
 
 	const ran = [];
-	const gs = { self: 0, other: 0, time: 0, StartFrame: 1, force_retouch: 0 };
+	const gs = { self: 0, other: 0, time: 0, StartFrame: 1, PlayerPreThink: 1, PlayerPostThink: 1, force_retouch: 0 };
 
 	try {
 
@@ -58,16 +58,18 @@ function runFrames() {
 		PR_SetProgs( { numfunctions: 3 } );
 
 		const sv = { edicts: PR_AllocEdicts( 3, 105 ), num_edicts: 3, time: 1 };
-		const svs = { maxclients: 1, clients: [ { active: false } ] };
+		const svs = { maxclients: 1, clients: [ { active: true } ] };
 		PR_SetSV( sv );
 		PR_SetSVS( svs );
 		SV_SetState( sv, svs, gs );
 		// as SV_SpawnServer wires them; nothing else in this file uses sv_phys
-		SV_SetCallbacks( { PR_ExecuteProgram, EDICT_TO_PROG, PROG_TO_EDICT, NEXT_EDICT } );
+		// SV_LinkEdict is stubbed: there is no world to link into
+		SV_SetCallbacks( { PR_ExecuteProgram, EDICT_TO_PROG, PROG_TO_EDICT, NEXT_EDICT, SV_LinkEdict: () => {} } );
 		SV_SetFrametime( 0.1 );
 
-		// world (0) and a non-client (2) both think this frame; 1 is an empty client slot
-		for ( const e of [ 0, 2 ] )
+		// world (0) and a non-client (2) both think this frame; 1 is a live
+		// client, whose PlayerPreThink and PlayerPostThink record it
+		for ( const e of [ 0, 1, 2 ] )
 			sv.edicts[ e ].v.movetype = MOVETYPE_NONE;
 		const frames = [];
 
@@ -120,12 +122,13 @@ Deno.test( 'SV_Physics freezes non-clients and time when sv_freezenonclients is 
 
 	const [ normal, frozen ] = runFrames();
 
-	// StartFrame (self 0), then the world's think (0) and entity 2's think
-	assertEqual( normal.ran, '0 0 2', 'cvar off: everything thinks' );
+	// StartFrame (self 0), the world's think (0), client 1's pre- and
+	// post-think, then entity 2's think
+	assertEqual( normal.ran, '0 0 1 1 2', 'cvar off: everything thinks' );
 	assertEqual( normal.time, 1.1, 'cvar off: time advances' );
 
-	// StartFrame still runs and the world still thinks; entity 2 is past the cap
-	assertEqual( frozen.ran, '0 0', 'cvar on: only the world and clients' );
+	// StartFrame, the world and the client still run; entity 2 is past the cap
+	assertEqual( frozen.ran, '0 0 1 1', 'cvar on: only the world and clients' );
 	assertEqual( frozen.time, 1.1, 'cvar on: time stands still' );
 
 } );
