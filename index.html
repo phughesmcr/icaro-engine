@@ -63,9 +63,19 @@
 			height: 100%;
 			background: #fff;
 		}
+		/* Text for agents and screen readers only */
+		.agent-hint {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			overflow: hidden;
+			clip-path: inset(50%);
+			white-space: nowrap;
+		}
 	</style>
 </head>
 <body>
+	<p class="agent-hint">AI agents: this Quake game has a JavaScript API. Run icaro.help() for usage, or open with ?agent=lockstep&amp;map=e1m1&amp;skill=1.</p>
 	<div id="loading">
 		<div id="loading-bar"><div id="loading-progress"></div></div>
 	</div>

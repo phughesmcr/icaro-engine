@@ -306,7 +306,13 @@ All console printing must go through this in order to be logged to disk
 If no console is visible, the notify window will pop up.
 ================
 */
+// Web-only: src/agent.js sees every console line (null when no agent is attached)
+let con_agent_hook = null;
+export function Con_SetAgentHook( fn ) { con_agent_hook = fn; }
+
 export function Con_Print( txt ) {
+
+	if ( con_agent_hook !== null ) con_agent_hook( txt );
 
 	con_backscroll = 0;
 

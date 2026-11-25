@@ -3,9 +3,32 @@
 Research notes, 2026-11-25, written at `dev` `ad9a0fb`. The goal is to make
 Icaro the easiest Quake engine for LLM agents (Claude in a browser, Claude
 Code, other MCP clients) to drive, and a good RL environment in the ViZDoom
-mould. It must stay fast and keep observations cheap in tokens. Nothing here
-is built yet. Like the other docs, it is a snapshot, so check engine claims
-against the code.
+mould. It must stay fast and keep observations cheap in tokens. Like the
+other docs, it is a snapshot, so check engine claims against the code.
+
+## Status
+
+Phase 1 is built: `src/agent.js`, exposed as `window.icaro` by `main.js`
+(`icaro.help()` prints the usage). How it differs from the design below:
+
+- Buttons go through the client's own `+forward`/`-forward` commands with a
+  reserved key number, and look changes write `cl.viewangles`. So there is no
+  hook in `CL_SendCmd`.
+- Events come from two hooks, `Con_SetAgentHook` (`src/console.js`) and
+  `SCR_SetAgentHook` (`src/gl_screen.js`), plus stat changes compared after
+  each tic. There is no hook in `cl_parse.js`.
+- Lockstep pins `host_framerate` to 1/72 (and `host_maxfps` to 72,
+  `host_timescale` to 0), restoring them on detach. Each `Host_Frame`
+  therefore advances exactly one tic.
+- Measured in the browser pane on e1m1 in lockstep: `new_game` took 85 ms,
+  and 72 tics with rendering took about 90 ms (13x real time).
+- With a local server, the entity list adds monster health, door, button and
+  lift kinds, and the level's exits and teleporters. Secret triggers are left
+  out as spoilers.
+- Not built yet: the `map`, `screen` (except `icaro.screenshot()`) and `rl`
+  tiers, macro actions, the render-skip flag, labels for the options menu,
+  and every adapter except `window.icaro`. Headless play, determinism and
+  navigation are in progress on separate branches.
 
 Confidence labels on outside claims: **[V]** read on a primary source,
 **[S]** secondary source or search summary, **[U]** unverified. Claims about
