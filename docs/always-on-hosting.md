@@ -397,6 +397,185 @@ above).
 Steps 2–4 and 6 are small and also help the VM option; step 5 is the bulk of
 the work.
 
+## Free plan: a room in a Durable Object
+
+Added later on 2026-11-25, at `e325c34` (after #178, #179 and #182). The
+question: can rooms run on the Workers **Free** plan if the room is
+optimised hard? Containers are Paid only, so on Free a room has to run
+inside a Durable Object, which option A above rejected.
+
+**Verdict:** possibly, for light play: about 28 player-hours a day once the
+client batches its moves. One limit decides it, and the docs contradict
+themselves on it: the CPU time a Durable Object gets per invocation on Free.
+Only a deploy on a Free account can settle that. The deploy costs nothing,
+but it needs the maintainer's OK and their own `wrangler login`.
+
+### What the free allowances buy
+
+The Free plan allows, per day: 100,000 DO requests, 13,000 GB-s of DO
+duration, 100,000 Worker requests, 5 M rows read and 100,000 rows written.
+Incoming WebSocket messages are billed 20:1, and outgoing messages are free
+[docs] ([DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/)).
+A ticking room can't hibernate, so it pays duration at 128 MB for as long
+as it runs: 13,000 GB-s is about **28.9 room-hours a day**, whatever the
+player count. The lobby DO can hibernate between messages, and then it costs
+almost nothing.
+
+Requests are the tighter limit. Each player sends one WebSocket message per
+client frame, up to 72 a second (see "Measurements"):
+
+| Client sends | Messages/s per player | Billed requests/s | Player-hours/day | 4-player room-hours/day |
+|---|---|---|---|---|
+| every frame, as today | 72 | 3.6 | 7.7 | 1.9 |
+| moves batched every 50 ms | 20 | 1.0 | 27.8 | 6.9 |
+| moves batched every 100 ms | 10 | 0.5 | 55.6 | 13.9 |
+
+**Batching** means the client keeps building a `clc_move` every frame but
+sends a frame's worth of them together, one WebSocket message per 50 ms.
+The server reads them in order, as `SV_ReadClientMessage` already loops
+over every message in a packet. Every command still reaches the server, so
+prediction's acks are unaffected. The cost is up to 50 ms of extra input
+delay (25 ms on average), and the framing changes on both sides. It is a
+deliberate deviation and needs a browser test to show the input still
+feels right [unverified]. Sending fewer moves (20 Hz instead of 72 Hz)
+gives the same request count. It changes what prediction replays, though,
+so batching is the safer lever.
+
+**At the cap:** "further operations of that type will fail with an error"
+until 00:00 UTC [docs]. Whether open WebSockets drop at that point isn't
+documented. Either way a match in progress would end. The lobby DO should
+count billed messages in memory (a write per message would spend the
+100,000 rows written instead) and refuse new rooms near the cap.
+
+### CPU: the deciding question
+
+- The DO limits page gives 30 s of CPU per request (HTTP request, WebSocket
+  message or alarm), reset by every incoming message. Its FAQ says DOs
+  "have the same per invocation CPU limits as any Workers do". It links to
+  the Workers table, where Free gets 10 ms per HTTP request [docs]
+  ([DO limits](https://developers.cloudflare.com/durable-objects/platform/limits/),
+  [Workers limits](https://developers.cloudflare.com/workers/platform/limits/)).
+- Neither page says how `setInterval` callbacks are metered.
+- With 30 s, a room fits easily. A tick takes 0.2–2.8 ms on average and
+  8 ms at most on an M4 Pro, so perhaps twice that on Cloudflare's CPUs
+  [measured, plus estimate].
+- With 10 ms, `SV_SpawnServer` alone (35–39 ms here) doesn't fit in one
+  invocation. A busy tick on a slower CPU would also come close to the
+  limit, so the route would be dead.
+- Going over returns error 1102, and "its execution will be terminated"
+  if it happens consistently [docs].
+
+### Memory: fits with two changes
+
+Isolate memory is capped at 128 MB, and going over replaces the isolate,
+which drops every socket in it [docs]. A room spawning a map at `e325c34`
+(heap plus off-heap, after a forced GC, `tools/room_memory_probe.js`):
+
+| Map | Whole pak (today) | `--lazy` pak | `SV_SpawnServer` |
+|---|---|---|---|
+| start | 110.2 MB | 62.9 MB | 35–37 ms |
+| e1m1 | 110.4 MB | 62.9 MB | 37 ms |
+| e1m3 | 110.3 MB | 62.6 MB | 38–39 ms |
+
+These are [measured] here. The whole-pak figure is higher than the 96–98 MB
+in "Memory by stage", because the pak stage now holds about 51 MB of
+buffers for an 18 MB pak. The cause wasn't investigated, since lazy loading
+removes the buffer either way.
+
+1. **Lazy pak (no new engine code).** `COM_SetLazyPakSize( 0 )` makes
+   `COM_FetchPak` open the pak lazily and read only the files a room asks
+   for. That saves about 47 MB. In a DO, the reader would read byte ranges
+   from the pak served as a static asset (up to 25 MiB per file [docs]);
+   the browser already does this with `COM_RangeReader`. Whether a DO can
+   range-read its own assets cheaply is [unverified].
+2. **No client pools in a dedicated room.** A heap snapshot after spawning
+   shows about 31 MB allocated when the modules load. Most of it is around
+   100,000 small typed arrays (each `Float32Array( 3 )` with its own
+   `ArrayBuffer` is about 250 bytes, counting the wrappers). The client's
+   own pools are among them: `cl_entities`, `cl_static_entities` and
+   `cl_temp_entities` (`src/client.js`) hold 5,377 `entity_t`, each with six
+   vectors. That is about 10 MB that a dedicated room never uses [measured
+   count, size estimated]. Allocating those pools in `CL_Init` instead of
+   at import would save it in rooms, and change nothing in the browser.
+
+With both, a room would be about 50 MB after spawning. Load added about
+33 MB without a GC at 8 players in the bench, which puts a busy room around
+85 MB, under 128 MB [estimate]. Whether `ArrayBuffer`s count toward the
+limit isn't documented; assume they do.
+
+The bundle is small: `deno bundle --minify server/game_server.js` is
+415 KB (143 KB gzipped), against a 64 MiB limit with no compressed limit
+[measured, docs]. No server code busy-waits on the clock, which matters
+because `Date.now()` and `performance.now()` don't advance while a DO
+runs code [docs].
+
+### Isolate sharing
+
+"Multiple instances of the same Durable Object class can share an isolate"
+[docs] ([architecture guidance](https://developers.cloudflare.com/durable-objects/best-practices/architecture-guidance/#shared-isolates)),
+so module globals can't hold per-room state when the rooms are instances of
+one class. The docs don't say whether classes in separate Worker scripts
+share. Two ways round it:
+
+- **Fixed room slots:** one Worker script per slot (the Free plan allows
+  100 scripts), each with one room DO, and the lobby hands out free slots.
+  `src/` doesn't change. Separate scripts should get separate isolates, as
+  the security model isolates Workers from each other [unverified: confirm
+  on the deploy]. Three or four slots would be plenty, since the daily
+  request cap allows only about 7 room-hours of 4-player play.
+- **The engine as a factory:** bundle `src/` inside a function, so each
+  call returns a fresh copy of the module state. Two rooms in one isolate
+  then need about 2 × 50 MB, which only fits after both memory changes
+  above [unverified].
+
+Fixed slots are the simpler choice, and the request cap makes many rooms
+moot anyway. Choosing between them is a product decision: a lobby of a few
+fixed rooms, or rooms anyone can create.
+
+### Work, if the CPU test passes
+
+1. **Free-plan deploy (needs the maintainer's OK and their own `wrangler
+   login`):** a Worker and one room DO running the bundled room, with the
+   lazy pak read from static assets. Spawn `e1m1`, tick at 20 Hz and run
+   `tools/room_bench.js` bots against it. Record whether spawning or ticking
+   hits error 1102, the isolate's memory, whether timers keep ticking with
+   open sockets, and the billed requests on the dashboard.
+2. Lazy pak in rooms, behind a `game_server.js` flag.
+3. Allocate the client pools in `CL_Init` instead of at import.
+4. Batch moves on the WebSocket transport (client and server in one PR).
+5. The lobby as a hibernating DO with fixed room slots and a daily budget
+   counter, in place of plan step 5's Containers lobby.
+
+Steps 2–4 also help the Containers and VM options: less memory per room, and
+fewer requests where messages are billed.
+
+### Other free options (brief)
+
+- **Rooms hosted in a player's browser:** the browser already runs the
+  server for single player. A hibernating DO would do the lobby and WebRTC
+  signalling, and Cloudflare's TURN relay is free up to 1,000 GB a month
+  [docs] ([TURN FAQ](https://developers.cloudflare.com/realtime/turn/faq/);
+  whether it needs a paid plan isn't stated). The costs: a WebRTC
+  transport on both sides, a browser engine that accepts connections (it
+  can't today), the game ending when the host leaves, and the host's tab
+  having to stay in the foreground, since browsers throttle timers in
+  background tabs [unverified]. It is the largest change of all, but it
+  has no server limits.
+- **Render free:** 512 MB, 0.1 CPU, 750 hours a month. It sleeps after
+  15 minutes without traffic (an open WebSocket counts as traffic) and takes
+  about a minute to wake. Render "may restart the service at any time"
+  [docs] ([Render free](https://render.com/docs/free)). Today's lobby and
+  one room would run on it with WebSocket only. 0.1 CPU is about what a
+  4-player room needs, so there is no headroom [estimate].
+- **Koyeb free:** 512 MB, 0.1 vCPU. It scales to zero after an hour without
+  traffic, and a WebSocket that wakes it "may only live for a few minutes"
+  [docs] ([Koyeb](https://www.koyeb.com/docs/run-and-scale/scale-to-zero)).
+- **Not suitable:** Deno Deploy shuts idle apps down after about 20–30 s,
+  and its docs announce a sunset in April 2027 [docs]. Google Cloud's
+  always-free `e2-micro` runs only in US regions and includes 1 GB of
+  egress a month, about 35 hours of a 4-player room [docs, plus estimate].
+  Oracle reclaims idle VMs (see option C).
+
 ## Not verified
 
 - Whether each WebSocket message proxied to a container is billed as a DO
@@ -411,3 +590,9 @@ the work.
 - CPU on a real cloud vCPU (the figures above are from an M4 Pro).
 - Fly.io's UDP with QUIC/WebTransport, and its `lhr` prices.
 - Whether a 20 Hz client move rate on WebSocket feels the same in play.
+- The Free plan's CPU limit for a Durable Object (10 ms or 30 s per
+  invocation), and whether timer callbacks share an invocation's budget.
+- Whether open WebSockets drop when a Free daily limit is reached.
+- Whether DOs in separate Worker scripts ever share an isolate.
+- A lazy-pak room's memory under load, and whether a DO can range-read its
+  own static assets.
