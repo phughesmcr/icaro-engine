@@ -130,6 +130,8 @@ Both `--allow-net` grants are needed in every case: a missing grant fails startu
 | `-wsport <port>` | off | Also accept game clients over WebSocket on this TCP port. A room started by the lobby gets its own port here |
 | `-wshost <addr>` | `127.0.0.1` | WebSocket listen address |
 | `-wstls` | off | Serve `wss://` with `-cert`/`-key` instead of plain `ws://` |
+| `-nowt` | off | No WebTransport listener: WebSocket only. Needs `-wsport`; without `-wstls` no cert or key is read and `--unstable-net` isn't needed. Not for rooms the lobby starts: it waits for the WebTransport listener's startup line (see [WebSocket-only rooms](#websocket-only-rooms)) |
+| `-trustproxy` | off | Take the client's address from `CF-Connecting-IP`, then `?ip=`, whatever the peer, not only from loopback. Only for a listener that nothing but the proxy can reach (see [WebSocket-only rooms](#websocket-only-rooms)) |
 
 ## Connecting from Browser
 
@@ -203,6 +205,20 @@ Notes:
 - Cloudflare closes a WebSocket that carries no data for a while, and may close WebSockets when it restarts servers; stopping or restarting `cloudflared` drops them too ([WebSockets](https://developers.cloudflare.com/network/websockets/)). A game connection carries updates every frame, so it is not idle, and Deno pings each server-side socket after 30 s of silence (`Deno.upgradeWebSocket`'s `idleTimeout`). A dropped connection returns the player to the menu, and the room link (`?room=`) rejoins. Cloudflare documents no WebSocket message size limit; game messages are at most 8 KB.
 - The lobby takes `CF-Connecting-IP` as the client address ([HTTP headers](https://developers.cloudflare.com/fundamentals/reference/http-headers/)). If a Managed Transform removes visitor IP headers, every tunnel client appears as `127.0.0.1` and shares one set of per-IP limits.
 
+### WebSocket-only rooms
+
+A room can run with only its WebSocket listener, for a host that carries no UDP or that has no certificate, such as a Cloudflare Container reached through its Durable Object ([always-on-hosting.md](../docs/always-on-hosting.md)). From the repository root:
+
+```bash
+deno run '--allow-net=0.0.0.0:8080' --allow-read=static server/game_server.js -nowt -wsport 8080 -wshost 0.0.0.0 -trustproxy -room ABC123 -pak static/pak0.pak -map start
+```
+
+- `-nowt` skips the WebTransport listener, so the room reads no cert or key (unless `-wstls`) and runs without `--unstable-net`. `-wshost 0.0.0.0` accepts the proxy's connections from outside the container.
+- `-room` turns on the idle exit (`-idletimeout`). Without `-trustproxy`, a room trusts a forwarded address only from a loopback peer, as behind the lobby.
+- `-trustproxy`: inside a container the peer is the platform's proxy, not loopback, so the room would see every player at the proxy's address and apply one set of per-IP limits to all of them. With it, the room takes `CF-Connecting-IP` from any peer, then `?ip=` only when there is no such header, so a client-supplied `?ip=` can't override it (a malformed header means the peer's address); a proxy that doesn't forward the header must set or overwrite `?ip=` itself.
+- Use `-trustproxy` only when the proxy is the only way to reach the port. Anyone who can connect directly can claim any address and get round the per-IP limits.
+- The lobby can't start these rooms: it waits for the "WebTransport server listening" line, which a `-nowt` room never prints. Its listener line is "WebSocket server listening on ...", followed by "Server initialized!" once the map has spawned.
+
 ## Architecture
 
 ### Transport & Protocol
@@ -260,7 +276,7 @@ Notes:
 - `game_server.js` — Dedicated game server running the full Quake VM, physics, and protocol from `../src/`
 - `net_webtransport_server.ts` — Deno WebTransport server network driver
 - `net_websocket_server.ts` — Deno WebSocket server network driver (`-wsport`)
-- `client_address.ts` — Client address behind a local proxy (`CF-Connecting-IP`, the lobby proxy's `?ip=`)
+- `client_address.ts` — Client address behind a proxy (`CF-Connecting-IP`, the lobby proxy's `?ip=`): from loopback peers, or from any peer with `-trustproxy`
 - `quic_listen.ts` — Binds the dual-stack (`[::]` and `0.0.0.0`) QUIC endpoints for the lobby and rooms
 - `browser_shim.js` — Minimal `three` stubs mapped via `deno.json` for headless execution
 - `sys_server.ts` — Deno system utilities and production log filtering (`__ICARO_QUIET_LOGS`)

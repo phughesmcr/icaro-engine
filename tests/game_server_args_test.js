@@ -1,7 +1,7 @@
 // game_server.js command line: -rogue / -hipnotic parsing and the game
 // directories they add (common.c COM_InitFilesystem).
 
-const { createConfig, parseArgs, gameDirectories } = await import( '../server/game_server.js' );
+const { createConfig, parseArgs, gameDirectories, configError, wsTrustConfig } = await import( '../server/game_server.js' );
 const common = await import( '../src/common.js' );
 
 function assertEqual( actual, expected, message ) {
@@ -77,6 +77,35 @@ Deno.test( 'parseArgs reads the WebSocket listener flags', () => {
 	assertEqual( parseArgs( [ '-wsport', '0' ], createConfig() ).wsPort, null, 'port 0 refused' );
 	assertEqual( parseArgs( [ '-wsport', '70000' ], createConfig() ).wsPort, null, 'out of range refused' );
 	assertEqual( parseArgs( [ '-wsport', 'abc' ], createConfig() ).wsPort, null, 'not a number refused' );
+
+} );
+
+Deno.test( '-nowt starts a WebSocket-only room and needs -wsport', () => {
+
+	const defaults = createConfig();
+	assertEqual( defaults.noWebTransport, false, 'WebTransport listener on by default' );
+	assertEqual( configError( defaults ), null, 'defaults start' );
+	assertEqual( configError( parseArgs( [ '-wsport', '4501' ], createConfig() ) ), null, 'both listeners' );
+
+	const config = parseArgs( [ '-nowt', '-wsport', '8080', '-wshost', '0.0.0.0', '-room', 'abc', '-pak', 'static/pak0.pak' ], createConfig() );
+	assertEqual( config.noWebTransport, true, '-nowt' );
+	assertEqual( config.wsPort, 8080, '-wsport' );
+	assertEqual( config.wsHost, '0.0.0.0', '-wshost' );
+	assertEqual( configError( config ), null, '-nowt with -wsport starts' );
+
+	const error = configError( parseArgs( [ '-nowt' ], createConfig() ) );
+	if ( error === null || error.includes( '-wsport' ) === false ) throw new Error( '-nowt alone refused, got ' + error );
+	assertEqual( configError( parseArgs( [ '-nowt', '-wsport', '0' ], createConfig() ) ) !== null, true, 'invalid -wsport is no listener' );
+
+} );
+
+Deno.test( '-trustproxy trusts the forwarded client address from any peer; -room alone keeps loopback-only trust', () => {
+
+	assertEqual( createConfig().trustProxy, false, 'off by default' );
+	assertEqual( JSON.stringify( wsTrustConfig( createConfig() ) ), JSON.stringify( { trustQueryIp: false, trustAnyPeer: false } ), 'standalone server: header from loopback only' );
+	assertEqual( JSON.stringify( wsTrustConfig( parseArgs( [ '-room', 'abc' ], createConfig() ) ) ), JSON.stringify( { trustQueryIp: true, trustAnyPeer: false } ), 'lobby room: ?ip= from loopback only' );
+	assertEqual( JSON.stringify( wsTrustConfig( parseArgs( [ '-trustproxy' ], createConfig() ) ) ), JSON.stringify( { trustQueryIp: true, trustAnyPeer: true } ), '-trustproxy' );
+	assertEqual( JSON.stringify( wsTrustConfig( parseArgs( [ '-room', 'abc', '-trustproxy' ], createConfig() ) ) ), JSON.stringify( { trustQueryIp: true, trustAnyPeer: true } ), '-room -trustproxy' );
 
 } );
 

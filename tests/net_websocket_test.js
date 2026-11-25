@@ -116,7 +116,9 @@ const DEFAULT_CONFIG = {
 	maxHandshakingSessions: 16,
 	handshakeTimeoutMs: 10000,
 	pendingAcceptTimeoutMs: 30000,
-	closeFlushMs: 1000
+	closeFlushMs: 1000,
+	trustQueryIp: false,
+	trustAnyPeer: false
 };
 
 function setupServer( { maxclients = 2, sockets = 8, config = {} } = {} ) {
@@ -510,6 +512,38 @@ Deno.test( 'WS: per-IP session limit', async () => {
 			assertEqual( server.WS_AcceptSocketForTest( b.server, '10.9.9.9:2', '10.9.9.9' ), true, 'second' );
 			assertEqual( server.WS_AcceptSocketForTest( c.server, '10.9.9.9:3', '10.9.9.9' ), false, 'third refused' );
 			assertEqual( server.WS_GetSessionStatsForTest().handshaking, 2, 'two handshaking' );
+
+		} );
+
+	} finally {
+
+		await captureOutput( () => teardown() );
+
+	}
+
+} );
+
+Deno.test( 'WS: WS_HandleRequest counts a -trustproxy room\'s players by the forwarded address', async () => {
+
+	const teardown = setupServer( { maxclients: 4, sockets: 10, config: { maxSessionsPerIp: 1 } } );
+	const request = () => new Request( 'http://10.0.0.5:4500/?ip=203.0.113.9', {
+		headers: { upgrade: 'websocket', 'cf-connecting-ip': '198.51.100.7' }
+	} );
+	const info = { remoteAddr: { hostname: '10.0.0.2', port: 5000, transport: 'tcp' } };
+	try {
+
+		await captureOutput( () => {
+
+			// 198.51.100.7 already has its one session
+			const a = createFakeWebSocketPair();
+			assertEqual( server.WS_AcceptSocketForTest( a.server, '198.51.100.7:1', '198.51.100.7' ), true, 'first session' );
+
+			// Default: the non-loopback peer is the address, so the limit
+			// passes and the (unserved) request fails to upgrade
+			assertEqual( server.WS_HandleRequest( request(), info ).status, 400, 'peer address by default' );
+
+			server.WS_SetConfig( { trustQueryIp: true, trustAnyPeer: true } );
+			assertEqual( server.WS_HandleRequest( request(), info ).status, 503, 'forwarded address hits its per-IP limit' );
 
 		} );
 
