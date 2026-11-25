@@ -543,9 +543,15 @@ export async function WT_CreateRoom( serverUrl, config ) {
 
 	try {
 
-		// Create the WebTransport connection
+		// Create the WebTransport connection. transport.ready has no timeout
+		// of its own, and Start Game waits on this promise (menu.js).
 		transport = new WebTransport( url );
-		await transport.ready;
+		const ready = await _WT_WithTimeout( transport.ready.then( () => true ), WT_CONNECT_TIMEOUT_MS, false );
+		if ( ready !== true ) {
+
+			throw new Error( 'Room creation timed out' );
+
+		}
 
 		// Create bidirectional stream
 		const stream = await transport.createBidirectionalStream();
@@ -910,11 +916,11 @@ function _WT_WithTimeout( promise, timeoutMs, timeoutValue ) {
 
 function _WT_ClearRoomFromUrl() {
 
-	// Clear room from URL so refresh doesn't retry
+	// Clear room from URL so refresh doesn't retry. Sys_PageURL keeps game=
+	// and server=, so the menus still reach the same lobby afterwards.
 	if ( typeof history !== 'undefined' && typeof window !== 'undefined' ) {
 
-		const cleanUrl = window.location.origin + window.location.pathname;
-		history.replaceState( null, '', cleanUrl );
+		history.replaceState( null, '', Sys_PageURL( null ) );
 
 	}
 
