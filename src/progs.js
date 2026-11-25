@@ -114,6 +114,8 @@ export class edict_t {
 
 		this.freetime = 0.0; // sv.time when the object was freed
 
+		this.alpha = 0; // johnfitz -- ENTALPHA_* byte, from the "alpha" key or field (Ironwail edict_t)
+
 		// Allocate field data backing buffer
 		// entityfields is the number of int/float slots for the v (entvars) fields
 		// Additional fields from progs come immediately after
@@ -417,7 +419,32 @@ export function EDICT_NUM( n ) {
 	if ( n < 0 || n >= sv.max_edicts )
 		PR_HostError( 'EDICT_NUM: bad number ' + n );
 
+	if ( n >= sv.edicts.length )
+		ED_GrowEdicts( n + 1 );
+
 	return sv.edicts[ n ];
+
+}
+
+/*
+=================
+ED_GrowEdicts
+
+Not in C, which allocates all sv.max_edicts edicts at map load. With
+MAX_EDICTS at 32000 (quakedef.js) that would cost tens of megabytes per
+map, so sv.edicts starts smaller (SV_SpawnServer) and grows here, up to
+sv.max_edicts. ED_Alloc keeps one edict past sv.num_edicts, so NEXT_EDICT
+of the last edict is a free one, as with C's fixed array.
+=================
+*/
+export function ED_GrowEdicts( count ) {
+
+	const edicts = sv.edicts;
+	if ( count > sv.max_edicts )
+		count = sv.max_edicts;
+	const entityfields = edicts[ 0 ]._entityfields;
+	for ( let i = edicts.length; i < count; i ++ )
+		edicts.push( new edict_t( i, entityfields ) );
 
 }
 

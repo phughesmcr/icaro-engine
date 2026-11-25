@@ -283,9 +283,9 @@ Deno.test( 'PRESPAWN_FLUSH (SV_SendServerinfo, Host_Spawn_f) flushes once', () =
 
 } );
 
-// PF_ambientsound reserves its room in the signon. Its NetQuake record is
-// 10 bytes, so a buffer with exactly 10 bytes free would take it; the
-// reservation (Ironwail's 17) moves it to a new buffer instead.
+// PF_ambientsound reserves its room in the signon. Its PROTOCOL_ICARO
+// record (int32 coords, short sound index) is 17 bytes, Ironwail's
+// reservation; a buffer with 16 bytes free moves it to a new buffer.
 const PF_AMBIENTSOUND = 74;
 
 Deno.test( 'PF_ambientsound reserves signon space before writing', () => {
@@ -312,7 +312,7 @@ Deno.test( 'PF_ambientsound reserves signon space before writing', () => {
 
 		withSignon( () => {
 
-			SZ_Write( sv.signon, filler( SIGNON_SIZE - 10, 1 ), SIGNON_SIZE - 10 );
+			SZ_Write( sv.signon, filler( SIGNON_SIZE - 16, 1 ), SIGNON_SIZE - 16 );
 			pr_globals_float.set( [ 64, 128, 32 ], OFS_PARM0 );
 			pr_globals_int[ OFS_PARM1 ] = 1;
 			pr_globals_float[ OFS_PARM2 ] = 1;
@@ -320,8 +320,8 @@ Deno.test( 'PF_ambientsound reserves signon space before writing', () => {
 			pr_builtins[ PF_AMBIENTSOUND ]();
 
 			assert( sv.num_signon_buffers === 2, `expected a new buffer, got ${sv.num_signon_buffers}` );
-			assert( sv.signon_buffers[ 0 ].cursize === SIGNON_SIZE - 10, 'the full buffer was written to' );
-			assert( sv.signon_buffers[ 1 ].cursize === 10, `record size ${sv.signon_buffers[ 1 ].cursize}` );
+			assert( sv.signon_buffers[ 0 ].cursize === SIGNON_SIZE - 16, 'the full buffer was written to' );
+			assert( sv.signon_buffers[ 1 ].cursize === 17, `record size ${sv.signon_buffers[ 1 ].cursize}` );
 
 		} );
 

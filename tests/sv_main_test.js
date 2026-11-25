@@ -50,7 +50,7 @@ Deno.test( 'SV_StartSound encodes the source edict index', () => {
 
 		const data = sv.datagram.data;
 		const packedChannel = data[ 2 ] | ( data[ 3 ] << 8 );
-		assertEqual( sv.datagram.cursize, 11, 'sound packet size' );
+		assertEqual( sv.datagram.cursize, 17, 'sound packet size' ); // 5 + 3 int32 coords
 		assertEqual( data[ 0 ], svc_sound, 'service opcode' );
 		assertEqual( data[ 1 ], 0, 'optional field mask' );
 		assertEqual( packedChannel >> 3, 7, 'encoded entity index' );
@@ -84,7 +84,7 @@ function writeAndReadItems( ent ) {
 	const view = new DataView( msg.data.buffer, msg.data.byteOffset, msg.cursize );
 	assertEqual( msg.data[ 0 ], svc_clientdata, 'clientdata opcode' );
 	assertEqual( view.getUint16( 1, true ), SU_ITEMS | SU_WEAPON, 'clientdata bits' );
-	assertEqual( msg.cursize, 16, 'clientdata packet size' );
+	assertEqual( msg.cursize, 17, 'clientdata packet size' ); // SU_WEAPON is a short
 	return view.getUint32( 3, true );
 
 }

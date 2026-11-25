@@ -417,14 +417,27 @@ export function MSG_WriteString( sb, s ) {
 
 }
 
-// Deliberate deviation from WinQuake's (int)(f*8), which truncates toward
-// zero, so a coordinate could be sent up to 1/8 unit short (and negative
-// ones moved the other way). This rounds to the nearest 1/8 with Q_rint, as
-// Ironwail's MSG_WriteCoord16 does.
+// Deliberate deviations from WinQuake's MSG_WriteShort( (int)(f*8) ):
+// - (int) truncates toward zero, so a coordinate could be sent up to 1/8
+//   unit short (and negative ones moved the other way). This rounds to the
+//   nearest 1/8 with Q_rint, as Ironwail's MSG_WriteCoord16 does.
+// - The server speaks PROTOCOL_ICARO only, so this writes a long, not a
+//   short: the 2021 rerelease maps reach past +-4096 (protocol.js). Like
+//   Ironwail's PRFL_INT32COORD, but in 1/8 units, not 1/16, so a coordinate
+//   inside +-4096 decodes to the same value as the short did.
 export function MSG_WriteCoord( sb, f ) {
 
 	const x = f * 8;
 	// Q_rint: ((x) > 0 ? (int)((x) + 0.5) : (int)((x) - 0.5))
+	MSG_WriteLong( sb, ( x > 0 ? x + 0.5 : x - 0.5 ) | 0 );
+
+}
+
+// NetQuake's 16-bit coordinate (Ironwail's MSG_WriteCoord16), for tests and
+// tools that build protocol 15 messages
+export function MSG_WriteCoord16( sb, f ) {
+
+	const x = f * 8;
 	MSG_WriteShort( sb, ( x > 0 ? x + 0.5 : x - 0.5 ) | 0 );
 
 }
@@ -578,8 +591,19 @@ export function MSG_ReadString() {
 
 }
 
+// The coordinate size the client reads: 4 bytes for PROTOCOL_ICARO, 2 for
+// protocol 15 (NetQuake demos). CL_ParseServerInfo sets it from the
+// server's version. Not in C, where Ironwail passes cl.protocolflags to
+// each MSG_ReadCoord; one switch here keeps the dozens of callers
+// (cl_tent.js, view.js, render.js) unchanged. The server never reads
+// coordinates and always writes 4 bytes (MSG_WriteCoord).
+export let msg_coord32 = true;
+export function MSG_SetCoord32( on ) { msg_coord32 = on; }
+
 export function MSG_ReadCoord() {
 
+	if ( msg_coord32 )
+		return MSG_ReadLong() * ( 1.0 / 8 );
 	return MSG_ReadShort() * ( 1.0 / 8 );
 
 }

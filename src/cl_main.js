@@ -1,6 +1,6 @@
 // Ported from: WinQuake/cl_main.c -- client main loop
 
-import { MAX_EDICTS, MAX_LIGHTSTYLES } from './quakedef.js';
+import { MAX_LIGHTSTYLES } from './quakedef.js';
 import { Con_Printf, Con_DPrintf, SZ_Alloc, SZ_Clear,
 	MSG_WriteByte, MSG_WriteString } from './common.js';
 import { NET_Connect, NET_SendMessage, NET_SendUnreliableMessage, NET_CanSendMessage, NET_Close } from './net_main.js';
@@ -13,7 +13,7 @@ import { CL_ParseServerMessage, CL_ClearStuffText } from './cl_parse.js';
 import { SIGNONS, MAX_DLIGHTS, MAX_EFRAGS, MAX_BEAMS, MAX_TEMP_ENTITIES,
 	MAX_DEMOS, MAX_VISEDICTS,
 	ca_dedicated, ca_disconnected, ca_connected,
-	cl, cls, cl_efrags, cl_entities,
+	cl, cls, cl_efrags, cl_entities, CL_EnsureEntities, CL_INITIAL_ENTITIES,
 	cl_lightstyle, cl_dlights, cl_temp_entities, cl_beams,
 	cl_numvisedicts, cl_visedicts, set_cl_numvisedicts,
 	dlight_t, entity_t, lightstyle_t, beam_t,
@@ -128,6 +128,7 @@ export function CL_ClearState() {
 	cl.viewentity = 0;
 	cl.maxclients = 0;
 	cl.gametype = 0;
+	cl.protocol = 0;
 	cl.worldmodel = null;
 	cl.free_efrags = null;
 	cl.num_entities = 0;
@@ -149,12 +150,10 @@ export function CL_ClearState() {
 
 	}
 
-	for ( let i = 0; i < MAX_EDICTS; i ++ ) {
-
-		cl_entities[ i ] = new entity_t();
-		cl_entities[ i ]._entityIndex = i;
-
-	}
+	// C clears all MAX_EDICTS; here the array drops back to its initial size
+	// and grows again on demand (client.js CL_EnsureEntities)
+	cl_entities.length = 0;
+	CL_EnsureEntities( CL_INITIAL_ENTITIES );
 
 	for ( let i = 0; i < MAX_DLIGHTS; i ++ )
 		cl_dlights[ i ] = new dlight_t();
@@ -751,6 +750,7 @@ function CL_LinkPacketEntities( frac ) {
 		ent.frame = s1.frame;
 		ent.skinnum = s1.skin;
 		ent.effects = s1.effects;
+		ent.alpha = s1.alpha; //johnfitz -- alpha
 
 		// set colormap
 		if ( s1.colormap === 0 ) {

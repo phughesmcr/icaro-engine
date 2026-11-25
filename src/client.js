@@ -183,6 +183,7 @@ export class entity_t {
 		this.colormap = null;
 		this.effects = 0; // light, particles, etc
 		this.skinnum = 0; // for Alias models
+		this.alpha = 0; //johnfitz -- alpha (ENTALPHA_* in protocol.js; 0 is opaque)
 		this.visframe = 0; // last frame this entity was found in an active leaf
 
 		this.dlightframe = 0; // dynamic lighting
@@ -348,6 +349,7 @@ export class client_state_t {
 		this.viewentity = 0; // cl_entities[cl.viewentity] = player
 		this.maxclients = 0;
 		this.gametype = 0;
+		this.protocol = 0; // Fitz/Ironwail cl.protocol: PROTOCOL_VERSION (demos) or PROTOCOL_ICARO
 
 		// refresh related state
 		this.worldmodel = null; // cl_entities[0].model
@@ -377,8 +379,27 @@ export const cl = new client_state_t();
 export const cl_efrags = [];
 for ( let i = 0; i < MAX_EFRAGS; i ++ ) cl_efrags.push( new efrag_t() );
 
+// Not in C, which holds MAX_EDICTS entities: with MAX_EDICTS at 32000 the
+// array starts at CL_INITIAL_ENTITIES and CL_EnsureEntities grows it when a
+// higher entity number arrives (CL_EntityNum, packet entities).
+export const CL_INITIAL_ENTITIES = 1024;
 export const cl_entities = [];
-for ( let i = 0; i < MAX_EDICTS; i ++ ) cl_entities.push( new entity_t() );
+
+export function CL_EnsureEntities( count ) {
+
+	if ( count > MAX_EDICTS )
+		count = MAX_EDICTS;
+	for ( let i = cl_entities.length; i < count; i ++ ) {
+
+		const ent = new entity_t();
+		ent._entityIndex = i;
+		cl_entities.push( ent );
+
+	}
+
+}
+
+CL_EnsureEntities( CL_INITIAL_ENTITIES );
 
 export const cl_static_entities = [];
 for ( let i = 0; i < MAX_STATIC_ENTITIES; i ++ ) cl_static_entities.push( new entity_t() );
