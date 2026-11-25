@@ -1,15 +1,20 @@
 // Ported from: WinQuake/host_cmd.c
 
-import { Sys_Printf, Sys_Error, Sys_FloatTime } from './sys.js';
+import { Sys_Printf, Sys_FloatTime } from './sys.js';
 import { Con_Printf, SZ_Write, SZ_Clear,
 	MSG_WriteByte, MSG_WriteShort, MSG_WriteLong, MSG_WriteFloat,
-	MSG_WriteString, MSG_WriteAngle, COM_Parse, com_token, rogue, hipnotic } from './common.js';
+	MSG_WriteString, MSG_WriteAngle, COM_Parse, com_token, rogue, hipnotic,
+	COM_StripExtension } from './common.js';
 import { svc_signonnum, svc_time, svc_updatename, svc_updatefrags,
 	svc_updatecolors, svc_lightstyle, svc_updatestat, svc_setangle,
 	svc_setpause } from './protocol.js';
+import { Q_atof } from './common.js';
 import { STAT_TOTALSECRETS, STAT_TOTALMONSTERS, STAT_SECRETS, STAT_MONSTERS,
 	MAX_LIGHTSTYLES, SAVEGAME_COMMENT_LENGTH, VERSION,
 	IT_SHOTGUN, IT_GRENADE_LAUNCHER, IT_LIGHTNING,
+	IT_SUPER_SHOTGUN, IT_NAILGUN, IT_SUPER_NAILGUN, IT_ROCKET_LAUNCHER,
+	IT_ARMOR1, IT_ARMOR2, IT_ARMOR3,
+	RIT_LAVA_NAILGUN, RIT_LAVA_SUPER_NAILGUN, RIT_MULTI_GRENADE, RIT_MULTI_ROCKET, RIT_PLASMA_GUN,
 	HIT_PROXIMITY_GUN, HIT_LASER_CANNON, HIT_MJOLNIR } from './quakedef.js';
 import { NUM_FOR_EDICT, EDICT_NUM, EDICT_TO_PROG, PR_GetString, pr_global_struct } from './progs.js';
 import { PR_ExecuteProgram } from './pr_exec.js';
@@ -26,7 +31,7 @@ import { SV_SpawnServer, SV_SaveSpawnparms, SV_DropClient,
 import { sv, svs, host_client, set_host_client,
 	NUM_SPAWN_PARMS, NUM_PING_TIMES } from './server.js';
 import { cls, cl, ca_connected, ca_dedicated, MAX_DEMOS } from './client.js';
-import { key_game, set_key_dest } from './keys.js';
+import { key_game, set_key_dest, MAXCMDLINE } from './keys.js';
 import { CL_Disconnect, CL_EstablishConnection, CL_NextDemo,
 	cl_name, cl_color } from './cl_main.js';
 import { CL_StopPlayback } from './cl_demo.js';
@@ -34,7 +39,7 @@ import { SCR_BeginLoadingPlaque } from './gl_screen.js';
 import { hostname } from './net_main.js';
 import { SV_LinkEdict } from './world.js';
 import { SV_ClientPrintf, SV_BroadcastPrintf,
-	Host_ShutdownServer, Host_Shutdown } from './host.js';
+	Host_ShutdownServer, Host_Shutdown, Host_Error } from './host.js';
 import { COM_FindFile, COM_EnsureFile } from './pak.js';
 import { Mod_ForName, Mod_Extradata, Mod_Print, mod_alias } from './gl_model.js';
 
@@ -180,12 +185,62 @@ function Host_Quit_f() {
 
 }
 
+/*
+======================
+Host_ClientMapName
+
+Ironwail's cl.mapname (the world model's name without "maps/" and ".bsp"),
+which this port's client_state_t doesn't keep
+======================
+*/
+function Host_ClientMapName() {
+
+	if ( cl.worldmodel === null || cl.worldmodel === undefined )
+		return '';
+
+	let name = cl.worldmodel.name;
+	if ( name.startsWith( 'maps/' ) )
+		name = name.substring( 5 );
+	return COM_StripExtension( name );
+
+}
+
 function Host_Map_f() {
+
+	// Ironwail: with no map name, say what is running instead of starting a
+	// server for an empty name
+	if ( Cmd_Argc() < 2 ) {
+
+		if ( cls.state === ca_dedicated ) {
+
+			if ( sv.active )
+				Con_Printf( 'Current map: %s\n', sv.name );
+			else
+				Con_Printf( 'Server not active\n' );
+
+		} else if ( cls.state === ca_connected ) {
+
+			Con_Printf( 'Current map: %s ( %s )\n', cl.levelname, Host_ClientMapName() );
+
+		} else {
+
+			Con_Printf( 'map <levelname>: start a new server\n' );
+
+		}
+
+		return;
+
+	}
 
 	if ( cmd_source !== src_command )
 		return;
 
-	const name = Cmd_Argv( 1 );
+	let name = Cmd_Argv( 1 );
+	// remove (any) trailing ".bsp" from mapname -- S.A. (QuakeSpasm/Ironwail)
+	const bsp = name.indexOf( '.bsp' );
+	if ( bsp !== - 1 && bsp + 4 === name.length )
+		name = name.substring( 0, bsp );
+
 	const filename = 'maps/' + name + '.bsp';
 
 	// If the map file isn't loaded yet, fetch it on demand
@@ -323,6 +378,9 @@ function Host_Restart_f() {
 
 function Host_Reconnect_f() {
 
+	if ( cls.demoplayback ) // cross-map demo playback fix from Baker (QuakeSpasm/Ironwail)
+		return;
+
 	SCR_BeginLoadingPlaque();
 	cls.signon = 0; // need new connection messages
 
@@ -431,6 +489,15 @@ function Host_Name_f() {
 
 function Host_Pause_f() {
 
+	// ericw -- demo pause support (QuakeSpasm, inspired by MarkV)
+	if ( cls.demoplayback ) {
+
+		cls.demopaused = cls.demopaused !== true;
+		cl.paused = cls.demopaused;
+		return;
+
+	}
+
 	if ( cmd_source === src_command ) {
 
 		Cmd_ForwardToServer();
@@ -464,6 +531,38 @@ function Host_Pause_f() {
 
 }
 
+/*
+==================
+Host_ChatLine
+
+The check-length-and-truncate step of Ironwail's Host_Say and Host_Tell_f.
+id's C cuts the line to fit a 64-byte buffer (about 46 characters of
+message); Ironwail's buffer is MAXCMDLINE. Without truncation it drops
+trailing CRs and LFs, and the closing quote only if the message began with
+one (id's C drops the last character whether or not it is a quote).
+==================
+*/
+export function Host_ChatLine( text, quoted ) {
+
+	if ( text.length >= MAXCMDLINE - 1 )
+		return text.substring( 0, MAXCMDLINE - 2 ) + '\n';
+
+	let j = text.length;
+	while ( j > 0 ) {
+
+		const c = text.charAt( j - 1 );
+		if ( c !== '\r' && c !== '\n' && ( c !== '"' || quoted === false ) )
+			break;
+		if ( c === '"' )
+			quoted = false;
+		j --;
+
+	}
+
+	return text.substring( 0, j ) + '\n';
+
+}
+
 function Host_Say( teamonly ) {
 
 	let fromServer = false;
@@ -491,9 +590,11 @@ function Host_Say( teamonly ) {
 	let p = Cmd_Args();
 
 	// remove quotes if present
+	let quoted = false;
 	if ( p.charAt( 0 ) === '"' ) {
 
-		p = p.substring( 1, p.length - 1 );
+		p = p.substring( 1 );
+		quoted = true;
 
 	}
 
@@ -501,23 +602,15 @@ function Host_Say( teamonly ) {
 	let text;
 	if ( fromServer === false ) {
 
-		text = '\x01' + save.name + ': ';
+		text = '\x01' + save.name + ': ' + p;
 
 	} else {
 
-		text = '\x01<' + hostname.string + '> ';
+		text = '\x01<' + hostname.string + '> ' + p;
 
 	}
 
-	// truncate if too long
-	const maxLen = 62 - text.length; // 64 - 2 for \n and safety
-	if ( p.length > maxLen ) {
-
-		p = p.substring( 0, maxLen );
-
-	}
-
-	text += p + '\n';
+	text = Host_ChatLine( text, quoted );
 
 	const teamplayValue = Cvar_VariableValue( 'teamplay' );
 
@@ -560,26 +653,18 @@ function Host_Tell_f() {
 
 	if ( Cmd_Argc() < 3 ) return;
 
-	let text = host_client.name + ': ';
-
 	let p = Cmd_Args();
 
 	// remove quotes if present
+	let quoted = false;
 	if ( p.charAt( 0 ) === '"' ) {
 
-		p = p.substring( 1, p.length - 1 );
+		p = p.substring( 1 );
+		quoted = true;
 
 	}
 
-	// truncate if too long
-	const maxLen = 62 - text.length;
-	if ( p.length > maxLen ) {
-
-		p = p.substring( 0, maxLen );
-
-	}
-
-	text += p + '\n';
+	const text = Host_ChatLine( host_client.name + ': ' + p, quoted );
 
 	const save = host_client;
 
@@ -687,11 +772,35 @@ function Host_God_f() {
 	if ( pr_global_struct.deathmatch && ! host_client.privileged )
 		return;
 
-	sv_player.v.flags = ( sv_player.v.flags | 0 ) ^ FL_GODMODE;
-	if ( ! ( ( sv_player.v.flags | 0 ) & FL_GODMODE ) )
-		SV_ClientPrintf( 'godmode OFF\n' );
-	else
-		SV_ClientPrintf( 'godmode ON\n' );
+	// johnfitz: "god 0" and "god 1" set it explicitly
+	switch ( Cmd_Argc() ) {
+
+		case 1:
+			sv_player.v.flags = ( sv_player.v.flags | 0 ) ^ FL_GODMODE;
+			if ( ! ( ( sv_player.v.flags | 0 ) & FL_GODMODE ) )
+				SV_ClientPrintf( 'godmode OFF\n' );
+			else
+				SV_ClientPrintf( 'godmode ON\n' );
+			break;
+		case 2:
+			if ( Q_atof( Cmd_Argv( 1 ) ) !== 0 ) {
+
+				sv_player.v.flags = ( sv_player.v.flags | 0 ) | FL_GODMODE;
+				SV_ClientPrintf( 'godmode ON\n' );
+
+			} else {
+
+				sv_player.v.flags = ( sv_player.v.flags | 0 ) & ~ FL_GODMODE;
+				SV_ClientPrintf( 'godmode OFF\n' );
+
+			}
+
+			break;
+		default:
+			Con_Printf( 'god [value] : toggle god mode. values: 0 = off, 1 = on\n' );
+			break;
+
+	}
 
 }
 
@@ -707,11 +816,35 @@ function Host_Notarget_f() {
 	if ( pr_global_struct.deathmatch && ! host_client.privileged )
 		return;
 
-	sv_player.v.flags = ( sv_player.v.flags | 0 ) ^ FL_NOTARGET;
-	if ( ! ( ( sv_player.v.flags | 0 ) & FL_NOTARGET ) )
-		SV_ClientPrintf( 'notarget OFF\n' );
-	else
-		SV_ClientPrintf( 'notarget ON\n' );
+	// johnfitz: "notarget 0" and "notarget 1" set it explicitly
+	switch ( Cmd_Argc() ) {
+
+		case 1:
+			sv_player.v.flags = ( sv_player.v.flags | 0 ) ^ FL_NOTARGET;
+			if ( ! ( ( sv_player.v.flags | 0 ) & FL_NOTARGET ) )
+				SV_ClientPrintf( 'notarget OFF\n' );
+			else
+				SV_ClientPrintf( 'notarget ON\n' );
+			break;
+		case 2:
+			if ( Q_atof( Cmd_Argv( 1 ) ) !== 0 ) {
+
+				sv_player.v.flags = ( sv_player.v.flags | 0 ) | FL_NOTARGET;
+				SV_ClientPrintf( 'notarget ON\n' );
+
+			} else {
+
+				sv_player.v.flags = ( sv_player.v.flags | 0 ) & ~ FL_NOTARGET;
+				SV_ClientPrintf( 'notarget OFF\n' );
+
+			}
+
+			break;
+		default:
+			Con_Printf( 'notarget [value] : toggle notarget mode. values: 0 = off, 1 = on\n' );
+			break;
+
+	}
 
 }
 
@@ -947,7 +1080,63 @@ function Host_Give_f() {
 
 			break;
 
+		// johnfitz -- give armour
+		case 'a':
+			if ( v > 150 )
+				Host_GiveArmor( 0.8, v, IT_ARMOR3 );
+			else if ( v > 100 )
+				Host_GiveArmor( 0.6, v, IT_ARMOR2 );
+			else if ( v >= 0 )
+				Host_GiveArmor( 0.3, v, IT_ARMOR1 );
+			break;
+
 	}
+
+	// johnfitz -- update currentammo to match new ammo (so statusbar updates correctly)
+	switch ( sv_player.v.weapon | 0 ) {
+
+		case IT_SHOTGUN:
+		case IT_SUPER_SHOTGUN:
+			sv_player.v.currentammo = sv_player.v.ammo_shells;
+			break;
+		case IT_NAILGUN:
+		case IT_SUPER_NAILGUN:
+		case RIT_LAVA_SUPER_NAILGUN:
+			sv_player.v.currentammo = sv_player.v.ammo_nails;
+			break;
+		case IT_GRENADE_LAUNCHER:
+		case IT_ROCKET_LAUNCHER:
+		case RIT_MULTI_GRENADE:
+		case RIT_MULTI_ROCKET:
+			sv_player.v.currentammo = sv_player.v.ammo_rockets;
+			break;
+		case IT_LIGHTNING:
+		case HIT_LASER_CANNON:
+		case HIT_MJOLNIR:
+			sv_player.v.currentammo = sv_player.v.ammo_cells;
+			break;
+		case RIT_LAVA_NAILGUN: // same as IT_AXE
+			if ( rogue )
+				sv_player.v.currentammo = sv_player.v.ammo_nails;
+			break;
+		case RIT_PLASMA_GUN: // same as HIT_PROXIMITY_GUN
+			if ( rogue )
+				sv_player.v.currentammo = sv_player.v.ammo_cells;
+			if ( hipnotic )
+				sv_player.v.currentammo = sv_player.v.ammo_rockets;
+			break;
+
+	}
+
+}
+
+// johnfitz: "give a" replaces the armour type, as picking up armour does
+function Host_GiveArmor( armortype, value, item ) {
+
+	const items = sv_player.v.items | 0;
+	sv_player.v.armortype = armortype;
+	sv_player.v.armorvalue = value;
+	sv_player.v.items = items - ( items & ( IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3 ) ) + item;
 
 }
 
@@ -1103,10 +1292,14 @@ Writes a SAVEGAME_COMMENT_LENGTH character comment describing the current game
 */
 function Host_SavegameComment() {
 
-	// Build comment: levelname padded to 22 chars, then kills:xxx/xxx
-	let text = cl.levelname || '';
+	// Build comment: levelname padded to 22 chars, then kills:xxx/xxx.
+	// QuakeSpasm/Ironwail: fall back to the map name when the level has no
+	// message (cl.mapname there; saving needs a local server, so sv.name is
+	// the same map), and turn CRs and LFs into spaces: a level name with a
+	// newline (autumn_sp) would otherwise break the line-based save file.
+	let text = cl.levelname !== '' ? cl.levelname : sv.name;
+	text = text.substring( 0, 22 ).replace( /[\r\n]/g, ' ' );
 	while ( text.length < 22 ) text += ' ';
-	text = text.substring( 0, 22 );
 
 	const kills = 'kills:' + String( cl.stats[ STAT_MONSTERS ] ).padStart( 3, ' ' ) + '/' + String( cl.stats[ STAT_TOTALMONSTERS ] ).padStart( 3, ' ' );
 	text += kills;
@@ -1242,6 +1435,30 @@ function Host_Savegame_f() {
 Host_Loadgame_f
 ===============
 */
+/*
+===============
+Host_SkipGlobals
+
+Returns the text after the globals block that ED_ParseGlobals has just read.
+C's ED_ParseGlobals returns it; pr_edict.js's returns nothing, so this walks
+the same key/value tokens to the closing brace.
+===============
+*/
+export function Host_SkipGlobals( data ) {
+
+	while ( true ) {
+
+		data = COM_Parse( data );
+		if ( com_token === '}' || data === null )
+			return data;
+		data = COM_Parse( data );
+		if ( data === null )
+			return data;
+
+	}
+
+}
+
 function Host_Loadgame_f() {
 
 	if ( cmd_source !== src_command ) return;
@@ -1357,30 +1574,19 @@ function Host_Loadgame_f() {
 
 	}
 
-	// load the edicts out of the savegame file
-	// Remaining lines form brace-delimited blocks: first is globals, then edicts
-	let remaining = allLines.slice( lineIdx ).join( '\n' );
+	// load the edicts out of the savegame file. The rest of the file is
+	// parsed as one token stream, as in C, so a } inside a quoted value
+	// doesn't end its block.
+	let data = allLines.slice( lineIdx ).join( '\n' );
 	let entnum = - 1; // -1 is the globals
 
-	while ( remaining.length > 0 ) {
+	while ( data !== null && data.length > 0 ) {
 
-		// Find the next { ... } block
-		const braceStart = remaining.indexOf( '{' );
-		if ( braceStart === - 1 ) break;
-
-		const braceEnd = remaining.indexOf( '}', braceStart );
-		if ( braceEnd === - 1 ) break;
-
-		const block = remaining.substring( braceStart, braceEnd + 1 );
-		remaining = remaining.substring( braceEnd + 1 );
-
-		// Parse the content inside braces
-		let data = block;
 		data = COM_Parse( data );
 		if ( com_token.length === 0 ) break; // end of file
 		if ( com_token !== '{' ) {
 
-			Sys_Error( 'First token isn\'t a brace' );
+			Host_Error( 'First token isn\'t a brace' ); // id: Sys_Error; Ironwail's Host_Error
 
 		}
 
@@ -1388,13 +1594,14 @@ function Host_Loadgame_f() {
 
 			// parse the global vars
 			ED_ParseGlobals( data );
+			data = Host_SkipGlobals( data );
 
 		} else {
 
 			// parse an edict
 			const ent = EDICT_NUM( entnum );
 			ent.free = false;
-			ED_ParseEdict( data, ent );
+			data = ED_ParseEdict( data, ent );
 
 			// link it into the bsp tree
 			if ( ent.free === false ) {
@@ -1770,10 +1977,17 @@ function Host_Spawn_f() {
 	MSG_WriteLong( host_client.message, pr_global_struct ? pr_global_struct.killed_monsters : 0 );
 
 	// send a fixangle
+	// Never send a roll angle, because savegames can catch the server
+	// in a state where it is expecting the client to correct the angle
+	// and it won't happen if the game was just loaded, so you wind up
+	// with a permanent head tilt
+	// Ironwail: a loaded game sends the view angles. The model's angles have
+	// the pitch negated and divided by 3 (SV_ClientThink), so id's C left the
+	// view pitched the wrong way after a load.
 	const ent = EDICT_NUM( 1 + svs.clients.indexOf( host_client ) );
 	MSG_WriteByte( host_client.message, svc_setangle );
 	for ( let i = 0; i < 2; i ++ )
-		MSG_WriteAngle( host_client.message, ent.v.angles[ i ] );
+		MSG_WriteAngle( host_client.message, sv.loadgame ? ent.v.v_angle[ i ] : ent.v.angles[ i ] );
 	MSG_WriteAngle( host_client.message, 0 );
 
 	SV_WriteClientdataToMessage( sv_player, host_client.message );
