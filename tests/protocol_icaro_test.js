@@ -25,8 +25,8 @@ const { cl, cls, cl_entities, cl_static_entities, scoreboard_t, SIGNONS } = awai
 const { CL_ParseServerMessage } = await import( '../src/cl_parse.js' );
 const { CL_GetEntityFrame, CL_GetPredictedPlayer, CL_ResetPrediction } = await import( '../src/cl_pred.js' );
 const { cl_shownet } = await import( '../src/cl_main.js' );
-const { PR_SetSV, sv: progs_sv, edict_t } = await import( '../src/progs.js' );
-const { PR_AllocEdicts } = await import( '../src/pr_edict.js' );
+const { PR_SetSV, PR_SetSVS, sv: progs_sv, svs: progs_svs, edict_t } = await import( '../src/progs.js' );
+const { PR_AllocEdicts, ED_Alloc, ED_Free } = await import( '../src/pr_edict.js' );
 const { sv, svs } = await import( '../src/server.js' );
 const { SV_EmitPacketEntities, SV_WritePlayersToClient, SV_StartSound } = await import( '../src/sv_main.js' );
 const consolejs = await import( '../src/console.js' );
@@ -347,6 +347,37 @@ Deno.test( 'packet entities carry 15-bit numbers, short models, wide coords and 
 		} );
 
 	} );
+
+} );
+
+Deno.test( 'ED_Alloc grows sv.edicts past its initial size and ED_Free resets alpha', () => {
+
+	const oldSV = progs_sv;
+	const oldSVS = progs_svs;
+	try {
+
+		const s = { max_edicts: 2000, num_edicts: 2, time: 0, edicts: PR_AllocEdicts( 8, 105 ) };
+		PR_SetSV( s );
+		PR_SetSVS( { maxclients: 1 } );
+		let last = null;
+		for ( let i = 0; i < 1030; i ++ ) last = ED_Alloc();
+		assertEqual( s.num_edicts, 1032, 'num_edicts after 1030 allocations' );
+		assertEqual( last.index, 1031, 'last allocated edict number' );
+		assertEqual( s.edicts[ 1031 ], last, 'edict stored at its number' );
+		// C's fixed array always has the edict after the last one
+		if ( s.edicts.length < 1033 )
+			throw new Error( `NEXT_EDICT of the last edict is missing: ${s.edicts.length}` );
+
+		last.alpha = 128;
+		ED_Free( last );
+		assertEqual( last.alpha, ENTALPHA_DEFAULT, 'ED_Free resets alpha' );
+
+	} finally {
+
+		PR_SetSV( oldSV );
+		PR_SetSVS( oldSVS );
+
+	}
 
 } );
 
