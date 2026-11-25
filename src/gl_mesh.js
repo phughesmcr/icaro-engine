@@ -938,7 +938,8 @@ export function R_GetAliasMaterial( paliashdr, entity, hasLighting, playerSkinTe
 			// the translated skin has the model skin's layout, so its
 			// fullbright mask lines up
 			entity._playerMaterial.fullbrightMap = _skinFullbright( R_GetAliasSkinTexture( paliashdr, entity, 0 ) );
-			entity._playerMaterial.alphaTest = _skinAlphaTest( entity );
+			// MF_HOLEY isn't applied here: R_TranslatePlayerSkin (gl_rmisc.js)
+			// builds the translated skin fully opaque
 			entity._playerSkinTexture = playerSkinTexture;
 
 		}

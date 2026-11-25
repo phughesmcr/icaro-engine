@@ -83,8 +83,6 @@ Deno.test( 'MF_HOLEY skins make index 255 transparent and alpha-test it', () => 
 	assertEqual( texture.image.data[ 9 * 4 + 3 ], 0, 'index 255 is transparent' );
 	assertEqual( texture.image.data[ 8 * 4 + 3 ], 255, 'other pixels are opaque' );
 	assertEqual( gl_mesh.R_GetAliasMaterial( holey.hdr, holey.e, true, null ).alphaTest, 0.666, 'alpha test' );
-	const player = gl_mesh.R_GetAliasMaterial( holey.hdr, holey.e, true, { isTexture: true } );
-	assertEqual( player.alphaTest, 0.666, 'player alpha test' );
 
 	// id's models: index 255 stays opaque, no alpha test
 	const plain = load( 0 );
