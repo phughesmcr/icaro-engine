@@ -16,6 +16,7 @@ import { d_lightstylevalue, r_norefresh, r_lightmap,
 	gl_finish, gl_max_size, gl_picmip, gl_ztrick } from './glquake.js';
 import { mod_alias, r_worldentity, R_Init as R_Init_rmain, R_NewMap as R_NewMap_rmain, R_RenderView } from './gl_rmain.js';
 import { set_skytexturenum as set_skytexturenum_rsurf } from './gl_rsurf.js';
+import { Mod_EnhancedAliasHeader } from './gl_model.js';
 import { R_ReadPointFile_f } from './r_part.js';
 import { Fog_Init, Fog_NewMap } from './gl_fog.js';
 import { cl, cl_entities } from './client.js';
@@ -276,7 +277,8 @@ export function R_TranslatePlayerSkin( playernum ) {
 	if ( model.type !== mod_alias )
 		return; // only translate skins on alias models
 
-	const paliashdr = model.cache != null ? model.cache.data : null;
+	// the skin of the header that is drawn: the .mdl's or its MD5's
+	const paliashdr = model.cache != null ? Mod_EnhancedAliasHeader( model ) : null;
 	if ( paliashdr == null )
 		return;
 
@@ -338,6 +340,9 @@ export function R_TranslatePlayerSkin( playernum ) {
 	texture.minFilter = THREE.LinearFilter;
 	texture.colorSpace = THREE.SRGBColorSpace;
 	texture.needsUpdate = true;
+	// gl_mesh.js retranslates when the drawn header changes (an MD5 arriving
+	// or r_enhancedmodels toggled), as Ironwail's R_ENHANCEDMODELS_f does
+	texture._paliashdr = paliashdr;
 
 	_playerSkinTextures[ playernum ] = texture;
 

@@ -256,6 +256,26 @@ export function COM_FindFile( filename ) {
 
 }
 
+/*
+=================
+COM_FileExists
+
+Ironwail common.c: is filename in the search path, and in which game
+directory? Returns its path_id, or -1. Unlike COM_FindFile it counts a
+lazily opened pak's entries that are not fetched yet, and it does not look
+for loose files on the server.
+=================
+*/
+export function COM_FileExists( filename ) {
+
+	const search = filename.toLowerCase();
+	const found = COM_FindPackFile( search );
+	if ( found !== null )
+		return found.path_id;
+	return virtualFiles.has( search ) ? 0 : - 1;
+
+}
+
 // Not in id's common.c. The first entry named search (lower case) in the
 // search path, as { pack, file, path_id }, or null.
 function COM_FindPackFile( search ) {

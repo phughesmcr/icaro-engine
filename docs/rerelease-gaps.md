@@ -98,7 +98,7 @@ week or more.
 | 6h | Missing `default.cfg` | **done** (#113) | Fixed: when `default.cfg` isn't found, `Cmd_Exec_f` runs the embedded QuakeSpasm one (`src/cmd.js:490-493`, `src/default_cfg.js`), as Ironwail does (`Quake/cmd.c:277`, `default_cfg.h`). Before #113: the rerelease id1 has no `default.cfg`, but its `quake.rc` runs `exec default.cfg`. `src/host.js:471-477` adds WASD, jump and attack bindings, but weapon keys and the rest of id's defaults were missing. | – | – |
 | 6i | Console noise | **partial** | `quake.rc` sets `scr_usekfont 1`; #113 registered that cvar (`src/gl_screen.js:64`, read by nothing yet). QC still stuffs `vibrate` at 20 sites (pickups, damage), and each prints "Unknown command" (`src/cmd.js:455`). A no-op `vibrate`, or one mapped to Gamepad haptics, would silence it. | S | `src/host.js` or `src/in_web.js` |
 | 6j | ctf `archive/` in the browser | **done** (#114) | Fixed: `DEFERRED_DIRS` (`src/pak.js:647`) now lists `archive/` with `tactile/` and `vault/`. Before #114: ctf's `pak0.pak` has an `archive/` tree of 172 entries (93 MB of `.exe`, `.zip`, `.bsp`, …), and `?game=ctf` fetched all of it at load. | – | – |
-| 6k | MD5 replacement models | **missing** (optional) | id1 has 59 `.md5mesh` and 58 `.md5anim`, mg3 5 of each. The `.mdl` originals are still there and load. Ironwail loads an `.md5mesh` whenever one exists beside the `.mdl` (`Quake/gl_model.c:3240-3250`, loader from `:3713`). | L | `src/gl_model.js`, `src/gl_mesh.js`, `src/gl_rmain.js`, `src/pak.js` |
+| 6k | MD5 replacement models | **done** | `r_enhancedmodels` (default 1, archived, as in Ironwail) draws `progs/<name>.md5mesh` with its `.md5anim` in place of the `.mdl` when it is in the `.mdl`'s search path or a higher one (`Mod_LoadMD5Replacement`, `src/gl_model.js`). The parser and skinning are in `src/gl_md5.js`, after Ironwail's `Mod_LoadMD5MeshModel` (`Quake/gl_model.c`): Quake frame n is anim frame n, and skins are `progs/<shader>_SS_FF.lmp`. The `.mdl` stays loaded for bounds, flags, frame names and the server. Each pose is skinned on the CPU once and drawn through the `.mdl` path, so lerping, `.lit` tint, alpha, fog, shadows and the colormap work. Lazy paks fetch the MD5 files when the model loads. id1 has 59 `.md5mesh` and 58 `.md5anim`, mg3 5 of each. | – | – |
 | 6l | `.mdl`, `.spr` and `.wav` formats | **done** | Every `.mdl` is IDPO version 6, at most 1912 vertices, 1923 triangles and 250 frames, with skins up to 512×480. That is within `MAXALIASVERTS` 2400, `MAXALIASTRIS` 4096 and `MAX_LBM_HEIGHT` 480. Sprites are IDSP version 1. The `.wav` files are PCM, mostly 44.1 kHz 16-bit mono (378 files). Wav playback was not tested. | – | – |
 | 6m | Bots, `.nav`, KEX saves, `mapdb.json`, KEX fonts | **n/a for now** | Bots need the `ex_bot_*` builtins and the `bots/*.nav` graphs; Ironwail doesn't do them either. KEX saves (`SAVEGAME_VERSION_KEX` 6, `Quake/host_cmd.c:2574`) matter only for importing them. `mapdb.json` drives the KEX add-on and episode menu. `scr_usekfont` fonts are in `QuakeEX.kpf`. | M–L each | – |
 | – | Pak loading (#84), folder layout (#89) | **done** | Both are merged to `dev` (`cba28aa`, `85807a3`). | – | – |
@@ -180,7 +180,7 @@ not have to adopt Ironwail's 666 or 999 wire formats, because the client and ser
 2. Fog (6a). Done in #134.
 3. Skyboxes (6b)
 4. The QEX effect lights (6d)
-5. MD5 models (6k), last
+5. MD5 models (6k). Done.
 
 ### What can run in parallel
 
@@ -189,10 +189,10 @@ These share files, so run them in sequence or bundle them. Items already done
 of phase 4) are left out:
 
 - **`src/protocol.js` and `src/cl_parse.js`:** `svc_fog`, if it is ever sent.
-- **`src/pak.js`:** skybox `.tga` (6b) and MD5 (6k). Each changes
+- **`src/pak.js`:** skybox `.tga` (6b) and MD5 (6k, done). Each changes
   `DEFERRED_EXTENSIONS` or `DEFERRED_DIRS`, or adds a `COM_EnsureFile` at map
   load. `.lit` (5, #137) shows the pattern: `COM_EnsureLitFile`.
-- **`src/gl_rmain.js`:** fog (6a) and MD5 (6k). Entity alpha (6c) adds one
+- **`src/gl_rmain.js`:** fog (6a) and MD5 (6k), both done. Entity alpha (6c) adds one
   call into `src/gl_entalpha.js` there.
 
 Groups that can run at the same time:
