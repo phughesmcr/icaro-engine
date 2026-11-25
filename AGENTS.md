@@ -54,8 +54,10 @@ process per room. It was forked from mrdoob's three-quake.
   (Python, standard library only; not linted or run in CI).
   `room_bench.js` (with `room_bench_preload.js`) load-tests one room with
   headless WebSocket bots, and `room_memory_probe.js` measures a room's
-  memory by init stage; their headers give the commands. Not linted or run
-  in CI. `check_container_image.sh` (`deno task image-check`, needs Docker)
+  memory by init stage; their headers give the commands. `webrtc_spike/` is
+  a static page that answers the WebRTC questions in
+  `docs/browser-hosted-rooms.md`; its `index.html` says how to run it. Not
+  linted or run in CI. `check_container_image.sh` (`deno task image-check`, needs Docker)
   fails if the game-room image or its build context holds any `.pak` but
   `static/pak0.pak`, or TLS or env files, then starts a room in the image;
   CI runs it.

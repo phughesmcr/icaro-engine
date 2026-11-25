@@ -6,11 +6,14 @@ depend on the maintainer's Mac or a paid server, on desktop and mobile.
 One player's browser tab hosts the room, the way a NetQuake listen server
 does, and the other players join it directly over WebRTC.
 
-Tags, as in [always-on-hosting.md](always-on-hosting.md): **[docs]** read on
-the cited page on 2026-11-25; **[code]** read in this repo; **[C]** read in id's source; **[estimate]**
-arithmetic on measured figures from always-on-hosting.md; **[unverified]**
-inference, or a claim not checked at a primary source, to check before
-relying on it.
+Tags, as in [always-on-hosting.md](always-on-hosting.md):
+- **[docs]**: read on the cited page on 2026-11-25.
+- **[code]**: read in this repo.
+- **[C]**: read in id's source.
+- **[measured]**: run with the spike page (see "Spike").
+- **[estimate]**: arithmetic on measured figures from always-on-hosting.md.
+- **[unverified]**: inference, or a claim not checked at a primary source;
+  check it before relying on it.
 
 ## What it gives, in short
 
@@ -78,12 +81,13 @@ any joiner. The joiners' data channels are transferred to the Worker.
   fixed it in 2021, but the Safari release isn't named [docs]
   ([Chromium intent](https://groups.google.com/a/chromium.org/g/blink-dev/c/8CZbYcvQJAY),
   [Firefox](https://bugzilla.mozilla.org/show_bug.cgi?id=1209163),
-  [WebKit](https://bugs.webkit.org/show_bug.cgi?id=222965)).
+  [WebKit](https://bugs.webkit.org/show_bug.cgi?id=222965)). The spike
+  transferred both kinds of channel in Chromium 156 [measured].
 - Whether Worker timers keep a 20 Hz cadence in a hidden tab is
   [unverified]; the spike measures it.
 - The engine imports `three` as a bare specifier, which `index.html`'s
-  import map resolves. Module Workers may not honour the page's import map
-  [unverified]. If they don't, B needs a bundle (for example `deno bundle`,
+  import map resolves. A module Worker in Chromium 156 doesn't honour the
+  page's import map [measured]. So B needs a bundle (for example `deno bundle`,
   mapping `three` to `server/browser_shim.js` as Deno does), and the repo
   has no build step today.
 - Two engine copies in one tab cost about 60 MB more, going by a room's
@@ -325,9 +329,10 @@ driver, behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js`
 
 ## Spike: settle the unknowns first
 
-One static page under `tools/` (not shipped) with two `RTCPeerConnection`s
-in the same page, wired to each other. It needs no signalling, server or
-account. It records:
+`tools/webrtc_spike/` is one static page (not shipped) with two
+`RTCPeerConnection`s in the same page, wired to each other. It needs no
+signalling, server or account; its `index.html` says how to run it. It
+records:
 
 1. Whether an `ordered: false, maxRetransmits: 0` channel opens, and
    `pc.sctp.maxMessageSize`.
@@ -337,11 +342,36 @@ account. It records:
    `setInterval( 50 )`, a dedicated Worker's `setInterval( 50 )`, and
    message delivery to both.
 4. Whether a data channel transfers to a Worker, and whether a module
-   Worker resolves `three` through the page's import map.
+   Worker resolves a bare specifier (as `three` is) through the page's
+   import map.
 
-The Chromium half can run in the Claude browser pane. Firefox, desktop
-Safari, iOS Safari and Android Chrome need the maintainer's devices. The
-results choose between A and B, and confirm mobile joining.
+Test 3 decides between A and B, and the other browsers confirm mobile
+joining.
+
+### Results so far
+
+**Chromium 156, in the Claude desktop app's browser pane, macOS,
+2026-11-25** [measured]:
+
+| Test | Result |
+| --- | --- |
+| 1. Unreliable channel | Opens; both sides report `ordered: false`, `maxRetransmits: 0`. `sctp.maxMessageSize` is 262,144 on both peers. |
+| 2. Paced sends, 1,000–16,000 bytes | 300 of 300 at every size. |
+| 2. Burst of 300 | All delivered except 281 of 300 at 4,000 bytes. A burst can overrun the local buffers, so the host driver should cap queued bytes per peer. |
+| 3. Hidden page | Not run. The pane keeps a background tab visible (`visibilityState` stays `visible`), so it can't test throttling. |
+| 4a. Transfer a channel created here | Works; it opens in the Worker. |
+| 4b. Transfer a channel from `ondatachannel` | Works; it opens in the Worker. |
+| 4c. Import map in a module Worker | Not honoured. The bare specifier fails to load, and the same import by relative path loads. |
+
+So option B needs a bundle with `three` resolved at build time. The
+pane's Chromium is embedded in Electron and may differ from Chrome on
+throttling, so test 3 must run in real browsers.
+
+**Still to run, on the maintainer's devices:**
+- test 3 in desktop Chrome, Firefox and Safari;
+- all tests in iOS Safari and Android Chrome.
+
+Paste each run's *Copy results* JSON into this section.
 
 ## PRs, in order
 
@@ -386,9 +416,10 @@ Still open:
 - Unreliable data channels on iOS Safari and desktop Safari, and the loss
   of messages near the MTU.
 - Timer cadence in a hidden tab for the main thread and for Workers, in
-  each browser, and data-channel delivery while hidden.
-- Data-channel transfer to Workers in Safari, and import maps in module
-  Workers.
+  every browser (the spike's test 3 hasn't run anywhere yet), and
+  data-channel delivery while hidden.
+- Data-channel transfer to Workers in Safari and Firefox, and import maps
+  in module Workers outside Chromium.
 - Whether TURN needs a billing method on file.
 - Current rates of connections needing TURN, especially on mobile data.
 - The C's `-listen` handling restored as described, and whether every
