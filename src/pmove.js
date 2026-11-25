@@ -76,6 +76,7 @@ export const movevars = {
 	// extra arguments (see CL_Movevars_f).
 	edgefriction: 2, // edgefriction (sv_phys.c)
 	maxvelocity: 2000, // sv_maxvelocity (sv_phys.c)
+	altnoclip: 0, // sv_altnoclip (johnfitz, sv_user.c); 0 is id's noclip
 	rollangle: 2, // cl_rollangle (view.c), read by V_CalcRoll in SV_ClientThink
 	rollspeed: 200 // cl_rollspeed (view.c)
 };
@@ -1473,6 +1474,32 @@ function PM_NQ_AirMove() {
 
 /*
 ===================
+PM_NQ_NoclipMove
+
+SV_NoclipMove (johnfitz, FitzQuake/Ironwail sv_user.c), used when the
+server's sv_altnoclip is set: fly where v_angle points, upmove doubled,
+capped at sv_maxspeed.
+===================
+*/
+function PM_NQ_NoclipMove() {
+	AngleVectors( pmove.angles, forward, right, up );
+
+	const velocity = pmove.velocity;
+	const fmove = pmove.cmd.forwardmove;
+	const smove = pmove.cmd.sidemove;
+	velocity[ 0 ] = forward[ 0 ] * fmove + right[ 0 ] * smove;
+	velocity[ 1 ] = forward[ 1 ] * fmove + right[ 1 ] * smove;
+	velocity[ 2 ] = forward[ 2 ] * fmove + right[ 2 ] * smove;
+	velocity[ 2 ] += pmove.cmd.upmove * 2; // doubled to match running speed
+
+	if ( Length( velocity ) > movevars.maxspeed ) {
+		VectorNormalize( velocity );
+		VectorScale( velocity, movevars.maxspeed, velocity );
+	}
+}
+
+/*
+===================
 PM_NQ_ClientThink
 
 SV_ClientThink (WinQuake sv_user.c). pmove.angles is v_angle (the
@@ -1514,6 +1541,12 @@ function PM_NQ_ClientThink() {
 	}
 
 	// walk
+	// johnfitz -- alternate noclip
+	if ( pmove.movetype === PM_MOVETYPE_NOCLIP && movevars.altnoclip !== 0 ) {
+		PM_NQ_NoclipMove();
+		return;
+	}
+
 	if ( waterlevel >= 2 && pmove.movetype !== PM_MOVETYPE_NOCLIP ) {
 		PM_NQ_WaterMove();
 		return;
