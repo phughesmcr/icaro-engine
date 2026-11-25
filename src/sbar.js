@@ -963,7 +963,7 @@ export function Sbar_SoloScoreboard() {
 
 	// cl.mapname (Ironwail CL_ParseServerInfo) isn't kept by the port's client
 	// state; derive it from the world model's name the same way
-	const worldmodel = _cl.worldmodel !== undefined ? _cl.worldmodel : null;
+	const worldmodel = _cl.worldmodel;
 	if ( _cl.levelname !== solo_levelname || worldmodel !== solo_worldmodel ) {
 
 		solo_levelname = _cl.levelname;

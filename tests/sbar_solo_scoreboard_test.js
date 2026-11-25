@@ -103,7 +103,9 @@ Deno.test( 'Sbar_SoloScoreboard falls back to the map name and scrolls long titl
 	sbar.Sbar_SoloScoreboard();
 	assertEqual( row( 4 ).text, 'start', 'map name only' );
 
-	// Over 40 characters: drawn twice with '///' between, offset by realtime
+	// Over 40 characters: drawn twice with '///' between, offset by realtime.
+	// Advance realtime so the offset isn't 0 (stays below len, so one wrap at most)
+	host._Host_FilterTime( 3.4 - host.realtime );
 	const name = 'An extremely long level name for scrolling';
 	cl.levelname = name;
 	drawn.length = 0;
@@ -112,7 +114,60 @@ Deno.test( 'Sbar_SoloScoreboard falls back to the map name and scrolls long titl
 	const len = str.length * 8 + 40;
 	const ofs = Math.floor( host.realtime * 30 ) % len;
 	const top = row( 4 );
+	if ( ofs === 0 ) throw new Error( 'test setup: realtime gave no scroll offset' );
 	assertEqual( top.x, - ofs, 'scroll start' );
 	assertEqual( top.text, str + ' /// ' + str, 'scrolled text' );
+
+} );
+
+Deno.test( 'Sbar_DrawScrollString clips to the bar and keeps save/restore balanced', async () => {
+
+	const { Draw_Init, Draw_SetClipRect, Draw_ResetClipping } = await import( '../src/gl_draw.js' );
+	const calls = [];
+	const ctx = {
+		save: () => calls.push( 'save' ),
+		restore: () => calls.push( 'restore' ),
+		beginPath: () => {},
+		rect: ( x, y, w, h ) => calls.push( `rect ${x} ${y} ${w} ${h}` ),
+		clip: () => calls.push( 'clip' ),
+		drawImage: () => {}, fillText: () => {}, fillRect: () => {}, setTransform: () => {}, clearRect: () => {},
+	};
+	try {
+
+		Draw_Init( { width: 640, height: 480, getContext: () => ctx } );
+
+	} catch {
+
+		// no WAD in tests; only the overlay context matters here
+
+	}
+
+	// A second clip replaces the first; a reset with no clip does nothing
+	calls.length = 0;
+	Draw_SetClipRect( 0, 0, 10, 10 );
+	Draw_SetClipRect( 5, 5, 10, 10 );
+	Draw_ResetClipping();
+	Draw_ResetClipping();
+	assertEqual( calls.join( ',' ), 'save,rect 0 0 10 10,clip,restore,save,rect 5 5 10 10,clip,restore', 'clip calls' );
+
+	cl.levelname = 'An extremely long level name for scrolling';
+	cl.worldmodel = { name: 'maps/start.bsp' };
+	try {
+
+		for ( const gametype of [ 0, 1 ] ) {
+
+			cl.gametype = gametype;
+			calls.length = 0;
+			sbar.Sbar_SoloScoreboard();
+			const xofs = gametype === 1 ? 0 : ( Draw_GetVirtualWidth() - 320 ) >> 1;
+			assertEqual( calls.join( ',' ), `save,rect ${xofs} 0 320 ${Draw_GetVirtualHeight()},clip,restore`, 'scroll clip, gametype ' + gametype );
+
+		}
+
+	} finally {
+
+		cl.gametype = 0;
+
+	}
 
 } );
