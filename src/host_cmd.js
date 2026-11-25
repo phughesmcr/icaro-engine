@@ -98,6 +98,8 @@ export function Host_InitCommands() {
 	Cmd_AddCommand( 'begin', Host_Begin_f );
 	Cmd_AddCommand( 'prespawn', Host_PreSpawn_f );
 
+	Cmd_AddCommand( 'vibrate', Host_Vibrate_f ); // 2021 re-release
+
 }
 
 /*
@@ -1828,6 +1830,21 @@ export function Host_Viewprev_f() {
 
 	PrintFrameName( m, e.v.frame );
 
+}
+
+/*
+==================
+Host_Vibrate_f
+
+Deliberate addition; not in id's Quake or Ironwail. The 2021 re-release's
+published QuakeC has `stuffcmd (self, "vibrate tactile/....bnvib")` at ten
+sites in weapons.qc, all commented out, and no shipped progs.dat contains
+"vibrate". The KEX executable has the command and the paks ship the .bnvib
+files under tactile/. Registered so a mod that re-enables those lines gets
+silence instead of "Unknown command"; it ignores its arguments.
+==================
+*/
+function Host_Vibrate_f() {
 }
 
 /*
