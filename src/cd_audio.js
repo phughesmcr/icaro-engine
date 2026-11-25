@@ -33,6 +33,11 @@ let musicElement = null; // HTMLAudioElement for music playback
 let musicGainNode = null;
 let musicSource = null; // MediaElementAudioSourceNode
 
+// The unrouted element was paused because sound was blocked (tab hidden)
+let hiddenPaused = false;
+// Sound is blocked (tab hidden)
+let soundBlocked = false;
+
 // Track URL provider (set externally)
 let _getTrackURL = null;
 
@@ -103,6 +108,78 @@ export function CDAudio_TrackURLs( track, gamedirs ) {
 
 /*
 ================
+CDAudio_ApplyVolume
+
+Exactly one control sets the level. Routed through the gain node, that node
+does and the element stays at 1.0, so the two aren't multiplied and the
+element doesn't hold the volume from when it started. Unrouted (no
+AudioContext, or createMediaElementSource threw), the element volume does.
+================
+*/
+function CDAudio_ApplyVolume() {
+
+	if ( musicGainNode !== null ) {
+
+		musicGainNode.gain.value = bgmvolume.value;
+		if ( musicElement !== null )
+			musicElement.volume = 1.0;
+
+	} else if ( musicElement !== null ) {
+
+		musicElement.volume = bgmvolume.value;
+
+	}
+
+}
+
+/*
+================
+CDAudio_BlockSound / CDAudio_UnblockSound
+
+Web only; cd_win.c has no focus handling for CD. Hidden tabs suspend the
+AudioContext (S_BlockSound), which silences a routed element. An element
+that isn't routed would keep playing aloud, so it pauses and resumes with
+the same block and unblock.
+================
+*/
+function CDAudio_BlockSound() {
+
+	soundBlocked = true;
+
+	if ( ! initialized || ! playing || musicElement === null || musicGainNode !== null )
+		return;
+
+	try {
+
+		musicElement.pause();
+		hiddenPaused = true;
+
+	} catch { /* ignore */ }
+
+}
+
+function CDAudio_UnblockSound() {
+
+	soundBlocked = false;
+
+	if ( ! hiddenPaused )
+		return;
+
+	hiddenPaused = false;
+
+	if ( ! initialized || ! playing || musicElement === null )
+		return;
+
+	try {
+
+		CDAudio_StartElement( playAttempt );
+
+	} catch { /* ignore */ }
+
+}
+
+/*
+================
 CDAudio_StartElement
 
 Calls play() on the music element. A refusal by the autoplay policy
@@ -112,6 +189,14 @@ to the element's error event.
 ================
 */
 function CDAudio_StartElement( attempt ) {
+
+	// An unrouted element would play aloud in a hidden tab: wait for unblock
+	if ( soundBlocked === true && musicGainNode === null ) {
+
+		hiddenPaused = true;
+		return;
+
+	}
 
 	const promise = musicElement.play();
 
@@ -286,7 +371,6 @@ export function CDAudio_Play( track, looping ) {
 		}
 
 		musicElement.loop = looping;
-		musicElement.volume = bgmvolume.value;
 
 		// Try to connect through Web Audio for unified volume control
 		const audioContext = S_GetAudioContext();
@@ -296,11 +380,15 @@ export function CDAudio_Play( track, looping ) {
 
 			try {
 
-				musicSource = audioContext.createMediaElementSource( musicElement );
-				musicGainNode = audioContext.createGain();
-				musicGainNode.gain.value = bgmvolume.value;
-				musicSource.connect( musicGainNode );
-				musicGainNode.connect( audioContext.destination );
+				// Build both nodes before keeping either: once
+				// createMediaElementSource succeeds the element's output only
+				// reaches the speakers through the graph.
+				const gain = audioContext.createGain();
+				const source = audioContext.createMediaElementSource( musicElement );
+				source.connect( gain );
+				gain.connect( audioContext.destination );
+				musicSource = source;
+				musicGainNode = gain;
 
 			} catch {
 
@@ -311,11 +399,7 @@ export function CDAudio_Play( track, looping ) {
 
 		}
 
-		if ( musicGainNode ) {
-
-			musicGainNode.gain.value = bgmvolume.value;
-
-		}
+		CDAudio_ApplyVolume();
 
 		// Handle looping via ended event for non-loop mode
 		musicElement.onended = function () {
@@ -461,15 +545,7 @@ export function CDAudio_Update() {
 
 		cdvolume = newVolume;
 
-		if ( musicGainNode ) {
-
-			musicGainNode.gain.value = bgmvolume.value;
-
-		} else if ( musicElement ) {
-
-			musicElement.volume = bgmvolume.value;
-
-		}
+		CDAudio_ApplyVolume();
 
 	}
 
@@ -494,7 +570,7 @@ export function CDAudio_Init() {
 	Cmd_AddCommand( 'cd', CD_f );
 
 	// retry music the autoplay policy refused on the next click or key press
-	S_SetCallbacks( { onUnlockAudio: CDAudio_GestureRetry } );
+	S_SetCallbacks( { onUnlockAudio: CDAudio_GestureRetry, onBlockSound: CDAudio_BlockSound, onUnblockSound: CDAudio_UnblockSound } );
 
 	Con_Printf( 'CD Audio Initialized (Web Audio)\n' );
 
@@ -547,6 +623,7 @@ export function CDAudio_Shutdown() {
 	}
 
 	musicElement = null;
+	hiddenPaused = false;
 	missingURLs.clear();
 	initialized = false;
 
@@ -647,6 +724,17 @@ function CD_f() {
 	if ( command === 'resume' ) {
 
 		CDAudio_Resume();
+		return;
+
+	}
+
+	// cd_win.c: eject also stops the playing track. There is no tray, so
+	// CDAudio_Eject and cdValid = false have no counterpart; close
+	// (CDAudio_CloseDoor) is tray-only and does nothing here.
+	if ( command === 'eject' ) {
+
+		if ( playing )
+			CDAudio_Stop();
 		return;
 
 	}
