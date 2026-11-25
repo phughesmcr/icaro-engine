@@ -27,7 +27,7 @@ import {
 	svc_temp_entity, svc_setpause, svc_signonnum, svc_centerprint,
 	svc_killedmonster, svc_foundsecret, svc_spawnstaticsound,
 	svc_intermission, svc_finale, svc_cdtrack, svc_sellscreen,
-	svc_cutscene, svc_localsound,
+	svc_cutscene, svc_achievement, svc_localsound,
 	svc_playerinfo, PF_MSEC, PF_COMMAND, PF_VELOCITY1, PF_VELOCITY2, PF_VELOCITY3,
 	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_TELEPORT,
 	CM_ANGLE1, CM_ANGLE2, CM_ANGLE3, CM_FORWARD, CM_SIDE, CM_UP, CM_BUTTONS, CM_IMPULSE,
@@ -1646,6 +1646,12 @@ export function CL_ParseServerMessage() {
 
 			case svc_deltapacketentities:
 				CL_ParsePacketEntities( true );
+				break;
+
+			// used by the 2021 re-release (Ironwail cl_parse.c). Ironwail
+			// hands the id to Steam; there are no achievements here.
+			case svc_achievement:
+				Con_DPrintf( 'Ignoring svc_achievement (%s)\n', MSG_ReadString() );
 				break;
 
 			case svc_localsound:
