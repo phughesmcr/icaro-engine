@@ -107,6 +107,20 @@ Deno.test( 'XR-3: R_SetupFrame uses the head for r_origin and the view leaf only
 		assert( Math.abs( render.r_origin[ 1 ] - 32 ) < 1e-3 && Math.abs( render.r_origin[ 2 ] ) < 1e-3, 'head y and z' );
 		assert( gl_rmain.r_viewleaf === waterLeaf, 'view leaf is the head\'s' );
 
+		// A teleport (view origin jump) drops the stale head for that frame
+		render.r_refdef.vieworg.set( [ 64 + 1000, 32, 0 ] );
+		gl_rmain.R_SetupFrame();
+		assert( render.r_origin[ 0 ] === 64 + 1000, 'after a jump r_origin is vieworg' );
+		gl_rmain.R_SetupXRFrustum();
+		gl_rmain.R_SetupFrame();
+		assert( Math.abs( render.r_origin[ 0 ] - ( 64 + S ) ) < 1e-3, 're-recorded head is used again' );
+
+		// A new map does the same
+		gl_rmain.R_NewMap();
+		gl_rmain.R_SetupFrame();
+		assert( render.r_origin[ 0 ] === 1064, 'after R_NewMap r_origin is vieworg' );
+		render.r_refdef.vieworg.set( [ 64, 32, 0 ] );
+
 		// Session over: the body again, and no stale head next session
 		fire( 'sessionend' );
 		gl_rmain.R_SetupFrame();

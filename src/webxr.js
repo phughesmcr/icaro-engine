@@ -372,6 +372,14 @@ export function XR_SetupFrusta( views ) {
 
 }
 
+// Forget the recorded head so R_SetupFrame falls back to the body until the
+// next posed frame: called on a new map and when the view origin jumps.
+export function XR_ResetHeadOrigin() {
+
+	xrHeadValid = false;
+
+}
+
 // Web-only deviation. Copies the head's world position in Quake units, as of
 // the previous posed frame, into out and returns true; false outside a
 // presenting session or before the first pose. R_SetupFrame uses it where C

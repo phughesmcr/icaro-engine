@@ -29,7 +29,7 @@ import {
 	R_InitParticles, R_SetParticleExternals, R_ClearParticles,
 	R_DrawParticles as R_DrawParticles_impl
 } from './r_part.js';
-import { isXRActive, getXRRig, XR_SetCamera, XR_SCALE, XR_GetControllerWorldPose, XR_RenderHUD, XR_SetupFrusta, XR_PolyBlend, XR_GetHeadOrigin } from './webxr.js';
+import { isXRActive, getXRRig, XR_SetCamera, XR_SCALE, XR_GetControllerWorldPose, XR_RenderHUD, XR_SetupFrusta, XR_PolyBlend, XR_GetHeadOrigin, XR_ResetHeadOrigin } from './webxr.js';
 import {
 	cl, cl_visedicts, cl_numvisedicts, cl_dlights, cl_entities,
 	cl_static_entities, cl_temp_entities, cl_lightstyle,
@@ -373,6 +373,19 @@ export function R_SetupFrame() {
 	// the camera is the head, which leans away from the body, so r_origin,
 	// the view leaf (PVS) and the contents colour use the previous frame's
 	// head position (the pose is only known inside render()).
+	if ( isXRActive() ) {
+
+		// A teleport or other jump of the view origin makes last frame's head
+		// stale: fall back to the body for this frame.
+		const dx = r_refdef.vieworg[ 0 ] - _xr_lastvieworg[ 0 ];
+		const dy = r_refdef.vieworg[ 1 ] - _xr_lastvieworg[ 1 ];
+		const dz = r_refdef.vieworg[ 2 ] - _xr_lastvieworg[ 2 ];
+		VectorCopy( r_refdef.vieworg, _xr_lastvieworg );
+		if ( dx * dx + dy * dy + dz * dz > XR_ORIGIN_JUMP * XR_ORIGIN_JUMP )
+			XR_ResetHeadOrigin();
+
+	}
+
 	if ( isXRActive() === false || XR_GetHeadOrigin( r_origin ) === false )
 		VectorCopy( r_refdef.vieworg, r_origin );
 
@@ -947,6 +960,8 @@ const _dlightDist = [ 0, 0, 0 ];
 const _shadevector = new Float32Array( 3 );
 
 // Cached buffers for R_SetupGL (Golden Rule #4)
+const _xr_lastvieworg = new Float32Array( 3 ); // vieworg of the last XR frame
+const XR_ORIGIN_JUMP = 128; // units moved in one frame that count as a teleport
 const _setupgl_angles = new Float32Array( 3 ); // XR: viewangles without pitch
 const _setupgl_forward = new Float32Array( 3 );
 const _setupgl_right = new Float32Array( 3 );
@@ -1804,6 +1819,8 @@ export function R_Init() {
 //============================================================================
 
 export function R_NewMap() {
+
+	XR_ResetHeadOrigin(); // web-only: the old map's head position is meaningless
 
 	// clear old data
 	r_viewleaf = null;

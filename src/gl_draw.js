@@ -474,24 +474,14 @@ function _loadCharset() {
 
 	for ( let i = 0; i < charWidth * charHeight; i ++ ) {
 
-		const palIdx = data[ i ];
-		if ( palIdx === 0 ) {
-
-			// transparent
-			pixels[ i * 4 ] = 0;
-			pixels[ i * 4 + 1 ] = 0;
-			pixels[ i * 4 + 2 ] = 0;
-			pixels[ i * 4 + 3 ] = 0;
-
-		} else {
-
-			const rgba = pal[ palIdx ];
-			pixels[ i * 4 ] = rgba & 0xff;
-			pixels[ i * 4 + 1 ] = ( rgba >> 8 ) & 0xff;
-			pixels[ i * 4 + 2 ] = ( rgba >> 16 ) & 0xff;
-			pixels[ i * 4 + 3 ] = 255;
-
-		}
+		// C turns index 0 into 255 (Draw_Init) and uploads through GL_Upload8,
+		// so the transparent texels carry the palette RGB with alpha 0.
+		const palIdx = data[ i ] === 0 ? 255 : data[ i ];
+		const rgba = pal[ palIdx ];
+		pixels[ i * 4 ] = rgba & 0xff;
+		pixels[ i * 4 + 1 ] = ( rgba >> 8 ) & 0xff;
+		pixels[ i * 4 + 2 ] = ( rgba >> 16 ) & 0xff;
+		pixels[ i * 4 + 3 ] = palIdx === 255 ? 0 : 255;
 
 	}
 
@@ -898,9 +888,10 @@ export function Draw_TransPicTranslate( x, y, pic, translation ) {
 			// Apply translation table
 			p = translation[ p ];
 
+			// C: dest[u] = p for 255, i.e. the bytes ( 255, 0, 0, 0 ): alpha 0
 			if ( p === 255 ) {
 
-				dest[ ( v * 64 + u ) * 4 ] = 0;
+				dest[ ( v * 64 + u ) * 4 ] = 255;
 				dest[ ( v * 64 + u ) * 4 + 1 ] = 0;
 				dest[ ( v * 64 + u ) * 4 + 2 ] = 0;
 				dest[ ( v * 64 + u ) * 4 + 3 ] = 0;
@@ -1133,23 +1124,14 @@ function _qpicToCanvas( width, height, data, alpha ) {
 
 	for ( let i = 0; i < width * height; i ++ ) {
 
+		// GL_Upload8 copies d_8to24table[ p ] for every texel: index 255
+		// keeps its palette RGB and has alpha 0 (alpha textures only)
 		const palIdx = data[ i ];
-		if ( alpha && palIdx === 255 ) {
-
-			pixels[ i * 4 ] = 0;
-			pixels[ i * 4 + 1 ] = 0;
-			pixels[ i * 4 + 2 ] = 0;
-			pixels[ i * 4 + 3 ] = 0;
-
-		} else {
-
-			const rgba = pal[ palIdx ];
-			pixels[ i * 4 ] = rgba & 0xff;
-			pixels[ i * 4 + 1 ] = ( rgba >> 8 ) & 0xff;
-			pixels[ i * 4 + 2 ] = ( rgba >> 16 ) & 0xff;
-			pixels[ i * 4 + 3 ] = 255;
-
-		}
+		const rgba = pal[ palIdx ];
+		pixels[ i * 4 ] = rgba & 0xff;
+		pixels[ i * 4 + 1 ] = ( rgba >> 8 ) & 0xff;
+		pixels[ i * 4 + 2 ] = ( rgba >> 16 ) & 0xff;
+		pixels[ i * 4 + 3 ] = alpha && palIdx === 255 ? 0 : 255;
 
 	}
 
@@ -1340,24 +1322,13 @@ export function GL_LoadTexture( identifier, width, height, data, mipmap, alpha )
 
 		for ( let i = 0; i < width * height; i ++ ) {
 
+			// GL_Upload8: index 255 keeps its palette RGB, alpha 0
 			const palIdx = data[ i ];
-			if ( alpha && palIdx === 255 ) {
-
-				// transparent pixel
-				imageData.data[ i * 4 ] = 0;
-				imageData.data[ i * 4 + 1 ] = 0;
-				imageData.data[ i * 4 + 2 ] = 0;
-				imageData.data[ i * 4 + 3 ] = 0;
-
-			} else {
-
-				const rgba = d_8to24table[ palIdx ];
-				imageData.data[ i * 4 ] = rgba & 0xff;
-				imageData.data[ i * 4 + 1 ] = ( rgba >> 8 ) & 0xff;
-				imageData.data[ i * 4 + 2 ] = ( rgba >> 16 ) & 0xff;
-				imageData.data[ i * 4 + 3 ] = 255;
-
-			}
+			const rgba = d_8to24table[ palIdx ];
+			imageData.data[ i * 4 ] = rgba & 0xff;
+			imageData.data[ i * 4 + 1 ] = ( rgba >> 8 ) & 0xff;
+			imageData.data[ i * 4 + 2 ] = ( rgba >> 16 ) & 0xff;
+			imageData.data[ i * 4 + 3 ] = alpha && palIdx === 255 ? 0 : 255;
 
 		}
 
