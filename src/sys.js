@@ -311,14 +311,127 @@ export function Sys_Quit() {
 
 }
 
+/*
+===============================================================================
+
+DETERMINISM HOOKS
+
+Not in id's C. A lockstep driver (an agent, an RL environment, a bug-report
+replay) needs a run to be reproducible from a seed and an action log, so the
+clock and the server's gameplay randomness can be put under its control.
+Both are opt-in: with neither set, behaviour is unchanged.
+
+===============================================================================
+*/
+
+let _clockOverride = null;
+
+/*
+================
+Sys_SetClockOverride
+
+Makes Sys_FloatTime and Sys_DoubleTime return fn() (seconds) instead of the
+wall clock; null restores the wall clock. A lockstep driver keeps its own
+time and passes the matching frame time to Host_Frame.
+================
+*/
+export function Sys_SetClockOverride( fn ) {
+
+	if ( fn !== null && typeof fn !== 'function' )
+		throw new TypeError( 'Sys_SetClockOverride: expected a function or null' );
+	_clockOverride = fn;
+
+}
+
 export function Sys_FloatTime() {
 
+	if ( _clockOverride !== null )
+		return _clockOverride();
 	return performance.now() / 1000.0;
 
 }
 
 export function Sys_DoubleTime() {
 
+	if ( _clockOverride !== null )
+		return _clockOverride();
 	return performance.now() / 1000.0;
+
+}
+
+// sfc32 state (four 32-bit words); _randomSeeded false means Math.random
+let _randomSeeded = false;
+let _rand_a = 0, _rand_b = 0, _rand_c = 0, _rand_d = 0;
+
+/*
+================
+Sys_Random
+
+Server-side gameplay randomness, 0 <= num < 1: QuakeC random() (PF_random)
+and monster chase moves (SV_NewChaseDir, SV_MoveToGoal).
+
+Deliberate deviation: Quake drew these from the C library's rand(), which
+nothing outside the engine could seed. The port used Math.random; it still
+does unless Sys_SetRandomSeed has been called. Math.random is looked up on
+each call, so code that swaps it (tools/bench) still controls the default.
+================
+*/
+export function Sys_Random() {
+
+	if ( _randomSeeded !== true )
+		return Math.random();
+
+	// sfc32 (Chris Doty-Humphrey's Small Fast Counting generator)
+	const t = ( _rand_a + _rand_b | 0 ) + _rand_d | 0;
+	_rand_d = _rand_d + 1 | 0;
+	_rand_a = _rand_b ^ _rand_b >>> 9;
+	_rand_b = _rand_c + ( _rand_c << 3 ) | 0;
+	_rand_c = _rand_c << 21 | _rand_c >>> 11;
+	_rand_c = _rand_c + t | 0;
+	return ( t >>> 0 ) / 4294967296;
+
+}
+
+/*
+================
+Sys_SetRandomSeed
+
+Seeds Sys_Random with a 32-bit integer (other numbers are truncated to one);
+null goes back to Math.random. The same seed gives the same sequence.
+================
+*/
+export function Sys_SetRandomSeed( seed ) {
+
+	if ( seed === null ) {
+
+		_randomSeeded = false;
+		return;
+
+	}
+
+	if ( typeof seed !== 'number' || Number.isFinite( seed ) !== true )
+		throw new TypeError( 'Sys_SetRandomSeed: expected a finite number or null' );
+
+	// splitmix32 spreads the seed over the state, so nearby seeds diverge
+	let s = seed | 0;
+	const next = () => {
+
+		s = s + 0x9e3779b9 | 0;
+		let z = s;
+		z = Math.imul( z ^ z >>> 16, 0x21f0aaad );
+		z = Math.imul( z ^ z >>> 15, 0x735a2d97 );
+		return z ^ z >>> 15;
+
+	};
+
+	_rand_a = next();
+	_rand_b = next();
+	_rand_c = next();
+	_rand_d = 1;
+	_randomSeeded = true;
+
+	// discard the first outputs, as sfc32's reference seeding does
+	for ( let i = 0; i < 12; i ++ )
+		Sys_Random();
 
 }

@@ -3,6 +3,7 @@
 import { vec3_origin, VectorCopy, VectorAdd,
 	M_PI, anglemod } from './mathlib.js';
 import { YAW } from './quakedef.js';
+import { Sys_Random } from './sys.js';
 import { FL_FLY, FL_SWIM, FL_ONGROUND,
 	FL_PARTIALGROUND, CONTENTS_EMPTY, CONTENTS_SOLID,
 	sv, pr_global_struct,
@@ -379,7 +380,7 @@ export function SV_NewChaseDir( actor, enemy, dist ) {
 	}
 
 	// try other directions
-	if ( ( ( Math.random() * 4 | 0 ) & 1 ) || Math.abs( deltay ) > Math.abs( deltax ) ) {
+	if ( ( ( Sys_Random() * 4 | 0 ) & 1 ) || Math.abs( deltay ) > Math.abs( deltax ) ) {
 
 		tdir = d[ 1 ];
 		d[ 1 ] = d[ 2 ];
@@ -400,7 +401,7 @@ export function SV_NewChaseDir( actor, enemy, dist ) {
 	if ( olddir !== DI_NODIR && SV_StepDirection( actor, olddir, dist ) )
 		return;
 
-	if ( Math.random() > 0.5 ) {
+	if ( Sys_Random() > 0.5 ) {
 
 		/* randomly determine direction of search */
 		for ( tdir = 0; tdir <= 315; tdir += 45 )
@@ -471,7 +472,7 @@ export function SV_MoveToGoal() {
 		return;
 
 	// bump around...
-	if ( ( ( Math.random() * 4 | 0 ) & 3 ) === 1
+	if ( ( ( Sys_Random() * 4 | 0 ) & 3 ) === 1
 		|| ! SV_StepDirection( ent, ent.v.ideal_yaw, dist ) ) {
 
 		SV_NewChaseDir( ent, goal, dist );

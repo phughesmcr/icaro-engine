@@ -23,7 +23,10 @@ process per room. It was forked from mrdoob's three-quake.
 - `server/`: `lobby_server.js`, `game_server.js` and the WebTransport and
   WebSocket server drivers (`.ts`). Under Deno, `three` maps to `server/browser_shim.js` (root
   `deno.json`). If `src/` starts using a new Three.js export, add it to the
-  shim or the server and tests break. `server/Dockerfile` builds the
+  shim or the server and tests break. `server/headless_host.js` runs the
+  whole game (host, local server and a loopback client) under Deno with no
+  browser or rendering, for scripted play; its header says how to wait for
+  a level to load. `server/Dockerfile` builds the
   game-room image from an allowlist (`deno.json`, `server/`, `src/`,
   `static/pak0.pak`), with the root `.dockerignore` as a second guard; never
   widen either to registered data (see Game data).
@@ -79,7 +82,7 @@ process per room. It was forked from mrdoob's three-quake.
 - `deno task ci` runs what CI's main job runs: `deno task test`,
   `deno task lint` and `deno task check`. Run it before calling work done.
   CI's second job is `deno task image-check` (needs Docker).
-- `deno task test`: the whole suite (~750 tests, ~20 s). Its permissions are
+- `deno task test`: the whole suite (~790 tests, ~20 s). Its permissions are
   scoped: no network, env limited to the `FAKE_ROOM_*` variables, and run
   limited to `tests/fixtures/fake_room_server.sh`. A test that needs more must
   widen the task deliberately. For one file:

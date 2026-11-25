@@ -462,6 +462,71 @@ export class PerspectiveCamera extends Object3D {
 	updateProjectionMatrix() {}
 }
 
+// The calls gl_rmain.js and gl_rmisc.js make on the raw WebGL context
+const _nullGLContext = {
+	RGBA: 0x1908,
+	UNSIGNED_BYTE: 0x1401,
+	depthRange() {},
+	finish() {},
+	readPixels() {},
+};
+
+// Renderer stub for the headless client (server/headless_host.js), whose
+// VID_Init creates one. Everything is a no-op: nothing is drawn.
+export const NoToneMapping = 0;
+export const LinearToneMapping = 1;
+export class WebGLRenderer {
+	constructor(parameters = {}) {
+		this.domElement = parameters.canvas !== undefined ? parameters.canvas : null;
+		this.autoClear = true;
+		this.sortObjects = true;
+		this.outputColorSpace = SRGBColorSpace;
+		this.toneMapping = NoToneMapping;
+		this.toneMappingExposure = 1;
+		this.capabilities = { getMaxAnisotropy: () => 1 };
+		this.xr = null;
+		this._width = 1;
+		this._height = 1;
+		this._pixelRatio = 1;
+		this._renderTarget = null;
+	}
+	setSize(width, height) {
+		this._width = width;
+		this._height = height;
+	}
+	setPixelRatio(value) {
+		this._pixelRatio = value;
+	}
+	getPixelRatio() {
+		return this._pixelRatio;
+	}
+	getDrawingBufferSize(target) {
+		return target.set(this._width * this._pixelRatio, this._height * this._pixelRatio).floor();
+	}
+	getViewport(target) {
+		return target.set(0, 0, this._width, this._height);
+	}
+	getCurrentViewport(target) {
+		return target.set(0, 0, this._width * this._pixelRatio, this._height * this._pixelRatio);
+	}
+	setViewport() {}
+	getRenderTarget() {
+		return this._renderTarget;
+	}
+	setRenderTarget(target) {
+		this._renderTarget = target;
+	}
+	getContext() {
+		return _nullGLContext;
+	}
+	setClearColor() {}
+	clear() {}
+	render() {}
+	copyFramebufferToTexture() {}
+	copyTextureToTexture() {}
+	dispose() {}
+}
+
 // Render-target stub (gl_rmirror.js); there is no GPU here
 export class WebGLRenderTarget {
 	constructor(width = 1, height = 1, options = {}) {
