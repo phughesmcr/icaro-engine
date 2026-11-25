@@ -1134,7 +1134,9 @@ async function _RTC_ConnectAttempt( attempt, code, host ) {
 
 		_RTC_FinishClose( conn );
 
-		// A newer RTC_Connect took over; its own result is what the menu shows
+		// A newer RTC_Connect took over: skip this driver's own error message.
+		// CL_EstablishConnection may still show its generic one for this
+		// caller; the newer connect's result replaces it.
 		if ( rtc_attempt !== attempt && attempt.aborted === true ) {
 
 			Con_DPrintf( 'WebRTC connect to ' + code + ' superseded\n' );
