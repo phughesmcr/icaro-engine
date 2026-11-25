@@ -141,7 +141,7 @@ import {
 	DotProduct, VectorCopy, VectorAdd, VectorNormalize
 } from './mathlib.js';
 import { Mod_LeafPVS, solidskytexture, alphaskytexture,
-	SURF_DRAWLAVA, SURF_DRAWSLIME, SURF_DRAWTELE,
+	SURF_DRAWLAVA, SURF_DRAWSLIME, SURF_DRAWTELE, SURF_DRAWWATER,
 	r_lavaalpha, r_slimealpha, r_telealpha } from './gl_model.js';
 import { COM_Parse, com_token } from './common.js';
 import { realtime } from './host.js';
@@ -372,9 +372,13 @@ QS reparses the worldspawn in R_NewMap and its cvar callbacks override the
 map's values when a cvar is set. This port's cvars have no callbacks and
 R_NewMap is in gl_rmisc.js, so the values are parsed lazily after
 GL_BuildLightmaps (which R_NewMap calls) and a cvar is applied once its value
-changes. QS also checks the map's vis for see-through liquids
-(contentstransparent) and keeps unvised liquids opaque; that isn't ported,
-so GLQuake's r_wateralpha behaviour is unchanged.
+changes.
+
+QS also keeps a liquid opaque, whatever the cvars say, when the map's vis
+can't see through it (contentstransparent, from Mod_CheckWaterVis). Here
+that check only gates the worldspawn keys: the cvars act on every liquid as
+r_wateralpha does in GLQuake, so the look of id's (unvised) maps with
+r_wateralpha set is unchanged.
 ================
 */
 let map_wateralpha = 1;
@@ -398,6 +402,10 @@ function R_ParseWorldspawn( worldmodel ) {
 	map_slimealpha = r_slimealpha.value;
 	map_telealpha = r_telealpha.value;
 
+	if ( worldmodel === null || worldmodel.entities === null )
+		return;
+	const vised = worldmodel.contentstransparent;
+
 	let data = COM_Parse( worldmodel.entities );
 	if ( data === null || com_token !== '{' )
 		return; // error
@@ -409,20 +417,21 @@ function R_ParseWorldspawn( worldmodel ) {
 			return; // error
 		if ( com_token === '}' )
 			break; // end of worldspawn
-		const key = ( com_token.charAt( 0 ) === '_' ? com_token.substring( 1 ) : com_token ).trimEnd();
+		const key = ( com_token.charAt( 0 ) === '_' ? com_token.substring( 1 ) : com_token ).replace( / +$/, '' );
 		data = COM_Parse( data );
 		if ( data === null )
 			return; // error
 		let value = parseFloat( com_token );
 		if ( Number.isNaN( value ) ) value = 0;	// atof
 
-		if ( key === 'wateralpha' )
+		// only for liquids the vis can see through (see above)
+		if ( key === 'wateralpha' && ( vised & SURF_DRAWWATER ) !== 0 )
 			map_wateralpha = value;
-		else if ( key === 'lavaalpha' )
+		else if ( key === 'lavaalpha' && ( vised & SURF_DRAWLAVA ) !== 0 )
 			map_lavaalpha = value;
-		else if ( key === 'telealpha' )
+		else if ( key === 'telealpha' && ( vised & SURF_DRAWTELE ) !== 0 )
 			map_telealpha = value;
-		else if ( key === 'slimealpha' )
+		else if ( key === 'slimealpha' && ( vised & SURF_DRAWSLIME ) !== 0 )
 			map_slimealpha = value;
 
 	}
@@ -435,8 +444,7 @@ function R_UpdateLiquidAlpha() {
 	if ( worldmodel !== _liquidAlphaWorld ) {
 
 		_liquidAlphaWorld = worldmodel;
-		if ( worldmodel !== null && worldmodel.entities !== null )
-			R_ParseWorldspawn( worldmodel );
+		R_ParseWorldspawn( worldmodel );
 		_seenWaterAlpha = r_wateralpha.value;
 		_seenLavaAlpha = r_lavaalpha.value;
 		_seenSlimeAlpha = r_slimealpha.value;
