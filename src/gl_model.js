@@ -7,13 +7,13 @@
 import * as THREE from 'three';
 import { Sys_Error } from './sys.js';
 import { Host_Error } from './host.js';
-import { Con_Printf, Con_DPrintf } from './common.js';
+import { Con_Printf, Con_DPrintf, COM_StripExtension } from './common.js';
 import { d_8to24table, vid, renderer } from './vid.js';
-import { COM_LoadFile } from './pak.js';
+import { COM_LoadFile, COM_FindFile } from './pak.js';
 import { DotProduct, VectorCopy, Length } from './mathlib.js';
 import { Cvar_RegisterVariable, Cvar_SetValue } from './cvar.js';
 import { r_nolerp_list } from './render.js';
-import { MAX_DLIGHTS } from './client.js';
+import { MAX_DLIGHTS, cls, ca_dedicated } from './client.js';
 import { R_InitSky as R_InitSky_warp, GL_SubdivideSurface as GL_SubdivideSurface_warp, GL_Warp_SetLoadmodel } from './gl_warp.js';
 import { GL_MakeAliasModelDisplayLists as GL_MakeAliasModelDisplayLists_mesh, cl_gun_fovscale } from './gl_mesh.js';
 
@@ -300,6 +300,8 @@ export class msurface_t {
 		this.cached_dlight = false;							// true if dynamic light in cache
 		this.samples = null;		// Uint8Array -- [numstyles*surfsize]
 		this.sampleOffset = 0;		// offset into lightdata
+		// Not in C: samples are RGB triplets from a .lit (see Mod_LoadLighting)
+		this.rgbsamples = false;
 
 	}
 
@@ -642,6 +644,7 @@ export class model_t {
 		this.visdata = null;		// Uint8Array
 		this.viswarn = false;		// QuakeSpasm: Mod_DecompressVis warned once
 		this.lightdata = null;		// Uint8Array
+		this.litfile = false;		// Ironwail: lightdata is RGB from a .lit
 		this.entities = null;		// string
 		this.contentstransparent = 0;	// SURF_DRAW* liquids the vis sees through (Mod_CheckWaterVis)
 
@@ -1649,14 +1652,64 @@ function Mod_LoadTextures( fileofs, filelen ) {
 // Mod_LoadLighting
 // ============================================================================
 
+// Deliberate deviation (Ironwail Mod_LoadLighting, "lit support via
+// lordhavoc"): use maps/<name>.lit coloured lighting when there is a good
+// one, else the BSP's mono light data. Unlike Ironwail, mono data is not
+// expanded to RGB: it stays one byte a sample and litfile tells the
+// renderer which it is, so maps without a .lit cost nothing extra. A
+// dedicated server, which never draws, does not read the .lit.
+// COM_EnsureFile fetches the .lit with its map (pak.js COM_EnsureLitFile).
 function Mod_LoadLighting( fileofs, filelen ) {
 
-	if ( filelen === 0 ) {
+	loadmodel.lightdata = null;
+	loadmodel.litfile = false;
 
-		loadmodel.lightdata = null;
-		return;
+	// LordHavoc: check for a .lit file
+	const litfilename = COM_StripExtension( loadmodel.name ) + '.lit';
+	const lit = cls.state !== ca_dedicated ? COM_FindFile( litfilename ) : null;
+	if ( lit !== null ) {
+
+		// use lit file only from the same gamedir as the map
+		// itself or from a searchpath with higher priority.
+		const map = COM_FindFile( loadmodel.name );
+		const data = lit.data;
+		if ( map !== null && lit.path_id < map.path_id ) {
+
+			Con_DPrintf( 'ignored %s from a gamedir with lower priority\n', litfilename );
+
+		} else if ( lit.size >= 8 && data[ 0 ] === 0x51 && data[ 1 ] === 0x4c && data[ 2 ] === 0x49 && data[ 3 ] === 0x54 ) { // "QLIT"
+
+			const i = data[ 4 ] | ( data[ 5 ] << 8 ) | ( data[ 6 ] << 16 ) | ( data[ 7 ] << 24 );
+			if ( i === 1 ) {
+
+				if ( 8 + filelen * 3 === lit.size ) {
+
+					Con_DPrintf( '%s loaded\n', litfilename );
+					// a view of the pak data: nothing writes lightdata
+					loadmodel.lightdata = data.subarray( 8, lit.size );
+					loadmodel.litfile = true;
+					return;
+
+				}
+
+				Con_Printf( 'Outdated .lit file (%s should be %d bytes, not %d)\n', litfilename, 8 + filelen * 3, lit.size );
+
+			} else {
+
+				Con_Printf( 'Unknown .lit file version (%d)\n', i );
+
+			}
+
+		} else {
+
+			Con_Printf( 'Corrupt .lit file (old version?), ignoring\n' );
+
+		}
 
 	}
+
+	if ( filelen === 0 )
+		return;
 
 	loadmodel.lightdata = new Uint8Array( filelen );
 	loadmodel.lightdata.set( mod_base.subarray( fileofs, fileofs + filelen ) );
@@ -2161,8 +2214,10 @@ function Mod_LoadFaces( fileofs, filelen, bsp2 = false ) {
 
 		} else {
 
+			// Ironwail: lightofs * 3 into RGB data from a .lit
 			s.samples = loadmodel.lightdata;
-			s.sampleOffset = lightofs;
+			s.sampleOffset = loadmodel.litfile ? lightofs * 3 : lightofs;
+			s.rgbsamples = loadmodel.litfile;
 
 		}
 
@@ -2834,6 +2889,7 @@ function Mod_LoadBrushModel( mod, buffer ) {
 			nextmodel.textures = mod.textures;
 			nextmodel.visdata = mod.visdata;
 			nextmodel.lightdata = mod.lightdata;
+			nextmodel.litfile = mod.litfile;
 			nextmodel.entities = mod.entities;
 			nextmodel.needload = false;
 

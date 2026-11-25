@@ -40,7 +40,11 @@ class pack_t {
 }
 
 // Search paths
-const com_searchpaths = []; // array of { pack, path }
+const com_searchpaths = []; // array of { pack, path, path_id }
+
+// QuakeSpasm searchpath_t path_id: one per game directory, larger for the
+// directories searched first. Mod_LoadLighting compares a .lit's with its map's.
+let com_last_path_id = 0;
 
 // Loaded packs
 const loadedPacks = [];
@@ -171,12 +175,13 @@ export function COM_AddGameDirectory( dir, onProgress ) {
 =================
 COM_AddPack
 
-Adds a loaded pack to the search path
+Adds a loaded pack to the search path. Paks of one game directory share a
+path_id (COM_AddPakSequence passes it); a pack added on its own gets a new one.
 =================
 */
-export function COM_AddPack( pack ) {
+export function COM_AddPack( pack, path_id = ++ com_last_path_id ) {
 
-	com_searchpaths.unshift( { pack: pack, path: null } );
+	com_searchpaths.unshift( { pack: pack, path: null, path_id: path_id } );
 
 }
 
@@ -185,7 +190,9 @@ export function COM_AddPack( pack ) {
 COM_FindFile
 
 Searches through the path looking for a file.
-Returns { data: Uint8Array, size: number } or null
+Returns { data: Uint8Array, size: number, path_id: number } or null. path_id
+is the QuakeSpasm one (see com_last_path_id); loose files, which are searched
+after every pak, have 0.
 
 Deliberately not ported: common.c refuses loose files whose name has a
 '/' or '\\' when !static_registered ("don't ever go beyond base"). This
@@ -207,19 +214,19 @@ export function COM_FindFile( filename ) {
 		if ( pack.data !== null ) {
 
 			const data = new Uint8Array( pack.data, file.filepos, file.filelen );
-			return { data: data, size: file.filelen };
+			return { data: data, size: file.filelen, path_id: found.path_id };
 
 		}
 
 		if ( file.data !== null )
-			return { data: file.data, size: file.filelen };
+			return { data: file.data, size: file.filelen, path_id: found.path_id };
 
 		// Deno reads a lazily opened pak synchronously from disk, once: the
 		// map commands look a map up before loading it
 		if ( pack.reader.readSync !== null ) {
 
 			file.data = pack.reader.readSync( file.filepos, file.filelen );
-			return { data: file.data, size: file.filelen };
+			return { data: file.data, size: file.filelen, path_id: found.path_id };
 
 		}
 
@@ -241,7 +248,7 @@ export function COM_FindFile( filename ) {
 	if ( virtualFiles.has( search ) ) {
 
 		const data = virtualFiles.get( search );
-		return { data: data, size: data.length };
+		return { data: data, size: data.length, path_id: 0 };
 
 	}
 
@@ -250,7 +257,7 @@ export function COM_FindFile( filename ) {
 }
 
 // Not in id's common.c. The first entry named search (lower case) in the
-// search path, as { pack, file }, or null.
+// search path, as { pack, file, path_id }, or null.
 function COM_FindPackFile( search ) {
 
 	for ( let i = 0; i < com_searchpaths.length; i ++ ) {
@@ -261,7 +268,7 @@ function COM_FindPackFile( search ) {
 		for ( let j = 0; j < pack.files.length; j ++ ) {
 
 			if ( pack.files[ j ].name === search )
-				return { pack: pack, file: pack.files[ j ] };
+				return { pack: pack, file: pack.files[ j ], path_id: com_searchpaths[ i ].path_id };
 
 		}
 
@@ -353,9 +360,59 @@ COM_EnsureFile
 Checks if a file is available in pak or virtualFiles.
 If not, attempts to fetch it on demand and cache it.
 Returns a Promise<boolean>.
+
+For maps/<name>.bsp it also fetches maps/<name>.lit (see COM_EnsureLitFile),
+without changing the result.
 =================
 */
 export async function COM_EnsureFile( filename ) {
+
+	const lit = COM_EnsureLitFile( filename );
+	const found = await COM_EnsureOneFile( filename );
+	await lit;
+	return found;
+
+}
+
+/*
+=================
+COM_EnsureLitFile
+
+Not in id's common.c. Mod_LoadLighting (Ironwail) reads maps/<name>.lit
+synchronously when it loads maps/<name>.bsp, and lazily opened paks defer
+.lit entries, so fetch it along with the map. A .lit is looked for loose only
+when the map itself is not in a pak, so maps in paks cost no extra request.
+Failures are ignored: the map then loads with its mono lighting.
+=================
+*/
+async function COM_EnsureLitFile( filename ) {
+
+	const search = filename.toLowerCase();
+	if ( ! search.startsWith( 'maps/' ) || ! search.endsWith( '.bsp' ) )
+		return;
+
+	const litname = search.slice( 0, - 4 ) + '.lit';
+	const found = COM_FindPackFile( litname );
+	if ( found === null && COM_FindPackFile( search ) !== null )
+		return;
+
+	// Deno reads it from disk when Mod_LoadLighting asks, if it asks (not on
+	// a dedicated server)
+	if ( found !== null && found.pack.reader != null && found.pack.reader.readSync !== null )
+		return;
+
+	await COM_EnsureOneFile( litname );
+
+}
+
+/*
+=================
+COM_EnsureOneFile
+
+COM_EnsureFile for one file
+=================
+*/
+async function COM_EnsureOneFile( filename ) {
 
 	// Already available in pak or virtualFiles?
 	if ( COM_FindFile( filename ) !== null ) {
@@ -583,8 +640,9 @@ let com_fetchmissing = false;
 // Coalesce eager entries closer together than this into one Range request
 const RANGE_GAP = 256 * 1024;
 
-// Files the engine never reads (rerelease lighting, editor and KEX assets;
-// archive/ is the source and tools tree, about 97 MB, in the re-release ctf pak)
+// Files the engine reads only on demand (.lit coloured lighting, fetched with
+// its map by COM_EnsureFile) or never (editor and KEX assets; archive/ is the
+// source and tools tree, about 97 MB, in the re-release ctf pak)
 const DEFERRED_EXTENSIONS = [ '.lit', '.map', '.ent', '.png', '.tga', '.jpg', '.md5mesh', '.md5anim', '.nav', '.fgd' ];
 const DEFERRED_DIRS = [ 'tactile/', 'vault/', 'archive/' ];
 
@@ -607,8 +665,9 @@ COM_PakEntryIsDeferred
 
 True when a lazily opened pak's entry is fetched only on demand through
 COM_EnsureFile rather than at load: maps bigger than 32k (not the b_*.bsp
-item models, as in COM_ListFiles), the mapper texture wads in gfx/, and file
-types and directories the engine never reads.
+item models, as in COM_ListFiles), the mapper texture wads in gfx/, .lit files
+(fetched with their map), and file types and directories the engine never
+reads.
 =================
 */
 export function COM_PakEntryIsDeferred( name, filelen ) {
@@ -947,6 +1006,7 @@ export async function COM_AddPakSequence( pak0Url, onProgress ) {
 	}
 
 	const dir = match[ 1 ];
+	const path_id = ++ com_last_path_id;
 	let count = 0;
 	for ( let i = 0; ; i ++ ) {
 
@@ -957,7 +1017,7 @@ export async function COM_AddPakSequence( pak0Url, onProgress ) {
 		else if ( pak === null && i === 0 )
 			Sys_Error( dir + name + ' is not a packfile' );
 		if ( pak === null ) break;
-		COM_AddPack( pak );
+		COM_AddPack( pak, path_id );
 		count ++;
 
 	}
