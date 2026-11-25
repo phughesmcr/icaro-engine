@@ -54,15 +54,18 @@ with the page's existing `window.cl`/`cls`/`sv` debug globals.
   - Procedure: `map e1m1`, then `renderer.setAnimationLoop( null )`, then
     `Host_Frame( 1/72 )` called synchronously in a loop. `import(
     '/src/host.js' )` resolves to the same module instance `main.js` uses.
-  - Result: 2,358 frames in 1.0 s of wall time, which is 33x real time.
-  - `cl.time` advanced by exactly 2358 / 72 s.
-  - Each 1/72 s step passes the `host_maxfps` gate (`src/host.js:827`), so
-    `SCR_UpdateScreen` ran every frame. The GPU work was queued, though, not
-    presented or read back. Throughput with readback will be lower and is
-    not measured.
+  - Result: 2,358 `Host_Frame` calls in 1.0 s of wall time, and `cl.time`
+    advanced by 2358 / 72 s, which is 33x real time.
+  - Not shown: that every call simulated and rendered a frame. A call that
+    `_Host_FilterTime` rejects (`src/host.js:816`, the `host_maxfps` gate at
+    `:827`) rolls its time into the next call, so the `cl.time` total matches
+    either way, and `1/72` sits right on the gate's edge. Whatever rendering
+    happened was queued GPU work, not presented or read back. Throughput
+    with readback will be lower and is not measured.
 - **Compact observation size.**
-  - The status line `e1m1 t35.9 hp100 ar0 sh25 | #108 b_shell0 1073u R3` is
-    59 characters, about 20 tokens.
+  - The status line `e1m1 t35.9 hp100 ar0 sh25 | #108 maps/b_shell0.bsp 1073u R3`
+    is 59 characters, about 20 tokens. Mapping file names to kinds
+    (`shells`) would shorten it.
   - The same data as JSON (stats array, origin, angles, entity tuples) is
     153 characters, about 50 tokens.
   - A 1024x768 screenshot costs about 1,050 tokens by Anthropic's
@@ -72,7 +75,7 @@ with the page's existing `window.cl`/`cls`/`sv` debug globals.
     so cap the list (nearest 10) and report how many were left out.
 - **Navigation data exists for id1 maps.** The 2021 rerelease's `pak0.pak`
   ships 51 bot navigation files, `bots/navigation/*.nav`, magic `NAV2`. They
-  cover e1m1 to e4m8, dm1 to dm6, start, end and test maps. The format is
+  cover e1m1 to e4m8, dm1 to dm8, start, end and test maps. The format is
   undocumented here [U]. This is commercial data, so it can only be loaded
   at runtime from a user's own copy and never committed.
 
@@ -92,6 +95,9 @@ with the page's existing `window.cl`/`cls`/`sv` debug globals.
 
 I found no published Quake-specific LLM-agent project or MCP server (one
 search, [S]), and no paper measuring token cost across observation formats.
+Searches on Mineflayer, MineDojo, Lumine, Melting Pot, PettingZoo,
+lmgame-bench, `llms.txt` and Chrome's built-in agent features returned
+nothing usable, so the table is not a complete survey.
 The 59- and 153-character figures above are our own.
 
 ### Interface standards (late 2026)
@@ -139,11 +145,17 @@ This is a web-only addition, like `in_web.js`.
 ### Clock modes
 
 - **`realtime`** (default): the existing `renderer.setAnimationLoop` loop
-  (`main.js:207`).
+  (`main.js:213`).
 - **`lockstep`**: the agent owns time.
   - `agent_attach( { mode: 'lockstep' } )` stops the animation loop.
-  - `step( action, tics )` calls `Host_Frame( 1 / 72 )` `tics` times, then
-    returns the observation.
+  - `step( action, tics )` runs `tics` host frames, then returns the
+    observation. Each must be exactly one tic, so `step` sets the frame time
+    itself (`host_framerate`, or a bypass of `_Host_FilterTime`) rather than
+    relying on `Host_Frame( 1 / 72 )` passing the `host_maxfps` gate.
+  - `step` must be async. Map loads fetch files with promises
+    (`COM_EnsureFile` in `src/host_cmd.js:1534` and `src/cl_parse.js:419`),
+    so `map` and `changelevel` finish across event-loop turns. `step` should
+    wait for the level to be ready before counting tics.
   - This removes the dependence on `requestAnimationFrame`, which browsers
     throttle or stop in background tabs. That matters when an agent drives a
     hidden pane or tab.
@@ -307,7 +319,7 @@ document it. A useful `goto` needs a graph. Options, in order:
 
 | Need | Where | Change |
 | --- | --- | --- |
-| Clock override | `main.js:207`, `src/sys.js:314` | lockstep driver; virtual `Sys_FloatTime` |
+| Clock override | `main.js:213`, `src/sys.js:314` | lockstep driver; virtual `Sys_FloatTime` |
 | Seeded RNG | `src/pr_cmds.js:459`, `src/sv_move.js` | route through a seedable generator (pattern in `tools/bench/net_bench.js`) |
 | Action injection | `src/cl_main.js:1470-1476`, `src/cl_input.js:75-93` | one hook between `CL_BaseMove` and `CL_SendMove` |
 | Events | `src/console.js:407`, `src/gl_screen.js:149`, `src/cl_parse.js` (damage, stats, intermission) | push to a ring buffer when an agent is attached |
