@@ -71,6 +71,23 @@ Deno.test( 'G5: the crosshair is centred on scr_vrect, ignores cl_crossx/y and s
 
 		assertEqual( crosshairAt( cl, { ...cls, demoplayback: true } ), '+@156,92', 'drawn during demo playback' );
 
+		// viewsize 60: a 192x144 view at ( 64, 24 ), still centred on ( 160, 96 )
+		const oldViewsize = scr.scr_viewsize.value;
+		try {
+
+			scr.scr_viewsize.value = 60;
+			scr.SCR_CalcRefdef();
+			assertEqual( r_refdef.vrect.x + ',' + r_refdef.vrect.y + ' ' + r_refdef.vrect.width + 'x' + r_refdef.vrect.height,
+				'64,24 192x144', 'test setup: viewsize 60 view' );
+			assertEqual( crosshairAt( cl, cls ), '+@156,92', 'offset by scr_vrect.x and .y' );
+
+		} finally {
+
+			scr.scr_viewsize.value = oldViewsize;
+			scr.SCR_CalcRefdef();
+
+		}
+
 		assertEqual( crosshairAt( { ...cl, intermission: 3 }, cls ), '', 'hidden during intermission (FitzQuake)' );
 
 	} finally {
