@@ -33,6 +33,14 @@ const GAME_DIRS = [ 'mg1', 'mg3', 'dopa', 'ctf' ]; // the 2021 rerelease's add-o
 // are static/pak*.pak and game directories are static/<game>.
 const BASE_DIRS = { rerelease: 'static/rerelease' };
 
+// ?particles=<n> stands in for -particles <n> (r_part.c R_InitParticles
+// sizes the particle pool from it). Only whole numbers are passed on. C has
+// no maximum, but a URL can come from a shared link, so values above
+// PARTICLES_URL_MAX (16 times Ironwail's default) are ignored rather than
+// allocated.
+const PARTICLES_ARG = /^[0-9]+$/;
+const PARTICLES_URL_MAX = 262144;
+
 async function main() {
 
 	try {
@@ -70,6 +78,19 @@ async function main() {
 		} else if ( base !== null ) {
 
 			Sys_Printf( 'Ignoring unknown base "%s" (expected %s)\n', base, Object.keys( BASE_DIRS ).join( ', ' ) );
+
+		}
+
+		const particles = urlParams.get( 'particles' );
+		if ( particles !== null && PARTICLES_ARG.test( particles ) && Number( particles ) <= PARTICLES_URL_MAX ) {
+
+			if ( parms.argv.length === 0 ) parms.argv = [ 'quake' ];
+			parms.argv = [ ...parms.argv, '-particles', particles ];
+			parms.argc = parms.argv.length;
+
+		} else if ( particles !== null ) {
+
+			Sys_Printf( 'Ignoring particles "%s" (expected a whole number up to %d)\n', particles, PARTICLES_URL_MAX );
 
 		}
 

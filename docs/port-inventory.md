@@ -293,26 +293,28 @@ own fix PR.
 - **`host_speeds` and `serverprofile`:** registered (`src/host.js:83`,
   `:86`) but never read. In C they print per-frame timings
   (`host.c:697-720`, `:736-762`).
-- **`-particles <n>`:** ignored. `MAX_PARTICLES` is fixed at 2048
-  (`src/r_part.js:13`), the same as C's default (`r_part.c:50-58`).
+- **`-particles <n>`:** was ignored. `MAX_PARTICLES` was fixed at 2048,
+  the same as C's default (`r_part.c:50-58`).
 
-- **Status: partly fixed.** `host_speeds` prints the
+- **Status: fixed.** `host_speeds` prints the
   `tot`/`server`/`gfx`/`snd` line each frame, and `serverprofile` the
   1000-frame average, as in `host.c`. Both run in the browser's
   `Host_Frame` only; the room server has its own frame loop
   (`server/game_server.js`). `MAX_PARTICLES` is now 16384
   (`src/r_part.js:18`), a deliberate deviation from C's 2048 taken from
-  Ironwail. `-particles` is still ignored.
+  Ironwail. `-particles <n>` sizes the pool in `R_InitParticles`, as in C
+  and Ironwail: at least 512, no maximum, and the default when no number
+  follows (Ironwail's check). The browser passes it from `?particles=<n>`, which ignores values over
+  262144 because a link can carry it (a port addition).
 
 ## Command-line parms
 
 C's `COM_CheckParm` arguments that JS never checks. The browser builds
-`com_argv` from the URL (`main.js`: `?game=` → `-rogue`/`-hipnotic`/`-game <dir>`; `?base=rerelease` sets the basedir).
+`com_argv` from the URL (`main.js`: `?game=` → `-rogue`/`-hipnotic`/`-game <dir>`; `?base=rerelease` sets the basedir; `?particles=<n>` → `-particles <n>`).
 The room server builds it from its own flags (`server/game_server.js:200`).
 
 | Parm | C | Verdict |
 |---|---|---|
-| `-particles` | `r_part.c` | (b) G10 |
 | `-conwidth`, `-conheight` | `gl_vidnt.c` | (b) G6 |
 | `-game`, `-basedir`, `-path`, `-cachedir`, `-proghack` | `common.c` | (a) no filesystem; `?game=` covers the mission packs and the rerelease add-ons (`-game`), `?base=rerelease` the rerelease basedir |
 | `-dedicated` | `host.c`, `sys_win.c` | (a) `game_server.js` is always dedicated, the browser never |
@@ -328,7 +330,7 @@ The room server builds it from its own flags (`server/game_server.js:200`).
 | `-HFILE`, `-HPARENT`, `-HCHILD`, `-starttime` | `sys_win.c` | (a) Win32 |
 
 These are ported: `-rogue`, `-hipnotic`, `-port`, `-udpport`, `-ipxport`,
-`-listen`, `-nocdaudio` and `-gamma`.
+`-listen`, `-nocdaudio`, `-gamma` and `-particles` (G10).
 
 ## Platform files (cvars and commands only)
 
