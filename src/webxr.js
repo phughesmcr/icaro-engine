@@ -24,6 +24,13 @@ const XR_FLOOR_TO_EYE = 46;
 const XR_HUD_DISTANCE = 1.5;
 const XR_HUD_WIDTH = 1.6;
 
+// Shortest time between HUD texture uploads, in seconds. The overlay canvas is
+// window size times DPR and is redrawn every frame, so uploading it at the
+// headset's 72-120 Hz costs far more than the 2D view needs. A resized
+// canvas, a new texture and the first frame after the HUD is shown always
+// upload at once.
+const XR_HUD_UPLOAD_INTERVAL = 1 / 30;
+
 //============================================================================
 // Pre-allocated temp objects (Golden Rule #4)
 //============================================================================
@@ -37,6 +44,7 @@ const _aimForward = new THREE.Vector3();
 
 let _rendererOverride = null;
 let _overlayCanvasOverride = null;
+let _nowOverride = null; // test clock, in seconds
 let T = THREE; // THREE, or a test stub
 function R() {
 
@@ -53,12 +61,15 @@ let _scene = null; // scene reference for scale toggling
 let _onSessionEnd = null; // in_web.js releases held XR buttons
 let _enterButton = null; // "Enter VR" button for browsers without offerSession
 
-// 2D overlay quad
+// 2D overlay quad. It lives in its own scene, drawn after the world by
+// XR_RenderHUD (see there).
+let hudScene = null;
 let hudMesh = null;
 let hudTexture = null;
 let hudCanvasWidth = 0;
 let hudCanvasHeight = 0;
 let hudOffset = null; // THREE.Matrix4: head space → quad
+let hudUploadTime = - Infinity; // seconds; -Infinity forces the next upload
 
 // Input state — polled each frame by XR_PollInput(), consumed by in_web.js
 export const xrInput = {
@@ -92,13 +103,28 @@ export function getXRRig() {
 
 }
 
-// Test seam: lets tests supply a fake renderer, THREE and overlay canvas
-// (browser_shim.js has no WebGLRenderer or PlaneGeometry). Call with no argument to restore.
+// Test seam: lets tests supply a fake renderer, THREE, overlay canvas and
+// clock (browser_shim.js has no WebGLRenderer or PlaneGeometry). Call with
+// no argument to restore.
 export function XR_SetTestOverrides( overrides ) {
 
 	_rendererOverride = overrides != null && overrides.renderer != null ? overrides.renderer : null;
 	T = overrides != null && overrides.THREE != null ? overrides.THREE : THREE;
 	_overlayCanvasOverride = overrides != null && overrides.overlayCanvas != null ? overrides.overlayCanvas : null;
+	_nowOverride = overrides != null && overrides.now != null ? overrides.now : null;
+
+	// The HUD objects belong to the THREE they were made with
+	hudScene = null;
+	hudMesh = null;
+	hudTexture = null;
+	hudCanvasWidth = 0;
+	hudCanvasHeight = 0;
+
+}
+
+function _now() {
+
+	return _nowOverride != null ? _nowOverride() : performance.now() / 1000;
 
 }
 
@@ -341,8 +367,12 @@ export function XR_UpdateHUD() {
 		hudTexture.colorSpace = T.SRGBColorSpace;
 		hudTexture.minFilter = T.LinearFilter;
 		hudTexture.generateMipmaps = false;
+
+		// Only going from no map to a map changes the shader program. Swapping
+		// one map for another needs no recompile.
+		if ( hudMesh.material.map == null ) hudMesh.material.needsUpdate = true;
 		hudMesh.material.map = hudTexture;
-		hudMesh.material.needsUpdate = true;
+		hudUploadTime = - Infinity;
 
 		hudCanvasWidth = canvas.width;
 		hudCanvasHeight = canvas.height;
@@ -352,16 +382,47 @@ export function XR_UpdateHUD() {
 
 	}
 
-	hudTexture.needsUpdate = true;
-	R().initTexture( hudTexture );
+	// The canvas is redrawn every frame, but upload it at a capped rate
+	const now = _now();
+	if ( now - hudUploadTime >= XR_HUD_UPLOAD_INTERVAL ) {
+
+		hudUploadTime = now;
+		hudTexture.needsUpdate = true;
+		R().initTexture( hudTexture );
+
+	}
 
 	hudMesh.visible = true;
 
 }
 
+//============================================================================
+// XR_RenderHUD
+//
+// Called by R_RenderView after the world render, while XR is presenting.
+// The renderer has sortObjects = false (the BSP order is kept), so a
+// renderOrder on a quad in the world scene is ignored, and particles or
+// entity meshes added after it draw over it. A second render of a scene
+// that holds only the quad puts it on top.
+//
+// Rendering twice into the XR framebuffer in one frame is safe here because
+// vid.js creates the renderer with antialias: false. The XR render target
+// then has no samples, so r183's multisample resolve at the end of render()
+// (which invalidates the colour attachment) does not run. The HUD scene has
+// no background and autoClear is false, so the second render clears nothing.
+//============================================================================
+
+export function XR_RenderHUD( camera ) {
+
+	if ( xrSessionActive === false || hudMesh == null || hudMesh.visible === false ) return;
+
+	R().render( hudScene, camera );
+
+}
+
 // Head-locked: pose the quad from this frame's XR camera, just before it
-// is drawn. The scene's 1/XR_SCALE scale does not apply because matrixWorld
-// is set directly.
+// is drawn. matrixWorld is set directly, in meters like the XR camera (the
+// HUD scene is not scaled by 1/XR_SCALE as the world scene is).
 function _poseHUD() {
 
 	const xrCamera = R().xr.getCamera();
@@ -375,6 +436,7 @@ function _showHUD() {
 
 	if ( hudMesh == null ) {
 
+		hudScene = new T.Scene();
 		hudOffset = new T.Matrix4();
 
 		const material = new T.MeshBasicMaterial( {
@@ -385,7 +447,6 @@ function _showHUD() {
 		} );
 
 		hudMesh = new T.Mesh( new T.PlaneGeometry( 1, 1 ), material );
-		hudMesh.renderOrder = 10000;
 		hudMesh.frustumCulled = false;
 		hudMesh.matrixAutoUpdate = false;
 		hudMesh.matrixWorldAutoUpdate = false;
@@ -393,9 +454,10 @@ function _showHUD() {
 
 	}
 
-	// Hidden until the first upload
+	// Hidden until the first upload, which happens at once
 	hudMesh.visible = false;
-	_scene.add( hudMesh );
+	hudUploadTime = - Infinity;
+	hudScene.add( hudMesh );
 
 }
 

@@ -1107,7 +1107,7 @@ const flush = () => new Promise( ( r ) => setTimeout( r, 0 ) );
 // Fake THREE objects (browser_shim.js has no PlaneGeometry or WebGLRenderer)
 function makeFakeThree() {
 
-	const created = { textures: [] };
+	const created = { textures: [], meshes: [], scenes: [] };
 	class Group {
 
 		constructor() {
@@ -1132,12 +1132,17 @@ function makeFakeThree() {
 	}
 	class Mesh {
 
-		constructor( geometry, material ) { this.geometry = geometry; this.material = material; this.visible = true; this.parent = null; }
+		constructor( geometry, material ) { this.geometry = geometry; this.material = material; this.visible = true; this.parent = null; created.meshes.push( this ); }
 
 	}
 	class MeshBasicMaterial {
 
 		constructor( params ) { Object.assign( this, params ); this.map = null; }
+
+	}
+	class Scene extends Group {
+
+		constructor() { super(); created.scenes.push( this ); }
 
 	}
 	class PlaneGeometry {}
@@ -1147,7 +1152,7 @@ function makeFakeThree() {
 		dispose() { this.disposed = true; }
 
 	}
-	return { THREE: { Group, Matrix4, Mesh, MeshBasicMaterial, PlaneGeometry, CanvasTexture, SRGBColorSpace: 'srgb', LinearFilter: 1006 }, created };
+	return { THREE: { Group, Scene, Matrix4, Mesh, MeshBasicMaterial, PlaneGeometry, CanvasTexture, SRGBColorSpace: 'srgb', LinearFilter: 1006 }, created };
 
 }
 
@@ -1181,7 +1186,14 @@ function makeFakeXRRenderer() {
 		getCamera() { return { matrixWorld: {} }; },
 		setSession( session ) { this.session = session; fire( 'sessionstart' ); return Promise.resolve(); }
 	};
-	return { renderer: { xr, initTexture() { this.initialized ++; }, initialized: 0 }, controllers, fire };
+	const renderer = {
+		xr,
+		initialized: 0,
+		renders: [],
+		initTexture() { this.initialized ++; },
+		render( scene, camera ) { this.renders.push( { scene, camera } ); }
+	};
+	return { renderer, controllers, fire };
 
 }
 
@@ -1289,41 +1301,66 @@ Deno.test( 'IN-3: HUD quad texture is re-created on resize and released with the
 
 	let ended = 0;
 	let offers = 0;
+	let clock = 100;
 
 	await withFakeXR( ( { fake, scene, three } ) => {
 
 		const canvas = { width: 640, height: 480, getContext() { return {}; } };
-		webxr.XR_SetTestOverrides( { renderer: fake.renderer, THREE: three.THREE, overlayCanvas: canvas } );
+		webxr.XR_SetTestOverrides( { renderer: fake.renderer, THREE: three.THREE, overlayCanvas: canvas, now: () => clock } );
 		webxr.XR_SetSessionEndCallback( () => { ended ++; } );
 		webxr.XR_Init( scene );
-		const hud = () => scene.children.find( ( c ) => c.material != null );
+		const hud = () => three.created.meshes.find( ( c ) => c.parent != null && c.material != null );
+		const camera = {};
 
 		// Not in a session: nothing happens
 		webxr.XR_UpdateHUD();
+		webxr.XR_RenderHUD( camera );
 		assertEqual( three.created.textures.length, 0, 'no texture outside a session' );
+		assertEqual( fake.renderer.renders.length, 0, 'no HUD render outside a session' );
 
 		fake.fire( 'sessionstart' );
-		assertEqual( hud() != null, true, 'quad added to the scene' );
+		assertEqual( hud() != null, true, 'quad added' );
+		assertEqual( hud().parent, three.created.scenes[ 0 ], 'quad in its own scene' );
+		assertEqual( scene.children.includes( hud() ), false, 'quad not in the world scene' );
 		assertEqual( hud().visible, false, 'hidden until the first upload' );
+		webxr.XR_RenderHUD( camera );
+		assertEqual( fake.renderer.renders.length, 0, 'nothing to draw before the first upload' );
 
 		webxr.XR_UpdateHUD();
 		assertEqual( three.created.textures.length, 1, 'texture created' );
 		assertEqual( hud().visible, true, 'visible after upload' );
 		assertEqual( hud().material.map, three.created.textures[ 0 ], 'texture on the material' );
+		assertEqual( hud().material.needsUpdate, true, 'first map recompiles the material' );
 		assertEqual( fake.renderer.initialized, 1, 'uploaded to the GPU' );
 
+		webxr.XR_RenderHUD( camera );
+		assertEqual( fake.renderer.renders.length, 1, 'HUD rendered' );
+		assertEqual( fake.renderer.renders[ 0 ].scene, three.created.scenes[ 0 ], 'HUD scene rendered' );
+		assertEqual( fake.renderer.renders[ 0 ].camera, camera, 'with the view camera' );
+
+		clock += 0.01;
 		webxr.XR_UpdateHUD();
 		assertEqual( three.created.textures.length, 1, 'same size keeps the texture' );
-		assertEqual( fake.renderer.initialized, 2, 'but still re-uploads each frame' );
+		assertEqual( fake.renderer.initialized, 1, 'no upload within the interval' );
 
+		clock += 0.03;
+		webxr.XR_UpdateHUD();
+		assertEqual( fake.renderer.initialized, 2, 'uploads again after the interval' );
+
+		hud().material.needsUpdate = false;
 		canvas.width = 1280;
+		clock += 0.001;
 		webxr.XR_UpdateHUD();
 		assertEqual( three.created.textures.length, 2, 'resized canvas gets a new texture' );
 		assertEqual( three.created.textures[ 0 ].disposed, true, 'old texture disposed' );
 		assertEqual( hud().material.map, three.created.textures[ 1 ], 'new texture on the material' );
+		assertEqual( hud().material.needsUpdate, false, 'swapping maps needs no recompile' );
+		assertEqual( fake.renderer.initialized, 3, 'new texture uploads at once' );
 
+		const quad = hud();
 		fake.fire( 'sessionend' );
 		assertEqual( hud(), undefined, 'quad removed' );
+		assertEqual( quad.material.map, null, 'map cleared' );
 		assertEqual( three.created.textures[ 1 ].disposed, true, 'texture disposed with the session' );
 		assertEqual( ended, 1, 'session end callback called' );
 		assertEqual( scene.scale.value, 1, 'scene scale restored' );
@@ -1331,11 +1368,20 @@ Deno.test( 'IN-3: HUD quad texture is re-created on resize and released with the
 
 		webxr.XR_UpdateHUD();
 		assertEqual( three.created.textures.length, 2, 'no upload after the session' );
+
+		// A new session uploads at once and recompiles for the new map
+		quad.material.needsUpdate = false;
+		fake.fire( 'sessionstart' );
+		assertEqual( hud(), quad, 'same quad shown again' );
+		webxr.XR_UpdateHUD();
+		assertEqual( fake.renderer.initialized, 4, 'first frame of a new session uploads' );
+		assertEqual( quad.material.needsUpdate, true, 'null to map recompiles' );
+		fake.fire( 'sessionend' );
 		webxr.XR_SetSessionEndCallback( null );
 
 	}, { offerSession() { offers ++; return new Promise( () => {} ); } } );
 
-	assertEqual( offers, 2, 'a new session is offered at init and again after the session' );
+	assertEqual( offers, 3, 'a new session is offered at init and again after each session' );
 
 } );
 
