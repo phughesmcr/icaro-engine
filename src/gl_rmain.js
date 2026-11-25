@@ -19,7 +19,7 @@ import {
 	Mod_PointInLeaf, SPR_SINGLE, SPR_VP_PARALLEL_UPRIGHT, SPR_FACING_UPRIGHT,
 	SPR_VP_PARALLEL, SPR_ORIENTED, SPR_VP_PARALLEL_ORIENTED
 } from './gl_model.js';
-import { R_AnimateLight as R_AnimateLight_impl, R_RenderDlights as R_RenderDlights_impl, R_DlightDistance, R_LightPoint, lightspot } from './gl_rlight.js';
+import { R_AnimateLight as R_AnimateLight_impl, R_RenderDlights as R_RenderDlights_impl, R_DlightDistance, R_LightPoint, lightspot, lightcolor } from './gl_rlight.js';
 import { R_DrawAliasModel as R_DrawAliasModel_mesh, GL_DrawAliasShadow, alias_lerpdata } from './gl_mesh.js';
 import { r_avertexnormal_dots } from './anorm_dots.js';
 import { V_SetContentsColor as V_SetContentsColor_view, V_CalcBlend as V_CalcBlend_view } from './view.js';
@@ -893,6 +893,130 @@ export function R_AliasLightPoint( e ) {
 
 }
 
+// QuakeSpasm r_alias.c lightcolor ("replaces float shadelight for lit
+// support"): the shade R_SetupAliasLighting leaves for gl_mesh.js, r, g and b
+// on shadelight's final scale. A double, as id's float shadelight is here.
+export const shadecolor = new Float64Array( 3 );
+
+// Lift every channel of shadecolor by what lifts the scalar from shadelight
+// to `floor`: QuakeSpasm's `add / 3` on each channel, measured against id's
+// scalar so a mono shade lands on `floor` exactly.
+function R_ShadeColorFloor( shadelight, floor ) {
+
+	shadecolor[ 0 ] = floor + ( shadecolor[ 0 ] - shadelight );
+	shadecolor[ 1 ] = floor + ( shadecolor[ 1 ] - shadelight );
+	shadecolor[ 2 ] = floor + ( shadecolor[ 2 ] - shadelight );
+
+}
+
+/*
+=================
+R_SetupAliasLighting
+
+The lighting block of id's R_DrawAliasModel (gl_rmain.c), carrying
+QuakeSpasm's lightcolor beside the scalar shadelight so .lit maps tint alias
+models (QuakeSpasm r_alias.c R_SetupAliasLighting). Leaves the shade in
+shadecolor and returns the shadedots row, or null with no client.
+
+Deliberate deviation from QuakeSpasm: id's order and clamps are kept (the
+gun's 24 before the dlights, ambient 128 and ambient + shade 192, players' 8
+after the clamp, the flame names rather than MOD_FBRIGHTHACK). QuakeSpasm's
+would change maps without a .lit. Each channel follows the scalar instead:
+dlights (white in id) add to all three, a floor lifts all three alike, and the
+clamp scales them. Without a .lit every channel equals shadelight at each step,
+so the shade is exactly id's.
+=================
+*/
+export function R_SetupAliasLighting( e ) {
+
+	if ( ! cl || ! e.origin ) return null;
+
+	let ambientlight, shadelight;
+	ambientlight = shadelight = R_AliasLightPoint( e );
+	shadecolor[ 0 ] = lightcolor[ 0 ];
+	shadecolor[ 1 ] = lightcolor[ 1 ];
+	shadecolor[ 2 ] = lightcolor[ 2 ];
+
+	// always give the gun some light
+	if ( e === cl.viewent && ambientlight < 24 ) {
+
+		R_ShadeColorFloor( shadelight, 24 );
+		ambientlight = shadelight = 24;
+
+	}
+
+	// add dynamic lights to ambient/shade (gl_rmain.c:482-497)
+	for ( let lnum = 0; lnum < MAX_DLIGHTS; lnum ++ ) {
+
+		if ( cl_dlights[ lnum ].die >= cl.time ) {
+
+			VectorSubtract( e.origin, cl_dlights[ lnum ].origin, _dlightDist );
+			const add = cl_dlights[ lnum ].radius - Length( _dlightDist );
+
+			if ( add > 0 ) {
+
+				ambientlight += add;
+				shadelight += add;
+				shadecolor[ 0 ] += add;
+				shadecolor[ 1 ] += add;
+				shadecolor[ 2 ] += add;
+
+			}
+
+		}
+
+	}
+
+	// clamp lighting so it doesn't overbright as much
+	if ( ambientlight > 128 )
+		ambientlight = 128;
+	if ( ambientlight + shadelight > 192 ) {
+
+		// shadelight > 64 here. Dividing first keeps a mono channel exact.
+		const clamped = 192 - ambientlight;
+		shadecolor[ 0 ] = clamped * ( shadecolor[ 0 ] / shadelight );
+		shadecolor[ 1 ] = clamped * ( shadecolor[ 1 ] / shadelight );
+		shadecolor[ 2 ] = clamped * ( shadecolor[ 2 ] / shadelight );
+		shadelight = clamped;
+
+	}
+
+	// ZOID: never allow players to go totally black
+	if ( cl_entities != null && cl.maxclients > 0 ) {
+
+		const idx = e._entityIndex;
+		if ( idx !== undefined && idx >= 1 && idx <= cl.maxclients ) {
+
+			if ( ambientlight < 8 ) {
+
+				R_ShadeColorFloor( shadelight, 8 );
+				ambientlight = shadelight = 8;
+
+			}
+
+		}
+
+	}
+
+	// HACK HACK HACK -- no fullbright colors, so make torches full light
+	const clmodel = e.model;
+	if ( clmodel.name === 'progs/flame2.mdl' || clmodel.name === 'progs/flame.mdl' ) {
+
+		ambientlight = shadelight = 256;
+		shadecolor[ 0 ] = shadecolor[ 1 ] = shadecolor[ 2 ] = 256;
+
+	}
+
+	shadecolor[ 0 ] /= 200.0;
+	shadecolor[ 1 ] /= 200.0;
+	shadecolor[ 2 ] /= 200.0;
+
+	// select shadedots row based on yaw angle
+	const yaw = e.angles ? e.angles[ 1 ] : 0;
+	return r_avertexnormal_dots[ ( ( yaw * ( SHADEDOT_QUANT / 360.0 ) ) | 0 ) & ( SHADEDOT_QUANT - 1 ) ];
+
+}
+
 function R_DrawAliasModel( e ) {
 
 	if ( ! e || ! e.model ) return;
@@ -902,67 +1026,7 @@ function R_DrawAliasModel( e ) {
 	//
 	// get lighting information
 	//
-	let ambientlight = 0;
-	let shadelight = 0;
-	let shadedots = null;
-
-	if ( cl && e.origin ) {
-
-		ambientlight = shadelight = R_AliasLightPoint( e );
-
-		// always give the gun some light
-		if ( e === cl.viewent && ambientlight < 24 )
-			ambientlight = shadelight = 24;
-
-		// add dynamic lights to ambient/shade (gl_rmain.c:482-497)
-		for ( let lnum = 0; lnum < MAX_DLIGHTS; lnum ++ ) {
-
-			if ( cl_dlights[ lnum ].die >= cl.time ) {
-
-				VectorSubtract( e.origin, cl_dlights[ lnum ].origin, _dlightDist );
-				const add = cl_dlights[ lnum ].radius - Length( _dlightDist );
-
-				if ( add > 0 ) {
-
-					ambientlight += add;
-					shadelight += add;
-
-				}
-
-			}
-
-		}
-
-		// clamp lighting so it doesn't overbright as much
-		if ( ambientlight > 128 )
-			ambientlight = 128;
-		if ( ambientlight + shadelight > 192 )
-			shadelight = 192 - ambientlight;
-
-		// ZOID: never allow players to go totally black
-		if ( cl_entities != null && cl.maxclients > 0 ) {
-
-			const idx = e._entityIndex;
-			if ( idx !== undefined && idx >= 1 && idx <= cl.maxclients ) {
-
-				if ( ambientlight < 8 )
-					ambientlight = shadelight = 8;
-
-			}
-
-		}
-
-		// HACK HACK HACK -- no fullbright colors, so make torches full light
-		const clmodel = e.model;
-		if ( clmodel.name === 'progs/flame2.mdl' || clmodel.name === 'progs/flame.mdl' )
-			ambientlight = shadelight = 256;
-
-		// select shadedots row based on yaw angle
-		const yaw = e.angles ? e.angles[ 1 ] : 0;
-		shadedots = r_avertexnormal_dots[ ( ( yaw * ( SHADEDOT_QUANT / 360.0 ) ) | 0 ) & ( SHADEDOT_QUANT - 1 ) ];
-		shadelight = shadelight / 200.0;
-
-	}
+	const shadedots = R_SetupAliasLighting( e );
 
 	// Compute shadevector from entity yaw (for shadows, computed before mesh call)
 	// Ported from WinQuake/gl_rmain.c:519-523
@@ -979,7 +1043,7 @@ function R_DrawAliasModel( e ) {
 
 	}
 
-	const mesh = R_DrawAliasModel_mesh( e, paliashdr, shadedots, shadelight );
+	const mesh = R_DrawAliasModel_mesh( e, paliashdr, shadedots, shadecolor );
 	if ( mesh != null ) {
 
 		mesh._quakeOwner = e;
