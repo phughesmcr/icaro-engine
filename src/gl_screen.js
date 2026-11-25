@@ -7,7 +7,7 @@ import { Sbar_Draw, Sbar_Changed, Sbar_IntermissionOverlay, Sbar_FinaleOverlay, 
 import { M_Draw } from './menu.js';
 import { Draw_Character, Draw_CachePic, Draw_Pic, Draw_FadeScreen, Draw_BeginFrame,
 	GL_Set2D, Draw_TileClear, Draw_PicFromWad, Draw_GetUIScale,
-	Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
+	Draw_GetVirtualWidth, Draw_GetVirtualHeight, Draw_GetCanvasScale, Draw_SetCanvasScale } from './gl_draw.js';
 import { Cvar_RegisterVariable, Cvar_Set, Cvar_SetValue, Cvar_VariableValue } from './cvar.js';
 import { Cmd_AddCommand } from './cmd.js';
 import { key_dest, key_game, key_console, key_message, Key_BeginModal, Key_ModalYes } from './keys.js';
@@ -32,6 +32,7 @@ let scr_conlines = 0; // lines of console to display
 let oldfov = 0;
 let oldscreensize = 0;
 let oldsbaralpha = 1;
+let oldsbarscale = 0;
 
 export const scr_viewsize = { name: 'viewsize', string: '100', value: 100, archive: true };
 const scr_fov = { name: 'fov', string: '90', value: 90 };
@@ -47,6 +48,10 @@ export const scr_showfps = { name: 'scr_showfps', string: '0', value: 0 };
 export const scr_clock = { name: 'scr_clock', string: '0', value: 0 };
 // QS defaults scr_sbaralpha to 0.75; 1 keeps the opaque WinQuake status bar
 export const scr_sbaralpha = { name: 'scr_sbaralpha', string: '1', value: 1, archive: true };
+// FitzQuake/Ironwail HUD scales, in physical pixels per 320x200 pixel.
+// Deviation: Ironwail defaults them to 1; 0 here keeps the automatic UI scale.
+export const scr_sbarscale = { name: 'scr_sbarscale', string: '0', value: 0, archive: true };
+export const scr_conscale = { name: 'scr_conscale', string: '0', value: 0, archive: true };
 
 export let scr_initialized = false;
 
@@ -266,10 +271,10 @@ function CalcFovX( fov_y, width, height ) {
 SCR_CalcRefdef
 
 Must be called whenever vid changes
-Internal use only
+Internal use only (exported for tests)
 =================
 */
-function SCR_CalcRefdef() {
+export function SCR_CalcRefdef() {
 
 	_vid.recalc_refdef = false;
 	_r_refdef.vrectScale = Draw_GetUIScale();
@@ -310,6 +315,10 @@ function SCR_CalcRefdef() {
 	// view and SCR_TileClear.
 	if ( scr_sbaralpha.value < 1 )
 		sb_lines = 0;
+
+	// Ironwail SCR_CalcRefdef: the status bar is sb_lines * scr_sbarscale
+	// physical pixels tall; convert that to the UI-scale units used here
+	sb_lines = Math.floor( sb_lines * Draw_GetCanvasScale( scr_sbarscale.value ) / _r_refdef.vrectScale );
 
 	let full = false;
 	if ( scr_viewsize.value >= 100.0 ) {
@@ -418,6 +427,8 @@ export function SCR_Init() {
 	Cvar_RegisterVariable( scr_showfps );
 	Cvar_RegisterVariable( scr_clock );
 	Cvar_RegisterVariable( scr_sbaralpha );
+	Cvar_RegisterVariable( scr_sbarscale );
+	Cvar_RegisterVariable( scr_conscale );
 	R_WaterWarp_Init();
 
 	//
@@ -586,6 +597,21 @@ function SCR_SetUpToDrawConsole() {
 		// con_notifylines = 0; -- handled via console module
 
 	}
+
+}
+
+/*
+==================
+SCR_DrawSbar
+
+Sbar_Draw on the status bar canvas (Ironwail CANVAS_SBAR, scr_sbarscale)
+==================
+*/
+function SCR_DrawSbar() {
+
+	Draw_SetCanvasScale( scr_sbarscale.value );
+	Sbar_Draw();
+	Draw_SetCanvasScale( 0 );
 
 }
 
@@ -1061,13 +1087,22 @@ export function SCR_UpdateScreen() {
 
 	}
 
+	if ( oldsbarscale !== scr_sbarscale.value ) {
+
+		oldsbarscale = scr_sbarscale.value;
+		_vid.recalc_refdef = true;
+
+	}
+
 	if ( _vid.recalc_refdef )
 		SCR_CalcRefdef();
 
 	//
 	// do 3D refresh drawing, and then update the screen
 	//
+	Draw_SetCanvasScale( scr_conscale.value ); // console layout uses the console canvas
 	SCR_SetUpToDrawConsole();
+	Draw_SetCanvasScale( 0 );
 
 	if ( _V_RenderView ) _V_RenderView();
 
@@ -1083,14 +1118,14 @@ export function SCR_UpdateScreen() {
 
 	if ( scr_drawdialog ) {
 
-		Sbar_Draw();
+		SCR_DrawSbar();
 		Draw_FadeScreen();
 		SCR_DrawNotifyString();
 
 	} else if ( scr_drawloading ) {
 
 		SCR_DrawLoading();
-		Sbar_Draw();
+		SCR_DrawSbar();
 
 	} else if ( _cl.intermission === 1 && key_dest === key_game ) {
 
@@ -1112,10 +1147,12 @@ export function SCR_UpdateScreen() {
 		SCR_DrawTurtle();
 		SCR_DrawPause();
 		SCR_CheckDrawCenterString();
-		Sbar_Draw();
+		SCR_DrawSbar();
 		SCR_DrawFPS(); //johnfitz
 		SCR_DrawClock(); //johnfitz
+		Draw_SetCanvasScale( scr_conscale.value );
 		SCR_DrawConsole();
+		Draw_SetCanvasScale( 0 );
 		M_Draw();
 
 	}
