@@ -87,11 +87,80 @@ M4 Pro core; budget about 2× the CPU figures below [unverified]. Each row is
 a 30 s window after an 8 s warm-up, one run each, nothing else running.
 Bandwidth counts WebSocket payload bytes only (add TCP/IP and TLS overhead).
 
-MATRIX_TABLE
+| Map | Bots | RSS | Heap + off-heap | CPU (% of a core) | CPU per tick | Tick wall time mean / p99 / max | Down (all clients) | Up (all clients) | Messages in / out per s |
+|---|---|---|---|---|---|---|---|---|---|
+| start | 0 | 197 MB | 100 MB | 1.0% | 0.50 ms | 0.20 / 0.59 / 0.94 ms | 0 | 0 | 0 / 0 |
+| e1m1 | 0 | 195 MB | 99 MB | 1.1% | 0.55 ms | 0.18 / 0.48 / 1.29 ms | 0 | 0 | 0 / 0 |
+| start | 1 | 202 MB | 101 MB | 3.4% | 1.73 ms | 0.68 / 1.42 / 2.69 ms | 1.4 KB/s | 2.2 KB/s | 71 / 20 |
+| e1m1 | 1 | 202 MB | 101 MB | 3.3% | 1.69 ms | 0.65 / 1.44 / 2.39 ms | 1.3 KB/s | 2.2 KB/s | 71 / 20 |
+| start | 4 | 313 MB | 125 MB | 4.6% | 2.37 ms | 1.07 / 2.28 / 73.3 ms | 6.8 KB/s | 8.6 KB/s | 285 / 70 † |
+| e1m1 | 4 | 211 MB | 105 MB | 5.0% | 2.55 ms | 1.46 / 2.62 / 3.28 ms | 6.5 KB/s | 8.6 KB/s | 285 / 78 |
+| e1m3 | 4 | 211 MB | 105 MB | 2.6% | 1.33 ms | 0.59 / 0.98 / 1.12 ms | 8.4 KB/s | 8.7 KB/s | 287 / 78 |
+| e1m7 | 4 | 194 MB | 95 MB | 2.8% | 1.43 ms | 0.50 / 0.92 / 1.33 ms | 10.5 KB/s | 8.7 KB/s | 286 / 78 |
+| start | 8 | 281 MB | 117 MB | 6.2% | 3.18 ms | 1.85 / 3.53 / 3.87 ms | 16.4 KB/s | 17.3 KB/s | 571 / 157 |
+| e1m1 | 8 | 286 MB | 127 MB | 5.7% | 2.89 ms | 1.59 / 3.10 / 3.51 ms | 16.0 KB/s | 17.3 KB/s | 571 / 157 ‡ |
+| e1m3 | 8 | 291 MB | 120 MB | 3.8% | 1.96 ms | 1.03 / 1.70 / 2.12 ms | 17.9 KB/s | 17.3 KB/s | 571 / 157 |
+| e1m7 | 8 | 286 MB | 131 MB | 4.3% | 2.18 ms | 1.07 / 1.93 / 2.22 ms | 31.7 KB/s | 17.3 KB/s | 571 / 157 |
+| start | 16 | 369 MB | 173 MB | 8.2% | 4.21 ms | 2.64 / 5.20 / 6.07 ms | 84.8 KB/s | 34.5 KB/s | 1140 / 314 |
+| e1m1 | 16 | 352 MB | 185 MB | 6.6% | 3.40 ms | 1.65 / 5.27 / 80.5 ms | 28.1 KB/s | 34.6 KB/s | 1141 / 162 † |
+| e1m3 | 16 | 361 MB | 179 MB | 6.2% | 3.17 ms | 1.94 / 4.13 / 8.19 ms | 78.6 KB/s | 34.5 KB/s | 1139 / 313 |
+| e1m7 | 16 | 424 MB | 207 MB | 8.5% | 4.33 ms | 2.83 / 4.82 / 6.46 ms | 116 KB/s | 34.5 KB/s | 1139 / 313 |
+
+- RSS and heap + off-heap are at the end of the window, without a forced
+  GC. CPU is the room process's user + system time over the window, so it
+  includes WebSocket I/O and GC; tick wall time is the tick callback alone.
+- † The room stopped sending datagrams to every bot for part of the window
+  while it kept ticking (see "Datagram stalls" below), so these rows
+  understate the bandwidth and CPU.
+- ‡ From a rerun: the matrix run of e1m1 with 8 bots stalled after 7
+  seconds and sent no datagrams for the rest of the window.
 
 What the numbers say:
 
-MATRIX_NOTES
+- **Memory:** an idle room is about 195 MB RSS; 4 players about 195–310 MB,
+  16 players 350–425 MB. Heap plus off-heap, without a forced GC, is 95–130
+  MB up to 8 players and 170–210 MB at 16. That rules out a Workers isolate
+  and Cloudflare's `lite` container (256 MiB).
+- **CPU:** small. About 3–5% of one M4 Pro core for 4 players and up to 9%
+  for 16; a tick takes 0.5–3 ms on average and at most about 8 ms, against
+  its 50 ms budget. An idle room costs about 1%.
+- **Bandwidth:** each player receives 19.5 datagrams a second (the 20 Hz
+  tick). Down per player is 1.3–2.6 KB/s at 4 players and 5–7 KB/s at 16
+  (more players in view). Up is 2.2 KB/s per player: 71 `clc_move`
+  messages a second.
+- **Bots are not players:** they fire constantly and wander, so combat and
+  projectiles are heavier than usual and movement is less spread out. Read
+  the numbers as an order of magnitude.
+
+### Datagram stalls (WebSocket)
+
+In two matrix runs (e1m1 with 8 and with 16 bots), and briefly in a third,
+the room stopped sending datagrams to *every* client at once, while it kept
+ticking, the sockets stayed open and the bots kept sending moves. In the
+8-bot run it never recovered (7 s of datagrams, then none for 30 s). A
+rerun of the same case didn't stall. The cause is **not found**:
+
+- Five more instrumented runs of the same case didn't stall. In them the
+  server's unacked-packet gap stayed at 1–2 (the limit is 20,
+  `WS_MAX_UNACKED_PACKETS`) and `bufferedAmount` stayed under 200 bytes, so
+  neither send gate in `server/net_websocket_server.ts` came near tripping.
+- Pausing the bot process (`SIGSTOP`) for 2 s, or the room for 2 s, lost
+  exactly those 2 s of datagrams, and both recovered at once.
+- A level change would look like this, because the bots don't sign on
+  again. The stalled runs' room logs weren't kept, so it isn't ruled out,
+  but nothing in these rooms should change level (`noexit 1`, no
+  `timelimit` or `fraglimit`). The client driver has no send gate of its
+  own.
+- The stalled runs had a 73–80 ms tick hitch; the clean ones had none
+  above about 8 ms. Earlier runs that overlapped other CPU-heavy work here
+  showed the same symptom more often, so load on the host may trigger it.
+
+It needs its own investigation before rooms go public: log both send gates and `SV_SendClientDatagram`'s
+early return per client when no datagram has gone out for a second, then
+rerun the matrix under background CPU load.
+
+This matters for any WebSocket-only deployment, Cloudflare included: a
+stalled room looks frozen to every player.
 
 ### Memory by stage (after a forced GC)
 
@@ -172,10 +241,11 @@ The lobby on its own, idle, uses about 35 MB RSS [measured].
 - **Status and plan:** generally available since 2026-04-13 [search],
   Workers Paid only [docs] ([Containers](https://developers.cloudflare.com/containers/)).
 - **Instance size:** `lite` (1/16 vCPU, 256 MiB) is too small: an idle room
-  is about 195 MB RSS and a busy one 350 MB. Use **`basic` (1/4 vCPU,
+  is about 195 MB RSS and a busy one up to 425 MB. Use **`basic` (1/4 vCPU,
   1 GiB, 4 GB disk)** [docs] ([pricing](https://developers.cloudflare.com/containers/pricing/)).
-  Its CPU share is enough for rooms of up to about 8 players; for 16, use
-  `standard-1` (1/2 vCPU, 4 GiB) [unverified: see the CPU column].
+  A 16-player room used up to 9% of an M4 Pro core, perhaps 15–20% of a
+  cloud vCPU, so 1/4 vCPU should do with little headroom; `standard-1`
+  (1/2 vCPU, 4 GiB) is the step up [unverified: check on the spike].
 - **Traffic path:** "A Container can only be accessed through its Durable
   Object" [docs]
   ([architecture](https://developers.cloudflare.com/containers/platform-details/architecture/)).
@@ -202,8 +272,8 @@ The lobby on its own, idle, uses about 35 MB RSS [measured].
 
 **Verdict: zero code changes, keeps WebTransport, but it's a server to run.**
 
-- **Fit:** the lobby (35 MB) plus each room (about 200–350 MB RSS). 1 GB holds
-  the lobby and three small rooms; 2 GB is comfortable [measured, plus
+- **Fit:** the lobby (35 MB) plus each room (about 195–425 MB RSS). 1 GB holds
+  the lobby and three 4-player rooms; 2 GB is comfortable [measured, plus
   estimate].
 - **Prices** (ex VAT, as listed on 2026-11-25):
   - Hetzner CPX02, 1 vCPU / 1 GB, €5.49 including IPv4; Germany and Finland,
@@ -245,8 +315,8 @@ from the [docs] prices above].
 | **DO per room** (if it fitted) | ~$5.30 | ~$6.70 | Paid; duration inside the 400 k GB-s included; requests as above |
 | **VM** | $5–9 flat | $5–9 flat | the same whether rooms run or not |
 
-Egress is negligible everywhere: 16 busy players are about 85 KB/s, or about
-0.3 GB an hour [measured], against 1 TB included on Containers.
+Egress is negligible everywhere: 16 busy players are 80–116 KB/s, or about
+0.3–0.4 GB an hour [measured], against 1 TB included on Containers.
 
 **Lever:** the client sends a `clc_move` every client frame (up to 72 Hz).
 On WebSocket, where per-message billing applies, sending moves at the server
@@ -256,7 +326,9 @@ so it would need testing [unverified].
 
 ## Plan: rooms on Cloudflare Containers
 
-Each step is its own PR against `dev`, except where noted.
+Each step is its own PR against `dev`, except where noted. First, and
+whichever option is chosen, find the cause of the WebSocket datagram stalls
+above: they affect the VM option's WebSocket players too.
 
 1. **Paid spike (needs your go-ahead: Workers Paid, $5/month).** Deploy one
    container running a room with the shareware pak and a Worker that proxies
@@ -320,6 +392,8 @@ the work.
 
 ## Not verified
 
+- The cause of the intermittent WebSocket datagram stalls, and whether real
+  players would hit them.
 - Whether each WebSocket message proxied to a container is billed as a DO
   request.
 - Container cold start for this image, placement for UK players, and the

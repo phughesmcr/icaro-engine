@@ -93,7 +93,9 @@ Spectrum and the Realtime SFU are poor fits; see below.
   - Prediction (`pmove`, `cl_pred.js`) hides latency, but loss on a reliable
     ordered transport (TCP/WebSocket) stalls everything behind the lost
     packet (head-of-line blocking).
-  - Bandwidth is small: roughly tens of KB/s per room [unverified estimate].
+  - Bandwidth is small: 1.3–7 KB/s down and 2.2 KB/s up per player, up to
+    about 116 KB/s for a 16-player room (measured; see
+    [always-on-hosting.md](always-on-hosting.md#measurements)).
 - **Engine structure:** `src/net_main.js` keeps the NetQuake driver table
   (`net_drivers`: loopback, WebTransport and WebSocket), as in C
   (`net_dgrm`/`net_loop`). A WebRTC transport would be one more driver.
