@@ -73,7 +73,7 @@ import { CL_SignonReply, CL_ClearState, cl_shownet } from './cl_main.js';
 import { CL_ParseTEnt } from './cl_tent.js';
 import { S_PrecacheSound, S_StartSound, S_StopSound, S_StaticSound } from './snd_dma.js';
 import { CDAudio_Play, CDAudio_Pause, CDAudio_Resume } from './cd_audio.js';
-import { SCR_CenterPrint } from './gl_screen.js';
+import { SCR_CenterPrint, Con_LogCenterPrint, Con_ClearLastCenterString } from './gl_screen.js';
 
 export const svc_strings = [
 	'svc_bad',
@@ -436,6 +436,8 @@ export function CL_ParseServerInfo() {
 	// Hunk_Check();
 
 	set_noclip_anglehack( false );
+
+	Con_ClearLastCenterString(); //johnfitz
 
 }
 
@@ -1397,9 +1399,15 @@ export function CL_ParseServerMessage() {
 				Con_Printf( '%s', MSG_ReadString() );
 				break;
 
-			case svc_centerprint:
-				SCR_CenterPrint( MSG_ReadString() );
+			case svc_centerprint: {
+
+				//johnfitz -- log centerprints to console
+				const str = MSG_ReadString();
+				SCR_CenterPrint( str );
+				Con_LogCenterPrint( str );
 				break;
+
+			}
 
 			case svc_stufftext:
 				Cbuf_AddText( MSG_ReadString() );
@@ -1539,14 +1547,28 @@ export function CL_ParseServerMessage() {
 				cl.intermission = 2;
 				cl.completed_time = cl.time;
 				// vid.recalc_refdef = true; // go to full screen
-				SCR_CenterPrint( MSG_ReadString() );
+				{
+
+					//johnfitz -- log centerprints to console
+					const str = MSG_ReadString();
+					SCR_CenterPrint( str );
+					Con_LogCenterPrint( str );
+
+				}
 				break;
 
 			case svc_cutscene:
 				cl.intermission = 3;
 				cl.completed_time = cl.time;
 				// vid.recalc_refdef = true; // go to full screen
-				SCR_CenterPrint( MSG_ReadString() );
+				{
+
+					//johnfitz -- log centerprints to console
+					const str = MSG_ReadString();
+					SCR_CenterPrint( str );
+					Con_LogCenterPrint( str );
+
+				}
 				break;
 
 			case svc_sellscreen:
