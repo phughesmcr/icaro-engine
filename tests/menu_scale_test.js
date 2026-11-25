@@ -132,3 +132,74 @@ Deno.test( 'the modal YES/NO is hit on the automatic scale', () => {
 	} );
 
 } );
+
+Deno.test( 'the menu is drawn on the menu canvas', () => {
+
+	const drawn = [];
+	menu.M_SetExternals( {
+		Draw_CachePic: () => ( { width: 100, height: 20 } ),
+		Draw_TransPic: ( x, y ) => drawn.push( [ x, y ] ),
+		Draw_Pic: () => {},
+		Draw_SubPic: () => {},
+		Draw_Character: () => {}
+	} );
+
+	// qplaque is the first pic, at menu ( 16, 4 )
+	withScale( 0, () => {
+
+		cmd.Cmd_ExecuteString( 'menu_main' );
+		drawn.length = 0;
+		menu.M_Draw();
+		assertEqual( drawn[ 0 ].join( ',' ), '16,24', 'centred in 320x240' );
+
+	} );
+
+	withScale( 1, () => {
+
+		cmd.Cmd_ExecuteString( 'menu_main' );
+		drawn.length = 0;
+		menu.M_Draw();
+		assertEqual( drawn[ 0 ].join( ',' ), '176,144', 'centred in 640x480' );
+
+	} );
+
+} );
+
+Deno.test( 'a touch on the modal YES answers it at any menu scale', () => {
+
+	menu.M_SetExternals( { realtime_get: () => 100 } );
+
+	withScale( 1, () => {
+
+		cmd.Cmd_ExecuteString( 'menu_main' );
+		let answer = null;
+		keys.Key_BeginModal( ( yes ) => { answer = yes; } );
+
+		try {
+
+			let yes = null;
+			for ( let y = 0; y < 240 && yes === null; y ++ )
+				for ( let x = 0; x < 320 && yes === null; x ++ )
+					if ( screen.SCR_ModalYesNoAt( x, y ) === 1 ) yes = [ x, y ];
+			if ( yes === null ) throw new Error( 'test setup: no YES hit box' );
+
+			menu.M_TouchInput( yes[ 0 ] * 2, yes[ 1 ] * 2, W, H );
+			assertEqual( keys.Key_ModalActive(), false, 'answered' );
+			assertEqual( answer, true, 'YES' );
+
+		} finally {
+
+			if ( keys.Key_ModalActive() ) {
+
+				keys.Key_Event( keys.K_ESCAPE, true );
+				keys.Key_Event( keys.K_ESCAPE, false );
+
+			}
+
+			menu.M_SetExternals( { realtime_get: () => 0 } );
+
+		}
+
+	} );
+
+} );
