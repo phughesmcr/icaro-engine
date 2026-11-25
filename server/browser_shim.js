@@ -20,6 +20,18 @@ export class DataTexture {
 	dispose() {}
 }
 
+// Cube texture stub (gl_sky.js skyboxes): keeps its six face textures
+export class CubeTexture {
+	constructor(images = []) {
+		this.image = images;
+		this.needsUpdate = false;
+	}
+	get images() {
+		return this.image;
+	}
+	dispose() {}
+}
+
 // Constants that might be referenced
 export const RGBAFormat = 1023;
 export const LinearFilter = 1006;
