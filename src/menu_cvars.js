@@ -185,9 +185,15 @@ export const advancedPages = [
 	},
 	{
 		// Debug and test switches, last in the list. Most aren't saved, as
-		// in the C, so a reload clears a change.
+		// in the C, so a reload clears a change. Hidden while connected to an
+		// online room (web-only choice: NetQuake lets a client set
+		// r_lightmap and r_drawentities online), so the menu offers no
+		// see-through or lighting switches in other people's games. The
+		// prediction switches below only act online, so set them here before
+		// joining a room; the values last until the page reloads.
 		title: 'Developer',
 		note: 'Test tools. Some can look like bugs.',
+		when: 'local',
 		items: [
 			{ label: 'Draw entities', cvar: 'r_drawentities' },
 			{ label: 'No vis', cvar: 'r_novis' },
@@ -211,13 +217,14 @@ export const advancedPages = [
 			{ label: 'Roll sway size', cvar: 'v_iroll_level', min: 0, max: 1, step: 0.1 },
 			{ label: 'Developer', cvar: 'developer' },
 			{ label: 'Host speeds', cvar: 'host_speeds' },
-			// A fixed frame time, so it would also run an online game's clock.
-			// Game speed (host_timescale), when set, overrides it.
-			{ label: 'Fixed frame', cvar: 'host_framerate', values: [ 0, 0.01, 0.0125, 0.05 ], names: [ 'off', '100Hz', '80Hz', '20Hz' ], when: 'local' },
+			// A fixed frame time, so it would also run an online game's clock
+			// (hidden online with the page). Game speed (host_timescale), when
+			// set, overrides it.
+			{ label: 'Fixed frame', cvar: 'host_framerate', values: [ 0, 0.01, 0.0125, 0.05 ], names: [ 'off', '100Hz', '80Hz', '20Hz' ] },
 			{ label: 'Show net', cvar: 'cl_shownet', values: [ 0, 1, 2 ] },
 			{ label: 'Show sound', cvar: 'snd_show' },
 			// The prediction switches act on online games only: prediction is
-			// off while this browser runs the server
+			// off while this browser runs the server. Set them before joining.
 			{ label: 'No prediction', cvar: 'cl_nopred' },
 			{ label: 'Predict others', cvar: 'cl_predict_players' },
 			{ label: 'Solid players', cvar: 'cl_solid_players' },

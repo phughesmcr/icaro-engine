@@ -167,6 +167,18 @@ Deno.test( 'advanced menu: when hides local rows online and single-player rows i
 
 } );
 
+Deno.test( 'advanced menu: the Developer and Local game pages are hidden online', () => {
+
+	for ( const title of [ 'Developer', 'Local game' ] ) {
+
+		const page = advancedPages.find( ( p ) => p.title === title );
+		assertEqual( page !== undefined, true, title + ' page exists' );
+		assertEqual( page.when, 'local', title + ' page is local only' );
+
+	}
+
+} );
+
 Deno.test( 'advanced menu: Options row, page list, slider taps, wrapping, scrolling and reset', async () => {
 
 	const cmd = await import( '../src/cmd.js' );
