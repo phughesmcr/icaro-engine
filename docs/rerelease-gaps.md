@@ -20,6 +20,10 @@ headless run of every BSP2 map on that branch.
 Their rows, the limits summary bullet, the headless spawn table and the
 phase 4 note were updated from a headless run of 109 maps on that branch.
 
+**Item 6i finished** with a no-op `vibrate` command. A rescan of every
+shipped `progs.dat` found no `vibrate`, so its row now corrects the original
+"20 sites" claim.
+
 The findings come from four sources:
 
 - **The rerelease data.** The 2021 paks in a local `static/rerelease/`
@@ -96,7 +100,7 @@ week or more.
 | 6f | Music | **done** | `music/trackNN.ogg` is looked up per game dir (`main.js:123-127`). id1, hipnotic, rogue and mg3 ship `music/`. | – | – |
 | 6g | `menu_credits` | **done** | `src/menu.js:3157`. `finale_6` runs it after the end. | – | – |
 | 6h | Missing `default.cfg` | **done** (#113) | Fixed: when `default.cfg` isn't found, `Cmd_Exec_f` runs the embedded QuakeSpasm one (`src/cmd.js:490-493`, `src/default_cfg.js`), as Ironwail does (`Quake/cmd.c:277`, `default_cfg.h`). Before #113: the rerelease id1 has no `default.cfg`, but its `quake.rc` runs `exec default.cfg`. `src/host.js:471-477` adds WASD, jump and attack bindings, but weapon keys and the rest of id's defaults were missing. | – | – |
-| 6i | Console noise | **partial** | `quake.rc` sets `scr_usekfont 1`; #113 registered that cvar (`src/gl_screen.js:64`, read by nothing yet). QC still stuffs `vibrate` at 20 sites (pickups, damage), and each prints "Unknown command" (`src/cmd.js:455`). A no-op `vibrate`, or one mapped to Gamepad haptics, would silence it. | S | `src/host.js` or `src/in_web.js` |
+| 6i | Console noise | **done** (#113, `vibrate`) | `quake.rc` sets `scr_usekfont 1`; #113 registered that cvar (`src/gl_screen.js:64`, read by nothing yet). `vibrate` is registered as a no-op (`src/host_cmd.js:101`, `Host_Vibrate_f` at `:1847`; `tests/host_vibrate_test.js`). The earlier claim that QC stuffs it at 20 sites was wrong: no shipped `progs.dat` (id1, hipnotic, rogue, mg1, mg3, ctf, dopa), pak or `QuakeEX.kpf` contains `vibrate`. The 20 were id1's `tactile/*.bnvib` files. The published QC has `stuffcmd (self, "vibrate tactile/....bnvib")` at ten sites in `weapons.qc`, all commented out, so no "Unknown command" was ever printed for it. The command is there for a mod that re-enables those lines; Ironwail has none. It ignores its arguments and drives no haptics. | – | – |
 | 6j | ctf `archive/` in the browser | **done** (#114) | Fixed: `DEFERRED_DIRS` (`src/pak.js:647`) now lists `archive/` with `tactile/` and `vault/`. Before #114: ctf's `pak0.pak` has an `archive/` tree of 172 entries (93 MB of `.exe`, `.zip`, `.bsp`, …), and `?game=ctf` fetched all of it at load. | – | – |
 | 6k | MD5 replacement models | **missing** (optional) | id1 has 59 `.md5mesh` and 58 `.md5anim`, mg3 5 of each. The `.mdl` originals are still there and load. Ironwail loads an `.md5mesh` whenever one exists beside the `.mdl` (`Quake/gl_model.c:3240-3250`, loader from `:3713`). | L | `src/gl_model.js`, `src/gl_mesh.js`, `src/gl_rmain.js`, `src/pak.js` |
 | 6l | `.mdl`, `.spr` and `.wav` formats | **done** | Every `.mdl` is IDPO version 6, at most 1912 vertices, 1923 triangles and 250 frames, with skins up to 512×480. That is within `MAXALIASVERTS` 2400, `MAXALIASTRIS` 4096 and `MAX_LBM_HEIGHT` 480. Sprites are IDSP version 1. The `.wav` files are PCM, mostly 44.1 kHz 16-bit mono (378 files). Wav playback was not tested. | – | – |
@@ -146,14 +150,14 @@ mission-pack flags (`-hipnotic`, `-rogue`) were not set. Calling the rerelease's
 The order follows how much content each step makes playable.
 
 **Phase 1: make the BSP29 remasters playable (all S).** This covers id1, hipnotic,
-rogue, ctf, and the BSP29 maps in mg1 and mg3. All but the `vibrate` no-op is done.
+rogue, ctf, and the BSP29 maps in mg1 and mg3. All done.
 
 1. Builtins 1a, 1b and 1c (`src/pr_cmds.js`). Done in #111.
 2. `svc_achievement` 1e (`src/protocol.js`, `src/cl_parse.js`). This is client-side only: the
    server already passes QC's bytes through. Done in #112.
-3. Cvars 1f, plus the 6i no-ops (`src/host.js`, plus `src/in_web.js` if
-   `vibrate` drives haptics). The cvars and `scr_usekfont` are done (#113);
-   `vibrate` is left.
+3. Cvars 1f, plus the 6i no-ops. The cvars and `scr_usekfont` are done
+   (#113); the `vibrate` no-op is in `src/host_cmd.js`, though no shipped
+   progs sends it (see 6i).
 4. `default.cfg` fallback 6h (`src/cmd.js`). Done in #113.
 5. The `archive/` deferral 6j (`src/pak.js`). Done in #114.
 
@@ -198,7 +202,6 @@ of phase 4) are left out:
 Groups that can run at the same time:
 
 - **Now:**
-  - The `vibrate` no-op.
   - Fog (new `gl_fog.js`, `gl_rmain.js`). Done in #134; its `gl_rmain.js`
     change is one call into `gl_fog.js`.
   - Skyboxes (`gl_warp.js` or `gl_sky.js`). `.lit` has landed in `pak.js`.
