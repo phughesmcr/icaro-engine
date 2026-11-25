@@ -1574,6 +1574,26 @@ function PF_finalefinished() {
 
 }
 
+// 2021 re-release update 3: float( entity playerEnt ) ex_CheckPlayerEXFlags.
+// The KEX engine returns the player's PEF_CHANGEONLYNEW / PEF_CHANGENEVER
+// weapon-switch preferences; Ironwail (pr_cmds.c PF_CheckPlayerEXFlags) has
+// no such settings and returns 0, so pickups switch weapons as in id's QC.
+function PF_CheckPlayerEXFlags() {
+
+	G_FLOAT_SET( OFS_RETURN, 0 );
+
+}
+
+// 2021 re-release update 3: float( float movedist, vector goal )
+// ex_walkpathtogoal. The KEX engine paths monsters along its .nav graphs;
+// Ironwail (pr_cmds.c PF_walkpathtogoal) returns 0 (PATH_ERROR), and the QC
+// falls back to movetogoal.
+function PF_walkpathtogoal() {
+
+	G_FLOAT_SET( OFS_RETURN, 0 ); // PATH_ERROR
+
+}
+
 /*
 =================
 PF_localsound
@@ -2043,8 +2063,8 @@ const pr_extbuiltins = [
 	[ 'ex_bprint', PF_bprint, 0 ],			// void(string s, ...)
 	[ 'ex_sprint', PF_sprint, 0 ],			// void(entity client, string s, ...)
 	[ 'ex_finalefinished', PF_finalefinished, 0 ],	// float()
-	[ 'ex_CheckPlayerEXFlags', PF_Fixme, 0 ],	// not ported
-	[ 'ex_walkpathtogoal', PF_Fixme, 0 ],	// not ported
+	[ 'ex_CheckPlayerEXFlags', PF_CheckPlayerEXFlags, 0 ],	// float(entity playerEnt)
+	[ 'ex_walkpathtogoal', PF_walkpathtogoal, 0 ],	// float(float movedist, vector goal)
 	[ 'ex_localsound', PF_localsound, 0 ],	// void(entity client, string sample)
 	[ 'min', PF_min, 94 ],					// float(float a, float b, ...)
 	[ 'max', PF_max, 95 ],					// float(float a, float b, ...)
@@ -2126,6 +2146,14 @@ const pr_builtin_table = ( function () {
 		pr_builtin_numbers.set( name, n );
 
 	}
+
+	// Deliberate deviation from Ironwail: the re-release progs declare
+	// "finaleFinished = #0:ex_finaleFinished" (capital F), but Ironwail
+	// registers "ex_finalefinished", and the name match is case-sensitive.
+	// Unbound, the "= #0" function returns 0 anyway; bind the progs' name
+	// to the same slot so it reaches PF_finalefinished. Not a table row, so
+	// the numberless slots above keep Ironwail's numbers.
+	pr_builtin_numbers.set( 'ex_finaleFinished', pr_builtin_numbers.get( 'ex_finalefinished' ) );
 
 	return table;
 

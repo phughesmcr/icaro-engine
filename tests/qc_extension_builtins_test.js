@@ -493,3 +493,49 @@ Deno.test( 'PR_InitProgsBuiltins binds "= #0" functions by name', () => {
 	}
 
 } );
+
+// The 2021 re-release builtins that Ironwail stubs to 0. Without them the
+// first weapon or ammo pickup (W_WantsToChangeWeapon) stops the server with
+// "unimplemented builtin", and mg1's chasing monsters do the same.
+Deno.test( 'Re-release ex_ builtins bind by name and return 0 as in Ironwail', () => {
+
+	const restore = setup();
+
+	try {
+
+		const names = [ 'ex_CheckPlayerEXFlags', 'ex_walkpathtogoal', 'ex_finaleFinished', 'ex_finalefinished' ];
+		const functions = [ makeFunction( 0 ), makeFunction( 0 ) ];
+		for ( const name of names )
+			functions.push( makeFunction( 0, str( name ) ) );
+		PR_SetFunctions( functions );
+		PR_SetProgs( { numfunctions: functions.length } );
+
+		PR_InitProgsBuiltins();
+
+		for ( let i = 0; i < names.length; i ++ )
+			assertEqual( functions[ 2 + i ].first_statement < 0, true, names[ i ] + ' is bound' );
+		assertEqual( functions[ 4 ].first_statement, functions[ 5 ].first_statement, 'ex_finaleFinished shares ex_finalefinished\'s slot' );
+
+		// function 1: return target( entity 1 ) (or ( 64, goal ) for walkpathtogoal)
+		const fn = 30;
+		for ( let i = 0; i < names.length; i ++ ) {
+
+			PR_SetStatements( [ { op: OP_CALL3, a: fn, b: 0, c: 0 }, { op: OP_DONE, a: OFS_RETURN, b: 0, c: 0 } ] );
+			pr_globals_int[ fn ] = 2 + i;
+			pr_globals_int[ OFS_PARM0 ] = 1;
+			pr_globals_float[ OFS_PARM1 ] = 64;
+			pr_globals_float[ OFS_RETURN ] = 5;
+			printed.length = 0;
+			PR_ExecuteProgram( 1 );
+			assertEqual( retF(), 0, names[ i ] + ' returns 0' );
+			assertEqual( printed.length, 0, names[ i ] + ' prints nothing' );
+
+		}
+
+	} finally {
+
+		restore();
+
+	}
+
+} );
