@@ -1126,6 +1126,19 @@ export function GL_LinearLight( l ) {
 
 }
 
+/*
+Port-only: the per-entity vertex colour attribute R_DrawAliasModel rewrites
+whenever the lighting changes, marked dynamic for the GL driver. (The server's
+Three.js shim has no setUsage, hence the check.)
+*/
+function R_NewAliasColorAttribute( array ) {
+
+	const attribute = new THREE.BufferAttribute( array, 3 );
+	if ( attribute.setUsage !== undefined ) attribute.setUsage( THREE.DynamicDrawUsage );
+	return attribute;
+
+}
+
 export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 
 	if ( ! paliashdr || ! paliashdr.posedata )
@@ -1154,7 +1167,8 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 		geometry = new THREE.BufferGeometry();
 		// Allocate per-entity color buffer (will be resized if needed)
 		entity._aliasColorArray = new Float32Array( template.vertexCount * 3 );
-		geometry.setAttribute( 'color', new THREE.BufferAttribute( entity._aliasColorArray, 3 ) );
+		geometry.setAttribute( 'color', R_NewAliasColorAttribute( entity._aliasColorArray ) );
+		entity._aliasLitDots = null;
 		if ( entity != null ) entity._aliasGeo = geometry;
 
 	}
@@ -1186,7 +1200,8 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 		if ( entity._aliasColorArray.length < template.vertexCount * 3 ) {
 
 			entity._aliasColorArray = new Float32Array( template.vertexCount * 3 );
-			geometry.setAttribute( 'color', new THREE.BufferAttribute( entity._aliasColorArray, 3 ) );
+			geometry.setAttribute( 'color', R_NewAliasColorAttribute( entity._aliasColorArray ) );
+		entity._aliasLitDots = null;
 
 		}
 
@@ -1196,8 +1211,21 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 
 	}
 
-	// Update per-entity vertex colors from lighting data
-	if ( hasLighting ) {
+	// Update per-entity vertex colors from lighting data. They depend only on
+	// the shade table, shadelight, the two poses and the blend, so skip the
+	// loop and the upload when none of those changed since the last frame.
+	if ( hasLighting && (
+		entity._aliasLitDots !== shadedots ||
+		entity._aliasLitLight !== shadelight ||
+		entity._aliasLitTemplate !== template ||
+		entity._aliasLitTemplate1 !== template1 ||
+		entity._aliasLitBlend !== lerpdata.blend ) ) {
+
+		entity._aliasLitDots = shadedots;
+		entity._aliasLitLight = shadelight;
+		entity._aliasLitTemplate = template;
+		entity._aliasLitTemplate1 = template1;
+		entity._aliasLitBlend = lerpdata.blend;
 
 		const colorArr = entity._aliasColorArray;
 		const lni = template.lightnormalindices;
