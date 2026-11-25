@@ -150,8 +150,104 @@ export const advancedPages = [
 			{ label: 'Ambient volume', cvar: 'ambient_level', min: 0, max: 1, step: 0.05 },
 			{ label: 'Ambient fade', cvar: 'ambient_fade', min: 0, max: 1000, step: 50 }
 		]
+	},
+	{
+		// The browser's own server: single player and games this player
+		// hosts. An online room runs its own server, which these don't reach.
+		// Client prediction is off while sv.active, so physics changes here
+		// can't cause prediction mismatches.
+		title: 'Local game',
+		note: 'Your own games only. Not saved.',
+		when: 'local',
+		items: [
+			// PF_aim picks the target nearest the crosshair whose direction's
+			// dot product with the view is above sv_aim; nothing is above 1
+			{ label: 'Autoaim', cvar: 'sv_aim', values: [ 0.93, 1 ], names: [ 'on', 'off' ] },
+			// FitzQuake's host_timescale: it scales the host's frame time
+			{ label: 'Game speed', cvar: 'host_timescale', values: [ 0, 0.25, 0.5, 0.75, 1.5, 2 ], names: [ 'normal', '0.25x', '0.5x', '0.75x', '1.5x', '2x' ] },
+			{ label: 'Gravity', cvar: 'sv_gravity', min: 100, max: 1600, step: 50 },
+			{ label: 'Friction', cvar: 'sv_friction', min: 0, max: 10, step: 0.5 },
+			{ label: 'Edge friction', cvar: 'edgefriction', min: 0, max: 4, step: 0.5 },
+			{ label: 'Stop speed', cvar: 'sv_stopspeed', min: 0, max: 300, step: 25 },
+			{ label: 'Max speed', cvar: 'sv_maxspeed', min: 100, max: 640, step: 20 },
+			{ label: 'Acceleration', cvar: 'sv_accelerate', min: 1, max: 20, step: 1 },
+			{ label: 'Slope pitch', cvar: 'sv_idealpitchscale', min: 0, max: 2, step: 0.1 },
+			{ label: 'Alt noclip', cvar: 'sv_altnoclip' },
+			// Read when a map loads, so they apply from the next map
+			{ label: 'No monsters', cvar: 'nomonsters' },
+			{ label: 'Allow pause', cvar: 'pausable' },
+			// Read by the deathmatch QuakeC: 1 kills a player who exits; 2
+			// does too, except on start
+			{ label: 'No exit', cvar: 'noexit', values: [ 0, 1, 2 ], names: [ 'off', 'on', '2' ] },
+			{ label: 'Same level', cvar: 'samelevel' }
+		]
+	},
+	{
+		// Debug and test switches, last in the list. Most aren't saved, as
+		// in the C, so a reload clears a change.
+		title: 'Developer',
+		note: 'Test tools. Some can look like bugs.',
+		items: [
+			{ label: 'Draw entities', cvar: 'r_drawentities' },
+			{ label: 'No vis', cvar: 'r_novis' },
+			// R_SetupFrame turns it off in multiplayer, as GLQuake does
+			{ label: 'Fullbright', cvar: 'r_fullbright', when: 'single' },
+			{ label: 'Lightmap only', cvar: 'r_lightmap' },
+			{ label: 'Speeds', cvar: 'r_speeds' },
+			{ label: 'Clear screen', cvar: 'gl_clear' },
+			{ label: 'Cull', cvar: 'gl_cull' },
+			{ label: 'Finish', cvar: 'gl_finish' },
+			{ label: 'Texture sort', cvar: 'gl_texsort' },
+			// Read when a map loads, so they apply from the next map
+			{ label: 'Keep tjunctions', cvar: 'gl_keeptjunctions' },
+			{ label: 'Water subdivide', cvar: 'gl_subdivide_size', values: [ 64, 128, 256, 512 ] },
+			// The idle sway's shape; v_idlescale (View & Camera) turns it on
+			{ label: 'Yaw sway rate', cvar: 'v_iyaw_cycle', min: 0, max: 4, step: 0.5 },
+			{ label: 'Yaw sway size', cvar: 'v_iyaw_level', min: 0, max: 1, step: 0.1 },
+			{ label: 'Pitch sway rate', cvar: 'v_ipitch_cycle', min: 0, max: 4, step: 0.5 },
+			{ label: 'Pitch sway size', cvar: 'v_ipitch_level', min: 0, max: 1, step: 0.1 },
+			{ label: 'Roll sway rate', cvar: 'v_iroll_cycle', min: 0, max: 4, step: 0.5 },
+			{ label: 'Roll sway size', cvar: 'v_iroll_level', min: 0, max: 1, step: 0.1 },
+			{ label: 'Developer', cvar: 'developer' },
+			{ label: 'Host speeds', cvar: 'host_speeds' },
+			// A fixed frame time, so it would also run an online game's clock
+			{ label: 'Fixed frame', cvar: 'host_framerate', values: [ 0, 0.01, 0.0125, 0.05 ], names: [ 'off', '100Hz', '80Hz', '20Hz' ], when: 'local' },
+			{ label: 'Show net', cvar: 'cl_shownet', values: [ 0, 1, 2 ] },
+			{ label: 'Show sound', cvar: 'snd_show' },
+			// The prediction switches act on online games only: prediction is
+			// off while this browser runs the server
+			{ label: 'No prediction', cvar: 'cl_nopred' },
+			{ label: 'Predict others', cvar: 'cl_predict_players' },
+			{ label: 'Solid players', cvar: 'cl_solid_players' },
+			{ label: 'No lerp', cvar: 'cl_nolerp' },
+			{ label: 'NQ pmove', cvar: 'cl_nqpmove' }
+		]
 	}
 ];
+
+/*
+================
+M_CvarWhen_Applies
+
+Some pages and rows apply only in some games, named by their `when`:
+- 'local': the cvar acts on this browser's own server or clock, so it is
+  hidden while connected to an online server (remote). A demo playing doesn't
+  count, so the title screen can set up the next local game.
+- 'single': GLQuake forces the cvar off in multiplayer (connected with
+  cl.maxclients > 1), so it is hidden then.
+================
+*/
+export const ADV_WHEN = [ 'local', 'single' ];
+
+export function M_CvarWhen_Applies( when, remote, multiplayer ) {
+
+	if ( when === 'local' )
+		return remote === false;
+	if ( when === 'single' )
+		return multiplayer === false;
+	return true;
+
+}
 
 export function M_CvarItem_IsSlider( item ) {
 
