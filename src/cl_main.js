@@ -9,7 +9,7 @@ import { Cmd_AddCommand } from './cmd.js';
 import { Cbuf_InsertText } from './cmd.js';
 import { clc_disconnect, clc_stringcmd, PS_NOLERP } from './protocol.js';
 import { CL_GetMessage, CL_Record_f, CL_PlayDemo_f, CL_TimeDemo_f, CL_StopPlayback, CL_Stop_f } from './cl_demo.js';
-import { CL_ParseServerMessage } from './cl_parse.js';
+import { CL_ParseServerMessage, CL_ClearStuffText } from './cl_parse.js';
 import { SIGNONS, MAX_DLIGHTS, MAX_EFRAGS, MAX_BEAMS, MAX_TEMP_ENTITIES,
 	MAX_DEMOS, MAX_VISEDICTS,
 	ca_dedicated, ca_disconnected, ca_connected,
@@ -28,7 +28,7 @@ import { SCR_EndLoadingPlaque, SCR_BeginLoadingPlaque } from './gl_screen.js';
 import { S_StopAllSounds } from './snd_dma.js';
 import { M_ConnectionError, M_ShouldReturnOnError } from './menu.js';
 import { key_menu, set_key_dest } from './keys.js';
-import { V_UsePrediction, V_ResetEffects } from './view.js';
+import { V_UsePrediction, V_ResetEffects, V_ResetPunchAngles } from './view.js';
 import { Sys_PageURL } from './sys.js';
 import { CL_InitPrediction, CL_ResetPrediction, CL_PredictMove,
 	CL_GetPredictedPlayer, CL_SetUpPlayerPrediction,
@@ -76,6 +76,7 @@ export function CL_ClearState() {
 	// wipe the entire cl structure
 	// In JS we reset the fields instead of memset
 	cl.movemessages = 0;
+	CL_ClearStuffText(); // cl.stuffcmdbuf (QuakeSpasm/Ironwail)
 	cl.cmd = new usercmd_t();
 	cl.stats.fill( 0 );
 	cl.items = 0;
@@ -103,6 +104,7 @@ export function CL_ClearState() {
 	cl.mvelocity[ 1 ].fill( 0 );
 	cl.velocity.fill( 0 );
 	cl.punchangle.fill( 0 );
+	V_ResetPunchAngles(); //johnfitz -- v_punchangles
 	cl.idealpitch = 0;
 	cl.pitchvel = 0;
 	cl.nodrift = false;

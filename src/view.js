@@ -74,6 +74,28 @@ export const cl_crossx = new cvar_t( 'cl_crossx', '0', false );
 export const cl_crossy = new cvar_t( 'cl_crossy', '0', false );
 
 const gl_cshiftpercent = new cvar_t( 'gl_cshiftpercent', '100', false );
+// QuakeSpasm: per-type percentages, applied on top of gl_cshiftpercent
+const gl_cshiftpercent_contents = new cvar_t( 'gl_cshiftpercent_contents', '100', false );
+const gl_cshiftpercent_damage = new cvar_t( 'gl_cshiftpercent_damage', '100', false );
+const gl_cshiftpercent_bonus = new cvar_t( 'gl_cshiftpercent_bonus', '100', false );
+const gl_cshiftpercent_powerup = new cvar_t( 'gl_cshiftpercent_powerup', '100', false );
+// indexed by CSHIFT_CONTENTS, CSHIFT_DAMAGE, CSHIFT_BONUS, CSHIFT_POWERUP
+const cshiftpercent_cvars = [
+	gl_cshiftpercent_contents,
+	gl_cshiftpercent_damage,
+	gl_cshiftpercent_bonus,
+	gl_cshiftpercent_powerup
+];
+
+// FitzQuake/Ironwail v_gunkick: 0 no kick, 1 id's kick, 2 kick lerped
+// between server updates. Ironwail defaults to 2; 1 keeps id's behaviour.
+export const v_gunkick = new cvar_t( 'v_gunkick', '1', true ); //johnfitz
+
+//johnfitz -- copied from cl.punchangle. 0 is current, 1 is previous value.
+// Never the same unless the map just loaded. v_punchtime is Ironwail's
+// cl.punchtime, kept here because client_state_t lives in client.js.
+const v_punchangles = [ new Float32Array( 3 ), new Float32Array( 3 ) ];
+let v_punchtime = 0;
 
 let v_dmg_time = 0;
 let v_dmg_roll = 0;
@@ -229,6 +251,64 @@ export function V_StartPitchDrift() {
 		cl.driftmove = 0;
 
 	}
+
+}
+
+/*
+===============
+V_UpdatePunchAngles
+
+From Ironwail (cl_parse.c CL_ParseClientdata): remember the previous
+punchangle and when it changed, for v_gunkick 2.
+===============
+*/
+export function V_UpdatePunchAngles() {
+
+	const cur = v_punchangles[ 0 ];
+	if ( cur[ 0 ] !== cl.punchangle[ 0 ] || cur[ 1 ] !== cl.punchangle[ 1 ] || cur[ 2 ] !== cl.punchangle[ 2 ] ) {
+
+		v_punchangles[ 1 ].set( cur );
+		cur.set( cl.punchangle );
+		v_punchtime = cl.time;
+
+	}
+
+}
+
+/*
+===============
+V_AddPunchAngles
+
+The weapon kick from Ironwail's V_CalcRefdef (johnfitz v_gunkick)
+===============
+*/
+export function V_AddPunchAngles( angles ) {
+
+	if ( v_gunkick.value === 1 ) { // original quake kick
+
+		VectorAdd( angles, cl.punchangle, angles );
+
+	} else if ( v_gunkick.value === 2 ) { // lerped kick
+
+		let punchblend = ( cl.time - v_punchtime ) / 0.1;
+		if ( punchblend < 0 ) punchblend = 0;
+		if ( punchblend > 1 ) punchblend = 1;
+
+		const prev = v_punchangles[ 1 ];
+		const cur = v_punchangles[ 0 ];
+		for ( let i = 0; i < 3; i ++ )
+			angles[ i ] += prev[ i ] + ( cur[ i ] - prev[ i ] ) * punchblend;
+
+	}
+
+}
+
+// Ironwail clears these with client_state_t in CL_ClearState
+export function V_ResetPunchAngles() {
+
+	v_punchangles[ 0 ].fill( 0 );
+	v_punchangles[ 1 ].fill( 0 );
+	v_punchtime = 0;
 
 }
 
@@ -512,6 +592,7 @@ const CONTENTS_EMPTY = - 1;
 const CONTENTS_SOLID = - 2;
 const CONTENTS_SLIME = - 4;
 const CONTENTS_LAVA = - 5;
+const CONTENTS_SKY = - 6;
 
 export function V_SetContentsColor( contents ) {
 
@@ -519,6 +600,9 @@ export function V_SetContentsColor( contents ) {
 
 		case CONTENTS_EMPTY:
 		case CONTENTS_SOLID:
+		// Deviation (FitzQuake/QuakeSpasm): id's C falls to the default case
+		// and gives the water tint inside sky brushes. No blend in sky.
+		case CONTENTS_SKY: //johnfitz -- no blend in sky
 			cl.cshifts[ CSHIFT_CONTENTS ].destcolor[ 0 ] = cshift_empty.destcolor[ 0 ];
 			cl.cshifts[ CSHIFT_CONTENTS ].destcolor[ 1 ] = cshift_empty.destcolor[ 1 ];
 			cl.cshifts[ CSHIFT_CONTENTS ].destcolor[ 2 ] = cshift_empty.destcolor[ 2 ];
@@ -604,6 +688,8 @@ export function V_CalcBlend() {
 			continue;
 
 		let a2 = ( ( cl.cshifts[ j ].percent * gl_cshiftpercent.value ) / 100.0 ) / 255.0;
+		// QuakeSpasm -- also scale by the specific gl_cshiftpercent_* cvar
+		a2 *= cshiftpercent_cvars[ j ].value / 100.0;
 
 		if ( a2 === 0 )
 			continue;
@@ -1000,7 +1086,7 @@ export function V_CalcRefdef() {
 
 	// set up the refresh position (no weapon kick in WebXR)
 	if ( xr === false )
-		VectorAdd( r_refdef.viewangles, cl.punchangle, r_refdef.viewangles );
+		V_AddPunchAngles( r_refdef.viewangles );
 
 	// smooth out stair step ups
 	// QuakeWorld uses predicted onground state
@@ -1098,6 +1184,10 @@ export function V_Init() {
 
 	Cvar_RegisterVariable( v_idlescale );
 	Cvar_RegisterVariable( gl_cshiftpercent );
+	Cvar_RegisterVariable( gl_cshiftpercent_contents ); // QuakeSpasm
+	Cvar_RegisterVariable( gl_cshiftpercent_damage ); // QuakeSpasm
+	Cvar_RegisterVariable( gl_cshiftpercent_bonus ); // QuakeSpasm
+	Cvar_RegisterVariable( gl_cshiftpercent_powerup ); // QuakeSpasm
 
 	Cvar_RegisterVariable( scr_ofsx );
 	Cvar_RegisterVariable( scr_ofsy );
@@ -1113,6 +1203,7 @@ export function V_Init() {
 	Cvar_RegisterVariable( v_kickpitch );
 
 	Cvar_RegisterVariable( crosshair );
+	Cvar_RegisterVariable( v_gunkick ); //johnfitz
 	Cvar_RegisterVariable( cl_crossx );
 	Cvar_RegisterVariable( cl_crossy );
 
