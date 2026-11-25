@@ -41,6 +41,7 @@ export class server_t {
 
 		this.paused = false;
 		this.loadgame = false; // handle connections specially
+		this.nomonsters = false; // server started with 'nomonsters' cvar active (Ironwail)
 
 		this.time = 0;
 

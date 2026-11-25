@@ -19,7 +19,8 @@ import { cl, cls, ca_connected } from './client.js';
 import { sensitivity, m_pitch, m_yaw, m_forward, m_side, lookstrafe } from './cl_main.js';
 import {
 	in_mlook, in_strafe, in_speed,
-	cl_forwardspeed, cl_backspeed, cl_sidespeed, cl_yawspeed, cl_pitchspeed, cl_movespeedkey
+	cl_forwardspeed, cl_backspeed, cl_sidespeed, cl_yawspeed, cl_pitchspeed, cl_movespeedkey,
+	CL_ClampPitch
 } from './cl_input.js';
 import { V_StopPitchDrift } from './view.js';
 import { host_frametime } from './host.js';
@@ -101,10 +102,28 @@ let suppressLockEscape = false;
 // requests in a row are refused before any lock has worked, clicks ask for
 // fullscreen instead, which those browsers do allow. One refusal may be
 // transient (an unfocused page), and a refusal after a lock has worked
-// (e.g. Chrome's cooldown after Escape) changes nothing.
+// (e.g. Chrome's cooldown after Escape) changes nothing. A raw request
+// (in_rawmouse) is counted from its promise instead of the event.
 let pointerLockWorked = false;
 let pointerLockRefusals = 0;
 let pointerLockUnavailable = false;
+
+// Web-only: in_rawmouse 1 asks for pointer lock with unadjustedMovement, so
+// mouse look gets raw device counts with no OS pointer acceleration, as
+// SDL's relative mouse mode gives Ironwail. Neither Ironwail nor QuakeSpasm
+// has a cvar for it; the name follows the in_ prefix of input settings.
+// Off by default: raw counts feel different at the same sensitivity, and
+// browsers that don't support it fall back to a normal lock anyway.
+// Takes effect at the next lock.
+const in_rawmouse = { name: 'in_rawmouse', string: '0', value: 0, archive: true };
+// Set once the browser rejects unadjustedMovement: later locks don't ask
+let rawMouseUnsupported = false;
+// The raw request whose promise is unsettled, or null. Its outcome is
+// counted from the promise, not from pointerlockerror: Chrome does both, in
+// either order, and NotSupportedError mustn't count as a refusal.
+let rawMouseRequest = null;
+// pointerlockerror events still to come for raw requests already settled
+let rawLockErrorsToSkip = 0;
 
 // Quake key sent down for each physical key (event.code), so keyup releases
 // the same Quake key even if Shift or the layout changed event.key meanwhile.
@@ -173,10 +192,75 @@ function requestPointerLock() {
 
 	if ( targetElement.requestPointerLock == null ) return;
 
+	if ( in_rawmouse.value !== 0 && rawMouseUnsupported === false ) {
+
+		// A click while a raw request is unsettled waits for it: a second
+		// request couldn't tell whose pointerlockerror is whose
+		if ( rawMouseRequest === null ) requestRawPointerLock();
+		return;
+
+	}
+
 	// Chrome returns a promise that rejects if the request is refused
 	// (e.g. no user activation, or the user just pressed Escape).
 	const result = targetElement.requestPointerLock();
 	if ( result != null && typeof result.catch === 'function' ) result.catch( () => {} );
+
+}
+
+// Pointer lock with unadjustedMovement (in_rawmouse). Chrome rejects the
+// promise with NotSupportedError where the platform can't give raw input;
+// then ask again without it, still within the click's user activation.
+// Browsers that return no promise ignore the option and lock normally.
+function requestRawPointerLock() {
+
+	const element = targetElement;
+	let result;
+
+	try {
+
+		result = element.requestPointerLock( { unadjustedMovement: true } );
+
+	} catch {
+
+		// An old signature that rejects the argument outright
+		rawMouseUnsupported = true;
+		requestPointerLock();
+		return;
+
+	}
+
+	if ( result == null || typeof result.then !== 'function' ) return;
+
+	// IN_Init and IN_Shutdown drop it. Assumes, as Chrome does, that every
+	// rejection also fires one pointerlockerror.
+	const request = { errorSeen: false };
+	rawMouseRequest = request;
+	result.then( () => {
+
+		if ( rawMouseRequest === request ) rawMouseRequest = null;
+
+	}, ( error ) => {
+
+		if ( rawMouseRequest !== request ) return;
+		rawMouseRequest = null;
+
+		// This request's pointerlockerror hasn't fired yet: skip it when it does
+		if ( request.errorSeen === false ) rawLockErrorsToSkip ++;
+
+		if ( error != null && error.name === 'NotSupportedError' ) {
+
+			rawMouseUnsupported = true;
+			Con_Printf( 'in_rawmouse: raw mouse input not supported, using normal pointer lock\n' );
+			if ( in_initialized && targetElement === element ) requestPointerLock();
+			return;
+
+		}
+
+		// Refused for another reason: count it, once, like any refusal
+		pointerLockRefused();
+
+	} );
 
 }
 
@@ -311,12 +395,60 @@ function GP_GetPrimary() {
 
 }
 
-function GP_ApplyDeadzone( v, deadzone ) {
+// Stick scratch vectors, [ x, y ] (Golden Rule #4)
+const _gpMove = new Float32Array( 2 );
+const _gpLook = new Float32Array( 2 );
 
-	if ( Math.abs( v ) < deadzone ) return 0;
+/*
+================
+GP_ApplyDeadzone
 
-	// Rescale so movement starts smoothly at the edge of the deadzone
-	return ( v - Math.sign( v ) * deadzone ) / ( 1 - deadzone );
+Ironwail in_sdl.c IN_ApplyDeadzone: a circular inner deadzone and a
+circular outer threshold. The magnitude is rescaled so the deadzone edge
+becomes 0 and 1 - outer_threshold becomes 1, then clamped at 1.
+================
+*/
+function GP_ApplyDeadzone( out, x, y, deadzone, outer_threshold ) {
+
+	const magnitude = Math.sqrt( x * x + y * y );
+
+	// magnitude > 0 also guards a negative deadzone (Ironwail would
+	// divide 0 by 0 for a centred stick)
+	if ( magnitude > deadzone && magnitude > 0 ) {
+
+		// Ironwail expects deadzone + outer_threshold < 1; if they meet, any
+		// push past the deadzone is full scale rather than a division by 0
+		const range = 1 - deadzone - outer_threshold;
+		const new_magnitude = range > 0 ? Math.min( 1, ( magnitude - deadzone ) / range ) : 1;
+		const scale = new_magnitude / magnitude;
+		out[ 0 ] = x * scale;
+		out[ 1 ] = y * scale;
+
+	} else {
+
+		out[ 0 ] = 0;
+		out[ 1 ] = 0;
+
+	}
+
+}
+
+/*
+================
+GP_ApplyEasing
+
+Ironwail in_sdl.c IN_ApplyEasing: raises the magnitude (at most 1) to the
+given exponent, keeping the direction
+================
+*/
+function GP_ApplyEasing( v, exponent ) {
+
+	const magnitude = Math.sqrt( v[ 0 ] * v[ 0 ] + v[ 1 ] * v[ 1 ] );
+	if ( magnitude === 0 ) return;
+
+	const scale = Math.pow( magnitude, exponent ) / magnitude;
+	v[ 0 ] *= scale;
+	v[ 1 ] *= scale;
 
 }
 
@@ -421,13 +553,18 @@ function GP_Poll( cmd ) {
 	// Gameplay movement/look (skip in menus; skip when cmd is missing)
 	if ( ! cmd || key_dest !== key_game || cls.demoplayback ) return;
 
-	const moveDeadzone = 0.15;
-	const lookDeadzone = 0.12;
+	// Ironwail IN_JoyMove: radial deadzone, then easing, per stick
+	GP_ApplyDeadzone( _gpMove, gp.axes?.[ 0 ] ?? 0, gp.axes?.[ 1 ] ?? 0,
+		joy_deadzone_move.value, joy_outer_threshold_move.value );
+	GP_ApplyDeadzone( _gpLook, gp.axes?.[ 2 ] ?? 0, gp.axes?.[ 3 ] ?? 0,
+		joy_deadzone_look.value, joy_outer_threshold_look.value );
+	GP_ApplyEasing( _gpMove, joy_exponent_move.value );
+	GP_ApplyEasing( _gpLook, joy_exponent.value );
 
-	const lx = GP_ApplyDeadzone( gp.axes?.[ 0 ] ?? 0, moveDeadzone );
-	const ly = GP_ApplyDeadzone( gp.axes?.[ 1 ] ?? 0, moveDeadzone );
-	const rx = GP_ApplyDeadzone( gp.axes?.[ 2 ] ?? 0, lookDeadzone );
-	const ry = GP_ApplyDeadzone( gp.axes?.[ 3 ] ?? 0, lookDeadzone );
+	const lx = _gpMove[ 0 ];
+	const ly = _gpMove[ 1 ];
+	const rx = _gpLook[ 0 ];
+	const ry = _gpLook[ 1 ];
 
 	// Left stick → movement
 	cmd.forwardmove -= cl_forwardspeed.value * ly;
@@ -444,10 +581,7 @@ function GP_Poll( cmd ) {
 
 		V_StopPitchDrift();
 		cl.viewangles[ PITCH ] += ry * cl_pitchspeed.value * host_frametime * gp_look_pitch.value;
-		if ( cl.viewangles[ PITCH ] > 80 )
-			cl.viewangles[ PITCH ] = 80;
-		if ( cl.viewangles[ PITCH ] < - 70 )
-			cl.viewangles[ PITCH ] = - 70;
+		CL_ClampPitch();
 
 	}
 
@@ -459,6 +593,16 @@ const m_filter = { name: 'm_filter', string: '0', value: 0 };
 // Defaults keep yaw/pitch even and slower than the prior hardcoded multiplier.
 const gp_look_yaw = { name: 'gp_look_yaw', string: '1', value: 1 };
 const gp_look_pitch = { name: 'gp_look_pitch', string: '1', value: 1 };
+// Stick deadzones and response curve, named as in Ironwail's in_sdl.c. The
+// defaults keep the port's old feel (per-axis deadzones of 0.15 move and
+// 0.12 look, linear response); Ironwail's are 0.175, outer 0.02 and
+// exponent 2.
+const joy_deadzone_look = { name: 'joy_deadzone_look', string: '0.12', value: 0.12, archive: true };
+const joy_deadzone_move = { name: 'joy_deadzone_move', string: '0.15', value: 0.15, archive: true };
+const joy_outer_threshold_look = { name: 'joy_outer_threshold_look', string: '0', value: 0, archive: true };
+const joy_outer_threshold_move = { name: 'joy_outer_threshold_move', string: '0', value: 0, archive: true };
+const joy_exponent = { name: 'joy_exponent', string: '1', value: 1, archive: true };
+const joy_exponent_move = { name: 'joy_exponent_move', string: '1', value: 1, archive: true };
 // XR turning: 0 = smooth turn with the right stick, otherwise snap by this many degrees
 const xr_snapturn = { name: 'xr_snapturn', string: '0', value: 0, archive: true };
 // XR smooth-turn rate at full stick deflection, degrees per second (was a fixed 2 * cl_yawspeed, 280 at its default of 140)
@@ -1058,7 +1202,28 @@ function handlePointerLockChange() {
 
 // See pointerLockUnavailable. The error follows the request within the
 // click's user activation, so fullscreen can still be requested here.
+// Raw requests (in_rawmouse) are counted from their promise instead.
 function handlePointerLockError() {
+
+	if ( rawLockErrorsToSkip > 0 ) {
+
+		rawLockErrorsToSkip --;
+		return;
+
+	}
+
+	if ( rawMouseRequest !== null ) {
+
+		rawMouseRequest.errorSeen = true;
+		return;
+
+	}
+
+	pointerLockRefused();
+
+}
+
+function pointerLockRefused() {
 
 	if ( pointerLockWorked || touchMode ) return;
 
@@ -1311,9 +1476,16 @@ export function IN_Init( element ) {
 	Cvar_RegisterVariable( m_filter );
 	Cvar_RegisterVariable( gp_look_yaw );
 	Cvar_RegisterVariable( gp_look_pitch );
+	Cvar_RegisterVariable( joy_deadzone_look );
+	Cvar_RegisterVariable( joy_deadzone_move );
+	Cvar_RegisterVariable( joy_outer_threshold_look );
+	Cvar_RegisterVariable( joy_outer_threshold_move );
+	Cvar_RegisterVariable( joy_exponent );
+	Cvar_RegisterVariable( joy_exponent_move );
 	Cvar_RegisterVariable( xr_snapturn );
 	Cvar_RegisterVariable( xr_turnspeed );
 	Touch_RegisterCvars();
+	Cvar_RegisterVariable( in_rawmouse );
 
 	// Register commands
 	Cmd_AddCommand( 'force_centerview', IN_ForceCenterView );
@@ -1331,6 +1503,9 @@ export function IN_Init( element ) {
 	pointerLockWorked = false;
 	pointerLockRefusals = 0;
 	pointerLockUnavailable = false;
+	rawMouseUnsupported = false;
+	rawMouseRequest = null;
+	rawLockErrorsToSkip = 0;
 	document.addEventListener( 'pointerlockchange', handlePointerLockChange );
 	document.addEventListener( 'pointerlockerror', handlePointerLockError );
 	document.addEventListener( 'fullscreenchange', updateKeyboardLock );
@@ -1435,6 +1610,8 @@ export function IN_Shutdown() {
 
 	mouseactive = false;
 	in_initialized = false;
+	rawMouseRequest = null;
+	rawLockErrorsToSkip = 0;
 	updateKeyboardLock();
 
 }
@@ -1700,10 +1877,7 @@ export function IN_Move( cmd ) {
 
 			cl.viewangles[ PITCH ] += m_pitch.value < 0 ? - touchLook.pitch : touchLook.pitch;
 			if ( touchLook.pitch !== 0 ) V_StopPitchDrift();
-			if ( cl.viewangles[ PITCH ] > 80 )
-				cl.viewangles[ PITCH ] = 80;
-			if ( cl.viewangles[ PITCH ] < - 70 )
-				cl.viewangles[ PITCH ] = - 70;
+			CL_ClampPitch();
 
 		}
 
@@ -1731,10 +1905,7 @@ export function IN_Move( cmd ) {
 	if ( ( in_mlook.state & 1 ) && ! ( in_strafe.state & 1 ) ) {
 
 		cl.viewangles[ PITCH ] += m_pitch.value * my;
-		if ( cl.viewangles[ PITCH ] > 80 )
-			cl.viewangles[ PITCH ] = 80;
-		if ( cl.viewangles[ PITCH ] < - 70 )
-			cl.viewangles[ PITCH ] = - 70;
+		CL_ClampPitch();
 
 	} else {
 

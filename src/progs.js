@@ -161,11 +161,11 @@ export let pr_crc = 0;
 // buffer), taken from Ironwail/QuakeSpasm (pr_cmds.c PR_GetTempString): a
 // ring of buffers, so bprint( ftos( a ), ftos( b ) ) prints both values rather
 // than b twice. Ironwail declares 1024 buffers but indexes them with a byte,
-// so only 256 are ever used; we reserve those 256. Each keeps id's 128 bytes:
-// ftos/vtos output always fits, and Ironwail's 1024-byte length serves string
-// builtins (sprintf, strcat) that the port does not have.
+// so only 256 are ever used; we reserve those 256. Each is Ironwail's 1024
+// bytes, which the string extension builtins (strcat, substring, sprintf,
+// argv) need; id's 128 was only ever filled by ftos and vtos.
 export const STRINGTEMP_BUFFERS = 256;
-export const STRINGTEMP_LENGTH = 128;
+export const STRINGTEMP_LENGTH = 1024;
 export let pr_string_temp_ofs = - 1;
 let pr_string_tempindex = 0; // C: static byte pr_string_tempindex
 
@@ -236,6 +236,68 @@ export function PR_SetTempString( str ) {
 
 	pr_strings_data[ ofs + len ] = 0; // null terminator
 	return ofs;
+
+}
+
+// Zoned strings for the strzone/strunzone builtins. Ironwail Z_Mallocs each
+// one and tracks it in qcvm->knownzone; here each is a block in
+// pr_strings_data, and strunzone puts the block on a free list that later
+// strzone calls reuse, so a mod that zones strings every frame doesn't grow
+// the string table without bound. PR_LoadProgs clears both lists, because it
+// replaces the string table.
+const pr_zone_live = new Map(); // offset -> block size in bytes, with the NUL
+const pr_zone_free = []; // { ofs, size }
+
+export function PR_ZoneString( str ) {
+
+	const need = str.length + 1;
+
+	// best fit among the freed blocks
+	let best = - 1;
+	for ( let i = 0; i < pr_zone_free.length; i ++ ) {
+
+		const size = pr_zone_free[ i ].size;
+		if ( size >= need && ( best < 0 || size < pr_zone_free[ best ].size ) )
+			best = i;
+
+	}
+
+	if ( best < 0 ) {
+
+		const ofs = PR_AppendString( str );
+		pr_zone_live.set( ofs, need );
+		return ofs;
+
+	}
+
+	const block = pr_zone_free[ best ];
+	pr_zone_free.splice( best, 1 );
+	for ( let i = 0; i < str.length; i ++ )
+		pr_strings_data[ block.ofs + i ] = str.charCodeAt( i ) & 0xff;
+	pr_strings_data[ block.ofs + str.length ] = 0;
+	pr_zone_live.set( block.ofs, block.size );
+	return block.ofs;
+
+}
+
+// Returns false if ofs is not a live zoned string
+export function PR_UnzoneString( ofs ) {
+
+	const size = pr_zone_live.get( ofs );
+	if ( size === undefined )
+		return false;
+
+	pr_zone_live.delete( ofs );
+	pr_zone_free.push( { ofs, size } );
+	pr_strings_data[ ofs ] = 0; // a stale reference now reads as ""
+	return true;
+
+}
+
+export function PR_ClearZoneStrings() {
+
+	pr_zone_live.clear();
+	pr_zone_free.length = 0;
 
 }
 

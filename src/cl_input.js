@@ -4,7 +4,7 @@ import { PITCH, YAW, ROLL } from './quakedef.js';
 import { Con_Printf, Q_atoi,
 	MSG_WriteByte, MSG_WriteFloat, MSG_WriteShort, MSG_WriteAngle16 } from './common.js';
 import { Cmd_AddCommand, Cmd_Argv } from './cmd.js';
-import { cvar_t } from './cvar.js';
+import { cvar_t, Cvar_RegisterVariable } from './cvar.js';
 import { clc_move, clc_delta, PE_UPDATE_BACKUP } from './protocol.js';
 import { SIGNONS, ca_connected,
 	kbutton_t,
@@ -252,6 +252,10 @@ export const cl_backspeed = new cvar_t( 'cl_backspeed', '200', true );
 export const cl_sidespeed = new cvar_t( 'cl_sidespeed', '350' );
 
 export const cl_movespeedkey = new cvar_t( 'cl_movespeedkey', '2.0' );
+// johnfitz -- variable pitch clamping (FitzQuake/QuakeSpasm/Ironwail cl_main.c).
+// Defaults are id's hard-coded 80 / -70; FitzQuake's are 90 / -90.
+export const cl_maxpitch = new cvar_t( 'cl_maxpitch', '80', true );
+export const cl_minpitch = new cvar_t( 'cl_minpitch', '-70', true );
 
 export const cl_yawspeed = new cvar_t( 'cl_yawspeed', '140' );
 export const cl_pitchspeed = new cvar_t( 'cl_pitchspeed', '150' );
@@ -299,10 +303,7 @@ export function CL_AdjustAngles() {
 	if ( up || down )
 		V_StopPitchDrift();
 
-	if ( cl.viewangles[ PITCH ] > 80 )
-		cl.viewangles[ PITCH ] = 80;
-	if ( cl.viewangles[ PITCH ] < - 70 )
-		cl.viewangles[ PITCH ] = - 70;
+	CL_ClampPitch();
 
 	if ( cl.viewangles[ ROLL ] > 50 )
 		cl.viewangles[ ROLL ] = 50;
@@ -552,10 +553,31 @@ export function CL_SendMove( cmd ) {
 
 /*
 ============
+CL_ClampPitch
+
+johnfitz -- variable pitch clamping: cl_maxpitch / cl_minpitch replace
+id's hard-coded 80 / -70 in CL_AdjustAngles and the mouse look (in_win.c
+IN_MouseMove, here IN_Move), plus the port's gamepad and touch look
+============
+*/
+export function CL_ClampPitch() {
+
+	if ( cl.viewangles[ PITCH ] > cl_maxpitch.value )
+		cl.viewangles[ PITCH ] = cl_maxpitch.value;
+	if ( cl.viewangles[ PITCH ] < cl_minpitch.value )
+		cl.viewangles[ PITCH ] = cl_minpitch.value;
+
+}
+
+/*
+============
 CL_InitInput
 ============
 */
 export function CL_InitInput() {
+
+	Cvar_RegisterVariable( cl_maxpitch );
+	Cvar_RegisterVariable( cl_minpitch );
 
 	Cmd_AddCommand( '+moveup', IN_UpDown );
 	Cmd_AddCommand( '-moveup', IN_UpUp );
