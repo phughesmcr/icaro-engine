@@ -21,7 +21,7 @@ import { GL_MakeAliasModelDisplayLists as GL_MakeAliasModelDisplayLists_mesh, cl
 export let solidskytexture = null;
 export let alphaskytexture = null;
 import {
-	BSPVERSION,
+	BSPVERSION, BSP2VERSION_BSP2,
 	LUMP_ENTITIES, LUMP_PLANES, LUMP_TEXTURES, LUMP_VERTEXES,
 	LUMP_VISIBILITY, LUMP_NODES, LUMP_TEXINFO, LUMP_FACES,
 	LUMP_LIGHTING, LUMP_CLIPNODES, LUMP_LEAFS, LUMP_MARKSURFACES,
@@ -226,7 +226,10 @@ export class medge_t {
 
 	constructor() {
 
-		this.v = new Uint16Array( 2 );
+		// Deliberate deviation (Ironwail medge_t): unsigned int vertex
+		// numbers, so BSP2 maps with more than 65535 vertexes load. The C
+		// holds unsigned shorts.
+		this.v = new Uint32Array( 2 );
 		this.cachededgeoffset = 0;
 
 	}
@@ -1387,6 +1390,12 @@ const SIZEOF_DFACE = 20;			// short planenum, short side, int firstedge, short n
 const SIZEOF_DNODE = 24;			// int planenum, short children[2], short mins[3], short maxs[3], unsigned short firstface, unsigned short numfaces
 const SIZEOF_DLEAF = 28;			// int contents, int visofs, short mins[3], short maxs[3], unsigned short firstmarksurface, unsigned short nummarksurfaces, byte ambient_level[4]
 const SIZEOF_DCLIPNODE = 8;		// int planenum, short children[2]
+// BSP2 (Ironwail bspfile.h dledge_t, dlface_t, dl2node_t, dl2leaf_t, dlclipnode_t)
+const SIZEOF_DLEDGE = 8;			// 2 unsigned ints
+const SIZEOF_DLFACE = 28;			// int planenum, int side, int firstedge, int numedges, int texinfo, byte styles[4], int lightofs
+const SIZEOF_DL2NODE = 44;			// int planenum, int children[2], float mins[3], float maxs[3], unsigned int firstface, unsigned int numfaces
+const SIZEOF_DL2LEAF = 44;			// int contents, int visofs, float mins[3], float maxs[3], unsigned int firstmarksurface, unsigned int nummarksurfaces, byte ambient_level[4]
+const SIZEOF_DLCLIPNODE = 12;		// int planenum, int children[2]
 const SIZEOF_TEXINFO = 40;			// float vecs[2][4], int miptex, int flags
 const SIZEOF_DPLANE = 20;			// float normal[3], float dist, int type
 const SIZEOF_DMODEL = 64;			// float mins[3], maxs[3], origin[3], int headnode[4], int visleafs, int firstface, int numfaces
@@ -1732,12 +1741,15 @@ function Mod_LoadVertexes( fileofs, filelen ) {
 // Mod_LoadEdges
 // ============================================================================
 
-function Mod_LoadEdges( fileofs, filelen ) {
+// bsp2 (Ironwail): read dledge_t, with unsigned int vertex numbers
 
-	if ( filelen % SIZEOF_DEDGE )
+function Mod_LoadEdges( fileofs, filelen, bsp2 = false ) {
+
+	const size = bsp2 ? SIZEOF_DLEDGE : SIZEOF_DEDGE;
+	if ( filelen % size )
 		Sys_Error( 'MOD_LoadBmodel: funny lump size in ' + loadmodel.name );
 
-	const count = filelen / SIZEOF_DEDGE;
+	const count = filelen / size;
 	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
 	const out = new Array( count + 1 );
 
@@ -1747,9 +1759,19 @@ function Mod_LoadEdges( fileofs, filelen ) {
 	for ( let i = 0; i < count; i ++ ) {
 
 		const e = new medge_t();
-		const base = i * SIZEOF_DEDGE;
-		e.v[ 0 ] = view.getUint16( base, true );
-		e.v[ 1 ] = view.getUint16( base + 2, true );
+		const base = i * size;
+		if ( bsp2 ) {
+
+			e.v[ 0 ] = view.getUint32( base, true );
+			e.v[ 1 ] = view.getUint32( base + 4, true );
+
+		} else {
+
+			e.v[ 0 ] = view.getUint16( base, true );
+			e.v[ 1 ] = view.getUint16( base + 2, true );
+
+		}
+
 		out[ i ] = e;
 
 	}
@@ -2075,12 +2097,15 @@ function Mod_CheckWaterVis() {
 // Mod_LoadFaces
 // ============================================================================
 
-function Mod_LoadFaces( fileofs, filelen ) {
+// bsp2 (Ironwail): read dlface_t, with int fields where dface_t has shorts
 
-	if ( filelen % SIZEOF_DFACE )
+function Mod_LoadFaces( fileofs, filelen, bsp2 = false ) {
+
+	const size = bsp2 ? SIZEOF_DLFACE : SIZEOF_DFACE;
+	if ( filelen % size )
 		Sys_Error( 'MOD_LoadBmodel: funny lump size in ' + loadmodel.name );
 
-	const count = filelen / SIZEOF_DFACE;
+	const count = filelen / size;
 	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
 	const out = new Array( count );
 
@@ -2090,28 +2115,46 @@ function Mod_LoadFaces( fileofs, filelen ) {
 	for ( let surfnum = 0; surfnum < count; surfnum ++ ) {
 
 		const s = new msurface_t();
-		const base = surfnum * SIZEOF_DFACE;
+		const base = surfnum * size;
 
-		s.firstedge = view.getInt32( base + 4, true );
-		s.numedges = view.getInt16( base + 8, true );
+		let planenum, side, texinfon, stylesofs, lightofs;
+		if ( bsp2 ) {
+
+			s.firstedge = view.getInt32( base + 8, true );
+			s.numedges = view.getInt32( base + 12, true );
+			planenum = view.getInt32( base, true );
+			side = view.getInt32( base + 4, true );
+			texinfon = view.getInt32( base + 16, true );
+			stylesofs = 20;
+			lightofs = view.getInt32( base + 24, true );
+
+		} else {
+
+			s.firstedge = view.getInt32( base + 4, true );
+			s.numedges = view.getInt16( base + 8, true );
+			planenum = view.getInt16( base, true ); // dface_t planenum is a short
+			side = view.getInt16( base + 2, true );
+			texinfon = view.getInt16( base + 10, true );
+			stylesofs = 12;
+			lightofs = view.getInt32( base + 16, true );
+
+		}
+
 		s.flags = 0;
 
-		const planenum = view.getInt16( base, true ); // dface_t planenum is a short
-		const side = view.getInt16( base + 2, true );
 		if ( side )
 			s.flags |= SURF_PLANEBACK;
 
 		s.plane = loadmodel.planes[ planenum ];
 
-		s.texinfo = loadmodel.texinfo[ view.getInt16( base + 10, true ) ];
+		s.texinfo = loadmodel.texinfo[ texinfon ];
 
 		CalcSurfaceExtents( s );
 
 		// lighting info
 		for ( let i = 0; i < MAXLIGHTMAPS; i ++ )
-			s.styles[ i ] = mod_base[ fileofs + base + 12 + i ];
+			s.styles[ i ] = mod_base[ fileofs + base + stylesofs + i ];
 
-		const lightofs = view.getInt32( base + 16, true );
 		if ( lightofs === - 1 ) {
 
 			s.samples = null;
@@ -2174,12 +2217,17 @@ function Mod_SetParent( node, parent ) {
 // Mod_LoadNodes
 // ============================================================================
 
-function Mod_LoadNodes( fileofs, filelen ) {
+// bsp2 (Ironwail Mod_LoadNodes_L2): read dl2node_t, with int children, float
+// bounds and unsigned int face numbers. Ironwail splits the two layouts into
+// Mod_LoadNodes_S and Mod_LoadNodes_L2; one function with a branch here.
 
-	if ( filelen % SIZEOF_DNODE )
-		Sys_Error( 'MOD_LoadBmodel: funny lump size in ' + loadmodel.name );
+function Mod_LoadNodes( fileofs, filelen, bsp2 = false ) {
 
-	const count = filelen / SIZEOF_DNODE;
+	const size = bsp2 ? SIZEOF_DL2NODE : SIZEOF_DNODE;
+	if ( filelen % size )
+		Sys_Error( ( bsp2 ? 'Mod_LoadNodes' : 'MOD_LoadBmodel' ) + ': funny lump size in ' + loadmodel.name );
+
+	const count = filelen / size;
 	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
 	const out = new Array( count );
 
@@ -2189,7 +2237,52 @@ function Mod_LoadNodes( fileofs, filelen ) {
 	for ( let i = 0; i < count; i ++ ) {
 
 		const node = new mnode_t();
-		const base = i * SIZEOF_DNODE;
+		const base = i * size;
+
+		const p = view.getInt32( base, true );
+		node.plane = loadmodel.planes[ p ];
+
+		node._childIndex = [];
+
+		if ( bsp2 ) {
+
+			for ( let j = 0; j < 3; j ++ ) {
+
+				node.minmaxs[ j ] = view.getFloat32( base + 12 + j * 4, true );
+				node.minmaxs[ 3 + j ] = view.getFloat32( base + 24 + j * 4, true );
+
+			}
+
+			node.firstsurface = view.getUint32( base + 36, true );
+			node.numsurfaces = view.getUint32( base + 40, true );
+
+			for ( let j = 0; j < 2; j ++ ) {
+
+				let c = view.getInt32( base + 4 + j * 4, true );
+				if ( c > 0 && c < count ) {
+
+					node._childIndex[ j ] = { type: 'node', index: c };
+
+				} else {
+
+					c = - 1 - c; // C: 0xffffffff - p; -1 is leaf 0
+					if ( c < 0 || c >= loadmodel.numleafs ) {
+
+						Con_Printf( 'Mod_LoadNodes: invalid leaf index ' + c + ' (file has only ' + loadmodel.numleafs + ' leafs)\n' );
+						c = 0; // map it to the solid leaf
+
+					}
+
+					node._childIndex[ j ] = { type: 'leaf', index: c };
+
+				}
+
+			}
+
+			out[ i ] = node;
+			continue;
+
+		}
 
 		for ( let j = 0; j < 3; j ++ ) {
 
@@ -2197,9 +2290,6 @@ function Mod_LoadNodes( fileofs, filelen ) {
 			node.minmaxs[ 3 + j ] = view.getInt16( base + 14 + j * 2, true );
 
 		}
-
-		const p = view.getInt32( base, true );
-		node.plane = loadmodel.planes[ p ];
 
 		node.firstsurface = view.getUint16( base + 20, true );
 		node.numsurfaces = view.getUint16( base + 22, true );
@@ -2210,7 +2300,6 @@ function Mod_LoadNodes( fileofs, filelen ) {
 			// unsigned so maps with more than 32767 nodes, or leafs past
 			// 32767, load. The C reads a signed short.
 			let p = view.getUint16( base + 4 + j * 2, true );
-			node._childIndex = node._childIndex || [];
 			if ( p < count ) {
 
 				node.children[ j ] = null; // will be resolved after all nodes created
@@ -2267,18 +2356,23 @@ function Mod_LoadNodes( fileofs, filelen ) {
 // Mod_LoadLeafs
 // ============================================================================
 
-function Mod_LoadLeafs( fileofs, filelen ) {
+// bsp2 (Ironwail Mod_ProcessLeafs_L2): read dl2leaf_t, with float bounds and
+// unsigned int marksurface numbers, and no leaf limit
 
-	if ( filelen % SIZEOF_DLEAF )
-		Sys_Error( 'MOD_LoadBmodel: funny lump size in ' + loadmodel.name );
+function Mod_LoadLeafs( fileofs, filelen, bsp2 = false ) {
 
-	const count = filelen / SIZEOF_DLEAF;
+	const size = bsp2 ? SIZEOF_DL2LEAF : SIZEOF_DLEAF;
+	if ( filelen % size )
+		Sys_Error( ( bsp2 ? 'Mod_ProcessLeafs' : 'MOD_LoadBmodel' ) + ': funny lump size in ' + loadmodel.name );
+
+	const count = filelen / size;
 	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
 	const out = new Array( count );
 
 	// Deliberate deviation: QuakeSpasm's BSP29 limit check (the C has none),
-	// raised with Host_Error as Ironwail does so a bad map isn't fatal
-	if ( count > MAX_MAP_LEAFS )
+	// raised with Host_Error as Ironwail does so a bad map isn't fatal.
+	// BSP2 leafs have none, as in Ironwail.
+	if ( ! bsp2 && count > MAX_MAP_LEAFS )
 		Host_Error( 'Mod_LoadLeafs: ' + count + ' leafs exceeds limit of ' + MAX_MAP_LEAFS + '.' );
 
 	loadmodel.leafs = out;
@@ -2291,19 +2385,38 @@ function Mod_LoadLeafs( fileofs, filelen ) {
 
 		const leaf = new mleaf_t();
 		leaf._leafIndex = i; // store index for PVS checks (C uses pointer arithmetic: leaf - sv.worldmodel->leafs)
-		const base = i * SIZEOF_DLEAF;
+		const base = i * size;
 
-		for ( let j = 0; j < 3; j ++ ) {
+		let firstmarksurfaceIdx, ambientofs;
+		if ( bsp2 ) {
 
-			leaf.minmaxs[ j ] = view.getInt16( base + 8 + j * 2, true );
-			leaf.minmaxs[ 3 + j ] = view.getInt16( base + 14 + j * 2, true );
+			for ( let j = 0; j < 3; j ++ ) {
+
+				leaf.minmaxs[ j ] = view.getFloat32( base + 8 + j * 4, true );
+				leaf.minmaxs[ 3 + j ] = view.getFloat32( base + 20 + j * 4, true );
+
+			}
+
+			firstmarksurfaceIdx = view.getUint32( base + 32, true );
+			leaf.nummarksurfaces = view.getUint32( base + 36, true );
+			ambientofs = 40;
+
+		} else {
+
+			for ( let j = 0; j < 3; j ++ ) {
+
+				leaf.minmaxs[ j ] = view.getInt16( base + 8 + j * 2, true );
+				leaf.minmaxs[ 3 + j ] = view.getInt16( base + 14 + j * 2, true );
+
+			}
+
+			firstmarksurfaceIdx = view.getUint16( base + 20, true );
+			leaf.nummarksurfaces = view.getUint16( base + 22, true );
+			ambientofs = 24;
 
 		}
 
 		leaf.contents = view.getInt32( base, true );
-
-		const firstmarksurfaceIdx = view.getUint16( base + 20, true );
-		leaf.nummarksurfaces = view.getUint16( base + 22, true );
 
 		// In C: leaf->firstmarksurface = loadmodel->marksurfaces + firstmarksurface;
 		// This is a pointer into the marksurfaces array (which is an array of msurface_t*)
@@ -2327,7 +2440,7 @@ function Mod_LoadLeafs( fileofs, filelen ) {
 		leaf.efrags = null;
 
 		for ( let j = 0; j < 4; j ++ )
-			leaf.ambient_sound_level[ j ] = mod_base[ fileofs + base + 24 + j ];
+			leaf.ambient_sound_level[ j ] = mod_base[ fileofs + base + ambientofs + j ];
 
 		// gl underwater warp
 		if ( leaf.contents !== CONTENTS_EMPTY ) {
@@ -2350,12 +2463,15 @@ function Mod_LoadLeafs( fileofs, filelen ) {
 // Mod_LoadClipnodes
 // ============================================================================
 
-function Mod_LoadClipnodes( fileofs, filelen ) {
+// bsp2 (Ironwail Mod_LoadClipnodes): read dlclipnode_t, with int children
 
-	if ( filelen % SIZEOF_DCLIPNODE )
-		Sys_Error( 'MOD_LoadBmodel: funny lump size in ' + loadmodel.name );
+function Mod_LoadClipnodes( fileofs, filelen, bsp2 = false ) {
 
-	const count = filelen / SIZEOF_DCLIPNODE;
+	const size = bsp2 ? SIZEOF_DLCLIPNODE : SIZEOF_DCLIPNODE;
+	if ( filelen % size )
+		Sys_Error( ( bsp2 ? 'Mod_LoadClipnodes' : 'MOD_LoadBmodel' ) + ': funny lump size in ' + loadmodel.name );
+
+	const count = filelen / size;
 	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
 	const out = new Array( count );
 
@@ -2391,7 +2507,7 @@ function Mod_LoadClipnodes( fileofs, filelen ) {
 	for ( let i = 0; i < count; i ++ ) {
 
 		const cn = new dclipnode_t();
-		const base = i * SIZEOF_DCLIPNODE;
+		const base = i * size;
 
 		cn.planenum = view.getInt32( base, true );
 
@@ -2399,6 +2515,16 @@ function Mod_LoadClipnodes( fileofs, filelen ) {
 		// with Host_Error as Ironwail has it
 		if ( cn.planenum < 0 || cn.planenum >= loadmodel.numplanes )
 			Host_Error( 'Mod_LoadClipnodes: planenum out of bounds' );
+
+		if ( bsp2 ) {
+
+			// Ironwail has no bounds check here either ("Spike: FIXME")
+			cn.children[ 0 ] = view.getInt32( base + 4, true );
+			cn.children[ 1 ] = view.getInt32( base + 8, true );
+			out[ i ] = cn;
+			continue;
+
+		}
 
 		// Deliberate deviation (QuakeSpasm): read the children unsigned so
 		// maps with more than 32767 clipnodes load; values at or past count
@@ -2479,14 +2605,18 @@ function Mod_MakeHull0() {
 // Mod_LoadMarksurfaces
 // ============================================================================
 
-function Mod_LoadMarksurfaces( fileofs, filelen ) {
+// bsp2 (Ironwail): unsigned int surface numbers
+
+function Mod_LoadMarksurfaces( fileofs, filelen, bsp2 = false ) {
+
+	const size = bsp2 ? 4 : 2;
 
 	// Deliberate deviation (Ironwail Mod_LoadMarksurfaces): Host_Error, not
 	// Sys_Error, for both checks
-	if ( filelen % 2 )
+	if ( filelen % size )
 		Host_Error( 'MOD_LoadBmodel: funny lump size in ' + loadmodel.name );
 
-	const count = filelen / 2;
+	const count = filelen / size;
 	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
 	const out = new Array( count );
 
@@ -2495,7 +2625,7 @@ function Mod_LoadMarksurfaces( fileofs, filelen ) {
 
 	for ( let i = 0; i < count; i ++ ) {
 
-		const j = view.getUint16( i * 2, true );
+		const j = bsp2 ? view.getUint32( i * 4, true ) : view.getUint16( i * 2, true );
 		if ( j >= loadmodel.numsurfaces )
 			Host_Error( 'Mod_ParseMarksurfaces: bad surface number' );
 		out[ i ] = loadmodel.surfaces[ j ];
@@ -2574,9 +2704,16 @@ function Mod_LoadBrushModel( mod, buffer ) {
 	const bytes = new Uint8Array( buffer );
 	const view = new DataView( buffer );
 
+	// Deliberate deviation (Ironwail Mod_LoadBrushModel): BSP2 loads as well
+	// as BSP29 (see BSP2VERSION_BSP2 in bspfile.js)
 	const version = view.getInt32( 0, true );
-	if ( version !== BSPVERSION )
-		Sys_Error( 'Mod_LoadBrushModel: ' + mod.name + ' has wrong version number (' + version + ' should be ' + BSPVERSION + ')' );
+	let bsp2;
+	if ( version === BSPVERSION )
+		bsp2 = false;
+	else if ( version === BSP2VERSION_BSP2 )
+		bsp2 = true;
+	else
+		Sys_Error( 'Mod_LoadBrushModel: ' + mod.name + ' has unsupported version number (' + version + ')' );
 
 	// swap all the lumps
 	mod_base = bytes;
@@ -2594,18 +2731,18 @@ function Mod_LoadBrushModel( mod, buffer ) {
 
 	// load into heap (order matters! same as original C code)
 	Mod_LoadVertexes( lumps[ LUMP_VERTEXES ].fileofs, lumps[ LUMP_VERTEXES ].filelen );
-	Mod_LoadEdges( lumps[ LUMP_EDGES ].fileofs, lumps[ LUMP_EDGES ].filelen );
+	Mod_LoadEdges( lumps[ LUMP_EDGES ].fileofs, lumps[ LUMP_EDGES ].filelen, bsp2 );
 	Mod_LoadSurfedges( lumps[ LUMP_SURFEDGES ].fileofs, lumps[ LUMP_SURFEDGES ].filelen );
 	Mod_LoadTextures( lumps[ LUMP_TEXTURES ].fileofs, lumps[ LUMP_TEXTURES ].filelen );
 	Mod_LoadLighting( lumps[ LUMP_LIGHTING ].fileofs, lumps[ LUMP_LIGHTING ].filelen );
 	Mod_LoadPlanes( lumps[ LUMP_PLANES ].fileofs, lumps[ LUMP_PLANES ].filelen );
 	Mod_LoadTexinfo( lumps[ LUMP_TEXINFO ].fileofs, lumps[ LUMP_TEXINFO ].filelen );
-	Mod_LoadFaces( lumps[ LUMP_FACES ].fileofs, lumps[ LUMP_FACES ].filelen );
-	Mod_LoadMarksurfaces( lumps[ LUMP_MARKSURFACES ].fileofs, lumps[ LUMP_MARKSURFACES ].filelen );
+	Mod_LoadFaces( lumps[ LUMP_FACES ].fileofs, lumps[ LUMP_FACES ].filelen, bsp2 );
+	Mod_LoadMarksurfaces( lumps[ LUMP_MARKSURFACES ].fileofs, lumps[ LUMP_MARKSURFACES ].filelen, bsp2 );
 	Mod_LoadVisibility( lumps[ LUMP_VISIBILITY ].fileofs, lumps[ LUMP_VISIBILITY ].filelen );
-	Mod_LoadLeafs( lumps[ LUMP_LEAFS ].fileofs, lumps[ LUMP_LEAFS ].filelen );
-	Mod_LoadNodes( lumps[ LUMP_NODES ].fileofs, lumps[ LUMP_NODES ].filelen );
-	Mod_LoadClipnodes( lumps[ LUMP_CLIPNODES ].fileofs, lumps[ LUMP_CLIPNODES ].filelen );
+	Mod_LoadLeafs( lumps[ LUMP_LEAFS ].fileofs, lumps[ LUMP_LEAFS ].filelen, bsp2 );
+	Mod_LoadNodes( lumps[ LUMP_NODES ].fileofs, lumps[ LUMP_NODES ].filelen, bsp2 );
+	Mod_LoadClipnodes( lumps[ LUMP_CLIPNODES ].fileofs, lumps[ LUMP_CLIPNODES ].filelen, bsp2 );
 	Mod_LoadEntities( lumps[ LUMP_ENTITIES ].fileofs, lumps[ LUMP_ENTITIES ].filelen );
 	Mod_LoadSubmodels( lumps[ LUMP_MODELS ].fileofs, lumps[ LUMP_MODELS ].filelen );
 

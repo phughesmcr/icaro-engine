@@ -106,7 +106,9 @@ export class edict_t {
 		this.area = new link_t(); // linked to a division node or leaf
 
 		this.num_leafs = 0;
-		this.leafnums = new Int16Array( MAX_ENT_LEAFS );
+		// Deliberate deviation (Ironwail edict_t): int leaf numbers, since
+		// BSP2 maps may have more than 32767 leafs. The C holds shorts.
+		this.leafnums = new Int32Array( MAX_ENT_LEAFS );
 
 		this.baseline = new entity_state_t();
 
