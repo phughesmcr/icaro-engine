@@ -33,6 +33,7 @@ let oldfov = 0;
 let oldscreensize = 0;
 let oldsbaralpha = 1;
 let oldsbarscale = 0;
+let oldconscale = 0; // console canvas scale scr_con_current was last measured in
 
 export const scr_viewsize = { name: 'viewsize', string: '100', value: 100, archive: true };
 const scr_fov = { name: 'fov', string: '90', value: 90 };
@@ -610,8 +611,15 @@ Sbar_Draw on the status bar canvas (Ironwail CANVAS_SBAR, scr_sbarscale)
 function SCR_DrawSbar() {
 
 	Draw_SetCanvasScale( scr_sbarscale.value );
-	Sbar_Draw();
-	Draw_SetCanvasScale( 0 );
+	try {
+
+		Sbar_Draw();
+
+	} finally {
+
+		Draw_SetCanvasScale( 0 );
+
+	}
 
 }
 
@@ -1100,9 +1108,23 @@ export function SCR_UpdateScreen() {
 	//
 	// do 3D refresh drawing, and then update the screen
 	//
-	Draw_SetCanvasScale( scr_conscale.value ); // console layout uses the console canvas
-	SCR_SetUpToDrawConsole();
-	Draw_SetCanvasScale( 0 );
+	// The console is laid out on its own canvas (scr_conscale). scr_con_current
+	// is kept in its units, so rescale it when that scale changes.
+	const conscale = Draw_GetCanvasScale( scr_conscale.value );
+	if ( oldconscale > 0 && conscale !== oldconscale )
+		scr_con_current = scr_con_current * oldconscale / conscale;
+	oldconscale = conscale;
+
+	Draw_SetCanvasScale( scr_conscale.value );
+	try {
+
+		SCR_SetUpToDrawConsole();
+
+	} finally {
+
+		Draw_SetCanvasScale( 0 );
+
+	}
 
 	if ( _V_RenderView ) _V_RenderView();
 
@@ -1151,8 +1173,15 @@ export function SCR_UpdateScreen() {
 		SCR_DrawFPS(); //johnfitz
 		SCR_DrawClock(); //johnfitz
 		Draw_SetCanvasScale( scr_conscale.value );
-		SCR_DrawConsole();
-		Draw_SetCanvasScale( 0 );
+		try {
+
+			SCR_DrawConsole();
+
+		} finally {
+
+			Draw_SetCanvasScale( 0 );
+
+		}
 		M_Draw();
 
 	}

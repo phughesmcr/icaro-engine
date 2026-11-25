@@ -48,6 +48,7 @@ Deno.test( 'Draw_SetCanvasScale sizes the virtual screen and the overlay transfo
 
 	try {
 
+		if ( draw.Draw_GetOverlayCanvas() === null ) throw new Error( 'test setup: Draw_Init set no overlay' );
 		transforms.length = 0;
 		draw.Draw_SetCanvasScale( 1 );
 		assertEqual( draw.Draw_GetVirtualWidth(), 640, 'scale 1 width' );
@@ -90,6 +91,25 @@ Deno.test( 'SCR_CalcRefdef leaves room for the scaled status bar', () => {
 			assertEqual( r_refdef.vrect.height, height, 'view height at scr_sbarscale ' + value );
 
 		}
+
+		// A translucent status bar or the intermission takes no lines at any scale
+		scr.scr_sbarscale.value = 1;
+		const savedAlpha = scr.scr_sbaralpha.value;
+		try {
+
+			scr.scr_sbaralpha.value = 0.5;
+			scr.SCR_CalcRefdef();
+			assertEqual( r_refdef.vrect.height, 240, 'translucent status bar' );
+
+		} finally {
+
+			scr.scr_sbaralpha.value = savedAlpha;
+
+		}
+
+		scr.SCR_SetExternals( { cl: { intermission: 1, paused: false, worldmodel: null, time: 0 } } );
+		scr.SCR_CalcRefdef();
+		assertEqual( r_refdef.vrect.height, 240, 'intermission' );
 
 	} finally {
 
