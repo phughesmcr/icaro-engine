@@ -242,7 +242,10 @@ export function VID_Init( palette, gammaparm = null ) {
 		vid.conheight = vid.height;
 		vid.recalc_refdef = 1;
 
+		// Re-read devicePixelRatio: browser zoom and moving the window to a
+		// screen with another DPI change it and fire 'resize'.
 		renderer.setSize( canvas.width, canvas.height );
+		renderer.setPixelRatio( window.devicePixelRatio * vid_renderscale );
 
 	} );
 

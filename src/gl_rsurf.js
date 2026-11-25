@@ -395,7 +395,7 @@ const _cullBoxMaxs = new Float32Array( 3 ); // for R_CullBox in R_RecursiveWorld
 // Water/sky mesh tracking: Set-based approach to add/remove from scene
 // without creating/disposing meshes every frame
 let _waterMeshesInScene = new Set();
-let _waterMeshesThisFrame = new Set();
+const _waterMeshesThisFrame = new Set();
 
 // Surfaces holding a cached water or sky geometry (EmitWaterPolysQuake,
 // EmitSkyPolysQuake). The renderer keeps a geometry's GL buffers until
@@ -601,7 +601,9 @@ function _getWaterMaterial( t, opacity ) {
 		material = new THREE.MeshBasicMaterial( {
 			map: ( t && t.gl_texture ) ? t.gl_texture : null,
 			color: ( t && t.gl_texture ) ? 0xffffff : 0x406080,
-			transparent: true,
+			// GLQuake R_DrawWaterSurfaces enables GL_BLEND only when
+			// r_wateralpha < 1, so the opaque bucket draws without blending.
+			transparent: opKey === 0,
 			opacity: opacity,
 			side: THREE.DoubleSide
 		} );
@@ -2041,7 +2043,7 @@ export function R_DrawWorld() {
 	}
 
 	// Begin new water/sky frame: clear "this frame" set
-	_waterMeshesThisFrame = new Set();
+	_waterMeshesThisFrame.clear();
 
 	// Remove brush entity groups from scene (don't dispose - they're cached on entities)
 	for ( let i = 0; i < brushEntityGroups.length; i ++ ) {
@@ -2865,6 +2867,9 @@ export const lightmapTextures = []; // THREE.DataTexture array
 // added as a separate instance. Visibility is toggled via setVisibleAt().
 //============================================================================
 
+// Batch key for each texture_t, assigned on first use (was Math.random())
+let _batchBuildId = 0;
+
 function R_BuildWorldMeshes() {
 
 	const cl_ref = cl;
@@ -3045,7 +3050,7 @@ export function R_CollectWorldBatchGroups( worldmodel, surfaceToLeaves ) {
 		const isMirrorTexture = R_IsMirrorTexture( t );
 
 		const lmNum = surf.lightmaptexturenum;
-		const texKey = ( t._buildId || ( t._buildId = Math.random() ) ) + '_' + lmNum +
+		const texKey = ( t._buildId || ( t._buildId = ++ _batchBuildId ) ) + '_' + lmNum +
 			( underwater ? '_underwater' : '' );
 
 		if ( ! batchGroups.has( texKey ) ) {
@@ -3213,7 +3218,7 @@ export function GL_BuildLightmaps() {
 	}
 
 	_waterMeshesInScene = new Set();
-	_waterMeshesThisFrame = new Set();
+	_waterMeshesThisFrame.clear();
 	R_DisposeTurbSkyGeometry();
 	for ( const mat of _waterMaterialCache.values() ) mat.dispose();
 	_waterMaterialCache.clear();
