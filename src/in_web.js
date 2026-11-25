@@ -193,7 +193,9 @@ function requestPointerLock() {
 
 	if ( in_rawmouse.value !== 0 && rawMouseUnsupported === false ) {
 
-		requestRawPointerLock();
+		// A click while a raw request is unsettled waits for it: a second
+		// request couldn't tell whose pointerlockerror is whose
+		if ( rawMouseRequest === null ) requestRawPointerLock();
 		return;
 
 	}
@@ -229,7 +231,8 @@ function requestRawPointerLock() {
 
 	if ( result == null || typeof result.then !== 'function' ) return;
 
-	// A later click supersedes this request; IN_Init and IN_Shutdown drop it
+	// IN_Init and IN_Shutdown drop it. Assumes, as Chrome does, that every
+	// rejection also fires one pointerlockerror.
 	const request = { errorSeen: false };
 	rawMouseRequest = request;
 	result.then( () => {

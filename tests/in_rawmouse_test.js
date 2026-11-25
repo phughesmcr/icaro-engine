@@ -312,3 +312,24 @@ Deno.test( 'a raw request settling after IN_Shutdown is ignored', async () => {
 	assertEqual( after, 0, 'no retry after shutdown' );
 
 } );
+
+Deno.test( 'a click while a raw request is unsettled makes no second request', async () => {
+
+	let reject = null;
+	await withFakeDom( () => new Promise( ( _resolve, r ) => { reject = r; } ), async ( dom ) => {
+
+		cvar.Cvar_Set( 'in_rawmouse', '1' );
+		click( dom );
+		click( dom );
+		assertEqual( dom.requests.join( ',' ), RAW, 'one request while pending' );
+
+		reject( new DOMException( 'refused', 'NotAllowedError' ) );
+		await flush();
+		dom.doc.fire( 'pointerlockerror', {} );
+		click( dom );
+		assertEqual( dom.requests.join( ',' ), RAW + ',' + RAW, 'settled: the next click asks again' );
+		assertEqual( dom.fullscreen(), 0, 'the refusal counted once' );
+
+	} );
+
+} );
