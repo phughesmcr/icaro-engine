@@ -279,7 +279,13 @@ export class msurface_t {
 		this.firstedge = 0;		// look up in model->surfedges[], negative numbers
 		this.numedges = 0;		// are backwards edges
 
-		this.texturemins = new Int16Array( 2 );
+		// Deliberate deviation (Ironwail, gl_model.h): texturemins is
+		// `int`, not id's `short`. Large BSP2 maps (the rerelease's mg3
+		// map7) have texture-space minimums beyond +-32768, which wrap in
+		// 16 bits and move the lightmap origin. BSP29 values fit in a
+		// short either way. extents stays `short`, as in Ironwail: it is
+		// at most MAX_SURFACE_EXTENTS, or 16384 on turbulent surfaces.
+		this.texturemins = new Int32Array( 2 );
 		this.extents = new Int16Array( 2 );
 
 		this.light_s = 0;
