@@ -1,9 +1,10 @@
 // Ported from: WinQuake/sbar.c, WinQuake/sbar.h -- status bar / HUD code
 
 import { Cmd_AddCommand } from './cmd.js';
-import { teamplay } from './host.js';
+import { teamplay, skill, realtime } from './host.js';
 import { Con_Printf } from './console.js';
-import { Draw_GetVirtualWidth, Draw_GetVirtualHeight, Draw_GetOverlayCanvas } from './gl_draw.js';
+import { Draw_GetVirtualWidth, Draw_GetVirtualHeight, Draw_GetOverlayCanvas, Draw_SetClipRect, Draw_ResetClipping } from './gl_draw.js';
+import { COM_SkipPath, COM_StripExtension } from './common.js';
 import { scr_sbaralpha } from './gl_screen.js';
 import {
 	IT_SHOTGUN,
@@ -120,7 +121,6 @@ let _Draw_PicFromWad = null;
 let _Draw_CachePic = null;
 let _hipnotic = false;
 let _rogue = false;
-// realtime is imported live from host.js via the 'realtime' binding
 
 export function Sbar_SetExternals( externals ) {
 
@@ -841,33 +841,146 @@ function Sbar_ColorForMap( m ) {
 
 /*
 ===============
-Sbar_SoloScoreboard
+Sbar_DrawScrollString -- johnfitz
+
+scroll the string inside a glscissor region
 ===============
 */
-function Sbar_SoloScoreboard() {
+function Sbar_DrawScrollString( x, y, width, str ) {
 
-	// Monsters
-	const monstersStr = 'Monsters:' + String( _cl.stats[ STAT_MONSTERS ] ).padStart( 3, ' ' ) + ' /' +
-		String( _cl.stats[ STAT_TOTALMONSTERS ] ).padStart( 3, ' ' );
-	Sbar_DrawString( 8, 4, monstersStr );
+	// Sbar_DrawString centres the 320-wide bar outside deathmatch; clip the same way
+	const xofs = _cl.gametype === GAME_DEATHMATCH ? 0 : ( _vid.width - 320 ) >> 1;
+	Draw_SetClipRect( x + xofs, 0, width, _vid.height );
 
-	// Secrets
-	const secretsStr = 'Secrets :' + String( _cl.stats[ STAT_SECRETS ] ).padStart( 3, ' ' ) + ' /' +
-		String( _cl.stats[ STAT_TOTALSECRETS ] ).padStart( 3, ' ' );
-	Sbar_DrawString( 8, 12, secretsStr );
+	const len = str.length * 8 + 40;
+	const ofs = Math.floor( realtime * 30 ) % len;
+	Sbar_DrawString( x - ofs, y, str );
+	// Ironwail draws three '/' with Sbar_DrawCharacter, which has no +4 there;
+	// the port's keeps id's +4, so draw them as a string to line up
+	Sbar_DrawString( x - ofs + len - 32, y, '///' );
+	Sbar_DrawString( x - ofs + len, y, str );
 
-	// Time
-	const minutes = Math.floor( _cl.time / 60 );
-	const seconds = Math.floor( _cl.time ) - 60 * minutes;
-	const tens = Math.floor( seconds / 10 );
-	const units = seconds - 10 * tens;
-	const timeStr = 'Time :' + String( minutes ).padStart( 3, ' ' ) + ':' + tens + units;
-	Sbar_DrawString( 184, 4, timeStr );
+	Draw_ResetClipping();
 
-	// Level name
-	const levelname = _cl.levelname || '';
-	const l = levelname.length;
-	Sbar_DrawString( 232 - l * 4, 12, levelname );
+}
+
+/*
+=================
+Sbar_SanitizeMapDescription
+
+Mirrors Ironwail Mod_SanitizeMapDescription (gl_model.c): removes colors,
+replaces newlines (and a literal backslash-n) with spaces, collapses runs of
+spaces and trims both ends.
+=================
+*/
+function Sbar_SanitizeMapDescription( src ) {
+
+	let dst = '';
+	for ( let i = 0; i < src.length; i ++ ) {
+
+		let c = src.charCodeAt( i ) & 0x7f; // remove color
+		if ( c === 10 || c === 13 ) // replace newlines with spaces
+			c = 32;
+		else if ( c === 92 && src.charCodeAt( i + 1 ) === 110 ) { // replace '\\' followed by 'n' with space
+
+			c = 32;
+			i ++;
+
+		}
+
+		// remove leading spaces, replace consecutive spaces with single one
+		if ( c !== 32 || ( dst.length > 0 && dst.charCodeAt( dst.length - 1 ) !== c ) )
+			dst += String.fromCharCode( c );
+
+	}
+
+	// remove trailing space, if any
+	if ( dst.length > 0 && dst.charCodeAt( dst.length - 1 ) === 32 )
+		dst = dst.substring( 0, dst.length - 1 );
+
+	return dst;
+
+}
+
+// Sbar_SoloScoreboard strings, rebuilt only when what they show changes
+// (Golden Rule #4: the scoreboard is drawn every frame while it is up)
+let solo_monsters = - 1;
+let solo_totalmonsters = - 1;
+let solo_kills = '';
+let solo_secrets = - 1;
+let solo_totalsecrets = - 1;
+let solo_secretsstr = '';
+let solo_skill = - 1;
+let solo_skillstr = '';
+let solo_levelname = null;
+let solo_worldmodel = null;
+let solo_title = '';
+
+/*
+===============
+Sbar_SoloScoreboard -- johnfitz -- new layout
+
+Deviation: id's layout (Monsters, Secrets, Time and the level name) is
+replaced by Ironwail's: kills and secrets either side, the skill between
+them, and "level name (mapname)" above, scrolling when wider than the bar.
+The Time field is gone, as in QuakeSpasm and Ironwail; scr_clock shows it.
+===============
+*/
+export function Sbar_SoloScoreboard() {
+
+	if ( _cl.stats[ STAT_MONSTERS ] !== solo_monsters || _cl.stats[ STAT_TOTALMONSTERS ] !== solo_totalmonsters ) {
+
+		solo_monsters = _cl.stats[ STAT_MONSTERS ];
+		solo_totalmonsters = _cl.stats[ STAT_TOTALMONSTERS ];
+		solo_kills = 'Kills: ' + solo_monsters + '/' + solo_totalmonsters;
+
+	}
+
+	const left = 8 + solo_kills.length * 8;
+	Sbar_DrawString( 8, 12, solo_kills );
+
+	if ( _cl.stats[ STAT_SECRETS ] !== solo_secrets || _cl.stats[ STAT_TOTALSECRETS ] !== solo_totalsecrets ) {
+
+		solo_secrets = _cl.stats[ STAT_SECRETS ];
+		solo_totalsecrets = _cl.stats[ STAT_TOTALSECRETS ];
+		solo_secretsstr = 'Secrets: ' + solo_secrets + '/' + solo_totalsecrets;
+
+	}
+
+	const right = 312 - solo_secretsstr.length * 8;
+	Sbar_DrawString( right, 12, solo_secretsstr );
+
+	/* QuakeSpasm customization: */
+	const sk = Math.trunc( skill.value + 0.5 );
+	if ( sk !== solo_skill ) {
+
+		solo_skill = sk;
+		solo_skillstr = 'skill ' + sk;
+
+	}
+
+	Sbar_DrawString( ( ( left + right ) >> 1 ) - solo_skillstr.length * 4, 12, solo_skillstr );
+
+	// cl.mapname (Ironwail CL_ParseServerInfo) isn't kept by the port's client
+	// state; derive it from the world model's name the same way
+	const worldmodel = _cl.worldmodel !== undefined ? _cl.worldmodel : null;
+	if ( _cl.levelname !== solo_levelname || worldmodel !== solo_worldmodel ) {
+
+		solo_levelname = _cl.levelname;
+		solo_worldmodel = worldmodel;
+		const mapname = worldmodel !== null ? COM_StripExtension( COM_SkipPath( worldmodel.name ) ) : '';
+		if ( solo_levelname.length > 0 )
+			solo_title = Sbar_SanitizeMapDescription( solo_levelname ) + ' (' + mapname + ')';
+		else
+			solo_title = mapname;
+
+	}
+
+	const len = solo_title.length;
+	if ( len > 40 )
+		Sbar_DrawScrollString( 0, 4, 320, solo_title );
+	else
+		Sbar_DrawString( 160 - len * 4, 4, solo_title );
 
 }
 
