@@ -37,8 +37,16 @@ process per room. It was forked from mrdoob's three-quake.
 - `docs/cloudflare-multiplayer.md`: research notes on hosting multiplayer
   behind Cloudflare. Checked against `dev` when written; Cloudflare facts
   can change.
+- `docs/always-on-hosting.md`: hosting multiplayer without the home Mac
+  (Containers, Durable Objects, VMs), with room memory/CPU/bandwidth
+  measurements and the plan. Supersedes the recommendation in
+  `cloudflare-multiplayer.md`. A snapshot.
 - `tools/`: `port_inventory.py` regenerates that inventory's raw tables
   (Python, standard library only; not linted or run in CI).
+  `room_bench.js` (with `room_bench_preload.js`) load-tests one room with
+  headless WebSocket bots, and `room_memory_probe.js` measures a room's
+  memory by init stage; their headers give the commands. Not linted or run
+  in CI.
 
 ## Commands
 

@@ -31,7 +31,14 @@ Cloudflare. The game has two transports, and each has a route:
    unreliable datagrams (TCP head-of-line blocking). WebRTC with Cloudflare
    TURN would keep them, but that is still unbuilt porting work.
 
-**Recommendation:** the Tunnel route is free, needs no router ports and
+> **Superseded for always-on hosting.** The recommendation below needs the
+> home Mac on and connected. For hosting that doesn't, see
+> [always-on-hosting.md](always-on-hosting.md): rooms in Cloudflare
+> Containers with a Worker lobby, or a small VM. It also measures a room's
+> memory, CPU and bandwidth, which settles several items in "Not verified"
+> below.
+
+**Recommendation (home Mac):** the Tunnel route is free, needs no router ports and
 doesn't expose the home IP, and it works in every browser, so it is the
 simplest default. Add the hybrid (option 5) for players who have WebTransport if stalls
 under packet loss turn out to matter. Cloudflare Containers is the paid,
@@ -86,7 +93,9 @@ Spectrum and the Realtime SFU are poor fits; see below.
   - Prediction (`pmove`, `cl_pred.js`) hides latency, but loss on a reliable
     ordered transport (TCP/WebSocket) stalls everything behind the lost
     packet (head-of-line blocking).
-  - Bandwidth is small: roughly tens of KB/s per room [unverified estimate].
+  - Bandwidth is small: 1.3–7 KB/s down and 2.2 KB/s up per player, up to
+    about 116 KB/s for a 16-player room (measured; see
+    [always-on-hosting.md](always-on-hosting.md#measurements)).
 - **Engine structure:** `src/net_main.js` keeps the NetQuake driver table
   (`net_drivers`: loopback, WebTransport and WebSocket), as in C
   (`net_dgrm`/`net_loop`). A WebRTC transport would be one more driver.
@@ -427,19 +436,27 @@ would still need the lobby reworked (see 3b and 5b).
    - Run `deno task lobby` with that cert, and play via `?server=https://mp.anglezarke.games:4433`.
    - Test on desktop, then from a phone on mobile data (outside the LAN).
    - Then test from a device on the home LAN, to check hairpin NAT.
-3. **Move to Containers** later if you want the game off the Mac.
+3. **Move to Containers** to get the game off the Mac: the plan is in
+   [always-on-hosting.md](always-on-hosting.md).
 
 ## Not verified
 
 - Whether Tunnel *public hostnames* carry WebSockets. The Tunnel FAQ says
   Tunnel supports them, but doesn't name public hostnames.
-- Whether the Containers proxy bills each WebSocket message as a DO request.
+- Whether the Containers proxy bills each WebSocket message as a DO request
+  (still open; see [always-on-hosting.md](always-on-hosting.md)).
 - QUIC passthrough on Spectrum UDP, and Spectrum pricing.
-- Whether the Free plan's 10 ms CPU limit applies to Durable Objects.
-- Memory use of one room (pak plus engine) against the 128 MB DO limit.
-- Container placement and cold-start latency, and room memory needs.
+- Whether the Free plan's 10 ms CPU limit applies to Durable Objects (still
+  not documented).
+- Container placement and cold-start latency for this image (the docs say
+  cold starts are often 1–3 s).
+- Settled in always-on-hosting.md: one room's memory (about 97 MB of heap and
+  buffers after GC, about 195 MB RSS idle and up to 425 MB with 16
+  players), which rules out a DO per room, and room
+  memory needs for a container.
 - Deno WebRTC library viability.
 - Firefox for Android WebTransport support, and how often UDP is blocked on
   the networks players use.
 - The router's hairpin NAT and CGNAT status.
-- Actual bandwidth per room and the latency added by the Tunnel detour.
+- The latency added by the Tunnel detour. Bandwidth per room is now
+  measured in always-on-hosting.md.
