@@ -3,6 +3,7 @@
 import { Con_Printf, SZ_Alloc, SZ_Clear, SZ_Write, SZ_Print, com_token, COM_Parse, MSG_WriteByte, com_argc, com_argv } from './common.js';
 import { Cvar_Command, Cvar_VariableString, Cvar_Init, cvar_vars } from './cvar.js';
 import { COM_LoadFileAsString } from './pak.js';
+import { default_cfg } from './default_cfg.js';
 import { clc_stringcmd } from './protocol.js';
 
 /*
@@ -485,7 +486,11 @@ function Cmd_Exec_f() {
 
 	}
 
-	const f = COM_LoadFileAsString( Cmd_Argv( 1 ) );
+	let f = COM_LoadFileAsString( Cmd_Argv( 1 ) );
+	// Ironwail: the 2021 re-release's id1/pak0.pak has no default.cfg, so run
+	// the embedded QuakeSpasm one instead (default_cfg.js)
+	if ( f === null && Cmd_Argv( 1 ) === 'default.cfg' )
+		f = default_cfg;
 	if ( f === null ) {
 
 		Con_Printf( 'couldn\'t exec ' + Cmd_Argv( 1 ) + '\n' );

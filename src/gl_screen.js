@@ -58,6 +58,10 @@ export const scr_conscale = { name: 'scr_conscale', string: '0', value: 0, archi
 // in deathmatch. Deviation: QuakeSpasm and Ironwail default to 1; the default
 // here is 0, which keeps id's behaviour.
 export const con_logcenterprint = { name: 'con_logcenterprint', string: '0', value: 0 }; //johnfitz
+// 2021 re-release (Ironwail gl_screen.c); its quake.rc sets it to 1. In
+// Ironwail it word-wraps centerprints; that wrap is not ported, so nothing
+// reads it here yet.
+const scr_usekfont = { name: 'scr_usekfont', string: '0', value: 0 };
 
 export let scr_initialized = false;
 
@@ -533,6 +537,7 @@ export function SCR_Init() {
 	Cvar_RegisterVariable( scr_sbaralpha );
 	Cvar_RegisterVariable( scr_sbarscale );
 	Cvar_RegisterVariable( scr_conscale );
+	Cvar_RegisterVariable( scr_usekfont ); // 2021 re-release
 	R_WaterWarp_Init();
 
 	//

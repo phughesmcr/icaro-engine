@@ -104,6 +104,12 @@ const pausable = new cvar_t( 'pausable', '1' );
 
 const temp1 = new cvar_t( 'temp1', '0' );
 
+// for the 2021 re-release (Ironwail host.c): its StartFrame writes campaign
+// every frame, mg1 reads horde, and every progs reads sv_cheats
+export const campaign = new cvar_t( 'campaign', '0' );
+export const horde = new cvar_t( 'horde', '0' );
+export const sv_cheats = new cvar_t( 'sv_cheats', '0' );
+
 // In C host_frametime is one global shared with sv_phys.c; sv_phys.js keeps
 // its own copy, so keep both in step (SV_SpawnServer's settle frames need 0.1).
 export function set_host_frametime( v ) {
@@ -232,6 +238,10 @@ function Host_InitLocal() {
 	Cvar_RegisterVariable( pausable );
 
 	Cvar_RegisterVariable( temp1 );
+
+	Cvar_RegisterVariable( campaign );
+	Cvar_RegisterVariable( horde );
+	Cvar_RegisterVariable( sv_cheats );
 
 	Host_FindMaxClients();
 
