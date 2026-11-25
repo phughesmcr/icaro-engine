@@ -466,6 +466,10 @@ const mirrorItems = [];
 // All BatchedMesh objects for the world (one per texture/lightmap combo)
 const worldBatchedMeshes = [];
 
+// Visible instances per world batch (indexed like worldBatchedMeshes),
+// sized per map by R_BuildWorldMeshes and refilled by R_UpdateWorldVisibility
+let _worldBatchVisibleCount = new Uint32Array( 0 );
+
 // Animated materials within the cached world batches.
 const worldAnimatedMeshes = [];
 
@@ -3188,6 +3192,7 @@ function R_BuildWorldMeshes() {
 			// Surface is visible if ANY of its leaves is visible
 			instanceVisInfo.push( {
 				batch: batchedMesh,
+				batchIndex: worldBatchedMeshes.length,
 				instanceId: instanceId,
 				leaves: surfData.leaves
 			} );
@@ -3215,6 +3220,9 @@ function R_BuildWorldMeshes() {
 			worldAnimatedMeshes.push( { mesh: batchedMesh, baseTexture: t } );
 
 	}
+
+	// Batches stay visible until R_UpdateWorldVisibility first runs for this map
+	_worldBatchVisibleCount = new Uint32Array( worldBatchedMeshes.length );
 
 }
 
@@ -3320,6 +3328,8 @@ every frame for every batch while either is on, and re-upload the batch's
 indirect texture. The world is static and the PVS (setVisibleAt) already picks
 the surfaces, so with both off BatchedMesh does that work only when visibility
 changes. In E1M1 this halved the frame time of a busy view (GPU included).
+A batch with no instance in the PVS is hidden whole by
+R_SetWorldBatchVisibility.
 C culls BSP nodes, not single surfaces, against the frustum (R_CullBox in
 R_RecursiveWorldNode); the whole-batch bounding-sphere test stays on.
 
@@ -3371,7 +3381,8 @@ function R_UpdateWorldTextureAnimations() {
 //
 // Called each frame after R_MarkLeaves. Uses BatchedMesh.setVisibleAt() to
 // toggle visibility. A surface is visible if ANY of its containing leaves
-// is in the PVS (has visframe === r_visframecount).
+// is in the PVS (has visframe === r_visframecount). A batch with no visible
+// instance is hidden whole (R_SetWorldBatchVisibility).
 //============================================================================
 
 function R_UpdateWorldVisibility() {
@@ -3379,16 +3390,34 @@ function R_UpdateWorldVisibility() {
 	// Skip update if viewleaf hasn't changed (PVS is the same)
 	if ( ! _visibilityNeedsUpdate ) return;
 
-	for ( let i = 0; i < instanceVisInfo.length; i ++ ) {
+	R_SetWorldBatchVisibility( instanceVisInfo, worldBatchedMeshes, _worldBatchVisibleCount, r_visframecount );
 
-		const info = instanceVisInfo[ i ];
+}
+
+/*
+The body of R_UpdateWorldVisibility, which has no C counterpart: GLQuake walks
+the BSP and draws only the surfaces it reaches, so it has nothing to hide.
+
+Sets each world instance visible when any of its leaves has visframe ===
+visframecount, then hides every batch with no visible instance. Three.js
+still binds the program, uniforms and textures for a visible BatchedMesh
+whose instances are all hidden; on big maps most batches are empty, and
+that cost several milliseconds a frame. counts holds one slot per batch.
+*/
+export function R_SetWorldBatchVisibility( visInfo, batches, counts, visframecount ) {
+
+	counts.fill( 0 );
+
+	for ( let i = 0; i < visInfo.length; i ++ ) {
+
+		const info = visInfo[ i ];
 		const leaves = info.leaves;
 
 		// Surface is visible if ANY of its leaves is visible
 		let visible = false;
 		for ( let j = 0; j < leaves.length; j ++ ) {
 
-			if ( leaves[ j ].visframe === r_visframecount ) {
+			if ( leaves[ j ].visframe === visframecount ) {
 
 				visible = true;
 				break;
@@ -3398,8 +3427,12 @@ function R_UpdateWorldVisibility() {
 		}
 
 		info.batch.setVisibleAt( info.instanceId, visible );
+		if ( visible ) counts[ info.batchIndex ] ++;
 
 	}
+
+	for ( let i = 0; i < batches.length; i ++ )
+		batches[ i ].visible = counts[ i ] > 0;
 
 }
 
