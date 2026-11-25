@@ -6,7 +6,7 @@
 // which passes scoped --allow-net/--allow-read flags.
 
 import { Sys_Printf, Sys_FloatTime } from '../src/sys.js';
-import { COM_AddPakSequence, COM_AddGameDirectory, COM_SetLooseFileBasePath, COM_EnsureFile } from '../src/pak.js';
+import { COM_AddPakSequence, COM_AddGameDirectory, COM_SetLooseFileBasePaths, COM_EnsureFile } from '../src/pak.js';
 import { COM_InitArgv, rogue, hipnotic } from '../src/common.js';
 import { Cbuf_Init, Cbuf_Execute, Cmd_Init } from '../src/cmd.js';
 import { Host_InitCommands } from '../src/host_cmd.js';
@@ -58,7 +58,8 @@ export function createConfig() {
 		idleTimeout: 300,    // Seconds to wait before exiting when empty (room mode)
 		statusNonce: null,   // Token for structured status lines to the lobby (room mode)
 		parentWatch: false,  // Exit when stdin closes (the lobby holds the other end)
-		gameFlags: [],       // -rogue and/or -hipnotic: load <pak dir>/rogue or hipnotic too
+		gameFlags: [],       // -rogue and/or -hipnotic: load <basedir>/rogue or hipnotic too
+		gameDir: null,       // -game <dir>: load <basedir>/<dir> too (e.g. the rerelease's mg1)
 	};
 }
 const CONFIG = createConfig();
@@ -103,23 +104,53 @@ export function parseArgs(args = Deno.args, config = CONFIG) {
 			config.parentWatch = true;
 		} else if (arg === '-rogue' || arg === '-hipnotic') {
 			config.gameFlags.push(arg);
+		} else if (arg === '-game' && args[i + 1]) {
+			const dir = args[++i];
+			if (isGameDirName(dir)) config.gameDir = dir;
 		}
 	}
 	return config;
 }
 
 /**
- * common.c COM_InitFilesystem: <basedir>/rogue, then <basedir>/hipnotic, after
- * id1. basedir is the directory holding the -pak file; either separator is
- * accepted so a Windows-style path works too.
+ * A -game directory name: one path component, no '..' (common.c takes any).
  */
-export function gameDirectories(pakPath, isRogue, isHipnotic) {
-	const cut = Math.max(pakPath.lastIndexOf('/'), pakPath.lastIndexOf('\\'));
-	const basedir = cut >= 0 ? pakPath.slice(0, cut) : '.';
+export function isGameDirName(dir) {
+	return /^[A-Za-z0-9_-]+$/.test(dir);
+}
+
+/**
+ * common.c COM_InitFilesystem: <basedir>/rogue, then <basedir>/hipnotic, then
+ * <basedir>/<-game dir>, after id1. When the -pak file is in a directory named
+ * id1 (as in C, and the rerelease's rerelease/id1/pak0.pak), basedir is its
+ * parent; otherwise it is the directory holding the -pak file, as for this
+ * port's static/pak0.pak. Either separator is accepted so a Windows-style
+ * path works too.
+ */
+export function gameDirectories(pakPath, isRogue, isHipnotic, gameDir = null) {
+	const basedir = gameBaseDirectory(pakPath);
 	const dirs = [];
 	if (isRogue) dirs.push(basedir + '/rogue');
 	if (isHipnotic) dirs.push(basedir + '/hipnotic');
+	if (gameDir !== null) dirs.push(basedir + '/' + gameDir);
 	return dirs;
+}
+
+/**
+ * The basedir that gameDirectories resolves game directories in.
+ */
+export function gameBaseDirectory(pakPath) {
+	const dir = pakDirectory(pakPath);
+	const name = dir.slice(Math.max(dir.lastIndexOf('/'), dir.lastIndexOf('\\')) + 1);
+	return name.toLowerCase() === 'id1' ? pakDirectory(dir) : dir;
+}
+
+/**
+ * The directory holding path (a file), or '.'.
+ */
+function pakDirectory(path) {
+	const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+	return cut >= 0 ? path.slice(0, cut) : '.';
 }
 
 // Globals for game loop
@@ -302,14 +333,20 @@ async function Host_Init_Server() {
 		throw new Error('Failed to load ' + CONFIG.pakPath);
 	}
 
-	for (const dir of gameDirectories(CONFIG.pakPath, rogue, hipnotic)) {
+	const gameDirs = gameDirectories(CONFIG.pakPath, rogue, hipnotic, CONFIG.gameDir);
+	for (const dir of gameDirs) {
 		if (await COM_AddGameDirectory(dir) === 0) {
 			throw new Error('-' + dir.slice(dir.lastIndexOf('/') + 1) + ' needs ' + dir + '/pak0.pak');
 		}
 	}
 
-	// Set base path for on-demand loose file loading (custom maps not in PAK)
-	COM_SetLooseFileBasePath(decodeURIComponent(new URL('../static/', import.meta.url).pathname));
+	// Base paths for on-demand loose file loading (custom maps not in PAK):
+	// the game directories, then id1's when it is not static/ itself, then static/
+	COM_SetLooseFileBasePaths([
+		...gameDirs.reverse().map((dir) => dir + '/'),
+		...(gameBaseDirectory(CONFIG.pakPath) !== pakDirectory(CONFIG.pakPath) ? [pakDirectory(CONFIG.pakPath) + '/'] : []),
+		decodeURIComponent(new URL('../static/', import.meta.url).pathname),
+	]);
 
 	// Start listening for connections
 	// WT_Listen resolves false when the listener can't bind or load its cert.

@@ -290,14 +290,14 @@ own fix PR.
 ## Command-line parms
 
 C's `COM_CheckParm` arguments that JS never checks. The browser builds
-`com_argv` from the URL (`main.js:30-47`: `?game=` → `-rogue`/`-hipnotic`).
+`com_argv` from the URL (`main.js`: `?game=` → `-rogue`/`-hipnotic`/`-game <dir>`; `?base=rerelease` sets the basedir).
 The room server builds it from its own flags (`server/game_server.js:200`).
 
 | Parm | C | Verdict |
 |---|---|---|
 | `-particles` | `r_part.c` | (b) G10 |
 | `-conwidth`, `-conheight` | `gl_vidnt.c` | (b) G6 |
-| `-game`, `-basedir`, `-path`, `-cachedir`, `-proghack` | `common.c` | (a) no filesystem; `?game=` covers the mission packs |
+| `-game`, `-basedir`, `-path`, `-cachedir`, `-proghack` | `common.c` | (a) no filesystem; `?game=` covers the mission packs and the rerelease add-ons (`-game`), `?base=rerelease` the rerelease basedir |
 | `-dedicated` | `host.c`, `sys_win.c` | (a) `game_server.js` is always dedicated, the browser never |
 | `-condebug` | `console.c` | (a) no log file in the browser |
 | `-nosound`, `-simsound` | `snd_dma.c` | (a) the `nosound` cvar replaces the parm |

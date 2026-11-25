@@ -57,7 +57,8 @@ const pendingFetches = new Map();
 // Base path for on-demand loose file fetching
 // Browser: 'static/' (relative URLs like 'static/maps/foo.bsp')
 // Deno: '/opt/icaro-engine/static/' (absolute filesystem path)
-let looseFileBasePath = 'static/';
+// (several with COM_SetLooseFileBasePaths: game directory first)
+let looseFileBasePaths = [ 'static/' ];
 
 /*
 =================
@@ -156,9 +157,8 @@ COM_AddGameDirectory
 
 Adds pak0.pak, pak1.pak... from dir (a URL or path, without a trailing
 slash), searched before everything added so far, as common.c does for
-<basedir>/rogue or hipnotic. Unlike C, loose files are not looked up in
-dir: COM_EnsureFile still fetches them from the static/ base path only.
-Returns the number of paks added.
+<basedir>/rogue or hipnotic. Loose files in dir are looked up only if the
+caller also passes dir to COM_SetLooseFileBasePaths. Returns the number of paks added.
 =================
 */
 export function COM_AddGameDirectory( dir, onProgress ) {
@@ -326,7 +326,23 @@ Deno: '/opt/icaro-engine/static/' (absolute filesystem path)
 */
 export function COM_SetLooseFileBasePath( basePath ) {
 
-	looseFileBasePath = basePath;
+	looseFileBasePaths = [ basePath ];
+
+}
+
+/*
+=================
+COM_SetLooseFileBasePaths
+
+Like COM_SetLooseFileBasePath, for several directories searched in order,
+as common.c COM_FindFile searches each game directory's loose files: the
+game directory (e.g. 'static/rerelease/mg1/') before id1's. Each path ends
+in '/'.
+=================
+*/
+export function COM_SetLooseFileBasePaths( basePaths ) {
+
+	looseFileBasePaths = basePaths.slice();
 
 }
 
@@ -385,10 +401,14 @@ export async function COM_EnsureFile( filename ) {
 
 	}
 
-	// Construct URL from base path + filename
-	const url = looseFileBasePath + filename;
+	// Construct URL from each base path + filename
+	for ( const basePath of looseFileBasePaths ) {
 
-	return await COM_PreloadLooseFile( filename, url );
+		if ( await COM_PreloadLooseFile( filename, basePath + filename ) ) return true;
+
+	}
+
+	return false;
 
 }
 
@@ -555,6 +575,10 @@ the shareware and registered id1 paks, still load whole.
 */
 export const COM_LAZY_PAK_SIZE = 64 * 1024 * 1024;
 let com_lazypaksize = COM_LAZY_PAK_SIZE;
+
+// Set by COM_FetchPak when it returned null because the file does not exist
+// (rather than not being a pak), so COM_AddPakSequence tries the upper-case name
+let com_fetchmissing = false;
 
 // Coalesce eager entries closer together than this into one Range request
 const RANGE_GAP = 256 * 1024;
@@ -752,6 +776,8 @@ missing pakN.pak.
 */
 export async function COM_FetchPak( url, filename, onProgress, optional = false ) {
 
+	com_fetchmissing = false;
+
 	if ( ! optional ) Sys_Printf( 'Fetching ' + url + '...\\n' );
 
 	if ( typeof Deno !== 'undefined' && ! /^https?:/.test( url ) ) {
@@ -783,6 +809,7 @@ export async function COM_FetchPak( url, filename, onProgress, optional = false 
 
 		} catch ( e ) {
 
+			if ( e instanceof Deno.errors.NotFound ) com_fetchmissing = true;
 			if ( ! ( optional && e instanceof Deno.errors.NotFound ) )
 				Con_Printf( 'Failed to load ' + url + ': ' + e.message + '\\n' );
 			return null;
@@ -796,6 +823,7 @@ export async function COM_FetchPak( url, filename, onProgress, optional = false 
 	if ( ! response.ok ) {
 
 		// 416: an empty file, which has no byte 0
+		if ( response.status === 404 ) com_fetchmissing = true;
 		if ( ! ( optional && ( response.status === 404 || response.status === 416 ) ) )
 			Con_Printf( 'Failed to fetch ' + url + ': ' + response.statusText + '\\n' );
 		return null;
@@ -898,15 +926,16 @@ Loads pak0.pak, pak1.pak, ... from the directory of pak0Url and adds each
 one, stopping at the first missing file, as common.c COM_AddGameDirectory
 does. Later paks are searched first, so pak1 (registered) overrides pak0.
 pak0 is required; the rest are optional. Returns the number of paks added.
-Names are lower case: a PAK1.PAK copied from a Windows install must be
-renamed on case-sensitive file systems and web servers. A URL that does
-not end in lower-case pak0.pak is loaded on its own. onProgress runs from
+Each name is tried in lower case, then upper case (PAK1.PAK as copied from
+a Windows install), since web servers and most file systems other than
+macOS's are case-sensitive. A URL that does not end in pak0.pak (in either
+case) is loaded on its own. onProgress runs from
 0 to 1 for each pak in turn, since the total size is not known in advance.
 =================
 */
 export async function COM_AddPakSequence( pak0Url, onProgress ) {
 
-	const match = /^(.*?)pak0\.pak$/.exec( pak0Url );
+	const match = /^(.*?)pak0\.pak$/i.exec( pak0Url );
 	if ( match === null ) {
 
 		const pak = await COM_FetchPak( pak0Url, 'pak0.pak', onProgress );
@@ -921,7 +950,11 @@ export async function COM_AddPakSequence( pak0Url, onProgress ) {
 	for ( let i = 0; ; i ++ ) {
 
 		const name = 'pak' + i + '.pak';
-		const pak = await COM_FetchPak( dir + name, name, onProgress, i > 0 );
+		let pak = await COM_FetchPak( dir + name, name, onProgress, true );
+		if ( pak === null && com_fetchmissing === true )
+			pak = await COM_FetchPak( dir + name.toUpperCase(), name, onProgress, i > 0 );
+		else if ( pak === null && i === 0 )
+			Sys_Error( dir + name + ' is not a packfile' );
 		if ( pak === null ) break;
 		COM_AddPack( pak );
 		count ++;

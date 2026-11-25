@@ -2,7 +2,7 @@
 // Spawns and manages isolated Deno processes for each game room
 // This matches how original Quake handled multiple games: separate server processes
 
-import { dirname, resolve as resolvePath } from 'node:path';
+import { basename, dirname, resolve as resolvePath } from 'node:path';
 import { fileURLToPath as fromFileUrl } from 'node:url';
 import { Sys_Printf } from './sys_server.ts';
 
@@ -77,6 +77,7 @@ let keyFile = 'key.pem';
 let pakPath = '../static/pak0.pak';
 let denoPath = Deno.execPath();
 let gameFlags: string[] = []; // '-rogue' and/or '-hipnotic', passed to every room
+let gameDir: string | null = null; // -game <dir>, passed to every room
 
 /**
  * Configure paths for room servers
@@ -87,12 +88,14 @@ export function RoomManager_SetConfig( config: {
 	pakPath?: string;
 	denoPath?: string;
 	gameFlags?: string[];
+	gameDir?: string | null;
 } ): void {
 	if ( config.certFile != null ) certFile = config.certFile;
 	if ( config.keyFile != null ) keyFile = config.keyFile;
 	if ( config.pakPath != null ) pakPath = config.pakPath;
 	if ( config.denoPath != null ) denoPath = config.denoPath;
 	if ( config.gameFlags != null ) gameFlags = config.gameFlags.filter( ( f ) => f === '-rogue' || f === '-hipnotic' );
+	if ( config.gameDir !== undefined ) gameDir = config.gameDir !== null && /^[A-Za-z0-9_-]+$/.test( config.gameDir ) ? config.gameDir : null;
 }
 
 /*
@@ -381,8 +384,14 @@ export async function RoomManager_CreateRoom( config: {
 		const absPak = absolutePath( pakPath );
 		const absCert = absolutePath( certFile );
 		const absKey = absolutePath( keyFile );
-		// game_server.js loads the mission pack from <pak dir>/rogue or hipnotic
-		const gameDirs = gameFlags.map( ( f ) => dirname( absPak ) + '/' + f.slice( 1 ) );
+		// game_server.js gameDirectories loads <basedir>/rogue, hipnotic or the
+		// -game dir, where basedir is the pak's directory, or its parent when
+		// that directory is id1
+		const pakDir = dirname( absPak );
+		const basedir = basename( pakDir ).toLowerCase() === 'id1' ? dirname( pakDir ) : pakDir;
+		const gameNames = gameFlags.map( ( f ) => f.slice( 1 ) );
+		if ( gameDir !== null ) gameNames.push( gameDir );
+		const gameDirs = gameNames.map( ( name ) => basedir + '/' + name );
 		const readPaths = [ staticDir, absPak, absCert, absKey, ...gameDirs ];
 		if ( readPaths.some( ( p ) => p.includes( ',' ) ) ) {
 			throw new Error( 'paths passed to --allow-read must not contain commas' );
@@ -390,7 +399,8 @@ export async function RoomManager_CreateRoom( config: {
 
 		// Spawn dedicated server process for this room. Permissions are
 		// scoped to what the room needs: listen on its own UDP port, read
-		// the pak, the TLS files and loose files under static/.
+		// the pak, the TLS files, loose files under static/ and the game
+		// directories (in the pak's basedir, which may be outside static/).
 		const command = new Deno.Command( denoPath, {
 			args: [
 				'run',
@@ -409,6 +419,7 @@ export async function RoomManager_CreateRoom( config: {
 				'-statusnonce', nonce,
 				'-parentwatch', // Exit when our stdin closes (lobby died)
 				...gameFlags,
+				...( gameDir !== null ? [ '-game', gameDir ] : [] ),
 			],
 			stdin: 'piped',
 			stdout: 'piped',

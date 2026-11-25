@@ -17,6 +17,14 @@ This is WinQuake's `-hipnotic` / `-rogue`: the pack's paks load after id1's, so 
 Mission packs need the registered `static/pak1.pak`. For multiplayer, start the lobby (or `game_server.js`) with the same `-hipnotic` or `-rogue` flag.
 `.gitignore` excludes `static/hipnotic/` and `static/rogue/`.
 
+#### Quake (2021 rerelease)
+
+Copy the rerelease's `id1`, `hipnotic`, `rogue`, `mg1`, `mg3`, `dopa` and `ctf` folders to `static/rerelease/` and open the page with `?base=rerelease`. This is the C `-basedir`: id1's paks load from `static/rerelease/id1/`, and `?game=` directories from `static/rerelease/<game>/`.
+`?game=mg1`, `mg3`, `dopa` or `ctf` is the C `-game <dir>`: the folder's paks load after id1's (without `?base=rerelease`, from `static/<game>/`). Music plays from the game folder's `music/trackNN.ogg`, then id1's, and loose files such as custom maps are looked up the same way, then in `static/`.
+Pak names may be upper case (`PAK0.PAK`). The rerelease's paks are large, so they load lazily (see above); serve them with a Range-capable server.
+The rerelease's own progs, BSP2 maps and localisation are not supported yet, so this only loads the data. `.gitignore` excludes `static/rerelease/`, `static/id1/` and the add-on folders.
+For multiplayer, start the lobby (or `game_server.js`) with `-pak ../static/rerelease/id1/pak0.pak` and the same `-game` or mission-pack flag.
+
 ### Mobile
 
 On phones and tablets the game shows touch controls. Play in landscape.
