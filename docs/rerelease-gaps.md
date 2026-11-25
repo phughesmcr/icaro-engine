@@ -93,7 +93,7 @@ week or more.
 | 4d | Coordinate range | **done** (phase 4) | Fixed: under `PROTOCOL_ICARO` every coordinate is an int32 of eighths of a unit (`MSG_WriteCoord`, `src/common.js`), as Ironwail's `PRFL_INT32COORD`. `MSG_WriteCoord16` keeps the short form. Prediction needed no change: `pmove.js` still snaps to 1/8 unit. All 5 maps spawn and run headless; `mg1/mge4m2` reaches -5184. Before: `MSG_WriteCoord` (`src/common.js:423`) writes a short in eighths of a unit, ±4096. World bounds pass ±4096 on `id1/vault/jrwiz3`, `mg1/mge1m2`, `mge4m1` and `mge4m2` (±5183), and `mg3/secret1`. Ironwail uses `PROTOCOL_RMQ` with `PRFL_INT32COORD` or float coords (`Quake/protocol.h:31-37`, default `sv_protocol` 999). | – | – |
 | 5 | `.lit` coloured lighting | **done** (#137) | Fixed: `Mod_LoadLighting` (`src/gl_model.js`) ports Ironwail's loader (`Quake/gl_model.c:860-895`): it reads `maps/<name>.lit`, checks `QLIT`, version 1, the size and the search-path priority, and otherwise keeps the BSP's mono data, which stays one byte a sample (Ironwail expands it to RGB). `GL_BuildLightmaps` (`src/gl_rsurf.js`) switches to 4-byte RGBA blocks only when a loaded model has a `.lit`, and `R_BuildLightMap`, `R_AddDynamicLights` and the upload carry RGB. `R_LightPoint` (`src/gl_rlight.js`) fills `lightcolor` and returns its mean. `COM_EnsureFile` (`src/pak.js`) fetches the deferred `.lit` with its map. Checked on all six games' data: 127 `.lit` files, all QLIT version 1 (id1 42, mg1 25, mg3 20, dopa 13, hipnotic 18, ctf 9, rogue none). Alias models are tinted by `lightcolor`: `R_SetupAliasLighting` (`src/gl_rmain.js`) carries it through id's clamps as QuakeSpasm's `R_SetupAliasLighting` does, and `src/gl_mesh.js` shades each channel. | – | – |
 | 6a | Fog | **done** (#134) | Fixed: `src/gl_fog.js` ports Ironwail's `Quake/gl_fog.c`: `Fog_ParseWorldspawn` reads the worldspawn `fog` key (42 id1, 17 hipnotic and 9 ctf maps), and the `fog` command takes all its argument forms, timed fades included, so mg1, mg3 and dopa's `stuffcmd(…, "fog …")` (`quakec_mg1/fog.qc`) works. Their `fog_*` entity keys are QuakeC fields that feed those commands. Three.js draws it as `FogExp2`, set only while the fog is on. The sky gets Ironwail's flat `r_skyfog` mix (worldspawn `skyfog`, set by 35 mg1, mg3, dopa and ctf maps) instead of distance fog. `svc_fog` isn't needed: QuakeC uses `stuffcmd`. | – | – |
-| 6b | Skyboxes | **missing** | 15 mg1 and mg3 maps set `_sky` (for example `mge2m1/mge2m1_`), and their paks ship `gfx/env/*.tga` (mg1 66, mg3 78). Ironwail strips the leading `_` and loads the box (`Quake/gl_sky.c:557-600`). Here `pak.js` defers `.tga`, and there is no skybox renderer or TGA loader. | M | `src/gl_warp.js` or a new `src/gl_sky.js`, `src/pak.js`, an image loader |
+| 6b | Skyboxes | **done** (#144) | Fixed: `src/gl_sky.js` ports Ironwail's `Sky_LoadSkyBox` and the worldspawn parse (`Quake/gl_sky.c:557-600`): it strips the leading `_` from `_sky` (15 mg1 and mg3 maps, for example `mge2m1/mge2m1_`), also takes `skyname` and `qlsky`, and adds the `sky` command. The six `gfx/env/<name>{rt,bk,lf,ft,up,dn}.tga` faces (mg1 66, mg3 78, all square, 24-bit, uncompressed) are fetched with `COM_EnsureFile`, since `pak.js` defers `.tga`, and decoded by `src/image.js` (QuakeSpasm's `Image_LoadTGA`: types 1, 2, 3 and 10). The sky surfaces sample them as one cube map, as Ironwail's cubemap path does, with the `r_skyfog` mix; maps without the key keep the scrolling sky. Deviations are in `docs/port-review.md` section 7. | – | – |
 | 6c | Entity `alpha` | **done** (phase 4, brush models only) | Fixed: `ED_ParseEdict` reads the `alpha` key with `ENTALPHA_ENCODE` (`src/pr_edict.js`), and the progs field is read when it exists. Packet entities carry it as `PE_ALPHA`, and baselines and statics carry it under `PROTOCOL_ICARO`. Entities at `ENTALPHA_ZERO` with no effects are not sent, and such statics are freed, as in Ironwail. `src/gl_entalpha.js` draws brush entities blended. Alias models, sprites, the player and the view model ignore alpha. Before: 233 mg1 and 321 mg3 entities have an `alpha` key, and the mg1 progs declares `.float alpha`. `src/pr_edict.js:917` only suppresses the "not a field" warning. The protocol carries no alpha. Ironwail: `U_ALPHA` (`Quake/protocol.h:62`), with `ENTALPHA_ENCODE` in `ED_ParseEdict` (`Quake/pr_edict.c:1391`). | – | – |
 | 6d | `EF_QUADLIGHT`, `EF_PENTALIGHT`, `EF_CANDLELIGHT` (16, 32, 64) | **done** (#143) | Fixed: `PR_FindSupportedEffects` (`src/pr_edict.js`) ports Ironwail's gate (`Quake/pr_edict.c`): the bits are on only when the progs defines `EF_QUADLIGHT` 16 and `EF_PENTALIGHT` (or `EF_PENTLIGHT`) 32 as floats, as the rerelease `defs.qc` does. Otherwise the server masks them out of the effects byte (`SV_WriteEntitiesToClient`, `SV_WritePlayersToClient`), so mods that use those bits differently are left alone. No wire change: the client handles the bits whenever they arrive. `CL_QexEffectLights` (`src/cl_main.js`) gives quad a blue and pent a red dlight, as Ironwail's `Quake/cl_main.c:654`, from all three linking paths (players, packet entities, NQ demos). `EF_CANDLELIGHT` gets no light, as in Ironwail. `dlight_t` now has QuakeSpasm's `color`: it tints the RGB lightmaps of `.lit` maps, the alias-model shade and the `gl_flashblend 1` PointLights. Mono lightmaps (maps without a `.lit`) stay white. | – | – |
 | 6e | Liquid alpha keys | **done** | `R_ParseWorldspawn` strips the leading `_` (`src/gl_rsurf.js:474-516`), so the rerelease's `_lavaalpha` and `_slimealpha` keys work. | – | – |
@@ -182,20 +182,20 @@ not have to adopt Ironwail's 666 or 999 wire formats, because the client and ser
 
 1. `.lit` (5). Done in #137, with the alias-model tint after it.
 2. Fog (6a). Done in #134.
-3. Skyboxes (6b)
+3. Skyboxes (6b). Done in #144.
 4. The QEX effect lights (6d). Done in #143.
 5. MD5 models (6k). Done.
 
 ### What can run in parallel
 
 These share files, so run them in sequence or bundle them. Items already done
-(#111–#114, BSP2 in #126, `.lit` in #137, fog in #134, MD5 models (6k), and
-the protocol limits and alpha of phase 4) are left out:
+(#111–#114, BSP2 in #126, `.lit` in #137, fog in #134, skyboxes in #144,
+MD5 models (6k), and the protocol limits and alpha of phase 4) are left out:
 
 - **`src/protocol.js` and `src/cl_parse.js`:** `svc_fog`, if it is ever sent.
-- **`src/pak.js`:** skybox `.tga` (6b). It changes
-  `DEFERRED_EXTENSIONS` or `DEFERRED_DIRS`, or adds a `COM_EnsureFile` at map
-  load. `.lit` (5, #137) shows the pattern: `COM_EnsureLitFile`.
+- **`src/pak.js`:** nothing pending. `.lit` (5, #137), skyboxes (6b, #144)
+  and MD5 (6k) show the patterns for on-demand files: `COM_EnsureLitFile`,
+  `Sky_LoadSkyBox`'s `COM_EnsureFile` per face, and `Mod_LoadMD5Replacement`.
 - **`src/gl_rmain.js`:** Entity alpha (6c) adds one
   call into `src/gl_entalpha.js` there.
 
@@ -204,7 +204,7 @@ Groups that can run at the same time:
 - **Now:**
   - Fog (new `gl_fog.js`, `gl_rmain.js`). Done in #134; its `gl_rmain.js`
     change is one call into `gl_fog.js`.
-  - Skyboxes (`gl_warp.js` or `gl_sky.js`). `.lit` has landed in `pak.js`.
+  - Skyboxes (new `gl_sky.js` and `image.js`). Done in #144.
 
 ## Not verified
 

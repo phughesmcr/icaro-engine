@@ -278,8 +278,8 @@ export function Fog_ParseWorldspawn( entities ) {
 =============
 Sky_NewMap (gl_sky.c), the skyfog part
 
-The worldspawn "skyfog" key overrides r_skyfog for this map. Skyboxes
-("sky") are not ported (docs/rerelease-gaps.md 6b).
+The worldspawn "skyfog" key overrides r_skyfog for this map. The skybox
+part ("sky") is Sky_NewMap in gl_sky.js.
 =============
 */
 export function Sky_ParseSkyfog( entities ) {

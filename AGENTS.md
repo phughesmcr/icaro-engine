@@ -24,9 +24,9 @@ process per room. It was forked from mrdoob's three-quake.
 - `docs/port-inventory.md`: every C function, cvar and command in the
   GLQuake build's files checked for a counterpart in the port, with the
   ranked list of gaps.
-- `docs/rerelease-gaps.md`: what still blocks the 2021 rerelease content
-  (skyboxes and the QEX effect lights), with a
-  suggested order. It is a snapshot too.
+- `docs/rerelease-gaps.md`: what blocked the 2021 rerelease content and
+  how each item was done; every item is now done or not needed. It is a
+  snapshot too.
 - `tools/`: `port_inventory.py` regenerates that inventory's raw tables
   (Python, standard library only; not linted or run in CI).
 
