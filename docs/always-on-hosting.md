@@ -404,12 +404,13 @@ question: can rooms run on the Workers **Free** plan if the room is
 optimised hard? Containers are Paid only, so on Free a room has to run
 inside a Durable Object, which option A above rejected.
 
-**Verdict:** possibly, for light play: about 28 player-hours a day once the
-client batches its moves. One limit decides it, and the docs contradict
-themselves on it: the CPU time a Durable Object gets per invocation on Free.
-Only a deploy on a Free account can settle that. The deploy costs nothing,
-but it needs the maintainer's OK and their own `wrangler login`.
-`tools/do_cpu_probe/` is that deploy (see "The CPU probe").
+**Verdict:** yes, for light play: about 28 player-hours a day once the
+client batches its moves. The deciding limit was the CPU time a Durable
+Object gets per invocation on Free, on which the docs contradict
+themselves. A deploy of `tools/do_cpu_probe/` on the maintainer's Free
+account settled it on 2026-11-25: about 30 s, reset by every incoming
+message, so CPU doesn't block a room (see "Probe results"). Memory and the
+daily request allowance are now the limits.
 
 ### What the free allowances buy
 
@@ -449,6 +450,9 @@ count billed messages in memory (a write per message would spend the
 100,000 rows written instead) and refuse new rooms near the cap.
 
 ### CPU: the deciding question
+
+Settled by the probe: about 30 s (see "Probe results"). The reasoning
+before it ran:
 
 - The DO limits page gives 30 s of CPU per request (HTTP request, WebSocket
   message or alarm), reset by every incoming message. Its FAQ says DOs
@@ -495,6 +499,44 @@ hundred requests and under 1% of a day's free DO duration. The
 dashboard's Workers Logs give each invocation's real CPU time; the
 probe's millisecond figures are local estimates. Delete the Worker
 afterwards with `npx wrangler delete`.
+
+### Probe results
+
+One run of `probe.js` against `tools/do_cpu_probe/` on the maintainer's
+Free account, 2026-11-25 [measured]. CPU figures are in milliseconds of the
+same loop on an M4 Pro (430,343 iterations a millisecond, calibrated by
+`probe.js`). Cloudflare's own CPU speed for it isn't known, so the limits
+are bracketed, not exact.
+
+| Question | Result |
+| --- | --- |
+| CPU per HTTP request | 25 s of M4 Pro work succeeds. 40 s fails with "Durable Object exceeded its CPU time limit and was reset." |
+| CPU per WebSocket message | The same: 25 s succeeds, and at 40 s the socket closes (code 0) and the instance resets. |
+| Timers, no requests, 2 ms a tick at 20 Hz for 60 s | 1,200 of 1,200 ticks. |
+| Timers, no requests, 20 ms a tick at 20 Hz for 120 s | Reset after 90 s (1,800 ticks, about 36 s of M4 Pro work). |
+| Timers, a WebSocket ping every 50 ms, 20 ms a tick for 120 s | 2,400 of 2,400 ticks, with no reset. |
+| ArrayBuffers held | 160 MB held with no reset. The instance was replaced after the step to 192 MB. |
+
+What follows:
+- **The Free CPU limit for a DO is the 30 s on the DO limits page, not the
+  Workers table's 10 ms.** `SV_SpawnServer` (35–39 ms) and a tick (at most
+  8 ms) are far inside it.
+- **Timer callbacks draw on the budget of the last incoming message, and
+  every message resets it.** A room with players sending moves never
+  reaches it. A room ticking with nobody sending anything is reset after
+  about 30 s of CPU: about 12 minutes at 2 ms a tick, if the 36 s above
+  is about 30 s on Cloudflare [estimate]. An empty room should stop
+  ticking anyway.
+- **ArrayBuffers count toward the memory limit.** It was enforced somewhere
+  between 160 and 192 MB of buffers plus the isolate's base, and after the
+  request returned. Keep a room under the documented 128 MB.
+- **A long request can recycle the instance.** After a single HTTP request
+  of 2 s or more, or a WebSocket message of 25 s, the next request found a
+  new instance, though the long one had succeeded. A room's work is in
+  milliseconds, far below that.
+
+The dashboard's per-invocation CPU times weren't read, so the brackets
+above rest on the local calibration.
 
 ### Memory: fits with two changes
 
@@ -563,7 +605,7 @@ Fixed slots are the simpler choice, and the request cap makes many rooms
 moot anyway. Choosing between them is a product decision: a lobby of a few
 fixed rooms, or rooms anyone can create.
 
-### Work, if the CPU test passes
+### Work, now that the CPU test has passed
 
 1. **Free-plan deploy (needs the maintainer's OK and their own `wrangler
    login`):** a Worker and one room DO running the bundled room, with the
@@ -614,15 +656,13 @@ fewer requests where messages are billed.
 - Container cold start for this image, placement for UK players, and the
   round-trip time through Worker → DO → container.
 - Whether an open, proxied WebSocket keeps a container from being stopped.
-- Whether ArrayBuffers count toward the 128 MB isolate limit, and how DO
-  timer callbacks are metered for CPU.
 - Whether a server-only build could shed enough memory to fit a room in a
   DO; the memory-by-stage table suggests where to look.
 - CPU on a real cloud vCPU (the figures above are from an M4 Pro).
 - Fly.io's UDP with QUIC/WebTransport, and its `lhr` prices.
 - Whether a 20 Hz client move rate on WebSocket feels the same in play.
-- The Free plan's CPU limit for a Durable Object (10 ms or 30 s per
-  invocation), and whether timer callbacks share an invocation's budget.
+- Cloudflare's CPU speed relative to the M4 Pro, which the probe's CPU
+  brackets rest on; the dashboard's per-invocation CPU times would give it.
 - Whether open WebSockets drop when a Free daily limit is reached.
 - Whether DOs in separate Worker scripts ever share an isolate.
 - A lazy-pak room's memory under load, and whether a DO can range-read its
