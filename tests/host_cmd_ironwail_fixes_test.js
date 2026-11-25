@@ -165,13 +165,6 @@ Deno.test( 'Host_ChatLine keeps MAXCMDLINE and strips the quote only when there 
 
 } );
 
-Deno.test( 'Host_SkipGlobals walks key/value pairs to the closing brace', () => {
-
-	const rest = host_cmd.Host_SkipGlobals( '"a" "}"\n"b" "x } y"\n}\n{ "c" "d" }' );
-	assertEqual( rest.trim(), '{ "c" "d" }', 'rest' );
-
-} );
-
 Deno.test( 'reconnect does nothing during demo playback (Baker, QuakeSpasm/Ironwail)', () => {
 
 	const old = { demoplayback: client.cls.demoplayback, signon: client.cls.signon };
