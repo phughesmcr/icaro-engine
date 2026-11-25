@@ -14,7 +14,7 @@ import { Cvar_RegisterVariable } from './cvar.js';
 import { r_nolerp_list } from './render.js';
 import { MAX_DLIGHTS } from './client.js';
 import { R_InitSky as R_InitSky_warp, GL_SubdivideSurface as GL_SubdivideSurface_warp, GL_Warp_SetLoadmodel } from './gl_warp.js';
-import { GL_MakeAliasModelDisplayLists as GL_MakeAliasModelDisplayLists_mesh } from './gl_mesh.js';
+import { GL_MakeAliasModelDisplayLists as GL_MakeAliasModelDisplayLists_mesh, cl_gun_fovscale } from './gl_mesh.js';
 
 // Sky textures (set by R_InitSky during level load)
 export let solidskytexture = null;
@@ -832,6 +832,7 @@ function R_InitSky( tx ) {
 export function Mod_Init() {
 
 	Cvar_RegisterVariable( gl_subdivide_size );
+	Cvar_RegisterVariable( cl_gun_fovscale ); // Ironwail: SCR_Init
 	mod_novis.fill( 0xff );
 
 }
