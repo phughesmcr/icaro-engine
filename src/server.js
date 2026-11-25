@@ -223,6 +223,9 @@ export const EF_BRIGHTFIELD = 1;
 export const EF_MUZZLEFLASH = 2;
 export const EF_BRIGHTLIGHT = 4;
 export const EF_DIMLIGHT = 8;
+export const EF_QEX_QUADLIGHT = 16; // 2021 rerelease (Ironwail server.h)
+export const EF_QEX_PENTALIGHT = 32; // 2021 rerelease
+export const EF_QEX_CANDLELIGHT = 64; // 2021 rerelease
 
 //============================================================================
 // spawn flags

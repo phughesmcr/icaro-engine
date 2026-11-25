@@ -343,7 +343,7 @@ export class Object3D {
 export class PointLight extends Object3D {
 	constructor(color, intensity = 1, distance = 0, decay = 2) {
 		super();
-		this.color = color;
+		this.color = new Color().setHex(color);
 		this.intensity = intensity;
 		this.distance = distance;
 		this.decay = decay;
@@ -421,6 +421,12 @@ export class Color {
 		this.r = r;
 		this.g = g;
 		this.b = b;
+		return this;
+	}
+	setHex(hex) {
+		this.r = ((hex >> 16) & 255) / 255;
+		this.g = ((hex >> 8) & 255) / 255;
+		this.b = (hex & 255) / 255;
 		return this;
 	}
 }

@@ -59,7 +59,7 @@ import { realtime, Host_ClearMemory, Host_Error, set_host_frametime } from './ho
 import { COM_LoadFile } from './pak.js';
 import { VectorCopy, VectorAdd, DotProduct } from './mathlib.js';
 import { Mod_ForName, Mod_LeafPVS } from './gl_model.js';
-import { PR_LoadProgs, PR_AllocEdicts, ED_ClearEdict, ED_LoadFromFile, ED_NewString, GetEdictFieldValue, PR_SetCurrentSkill, PR_SetDeathmatch, nomonsters, pr_extfields } from './pr_edict.js';
+import { PR_LoadProgs, PR_AllocEdicts, ED_ClearEdict, ED_LoadFromFile, ED_NewString, GetEdictFieldValue, PR_SetCurrentSkill, PR_SetDeathmatch, nomonsters, pr_extfields, pr_effects_mask } from './pr_edict.js';
 import { MAX_ENT_LEAFS, pr_global_struct, progs, pr_crc, EDICT_NUM, NUM_FOR_EDICT, PR_SetSV, PR_SetSVS, EDICT_TO_PROG, PROG_TO_EDICT, NEXT_EDICT, PR_GetString } from './progs.js';
 import { SV_ClearWorld, SV_Move, SV_TestEntityPosition, SV_LinkEdict, SV_PointContents } from './world.js';
 import { SV_Physics, SV_SetState, SV_SetCallbacks,
@@ -1211,8 +1211,12 @@ export function SV_WriteEntitiesToClient( client, clent, pvs, msg ) {
 		if ( pr_extfields.alpha >= 0 )
 			ent.alpha = ENTALPHA_ENCODE( ent._fieldAccessor.getFloat( pr_extfields.alpha ) );
 
+		// Ironwail: qcvm->effects_mask drops the 2021 rerelease light bits
+		// for a progs that doesn't define them
+		const effects = ( ent.v.effects | 0 ) & pr_effects_mask;
+
 		//don't send invisible entities unless they have effects
-		if ( ent.alpha === ENTALPHA_ZERO && ent.v.effects === 0 )
+		if ( ent.alpha === ENTALPHA_ZERO && effects === 0 )
 			continue;
 		//johnfitz
 
@@ -1236,7 +1240,7 @@ export function SV_WriteEntitiesToClient( client, clent, pvs, msg ) {
 		state.frame = ent.v.frame;
 		state.colormap = ent.v.colormap;
 		state.skin = ent.v.skin;
-		state.effects = ent.v.effects;
+		state.effects = effects;
 		state.alpha = ent.alpha;
 
 	}
@@ -1536,7 +1540,9 @@ export function SV_WritePlayersToClient( _client, clent, pvs, msg ) {
 
 		}
 
-		if ( ent.v.effects !== 0 )
+		// Ironwail's qcvm->effects_mask, as for the packet entities
+		const effects = ( ent.v.effects | 0 ) & pr_effects_mask;
+		if ( effects !== 0 )
 			pflags |= PF_EFFECTS;
 		if ( ent.v.skin !== 0 )
 			pflags |= PF_SKINNUM;
@@ -1626,7 +1632,7 @@ export function SV_WritePlayersToClient( _client, clent, pvs, msg ) {
 			MSG_WriteByte( msg, ent.v.skin );
 
 		if ( pflags & PF_EFFECTS )
-			MSG_WriteByte( msg, ent.v.effects );
+			MSG_WriteByte( msg, effects );
 
 		if ( pflags & PF_WEAPONFRAME )
 			MSG_WriteByte( msg, ent.v.weaponframe );

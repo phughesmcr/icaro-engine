@@ -128,11 +128,15 @@ export const lightcolor = new Float32Array( 3 );
 // Pool of PointLights for dynamic lights
 const _dlightPool = [];
 
+// The PointLights' colour for an uncoloured (white) dlight, standing in for
+// the orange of GLQuake's flashblend corona
+const DLIGHT_FLASHBLEND_COLOR = 0xffaa44;
+
 function _getDlight( index ) {
 
 	if ( _dlightPool[ index ] != null ) return _dlightPool[ index ];
 
-	const light = new THREE.PointLight( 0xffaa44, 1, 300, 0 );
+	const light = new THREE.PointLight( DLIGHT_FLASHBLEND_COLOR, 1, 300, 0 );
 	_dlightPool[ index ] = light;
 	return light;
 
@@ -192,6 +196,14 @@ export function R_RenderDlight( light, dlightIndex ) {
 
 	// Position the light in Quake coordinates (same as camera/geometry)
 	pointLight.position.set( light.origin[ 0 ], light.origin[ 1 ], light.origin[ 2 ] );
+
+	// A coloured dlight (Ironwail's 2021 rerelease powerup glows) lights in
+	// its own colour; a white one keeps the flashblend orange
+	const color = light.color;
+	if ( color[ 0 ] === 1 && color[ 1 ] === 1 && color[ 2 ] === 1 )
+		pointLight.color.setHex( DLIGHT_FLASHBLEND_COLOR );
+	else
+		pointLight.color.setRGB( color[ 0 ], color[ 1 ], color[ 2 ], THREE.SRGBColorSpace );
 
 	// Brightness comes from the radius only (see R_DlightIntensity)
 	pointLight.intensity = R_DlightIntensity( light );
@@ -646,6 +658,7 @@ export class dlight_t {
 		this.decay = 0; // drop this each second
 		this.minlight = 0; // don't add when contributing less
 		this.key = 0;
+		this.color = new Float32Array( [ 1, 1, 1 ] ); //johnfitz -- lit support via lordhavoc
 
 	}
 
