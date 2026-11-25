@@ -93,6 +93,7 @@ Deno.test( 'Sys_ParseLobbyURL accepts wts://, https:// and wt:// hosts with an o
 	assertEqual( sys.Sys_ParseLobbyURL( 'lobby.example:4433' ), 'https://lobby.example:4433', 'bare host' );
 	assertEqual( sys.Sys_ParseLobbyURL( 'https://[::1]:4433' ), 'https://[::1]:4433', 'IPv6' );
 	assertEqual( sys.Sys_ParseLobbyURL( 'https://127.0.0.1:4433' ), 'https://127.0.0.1:4433', 'IPv4' );
+	assertEqual( sys.Sys_ParseLobbyURL( 'wts://my_lobby.example' ), 'https://my_lobby.example', 'underscore' );
 
 } );
 

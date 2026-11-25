@@ -46,7 +46,7 @@ command.
 export const SYS_DEFAULT_LOBBY = 'https://localhost:4433';
 
 // A hostname after URL parsing (lowercase, IDN as punycode), or an IPv6 literal.
-const _lobbyHostPattern = /^(?:[a-z0-9-]+\.)*[a-z0-9-]+$|^\[[0-9a-f:.]+\]$/;
+const _lobbyHostPattern = /^(?:[a-z0-9_-]+\.)*[a-z0-9_-]+$|^\[[0-9a-f:.]+\]$/;
 // Anything that could end a quoted argument or a command line.
 const _unsafeCommandChars = /["';\\\s\p{Cc}]/u;
 
