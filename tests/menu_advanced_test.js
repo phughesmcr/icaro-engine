@@ -107,6 +107,9 @@ Deno.test( 'advanced menu: every row is a real cvar whose default the row can re
 	const seen = new Set();
 	for ( const page of advancedPages ) {
 
+		// The page list right-aligns titles to x 136, so 17 characters reach 0
+		assertEqual( page.title.length <= 16, true, page.title + ': title fits the page list' );
+
 		for ( const item of page.items ) {
 
 			const name = page.title + ' / ' + item.label;
