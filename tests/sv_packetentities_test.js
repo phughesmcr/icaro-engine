@@ -2,7 +2,7 @@
 // and the server's stored frame matches what the client rebuilds.
 
 import { sizebuf_t } from '../src/common.js';
-import { entity_state_t, packet_entities_t, MAX_EDICTS } from '../src/quakedef.js';
+import { entity_state_t, packet_entities_t, MAX_EDICTS, MAX_DATAGRAM, MAX_DATAGRAM_ID } from '../src/quakedef.js';
 import {
 	MAX_PACKET_ENTITIES, PE_ENT_MASK, PE_MOREBITS, PE_REMOVE,
 	PE_ORIGIN1, PE_ORIGIN2, PE_ORIGIN3, PE_ANGLE1, PE_ANGLE2, PE_ANGLE3,
@@ -360,8 +360,10 @@ Deno.test( 'SV_EmitPacketEntities sends a full update when delta_sequence is too
 
 // Entities past the datagram capacity must still be refreshed within a
 // bounded number of frames: every entity changes every frame, the datagram
-// holds about a fifth of them, and the client acks each frame.
-Deno.test( 'SV_EmitPacketEntities sweeps all entities across frames when they overflow', () => {
+// holds a fraction of them, and the client acks each frame. Run at id's
+// MAX_DATAGRAM, a WebTransport-sized limit and the local client's
+// MAX_DATAGRAM (SV_ClientDatagramSize).
+for ( const size of [ MAX_DATAGRAM_ID, 1150, MAX_DATAGRAM ] ) Deno.test( `SV_EmitPacketEntities sweeps all entities across frames when they overflow a ${size}-byte datagram`, () => {
 
 	withServer( ( baselines ) => {
 
@@ -382,7 +384,7 @@ Deno.test( 'SV_EmitPacketEntities sweeps all entities across frames when they ov
 			fillPacket( to, numbers, seq * 3 ); // everything moved
 			client.outgoing_sequence = seq;
 
-			const msg = makeMsg( 1024 );
+			const msg = makeMsg( size );
 			console.log = () => {};
 			try {
 

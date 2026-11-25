@@ -61,6 +61,8 @@ interface ClientConnection {
   reliableReader: ReadableStreamDefaultReader<Uint8Array> | null;
   datagramWriter: WritableStreamDefaultWriter<Uint8Array> | null;
   datagramReader: ReadableStreamDefaultReader<Uint8Array> | null;
+  // The session's datagram stream, for its live maxDatagramSize
+  datagramStream: { maxDatagramSize?: number } | null;
   maxDatagramSize: number;
   pendingMessages: PendingMessage[];
   // Game-facing state: false once the connection is dead or being closed.
@@ -122,6 +124,8 @@ export interface QSocket {
   receiveMessage: Uint8Array;
   addr: unknown;
   address: string;
+  // Largest unreliable payload in one datagram, 0 if unknown (src/net.js)
+  maxdatagram: number;
 }
 
 // Active sockets (fallback allocator only)
@@ -632,6 +636,7 @@ function _newConnection(
     reliableReader: null,
     datagramWriter: null,
     datagramReader: null,
+    datagramStream: null,
     maxDatagramSize: 0,
     pendingMessages: [],
     connected: true,
@@ -749,10 +754,7 @@ async function _handleWebTransportSession(
 
   conn.datagramWriter = datagrams.writable.getWriter();
   conn.datagramReader = datagrams.readable.getReader();
-  const maxDatagramSize = datagrams.maxDatagramSize;
-  if (typeof maxDatagramSize === "number") {
-    conn.maxDatagramSize = maxDatagramSize;
-  }
+  conn.datagramStream = datagrams;
 
   sock.address = conn.address;
   sock.driverdata = conn;
@@ -763,6 +765,7 @@ async function _handleWebTransportSession(
   sock.unreliableReceiveSequence = -1;
   sock.ackSequence = -1;
   conn.sock = sock;
+  _refreshMaxDatagramSize(conn);
 
   _queueReliableFrame(
     conn,
@@ -1096,6 +1099,7 @@ function _newQSocket(): QSocket | null {
       receiveMessage: new Uint8Array(NET_MAXMESSAGE),
       addr: null,
       address: "",
+      maxdatagram: 0,
     };
     activeSockets = sock;
 
@@ -1112,6 +1116,7 @@ function _newQSocket(): QSocket | null {
   sock.disconnected = false;
   sock.canSend = true;
   sock.driverdata = null;
+  sock.maxdatagram = 0;
 
   return sock;
 }
@@ -1635,6 +1640,27 @@ function _sendUnreliableOnReliable(
 }
 
 /**
+ * Re-read the session's datagram limit and pass it to the engine as
+ * sock.maxdatagram (less the transport header), which SV_ClientDatagramSize
+ * sizes the client's datagram from. Deno's maxDatagramSize is live: it
+ * starts near QUIC's 1200-byte minimum and grows as path MTU discovery
+ * probes (on localhost, about 1160 at accept and 1410 half a second later).
+ * WT_SendUnreliableMessage checks the same conn.maxDatagramSize, so the two
+ * agree within a frame. An unreadable value keeps the last one.
+ */
+function _refreshMaxDatagramSize(conn: ClientConnection): void {
+  const size = conn.datagramStream?.maxDatagramSize;
+  if (typeof size === "number" && Number.isFinite(size) && size > 0) {
+    conn.maxDatagramSize = size;
+  }
+  if (conn.sock !== null) {
+    conn.sock.maxdatagram = conn.maxDatagramSize > WT_PACKET_HEADER_BYTES
+      ? conn.maxDatagramSize - WT_PACKET_HEADER_BYTES
+      : 0;
+  }
+}
+
+/**
  * Send an unreliable message over WebTransport datagrams.
  */
 export function WT_SendUnreliableMessage(
@@ -1695,6 +1721,9 @@ export function WT_CanSendUnreliableMessage(sock: QSocket): boolean {
   if (conn === null || conn.connected === false) {
     return false;
   }
+
+  // SV_SendClientDatagram asks this before it builds the frame's datagram
+  _refreshMaxDatagramSize(conn);
 
   if (!_datagramLaneUsable(conn)) {
     return conn.reliableWriter !== null &&

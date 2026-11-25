@@ -18,7 +18,21 @@ export const MAX_OSPATH = 128; // max length of a filesystem pathname
 export const ON_EPSILON = 0.1; // point on plane side epsilon
 
 export const MAX_MSGLEN = 8000; // max length of a reliable message
-export const MAX_DATAGRAM = 1024; // max length of unreliable message
+// Deliberate deviation, after FitzQuake/QuakeSpasm: MAX_DATAGRAM (id: 1024)
+// sizes the server's buffers and the local client's datagram, and a nonlocal
+// client gets at most DATAGRAM_MTU, so its datagrams aren't fragmented (see
+// SV_ClientDatagramSize). The big 2021 rerelease maps need more than 1024
+// bytes on the first frame after a teleport. It is 4096, not QuakeSpasm's
+// 32000+: the loopback driver puts the datagram and a reliable message sent
+// in the same frame in one NET_MAXMESSAGE (8192) buffer (Loop_SendMessage
+// calls Sys_Error when they don't fit), and demos reject messages over
+// MAX_MSGLEN.
+export const MAX_DATAGRAM = 4096; // max length of unreliable message
+export const DATAGRAM_MTU = 1400; // FitzQuake: actual limit for unreliable messages to nonlocal clients
+// id's MAX_DATAGRAM: the limit for a nonlocal client whose path MTU is
+// unknown, and the size of sv.reliable_datagram, which is appended to every
+// client's MAX_MSGLEN reliable message (an overflow there drops the client)
+export const MAX_DATAGRAM_ID = 1024;
 
 //
 // per-level limits

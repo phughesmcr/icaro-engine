@@ -11,8 +11,8 @@ import {
 import { Cmd_ExecuteString, Cbuf_InsertText } from './cmd.js';
 import { cvar_t, Cvar_RegisterVariable, Cvar_Set, Cvar_SetValue } from './cvar.js';
 import {
-	MAX_MODELS, MAX_SOUNDS, MAX_DATAGRAM, MIN_EDICTS, MAX_EDICTS, MAX_MSGLEN,
-	STAT_PING
+	MAX_MODELS, MAX_SOUNDS, MAX_DATAGRAM, MAX_DATAGRAM_ID, DATAGRAM_MTU,
+	MIN_EDICTS, MAX_EDICTS, MAX_MSGLEN, STAT_PING
 } from './quakedef.js';
 import {
 	PROTOCOL_ICARO,
@@ -1727,6 +1727,36 @@ const _sendNopMsg = { allowoverflow: false, overflowed: false, data: _sendNopBuf
 const _sendReconnectBuf = new Uint8Array( 128 );
 const _sendReconnectMsg = { allowoverflow: false, overflowed: false, data: _sendReconnectBuf, maxsize: 128, cursize: 0 };
 
+/*
+=======================
+SV_ClientDatagramSize
+
+The most a client's per-frame datagram may hold. FitzQuake/QuakeSpasm give
+the local client MAX_DATAGRAM and every other client DATAGRAM_MTU, so a
+network datagram isn't fragmented. Deliberate deviation: a network client's
+driver knows the path's limit (WebTransport's maxDatagramSize, less the
+transport header) and puts it in sock.maxdatagram, re-read every frame
+because QUIC raises it as path MTU discovery probes. That is clamped to
+[MAX_DATAGRAM_ID, DATAGRAM_MTU]; unknown is id's MAX_DATAGRAM. The floor keeps
+room for the clientdata and an empty packetentities, which are written
+unconditionally; a larger message than the path takes still goes out, on
+the driver's reliable fallback.
+=======================
+*/
+export function SV_ClientDatagramSize( sock ) {
+
+	// johnfitz -- if client is nonlocal, use smaller max size so packets aren't fragmented
+	if ( sock.address === 'LOCAL' )
+		return MAX_DATAGRAM;
+
+	const size = sock.maxdatagram;
+	if ( typeof size !== 'number' || ! Number.isFinite( size ) || size <= 0 )
+		return MAX_DATAGRAM_ID;
+
+	return Math.min( DATAGRAM_MTU, Math.max( MAX_DATAGRAM_ID, Math.floor( size ) ) );
+
+}
+
 function SV_SendClientDatagram( client ) {
 
 	// QW-style send gating: if transport is choked/backed up, skip building
@@ -1737,6 +1767,10 @@ function SV_SendClientDatagram( client ) {
 	_scdMsg.allowoverflow = false;
 	_scdMsg.overflowed = false;
 	_scdMsg.cursize = 0;
+	// johnfitz/QuakeSpasm: a nonlocal client gets a smaller limit. The
+	// playerinfo and packet entity writers stop at msg.maxsize and defer the
+	// rest; sv.datagram is appended below only if it fits.
+	_scdMsg.maxsize = SV_ClientDatagramSize( client.netconnection );
 
 	MSG_WriteByte( _scdMsg, svc_time );
 	MSG_WriteFloat( _scdMsg, sv.time );
@@ -2203,7 +2237,7 @@ export function SV_SpawnServer( server ) {
 	sv.datagram.data = sv.datagram_buf;
 	sv.datagram.allowoverflow = true; // unreliable messages can be dropped
 
-	sv.reliable_datagram.maxsize = MAX_DATAGRAM;
+	sv.reliable_datagram.maxsize = MAX_DATAGRAM_ID; // id's size, see quakedef.js
 	sv.reliable_datagram.cursize = 0;
 	sv.reliable_datagram.data = sv.reliable_datagram_buf;
 	sv.reliable_datagram.allowoverflow = true; // will be copied to client reliables
