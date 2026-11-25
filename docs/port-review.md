@@ -61,7 +61,7 @@ The test counts in the table were taken on each PR's own branch with `deno test 
 | Input residuals: Ctrl/Alt chords, Keyboard Lock, `xr_turnspeed`, touch and XR tests; numpad keeps the WinQuake mapping, now tested | [#12] | Fixed (77 pass) |
 | Netcode residuals: teleport lock and `punchangle` prediction, `hasAck`, `delta_sequence` age check, entity starvation, moves as datagrams, lobby join reply | [#13] | Fixed (120 pass) |
 
-**Wire format:** #10 changed the packet-entity format without bumping `PROTOCOL_VERSION`, which has to stay 15 for the shipped demos, and #13 added a flag and a byte to `svc_playerinfo`. Later PRs changed it again, still at version 15:
+**Wire format:** #10 changed the packet-entity format without bumping `PROTOCOL_VERSION`, which had to stay 15 for the shipped demos, and #13 added a flag and a byte to `svc_playerinfo`. Later PRs changed it again, at version 15 until phase 4 gave the server its own version (the last item):
 
 - #42 sends `clc_move` view angles as 16-bit angles, as the FitzQuake protocol does.
 - #93 adds `sv_altnoclip` to the movevars the server sends for prediction.
@@ -411,9 +411,9 @@ Later PRs changed some of these on purpose: the `MSG_Write*` rounding, the wire 
   - WinQuake's `#if WINDED` check in `COM_CheckRegistered`, which stops a dedicated server without the registered `gfx/pop.lmp`, is not ported. The Deno room server is a dedicated server that runs on the shareware pak by design.
 - **Behaviour taken from QuakeSpasm and Ironwail** (added after this review, #42 to #111): these C source ports fix bugs in id's code and raise its limits. The port takes some of their changes, so in these places it no longer matches WinQuake:
   - `MSG_WriteCoord` and `MSG_WriteAngle` round with `Q_rint` (#69, #42), where WinQuake truncates. QW's `MSG_WriteAngle16` no longer drops the fraction of a degree before quantising (#42).
-  - The wire format changed at the same `PROTOCOL_VERSION` 15. `clc_move` carries 16-bit angles (#42), the movevars include `sv_altnoclip` (#93), and `svc_localsound` is new (#106). See "Wire format" under the fix status.
+  - The wire format changed at the same `PROTOCOL_VERSION` 15 until phase 4 of `docs/rerelease-gaps.md` moved the server to `PROTOCOL_ICARO` (1015); the client still reads 15 for demos. `clc_move` carries 16-bit angles (#42), the movevars include `sv_altnoclip` (#93), and `svc_localsound` is new (#106). See "Wire format" under the fix status.
   - The QuakeC builtin table goes past index 78, with Ironwail's extension builtins (#80, #106) and two rerelease builtins (#111).
-  - Limits are higher than C's, for example `MAX_EDICTS` 1024, `MAX_DLIGHTS` 64 and `MAX_PARTICLES` 16384 (#45 to #48, #51, #72).
+  - Limits are higher than C's, for example `MAX_EDICTS` 32000 (phase 4; it was 1024), `MAX_DLIGHTS` 64 and `MAX_PARTICLES` 16384 (#45 to #48, #51, #72).
   - 2021 rerelease localisation (#124): Ironwail's `LOC_*` loader reads `localization/loc_<language>.txt` (`language` cvar, default `auto`), and on the server `PF_VarString` and `PF_WriteString` resolve `$key` strings (`PF_VarString` also fills `{}` placeholders). With no such file (the shareware and original registered data) prints are unchanged. It differs from Ironwail in a few places, listed in the comment that opens the localisation section of `src/common.js`. The main ones: it doesn't read `QuakeEX.kpf`, a change to `language` takes effect at the next lookup, and a missing file is only a developer message.
   - New cvars and commands that WinQuake lacks. `r_lerpmodels` and `r_lerpmove` default to 0, so id's unlerped animation stays the default.
 
