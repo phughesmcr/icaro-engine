@@ -34,6 +34,7 @@ const CONFIG = {
 	pakPath: '../static/pak0.pak',
 	denoPath: null, // null = Deno.execPath()
 	gameFlags: [],  // -rogue and/or -hipnotic, passed on to every room
+	gameDir: null,  // -game <dir>, passed on to every room
 };
 
 // Abuse limits. Room creation (LOBBY_CREATE, and LOBBY_JOIN on an unknown
@@ -68,6 +69,8 @@ function parseArgs() {
 			CONFIG.denoPath = args[ ++i ];
 		} else if ( arg === '-rogue' || arg === '-hipnotic' ) {
 			CONFIG.gameFlags.push( arg );
+		} else if ( arg === '-game' && args[ i + 1 ] ) {
+			CONFIG.gameDir = args[ ++i ];
 		}
 	}
 }
@@ -525,6 +528,7 @@ async function startServer() {
 		keyFile: CONFIG.keyFile,
 		pakPath: CONFIG.pakPath,
 		gameFlags: CONFIG.gameFlags,
+		gameDir: CONFIG.gameDir,
 	};
 	if ( CONFIG.denoPath !== null ) roomConfig.denoPath = CONFIG.denoPath;
 	RoomManager_SetConfig( roomConfig );

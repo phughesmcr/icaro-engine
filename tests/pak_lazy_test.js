@@ -153,8 +153,9 @@ Deno.test( 'COM_FetchPak over HTTP with Range: directory and engine files at loa
 		assertEqual( text( 'lazyhttp/sound/a.wav' ), 'wav', 'sound fetched at load' );
 		assertEqual( COM_FindFile( 'maps/lazyhttp.bsp' ), null, 'map not fetched yet; requests: ' + log.join( ', ' ) );
 		// header, directory, one coalesced range for the three engine files (the
-		// 40000-byte map between them is under RANGE_GAP), then the 404 for pak1
-		assertEqual( log.length, 4, 'requests at load: ' + log.join( ', ' ) );
+		// 40000-byte map between them is under RANGE_GAP), then the 404s for
+		// pak1.pak and PAK1.PAK
+		assertEqual( log.length, 5, 'requests at load: ' + log.join( ', ' ) );
 		assertEqual( log[ 0 ], 'bytes=0-11', 'header first' );
 
 		assertEqual( await COM_EnsureFile( 'maps/lazyhttp.bsp' ), true, 'map fetched' );
@@ -174,7 +175,7 @@ Deno.test( 'COM_FetchPak over HTTP falls back to the whole pak when Range is ign
 
 		assertEqual( await COM_AddPakSequence( 'http://pak.test/b/pak0.pak' ), 1, 'pak added' );
 		assertEqual( COM_FindFile( 'maps/norange.bsp' ).size, MAP_SIZE, 'whole pak loaded, map included' );
-		assertEqual( log.length, 2, 'one request for pak0, one for pak1: ' + log.join( ', ' ) );
+		assertEqual( log.length, 3, 'one request for pak0, two for pak1 (both cases): ' + log.join( ', ' ) );
 
 	} );
 
@@ -254,8 +255,8 @@ Deno.test( 'COM_FetchPak splits eager entries farther apart than RANGE_GAP and r
 		globalThis.fetch = stubFetch( files, true, log );
 
 		assertEqual( await COM_AddPakSequence( 'http://pak.test/f/pak0.pak', ( v ) => progress.push( v ) ), 1, 'pak added' );
-		// header, directory, two entry ranges, pak1 probe
-		assertEqual( log.length, 5, 'requests: ' + log.join( ', ' ) );
+		// header, directory, two entry ranges, pak1.pak and PAK1.PAK probes
+		assertEqual( log.length, 6, 'requests: ' + log.join( ', ' ) );
 		assertEqual( COM_FindFile( 'gapa/b.wav' ).size, 10, 'second range' );
 		assertEqual( COM_FindFile( 'gapa/empty.cfg' ).size, 0, 'empty entry found' );
 		assertEqual( progress[ progress.length - 1 ], 1, 'progress ends at 1' );

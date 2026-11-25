@@ -118,9 +118,12 @@ process per room. It was forked from mrdoob's three-quake.
 
 `static/pak0.pak` is the shareware Episode 1 pak and is committed. Registered
 or commercial data (`static/pak1.pak`, and the mission packs in
-`static/hipnotic/` and `static/rogue/`) must **never** be committed or deployed
-publicly; `.gitignore` covers those paths. The client loads a mission pack with
-`?game=hipnotic` or `?game=rogue`; the servers take `-hipnotic` or `-rogue`.
+`static/hipnotic/` and `static/rogue/`, and the 2021 rerelease in
+`static/rerelease/`, `static/id1/` and `static/{mg1,mg3,dopa,ctf}/`) must
+**never** be committed or deployed publicly; `.gitignore` covers those paths.
+The client loads a mission pack with `?game=hipnotic` or `?game=rogue`, a
+rerelease add-on with `?game=mg1` (etc.), and the rerelease layout with
+`?base=rerelease`; the servers take `-hipnotic`, `-rogue` or `-game <dir>`.
 If the data isn't present, test that the shareware game is unchanged and
 list manual test steps in the PR.
 

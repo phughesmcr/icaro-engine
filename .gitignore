@@ -29,3 +29,10 @@ static/pak1.pak
 static/PAK1.PAK
 static/hipnotic/
 static/rogue/
+# 2021 rerelease data (?base=rerelease) and its add-ons; id1/ for a C-style layout
+static/rerelease/
+static/id1/
+static/mg1/
+static/mg3/
+static/dopa/
+static/ctf/
