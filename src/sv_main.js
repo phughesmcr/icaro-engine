@@ -169,6 +169,90 @@ EVENT MESSAGES
 
 /*
 ==================
+SV_MarkDatagram
+
+Not in C (PROTO-1, a deliberate deviation). id copies sv.datagram into a
+client's datagram whole or not at all (sv_main.c:738-739). Here sv.datagram
+holds up to MAX_DATAGRAM bytes, more than a network client's datagram
+(SV_ClientDatagramSize), so on a busy frame a remote player would lose every
+sound and particle of that frame. SV_StartParticle and SV_StartSound mark
+where each of their messages starts and ends, and SV_CopyServerDatagram
+copies whole chunks between marks while they fit. QuakeC's MSG_BROADCAST
+writes (PF_WriteByte and the rest) have no boundaries the engine can see, so
+the bytes between two marks are one chunk, copied whole or not at all.
+==================
+*/
+const SV_MAX_DATAGRAM_MARKS = 512; // two per message; the smallest is 17 bytes
+const sv_datagram_marks = new Uint16Array( SV_MAX_DATAGRAM_MARKS );
+let sv_datagram_nummarks = 0;
+
+function SV_MarkDatagram() {
+
+	const pos = sv.datagram.cursize;
+
+	if ( sv_datagram_nummarks > 0 ) {
+
+		const last = sv_datagram_marks[ sv_datagram_nummarks - 1 ];
+		if ( pos === last )
+			return;
+		// sv.datagram was cleared since the last mark (an overflow in
+		// SZ_GetSpace): those marks are stale
+		if ( pos < last )
+			sv_datagram_nummarks = 0;
+
+	}
+
+	// when the table is full the rest of the frame is one chunk
+	if ( pos > 0 && sv_datagram_nummarks < SV_MAX_DATAGRAM_MARKS )
+		sv_datagram_marks[ sv_datagram_nummarks ++ ] = pos;
+
+}
+
+/*
+==================
+SV_CopyServerDatagram
+
+Not in C: sv_main.c:738-739 inline, plus the PROTO-1 partial copy (see
+SV_MarkDatagram). If sv.datagram fits in msg it is copied whole, as in id.
+Otherwise the longest run of whole chunks from its start that fits is
+copied, so the frame's first sounds and particles still reach the client.
+==================
+*/
+export function SV_CopyServerDatagram( msg ) {
+
+	const datagram = sv.datagram;
+
+	// copy the server datagram if there is space
+	if ( msg.cursize + datagram.cursize < msg.maxsize ) {
+
+		SZ_Write( msg, datagram.data, datagram.cursize );
+		return;
+
+	}
+
+	// An overflow cleared sv.datagram, or cursize was reset without
+	// SV_ClearDatagram: the marks can't be trusted, so id's all-or-nothing
+	if ( datagram.overflowed || sv_datagram_nummarks === 0
+		|| sv_datagram_marks[ sv_datagram_nummarks - 1 ] > datagram.cursize )
+		return;
+
+	let end = 0;
+	for ( let i = 0; i < sv_datagram_nummarks; i ++ ) {
+
+		const mark = sv_datagram_marks[ i ];
+		if ( msg.cursize + mark >= msg.maxsize ) // id's strict < above
+			break;
+		end = mark;
+
+	}
+
+	if ( end > 0 )
+		SZ_Write( msg, datagram.data, end );
+
+}
+
+/*
+==================
 SV_StartParticle
 
 Make sure the event gets sent to all clients
@@ -180,6 +264,7 @@ export function SV_StartParticle( org, dir, color, count ) {
 	// PROTOCOL_ICARO's coords are 4 bytes, so the message is 18.
 	if ( sv.datagram.cursize > MAX_DATAGRAM - 18 )
 		return;
+	SV_MarkDatagram(); // PROTO-1: message boundary, not in C
 	MSG_WriteByte( sv.datagram, svc_particle );
 	MSG_WriteCoord( sv.datagram, org[ 0 ] );
 	MSG_WriteCoord( sv.datagram, org[ 1 ] );
@@ -197,6 +282,7 @@ export function SV_StartParticle( org, dir, color, count ) {
 
 	MSG_WriteByte( sv.datagram, count );
 	MSG_WriteByte( sv.datagram, color );
+	SV_MarkDatagram(); // PROTO-1
 
 }
 
@@ -266,6 +352,7 @@ export function SV_StartSound( entity, channel, sample, volume, attenuation ) {
 	//johnfitz
 
 	// directed messages go only to the entity they are targeted on
+	SV_MarkDatagram(); // PROTO-1: message boundary, not in C
 	MSG_WriteByte( sv.datagram, svc_sound );
 	MSG_WriteByte( sv.datagram, field_mask );
 	if ( field_mask & SND_VOLUME )
@@ -288,6 +375,7 @@ export function SV_StartSound( entity, channel, sample, volume, attenuation ) {
 	//johnfitz
 	for ( let i = 0; i < 3; i ++ )
 		MSG_WriteCoord( sv.datagram, entity.v.origin[ i ] + 0.5 * ( entity.v.mins[ i ] + entity.v.maxs[ i ] ) );
+	SV_MarkDatagram(); // PROTO-1
 
 }
 
@@ -580,6 +668,7 @@ export function SV_ClearDatagram() {
 
 	SZ_Clear( sv.datagram );
 	sv.datagram.overflowed = false;
+	sv_datagram_nummarks = 0; // PROTO-1
 
 }
 
@@ -1769,7 +1858,8 @@ function SV_SendClientDatagram( client ) {
 	_scdMsg.cursize = 0;
 	// johnfitz/QuakeSpasm: a nonlocal client gets a smaller limit. The
 	// playerinfo and packet entity writers stop at msg.maxsize and defer the
-	// rest; sv.datagram is appended below only if it fits.
+	// rest; sv.datagram is appended below, whole if it fits, else as many of
+	// its first messages as fit (SV_CopyServerDatagram, PROTO-1).
 	_scdMsg.maxsize = SV_ClientDatagramSize( client.netconnection );
 
 	MSG_WriteByte( _scdMsg, svc_time );
@@ -1813,8 +1903,7 @@ function SV_SendClientDatagram( client ) {
 	SV_WriteEntitiesToClient( client, client.edict, pvs, _scdMsg );
 
 	// copy the server datagram if there is space
-	if ( _scdMsg.cursize + sv.datagram.cursize < _scdMsg.maxsize )
-		SZ_Write( _scdMsg, sv.datagram.data, sv.datagram.cursize );
+	SV_CopyServerDatagram( _scdMsg );
 
 	// Record frame senttime and increment sequence
 	client.frames[ client.outgoing_sequence & PE_UPDATE_MASK ].senttime = sv.time;
@@ -2234,6 +2323,7 @@ export function SV_SpawnServer( server ) {
 	// set up sizebuf data pointers
 	sv.datagram.maxsize = MAX_DATAGRAM;
 	sv.datagram.cursize = 0;
+	sv_datagram_nummarks = 0; // PROTO-1
 	sv.datagram.data = sv.datagram_buf;
 	sv.datagram.allowoverflow = true; // unreliable messages can be dropped
 

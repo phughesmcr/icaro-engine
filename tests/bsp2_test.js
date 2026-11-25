@@ -203,6 +203,29 @@ Deno.test( 'BSP2 edge vertex numbers and marksurfaces past 16 bits', () => {
 
 } );
 
+Deno.test( 'BSP2 texturemins past 16 bits do not wrap (Ironwail int texturemins)', () => {
+
+	// The synthetic texinfo maps s = x and t = y, so a face out at
+	// x = 40000, y = -40064 has texture-space minimums beyond a short.
+	// In an Int16Array they would wrap to -25536 and 25472.
+	const map = smallMap();
+	const base = map.vertexes.length;
+	map.vertexes.push( [ 40000, - 40064, 0 ], [ 40064, - 40064, 0 ], [ 40064, - 40000, 0 ] );
+	const firstedge = map.surfedges.length;
+	const e = map.edges.length;
+	map.edges.push( [ base, base + 1 ], [ base + 1, base + 2 ], [ base + 2, base ] );
+	map.surfedges.push( e, e + 1, e + 2 );
+	map.faces.push( { planenum: 2, side: 0, firstedge: firstedge, numedges: 3, texinfo: 0, styles: [ 0, 255, 255, 255 ], lightofs: - 1 } );
+
+	const mod = loadBsp( writeMap( true, map ) );
+	const s = mod.surfaces[ map.faces.length - 1 ];
+	assertEqual( s.texturemins[ 0 ], 40000, 'texturemins[0] past +32767' );
+	assertEqual( s.texturemins[ 1 ], - 40064, 'texturemins[1] past -32768' );
+	assertEqual( s.extents[ 0 ], 64, 'extents[0]' );
+	assertEqual( s.extents[ 1 ], 64, 'extents[1]' );
+
+} );
+
 Deno.test( 'BSP2 has no leaf limit, BSP29 keeps MAX_MAP_LEAFS', () => {
 
 	const map = smallMap();

@@ -132,7 +132,21 @@ PRs #141 to #146:
 - **2021 rerelease:** these finish the plan in [`rerelease-gaps.md`](rerelease-gaps.md), which now records how each gap was closed. Section 7 has an entry for each except #145, whose changes are under "Wire format" above. The PRs are: a no-op `vibrate` command (#142), the quad and pentagram dlights `EF_QEX_QUADLIGHT` and `EF_QEX_PENTALIGHT` (#143), skyboxes from the worldspawn `sky` key (#144), alpha for alias models, the player and the view model, with `U_FRAME2` and the `max_edicts` cvar (#145), and MD5 replacement models (#146). `vibrate` is a deliberate addition: neither id's Quake nor Ironwail has it, and the rerelease's own QuakeC that sends it is commented out.
 - **Docs:** this fix status up to #140 (#141).
 
-At `3d1947b` (`dev`, after #146), `deno task test` passes 651 tests, including `tests/net_webtransport_server_test.ts`. At `772379d` (after #140) it passed 611, and at `223a180` (after #114) 546.
+PRs #147 to #150:
+
+- **Back to id's C:** `Mod_CheckWaterVis` sizes each PVS row from the world's `visleafs` rather than its full leaf count, so maps no longer print `Mod_DecompressVis: output overrun` (#148). The C runs the check after the submodel loop has set `numleafs`; the port ran it before.
+- **Datagram size:** `MAX_DATAGRAM` is 4096, as FitzQuake and QuakeSpasm raise it, and a network client gets at most `DATAGRAM_MTU` (1400), read per client from the WebTransport session (#150). Section 7 has the entry. A live WebTransport session over loopback on mg1 `mge2m2` read a `maxDatagramSize` of 1421, so the client was allowed 1400 bytes. Over 70 teleports, 9 datagrams went above 1024 bytes (the largest 1,113) and all 9 arrived. No `packet overflow` was printed. A real network path was not tested.
+- **Three.js rendering:** world batches with no instance in the PVS are hidden, so Three.js no longer binds and draws empty batches on big BSP2 maps (#149).
+- **Docs:** this fix status up to #146 (#147).
+
+PRs #151 to #156 (Part 3's findings):
+
+- **Docs:** this fix status up to #150 (#151), and Part 3 of this review, sections 13 to 18 (#152).
+- **Back to id's C:** BSP-1, `texturemins` stored as `int`, as in Ironwail, so lightmap origins no longer wrap on large BSP2 maps (#153). All 26 affected faces in the rerelease's `mg3` `map7` now get the right values, and no map in id1, hipnotic or rogue had a value out of range. CD-1, CD-2 and part of CD-3 (#154): `CDAudio_Stop` and `CDAudio_Play` follow `cd_win.c`'s order, the track is taken as a byte, and the `cd` subcommands are case-insensitive. CD-3's `close`, `eject`, volume and hidden-tab items are not fixed.
+- **Web multiplayer menus:** MENU-1, MENU-2 and MENU-3 (#155). `?server=` is validated by `Sys_ParseLobbyURL` and kept in the page URL, `connect` arguments are quoted safely, and Start Game has an in-flight guard that Escape cancels. MENU-4 is not fixed.
+- **WebXR rendering:** XR-1 and XR-2 (#156). In XR, `R_CullBox` culls with the eyes' frustum, not the body's, and the screen blends draw on a head-locked quad under the HUD. XR-3 is not fixed. No headset test was done; #156 lists the manual steps.
+
+At `10e13c4` (`dev`, after #156), `deno task test` passes 684 tests. At `055c52f` (after #150) it passed 661, including `tests/net_webtransport_server_test.ts`. At `3d1947b` (after #146) it passed 651, at `772379d` (after #140) it passed 611, and at `223a180` (after #114) 546.
 
 ### Residuals and follow-ups
 
@@ -437,7 +451,7 @@ Later PRs changed some of these on purpose: the `MSG_Write*` rounding, the wire 
 - **Registered-content checks kept looser on purpose** (decided in [#10]):
   - `COM_FindFile`'s shareware rule that refuses loose files whose path contains `/` is not ported. The port ships its deathmatch maps as loose `static/maps/*.bsp` files next to the shareware pak, and the rule would refuse them.
   - WinQuake's `#if WINDED` check in `COM_CheckRegistered`, which stops a dedicated server without the registered `gfx/pop.lmp`, is not ported. The Deno room server is a dedicated server that runs on the shareware pak by design.
-- **Behaviour taken from QuakeSpasm and Ironwail** (added after this review, #42 to #146): these C source ports fix bugs in id's code and raise its limits. The port takes some of their changes, so in these places it no longer matches WinQuake:
+- **Behaviour taken from QuakeSpasm and Ironwail** (added after this review, #42 to #150): these C source ports fix bugs in id's code and raise its limits. The port takes some of their changes, so in these places it no longer matches WinQuake:
   - `MSG_WriteCoord` and `MSG_WriteAngle` round with `Q_rint` (#69, #42), where WinQuake truncates. QW's `MSG_WriteAngle16` no longer drops the fraction of a degree before quantising (#42).
   - The wire format changed at the same `PROTOCOL_VERSION` 15 until #140 moved the server to `PROTOCOL_ICARO` (1015); the client still reads 15 for demos. `clc_move` carries 16-bit angles (#42), the movevars include `sv_altnoclip` (#93), and `svc_localsound` is new (#106). See "Wire format" under the fix status.
   - The QuakeC builtin table goes past index 78, with Ironwail's extension builtins (#80, #106) and two rerelease builtins (#111).
@@ -455,10 +469,12 @@ Later PRs changed some of these on purpose: the `MSG_Write*` rounding, the wire 
 
 ## 8. Not covered by this review
 
-- `cd_audio.js` internals
-- the web-specific multiplayer menus
-- XR rendering and texture upload paths
-- any live run: no browser session, no remote multiplayer session, no lobby or room server
+Part 3 (sections 13 to 18) has since covered `cd_audio.js`, the web multiplayer menus, XR rendering and texture upload, and the ported engine code changed in #115 to #150. Still not covered:
+
+- any live run: no browser session, no headset, no remote multiplayer session, no lobby or room server
+- a fresh fidelity pass over #34 to #114 (`dfef74a` to `223a180`); those PRs were reviewed one by one when they landed
+- the new web-only features of #115 to #150 beyond their effect on id's data: the MD5 skinning, the fog and skybox code, TGA loading, the localisation loader and `unicode_translit.js` were spot-checked against Ironwail, not compared line by line
+- `server/` and `src/net_webtransport.js` changes since Part 2, apart from the room calls the menus make
 
 ---
 
@@ -705,6 +721,205 @@ The mouse-look maths in `IN_MouseMove` matches `in_win.c` (`m_filter`, `sensitiv
 - **Numpad:** there are no `K_KP_*` codes.
 - **Non-US layouts:** characters in the range 128-255 alias Quake's special key codes (e.g. `ÿ` = `K_PAUSE`).
 - **Mouse wheel:** it doesn't call `preventDefault`, so Ctrl+wheel zooms the page.
+
+---
+
+# Part 3: Second pass: CD music, multiplayer menus, WebXR rendering, texture upload, and engine changes since #114
+
+| | |
+|---|---|
+| Date | 2026-11-25 |
+| Port revision | `055c52f` (`dev`, after #150) |
+| Reference source | id-Software/Quake `bf4ac42`; [Ironwail](https://github.com/andrei-drexler/ironwail) `3fa96fe` and [QuakeSpasm](https://github.com/sezero/quakespasm) `13f16f2` where the port says it follows them |
+
+This pass covers what section 8 left out (sections 13 to 16) and the ported engine code that changed in #115 to #150, from `223a180` to `055c52f` (section 17). The deliberate deviations in section 7 are not reported again. The web-only parts have no C counterpart, so they were reviewed for correctness and robustness, as Part 2 was.
+
+The method is the one Part 1 used. Reviewers, one per area, compared the port with the C, and the lead reviewer opened both sides for every finding ranked medium or higher. Verified and Reported mean what they mean in Part 1. Nothing was run in a browser, on a headset or over a network; severity is judged from the code. Line numbers refer to `055c52f`. C references give `file:line` in the source named in each finding.
+
+## Part 3 summary, most urgent first
+
+1. **XR-1:** in VR the frustum follows the body, not the head, so sky, water, doors and torches vanish in chunks when the player turns their head.
+2. **MENU-1:** the `?server=` lobby address is dropped from the page URL after the first join, so later menu actions and every shared link go to `localhost:4433`.
+3. **XR-2:** no screen blends in VR: no damage flash, powerup tint or underwater colour.
+4. **MENU-2:** a crafted `?server=` link runs console commands as the page loads.
+5. **MENU-3:** Start Game can create two rooms, and a late reply pulls the player out of whatever they did next.
+6. **BSP-1:** lightmap origins wrap on large BSP2 maps; 26 faces in the rerelease's `mg3` `map7` are affected.
+7. **CD-1, CD-2:** a map without a CD track stops the music, where id keeps it playing, and a stopped track restarts on unpause.
+8. **Low-medium:** `gl_texsort 0` freezes lightmaps (TEX-1), liquid alpha is gated on vis the other way round from Ironwail (BSP-2), remote players lose all sounds and particles on a busy frame (PROTO-1), and the room list races (MENU-4).
+9. **Low:** the rest of sections 13 to 17.
+
+**Status:** items 1 to 7 are fixed in `dev` by #153 to #156, with CD-3 partly fixed; see "PRs #151 to #156" in the fix status at the top. The sections below still describe the port at `055c52f`.
+
+Nothing in #115 to #150 changed what id's data does: BSP29 maps, mono lighting, protocol 15 demos and progs without the rerelease effects all take id's path (section 17).
+
+## 13. WebXR rendering (`src/webxr.js`, the XR branches in `src/gl_rmain.js`)
+
+IN-3's "no 2D UI in the headset" is fixed: `XR_RenderHUD` (`webxr.js:419`) draws the menu, console and HUD on a head-locked quad in its own scene after the world (`gl_rmain.js:1568`). The renderer still works out what to draw from the body's view, not the head's.
+
+### XR-1 · The frustum follows the body, so sky, water, doors and torches vanish when the head turns — **high (in VR)**, Verified
+
+- **Port:**
+  - `R_SetupFrame` takes `vpn`, `vright` and `vup` from `r_refdef.viewangles` (`gl_rmain.js:296`), the body's angles. `R_SetFrustum` (`gl_rmain.js:241`) builds the four planes from them and from the window's `fov_x`/`fov_y`, and runs every frame (`:1471`).
+  - In XR only the rig and the Three.js eye cameras follow the headset (`gl_rmain.js:421-456`). `frustum[]` never does.
+  - `R_RecursiveWorldNode` calls `R_CullBox` (`gl_rmain.js:205`) on each node before it marks the leaf's surfaces and stores its efrags (`gl_rsurf.js:2085`, `:2095-2099`, `:2106`). `DrawTextureChains` draws the sky and water only from the chains those marks build (`gl_rsurf.js:2316-2342`). `R_DrawBrushModel` culls doors, lifts and buttons with the same frustum (`gl_rsurf.js:1824`).
+  - The opaque world batches are chosen by the PVS alone (`R_SetWorldBatchVisibility`), so walls and floors are unaffected.
+- **C:** `R_SetFrustum` (`gl_rmain.c:769`) and `R_CullBox` (`gl_rmain.c:111`), used at `gl_rsurf.c:1202` and `gl_rsurf.c:1107`. The frustum is the camera's, so it is right there.
+- **Effect:** a player who faces north and turns their head 60° or more, or looks down, sees sky and water surfaces outside the desktop frustum go missing (the XR background is black, `gl_rmain.js:1551`), along with doors, lifts, torches and flames. The cull is per BSP node, so they go in chunks. Aim and movement come from the controller, so the body and the head often point in different directions.
+- **Fix direction:** in XR, skip `R_CullBox` (an all-pass frustum) or build the planes from the union of the eye frusta. The PVS already bounds the work.
+
+### XR-2 · Screen blends are not drawn in VR — **medium-high**, Verified
+
+- **Port:** `R_RenderView` calls `R_PolyBlend` only outside XR (`gl_rmain.js:1560-1569`). `V_CalcBlend` still fills `v_blend`, but nothing in XR reads it.
+- **C:** `R_RenderView` calls `R_PolyBlend` (`gl_rmain.c:1151`), which draws `v_blend` over the whole view (`gl_rmain.c:718`).
+- **Effect:** in VR there is no red damage flash, no pickup flash, no quad, pentagram, ring or biosuit tint, and no water, slime or lava tint underwater. A player in lava gets no colour cue. Part 2 noted this under IN-3, and the fix for IN-3 (#7, #135) left it out.
+- **Fix direction:** draw `v_blend` as a head-locked quad larger than the eye frusta in the HUD scene, before the HUD quad.
+
+### XR-3 · Other XR rendering differences — **low to low-medium**, Reported
+
+- **PVS and contents from the body (low-medium):** `r_origin`, the view leaf, `R_MarkLeaves` and `V_SetContentsColor` use `r_refdef.vieworg` (`gl_rmain.js:294-305`), not the head. Leaning through a doorway into a leaf outside the body's PVS shows missing world, and a head under water gets no underwater contents until the body's eye is under too. C uses the camera (`R_SetupFrame`, `gl_rmain.c:810`). The pose is only known inside `render()`, so a fix would use the previous frame's pose.
+- **Rig pitch (low-medium):** the rig takes the pitch from `cl.viewangles` (`gl_rmain.js:409-448`), and the headset adds its own. XR input only turns yaw, but `V_DriftPitch` (`view.js:354`), `svc_setangle` and the chase camera can set pitch, which tilts the world around the player. Roll and punch are already removed in XR (`view.js:889-920`). Whether `idealpitch` is ever non-zero in XR was not checked.
+- **Resize during a session (low):** `vid.js:240-248` calls `renderer.setSize` and `setPixelRatio` on every `resize`, with no XR check, so after the session ends the canvas, `vid` and the renderer's size can disagree until the next resize.
+- **View model (low):** with no tracked controller the gun keeps the transform from `R_DrawAliasModel` and floats at the body (`gl_rmain.js:676-701`). The missing `glDepthRange` hack is deliberate (comment at `:699`).
+- **HUD cost (low):** `XR_UpdateHUD` uploads the window-sized overlay canvas at up to 30 Hz (`webxr.js:357-401`). Not measured on a headset.
+
+## 14. Web multiplayer menus and links (`src/menu.js`, `src/sys.js`, `main.js`)
+
+### MENU-1 · The lobby address is lost after the first join, so later menu actions and shared links go to localhost — **medium-high**, Verified
+
+- **Port:**
+  - The only way to name a lobby is the page's `?server=` parameter, read from `location` each time: the room list (`menu.js:115`), Join (`:1357`), Start Game (`:1643`) and the auto-join on load (`main.js:176`). Each falls back to `https://localhost:4433`.
+  - `Sys_PageURL` keeps only `room` and `game` (`sys.js:41-50`). Join and Start Game write it into the address bar before connecting (`menu.js:1366`, `:1664`), and so do `cl_main.js:244`, `:271`, `:345` and `net_webtransport.js:1271`.
+  - `_WT_ClearRoomFromUrl` (`net_webtransport.js:911-918`), called when a connect fails, drops every parameter, `game` included.
+- **C:** no counterpart.
+- **Effect:** a player opens `?server=https://lobby.example:4433` and joins a room. From then on, Join Game, the room-list refresh and Start Game query `localhost:4433` and fail. The link in the address bar, which the code means to be shared, has no `server`, so whoever opens it auto-joins through localhost. After a failed connect a mission-pack player also loses `?game=`.
+- **Fix direction:** keep `server` (and `game`) in `Sys_PageURL`, have `_WT_ClearRoomFromUrl` use `Sys_PageURL( null )`, or resolve the lobby once at start-up.
+
+### MENU-2 · A crafted link runs console commands on page load — **medium**, Verified
+
+- **Port:** the auto-join builds `'connect "' + serverUrl + '?room=' + encodeURIComponent( roomId ) + '"'` with `serverUrl` taken raw from `?server=` (`main.js:176-178`). `URLSearchParams.get` decodes `%22` to `"`, which closes the quoted argument, and `Cbuf_Execute` splits on a `;` outside quotes (`cmd.js:146-152`) or on a newline. Start Game's fallback, `serverUrl + '?room=' + room.id` (`menu.js:1684`), is built the same way and also takes `room.id` unencoded from the lobby.
+- **C:** no counterpart. `connect` is typed by the player in C.
+- **Effect:** opening `?room=x&server=%22;bind%20w%20quit;%22` runs `bind w quit` with no click. Any console command can run, for example binds, cvars or `exec`, and `host_writeconfig` makes it last. The impact stays inside the engine.
+- **Fix direction:** build the URL with `new URL` and `searchParams.set`, as the Join path (`menu.js:1360-1362`) does, and refuse a server URL or room id that contains `"`, `;` or a control character.
+
+### MENU-3 · Start Game has no in-flight guard, and a late reply takes over — **medium**, Verified
+
+- **Port:** Enter on Start Game calls `_WT_CreateRoom` (`menu.js:1647`), which opens a new transport each time (`net_webtransport.js:515`). There is no pending flag. The `.then` doesn't check that the menu is still open: it rewrites the URL, sets `key_dest` to the game, closes the menu and queues `connect` (`menu.js:1664-1688`). The failure paths only print to the console and end the plaque (`:1693-1699`). `await transport.ready` (`net_webtransport.js:548`) has no timeout of its own.
+- **C:** `M_GameOptions_Key` queues `listen 0`, `maxplayers` and `map` at once (`menu.c:2811-2829`), so there is no race.
+- **Effect:** pressing Enter twice creates two rooms, one of them orphaned. A player who presses Escape and starts a local game, or joins another room, is pulled into the first room when its reply arrives. A failed create ends the plaque and leaves the player back in the game view with the error only in the console.
+- **Fix direction:** a pending flag that ignores Enter, a token checked on reply (drop it if `m_state` changed), and the error shown through `m_return_reason`.
+
+### MENU-4 · Other menu differences — **low to low-medium**, Reported
+
+- **Room list races (low-medium):** `M_FetchRooms` (`menu.js:100-134`) has no generation counter, and Space refreshes even while a fetch is running (`:1381-1383`). The first reply to finish clears "Searching…", a slower older reply overwrites a newer list, and the cursor is reset only when the menu opens (`:1237`), so a shorter list leaves it past the end. Entries aren't checked, so a `null` entry throws in `M_LanConfig_Draw` every frame.
+- **Return state (low):** `m_return_onerror` is set on Join (`menu.js:1369-1370`) but cleared only by `M_ConnectionError` and `M_Menu_LanConfig_f`, so a later failed `connect` from the console returns to a stale room list. Start Game never sets it.
+- **Game options (low):** the room request carries only the map, `maxPlayers` and host name (`menu.js:1647-1651`), so Game Type, Teamplay, Skill, Frag Limit and Time Limit do nothing online, though the menu still shows them. A comment at `:1456-1459` says so; the menu doesn't.
+- **Setup (low):** the hostname row is gone with no deviation comment (`NUM_SETUP_CMDS` 4), and Accept sends `name` every time (`:2872`) where C sends it only on a change (`menu.c:797-798`); `Host_Name_f` ignores an unchanged name. `name "<text>"` takes a `"` from the keyboard, as C does, so a name can end the quote.
+
+## 15. CD music (`src/cd_audio.js`)
+
+`CDAudio_Pause`, `CDAudio_Resume`, `CDAudio_Init`, the `cd` subcommands that exist, the remap table, the `svc_cdtrack` demo `forcetrack` rule (`cl_parse.js:1687-1694`) and the `svc_setpause` wiring match the C. Loading is web-only: one reused `Audio` element, `trackNN` files from the game directories, retry after a user gesture when autoplay is blocked, and a counter that drops stale loads.
+
+### CD-1 · `CDAudio_Stop` lets a stopped track come back on unpause — **medium**, Verified
+
+- **Port:** `CDAudio_Stop` (`cd_audio.js:346-369`) has no `if ( ! playing ) return` and sets `wasPlaying = playing` before `playing = false` (`:366`).
+- **C:** `CDAudio_Stop` returns when nothing is playing and sets `wasPlaying = false` (`cd_win.c:178-192`). Only `CDAudio_Pause` copies `playing` into `wasPlaying` (`cd_win.c:211`).
+- **Effect:** after `cd stop`, or after `CDAudio_Play` stops the old track itself (CD-2), pausing and unpausing the game calls `CDAudio_Resume` (`cl_parse.js:1655`), which sees `wasPlaying` and restarts the stopped track from the start. Stopping while paused clears `wasPlaying`, where C keeps it.
+- **Fix direction:** return early when not playing and set `wasPlaying = false`, as C does. Keep the `playAttempt` and `gestureRetry` reset before the early return, for a load still pending.
+
+### CD-2 · `CDAudio_Play` stops the music before checking the track — **medium**, Verified
+
+- **Port:** `CDAudio_Play` remaps the track, stops the current one if it differs (`cd_audio.js:227-233`) and sets `playLooping` (`:235`), and only then rejects a bad track (`:237`).
+- **C:** `CDAudio_Play` rejects a bad track first (`cd_win.c:121-125`) and stops the current track only after the checks (`cd_win.c:153-158`). `playLooping` is set only on success (`cd_win.c:169`). `cd_linux.c` has the same order.
+- **Effect:** a map with `sounds` 0 sends `svc_cdtrack 0` (`sv_main.js:380-382`). In C the music from the previous map keeps playing; in the port it stops. Many custom maps have no `sounds` key. `cd play 0` and `cd play 999` also stop the music.
+- **Fix direction:** check the track first, then do the same-track return and the stop.
+
+### CD-3 · Smaller CD differences — **low**, Verified (track range), Reported (the rest)
+
+- **Track range:** `track = remap[ track ]` on a `Uint8Array( 256 )` (`cd_audio.js:225`) is `undefined` for 256 or more or for a negative track, and `undefined < 1` is false, so the range check passes and `trackundefined` files are fetched. C takes a `byte` (`cd_win.c:103`), so the value wraps. `cd play 300` and a demo's `forcetrack` (`cl_demo.js:464-469`) can reach it. Masking with `& 0xff` restores C.
+- **Volume:** `musicElement.volume` is set once at play (`cd_audio.js:285`) and the element is then routed through a gain node (`:291-299`) that `CDAudio_Update` adjusts (`:453-460`). Whether the browser applies the element volume as well was not checked; if it does, the level is squared and stays at the start value.
+- **`cd` command:** subcommands are compared case-sensitively (`cd ON` does nothing; C uses `Q_strcasecmp`), `close` and `eject` are missing, and `cd info` prints "Not playing" while paused (`cd_audio.js:543-647`; C `cd_win.c:243-360`).
+- **Hidden tab:** the element keeps playing while the AudioContext is suspended on focus loss, and plays aloud if it wasn't routed through the context. C has no focus handling for CD, so this is web-only.
+
+## 16. Texture upload (`src/gl_model.js`, `src/gl_draw.js`, `src/gl_rmisc.js`, `src/gl_warp.js`, `src/gl_rsurf.js`, `src/glquake.js`)
+
+These match `gl_draw.c` and `gl_rmisc.c`: `gl_picmip` and `gl_max_size` scaling (without the power-of-two round-up, documented at `glquake.js:344-347`), point resampling, which textures take `gl_texturemode`, index 255 transparent only for alpha textures, conchars 0 transparent, the player skin ranges, the sky layers and average colour, and full-row lightmap uploads (#49). Every texture is RGBA, so `unpackAlignment` doesn't matter. World, sky, fullbright and lightmap textures are disposed at map change.
+
+### TEX-1 · `gl_texsort 0` stops lightmap updates — **low-medium**, Verified
+
+- **Port:** `R_BlendLightmaps` returns when `gl_texsort` is 0 (`gl_rsurf.js:2492-2493`), and it is the only caller of `R_UploadLightmapRect` (`:2510`). The `gl_texsort 0` path, `R_DrawSequentialPoly`, only marks lightmaps modified.
+- **C:** `R_BlendLightmaps` also returns (`gl_rsurf.c:676-677`), but `R_DrawSequentialPoly` uploads the changed rows itself (`gl_rsurf.c:544-553`).
+- **Effect:** with Texture sort off in the Advanced menu (`menu_cvars.js:205`), light styles and dynamic lights stop changing on the world.
+- **Fix direction:** upload in the `gl_texsort 0` path as C does, or run the upload loop of `R_BlendLightmaps` whatever `gl_texsort` is.
+
+### TEX-2 · Palette index 255 loses its colour — **low**, Verified
+
+- **Port:** `VID_SetPalette` sets `d_8to24table[ 255 ] = 0` (`vid.js:109-110`), so non-alpha textures that use index 255 (`gl_model.js:753`, `gl_warp.js:295`, `gl_draw.js:1146`, `r_part.js:938`) draw it black, and alpha textures carry black under their transparent texels.
+- **C:** `d_8to24table[255] &= 0xffffff` (`gl_vidnt.c:734`) clears only the alpha and keeps the palette colour (159, 91, 83).
+- **Effect:** rare: few textures in id's data use 255 outside alpha textures, and player colours are clamped to 13 (`host_cmd.js:712-714`), so the player translation never reaches it. Filtered and mipmapped alpha textures (sprites, `{` textures, `MF_HOLEY` skins) fringe towards black instead of brown.
+- **Fix direction:** keep the RGB and clear only the alpha. `gl_warp.js:339` and `:358-361` read alpha from the table and need the same rule.
+
+### TEX-3 · Other texture differences — **low**, Reported
+
+- **Re-upload on filter change:** `gl_texturemode` and anisotropy changes set `needsUpdate` on every texture (`glquake.js:503-510`, `gl_model.js:930-938`), a full re-upload where C only sets parameters (`Draw_TextureMode_f`, `gl_draw.c:352-360`). It is a one-off hitch.
+- **Sky filtering:** both sky layers hard-code `LinearFilter` (`gl_warp.js:322-328`, `:356-362`); C loads them through `GL_LoadTexture`, so they follow `gl_filter_max`.
+- **Mipmaps in linear light:** sRGB textures are mipmapped after decoding, where `GL_MipMap` averages the raw bytes (`gl_draw.c:945-965`), so distant textures are slightly brighter.
+- **Alias and MD5 skins** are never disposed (`gl_model.js:1220-1225`). GLQuake never frees textures either, so this matches the C; only a long session over many models grows.
+
+## 17. Engine changes in #115 to #150 (`223a180` to `055c52f`)
+
+Reviewers compared the ported functions whose bodies changed in these PRs with id's C, and spot-checked them against Ironwail or QuakeSpasm where the port says it follows them. Most of this range is deliberate deviations listed in section 7 (BSP2, `.lit`, fog, skyboxes, MD5, `PROTOCOL_ICARO`, the datagram size) or described under "Wire format" above (entity alpha), so the main check was that id's data still takes id's path.
+
+**What matches:**
+
+- **BSP29 through the BSP2 loaders:** every BSP29 branch of `Mod_LoadEdges`, `Mod_LoadFaces`, `Mod_LoadMarksurfaces`, `Mod_LoadLeafs`, `Mod_LoadNodes` and `Mod_LoadClipnodes` reads the same widths and signedness as id and as Ironwail's `_S` loaders. The BSP2 layouts and the version constant match Ironwail.
+- **Mono lighting:** with no `.lit`, `R_BuildLightMap`, `R_AddDynamicLights` and `R_LightPoint` run id's code, and white dlights take id's path.
+- **Protocol 15 demos:** baselines, statics, clientdata, sounds and static sounds read in the NetQuake form with 16-bit coords. Under 1015 every writer and reader agrees on field order and width, including `svc_temp_entity`, `svc_particle`, `svc_setangle`, the packet entities and `svc_playerinfo`.
+- **Effects and edicts:** a progs without the `EF_QEX_*` globals gets id's effects byte (`PR_FindSupportedEffects` is Ironwail's). `max_edicts` growth appends to the same array, so no reference goes stale.
+- **Rendering:** the crosshair (#123), `Draw_CharToConback` and the console version stamp (#125), and `-particles` (#127) match id. The alias lighting cache (#132) is keyed on everything that `R_DrawAliasModel` shades from, and entities with the default alpha take the same material path as before.
+- **#148 to #150:** `Mod_CheckWaterVis` matches Ironwail apart from its documented row size, `R_SetWorldBatchVisibility` hides only batches with no instance in the PVS, and `SV_SendClientDatagram` copies `sv.datagram` only when it fits, as id and QuakeSpasm do.
+
+### BSP-1 · Lightmap texture origins wrap on large BSP2 maps — **medium**, Verified (code and the rerelease data)
+
+- **Port:** `msurface_t.texturemins` is an `Int16Array` (`gl_model.js:282`), filled with `bmins * 16` in `CalcSurfaceExtents` (`gl_model.js:2028`). The lightmap coordinates (`gl_rsurf.js:2994`, `:3000`), `R_AddDynamicLights` (`gl_rsurf.js:1571-1572`) and `R_LightPoint` (`gl_rlight.js:478-482`) read it.
+- **C:** id keeps it `short` (`gl_model.h:134`). Ironwail, whose BSP2 loader the port follows, made it `int` (`gl_model.h:155`) and kept `extents` `short`.
+- **Effect:** a texture-space minimum outside ±32768 wraps by 65536. A script over the local rerelease data found 26 lightmapped faces (texture `mg_cliff1_1`) in `mg3`'s `maps/map7.bsp` that do, and none in id's maps or the mission packs. On those faces the lightmap is sampled from the wrong place, dynamic lights miss, and a model standing on one is lit wrongly. Not seen in a browser.
+- **Fix direction:** make `texturemins` an `Int32Array`, as Ironwail does.
+
+### BSP-2 · Liquid alpha is gated on the map's vis the other way round from Ironwail — **low-medium**, Verified
+
+- **Port:** `R_ParseWorldspawn` sets `map_wateralpha`, `map_lavaalpha`, `map_slimealpha` and `map_telealpha` from the cvars for every map (`gl_rsurf.js:555-558`) and applies the worldspawn `_wateralpha`-style keys only to liquids that `Mod_CheckWaterVis` found see-through (`gl_rsurf.js:583-590`).
+- **C:** Ironwail's `R_ParseWorldspawn` does the opposite: the cvar applies only to see-through liquids, and the keys apply always (`gl_rmisc.c:460-463`, `:488-499`). QuakeSpasm gates neither.
+- **Effect:** with `r_wateralpha` below 1, water on a map not vised for it turns translucent and shows the void behind it, which is what Ironwail's gate prevents. A mapper's `_wateralpha` key is ignored on such a map, where Ironwail honours it. The commit says the key gating was intended, but it matches neither port. The default `r_wateralpha` is 1, so default settings are unaffected.
+- **Fix direction:** gate the cvar values and apply the keys unconditionally, as Ironwail does, or document the choice in section 7.
+
+### BSP-3 · Smaller loader and lighting differences — **low**, Reported
+
+- **Extents seeds:** `CalcSurfaceExtents` seeds with id's `999999` and `-99999` (`gl_model.js:1994-1995`); Ironwail uses `FLT_MAX` (`gl_model.c:1177-1178`). A BSP2 face entirely beyond those values gets wrong extents. No shipped map comes close (the largest texture minimum found was 69280).
+- **Light sample truncation:** `R_LightPoint` keeps `s`, `t`, `ds` and `dt` as floats (`gl_rlight.js:475-482`), and `R_AddDynamicLights` keeps `sd` and `td` as floats (`gl_rsurf.js:1576-1587`); C declares them `int` (`r_light.c`, `gl_rsurf.c`). Edge tests and dlight falloff differ by under one luxel.
+- **Bounds checks:** leaf marksurface ranges and face plane and texinfo indices are not range-checked, so a corrupt map throws a `TypeError` instead of a `Host_Error`. Ironwail doesn't check these either.
+- **Comment:** `MAX_MOD_KNOWN` is described as "Ironwail's 2048" (`gl_model.js:675-678`, and `docs/rerelease-gaps.md`); Ironwail's is 4096 (`gl_model.c:51`). 2048 is enough for the rerelease.
+
+### PROTO-1 · Protocol and server differences — **low to low-medium**, Reported
+
+- **Datagram space (low-medium):** `SV_StartSound` and `SV_StartParticle` now let `sv.datagram` grow to about 4075 bytes (`sv_main.js:181`, `:232`), while a network client's datagram is at most 1400 and takes `sv.datagram` whole or not at all (`sv_main.js:1773`, `:1816`). This is id's rule (`sv_main.c:738-739`) and QuakeSpasm's (`sv_main.c:1026`, `:1038`), so it is not a regression. The port makes it more likely: a sound is 21 bytes and a particle 18 with 4-byte coords (id: 13 and 16), and the entity writers stop with 54 bytes free (`sv_main.js:1004`, `:1087`) where id leaves 16. On a busy frame a remote player then loses every sound and particle of that frame. Copying whole messages while they fit would keep the first ones.
+- **Edicts past the allocated array (low):** `PROG_TO_EDICT` (`progs.js:475`) doesn't grow the edict array as `EDICT_NUM` does, so a progs that reads a field of an edict number between the allocated count and `max_edicts` gets `PR_RunError( 'bad edict number' )` (`pr_exec.js:370`), where C reads a zeroed edict.
+
+### REND-1 · Rendering details — **low**, Reported
+
+- **Crosshair:** the `+` is centred on the `scr_vrect` centre (4 pixels up and left of id's `gl_screen.c:906-907`) and is hidden in every intermission, where id hides it only in some. Both are documented in `SCR_DrawCrosshair` (`gl_screen.js:631-637`). `cl_crossx` and `cl_crossy` are registered but unread, as in GLQuake.
+- **Player material:** the per-entity player material is rebuilt only when the translated skin texture changes (`gl_mesh.js:938-963`), so its fullbright map and lighting flag are fixed at creation. No path that changes them was found.
+- **`.lit` fetch:** `COM_EnsureFile` starts the `.lit` fetch before awaiting the map and awaits it after (`pak.js:390`), so a throw from the `.lit` fetch while the map load is failing would be an unhandled rejection.
+
+## 18. Part 3: claims checked and rejected
+
+- **"#150's 4096-byte datagram can overflow the loopback buffer."** `Loop_SendMessage` calls `Sys_Error` when the pending datagram and a reliable message together pass 8192 bytes (`net_loop.js:207`). With a 4096-byte local datagram that takes a reliable message over 4088 bytes in the same frame to a spawned client, which nothing in the engine writes. Section 7 and `quakedef.js` document the choice.
+- **"#149 can hide world batches that should draw."** `R_MarkLeaves` keeps the main view's PVS for the mirror pass, as C does, and both XR eyes share it, so a hidden batch has no surface in any view this frame.
+- **"`r_drawworld` is never read."** id's GLQuake has no `r_drawworld` cvar; the port's is an unused addition.
+- **"The player translation reaches palette index 255."** `Host_Color_f` clamps colours to 13 (`host_cmd.js:712-714`), so the translated range never includes 255 (TEX-2).
+- **"`CDAudio_Update` differs from C."** C's `CDAudio_Update` turns `bgmvolume` into on or off because MCI has no volume; the port sets a gain. This is a web adaptation, not a bug.
+- **"Room joins can be redirected by a hostile `room.id`."** The Join path builds the URL with `searchParams.set`, which percent-encodes it. Only Start Game's fallback concatenates (MENU-2).
+- **"Loops over `MAX_MODELS` (now 4096) run every frame."** `R_CheckLightmapCvars` runs its loop only when `r_fullbright` changes, and the loop stops at the first empty precache slot.
+- **"The XR viewmodel needs id's depth hack."** Its absence is documented (`gl_rmain.js:699`).
 
 ---
 

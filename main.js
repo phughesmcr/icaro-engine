@@ -175,10 +175,20 @@ async function main() {
 		if ( roomId ) {
 
 			// ?server= or the default lobby, over WebTransport or WebSocket
-			// (see NET_UseWebSocket)
+			// (see NET_UseWebSocket). NET_LobbyServer checks the lobby and
+			// NET_LobbyJoinURL encodes the room id, so a crafted link can't end
+			// the quoted argument and run commands.
 			const connectUrl = NET_LobbyJoinURL( NET_LobbyServer(), roomId );
-			Sys_Printf( 'Auto-joining room: %s\\n', roomId );
-			Cbuf_AddText( 'connect "' + connectUrl + '"\n' );
+			if ( connectUrl !== null ) {
+
+				Sys_Printf( 'Auto-joining room: %s\\n', roomId );
+				Cbuf_AddText( 'connect "' + connectUrl + '"\n' );
+
+			} else {
+
+				Sys_Printf( 'Not auto-joining: ?server= is not a valid lobby address (wts://, https://, or ws:// or wss:// with a path)\n' );
+
+			}
 
 		}
 

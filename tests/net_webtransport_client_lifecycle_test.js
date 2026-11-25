@@ -154,6 +154,57 @@ Deno.test( 'client and server complete the handshake and exchange messages', asy
 
 } );
 
+Deno.test( 'MENU-4: an accepted connection clears the Join menu error return', async () => {
+
+	// Set m_return_onerror the way the player does: Join on a room list.
+	const cmd = await import( '../src/cmd.js' );
+	const menu = await import( '../src/menu.js' );
+	const sys = await import( '../src/sys.js' );
+	const saved = {};
+	for ( const name of [ 'location', 'history' ] ) saved[ name ] = globalThis[ name ];
+	globalThis.location = { origin: 'https://example.test', pathname: '/', search: '' };
+	globalThis.history = { replaceState: () => {} };
+
+	const teardown = setupServer( { maxclients: 4, sockets: 10 } );
+	try {
+
+		cmd.Cbuf_Init();
+		cmd.Cmd_Init();
+		menu.M_Init();
+		menu.M_SetExternals( {
+			// The lobby helpers net_main.js injects, as they behave over WebTransport
+			NET_QueryRooms: () => Promise.resolve( [ { id: 'AB12', map: 'e1m1', playerCount: 0, maxPlayers: 4 } ] ),
+			NET_MultiplayerAvailable: () => true,
+			NET_LobbyServer: () => sys.Sys_LobbyURL(),
+			NET_LobbyJoinURL: ( lobby, roomId ) => sys.Sys_ConnectURL( lobby, roomId, null ),
+			key_dest_set: keys.set_key_dest,
+			key_dest_get: () => keys.key_dest,
+		} );
+		cmd.Cmd_ExecuteString( 'menu_lanconfig' );
+		await delay( 0 );
+		menu.M_Keydown( keys.K_ENTER );
+		assert( menu.M_ShouldReturnOnError() === true, 'Join sets the error return' );
+
+		const { sock } = await connectClient();
+		assert( menu.M_ShouldReturnOnError() === false, 'cleared once the server accepts' );
+		client.WT_Close( sock );
+
+	} finally {
+
+		cmd.Cbuf_Init();
+		keys.set_key_dest( keys.key_game );
+		for ( const name of Object.keys( saved ) ) {
+
+			if ( saved[ name ] === undefined ) delete globalThis[ name ];
+			else globalThis[ name ] = saved[ name ];
+
+		}
+		await teardown();
+
+	}
+
+} );
+
 Deno.test( 'NET-1/NET-3: a full server rejects with a reason and the client frees everything', async () => {
 
 	const teardown = setupServer( { maxclients: 1, sockets: 10 } );

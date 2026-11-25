@@ -38,7 +38,7 @@ import {
 	WS_MAX_MESSAGE_BYTES
 } from './net.js';
 import { clc_disconnect } from './protocol.js';
-import { M_ConnectionError, M_Menu_Main_f } from './menu.js';
+import { M_ClearReturnOnError, M_ConnectionError, M_Menu_Main_f } from './menu.js';
 import { set_key_dest, key_menu } from './keys.js';
 
 let ws_initialized = false;
@@ -915,6 +915,10 @@ async function _WS_ConnectDirect( url, originalHost, roomId, attempt ) {
 		if ( roomId !== null && typeof window !== 'undefined' )
 			history.replaceState( null, '', Sys_PageURL( roomId ) );
 
+		// Connected: a later failure no longer returns to the Join menu
+		// (_Datagram_Connect clears m_return_onerror here), as in
+		// net_webtransport.js.
+		M_ClearReturnOnError();
 		return sock;
 
 	} catch ( error ) {

@@ -155,7 +155,7 @@ A browser without WebTransport uses WebSocket automatically. Page parameters cho
 |-----------|--------|
 | `?transport=ws` | Use WebSocket even where WebTransport exists |
 | `?transport=wt` | Use WebTransport (when the browser has it) |
-| `?server=wss://host/mp` | The lobby. A `ws://` or `wss://` URL implies WebSocket; an `https://` or `wts://` lobby is converted (`https` becomes `wss`) |
+| `?server=wss://host/mp` | The lobby. A `ws://` or `wss://` URL implies WebSocket; an `https://` or `wts://` lobby is converted (`https` becomes `wss`). Only a plain host (and port), or for `ws`/`wss` a path of plain segments, is accepted: anything else is refused rather than quoted into a `connect` command (`Sys_ParseLobbyURL` in `src/sys.js`) |
 
 Without `?server=`, a WebSocket client on a `localhost` page uses `ws://127.0.0.1:4433` (`deno task lobby`); a page on any other host uses `wss://<that host>/mp` (or `ws://` for an `http:` page), which is the Cloudflare Tunnel layout below. These parameters are kept in the page URL when a room code is added, so a shared link joins over the same transport.
 

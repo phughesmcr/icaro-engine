@@ -30,28 +30,199 @@ export function Sys_Error( error ) {
 }
 
 /*
+===============================================================================
+
+LOBBY ADDRESS (web only, no C counterpart)
+
+The page's ?server= parameter names the multiplayer lobby. It comes from a
+link anyone can craft, and the menus and the auto-join turn it into a
+`connect "..."` line for the command buffer, so it is checked here: a `"`
+would end the quoted argument, and a `;` or newline would start a new
+command.
+
+===============================================================================
+*/
+
+export const SYS_DEFAULT_LOBBY = 'https://localhost:4433';
+
+// A hostname after URL parsing (lowercase, IDN as punycode), or an IPv6 literal.
+const _lobbyHostPattern = /^(?:[a-z0-9_-]+\.)*[a-z0-9_-]+$|^\[[0-9a-f:.]+\]$/;
+// Anything that could end a quoted argument or a command line.
+const _unsafeCommandChars = /["';\\\s\p{Cc}]/u;
+// A WebSocket lobby's path (e.g. the tunnel's /mp): plain segments only.
+const _lobbyPathPattern = /^(?:\/[A-Za-z0-9._~-]+)*\/?$/;
+
+/*
+================
+Sys_ParseLobbyURL
+
+Returns raw as 'https://host[:port]' if it names a lobby: an https://, wts://
+or wt:// URL (or a bare host[:port]) with no user info, path, query or
+fragment. A WebSocket lobby (src/net_websocket.js) may also be a ws:// or
+wss:// URL with a path of plain segments, returned as
+'wss://host[:port]/path' (or ws://) without a trailing slash. Returns null
+for anything else.
+================
+*/
+export function Sys_ParseLobbyURL( raw ) {
+
+	if ( typeof raw !== 'string' || raw.length === 0 || _unsafeCommandChars.test( raw ) )
+		return null;
+
+	let url = raw;
+	const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec( url );
+	if ( scheme !== null && /^wss?$/i.test( scheme[ 1 ] ) )
+		return _Sys_ParseWebSocketLobbyURL( raw );
+	if ( scheme === null )
+		url = 'https://' + url;
+	else if ( /^(?:https|wts?)$/i.test( scheme[ 1 ] ) )
+		url = 'https://' + url.substring( scheme[ 0 ].length );
+	else
+		return null;
+
+	let u;
+	try {
+
+		u = new URL( url );
+
+	} catch {
+
+		return null;
+
+	}
+
+	if ( u.protocol !== 'https:' || u.username !== '' || u.password !== '' )
+		return null;
+	if ( u.pathname !== '/' || u.search !== '' || u.hash !== '' )
+		return null;
+	if ( _lobbyHostPattern.test( u.hostname ) === false )
+		return null;
+
+	return 'https://' + u.host;
+
+}
+
+function _Sys_ParseWebSocketLobbyURL( raw ) {
+
+	let u;
+	try {
+
+		u = new URL( raw );
+
+	} catch {
+
+		return null;
+
+	}
+
+	if ( ( u.protocol !== 'wss:' && u.protocol !== 'ws:' ) || u.username !== '' || u.password !== '' )
+		return null;
+	if ( u.search !== '' || u.hash !== '' || _lobbyPathPattern.test( u.pathname ) === false )
+		return null;
+	if ( _lobbyHostPattern.test( u.hostname ) === false )
+		return null;
+
+	return u.protocol + '//' + u.host + u.pathname.replace( /\/+$/, '' );
+
+}
+
+/*
+================
+Sys_CommandArgIsSafe
+
+True when s can be quoted into a command line as one argument: no quote,
+semicolon, backslash, whitespace or control character.
+================
+*/
+export function Sys_CommandArgIsSafe( s ) {
+
+	return typeof s === 'string' && _unsafeCommandChars.test( s ) === false;
+
+}
+
+/*
+================
+Sys_LobbyURL
+
+The lobby named by the page's ?server= parameter, as 'https://host[:port]'.
+SYS_DEFAULT_LOBBY when there is none, and null when it is not a valid lobby
+address (callers refuse to connect rather than fall back to localhost).
+================
+*/
+export function Sys_LobbyURL() {
+
+	const server = new URLSearchParams( globalThis.location.search ).get( 'server' );
+	if ( server === null || server === '' )
+		return SYS_DEFAULT_LOBBY;
+	return Sys_ParseLobbyURL( server );
+
+}
+
+/*
+================
+Sys_ConnectURL
+
+The argument for a `connect` command: 'wts://host[:port]' for lobby (a
+Sys_LobbyURL result), with the port replaced by port when it is not null and
+'?room=<id>' added when roomId is not null. The room id is percent-encoded.
+Returns null if lobby or port is invalid, so the caller never quotes an
+unchecked string into the command buffer.
+================
+*/
+export function Sys_ConnectURL( lobby, roomId, port ) {
+
+	const host = Sys_ParseLobbyURL( lobby );
+	if ( host === null )
+		return null;
+
+	const u = new URL( host );
+	if ( port !== null ) {
+
+		if ( Number.isInteger( port ) === false || port < 1 || port > 65535 )
+			return null;
+		u.port = String( port );
+
+	}
+
+	let connectUrl = 'wts://' + u.host;
+	if ( roomId !== null ) {
+
+		const params = new URLSearchParams();
+		params.set( 'room', String( roomId ) );
+		connectUrl += '?' + params.toString();
+
+	}
+
+	// URLSearchParams percent-encodes every character that matters here; this
+	// is a last check that nothing can end the quoted argument.
+	if ( _unsafeCommandChars.test( connectUrl ) )
+		return null;
+	return connectUrl;
+
+}
+
+/*
 ================
 Sys_PageURL
 
 The page URL to put in the address bar: room= when roomId is given, and
 game=, server= and transport= kept from the current URL, since whoever opens
-a shared link needs the same mission pack and the same lobby. Other
-parameters are dropped.
+a shared link needs the same mission pack, lobby and transport. server= is
+kept only when it is a valid lobby address, and transport= only when it is
+ws or wt. Other parameters are dropped.
 ================
 */
-const _pageURLKeptParams = [ 'game', 'server', 'transport' ];
-
 export function Sys_PageURL( roomId ) {
 
 	const params = new URLSearchParams();
 	if ( roomId ) params.set( 'room', roomId );
 	const current = new URLSearchParams( globalThis.location.search );
-	for ( const name of _pageURLKeptParams ) {
-
-		const value = current.get( name );
-		if ( value !== null ) params.set( name, value );
-
-	}
+	const game = current.get( 'game' );
+	if ( game !== null ) params.set( 'game', game );
+	const server = current.get( 'server' );
+	if ( server !== null && Sys_ParseLobbyURL( server ) !== null ) params.set( 'server', server );
+	const transport = current.get( 'transport' );
+	if ( transport === 'ws' || transport === 'wt' ) params.set( 'transport', transport );
 	const query = params.toString();
 	return globalThis.location.origin + globalThis.location.pathname + ( query.length > 0 ? '?' + query : '' );
 

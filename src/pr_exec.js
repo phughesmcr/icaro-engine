@@ -297,7 +297,9 @@ PR_ExecuteProgram
 
 Port addition: in C a bad edict number in OP_LOAD_*, OP_STOREP_*,
 OP_ADDRESS or OP_STATE reads or writes stray memory (Ironwail range-checks
-only under PARANOID). In JS sv.edicts[ n ] is undefined and the opcode
+only under PARANOID). A number below sv.max_edicts is not bad: as in C it
+reads a zeroed edict (PROG_TO_EDICT grows sv.edicts). For a negative one,
+or one at or past sv.max_edicts, sv.edicts[ n ] is undefined and the opcode
 throws a TypeError, which Host_Frame rethrows and the room dies. Turn that
 into a PR_RunError (a Host_Error, as Ironwail's PARANOID NUM_FOR_EDICT
 check does). The check runs only after a throw, so the interpreter loop

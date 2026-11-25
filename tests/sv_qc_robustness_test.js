@@ -320,6 +320,72 @@ Deno.test( 'A bad edict number in an edict opcode is a PR_RunError, not a TypeEr
 
 } );
 
+Deno.test( 'An edict past the allocated ones but below max_edicts reads as zeroed, as in C', () => {
+
+	const restore = saveVM();
+
+	try {
+
+		setupWorld( 4 );
+		sv.max_edicts = 64; // C allocates all 64; sv.edicts holds 4
+		setupGlobals();
+		PR_SetGlobalStruct( { self: 0, time: 0 } );
+		sv.state = ss_active;
+		PR_SetFunctions( [ null, makeFunction( 0 ) ] );
+		PR_SetProgs( { numfunctions: 2 } );
+
+		const ENT = 40, FLD = 41, OUT = 42;
+		for ( const op of [ OP_LOAD_F, OP_LOAD_V, OP_ADDRESS ] ) {
+
+			PR_SetStatements( [ { op, a: ENT, b: FLD, c: OUT }, { op: OP_DONE, a: 0, b: 0, c: 0 } ] );
+			pr_globals_int[ FLD ] = 5;
+			pr_globals_float.fill( 7, OUT, OUT + 3 );
+
+			pr_globals_int[ ENT ] = 20;
+			assertEqual( hostErrorOf( () => PR_ExecuteProgram( 1 ) ), null, 'op ' + op + ' below max_edicts' );
+			if ( op === OP_ADDRESS )
+				assertEqual( pr_globals_int[ OUT ], ( 20 << 16 ) | 5, 'address of edict 20' );
+			else
+				assertEqual( pr_globals_float[ OUT ], 0, 'op ' + op + ' reads a zeroed field' );
+			if ( op === OP_LOAD_V )
+				assertEqual( pr_globals_float[ OUT + 2 ], 0, 'vector reads zeroed' );
+			assertEqual( sv.edicts[ 20 ].index, 20, 'edict 20 allocated' );
+
+			pr_globals_int[ ENT ] = 64;
+			assertEqual( hostErrorOf( () => PR_ExecuteProgram( 1 ) ), 'Program error', 'op ' + op + ' at max_edicts' );
+			pr_globals_int[ ENT ] = - 1;
+			assertEqual( hostErrorOf( () => PR_ExecuteProgram( 1 ) ), 'Program error', 'op ' + op + ' negative' );
+
+		}
+
+		// OP_STOREP_F through an OP_ADDRESS of a grown edict writes it
+		PR_SetStatements( [
+			{ op: OP_ADDRESS, a: ENT, b: FLD, c: OUT },
+			{ op: OP_STOREP_F, a: 43, b: OUT, c: 0 },
+			{ op: OP_DONE, a: 0, b: 0, c: 0 },
+		] );
+		pr_globals_int[ ENT ] = 30;
+		pr_globals_float[ 43 ] = 12.5;
+		assertEqual( hostErrorOf( () => PR_ExecuteProgram( 1 ) ), null, 'store to edict 30' );
+		assertEqual( sv.edicts[ 30 ]._fieldAccessor.getFloat( 5 ), 12.5, 'stored' );
+
+		// OP_STATE on a self past the allocated edicts
+		PR_SetStatements( [ { op: OP_STATE, a: OUT, b: FLD, c: 0 }, { op: OP_DONE, a: 0, b: 0, c: 0 } ] );
+		pr_global_struct.self = 50;
+		assertEqual( hostErrorOf( () => PR_ExecuteProgram( 1 ) ), null, 'OP_STATE below max_edicts' );
+		pr_global_struct.self = 64;
+		assertEqual( hostErrorOf( () => PR_ExecuteProgram( 1 ) ), 'Program error', 'OP_STATE at max_edicts' );
+
+		assertEqual( sv.num_edicts, 4, 'num_edicts unchanged' );
+
+	} finally {
+
+		restore();
+
+	}
+
+} );
+
 Deno.test( 'SV_Move returns its own trace, clipped to the nearest entity', () => {
 
 	const restore = saveVM();

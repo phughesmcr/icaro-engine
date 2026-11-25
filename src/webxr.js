@@ -41,6 +41,7 @@ const XR_HUD_UPLOAD_SLACK = 0.002;
 
 const _controllerWorldQuat = new THREE.Quaternion();
 const _aimForward = new THREE.Vector3();
+const _eyeWorld = new Float32Array( 16 ); // XR_SetupFrusta: eye → world (meters)
 
 //============================================================================
 // State
@@ -74,6 +75,8 @@ let hudCanvasWidth = 0;
 let hudCanvasHeight = 0;
 let hudOffset = null; // THREE.Matrix4: head space → quad
 let hudUploadTime = - Infinity; // seconds; -Infinity forces the next upload
+let blendMesh = null; // R_PolyBlend's v_blend quad, drawn before the HUD quad
+let blendOffset = null; // THREE.Matrix4: head space → blend quad
 
 // Input state — polled each frame by XR_PollInput(), consumed by in_web.js
 export const xrInput = {
@@ -123,6 +126,8 @@ export function XR_SetTestOverrides( overrides ) {
 	hudTexture = null;
 	hudCanvasWidth = 0;
 	hudCanvasHeight = 0;
+	blendMesh = null;
+	blendOffset = null;
 
 }
 
@@ -247,6 +252,104 @@ export function XR_SetCamera( camera ) {
 		xrOffset.add( camera );
 
 	}
+
+}
+
+//============================================================================
+// XR culling frustum
+//
+// GLQuake culls BSP nodes and brush models against the camera's frustum
+// (R_SetFrustum, R_CullBox in gl_rmain.c). In XR the camera is the headset,
+// which turns and moves on its own, so the frustum R_SetFrustum builds from
+// r_refdef.viewangles (the body) is the wrong one. These build one frustum
+// per XR view (eye) from this frame's pose instead; R_CullBox then culls a
+// box only when every eye's frustum excludes it.
+//
+// WebXRManager sets each view camera's local matrix (pose in the reference
+// space) and projection in its XR animation frame callback, before the
+// engine's frame runs, so they are this frame's. Their matrixWorld is not:
+// it is only updated inside render(). The world pose is therefore composed
+// here from xrOffset.matrixWorld, which R_SetupGL has just updated with the
+// rig, as render() will compose it.
+//============================================================================
+
+// out = a × b, column-major 4×4
+function _mul4( a, b, out ) {
+
+	for ( let c = 0; c < 4; c ++ ) {
+
+		for ( let r = 0; r < 4; r ++ ) {
+
+			out[ c * 4 + r ] = a[ r ] * b[ c * 4 ] + a[ 4 + r ] * b[ c * 4 + 1 ] +
+				a[ 8 + r ] * b[ c * 4 + 2 ] + a[ 12 + r ] * b[ c * 4 + 3 ];
+
+		}
+
+	}
+
+}
+
+// Fills planes[ 0..3 ] (objects with a Float32Array(3) normal and a dist)
+// with the left, right, bottom and top planes of one XR view, in Quake
+// units. As in R_SetFrustum the normals point inwards, so a box wholly
+// behind one plane (BoxOnPlaneSide 2) is outside, and there is no near or
+// far plane. proj is the view's column-major projection matrix, which may be
+// asymmetric; world is its column-major eye-to-world matrix in meters (the
+// world scene is scaled by 1 / XR_SCALE). In eye space each plane is row 3
+// of the projection plus or minus row 0 (left, right) or row 1 (bottom,
+// top), inside where n · v + d >= 0.
+export function XR_FrustumFromView( proj, world, planes ) {
+
+	for ( let i = 0; i < 4; i ++ ) {
+
+		const row = i >> 1;
+		const s = ( i & 1 ) === 0 ? 1 : - 1;
+		const x = proj[ 3 ] + s * proj[ row ];
+		const y = proj[ 7 ] + s * proj[ 4 + row ];
+		const z = proj[ 11 ] + s * proj[ 8 + row ];
+		const d = proj[ 15 ] + s * proj[ 12 + row ];
+
+		// Rotate the normal into the world. The pose is rigid, so its length
+		// is unchanged and normalizing it scales d by the same amount.
+		const nx = world[ 0 ] * x + world[ 4 ] * y + world[ 8 ] * z;
+		const ny = world[ 1 ] * x + world[ 5 ] * y + world[ 9 ] * z;
+		const nz = world[ 2 ] * x + world[ 6 ] * y + world[ 10 ] * z;
+		const len = Math.sqrt( nx * nx + ny * ny + nz * nz );
+
+		const p = planes[ i ];
+		p.normal[ 0 ] = nx / len;
+		p.normal[ 1 ] = ny / len;
+		p.normal[ 2 ] = nz / len;
+
+		// v = Rᵀ( w - t ), so n · v + d >= 0 is R n · w >= R n · t - d
+		p.dist = ( p.normal[ 0 ] * world[ 12 ] + p.normal[ 1 ] * world[ 13 ] +
+			p.normal[ 2 ] * world[ 14 ] - d / len ) * XR_SCALE;
+
+	}
+
+}
+
+// Fills views[ i ] (each an array of four planes, see XR_FrustumFromView)
+// for each XR view of this frame, and returns how many it filled: 0 outside
+// a session or before the first pose. Call after R_SetupGL has posed the rig.
+export function XR_SetupFrusta( views ) {
+
+	if ( xrSessionActive === false || xrOffset == null ) return 0;
+
+	const cameras = R().xr.getCamera().cameras;
+	if ( cameras == null ) return 0;
+
+	const n = Math.min( cameras.length, views.length );
+	const parent = xrOffset.matrixWorld.elements;
+
+	for ( let i = 0; i < n; i ++ ) {
+
+		_mul4( parent, cameras[ i ].matrix.elements, _eyeWorld );
+		XR_FrustumFromView( cameras[ i ].projectionMatrix.elements, _eyeWorld, views[ i ] );
+
+	}
+
+	return n;
 
 }
 
@@ -414,13 +517,47 @@ export function XR_UpdateHUD() {
 // then has no samples, so r183's multisample resolve at the end of render()
 // (which invalidates the colour attachment) does not run. The HUD scene has
 // no background and autoClear is false, so the second render clears nothing.
+//
+// The HUD scene also holds R_PolyBlend's quad, ahead of the HUD quad so it
+// draws first (sortObjects is false). XR_PolyBlend shows it for one frame.
 //============================================================================
 
 export function XR_RenderHUD( camera ) {
 
-	if ( xrSessionActive === false || hudMesh == null || hudMesh.visible === false ) return;
+	if ( xrSessionActive === false || hudMesh == null ) return;
+
+	if ( hudMesh.visible === false && blendMesh.visible === false ) return;
 
 	R().render( hudScene, camera );
+
+	// R_PolyBlend calls XR_PolyBlend again each frame there is a blend
+	blendMesh.visible = false;
+
+}
+
+//============================================================================
+// XR_PolyBlend
+//
+// R_PolyBlend (gl_rmain.c) for WebXR, called by R_PolyBlend after its
+// gl_polyblend and v_blend[ 3 ] checks. GLQuake draws v_blend as a quad in
+// eye space, 10 units in front of the eye and 100 units to each side, under
+// the view's projection, with blending on and the depth test off. Here that
+// quad is head-locked in the HUD scene at the same size in meters, so it
+// covers each eye's view out to about 84° from the head's forward
+// direction, as GLQuake's covers its view.
+//============================================================================
+
+const XR_BLEND_DISTANCE = 10 / XR_SCALE;
+const XR_BLEND_SIZE = 200 / XR_SCALE;
+
+export function XR_PolyBlend( blend ) {
+
+	if ( xrSessionActive === false || blendMesh == null ) return;
+
+	// As R_PolyBlend: Quake's sRGB palette colour, drawn as is (toneMapped false)
+	blendMesh.material.color.setRGB( blend[ 0 ], blend[ 1 ], blend[ 2 ], T.SRGBColorSpace );
+	blendMesh.material.opacity = blend[ 3 ];
+	blendMesh.visible = true;
 
 }
 
@@ -431,6 +568,13 @@ function _poseHUD() {
 
 	const xrCamera = R().xr.getCamera();
 	hudMesh.matrixWorld.multiplyMatrices( xrCamera.matrixWorld, hudOffset );
+
+}
+
+function _poseBlend() {
+
+	const xrCamera = R().xr.getCamera();
+	blendMesh.matrixWorld.multiplyMatrices( xrCamera.matrixWorld, blendOffset );
 
 }
 
@@ -456,11 +600,30 @@ function _showHUD() {
 		hudMesh.matrixWorldAutoUpdate = false;
 		hudMesh.onBeforeRender = _poseHUD;
 
+		// R_PolyBlend's quad (see XR_PolyBlend)
+		blendOffset = new T.Matrix4();
+		blendOffset.makeScale( XR_BLEND_SIZE, XR_BLEND_SIZE, 1 ).setPosition( 0, 0, - XR_BLEND_DISTANCE );
+
+		blendMesh = new T.Mesh( new T.PlaneGeometry( 1, 1 ), new T.MeshBasicMaterial( {
+			transparent: true,
+			depthTest: false,
+			depthWrite: false,
+			toneMapped: false
+		} ) );
+		blendMesh.frustumCulled = false;
+		blendMesh.matrixAutoUpdate = false;
+		blendMesh.matrixWorldAutoUpdate = false;
+		blendMesh.onBeforeRender = _poseBlend;
+
 	}
 
 	// Hidden until the first upload, which happens at once
 	hudMesh.visible = false;
 	hudUploadTime = - Infinity;
+	blendMesh.visible = false;
+
+	// Draw order is child order: the blend, then the HUD over it
+	hudScene.add( blendMesh );
 	hudScene.add( hudMesh );
 
 }
@@ -470,6 +633,7 @@ function _hideHUD() {
 	if ( hudMesh == null ) return;
 
 	if ( hudMesh.parent != null ) hudMesh.parent.remove( hudMesh );
+	if ( blendMesh.parent != null ) blendMesh.parent.remove( blendMesh );
 
 	if ( hudTexture != null ) {
 

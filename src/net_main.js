@@ -1,6 +1,7 @@
 // Ported from: WinQuake/net_main.c -- network main module
 
-import { Sys_Error, Sys_FloatTime } from './sys.js';
+import { Sys_Error, Sys_FloatTime, Sys_ParseLobbyURL, Sys_ConnectURL, Sys_CommandArgIsSafe,
+	SYS_DEFAULT_LOBBY } from './sys.js';
 import { Con_Printf, SZ_Alloc, COM_CheckParm, com_argc, com_argv, Q_atoi, COM_SetNetMessage } from './common.js';
 import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv, Cbuf_AddText } from './cmd.js';
 import { cvar_t, Cvar_RegisterVariable, Cvar_Set } from './cvar.js';
@@ -520,7 +521,6 @@ Tunnel), over WebSocket. Page parameters:
   ?server=<url>        the lobby; a ws:// or wss:// URL implies WebSocket
 ===================
 */
-const NET_DEFAULT_WT_LOBBY = 'https://localhost:4433';
 
 function _NET_PageParam( name ) {
 
@@ -574,14 +574,26 @@ export function NET_MultiplayerAvailable() {
 ===================
 NET_LobbyServer
 
-The lobby URL: ?server=, or the transport's default.
+The lobby URL: ?server=, or the transport's default, checked by
+Sys_ParseLobbyURL. Null when ?server= is not a valid lobby address (callers
+refuse to connect rather than fall back to a default).
 ===================
 */
 export function NET_LobbyServer() {
 
 	const server = _NET_PageParam( 'server' );
-	if ( server !== null && server.length > 0 ) return server;
-	return NET_UseWebSocket() ? WS_DefaultServer() : NET_DEFAULT_WT_LOBBY;
+	if ( server !== null && server.length > 0 ) return Sys_ParseLobbyURL( server );
+	return NET_UseWebSocket() ? Sys_ParseLobbyURL( WS_DefaultServer() ) : SYS_DEFAULT_LOBBY;
+
+}
+
+// A WebSocket connect address built on a checked lobby, or null.
+function _NET_WebSocketConnectURL( serverUrl, build ) {
+
+	const lobby = Sys_ParseLobbyURL( serverUrl );
+	if ( lobby === null ) return null;
+	const url = build( lobby );
+	return Sys_CommandArgIsSafe( url ) ? url : null;
 
 }
 
@@ -615,17 +627,28 @@ export function NET_CreateRoom( serverUrl, config ) {
 NET_LobbyJoinURL
 
 The connect address that joins room roomId through the lobby (which
-re-creates a room that has expired).
+re-creates a room that has expired). The result is quoted into a `connect`
+command, so the lobby is checked and the room id encoded: null when either
+could end the quoted argument (see Sys_ConnectURL).
 ===================
 */
 export function NET_LobbyJoinURL( serverUrl, roomId ) {
 
-	if ( _NET_ServerUsesWebSocket( serverUrl ) )
-		return WS_ServerBase( serverUrl ) + '?room=' + encodeURIComponent( roomId );
+	if ( serverUrl === null ) return null;
 
-	const urlObj = new URL( serverUrl.replace( /^wt(s)?:\/\//, 'https://' ) );
-	urlObj.searchParams.set( 'room', roomId );
-	return urlObj.toString().replace( /\/$/, '' ).replace( /^https:\/\//, 'wts://' );
+	if ( _NET_ServerUsesWebSocket( serverUrl ) ) {
+
+		return _NET_WebSocketConnectURL( serverUrl, ( lobby ) => {
+
+			const params = new URLSearchParams();
+			params.set( 'room', String( roomId ) );
+			return WS_ServerBase( lobby ) + '?' + params.toString();
+
+		} );
+
+	}
+
+	return Sys_ConnectURL( serverUrl, roomId, null );
 
 }
 
@@ -634,22 +657,21 @@ export function NET_LobbyJoinURL( serverUrl, roomId ) {
 NET_RoomURL
 
 The connect address of a room the lobby has just returned: its own port for
-WebTransport, the lobby's /room/<id> proxy path for WebSocket.
+WebTransport, the lobby's /room/<id> proxy path for WebSocket. Null when
+the lobby, room id or port is not safe to quote into a `connect` command.
 ===================
 */
 export function NET_RoomURL( serverUrl, room ) {
 
+	if ( serverUrl === null ) return null;
+
 	if ( _NET_ServerUsesWebSocket( serverUrl ) )
-		return WS_RoomURL( serverUrl, room.id );
+		return _NET_WebSocketConnectURL( serverUrl, ( lobby ) => WS_RoomURL( lobby, String( room.id ) ) );
 
 	if ( room.port == null )
 		return NET_LobbyJoinURL( serverUrl, room.id );
 
-	const urlObj = new URL( serverUrl.replace( /^wt(s)?:\/\//, 'https://' ) );
-	urlObj.search = '';
-	urlObj.port = String( room.port );
-	// Remove trailing slash - URL.toString() adds one which breaks wts:// URLs
-	return urlObj.toString().replace( /\/$/, '' ).replace( /^https:\/\//, 'wts://' );
+	return Sys_ConnectURL( serverUrl, null, Number( room.port ) );
 
 }
 

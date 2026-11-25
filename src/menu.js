@@ -77,11 +77,18 @@ let m_save_demonum = 0;
 ==============================================================================
 */
 
+// The lobby comes from _NET_LobbyServer (the page's ?server= parameter, or the
+// transport's default), which is null when ?server= is not a valid address.
+const M_BAD_LOBBY_REASON = 'Invalid ?server= lobby address';
+
 // Room list state
 let slist_rooms = []; // Array of {id, name, map, playerCount, maxPlayers}
 let slist_cursor = 0;
 let slist_fetching = false;
 let slist_error = '';
+// Bumped by each fetch; a reply from an older fetch is dropped, so a slow
+// early reply can't replace a newer list or end "Searching..." early.
+let slist_generation = 0;
 
 // Lobby functions from net_main.js, injected via M_SetExternals. They pick
 // WebTransport or WebSocket and the lobby URL (?server= or a default).
@@ -98,6 +105,7 @@ let _cl_name = null;
  */
 async function M_FetchRooms() {
 
+	const generation = ++ slist_generation;
 	slist_fetching = true;
 	slist_error = '';
 	slist_rooms = [];
@@ -105,30 +113,77 @@ async function M_FetchRooms() {
 	// Check that the browser has a remote transport before attempting
 	if ( _NET_MultiplayerAvailable === null || _NET_MultiplayerAvailable() === false ) {
 
+		slist_fetching = false;
 		alert( 'Multiplayer requires a browser with WebTransport or WebSocket support.' );
 		M_Menu_Main_f();
 		return;
 
 	}
 
+	let reply = null;
+	let error = null;
+
 	try {
 
-		if ( _NET_QueryRooms === null ) {
+		if ( _NET_QueryRooms === null || _NET_LobbyServer === null ) {
 
 			throw new Error( 'Multiplayer not available' );
 
 		}
 
-		slist_rooms = await _NET_QueryRooms( _NET_LobbyServer() );
+		const serverUrl = _NET_LobbyServer();
+		if ( serverUrl === null ) {
+
+			throw new Error( M_BAD_LOBBY_REASON );
+
+		}
+
+		reply = await _NET_QueryRooms( serverUrl );
 
 	} catch ( e ) {
 
-		slist_error = e.message || 'Failed to fetch rooms';
-		Con_Printf( 'Room fetch error: %s\n', slist_error );
+		error = e;
 
 	}
 
+	// A newer fetch has started: its reply decides the list.
+	if ( generation !== slist_generation ) return;
+
+	if ( error !== null ) {
+
+		slist_error = ( error instanceof Error && error.message ) ? error.message : 'Failed to fetch rooms';
+		Con_Printf( 'Room fetch error: %s\n', slist_error );
+
+	} else {
+
+		slist_rooms = M_ValidRooms( reply );
+
+	}
+
+	// The list may be shorter than the one the cursor was on.
+	if ( slist_cursor >= slist_rooms.length )
+		slist_cursor = Math.max( 0, slist_rooms.length - 1 );
 	slist_fetching = false;
+
+}
+
+// Keep the room entries M_LanConfig_Draw and Join can use; the lobby reply is
+// parsed JSON, so anything else (null, a string, a missing field) is skipped.
+function M_ValidRooms( reply ) {
+
+	const valid = [];
+	if ( Array.isArray( reply ) === false ) return valid;
+
+	for ( const room of reply ) {
+
+		if ( room === null || typeof room !== 'object' ) continue;
+		if ( typeof room.id !== 'string' || typeof room.map !== 'string' ) continue;
+		if ( Number.isFinite( room.playerCount ) === false || Number.isFinite( room.maxPlayers ) === false ) continue;
+		valid.push( room );
+
+	}
+
+	return valid;
 
 }
 
@@ -146,6 +201,12 @@ const NUM_GAMEOPTIONS = 9;
 
 let maxplayers = 4;
 let startepisode = 2; // Default to Deathmatch Arena
+
+// Start Game's room request (web only). Enter is ignored while one is in
+// flight, and a reply is acted on only if its token is still current and the
+// player is still on this menu: leaving the menu bumps the token.
+let m_createroom_pending = false;
+let m_createroom_token = 0;
 let startlevel = 1;   // Default to rapture1
 
 // Level data - shareware Episode 1 + community deathmatch maps
@@ -359,6 +420,18 @@ export function M_ConnectionError( reason ) {
 		m_state = m_multiplayer;
 
 	}
+
+}
+
+/**
+ * A connection was accepted: a later failure, such as a console `connect`,
+ * no longer returns to the menu Join came from. The C clears
+ * m_return_onerror in _Datagram_Connect (net_dgrm.c) once the server
+ * accepts; the port calls this from the WebTransport driver's equivalent.
+ */
+export function M_ClearReturnOnError() {
+
+	m_return_onerror = false;
 
 }
 
@@ -1353,12 +1426,23 @@ function M_LanConfig_Key( key ) {
 
 				}
 
-				// Join selected room
-				m_entersound = true;
-
 				// Always join through the lobby using room ID.
 				// This avoids connecting to stale room-port data from an old room list.
-				const connectUrl = _NET_LobbyJoinURL( _NET_LobbyServer(), room.id );
+				// NET_LobbyJoinURL checks the lobby and encodes the id, so neither
+				// can end the quoted connect argument.
+				const connectUrl = _NET_LobbyServer !== null && _NET_LobbyJoinURL !== null
+					? _NET_LobbyJoinURL( _NET_LobbyServer(), room.id )
+					: null;
+				if ( connectUrl === null ) {
+
+					if ( _S_LocalSound ) _S_LocalSound( 'misc/menu2.wav' );
+					m_return_reason = M_BAD_LOBBY_REASON;
+					break;
+
+				}
+
+				// Join selected room
+				m_entersound = true;
 
 				// Update browser URL so user can share it
 				history.replaceState( null, '', Sys_PageURL( room.id ) );
@@ -1394,6 +1478,8 @@ function M_LanConfig_Key( key ) {
 
 function M_Menu_GameOptions_f() {
 
+	M_CancelCreateRoom();
+	m_return_reason = '';
 	setKeyDest( key_menu );
 	m_state = m_gameoptions;
 	m_entersound = true;
@@ -1405,6 +1491,12 @@ function M_Menu_GameOptions_f() {
 
 }
 
+// Deliberate deviation (MENU-4): the menu draws every C row, but Start Game
+// creates a lobby room, and the room request carries only the map,
+// maxPlayers and host name. Game Type, Teamplay, Skill, Frag Limit and Time
+// Limit set this browser's cvars and do not reach the room's server, which
+// uses its own defaults. Sending them needs a lobby protocol change in
+// server/.
 function M_GameOptions_Draw() {
 
 	if ( ! _Draw_CachePic ) return;
@@ -1494,6 +1586,12 @@ function M_GameOptions_Draw() {
 	M_Print( 160, 120, level.description );
 	M_Print( 160, 128, level.name );
 
+	// Start Game's room request: progress, or why it failed
+	if ( m_createroom_pending === true )
+		M_PrintWhite( 0, 144, 'Creating room...' );
+	else if ( m_return_reason )
+		M_PrintWhite( 0, 144, m_return_reason.substring( 0, 40 ) );
+
 	// Cursor
 	M_DrawCharacter( 144, gameoptions_cursor_table[ gameoptions_cursor ], 12 + ( ( Math.floor( _realtime_get() * 4 ) ) & 1 ) );
 
@@ -1582,11 +1680,57 @@ function M_NetStart_Change( dir ) {
 
 }
 
+/*
+================
+M_CancelCreateRoom
+
+Drop a Start Game room request in flight, so its reply is ignored. The lobby
+still creates the room; it is reaped when it stays empty.
+================
+*/
+function M_CancelCreateRoom() {
+
+	if ( m_createroom_pending === false )
+		return;
+
+	m_createroom_pending = false;
+	m_createroom_token ++;
+	if ( _SCR_EndLoadingPlaque ) _SCR_EndLoadingPlaque();
+
+}
+
+// True when the reply for token should still be acted on.
+function M_CreateRoomCurrent( token ) {
+
+	return m_createroom_pending === true && token === m_createroom_token
+		&& m_state === m_gameoptions && getKeyDest() !== key_game;
+
+}
+
+// A reply that came after the player left the menu by a path that didn't
+// cancel the request (the console, another menu command): release Enter.
+function M_CreateRoomStale( token ) {
+
+	if ( token === m_createroom_token )
+		m_createroom_pending = false;
+
+}
+
+function M_CreateRoomFailed( reason ) {
+
+	Con_Printf( 'Failed to create room: ' + reason + '\n' );
+	m_createroom_pending = false;
+	m_return_reason = reason;
+	if ( _SCR_EndLoadingPlaque ) _SCR_EndLoadingPlaque();
+
+}
+
 function M_GameOptions_Key( key ) {
 
 	switch ( key ) {
 
 		case K_ESCAPE:
+			M_CancelCreateRoom();
 			M_Menu_MultiPlayer_f();
 			break;
 
@@ -1619,6 +1763,10 @@ function M_GameOptions_Key( key ) {
 			break;
 
 		case K_ENTER:
+			// A room request is already in flight: a second Enter would
+			// create a second room.
+			if ( gameoptions_cursor === 0 && m_createroom_pending === true )
+				break;
 			if ( _S_LocalSound ) _S_LocalSound( 'misc/menu2.wav' );
 			if ( gameoptions_cursor === 0 ) {
 
@@ -1637,7 +1785,17 @@ function M_GameOptions_Key( key ) {
 
 					}
 
-					const serverUrl = _NET_LobbyServer();
+					const serverUrl = _NET_LobbyServer !== null ? _NET_LobbyServer() : null;
+					if ( serverUrl === null ) {
+
+						m_return_reason = M_BAD_LOBBY_REASON;
+						return;
+
+					}
+
+					m_return_reason = '';
+					m_createroom_pending = true;
+					const token = ++ m_createroom_token;
 
 					if ( _SCR_BeginLoadingPlaque ) _SCR_BeginLoadingPlaque();
 
@@ -1647,41 +1805,68 @@ function M_GameOptions_Key( key ) {
 						hostName: _cl_name ? _cl_name.string : 'Player'
 					} ).then( ( room ) => {
 
-						if ( room != null && typeof room.id === 'string' && room.id.length > 0 ) {
+						if ( M_CreateRoomCurrent( token ) === false ) {
 
-							let roomInfo = room.id;
-							if ( room.port != null ) {
-
-								roomInfo += ' on port ' + room.port;
-
-							}
-
-							Con_Printf( 'Room created: ' + roomInfo + '\n' );
-							// Update browser URL so user can share it
-							history.replaceState( null, '', Sys_PageURL( room.id ) );
-
-							// Dismiss the menu before connecting (like original Quake)
-							setKeyDest( key_game );
-							m_state = m_none;
-
-							// Connect to the remote server as a client (not local game)
-							// The remote server is the authoritative game server:
-							// its own port (WebTransport) or the lobby's proxy
-							// path for it (WebSocket)
-							const connectUrl = _NET_RoomURL( serverUrl, room );
-
-							Cbuf_AddText( 'connect "' + connectUrl + '"\n' );
+							// The player left Start Game; don't pull them into the room.
+							Con_Printf( 'Ignoring room created after Start Game was left\n' );
+							M_CreateRoomStale( token );
 							return;
 
 						}
 
-						Con_Printf( 'Failed to create room: Invalid room response from server\n' );
-						if ( _SCR_EndLoadingPlaque ) _SCR_EndLoadingPlaque();
+						if ( room == null || typeof room.id !== 'string' || room.id.length === 0 ) {
+
+							M_CreateRoomFailed( 'Invalid room response from server' );
+							return;
+
+						}
+
+						// Connect to the room server on its own port
+						// (WebTransport), through the lobby's proxy path for it
+						// (WebSocket), or through the lobby by room id.
+						// NET_RoomURL encodes the id and checks the port, so
+						// neither can end the quoted connect argument.
+						const connectUrl = _NET_RoomURL !== null ? _NET_RoomURL( serverUrl, room ) : null;
+						if ( connectUrl === null ) {
+
+							M_CreateRoomFailed( 'Invalid room response from server' );
+							return;
+
+						}
+
+						m_createroom_pending = false;
+
+						let roomInfo = room.id;
+						if ( room.port != null ) {
+
+							roomInfo += ' on port ' + room.port;
+
+						}
+
+						Con_Printf( 'Room created: ' + roomInfo + '\n' );
+						// Update browser URL so user can share it
+						history.replaceState( null, '', Sys_PageURL( room.id ) );
+
+						// Dismiss the menu before connecting (like original Quake)
+						setKeyDest( key_game );
+						m_state = m_none;
+
+						// Connect to the remote server as a client (not local game)
+						// The remote server is the authoritative game server
+						Cbuf_AddText( 'connect "' + connectUrl + '"\n' );
 
 					} ).catch( ( e ) => {
 
-						Con_Printf( 'Failed to create room: ' + e.message + '\n' );
-						if ( _SCR_EndLoadingPlaque ) _SCR_EndLoadingPlaque();
+						const reason = e instanceof Error ? e.message : String( e );
+						if ( M_CreateRoomCurrent( token ) === false ) {
+
+							Con_Printf( 'Failed to create room: ' + reason + '\n' );
+							M_CreateRoomStale( token );
+							return;
+
+						}
+
+						M_CreateRoomFailed( reason );
 
 					} );
 
@@ -2752,6 +2937,11 @@ let setup_oldtop = 0;
 let setup_oldbottom = 0;
 let setup_top = 0;
 let setup_bottom = 0;
+// Deliberate deviation (MENU-4): C's setup menu has a Hostname row first
+// (NUM_SETUP_CMDS 5, menu.c M_Setup_Draw). The browser can't host a network
+// server: Start Game's room request sends cl_name as the host name, and the
+// hostname cvar never leaves this browser. So the row is left out, and the
+// cursor table, Accept and the mouse hit-test use 4 rows.
 const NUM_SETUP_CMDS = 4;
 
 function M_Menu_Setup_f() {
@@ -2853,8 +3043,10 @@ function M_Setup_Key( key ) {
 
 			}
 
-			// setup_cursor == 3 (Accept)
-			Cbuf_AddText( 'name "' + setup_myname + '"\n' );
+			// setup_cursor == 3 (Accept). As in C, send name only when it
+			// changed (menu.c M_Setup_Key).
+			if ( _cl_name === null || _cl_name.string !== setup_myname )
+				Cbuf_AddText( 'name "' + setup_myname + '"\n' );
 			if ( setup_top !== setup_oldtop || setup_bottom !== setup_oldbottom )
 				Cbuf_AddText( 'color ' + setup_top + ' ' + setup_bottom + '\n' );
 			m_entersound = true;

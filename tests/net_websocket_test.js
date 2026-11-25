@@ -896,6 +896,16 @@ Deno.test( 'WS: URL helpers', () => {
 	assertEqual( netMain.NET_LobbyJoinURL( 'wss://a.example/mp/', 'R1' ), 'wss://a.example/mp?room=R1', 'join URL' );
 	assertEqual( netMain.NET_RoomURL( 'wss://a.example/mp', { id: 'R1', port: 4500 } ), 'wss://a.example/mp/room/R1', 'room URL ignores the port' );
 
+	// What reaches `connect "..."` can't end the quoted argument
+	assertEqual( netMain.NET_LobbyJoinURL( null, 'R1' ), null, 'no lobby' );
+	assertEqual( netMain.NET_RoomURL( null, { id: 'R1' } ), null, 'no lobby (room)' );
+	assertEqual( netMain.NET_LobbyJoinURL( 'wss://a.example/mp";quit;"', 'R1' ), null, 'crafted lobby' );
+	assertEqual( netMain.NET_LobbyJoinURL( 'wss://a.example/mp', '";bind w quit;"' ),
+		'wss://a.example/mp?room=%22%3Bbind+w+quit%3B%22', 'room id encoded' );
+	assertEqual( netMain.NET_LobbyJoinURL( 'wss://a.example/mp', "it's" ), 'wss://a.example/mp?room=it%27s', 'quote encoded' );
+	assertEqual( netMain.NET_RoomURL( 'wss://a.example/mp', { id: "it's" } ), null, 'room path with a quote refused' );
+	assertEqual( netMain.NET_RoomURL( 'wss://a.example/mp', { id: '";quit' } ), 'wss://a.example/mp/room/%22%3Bquit', 'room path encoded' );
+
 	const savedLocation = globalThis.location;
 	try {
 
@@ -906,6 +916,8 @@ Deno.test( 'WS: URL helpers', () => {
 		assertEqual( netMain.NET_LobbyServer(), 'wss://quake.example/mp', 'lobby server default' );
 		globalThis.location = { hostname: 'quake.example', host: 'quake.example', protocol: 'https:', search: '?server=wss://other.example/mp' };
 		assertEqual( netMain.NET_LobbyServer(), 'wss://other.example/mp', '?server= wins' );
+		globalThis.location = { hostname: 'quake.example', host: 'quake.example', protocol: 'https:', search: '?server=wss://a.example/mp%22;bind%20w%20quit;%22' };
+		assertEqual( netMain.NET_LobbyServer(), null, 'crafted ?server= is refused, not replaced by the default' );
 
 	} finally {
 
