@@ -57,12 +57,12 @@ import { realtime, Host_ClearMemory, Host_Error, set_host_frametime } from './ho
 import { COM_LoadFile } from './pak.js';
 import { VectorCopy, VectorAdd, DotProduct } from './mathlib.js';
 import { Mod_ForName, Mod_LeafPVS } from './gl_model.js';
-import { PR_LoadProgs, PR_AllocEdicts, ED_ClearEdict, ED_LoadFromFile, ED_NewString, GetEdictFieldValue, PR_SetCurrentSkill, PR_SetDeathmatch } from './pr_edict.js';
+import { PR_LoadProgs, PR_AllocEdicts, ED_ClearEdict, ED_LoadFromFile, ED_NewString, GetEdictFieldValue, PR_SetCurrentSkill, PR_SetDeathmatch, nomonsters } from './pr_edict.js';
 import { MAX_ENT_LEAFS, pr_global_struct, progs, pr_crc, EDICT_NUM, NUM_FOR_EDICT, PR_SetSV, PR_SetSVS, EDICT_TO_PROG, PROG_TO_EDICT, NEXT_EDICT, PR_GetString } from './progs.js';
 import { SV_ClearWorld, SV_Move, SV_TestEntityPosition, SV_LinkEdict, SV_PointContents } from './world.js';
 import { SV_Physics, SV_SetState, SV_SetCallbacks,
 	sv_maxvelocity, sv_gravity, sv_nostep, sv_friction, sv_edgefriction,
-	sv_stopspeed, sv_maxspeed, sv_accelerate, sv_idealpitchscale } from './sv_phys.js';
+	sv_stopspeed, sv_maxspeed, sv_accelerate, sv_idealpitchscale, sv_freezenonclients } from './sv_phys.js';
 import { PR_ExecuteProgram, PR_SetHostError } from './pr_exec.js';
 import { SV_User_SetCallbacks, SV_SetIdealPitch, sv_altnoclip } from './sv_user.js';
 import { V_CalcRoll } from './view.js';
@@ -126,6 +126,7 @@ export function SV_Init() {
 	Cvar_RegisterVariable( sv_aim );
 	Cvar_RegisterVariable( sv_nostep );
 	Cvar_RegisterVariable( sv_altnoclip ); // johnfitz
+	Cvar_RegisterVariable( sv_freezenonclients );
 	PR_SetDeathmatch( deathmatch );
 
 	for ( let i = 0; i < MAX_MODELS; i ++ )
@@ -1967,6 +1968,7 @@ export function SV_SpawnServer( server ) {
 
 	sv.state = ss_loading;
 	sv.paused = false;
+	sv.nomonsters = nomonsters.value !== 0; // Ironwail: latched for the whole map
 	sv.time = 1.0;
 
 	sv.name = server;

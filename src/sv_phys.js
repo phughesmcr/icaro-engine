@@ -194,6 +194,9 @@ export const sv_stopspeed = new cvar_t( 'sv_stopspeed', '100' );
 export const sv_maxspeed = new cvar_t( 'sv_maxspeed', '320', false, true );
 export const sv_accelerate = new cvar_t( 'sv_accelerate', '10' );
 export const sv_idealpitchscale = new cvar_t( 'sv_idealpitchscale', '0.8' );
+// Ironwail: when set, only the world and the clients run physics and sv.time
+// stands still, freezing monsters, doors and projectiles. Default 0 (id)
+export const sv_freezenonclients = new cvar_t( 'sv_freezenonclients', '0' );
 
 //
 // External references (set by the engine during initialization)
@@ -1641,8 +1644,11 @@ export function SV_Physics() {
 	//
 	// treat each object in turn
 	//
+	// Ironwail: sv_freezenonclients runs physics on the world and clients only
+	const entity_cap = sv_freezenonclients.value !== 0 ? svs.maxclients + 1 : sv.num_edicts;
+
 	let ent = sv.edicts[ 0 ];
-	for ( let i = 0; i < sv.num_edicts; i ++, ent = NEXT_EDICT( ent ) ) {
+	for ( let i = 0; i < entity_cap; i ++, ent = NEXT_EDICT( ent ) ) {
 
 		if ( ent.free )
 			continue;
@@ -1679,6 +1685,7 @@ export function SV_Physics() {
 	if ( pr_global_struct.force_retouch )
 		pr_global_struct.force_retouch --;
 
-	sv.time += host_frametime;
+	if ( sv_freezenonclients.value === 0 )
+		sv.time += host_frametime;
 
 }

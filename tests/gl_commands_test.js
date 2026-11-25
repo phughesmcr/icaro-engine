@@ -35,9 +35,10 @@ Deno.test( 'R_LoadPointFile stops at the particle limit and counts like C', () =
 
 		assertEqual( r_part.R_LoadPointFile( [ 0, 0, 0, 1, 1, 1 ] ), 2, 'two points' );
 
-		// 2048 particles, two used: C bumps c before finding the pool empty.
-		const many = new Array( 3 * 2100 ).fill( 0 );
-		assertEqual( r_part.R_LoadPointFile( many ), 2047, 'pool exhausted' );
+		// 16384 particles (MAX_PARTICLES), two used: C bumps c before
+		// finding the pool empty.
+		const many = new Array( 3 * 16500 ).fill( 0 );
+		assertEqual( r_part.R_LoadPointFile( many ), 16383, 'pool exhausted' );
 
 	} finally {
 

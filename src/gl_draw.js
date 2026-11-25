@@ -934,6 +934,43 @@ export function Draw_EndDisc() {
 
 /*
 ================
+Draw_SetClipRect -- Ironwail
+
+Restricts 2D drawing to a rectangle in virtual coordinates. Ironwail sets a GL
+scissor; the overlay canvas clips its 2D context instead.
+================
+*/
+let _clipping = false;
+
+export function Draw_SetClipRect( x, y, width, height ) {
+
+	if ( ! overlayCtx ) return;
+
+	if ( _clipping ) overlayCtx.restore(); // a scissor replaces the last one; keep save/restore balanced
+	overlayCtx.save();
+	overlayCtx.beginPath();
+	overlayCtx.rect( x, y, width, height );
+	overlayCtx.clip();
+	_clipping = true;
+
+}
+
+/*
+================
+Draw_ResetClipping -- Ironwail
+================
+*/
+export function Draw_ResetClipping() {
+
+	if ( ! overlayCtx || ! _clipping ) return;
+
+	overlayCtx.restore();
+	_clipping = false;
+
+}
+
+/*
+================
 GL_Set2D
 
 Setup as if the screen was 320*200
