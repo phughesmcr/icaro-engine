@@ -9,7 +9,10 @@
 // 3. Whether ArrayBuffers count toward the 128 MB isolate limit.
 //
 // It runs no game code, and it needs the maintainer's Cloudflare account on
-// the Free plan. From tools/do_cpu_probe/:
+// the Free plan. Run every wrangler command from tools/do_cpu_probe/: from
+// the repo root, wrangler finds no config and offers to publish the whole
+// repo, static/ and its registered paks included, as a static site. Answer
+// no. From tools/do_cpu_probe/:
 //
 //   npx wrangler login
 //   npx wrangler deploy
