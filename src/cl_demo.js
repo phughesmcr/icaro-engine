@@ -154,9 +154,9 @@ export function CL_GetMessage() {
 	if ( cls.demoplayback ) {
 
 		// ericw -- demo pause support (QuakeSpasm). QuakeSpasm lets cl.time
-		// run on, so the demo skips ahead on unpause; Ironwail stops it
-		// (demospeed 0). This port stops it too, by undoing the advance
-		// CL_ReadFromServer just made.
+		// run on and leaves CL_LerpPoint to pull it back to mtime[0]; this
+		// port holds it here, as Ironwail's demospeed 0 does, by undoing the
+		// advance CL_ReadFromServer just made.
 		if ( cls.demopaused === true ) {
 
 			cl.time = cl.oldtime;
