@@ -27,11 +27,11 @@ import {
 	LUMP_LIGHTING, LUMP_CLIPNODES, LUMP_LEAFS, LUMP_MARKSURFACES,
 	LUMP_EDGES, LUMP_SURFEDGES, LUMP_MODELS, HEADER_LUMPS,
 	MAX_MAP_HULLS, MAX_MAP_LEAFS,
-	CONTENTS_EMPTY,
+	CONTENTS_EMPTY, CONTENTS_WATER, CONTENTS_SLIME, CONTENTS_LAVA,
 	MIPLEVELS, MAXLIGHTMAPS, NUM_AMBIENTS,
 	TEX_SPECIAL
 } from './bspfile.js';
-import { gl_subdivide_size, GL_SetTextureFilter, GL_RegisterTexture, GL_UnregisterTexture,
+import { gl_subdivide_size, r_novis, GL_SetTextureFilter, GL_RegisterTexture, GL_UnregisterTexture,
 	GL_ScaledTextureSize, GL_ResampleTexture8 } from './glquake.js';
 
 // ============================================================================
@@ -100,6 +100,20 @@ export const SURF_DRAWTURB = 0x10;
 export const SURF_DRAWTILED = 0x20;
 export const SURF_DRAWBACKGROUND = 0x40;
 export const SURF_UNDERWATER = 0x80;
+// Deliberate deviation, from QuakeSpasm (gl_model.h): which liquid a
+// SURF_DRAWTURB surface is, so gl_rsurf.js can give lava, slime and
+// teleporters their own alpha (r_lavaalpha, r_slimealpha, r_telealpha)
+export const SURF_DRAWLAVA = 0x400;
+export const SURF_DRAWSLIME = 0x800;
+export const SURF_DRAWTELE = 0x1000;
+export const SURF_DRAWWATER = 0x2000;
+
+// Deliberate deviation, from QuakeSpasm (gl_rmain.c): per-liquid alpha.
+// 0 means "use r_wateralpha", so the defaults keep GLQuake's look. QS
+// registers them in R_Init (gl_rmisc.c); here Mod_Init does.
+export const r_lavaalpha = { name: 'r_lavaalpha', string: '0', value: 0 };
+export const r_slimealpha = { name: 'r_slimealpha', string: '0', value: 0 };
+export const r_telealpha = { name: 'r_telealpha', string: '0', value: 0 };
 
 // ============================================================================
 // Plane sides
@@ -626,6 +640,7 @@ export class model_t {
 		this.viswarn = false;		// QuakeSpasm: Mod_DecompressVis warned once
 		this.lightdata = null;		// Uint8Array
 		this.entities = null;		// string
+		this.contentstransparent = 0;	// SURF_DRAW* liquids the vis sees through (Mod_CheckWaterVis)
 
 		// additional model data
 		this.cache = { data: null };	// cache_user_t equivalent
@@ -847,6 +862,9 @@ function R_InitSky( tx ) {
 export function Mod_Init() {
 
 	Cvar_RegisterVariable( gl_subdivide_size );
+	Cvar_RegisterVariable( r_lavaalpha );
+	Cvar_RegisterVariable( r_slimealpha );
+	Cvar_RegisterVariable( r_telealpha );
 	mod_novis.fill( 0xff );
 
 }
@@ -1856,6 +1874,131 @@ function CalcSurfaceExtents( s ) {
 }
 
 // ============================================================================
+// Mod_LiquidFlagFromName
+//
+// Deliberate deviation, from Ironwail (gl_model.c Mod_TextureTypeFromName,
+// liquids only): which SURF_DRAW* liquid flag a '*' texture gets.
+// ============================================================================
+
+export function Mod_LiquidFlagFromName( texname ) {
+
+	if ( texname.startsWith( 'lava', 1 ) ) return SURF_DRAWLAVA;
+	if ( texname.startsWith( 'slime', 1 ) ) return SURF_DRAWSLIME;
+	if ( texname.startsWith( 'tele', 1 ) ) return SURF_DRAWTELE;
+	return SURF_DRAWWATER;
+
+}
+
+// ============================================================================
+// Mod_CheckWaterVis
+//
+// Deliberate deviation, from QuakeSpasm (gl_model.c, by Spike): finds which
+// liquids the map's vis lets you see through (a liquid leaf whose PVS holds
+// a leaf of other contents), for the worldspawn _wateralpha keys
+// (gl_rsurf.js). Liquids the map doesn't have count as see-through, so
+// submodel liquids work.
+// ============================================================================
+
+const SURF_DRAWLIQUIDS = SURF_DRAWWATER | SURF_DRAWTELE | SURF_DRAWSLIME | SURF_DRAWLAVA;
+
+function Mod_CheckWaterVis() {
+
+	// clamped to the loaded leafs, so a bad visleafs count can't read past them
+	const numclusters = loadmodel.numsubmodels > 0
+		? Math.min( loadmodel.submodels[ 0 ].visleafs, loadmodel.numleafs - 1 ) : 0;
+	let contentfound = 0;
+	let contenttransparent = 0;
+	let hascontents = 0;
+
+	if ( r_novis.value ) {
+
+		// all can be
+		loadmodel.contentstransparent = SURF_DRAWLIQUIDS;
+		return;
+
+	}
+
+	// pvs is 1-based. leaf 0 sees all (the solid leaf).
+	// leaf 0 has no pvs, and does not appear in other leafs either.
+	for ( let i = 0; i < numclusters; i ++ ) {
+
+		const leaf = loadmodel.leafs[ i + 1 ];
+		let contenttype = 0;
+		if ( leaf.contents < 0 )
+			hascontents |= 1 << - leaf.contents;
+		if ( leaf.contents === CONTENTS_WATER ) {
+
+			if ( ( contenttransparent & ( SURF_DRAWWATER | SURF_DRAWTELE ) ) === ( SURF_DRAWWATER | SURF_DRAWTELE ) )
+				continue;
+			for ( let j = 0; j < leaf.nummarksurfaces; j ++ ) {
+
+				const surf = leaf.firstmarksurface[ j ];
+				if ( surf.flags & ( SURF_DRAWWATER | SURF_DRAWTELE ) ) {
+
+					contenttype = surf.flags & ( SURF_DRAWWATER | SURF_DRAWTELE );
+					break;
+
+				}
+
+			}
+
+			// it's possible that this leaf has no surfaces in it, turb or otherwise
+			if ( contenttype === 0 )
+				continue;
+
+		} else if ( leaf.contents === CONTENTS_SLIME ) {
+
+			contenttype = SURF_DRAWSLIME;
+
+		} else if ( leaf.contents === CONTENTS_LAVA ) {
+
+			contenttype = SURF_DRAWLAVA;
+
+		} else {
+
+			continue;
+
+		}
+
+		if ( contenttransparent & contenttype )
+			continue; // found one of this type already
+
+		contentfound |= contenttype;
+		const vis = Mod_DecompressVis( leaf.compressed_vis, leaf.compressed_vis_offset, loadmodel );
+		search: for ( let j = 0; j < ( numclusters + 7 ) >> 3; j ++ ) {
+
+			if ( vis[ j ] === 0 ) continue;
+			for ( let k = 0; k < 8; k ++ ) {
+
+				if ( ( vis[ j ] & ( 1 << k ) ) === 0 ) continue;
+				const other = loadmodel.leafs[ ( j << 3 ) + k + 1 ];
+				if ( other !== undefined && leaf.contents !== other.contents ) {
+
+					contenttransparent |= contenttype;
+					break search;
+
+				}
+
+			}
+
+		}
+
+	}
+
+	if ( contenttransparent === 0 ) {
+
+		// no liquid leaf saw a non-liquid leaf; only say so if there is liquid
+		if ( hascontents & ( ( 1 << - CONTENTS_WATER ) | ( 1 << - CONTENTS_SLIME ) | ( 1 << - CONTENTS_LAVA ) ) )
+			Con_DPrintf( loadmodel.name + ' is not watervised\n' );
+
+	}
+
+	// any types that we didn't find are assumed to be transparent
+	loadmodel.contentstransparent = contenttransparent | ( ~ contentfound & SURF_DRAWLIQUIDS );
+
+}
+
+// ============================================================================
 // Mod_LoadFaces
 // ============================================================================
 
@@ -1920,6 +2063,7 @@ function Mod_LoadFaces( fileofs, filelen ) {
 		if ( s.texinfo.texture && s.texinfo.texture.name.charAt( 0 ) === '*' ) {
 
 			s.flags |= ( SURF_DRAWTURB | SURF_DRAWTILED );
+			s.flags |= Mod_LiquidFlagFromName( s.texinfo.texture.name );
 			for ( let i = 0; i < 2; i ++ ) {
 
 				s.extents[ i ] = 16384;
@@ -2396,6 +2540,8 @@ function Mod_LoadBrushModel( mod, buffer ) {
 
 	mod.numframes = 2;		// regular and alternate animation
 
+	Mod_CheckWaterVis();
+
 	//
 	// set up the submodels (FIXME: this is confusing)
 	//
@@ -2429,6 +2575,7 @@ function Mod_LoadBrushModel( mod, buffer ) {
 
 			// Copy all properties
 			nextmodel.type = mod.type;
+			nextmodel.contentstransparent = mod.contentstransparent;	// C copies the whole struct
 			nextmodel.numframes = mod.numframes;
 			nextmodel.synctype = mod.synctype;
 			nextmodel.flags = mod.flags;

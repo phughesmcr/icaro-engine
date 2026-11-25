@@ -153,7 +153,10 @@ import {
 import {
 	DotProduct, VectorCopy, VectorAdd, VectorNormalize
 } from './mathlib.js';
-import { Mod_LeafPVS, solidskytexture, alphaskytexture } from './gl_model.js';
+import { Mod_LeafPVS, solidskytexture, alphaskytexture,
+	SURF_DRAWLAVA, SURF_DRAWSLIME, SURF_DRAWTELE, SURF_DRAWWATER,
+	r_lavaalpha, r_slimealpha, r_telealpha } from './gl_model.js';
+import { COM_Parse, com_token } from './common.js';
 import { realtime } from './host.js';
 import { LIGHTMAP_INTENSITY } from './glquake.js';
 import { MAX_MODELS } from './quakedef.js';
@@ -367,6 +370,158 @@ const _brushForward = new Float32Array( 3 );
 const _brushRight = new Float32Array( 3 );
 const _brushUp = new Float32Array( 3 );
 const _brushPlaneNormal = new Float32Array( 3 );
+
+/*
+================
+Liquid alpha
+
+Deliberate deviation, from QuakeSpasm (gl_rmisc.c, by ericw): lava, slime
+and teleporters can have their own alpha (r_lavaalpha, r_slimealpha,
+r_telealpha; 0 falls back to r_wateralpha), and a map's worldspawn can set
+_wateralpha, _lavaalpha, _slimealpha and _telealpha. GLQuake applies
+r_wateralpha to every liquid, which the defaults keep.
+
+QS reparses the worldspawn in R_NewMap and its cvar callbacks override the
+map's values when a cvar is set. This port's cvars have no callbacks and
+R_NewMap is in gl_rmisc.js, so the values are parsed lazily after
+GL_BuildLightmaps (which R_NewMap calls) and a cvar is applied once its value
+changes.
+
+QS also keeps a liquid opaque, whatever the cvars say, when the map's vis
+can't see through it (contentstransparent, from Mod_CheckWaterVis). Here
+that check only gates the worldspawn keys: the cvars act on every liquid as
+r_wateralpha does in GLQuake, so the look of id's (unvised) maps with
+r_wateralpha set is unchanged.
+================
+*/
+let map_wateralpha = 1;
+let map_lavaalpha = 0;
+let map_slimealpha = 0;
+let map_telealpha = 0;
+let map_fallbackalpha = 1;
+let _liquidAlphaWorld = null;	// the worldmodel the map_*alpha values are for
+// the cvar values last applied, standing in for QS's cvar callbacks
+let _seenWaterAlpha = 1;
+let _seenLavaAlpha = 0;
+let _seenSlimeAlpha = 0;
+let _seenTeleAlpha = 0;
+
+// R_ParseWorldspawn (QS gl_rmisc.c)
+function R_ParseWorldspawn( worldmodel ) {
+
+	map_fallbackalpha = r_wateralpha.value;
+	map_wateralpha = r_wateralpha.value;
+	map_lavaalpha = r_lavaalpha.value;
+	map_slimealpha = r_slimealpha.value;
+	map_telealpha = r_telealpha.value;
+
+	if ( worldmodel === null || worldmodel.entities === null )
+		return;
+	const vised = worldmodel.contentstransparent;
+
+	let data = COM_Parse( worldmodel.entities );
+	if ( data === null || com_token !== '{' )
+		return; // error
+
+	while ( true ) {
+
+		data = COM_Parse( data );
+		if ( data === null )
+			return; // error
+		if ( com_token === '}' )
+			break; // end of worldspawn
+		const key = ( com_token.charAt( 0 ) === '_' ? com_token.substring( 1 ) : com_token ).replace( / +$/, '' );
+		data = COM_Parse( data );
+		if ( data === null )
+			return; // error
+		let value = parseFloat( com_token );
+		if ( Number.isNaN( value ) ) value = 0;	// atof
+
+		// only for liquids the vis can see through (see above)
+		if ( key === 'wateralpha' && ( vised & SURF_DRAWWATER ) !== 0 )
+			map_wateralpha = value;
+		else if ( key === 'lavaalpha' && ( vised & SURF_DRAWLAVA ) !== 0 )
+			map_lavaalpha = value;
+		else if ( key === 'telealpha' && ( vised & SURF_DRAWTELE ) !== 0 )
+			map_telealpha = value;
+		else if ( key === 'slimealpha' && ( vised & SURF_DRAWSLIME ) !== 0 )
+			map_slimealpha = value;
+
+	}
+
+}
+
+function R_UpdateLiquidAlpha() {
+
+	const worldmodel = cl != null ? cl.worldmodel : null;
+	if ( worldmodel !== _liquidAlphaWorld ) {
+
+		_liquidAlphaWorld = worldmodel;
+		R_ParseWorldspawn( worldmodel );
+		_seenWaterAlpha = r_wateralpha.value;
+		_seenLavaAlpha = r_lavaalpha.value;
+		_seenSlimeAlpha = r_slimealpha.value;
+		_seenTeleAlpha = r_telealpha.value;
+
+	}
+
+	// R_SetWateralpha_f and its siblings
+	if ( r_wateralpha.value !== _seenWaterAlpha ) {
+
+		_seenWaterAlpha = r_wateralpha.value;
+		map_wateralpha = _seenWaterAlpha;
+		map_fallbackalpha = _seenWaterAlpha;
+
+	}
+
+	if ( r_lavaalpha.value !== _seenLavaAlpha ) {
+
+		_seenLavaAlpha = r_lavaalpha.value;
+		map_lavaalpha = _seenLavaAlpha;
+
+	}
+
+	if ( r_slimealpha.value !== _seenSlimeAlpha ) {
+
+		_seenSlimeAlpha = r_slimealpha.value;
+		map_slimealpha = _seenSlimeAlpha;
+
+	}
+
+	if ( r_telealpha.value !== _seenTeleAlpha ) {
+
+		_seenTeleAlpha = r_telealpha.value;
+		map_telealpha = _seenTeleAlpha;
+
+	}
+
+}
+
+// GL_WaterAlphaForSurface (QS gl_rmisc.c GL_WaterAlphaForTextureType)
+export function GL_WaterAlphaForSurface( fa ) {
+
+	R_UpdateLiquidAlpha();
+	if ( fa.flags & SURF_DRAWLAVA )
+		return map_lavaalpha > 0 ? map_lavaalpha : map_fallbackalpha;
+	else if ( fa.flags & SURF_DRAWTELE )
+		return map_telealpha > 0 ? map_telealpha : map_fallbackalpha;
+	else if ( fa.flags & SURF_DRAWSLIME )
+		return map_slimealpha > 0 ? map_slimealpha : map_fallbackalpha;
+	else
+		return map_wateralpha;
+
+}
+
+// Whether any liquid is translucent (R_DrawWaterSurfaces' early out)
+function R_AnyLiquidTranslucent() {
+
+	R_UpdateLiquidAlpha();
+	return map_wateralpha !== 1 ||
+		( map_lavaalpha > 0 ? map_lavaalpha : map_fallbackalpha ) !== 1 ||
+		( map_telealpha > 0 ? map_telealpha : map_fallbackalpha ) !== 1 ||
+		( map_slimealpha > 0 ? map_slimealpha : map_fallbackalpha ) !== 1;
+
+}
 
 /*
 ================
@@ -986,7 +1141,7 @@ export function R_DrawSequentialPoly( s ) {
 			if ( geometry ) {
 
 				const t = R_TextureAnimation( s.texinfo.texture );
-				const material = _getWaterMaterial( t, r_wateralpha.value );
+				const material = _getWaterMaterial( t, GL_WaterAlphaForSurface( s ) );
 				_getWaterMesh( s, geometry, material, renderGroup );
 
 			}
@@ -1042,7 +1197,7 @@ export function R_RenderBrushPoly( fa ) {
 			const geometry = EmitWaterPolysQuake( fa, R_WarpTime() );
 			if ( geometry ) {
 
-				const material = _getWaterMaterial( t, r_wateralpha.value );
+				const material = _getWaterMaterial( t, GL_WaterAlphaForSurface( fa ) );
 				_getWaterMesh( fa, geometry, material, renderGroup );
 
 			}
@@ -1935,7 +2090,7 @@ export function DrawTextureChains() {
 
 		} else {
 
-			if ( ( s.flags & SURF_DRAWTURB ) && r_wateralpha.value !== 1.0 )
+			if ( ( s.flags & SURF_DRAWTURB ) && GL_WaterAlphaForSurface( s ) !== 1.0 )
 				continue; // draw translucent water later
 
 			for ( ; s; s = s.texturechain )
@@ -2109,7 +2264,7 @@ export function R_DrawWaterSurfaces() {
 
 	const cl_ref = cl;
 
-	if ( r_wateralpha.value === 1.0 && gl_texsort.value )
+	if ( ! R_AnyLiquidTranslucent() && gl_texsort.value )
 		return;
 
 	if ( ! gl_texsort.value ) {
@@ -2124,7 +2279,7 @@ export function R_DrawWaterSurfaces() {
 				const geometry = EmitWaterPolysQuake( s, R_WarpTime() );
 				if ( geometry ) {
 
-					const material = _getWaterMaterial( s.texinfo.texture, r_wateralpha.value );
+					const material = _getWaterMaterial( s.texinfo.texture, GL_WaterAlphaForSurface( s ) );
 					_getWaterMesh( s, geometry, material, worldGroup );
 
 				}
@@ -2157,7 +2312,7 @@ export function R_DrawWaterSurfaces() {
 					const geometry = EmitWaterPolysQuake( s, R_WarpTime() );
 					if ( geometry ) {
 
-						const material = _getWaterMaterial( t, r_wateralpha.value );
+						const material = _getWaterMaterial( t, GL_WaterAlphaForSurface( s ) );
 						_getWaterMesh( s, geometry, material, worldGroup );
 
 					}
@@ -2962,6 +3117,9 @@ function R_UpdateWorldVisibility() {
 }
 
 export function GL_BuildLightmaps() {
+
+	// a new map: reparse its worldspawn's liquid alpha (QS R_NewMap)
+	_liquidAlphaWorld = null;
 
 	const cl_ref = cl;
 	if ( ! cl_ref ) return;
