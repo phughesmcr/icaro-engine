@@ -36,3 +36,7 @@ static/mg1/
 static/mg3/
 static/dopa/
 static/ctf/
+
+# Wrangler local state and secrets (tools/do_cpu_probe)
+.wrangler/
+.dev.vars

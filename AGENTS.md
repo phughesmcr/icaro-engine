@@ -48,8 +48,10 @@ process per room. It was forked from mrdoob's three-quake.
   (Python, standard library only; not linted or run in CI).
   `room_bench.js` (with `room_bench_preload.js`) load-tests one room with
   headless WebSocket bots, and `room_memory_probe.js` measures a room's
-  memory by init stage; their headers give the commands. Not linted or run
-  in CI. `check_container_image.sh` (`deno task image-check`, needs Docker)
+  memory by init stage; their headers give the commands. `do_cpu_probe/`
+  is a throwaway Cloudflare Worker that measures the Free plan's Durable
+  Object limits; `probe.js` gives the deploy steps, which need the
+  maintainer's account. Not linted or run in CI. `check_container_image.sh` (`deno task image-check`, needs Docker)
   fails if the game-room image or its build context holds any `.pak` but
   `static/pak0.pak`, or TLS or env files, then starts a room in the image;
   CI runs it.

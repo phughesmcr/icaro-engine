@@ -409,6 +409,7 @@ client batches its moves. One limit decides it, and the docs contradict
 themselves on it: the CPU time a Durable Object gets per invocation on Free.
 Only a deploy on a Free account can settle that. The deploy costs nothing,
 but it needs the maintainer's OK and their own `wrangler login`.
+`tools/do_cpu_probe/` is that deploy (see "The CPU probe").
 
 ### What the free allowances buy
 
@@ -464,6 +465,36 @@ count billed messages in memory (a write per message would spend the
   limit, so the route would be dead.
 - Going over returns error 1102, and "its execution will be terminated"
   if it happens consistently [docs].
+
+### The CPU probe
+
+`tools/do_cpu_probe/` is a throwaway Worker with one Durable Object. It runs
+no game code, so it can be deployed before any of the work below. Its
+`probe.js` drives it and prints a JSON report; the header gives the steps,
+which start with the maintainer's own `npx wrangler login`. It answers:
+
+1. **CPU per invocation:** whether a single HTTP request, and a single
+   WebSocket message, may burn 10 ms or up to 30 s of CPU. It ramps from
+   1 ms to 40 s, as calibrated on the machine running `probe.js`, and
+   records error 1102 and instance resets.
+2. **Timer callbacks:** a `setInterval` at 20 Hz in the DO. Three runs:
+   - 2 ms a tick for 60 s, with no requests;
+   - 20 ms a tick for 120 s, with no requests (that crosses 30 s of CPU
+     at about 75 s);
+   - the same with a WebSocket ping every 50 ms, as a room's players would
+     send.
+
+   Together they show whether timers draw on the last request's budget and
+   whether incoming messages reset it.
+3. **ArrayBuffers:** whether off-heap memory counts toward the 128 MB
+   isolate limit, by holding 32 MB more per step up to 256 MB.
+
+A shared token (a Worker secret) keeps anyone else from spending the
+account's allowance through it. One run takes about 6 minutes, a few
+hundred requests and under 1% of a day's free DO duration. The
+dashboard's Workers Logs give each invocation's real CPU time; the
+probe's millisecond figures are local estimates. Delete the Worker
+afterwards with `npx wrangler delete`.
 
 ### Memory: fits with two changes
 
