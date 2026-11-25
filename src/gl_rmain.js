@@ -847,6 +847,26 @@ export function R_VrectToViewport( out, vrect, vrectScale, renderScale, bufferWi
 
 }
 
+/*
+=================
+R_AliasLightPoint
+
+Deliberate deviation (Ironwail R_SetupAliasLighting): if the trace from the
+model's origin finds no light at all, try again from half the model's height
+above it. This helps models whose origin is slightly below the floor (e.g. the
+candles on some mod start maps), which id's C draws pitch black. Ironwail
+computes alias bounds from the vertices; this port keeps id's fixed +/-16
+bounds (Mod_LoadAliasModel), so the retry starts 8 units up.
+=================
+*/
+export function R_AliasLightPoint( e ) {
+
+	const light = R_LightPoint( e.origin, cl );
+	if ( light !== 0 ) return light;
+	return R_LightPoint( e.origin, cl, e.model.maxs[ 2 ] * 0.5 );
+
+}
+
 function R_DrawAliasModel( e ) {
 
 	if ( ! e || ! e.model ) return;
@@ -862,7 +882,7 @@ function R_DrawAliasModel( e ) {
 
 	if ( cl && e.origin ) {
 
-		ambientlight = shadelight = R_LightPoint( e.origin, cl );
+		ambientlight = shadelight = R_AliasLightPoint( e );
 
 		// always give the gun some light
 		if ( e === cl.viewent && ambientlight < 24 )
