@@ -22,7 +22,10 @@ process per room. It was forked from mrdoob's three-quake.
 - `server/`: `lobby_server.js`, `game_server.js` and the WebTransport and
   WebSocket server drivers (`.ts`). Under Deno, `three` maps to `server/browser_shim.js` (root
   `deno.json`). If `src/` starts using a new Three.js export, add it to the
-  shim or the server and tests break.
+  shim or the server and tests break. `server/Dockerfile` builds the
+  game-room image from an allowlist (`deno.json`, `server/`, `src/`,
+  `static/pak0.pak`), with the root `.dockerignore` as a second guard; never
+  widen either to registered data (see Game data).
 - `docs/port-review.md`: a fidelity review of the port against the C source.
   It is a snapshot taken at a past revision, so check its claims against the
   code before relying on them.
@@ -46,7 +49,10 @@ process per room. It was forked from mrdoob's three-quake.
   `room_bench.js` (with `room_bench_preload.js`) load-tests one room with
   headless WebSocket bots, and `room_memory_probe.js` measures a room's
   memory by init stage; their headers give the commands. Not linted or run
-  in CI.
+  in CI. `check_container_image.sh` (`deno task image-check`, needs Docker)
+  fails if the game-room image or its build context holds any `.pak` but
+  `static/pak0.pak`, or TLS or env files, then starts a room in the image;
+  CI runs it.
 - `tools/bench/`: headless Deno benchmarks (not linted or run in CI). They
   use pak0 by default; the server, build, model and net benchmarks also take
   `-base rerelease` (and, except model, the game flags) to run on the
@@ -81,7 +87,9 @@ process per room. It was forked from mrdoob's three-quake.
 - To run the client, serve the repo root with any static file server
   (`python3 -m http.server`) and open `index.html`.
 - CI (`.github/workflows/ci.yml`) runs on PRs to `dev` and `main`: test, lint
-  and check, on the Deno version pinned in `.tool-versions`. Actions are
+  and check, on the Deno version pinned in `.tool-versions`, and, in a second
+  job, `tools/check_container_image.sh`. The Dockerfile pins the same Deno
+  version: bump both together. Actions are
   pinned by SHA and Dependabot bumps them weekly. Tests cover logic only:
   rendering, audio and touch changes need a browser check. If you didn't do
   one, say so.

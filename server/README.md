@@ -265,6 +265,7 @@ Notes:
 - `browser_shim.js` — Minimal `three` stubs mapped via `deno.json` for headless execution
 - `sys_server.ts` — Deno system utilities and production log filtering (`__ICARO_QUIET_LOGS`)
 - `deno.json` — Maps `"three"` to `browser_shim.js` when running from `server/` (the root `deno.json` does the same from the repository root)
+- `Dockerfile` — The game-room image (see [Container Image](#container-image))
 
 **Tests & utilities:**
 
@@ -273,6 +274,28 @@ Notes:
 - `../tests/net_websocket_test.js` — WebSocket client and server drivers against each other over in-memory sockets (`../tests/fake_websocket.js`): handshake, rejects, acks, backpressure and close paths
 - `../tests/quic_listen_test.ts` — IPv6/IPv4 bind fallback tests for `quic_listen.ts`
 - `../tests/server_lobby_test.js` — Lobby and room-manager tests (`deno task test` from the repository root). The room-process tests need run access to `tests/fixtures/fake_room_server.sh`, write access and the `FAKE_ROOM_*` env vars (the task grants them), and are skipped without them.
+
+## Container Image
+
+`server/Dockerfile` builds a game-room image: one `game_server.js` room per container, for hosting rooms on Cloudflare Containers or a VM (see [always-on-hosting.md](../docs/always-on-hosting.md)). Build it from the repository root, so the root `.dockerignore` applies:
+
+```bash
+docker build -f server/Dockerfile -t icaro-room .
+```
+
+Cloudflare Containers run `linux/amd64`; on an Apple Silicon Mac add `--platform linux/amd64`.
+
+The image is the pinned `denoland/deno` Debian image (the Deno version in `.tool-versions`) plus an allowlist: `deno.json`, `server/`, `src/` and `static/pak0.pak`. It never copies `static/` whole: registered and rerelease data (`static/pak1.pak`, `hipnotic/`, `rogue/`, `rerelease/`, `id1/`, `mg1/` and the other add-ons) must never reach an image or a registry. The root `.dockerignore` is a second guard: it excludes everything but the allowlist, then every `.pak` but `static/pak0.pak`, and TLS and env files. Keep both when you change either. The custom maps in `static/maps/` are not in the image, so a room can only start on maps in `pak0.pak`.
+
+The entry point is `deno run` on `server/game_server.js -pak /app/static/pak0.pak`, as the unprivileged `deno` user. Arguments after the image name are passed on to it (see [`game_server.js` options](#game_serverjs)) and replace the defaults, `-map start -cert /certs/cert.pem -key /certs/key.pem -wsport 4433 -wshost 0.0.0.0`. The room can listen on any port of `0.0.0.0`, `[::]` and `127.0.0.1` and read `/app/static` and `/certs`. A room still needs a TLS certificate and key for its WebTransport listener; mount them at `/certs` at run time and never bake them into the image. The key must be readable by uid 1993. For example, with the development certificate from step 1:
+
+```bash
+docker run --rm -v "$PWD/server/cert.pem:/certs/cert.pem:ro" -v "$PWD/server/key.pem:/certs/key.pem:ro" \
+  -p 4433:4433/tcp -p 4433:4433/udp icaro-room \
+  -map e1m1 -maxclients 8 -cert /certs/cert.pem -key /certs/key.pem -wsport 4433 -wshost 0.0.0.0
+```
+
+`deno task image-check` (`tools/check_container_image.sh`, needs Docker) checks the build context of your working tree and of a copy with decoy paks and keys planted, builds the image, fails if it holds any `.pak` but `/app/static/pak0.pak` or any TLS or env file, and starts a room in it (`--no-run` skips that). CI runs it on every PR. Run it before building an image from a working tree that has registered data in it. Nothing here pushes the image; publishing it is a later step of the hosting plan.
 
 ## Production Deployment
 
