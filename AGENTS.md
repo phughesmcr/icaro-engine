@@ -41,6 +41,9 @@ process per room. It was forked from mrdoob's three-quake.
   (Containers, Durable Objects, VMs), with room memory/CPU/bandwidth
   measurements and the plan. Supersedes the recommendation in
   `cloudflare-multiplayer.md`. A snapshot.
+- `docs/mobile-roadmap.md`: mobile-friendliness review (controls, rendering,
+  offline, lifecycle, networking, competitive landscape) with confirmed bugs
+  and a ranked roadmap. A snapshot; nothing in it was tested on a device.
 - `tools/`: `port_inventory.py` regenerates that inventory's raw tables
   (Python, standard library only; not linted or run in CI).
   `room_bench.js` (with `room_bench_preload.js`) load-tests one room with
