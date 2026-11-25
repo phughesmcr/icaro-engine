@@ -235,11 +235,20 @@ Deno.test( 'a demo message with a negative or oversized length is a Host_Error, 
 
 } );
 
-Deno.test( 'savegame: map strips .bsp, the comment has no newlines, a } in a string loads, and spawn sends v_angle', () => {
+Deno.test( 'savegame: map strips .bsp, the comment has no newlines, a } in a string loads, and spawn sends v_angle', async () => {
 
 	const oldStorage = Object.getOwnPropertyDescriptor( globalThis, 'localStorage' );
 	const oldState = client.cls.state;
 	const store = new Map();
+	const oldNavStorage = Object.getOwnPropertyDescriptor( navigator, 'storage' );
+	let persistCalls = 0;
+	Object.defineProperty( navigator, 'storage', {
+		configurable: true,
+		value: {
+			persisted() { return Promise.resolve( false ); },
+			persist() { persistCalls ++; return Promise.resolve( true ); }
+		}
+	} );
 	Object.defineProperty( globalThis, 'localStorage', {
 		configurable: true,
 		value: {
@@ -276,13 +285,18 @@ Deno.test( 'savegame: map strips .bsp, the comment has no newlines, a } in a str
 		player.v.angles[ 1 ] = 90;
 		const before = server.sv.num_edicts;
 
+		assertEqual( persistCalls, 0, 'no persist request before a save' );
 		output( () => cmd.Cmd_ExecuteString( 'save t1', cmd.src_command ) );
+		await new Promise( ( r ) => setTimeout( r, 0 ) );
+		assertEqual( persistCalls, 1, 'persist requested after the first save' );
 		const lines = store.get( 'quake_save_t1' ).split( '\n' );
 		assertEqual( lines[ 1 ].startsWith( 'two_lines' ), true, 'comment: ' + lines[ 1 ] );
 		assertEqual( lines[ 2 ].length > 0, true, 'spawn parms on the next line' );
 
 		client.cl.levelname = '';
 		output( () => cmd.Cmd_ExecuteString( 'save t2', cmd.src_command ) );
+		await new Promise( ( r ) => setTimeout( r, 0 ) );
+		assertEqual( persistCalls, 1, 'persist requested only once' );
 		assertEqual( store.get( 'quake_save_t2' ).split( '\n' )[ 1 ].startsWith( 'start_' ), true, 'map name fallback' );
 
 		output( () => cmd.Cmd_ExecuteString( 'load t1', cmd.src_command ) );
@@ -314,6 +328,10 @@ Deno.test( 'savegame: map strips .bsp, the comment has no newlines, a } in a str
 		server.set_host_client( null );
 		host.Host_ShutdownServer( false );
 		client.cls.state = oldState;
+		if ( oldNavStorage === undefined )
+			delete navigator.storage;
+		else
+			Object.defineProperty( navigator, 'storage', oldNavStorage );
 		if ( oldStorage === undefined )
 			delete globalThis.localStorage;
 		else

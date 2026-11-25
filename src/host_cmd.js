@@ -1,7 +1,7 @@
 // Ported from: WinQuake/host_cmd.c
 
 import { Sys_Printf, Sys_FloatTime } from './sys.js';
-import { Con_Printf, SZ_Clear,
+import { Con_Printf, Con_DPrintf, SZ_Clear,
 	MSG_WriteByte, MSG_WriteShort, MSG_WriteLong, MSG_WriteFloat,
 	MSG_WriteString, MSG_WriteAngle, COM_Parse, com_token, rogue, hipnotic,
 	COM_StripExtension } from './common.js';
@@ -1285,6 +1285,43 @@ function Host_Kick_f() {
 const SAVEGAME_VERSION = 5;
 const SAVE_STORAGE_PREFIX = 'quake_save_';
 
+// Web-only (the C writes files): saves live in localStorage, which Safari may
+// evict for sites that aren't installed. Ask for persistent storage once, after
+// the first user-initiated save, never at boot (some browsers prompt).
+let persist_requested = false;
+
+function Host_RequestPersistentStorage() {
+
+	if ( persist_requested === true ) return;
+	if ( typeof navigator === 'undefined' || navigator === null ) return;
+	const storage = navigator.storage;
+	if ( storage === undefined || storage === null || typeof storage.persist !== 'function' ) return;
+	persist_requested = true;
+
+	try {
+
+		const ask = () => storage.persist().then(
+			( granted ) => Con_DPrintf( 'Persistent storage %s.\n', granted === true ? 'granted' : 'denied' ),
+			() => {} );
+
+		if ( typeof storage.persisted === 'function' ) {
+
+			storage.persisted().then( ( already ) => already === true ? undefined : ask(), () => {} );
+
+		} else {
+
+			ask();
+
+		}
+
+	} catch {
+
+		// fire and forget
+
+	}
+
+}
+
 /*
 ===============
 Host_SavegameComment
@@ -1438,6 +1475,7 @@ function Host_Savegame_f() {
 	}
 
 	Con_Printf( 'done.\n' );
+	Host_RequestPersistentStorage();
 
 }
 
