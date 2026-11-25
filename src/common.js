@@ -416,9 +416,15 @@ export function MSG_WriteString( sb, s ) {
 
 }
 
+// Deliberate deviation from WinQuake's (int)(f*8), which truncates toward
+// zero, so a coordinate could be sent up to 1/8 unit short (and negative
+// ones moved the other way). This rounds to the nearest 1/8 with Q_rint, as
+// Ironwail's MSG_WriteCoord16 does.
 export function MSG_WriteCoord( sb, f ) {
 
-	MSG_WriteShort( sb, ( f * 8 ) | 0 );
+	const x = f * 8;
+	// Q_rint: ((x) > 0 ? (int)((x) + 0.5) : (int)((x) - 0.5))
+	MSG_WriteShort( sb, ( x > 0 ? x + 0.5 : x - 0.5 ) | 0 );
 
 }
 
