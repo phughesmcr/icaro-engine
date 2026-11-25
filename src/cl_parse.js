@@ -27,7 +27,7 @@ import {
 	svc_temp_entity, svc_setpause, svc_signonnum, svc_centerprint,
 	svc_killedmonster, svc_foundsecret, svc_spawnstaticsound,
 	svc_intermission, svc_finale, svc_cdtrack, svc_sellscreen,
-	svc_cutscene,
+	svc_cutscene, svc_localsound,
 	svc_playerinfo, PF_MSEC, PF_COMMAND, PF_VELOCITY1, PF_VELOCITY2, PF_VELOCITY3,
 	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_TELEPORT,
 	CM_ANGLE1, CM_ANGLE2, CM_ANGLE3, CM_FORWARD, CM_SIDE, CM_UP, CM_BUTTONS, CM_IMPULSE,
@@ -71,7 +71,7 @@ import { CL_GetMessage } from './cl_demo.js';
 import { set_noclip_anglehack } from './host_cmd.js';
 import { CL_SignonReply, CL_ClearState, cl_shownet } from './cl_main.js';
 import { CL_ParseTEnt } from './cl_tent.js';
-import { S_PrecacheSound, S_StartSound, S_StopSound, S_StaticSound } from './snd_dma.js';
+import { S_PrecacheSound, S_StartSound, S_StopSound, S_StaticSound, S_LocalSound } from './snd_dma.js';
 import { CDAudio_Play, CDAudio_Pause, CDAudio_Resume } from './cd_audio.js';
 import { SCR_CenterPrint, Con_LogCenterPrint, Con_ClearLastCenterString } from './gl_screen.js';
 
@@ -200,6 +200,32 @@ export function CL_ParseStartSoundPacket() {
 	}
 
 	S_StartSound( ent, ch, sfx, pos, volume / 255.0, attenuation );
+
+}
+
+/*
+==================
+CL_ParseLocalSound - for 2021 rerelease
+
+Ported from Ironwail's cl_parse.c. The server never sets SND_LARGESOUND
+(MAX_SOUNDS is 256), so the sound number is always a byte.
+==================
+*/
+export function CL_ParseLocalSound() {
+
+	MSG_ReadByte(); // field_mask
+	const sound_num = MSG_ReadByte();
+
+	const sfx = cl.sound_precache[ sound_num ];
+	if ( sfx == null ) {
+
+		// C dereferences the missing entry
+		Con_Printf( 'CL_ParseLocalSound: sound_num %d not precached\n', sound_num );
+		return;
+
+	}
+
+	S_LocalSound( sfx.name );
 
 }
 
@@ -1620,6 +1646,10 @@ export function CL_ParseServerMessage() {
 
 			case svc_deltapacketentities:
 				CL_ParsePacketEntities( true );
+				break;
+
+			case svc_localsound:
+				CL_ParseLocalSound();
 				break;
 
 		}

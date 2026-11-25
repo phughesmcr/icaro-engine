@@ -22,7 +22,7 @@ import {
 	svc_print, svc_serverinfo, svc_cdtrack, svc_setview, svc_signonnum,
 	svc_time, svc_particle, svc_sound, svc_clientdata, svc_updatestat, svc_updatefrags,
 	svc_stufftext, svc_nop, svc_spawnbaseline, svc_disconnect,
-	svc_updatename, svc_updatecolors,
+	svc_updatename, svc_updatecolors, svc_localsound,
 	SU_VIEWHEIGHT, SU_IDEALPITCH, SU_PUNCH1, SU_VELOCITY1,
 	SU_ITEMS, SU_ONGROUND, SU_INWATER, SU_WEAPONFRAME, SU_ARMOR, SU_WEAPON,
 	DEFAULT_VIEWHEIGHT, svc_damage, svc_setangle,
@@ -254,6 +254,42 @@ export function SV_StartSound( entity, channel, sample, volume, attenuation ) {
 	MSG_WriteByte( sv.datagram, sound_num );
 	for ( let i = 0; i < 3; i ++ )
 		MSG_WriteCoord( sv.datagram, entity.v.origin[ i ] + 0.5 * ( entity.v.mins[ i ] + entity.v.maxs[ i ] ) );
+
+}
+
+/*
+==================
+SV_LocalSound - for 2021 rerelease
+
+Ported from Ironwail's sv_main.c. Its SND_LARGESOUND branch is left out:
+with MAX_SOUNDS at 256 a sound number always fits in a byte.
+==================
+*/
+export function SV_LocalSound( client, sample ) {
+
+	let sound_num;
+	for ( sound_num = 1; sound_num < MAX_SOUNDS && sv.sound_precache[ sound_num ]; sound_num ++ ) {
+
+		if ( sample === sv.sound_precache[ sound_num ] )
+			break;
+
+	}
+
+	if ( sound_num === MAX_SOUNDS || sv.sound_precache[ sound_num ] == null ) {
+
+		Con_Printf( 'SV_LocalSound: %s not precached\n', sample );
+		return;
+
+	}
+
+	const field_mask = 0;
+
+	if ( client.message.cursize > client.message.maxsize - 4 )
+		return;
+
+	MSG_WriteByte( client.message, svc_localsound );
+	MSG_WriteByte( client.message, field_mask );
+	MSG_WriteByte( client.message, sound_num );
 
 }
 

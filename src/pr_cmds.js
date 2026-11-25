@@ -37,7 +37,7 @@ import {
 import { PR_HostError, PR_RunError } from './pr_exec.js';
 import { SV_Move, SV_LinkEdict, SV_PointContents } from './world.js';
 import { SV_movestep, SV_CheckBottom, SV_MoveToGoal as SV_MoveToGoal_Real, SV_Move_SetCallbacks } from './sv_move.js';
-import { SV_StartSound, SV_StartParticle, sv_aim, SV_ReserveSignonSpace } from './sv_main.js';
+import { SV_StartSound, SV_StartParticle, sv_aim, SV_ReserveSignonSpace, SV_LocalSound } from './sv_main.js';
 import { Cbuf_AddText } from './cmd.js';
 import { Cvar_VariableValue, Cvar_Set } from './cvar.js';
 import { FL_ONGROUND, FL_FLY, FL_SWIM, svs, ss_loading, ss_active, teamplay } from './server.js';
@@ -1576,6 +1576,32 @@ function PF_finalefinished() {
 
 /*
 =================
+PF_localsound
+
+Ported from Ironwail's pr_cmds.c (2021 re-release builtin): plays a sound
+that only the given client hears.
+
+localsound(clientent, sample)
+=================
+*/
+function PF_localsound() {
+
+	const entnum = G_EDICTNUM( OFS_PARM0 );
+	const sample = G_STRING( OFS_PARM1 );
+
+	if ( entnum < 1 || entnum > svs.maxclients ) {
+
+		Con_Printf( 'tried to localsound to a non-client\n' );
+		return;
+
+	}
+
+	SV_LocalSound( svs.clients[ entnum - 1 ], sample );
+
+}
+
+/*
+=================
 PF_checkextension
 
 float(string extname) checkextension = #99
@@ -2011,7 +2037,7 @@ const pr_extbuiltins = [
 	[ 'sqrt', PF_Sqrt, 62 ],				// float(float value)
 	[ 'etos', PF_etos, 65 ],				// string(entity ent)
 	[ 'finaleFinished', PF_finalefinished, 79 ],	// float() (2021 re-release)
-	[ 'localsound', PF_Fixme, 80 ],			// not ported: needs a client message
+	[ 'localsound', PF_localsound, 80 ],	// void(entity client, string sample) (2021 re-release)
 	[ 'stof', PF_stof, 81 ],				// float(string)
 	[ 'ex_centerprint', PF_centerprint, 0 ],	// void(entity client, string s, ...)
 	[ 'ex_bprint', PF_bprint, 0 ],			// void(string s, ...)
@@ -2019,7 +2045,7 @@ const pr_extbuiltins = [
 	[ 'ex_finalefinished', PF_finalefinished, 0 ],	// float()
 	[ 'ex_CheckPlayerEXFlags', PF_Fixme, 0 ],	// not ported
 	[ 'ex_walkpathtogoal', PF_Fixme, 0 ],	// not ported
-	[ 'ex_localsound', PF_Fixme, 0 ],		// not ported
+	[ 'ex_localsound', PF_localsound, 0 ],	// void(entity client, string sample)
 	[ 'min', PF_min, 94 ],					// float(float a, float b, ...)
 	[ 'max', PF_max, 95 ],					// float(float a, float b, ...)
 	[ 'bound', PF_bound, 96 ],				// float(float minimum, float val, float maximum)
