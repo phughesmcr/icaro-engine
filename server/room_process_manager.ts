@@ -389,12 +389,13 @@ export async function RoomManager_CreateRoom( config: {
 		}
 
 		// Spawn dedicated server process for this room. Permissions are
-		// scoped to what the room needs: listen on its own UDP port, read
-		// the pak, the TLS files and loose files under static/.
+		// scoped to what the room needs: listen on its own UDP port (IPv6 and
+		// IPv4, see quic_listen.ts), read the pak, the TLS files and loose
+		// files under static/.
 		const command = new Deno.Command( denoPath, {
 			args: [
 				'run',
-				'--allow-net=0.0.0.0:' + port,
+				'--allow-net=[::]:' + port + ',0.0.0.0:' + port,
 				'--allow-read=' + readPaths.join( ',' ),
 				'--unstable-net',
 				'--config', denoJsonPath,

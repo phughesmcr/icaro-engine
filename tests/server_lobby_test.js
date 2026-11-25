@@ -268,6 +268,11 @@ Deno.test( {
 			assert.ok( args.includes( '-evil' ) === false, 'unknown flags filtered out' );
 			const allowRead = args.find( ( a ) => a.startsWith( '--allow-read=' ) ).split( ',' );
 			assert.ok( allowRead.includes( '/data/quake/rogue' ), 'game dir next to the pak is readable' );
+			// quic_listen.ts binds [::] and 0.0.0.0 on the room's port
+			assert.ok(
+				args.some( ( a ) => /^--allow-net=\[::\]:(\d+),0\.0\.0\.0:\1$/.test( a ) ),
+				'room may listen on IPv6 and IPv4',
+			);
 		} finally {
 			RoomManager_ShutdownAll();
 			RoomManager_SetConfig( { pakPath: '../static/pak0.pak', gameFlags: [] } );

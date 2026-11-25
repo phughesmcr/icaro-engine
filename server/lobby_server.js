@@ -6,6 +6,7 @@
 // permission flags, or `deno task lobby` from the repository root.
 
 import { Sys_Printf } from './sys_server.ts';
+import { QUIC_CloseEndpoints, QUIC_OpenEndpoints } from './quic_listen.ts';
 import {
 	RoomManager_SetConfig,
 	RoomManager_CreateRoom,
@@ -169,8 +170,8 @@ const LOBBY_ROOMS = 0x81;
 const LOBBY_ERROR = 0x82;
 const ROOM_ID_PATTERN = /^[A-Z0-9]{6}$/;
 
-// QUIC endpoint
-let quicEndpoint = null;
+// QUIC endpoints (IPv6 and/or IPv4, see quic_listen.ts)
+let quicEndpoints = null;
 
 // Per-reader buffer storage for leftover bytes
 const _readerBuffers = new WeakMap();
@@ -468,7 +469,7 @@ const activeSessionsByIp = new Map();
  * Accept connections
  */
 async function acceptConnections( listener ) {
-	while ( quicEndpoint !== null ) {
+	while ( quicEndpoints !== null ) {
 		try {
 			const conn = await listener.accept();
 			const remoteAddr = conn.remoteAddr;
@@ -501,7 +502,7 @@ async function acceptConnections( listener ) {
 			} )();
 
 		} catch ( error ) {
-			if ( quicEndpoint !== null ) {
+			if ( quicEndpoints !== null ) {
 				Sys_Printf( 'Accept error: %s\n', error.message );
 				// Delay before retrying to prevent 100% CPU spin if accept() fails repeatedly
 				await new Promise( resolve => setTimeout( resolve, 100 ) );
@@ -532,19 +533,18 @@ async function startServer() {
 	const cert = await Deno.readTextFile( CONFIG.certFile );
 	const key = await Deno.readTextFile( CONFIG.keyFile );
 
-	// Create QUIC endpoint
-	quicEndpoint = new Deno.QuicEndpoint( {
-		hostname: '0.0.0.0',
-		port: CONFIG.port,
-	} );
+	// Create QUIC endpoints. Browsers may resolve localhost to ::1, so listen
+	// on IPv6 as well as IPv4.
+	const bound = QUIC_OpenEndpoints( CONFIG.port );
+	quicEndpoints = bound.endpoints;
 
-	const listener = quicEndpoint.listen( {
+	const listeners = quicEndpoints.map( ( endpoint ) => endpoint.listen( {
 		cert,
 		key,
 		alpnProtocols: [ 'h3' ],
-	} );
+	} ) );
 
-	Sys_Printf( 'Lobby server listening on port %d\n', CONFIG.port );
+	Sys_Printf( 'Lobby server listening on port %d on %s\n', CONFIG.port, bound.description );
 	Sys_Printf( 'Rooms will spawn on ports %d-%d (up to %d rooms)\n\n', BASE_PORT, BASE_PORT + MAX_ROOMS - 1, MAX_ROOMS );
 
 	// Start cleanup timer (every minute; rooms idle for 5 minutes are reaped)
@@ -561,15 +561,16 @@ async function startServer() {
 	}, 60 * 1000 );
 
 	// Accept connections
-	await acceptConnections( listener );
+	await Promise.all( listeners.map( ( listener ) => acceptConnections( listener ) ) );
 }
 
 function shutdown( reason, code ) {
 	Sys_Printf( '%s, shutting down...\n', reason );
 	RoomManager_ShutdownAll();
-	if ( quicEndpoint !== null ) {
-		try { quicEndpoint.close(); } catch { /* ignore */ }
-		quicEndpoint = null;
+	if ( quicEndpoints !== null ) {
+		const endpoints = quicEndpoints;
+		quicEndpoints = null;
+		QUIC_CloseEndpoints( endpoints );
 	}
 	Deno.exit( code );
 }

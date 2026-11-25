@@ -2,6 +2,7 @@
 // Handles incoming client connections via WebTransport/HTTP3
 
 import { Sys_Printf } from "./sys_server.ts";
+import { QUIC_CloseEndpoints, QUIC_OpenEndpoints } from "./quic_listen.ts";
 import {
   net_message,
   WT_BuildHandshakeReplyFrame,
@@ -134,8 +135,8 @@ const pendingConnections: QSocket[] = [];
 // Every connection that has finished the handshake and is not fully closed
 const liveConnections = new Set<ClientConnection>();
 
-// QUIC endpoint and listener
-let quicEndpoint: Deno.QuicEndpoint | null = null;
+// QUIC endpoints (IPv6 and/or IPv4, see quic_listen.ts)
+let quicEndpoints: Deno.QuicEndpoint[] | null = null;
 
 // Connection ID counter
 let nextConnectionId = 1;
@@ -348,9 +349,9 @@ export function WT_Init(): number {
 export function WT_Shutdown(): void {
   Sys_Printf("WebTransport server driver shutting down\n");
 
-  if (quicEndpoint) {
-    quicEndpoint.close();
-    quicEndpoint = null;
+  if (quicEndpoints !== null) {
+    QUIC_CloseEndpoints(quicEndpoints);
+    quicEndpoints = null;
   }
 
   // Close all connections immediately (the process is going away)
@@ -372,23 +373,27 @@ let serverKey = "";
  */
 export async function WT_Listen(state: boolean): Promise<boolean> {
   if (state) {
-    if (quicEndpoint) return true; // Already listening
+    if (quicEndpoints !== null) return true; // Already listening
 
     try {
       // Read TLS certificate and key
       serverCert = await Deno.readTextFile(certFile);
       serverKey = await Deno.readTextFile(keyFile);
 
-      // Create QUIC endpoint
-      quicEndpoint = new Deno.QuicEndpoint({
-        hostname: "0.0.0.0",
-        port: serverPort,
-      });
+      // Create QUIC endpoints. Browsers may resolve localhost to ::1, so
+      // listen on IPv6 as well as IPv4.
+      const bound = QUIC_OpenEndpoints(serverPort);
+      quicEndpoints = bound.endpoints;
 
-      Sys_Printf("WebTransport server listening on port " + serverPort + "\n");
+      Sys_Printf(
+        "WebTransport server listening on port " + serverPort + " on " +
+          bound.description + "\n",
+      );
 
       // Start accepting connections in background
-      _acceptConnections();
+      for (const endpoint of quicEndpoints) {
+        _acceptConnections(quicEndpoints, endpoint);
+      }
       return true;
     } catch (error) {
       Sys_Printf(
@@ -400,30 +405,32 @@ export async function WT_Listen(state: boolean): Promise<boolean> {
     }
   }
 
-  if (quicEndpoint) {
-    quicEndpoint.close();
-    quicEndpoint = null;
+  if (quicEndpoints !== null) {
+    QUIC_CloseEndpoints(quicEndpoints);
+    quicEndpoints = null;
     Sys_Printf("WebTransport server stopped listening\n");
   }
   return true;
 }
 
 /**
- * Background task to accept incoming connections
+ * Background task to accept incoming connections on one endpoint. It runs
+ * until WT_Listen(false) or WT_Shutdown replaces the endpoint set it belongs to.
  */
-async function _acceptConnections(): Promise<void> {
-  if (!quicEndpoint) return;
-
+async function _acceptConnections(
+  endpoints: Deno.QuicEndpoint[],
+  endpoint: Deno.QuicEndpoint,
+): Promise<void> {
   try {
     // Get listener from endpoint with TLS options
-    const listener = quicEndpoint.listen({
+    const listener = endpoint.listen({
       cert: serverCert,
       key: serverKey,
       alpnProtocols: ["h3"], // HTTP/3 for WebTransport
     });
 
     // Accept connections using listener.accept() which returns QuicConn directly
-    while (quicEndpoint) {
+    while (quicEndpoints === endpoints) {
       try {
         // Use listener.accept() to get QuicConn directly
         const conn = await listener.accept();
@@ -444,7 +451,7 @@ async function _acceptConnections(): Promise<void> {
           },
         );
       } catch (error) {
-        if (quicEndpoint) {
+        if (quicEndpoints === endpoints) {
           Sys_Printf("Accept error: " + (error as Error).message + "\n");
           // Delay before retrying to prevent 100% CPU spin if accept() fails repeatedly
           await new Promise((resolve) => setTimeout(resolve, 100));
@@ -452,7 +459,7 @@ async function _acceptConnections(): Promise<void> {
       }
     }
   } catch (error) {
-    if (quicEndpoint) {
+    if (quicEndpoints === endpoints) {
       Sys_Printf(
         "Listener error: " + (error as Error).message + "\n",
       );
