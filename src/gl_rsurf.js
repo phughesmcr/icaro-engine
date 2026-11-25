@@ -140,7 +140,7 @@ import {
 import {
 	DotProduct, VectorCopy, VectorAdd, VectorNormalize
 } from './mathlib.js';
-import { Mod_LeafPVS, solidskytexture, alphaskytexture } from './gl_model.js';
+import { Mod_LeafPVS, solidskytexture, alphaskytexture, GL_CheckAnisotropy } from './gl_model.js';
 import { realtime } from './host.js';
 import { LIGHTMAP_INTENSITY } from './glquake.js';
 import { MAX_MODELS } from './quakedef.js';
@@ -1813,6 +1813,7 @@ export function R_DrawWorld() {
 	set_currententity( r_worldentity );
 
 	VectorCopy( r_refdef.vieworg, modelorg );
+	GL_CheckAnisotropy();
 	R_UpdateWorldTextureAnimations();
 	_waterWarpTime.value = R_WaterWarpTime( realtime );
 

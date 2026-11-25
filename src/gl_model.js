@@ -7,10 +7,10 @@
 import * as THREE from 'three';
 import { Sys_Error } from './sys.js';
 import { Con_Printf, Con_DPrintf } from './common.js';
-import { d_8to24table, vid } from './vid.js';
+import { d_8to24table, vid, renderer } from './vid.js';
 import { COM_LoadFile } from './pak.js';
 import { DotProduct, VectorCopy, Length } from './mathlib.js';
-import { Cvar_RegisterVariable } from './cvar.js';
+import { Cvar_RegisterVariable, Cvar_SetValue } from './cvar.js';
 import { r_nolerp_list } from './render.js';
 import { MAX_DLIGHTS } from './client.js';
 import { R_InitSky as R_InitSky_warp, GL_SubdivideSurface as GL_SubdivideSurface_warp, GL_Warp_SetLoadmodel } from './gl_warp.js';
@@ -31,7 +31,7 @@ import {
 	TEX_SPECIAL
 } from './bspfile.js';
 import { gl_subdivide_size, GL_SetTextureFilter, GL_RegisterTexture, GL_UnregisterTexture,
-	GL_ScaledTextureSize, GL_ResampleTexture8 } from './glquake.js';
+	GL_ScaledTextureSize, GL_ResampleTexture8, _allGameTextures } from './glquake.js';
 
 // ============================================================================
 // modelgen.h constants
@@ -758,6 +758,7 @@ function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbrig
 		fullbrightTexture.wrapS = THREE.RepeatWrapping;
 		fullbrightTexture.wrapT = THREE.RepeatWrapping;
 		fullbrightTexture.generateMipmaps = mipmap;
+		if ( mipmap ) fullbrightTexture.anisotropy = GL_TextureAnisotropy();
 		fullbrightTexture.colorSpace = THREE.SRGBColorSpace;
 		fullbrightTexture.needsUpdate = true;
 		GL_RegisterTexture( fullbrightTexture );
@@ -772,6 +773,7 @@ function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbrig
 	texture.wrapS = THREE.RepeatWrapping;
 	texture.wrapT = THREE.RepeatWrapping;
 	texture.generateMipmaps = mipmap;
+	if ( mipmap ) texture.anisotropy = GL_TextureAnisotropy();
 	texture.colorSpace = THREE.SRGBColorSpace;
 	// Note: flipY defaults to false for DataTexture, which is correct for Quake
 	// Quake's UV T=0 at top + texture row 0 at V=0 means no flip is needed
@@ -826,12 +828,73 @@ function R_InitSky( tx ) {
 }
 
 // ============================================================================
+// gl_texture_anisotropy
+//
+// Deliberate deviation, from QuakeSpasm (gl_texmgr.c): anisotropic filtering
+// for mipmapped textures. The default, 1, is off, as in GLQuake. QS clamps the
+// cvar to [1, the driver's maximum] in a callback (TexMgr_Anisotropy_f) and
+// re-filters every mipmapped texture; this port's cvars have no callbacks,
+// so GL_CheckAnisotropy does it when the value changes (gl_rsurf.js
+// R_DrawWorld calls it each frame). Three.js only applies anisotropy to
+// textures whose min filter is *_MIPMAP_LINEAR and mag filter isn't
+// GL_NEAREST, so it shows only with such a gl_texturemode.
+// ============================================================================
+
+export const gl_texture_anisotropy = { name: 'gl_texture_anisotropy', string: '1', value: 1, archive: true };
+let _appliedAnisotropy = 1;
+
+function GL_MaxAnisotropy() {
+
+	// Three returns 0 without EXT_texture_filter_anisotropic; QS's floor is 1.
+	return renderer !== null ? Math.max( renderer.capabilities.getMaxAnisotropy(), 1 ) : 1;
+
+}
+
+function GL_TextureAnisotropy( maxAnisotropy = GL_MaxAnisotropy() ) {
+
+	return Math.min( Math.max( gl_texture_anisotropy.value, 1 ), maxAnisotropy );
+
+}
+
+// TexMgr_Anisotropy_f. maxAnisotropy is the driver limit; tests pass it in.
+export function GL_CheckAnisotropy( maxAnisotropy = GL_MaxAnisotropy() ) {
+
+	if ( gl_texture_anisotropy.value === _appliedAnisotropy )
+		return;
+
+	if ( gl_texture_anisotropy.value < 1 ) {
+
+		Cvar_SetValue( 'gl_texture_anisotropy', 1 );
+
+	} else if ( gl_texture_anisotropy.value > maxAnisotropy ) {
+
+		Cvar_SetValue( 'gl_texture_anisotropy', maxAnisotropy );
+
+	}
+
+	_appliedAnisotropy = gl_texture_anisotropy.value;
+	const anisotropy = GL_TextureAnisotropy( maxAnisotropy );
+	for ( const texture of _allGameTextures ) {
+
+		if ( texture !== null && texture.generateMipmaps === true && texture.anisotropy !== anisotropy ) {
+
+			texture.anisotropy = anisotropy;
+			texture.needsUpdate = true;
+
+		}
+
+	}
+
+}
+
+// ============================================================================
 // Mod_Init
 // ============================================================================
 
 export function Mod_Init() {
 
 	Cvar_RegisterVariable( gl_subdivide_size );
+	Cvar_RegisterVariable( gl_texture_anisotropy );
 	mod_novis.fill( 0xff );
 
 }
