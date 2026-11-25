@@ -15,7 +15,7 @@ import { sensitivity, m_pitch, lookspring, lookstrafe, cl_color } from './cl_mai
 import { volume, bgmvolume } from './sound.js';
 import { Cvar_SetValue, Cvar_VariableValue, Cvar_RegisterVariable, Cvar_FindVar, Cvar_Reset } from './cvar.js';
 import { advancedPages, M_CvarItem_IsSlider, M_CvarItem_Step, M_CvarItem_Fraction,
-	M_CvarItem_FromFraction, M_CvarItem_Format } from './menu_cvars.js';
+	M_CvarItem_FromFraction, M_CvarItem_Format, M_CvarWhen_Applies } from './menu_cvars.js';
 import { scr_viewsize, scr_con_current, SCR_ModalMessage, SCR_DrawYesNo, SCR_YesNoHit,
 	SCR_ModalYesNoAt } from './gl_screen.js';
 import { v_gamma } from './view.js';
@@ -2157,6 +2157,10 @@ const ADV_CURSOR_X = 144;
 const ADV_VALUE_X = 156; // up to 6 characters, clear of the slider at 212
 const ADV_RESET_LABEL = 'Reset defaults';
 
+// The pages that apply now (M_CvarWhen_Applies), as indexes into
+// advancedPages. m_advanced_cursor indexes this list.
+const adv_page_list = new Int32Array( advancedPages.length );
+let adv_page_count = 0;
 let m_advanced_cursor = 0;
 
 // The open page's rows: its registered cvars, then null for the reset row.
@@ -2174,8 +2178,44 @@ let adv_page = 0;
 let adv_cursor = 0;
 let adv_scroll = 0;
 
+// Connected to an online server: not this browser's server, nor a demo
+function M_Advanced_Remote() {
+
+	return _cls.state === 2 && _cls.demoplayback !== true && _sv.active !== true; // ca_connected
+
+}
+
+function M_Advanced_Multiplayer() {
+
+	return _cls.state === 2 && _cl.maxclients !== undefined && _cl.maxclients > 1; // ca_connected
+
+}
+
+// Rebuilds the page list, keeping the cursor on the page it was on
+function M_Advanced_ListPages() {
+
+	const current = adv_page_count > 0 ? adv_page_list[ m_advanced_cursor ] : 0;
+	const remote = M_Advanced_Remote();
+	const multiplayer = M_Advanced_Multiplayer();
+
+	adv_page_count = 0;
+	m_advanced_cursor = 0;
+	for ( let i = 0; i < advancedPages.length; i ++ ) {
+
+		if ( M_CvarWhen_Applies( advancedPages[ i ].when, remote, multiplayer ) === false )
+			continue;
+		if ( i <= current )
+			m_advanced_cursor = adv_page_count;
+		adv_page_list[ adv_page_count ] = i;
+		adv_page_count ++;
+
+	}
+
+}
+
 function M_Menu_Advanced_f() {
 
+	M_Advanced_ListPages();
 	setKeyDest( key_menu );
 	m_state = m_advanced;
 	m_entersound = true;
@@ -2200,9 +2240,9 @@ function M_Advanced_Draw() {
 
 	M_Advanced_DrawHeader( 'Advanced', true );
 
-	for ( let i = 0; i < advancedPages.length; i ++ ) {
+	for ( let i = 0; i < adv_page_count; i ++ ) {
 
-		const title = advancedPages[ i ].title;
+		const title = advancedPages[ adv_page_list[ i ] ].title;
 		M_Print( ADV_LABEL_RIGHT - title.length * 8, ADV_TOP + i * 8, title );
 
 	}
@@ -2213,7 +2253,7 @@ function M_Advanced_Draw() {
 
 function M_Advanced_Key( key ) {
 
-	const count = advancedPages.length;
+	const count = adv_page_count;
 
 	switch ( key ) {
 
@@ -2222,7 +2262,7 @@ function M_Advanced_Key( key ) {
 			break;
 		case K_ENTER:
 		case K_RIGHTARROW:
-			M_AdvPage_Open( m_advanced_cursor );
+			M_AdvPage_Open( adv_page_list[ m_advanced_cursor ] );
 			break;
 		case K_UPARROW:
 			if ( _S_LocalSound ) _S_LocalSound( 'misc/menu1.wav' );
@@ -2238,14 +2278,18 @@ function M_Advanced_Key( key ) {
 }
 
 // Opens page i with the rows whose cvars are registered (in_web.js's are
-// only registered in the browser)
+// only registered in the browser) and that apply now
 function M_AdvPage_Open( i ) {
 
 	const items = advancedPages[ i ].items;
+	const remote = M_Advanced_Remote();
+	const multiplayer = M_Advanced_Multiplayer();
 	adv_page = i;
 	adv_count = 0;
 	for ( let j = 0; j < items.length; j ++ ) {
 
+		if ( M_CvarWhen_Applies( items[ j ].when, remote, multiplayer ) === false )
+			continue;
 		const v = Cvar_FindVar( items[ j ].cvar );
 		if ( v === null )
 			continue;
@@ -2295,10 +2339,14 @@ function M_AdvPage_Draw() {
 
 	if ( ! _Draw_CachePic ) return;
 
-	M_Advanced_DrawHeader( advancedPages[ adv_page ].title, false );
+	const page = advancedPages[ adv_page ];
+	M_Advanced_DrawHeader( page.title, false );
 
+	// The page's note sits where the "more" row above goes when scrolled
 	if ( adv_scroll > 0 )
 		M_DrawEllipsisBar( 0, ADV_TOP - 8, 40 );
+	else if ( page.note !== undefined )
+		M_Print( ( 320 - page.note.length * 8 ) >> 1, ADV_TOP - 8, page.note );
 	if ( adv_scroll + ADV_VIEWSIZE < adv_count )
 		M_DrawEllipsisBar( 0, ADV_TOP + ADV_VIEWSIZE * 8, 40 );
 
@@ -3445,7 +3493,7 @@ export function M_MenuRowAt( vx, vy ) {
 		case m_touch:
 			return M_RowAt( vy, TOUCH_TOP, 8, TOUCH_ITEMS );
 		case m_advanced:
-			return M_RowAt( vy, ADV_TOP, 8, advancedPages.length );
+			return M_RowAt( vy, ADV_TOP, 8, adv_page_count );
 		case m_advpage: {
 
 			const row = M_RowAt( vy, ADV_TOP, 8, Math.min( ADV_VIEWSIZE, adv_count - adv_scroll ) );

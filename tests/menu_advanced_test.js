@@ -3,7 +3,7 @@
 
 import {
 	advancedPages, M_CvarItem_IsSlider, M_CvarItem_IsChoice, M_CvarItem_Snap, M_CvarItem_Step,
-	M_CvarItem_Fraction, M_CvarItem_FromFraction, M_CvarItem_Format
+	M_CvarItem_Fraction, M_CvarItem_FromFraction, M_CvarItem_Format, ADV_WHEN, M_CvarWhen_Applies
 } from '../src/menu_cvars.js';
 
 function assertEqual( actual, expected, message ) {
@@ -109,6 +109,12 @@ Deno.test( 'advanced menu: every row is a real cvar whose default the row can re
 
 		// The page list right-aligns titles to x 136, so 17 characters reach 0
 		assertEqual( page.title.length <= 16, true, page.title + ': title fits the page list' );
+		// A misspelt `when` would show the page in every game
+		if ( page.when !== undefined )
+			assertEqual( ADV_WHEN.includes( page.when ), true, page.title + ': when is ' + ADV_WHEN.join( ' or ' ) );
+		// The note is centred on the 40-character line above the rows
+		if ( page.note !== undefined )
+			assertEqual( page.note.length <= 40, true, page.title + ': note fits the line' );
 
 		for ( const item of page.items ) {
 
@@ -117,6 +123,8 @@ Deno.test( 'advanced menu: every row is a real cvar whose default the row can re
 			assertEqual( seen.has( item.cvar ), false, name + ': ' + item.cvar + ' is listed once' );
 			seen.add( item.cvar );
 			assertEqual( item.label.length <= 15, true, name + ': label fits left of the cursor' );
+			if ( item.when !== undefined )
+				assertEqual( ADV_WHEN.includes( item.when ), true, name + ': when is ' + ADV_WHEN.join( ' or ' ) );
 
 			const def = defaults.get( item.cvar );
 			if ( M_CvarItem_IsSlider( item ) ) {
@@ -127,12 +135,31 @@ Deno.test( 'advanced menu: every row is a real cvar whose default the row can re
 			} else if ( M_CvarItem_IsChoice( item ) ) {
 
 				assertEqual( item.values.includes( def ), true, name + ': default is a choice' );
+				for ( const v of item.values )
+					assertEqual( M_CvarItem_Format( item, v ).length <= 6, true, name + ': value text fits' );
 
 			} else {
 
 				assertEqual( def === 0 || def === 1, true, name + ': toggle default is 0 or 1' );
 
 			}
+
+		}
+
+	}
+
+} );
+
+Deno.test( 'advanced menu: when hides local rows online and single-player rows in multiplayer', () => {
+
+	for ( const remote of [ false, true ] ) {
+
+		for ( const multiplayer of [ false, true ] ) {
+
+			const at = ` (remote ${remote}, multiplayer ${multiplayer})`;
+			assertEqual( M_CvarWhen_Applies( undefined, remote, multiplayer ), true, 'no when: always' + at );
+			assertEqual( M_CvarWhen_Applies( 'local', remote, multiplayer ), ! remote, 'local' + at );
+			assertEqual( M_CvarWhen_Applies( 'single', remote, multiplayer ), ! multiplayer, 'single' + at );
 
 		}
 
@@ -166,7 +193,11 @@ Deno.test( 'advanced menu: Options row, page list, slider taps, wrapping, scroll
 
 	const hadWindow = 'window' in globalThis;
 	if ( ! hadWindow ) globalThis.window = { devicePixelRatio: 1 };
-	advancedPages.push( page );
+	// The test page stands in for the last page, as the page list is sized
+	// from the real pages at import
+	const last = advancedPages.length - 1;
+	const realLast = advancedPages[ last ];
+	advancedPages[ last ] = page;
 	try {
 
 		cmd.Cbuf_Init();
@@ -245,9 +276,56 @@ Deno.test( 'advanced menu: Options row, page list, slider taps, wrapping, scroll
 		menu.M_Keydown( keys.K_ESCAPE );
 		assertEqual( menu.m_state, menu.m_options, 'back to Options' );
 
+		// Connected to an online multiplayer server: the Local game page
+		// and a 'local' row are left out
+		menu.M_SetExternals( { cls: { state: 2, demonum: - 1, demoplayback: false }, sv: { active: false }, cl: { maxclients: 4 } } );
+		items.unshift( { label: 'Local', cvar: 'test_adv_toggle0', when: 'local' } );
+		items.unshift( { label: 'Single', cvar: 'test_adv_toggle1', when: 'single' } );
+		tap( 100, 32 + 15 * 8 + 4 );
+		assertEqual( menu.m_state, menu.m_advanced, 'Advanced row opens the page list online' );
+		assertEqual( menu.M_MenuRowAt( 100, row( last ) ), - 1, 'online, the list is a page shorter' );
+		// The cursor was on the test page, and stays on it as it moves up
+		menu.M_Keydown( keys.K_ENTER );
+		assertEqual( menu.m_state, menu.m_advpage, 'the cursor followed the test page up a row' );
+		tap( 300, row( 0 ) );
+		assertEqual( value( 'test_adv_slider' ), - 45, 'online, row 0 is the slider: the local and single rows are left out' );
+		assertEqual( value( 'test_adv_toggle0' ), 0, 'the local row was not stepped' );
+		assertEqual( value( 'test_adv_toggle1' ), 0, 'the single row was not stepped' );
+
+		// The shorter list wraps at its own end
+		menu.M_Keydown( keys.K_ESCAPE );
+		menu.M_Keydown( keys.K_DOWNARROW );
+		menu.M_Keydown( keys.K_UPARROW );
+		menu.M_Keydown( keys.K_ENTER );
+		tap( 210, row( 0 ) );
+		assertEqual( value( 'test_adv_slider' ), - 90, 'down wrapped to the first page and up back to the test page' );
+		menu.M_Keydown( keys.K_ESCAPE );
+
+		// A cursor on Local game when it is hidden moves to the page before
+		// it, so one Down reaches the test page
+		menu.M_SetExternals( { cls: { state: 0, demonum: - 1, demoplayback: false } } );
+		menu.M_Keydown( keys.K_ESCAPE );
+		tap( 100, 32 + 15 * 8 + 4 );
+		menu.M_Keydown( keys.K_UPARROW );
+		menu.M_Keydown( keys.K_ESCAPE );
+		menu.M_SetExternals( { cls: { state: 2, demonum: - 1, demoplayback: false } } );
+		tap( 100, 32 + 15 * 8 + 4 );
+		menu.M_Keydown( keys.K_DOWNARROW );
+		menu.M_Keydown( keys.K_ENTER );
+		tap( 300, row( 0 ) );
+		assertEqual( value( 'test_adv_slider' ), - 45, 'the cursor moved from hidden Local game to Sound' );
+		menu.M_Keydown( keys.K_ESCAPE );
+
+		// A demo playing isn't online: the title screen lists every page
+		menu.M_SetExternals( { cls: { state: 2, demonum: 0, demoplayback: true } } );
+		menu.M_Keydown( keys.K_ESCAPE );
+		tap( 100, 32 + 15 * 8 + 4 );
+		assertEqual( menu.M_MenuRowAt( 100, row( last ) ), last, 'during a demo, every page is listed' );
+
 	} finally {
 
-		advancedPages.pop();
+		menu.M_SetExternals( { cls: { state: 0, demonum: - 1, demoplayback: false }, sv: { active: false }, cl: { intermission: 0, gametype: 0 } } );
+		advancedPages[ last ] = realLast;
 		if ( ! hadWindow ) delete globalThis.window;
 
 	}
