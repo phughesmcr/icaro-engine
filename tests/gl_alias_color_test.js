@@ -64,9 +64,13 @@ Deno.test( 'R_DrawAliasModel updates vertex colours only when the lighting chang
 	const dotsA = new Float32Array( [ 0.5, 1.0 ] );
 	const dotsB = new Float32Array( [ 1.0, 0.5 ] );
 
+	// one scratch shade, rewritten in place as gl_rmain.js's shadecolor is
+	const shade = new Float64Array( 3 );
 	const draw = ( dots, light ) => {
 
-		gl_mesh.R_DrawAliasModel( entity, paliashdr, dots, light );
+		if ( typeof light === 'number' ) shade.fill( light );
+		else shade.set( light );
+		gl_mesh.R_DrawAliasModel( entity, paliashdr, dots, shade );
 		const color = entity._aliasGeo.attributes.color;
 		const updated = color.needsUpdate;
 		color.needsUpdate = false;
@@ -86,6 +90,17 @@ Deno.test( 'R_DrawAliasModel updates vertex colours only when the lighting chang
 
 	assertEqual( draw( dotsB, 0.8 ), true, 'new shade table rewrites' );
 	assertEqual( colors[ 0 ], gl_mesh.GL_LinearLight( 0.8 ), 'vertex 0 from the new table' );
+
+	// .lit: each channel lit by its own shade; a change in one channel rewrites
+	assertEqual( draw( dotsB, [ 0.8, 0.4, 0.2 ] ), true, 'tinted shade rewrites' );
+	assertEqual( colors[ 0 ], gl_mesh.GL_LinearLight( 0.8 ), 'vertex 0 red' );
+	assertEqual( colors[ 1 ], gl_mesh.GL_LinearLight( 0.4 ), 'vertex 0 green' );
+	assertEqual( colors[ 2 ], gl_mesh.GL_LinearLight( 0.2 ), 'vertex 0 blue' );
+	assertEqual( colors[ 4 ], gl_mesh.GL_LinearLight( 0.2 ), 'vertex 1 green' );
+	assertEqual( draw( dotsB, [ 0.8, 0.4, 0.2 ] ), false, 'same tint: no rewrite' );
+	assertEqual( draw( dotsB, [ 0.8, 0.4, 0.3 ] ), true, 'new blue rewrites' );
+	assertEqual( colors[ 2 ], gl_mesh.GL_LinearLight( 0.3 ), 'vertex 0 new blue' );
+	assertEqual( draw( dotsB, 0.8 ), true, 'back to mono rewrites' );
 
 	// A cleared entity cache (_clearEntityMeshCache) must relight the new buffer.
 	entity._aliasGeo = null;
