@@ -529,11 +529,13 @@ R_NewMap is in gl_rmisc.js, so the values are parsed lazily after
 GL_BuildLightmaps (which R_NewMap calls) and a cvar is applied once its value
 changes.
 
-QS also keeps a liquid opaque, whatever the cvars say, when the map's vis
-can't see through it (contentstransparent, from Mod_CheckWaterVis). Here
-that check only gates the worldspawn keys: the cvars act on every liquid as
-r_wateralpha does in GLQuake, so the look of id's (unvised) maps with
-r_wateralpha set is unchanged.
+Ironwail (gl_rmisc.c R_ParseWorldspawn at 3fa96fe) also keeps a liquid
+opaque at map load, whatever the cvars say, when the map's vis can't see
+through it (contentstransparent, from Mod_CheckWaterVis), so the void behind
+it doesn't show. The worldspawn keys apply whatever the vis: the mapper
+asked for them. Setting a cvar during the map still applies it to every
+liquid (Ironwail's callbacks only warn), until the next map load. QS gates
+neither; GLQuake has neither the keys nor the gate.
 ================
 */
 let map_wateralpha = 1;
@@ -548,18 +550,22 @@ let _seenLavaAlpha = 0;
 let _seenSlimeAlpha = 0;
 let _seenTeleAlpha = 0;
 
-// R_ParseWorldspawn (QS gl_rmisc.c)
+// R_ParseWorldspawn (Ironwail gl_rmisc.c)
 function R_ParseWorldspawn( worldmodel ) {
 
+	// Ironwail always has a worldmodel here; without one there is no vis to
+	// gate on, so the cvars apply as they are.
+	const vised = worldmodel !== null ? worldmodel.contentstransparent
+		: ( SURF_DRAWWATER | SURF_DRAWLAVA | SURF_DRAWSLIME | SURF_DRAWTELE );
+
 	map_fallbackalpha = r_wateralpha.value;
-	map_wateralpha = r_wateralpha.value;
-	map_lavaalpha = r_lavaalpha.value;
-	map_slimealpha = r_slimealpha.value;
-	map_telealpha = r_telealpha.value;
+	map_wateralpha = ( vised & SURF_DRAWWATER ) !== 0 ? r_wateralpha.value : 1;
+	map_lavaalpha = ( vised & SURF_DRAWLAVA ) !== 0 ? r_lavaalpha.value : 1;
+	map_telealpha = ( vised & SURF_DRAWTELE ) !== 0 ? r_telealpha.value : 1;
+	map_slimealpha = ( vised & SURF_DRAWSLIME ) !== 0 ? r_slimealpha.value : 1;
 
 	if ( worldmodel === null || worldmodel.entities === null )
 		return;
-	const vised = worldmodel.contentstransparent;
 
 	let data = COM_Parse( worldmodel.entities );
 	if ( data === null || com_token !== '{' )
@@ -579,14 +585,14 @@ function R_ParseWorldspawn( worldmodel ) {
 		let value = parseFloat( com_token );
 		if ( Number.isNaN( value ) ) value = 0;	// atof
 
-		// only for liquids the vis can see through (see above)
-		if ( key === 'wateralpha' && ( vised & SURF_DRAWWATER ) !== 0 )
+		// whatever the vis (see above)
+		if ( key === 'wateralpha' )
 			map_wateralpha = value;
-		else if ( key === 'lavaalpha' && ( vised & SURF_DRAWLAVA ) !== 0 )
+		else if ( key === 'lavaalpha' )
 			map_lavaalpha = value;
-		else if ( key === 'telealpha' && ( vised & SURF_DRAWTELE ) !== 0 )
+		else if ( key === 'telealpha' )
 			map_telealpha = value;
-		else if ( key === 'slimealpha' && ( vised & SURF_DRAWSLIME ) !== 0 )
+		else if ( key === 'slimealpha' )
 			map_slimealpha = value;
 
 	}
@@ -2490,8 +2496,15 @@ export function R_BlendLightmaps() {
 
 	R_CheckLightmapCvars();
 
-	if ( ! gl_texsort.value )
-		return;
+	// GLQuake returns here when gl_texsort is 0 (gl_rsurf.c R_BlendLightmaps:
+	// "if (!gl_texsort.value) return;"), because R_DrawSequentialPoly then
+	// uploads each changed block itself as it binds it (the
+	// glTexSubImage2D in its lightmapped and underwater branches). The port's
+	// R_DrawSequentialPoly binds no lightmap, and R_DrawBrushModel marks blocks
+	// through R_RenderDynamicLightmaps whatever gl_texsort is, so the upload
+	// loop below runs in both modes. Without it light styles and dynamic
+	// lights froze with gl_texsort 0. There is no separate blend pass to
+	// skip: the lightmaps are textures on the world materials.
 
 	// In Three.js, lightmaps are applied as texture maps on materials
 	// rather than blended separately. This function handles the

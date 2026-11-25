@@ -3,6 +3,7 @@ const gl_rsurf = await import( '../src/gl_rsurf.js' );
 
 const gl_rmain = await import( '../src/gl_rmain.js' );
 const { cl } = await import( '../src/client.js' );
+const { SURF_DRAWWATER } = await import( '../src/gl_model.js' );
 
 function assertEqual( actual, expected, message ) {
 
@@ -178,7 +179,8 @@ Deno.test( 'cached water materials track fractional opacity changes', () => {
 			firstmodelsurface: 0,
 			nummodelsurfaces: 0,
 			numsurfaces: 0,
-			surfaces: []
+			surfaces: [],
+			contentstransparent: SURF_DRAWWATER	// water-vised, so r_wateralpha applies
 		};
 		cl.model_precache.fill( null );
 		gl_rsurf.GL_BuildLightmaps();
@@ -325,6 +327,69 @@ function makeBlockSizedSurface() {
 	};
 
 }
+
+// gl_rsurf.c R_DrawSequentialPoly uploads a changed lightmap block itself
+// when gl_texsort is 0 (R_BlendLightmaps returns early then), so light styles
+// keep animating on the world.
+Deno.test( 'gl_texsort 0 still uploads changed lightmaps', async () => {
+
+	const { gl_texsort } = await import( '../src/glquake.js' );
+	const oldTexsort = gl_texsort.value;
+	const oldFrame = gl_rmain.r_framecount;
+	const oldModel = cl.model_precache[ 1 ];
+	const oldNext = cl.model_precache[ 2 ];
+	const oldWorldmodel = cl.worldmodel;
+
+	try {
+
+		const surf = makeBlockSizedSurface();
+		cl.worldmodel = null;
+		cl.model_precache[ 1 ] = {
+			name: 'maps/styles.bsp',
+			numsurfaces: 1,
+			surfaces: [ surf ],
+			vertexes: [],
+			edges: [],
+			surfedges: []
+		};
+		cl.model_precache[ 2 ] = null;
+		gl_rsurf.GL_BuildLightmaps();
+		gl_texsort.value = 0;
+		gl_texsort.string = '0';
+
+		const tex = gl_rsurf.lightmapTextures[ surf.lightmaptexturenum ];
+		gl_rsurf.R_BlendLightmaps();	// flush anything the build left marked
+		tex.image.data.fill( 7 );
+		tex.needsUpdate = false;
+		gl_rsurf.R_BlendLightmaps();
+		assertEqual( tex.needsUpdate, false, 'nothing to upload yet' );
+
+		// light style 0 changed since the surface was last built
+		surf.styles[ 0 ] = 0;
+		surf.cached_light[ 0 ] = gl_rmain.d_lightstylevalue[ 0 ] + 1;
+		gl_rsurf.R_DrawSequentialPoly( surf );
+		gl_rsurf.R_BlendLightmaps();
+		assertEqual( tex.needsUpdate, true, 'changed block uploaded' );
+		assertEqual( rowTouched( tex, 0 ), true, 'changed rows converted' );
+
+		// the upload clears the block's change rect, as C does
+		tex.needsUpdate = false;
+		gl_rsurf.R_BlendLightmaps();
+		assertEqual( tex.needsUpdate, false, 'uploaded once' );
+
+	} finally {
+
+		gl_texsort.value = oldTexsort;
+		gl_texsort.string = String( oldTexsort );
+		cl.model_precache[ 1 ] = oldModel;
+		cl.model_precache[ 2 ] = oldNext;
+		cl.worldmodel = oldWorldmodel;
+		gl_rsurf.GL_BuildLightmaps();
+		gl_rmain.set_r_framecount( oldFrame );
+
+	}
+
+} );
 
 Deno.test( 'lightmap blocks grow past MAX_LIGHTMAPS at map load', () => {
 
