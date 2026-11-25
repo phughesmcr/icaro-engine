@@ -24,12 +24,16 @@ const XR_FLOOR_TO_EYE = 46;
 const XR_HUD_DISTANCE = 1.5;
 const XR_HUD_WIDTH = 1.6;
 
-// Shortest time between HUD texture uploads, in seconds. The overlay canvas is
-// window size times DPR and is redrawn every frame, so uploading it at the
-// headset's 72-120 Hz costs far more than the 2D view needs. A resized
-// canvas, a new texture and the first frame after the HUD is shown always
-// upload at once.
+// Shortest time between HUD texture uploads, in seconds: at most 30 Hz
+// (every 3rd frame at 90 Hz, every 4th at 120 Hz, 24 Hz at 72 Hz). The
+// overlay canvas is window size times DPR and is redrawn every frame, so
+// uploading it at the headset's 72-120 Hz costs far more than the 2D view
+// needs. A new texture after a canvas resize and the first frame after the
+// HUD is shown always upload at once. The slack keeps frame timing jitter
+// from alternating between N and N+1 frames when the interval is a whole
+// number of frames.
 const XR_HUD_UPLOAD_INTERVAL = 1 / 30;
+const XR_HUD_UPLOAD_SLACK = 0.002;
 
 //============================================================================
 // Pre-allocated temp objects (Golden Rule #4)
@@ -384,7 +388,7 @@ export function XR_UpdateHUD() {
 
 	// The canvas is redrawn every frame, but upload it at a capped rate
 	const now = _now();
-	if ( now - hudUploadTime >= XR_HUD_UPLOAD_INTERVAL ) {
+	if ( now - hudUploadTime >= XR_HUD_UPLOAD_INTERVAL - XR_HUD_UPLOAD_SLACK ) {
 
 		hudUploadTime = now;
 		hudTexture.needsUpdate = true;
