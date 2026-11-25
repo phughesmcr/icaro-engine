@@ -94,21 +94,28 @@ function callQC( name, ...args ) {
 
 }
 
-// FNV-1a over every field of every live edict, plus the summary the task
-// cares about most (monster origins and health) for readable failures
+const fnv = ( h, x ) => Math.imul( h ^ x, 16777619 ) >>> 0;
+const timeFloat = new Float64Array( 1 );
+const timeBits = new Int32Array( timeFloat.buffer );
+
+// FNV-1a over sv.time, the QuakeC globals and every field of every live
+// edict, plus monster origins and health for readable failures
 function stateHash() {
 
-	let h = 0x811c9dc5;
+	timeFloat[ 0 ] = sv.time;
+	let h = fnv( fnv( 0x811c9dc5, timeBits[ 0 ] ), timeBits[ 1 ] );
+	for ( let i = 0; i < pr_globals_int.length; i ++ )
+		h = fnv( h, pr_globals_int[ i ] );
 	const monsters = [];
 	for ( let e = 0; e < sv.num_edicts; e ++ ) {
 
 		const ent = sv.edicts[ e ];
-		h = Math.imul( h ^ ( ent.free ? 1 : 0 ), 16777619 ) >>> 0;
+		h = fnv( h, ent.free ? 1 : 0 );
 		if ( ent.free )
 			continue;
 		const fields = ent._intView;
 		for ( let i = 0; i < fields.length; i ++ )
-			h = Math.imul( h ^ fields[ i ], 16777619 ) >>> 0;
+			h = fnv( h, fields[ i ] );
 		if ( ( ent.v.flags & FL_MONSTER ) !== 0 )
 			monsters.push( e + ':' + Array.from( ent.v.origin, ( x ) => x.toFixed( 1 ) ).join( ',' ) + ':' + ent.v.health );
 
@@ -120,12 +127,21 @@ function stateHash() {
 
 // Spawns e1m1 with the given seed, sets two monsters on each other so the AI
 // moves (SV_MoveToGoal, SV_NewChaseDir) and fights (QuakeC random()), and
-// runs FRAMES server frames
+// runs FRAMES server frames. Math.random throws meanwhile, so any gameplay
+// randomness that bypasses Sys_Random fails the test.
 async function runSeeded( seed ) {
 
 	await initEngine();
 	const realLog = console.log;
+	const realRandom = Math.random;
+	const saved = [ deathmatch, coop, skill ].map( ( v ) => [ v, v.value, v.string ] );
 	console.log = () => {};
+	Math.random = () => {
+
+		throw new Error( 'Math.random called during a seeded server run' );
+
+	};
+
 	try {
 
 		deathmatch.value = 0; deathmatch.string = '0';
@@ -155,6 +171,8 @@ async function runSeeded( seed ) {
 		}
 
 		assert( monsters.length >= 2, 'e1m1 has fewer than two monsters' );
+		const fighters = [ monsters[ 0 ], monsters[ 1 ] ];
+		const startOrigins = fighters.map( ( ent ) => Array.from( ent.v.origin ) );
 		// monster infighting, as QuakeC's T_Damage starts it
 		callQC( 'T_Damage', monsters[ 0 ], monsters[ 1 ], monsters[ 1 ], 1 );
 		callQC( 'T_Damage', monsters[ 1 ], monsters[ 0 ], monsters[ 0 ], 1 );
@@ -166,12 +184,22 @@ async function runSeeded( seed ) {
 
 		}
 
+		const moved = fighters.some( ( ent, i ) => ent.v.origin.some( ( x, k ) => x !== startOrigins[ i ][ k ] ) );
+		assert( moved, 'neither fighting monster moved, so SV_MoveToGoal was not exercised' );
+
 		return stateHash();
 
 	} finally {
 
 		console.log = realLog;
+		Math.random = realRandom;
 		Sys_SetRandomSeed( null );
+		for ( const [ v, value, string ] of saved ) {
+
+			v.value = value;
+			v.string = string;
+
+		}
 
 	}
 
