@@ -65,6 +65,9 @@ export class Vector3 {
 		this.z = z;
 		return this;
 	}
+	setScalar(s) {
+		return this.set(s, s, s);
+	}
 	copy(v) {
 		this.x = v.x;
 		this.y = v.y;
@@ -334,6 +337,7 @@ export class Object3D {
 	}
 	updateMatrix() {}
 	updateMatrixWorld() {}
+	setRotationFromMatrix() {}
 }
 
 export class PointLight extends Object3D {
@@ -418,6 +422,14 @@ export class Color {
 		this.g = g;
 		this.b = b;
 		return this;
+	}
+}
+
+// FogExp2 - gl_fog.js (created only while a map has fog)
+export class FogExp2 {
+	constructor(_color = 0xffffff, density = 0.00025) {
+		this.color = new Color();
+		this.density = density;
 	}
 }
 

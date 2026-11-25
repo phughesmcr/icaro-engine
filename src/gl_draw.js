@@ -110,6 +110,10 @@ Calculate the UI scale factor based on physical pixel count and target
 virtual height. Uses physical pixels (CSS * devicePixelRatio) so that
 screens with the same physical resolution get the same UI size regardless
 of OS DPI settings. Also ensures the overlay canvas is crisp on HiDPI.
+
+Sets _uiScale, _virtualWidth and _virtualHeight. It runs several times a
+frame (the virtual size getters call it), so it returns nothing rather than
+allocating a result object.
 ================
 */
 function _calculateUIScale() {
@@ -135,8 +139,6 @@ function _calculateUIScale() {
 	const scale = _canvasScale > 0 ? _canvasScale : _uiScale;
 	_virtualWidth = Math.ceil( physicalWidth / scale );
 	_virtualHeight = Math.ceil( physicalHeight / scale );
-
-	return { width: _virtualWidth, height: _virtualHeight };
 
 }
 
@@ -273,9 +275,9 @@ function SCR_ConHeight_f() {
 	if ( Cmd_Argc() === 1 ) {
 
 		// No argument - print current value
-		const dims = _calculateUIScale();
+		_calculateUIScale();
 		Con_Printf( 'scr_conheight is %d (virtual: %dx%d, scale: %dx)\n',
-			scr_conheight, dims.width, dims.height, _uiScale );
+			scr_conheight, _virtualWidth, _virtualHeight, _uiScale );
 		return;
 
 	}
@@ -289,8 +291,8 @@ function SCR_ConHeight_f() {
 	}
 
 	SCR_SetConHeight( val );
-	const dims = _calculateUIScale();
-	Con_Printf( 'UI scale: %dx (virtual: %dx%d)\n', _uiScale, dims.width, dims.height );
+	_calculateUIScale();
+	Con_Printf( 'UI scale: %dx (virtual: %dx%d)\n', _uiScale, _virtualWidth, _virtualHeight );
 
 }
 
@@ -305,8 +307,8 @@ function SCR_UIScaleUp_f() {
 
 	// Decrease conheight by ~40 (makes UI bigger)
 	SCR_SetConHeight( scr_conheight - 40 );
-	const dims = _calculateUIScale();
-	Con_Printf( 'UI scale: %dx (virtual: %dx%d)\n', _uiScale, dims.width, dims.height );
+	_calculateUIScale();
+	Con_Printf( 'UI scale: %dx (virtual: %dx%d)\n', _uiScale, _virtualWidth, _virtualHeight );
 
 }
 
@@ -321,8 +323,8 @@ function SCR_UIScaleDown_f() {
 
 	// Increase conheight by ~40 (makes UI smaller)
 	SCR_SetConHeight( scr_conheight + 40 );
-	const dims = _calculateUIScale();
-	Con_Printf( 'UI scale: %dx (virtual: %dx%d)\n', _uiScale, dims.width, dims.height );
+	_calculateUIScale();
+	Con_Printf( 'UI scale: %dx (virtual: %dx%d)\n', _uiScale, _virtualWidth, _virtualHeight );
 
 }
 
