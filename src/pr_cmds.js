@@ -5,6 +5,7 @@ import {
 	Con_Printf, Con_DPrintf, COM_Parse, com_token,
 	MSG_WriteByte, MSG_WriteChar, MSG_WriteShort, MSG_WriteLong,
 	MSG_WriteCoord, MSG_WriteAngle, MSG_WriteString,
+	LOC_GetString, LOC_HasPlaceholders, LOC_Format,
 } from './common.js';
 import {
 	VectorCopy, VectorSubtract, VectorNormalize, VectorMA, VectorScale, VectorAdd,
@@ -55,13 +56,34 @@ import {
 ===============================================================================
 */
 
+// Ironwail pr_cmds.c PF_GetStringArg: argument idx after the format string,
+// localized
+function PF_GetStringArg( idx, offset ) {
+
+	idx += offset;
+	if ( idx < 0 || idx >= pr_argc )
+		return '';
+	return LOC_GetString( G_STRING( OFS_PARM0 + idx * 3 ) );
+
+}
+
+// Ironwail's PF_VarString: resolves 2021 rerelease "$key" strings, and fills
+// "{}"/"{N}" placeholders in a localized format string with the arguments that
+// follow it. With no localization loaded it only concatenates, as WinQuake.
 function PF_VarString( first ) {
 
-	// Use array.join() instead of string concatenation to avoid O(n²) allocations
-	const parts = [];
-	for ( let i = first; i < pr_argc; i ++ ) {
+	if ( first >= pr_argc )
+		return '';
 
-		parts.push( G_STRING( OFS_PARM0 + i * 3 ) );
+	const format = LOC_GetString( G_STRING( OFS_PARM0 + first * 3 ) );
+	if ( LOC_HasPlaceholders( format ) )
+		return LOC_Format( format, PF_GetStringArg, first + 1 );
+
+	// Use array.join() instead of string concatenation to avoid O(n²) allocations
+	const parts = [ format ];
+	for ( let i = first + 1; i < pr_argc; i ++ ) {
+
+		parts.push( LOC_GetString( G_STRING( OFS_PARM0 + i * 3 ) ) );
 
 	}
 
@@ -1449,7 +1471,8 @@ function PF_WriteAngle() {
 function PF_WriteString() {
 
 	const dest = WriteDest();
-	if ( dest ) MSG_WriteString( dest, G_STRING( OFS_PARM1 ) );
+	// Ironwail localizes this too: svc_finale "$qc_finale_end"
+	if ( dest ) MSG_WriteString( dest, LOC_GetString( G_STRING( OFS_PARM1 ) ) );
 
 }
 

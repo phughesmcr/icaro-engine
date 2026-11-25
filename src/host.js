@@ -11,7 +11,7 @@ import { V_Init } from './view.js';
 import { Chase_Init } from './chase.js';
 import { W_LoadWadFile } from './wad.js';
 import { COM_LoadFile } from './pak.js';
-import { COM_Init, COM_CheckParm, com_argv, Q_atof, rogue, hipnotic } from './common.js';
+import { COM_Init, COM_CheckParm, com_argv, Q_atof, rogue, hipnotic, LOC_Init } from './common.js';
 import { Key_Init, Key_WriteBindings } from './keys.js';
 import { Con_Init, Con_SetExternals, Con_Printf as RealConPrintf, Con_DPrintf as RealConDPrintf } from './console.js';
 import { M_Init, M_SetExternals } from './menu.js';
@@ -506,6 +506,8 @@ export async function Host_Init( parms ) {
 		} );
 
 	}
+
+	LOC_Init(); // for 2021 rerelease support (Ironwail host.c)
 
 	host_initialized = true;
 
