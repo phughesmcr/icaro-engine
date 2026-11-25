@@ -30,7 +30,8 @@ COPY static/pak0.pak static/
 USER deno
 RUN deno cache server/game_server.js
 
-# WebTransport (UDP) and -wsport (TCP) default to 4433.
+# WebTransport (UDP) defaults to 4433; CMD puts -wsport (TCP, off by
+# default) on the same port.
 EXPOSE 4433/udp 4433/tcp
 
 # tini (from the base image) forwards signals and reaps. Permissions follow

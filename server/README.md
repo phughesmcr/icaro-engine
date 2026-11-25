@@ -295,7 +295,7 @@ docker run --rm -v "$PWD/server/cert.pem:/certs/cert.pem:ro" -v "$PWD/server/key
   -map e1m1 -maxclients 8 -cert /certs/cert.pem -key /certs/key.pem -wsport 4433 -wshost 0.0.0.0
 ```
 
-`deno task image-check` (`tools/check_container_image.sh`, needs Docker) checks the build context of your working tree and of a copy with decoy paks and keys planted, builds the image, fails if it holds any `.pak` but `/app/static/pak0.pak` or any TLS or env file, and starts a room in it (`--no-run` skips that). CI runs it on every PR. Run it before building an image from a working tree that has registered data in it. Nothing here pushes the image; publishing it is a later step of the hosting plan.
+`deno task image-check` (`tools/check_container_image.sh`, needs Docker) checks the build context of your working tree and of a copy with decoy paks and keys planted, builds the image, fails if it holds any `.pak` but `/app/static/pak0.pak` or any TLS or env file, and starts a room in it (`--no-run` skips that). CI runs it on PRs to `dev` and `main`. Run it before building an image from a working tree that has registered data in it. Nothing here pushes the image; publishing it is a later step of the hosting plan.
 
 ## Production Deployment
 

@@ -16,7 +16,8 @@
 #    tested even on a clean checkout. The working tree is never written to.
 # 3. The image built from that copy holds exactly one .pak in its whole
 #    filesystem, /app/static/pak0.pak, and no TLS files under /app.
-# 4. A room started in the image with a throwaway certificate initializes.
+# 4. A room started in the image with a throwaway certificate initializes
+#    and its WebSocket port answers from outside the container.
 set -eu
 
 run_room=1
@@ -33,7 +34,9 @@ cleanup() {
 	docker rmi -f "$image" >/dev/null 2>&1 || true
 	rm -rf "$work"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+# A returning INT/TERM handler would let sh carry on; exit so EXIT cleans up.
+trap 'exit 130' INT TERM
 
 fail() {
 	echo "FAIL: $*" >&2
@@ -109,12 +112,18 @@ mkdir "$work/certs"
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=localhost" \
 	-keyout "$work/certs/key.pem" -out "$work/certs/cert.pem" 2>/dev/null
 chmod 644 "$work/certs/key.pem" "$work/certs/cert.pem"
-docker run -d --name "$container" -v "$work/certs:/certs:ro" "$image" >/dev/null
+docker run -d --name "$container" -v "$work/certs:/certs:ro" -p 127.0.0.1::4433/tcp "$image" >/dev/null
 i=0
 while [ $i -lt 60 ]; do
 	if docker logs "$container" 2>&1 | grep -q 'Server initialized!'; then
 		docker logs "$container" 2>&1 | grep -E 'listening|Server initialized'
-		echo "ok: a room started in the image"
+		# The WebSocket listener must be reachable from outside the container
+		# (-wshost 0.0.0.0, --allow-net): any HTTP status will do.
+		hostport=$(docker port "$container" 4433/tcp | head -n 1)
+		status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://$hostport/" || true)
+		[ "$status" != "000" ] && [ -n "$status" ] ||
+			fail "the room's WebSocket port $hostport did not answer from outside the container"
+		echo "ok: a room started in the image and answers on $hostport (HTTP $status)"
 		exit 0
 	fi
 	if [ "$(docker inspect -f '{{.State.Running}}' "$container")" != true ]; then
