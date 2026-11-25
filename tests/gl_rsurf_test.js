@@ -646,13 +646,15 @@ Deno.test( 'underwater surfaces get their own unculled world batches', () => {
 	assertEqual( wetGroup.totalVerts, 6, 'underwater group vertex count' );
 	assertEqual( wetGroup.lmNum, 3, 'underwater group lightmap' );
 
-	const makeBatch = () => ( { name: '', frustumCulled: true, perObjectFrustumCulled: true } );
+	const makeBatch = () => ( { name: '', frustumCulled: true, perObjectFrustumCulled: true, sortObjects: true } );
 	const dryBatch = makeBatch();
 	const wetBatch = makeBatch();
 	gl_rsurf.R_InitWorldBatch( dryBatch, dryGroup );
 	gl_rsurf.R_InitWorldBatch( wetBatch, wetGroup );
 	assertEqual( dryBatch.frustumCulled, true, 'dry batch frustum culled' );
-	assertEqual( dryBatch.perObjectFrustumCulled, true, 'dry batch per-object culled' );
+	assertEqual( dryBatch.perObjectFrustumCulled, false, 'dry batch per-object culled' );
+	assertEqual( dryBatch.sortObjects, false, 'dry batch sorted' );
+	assertEqual( wetBatch.sortObjects, false, 'underwater batch sorted' );
 	assertEqual( wetBatch.frustumCulled, false, 'underwater batch frustum culled' );
 	assertEqual( wetBatch.perObjectFrustumCulled, false, 'underwater batch per-object culled' );
 	assertEqual( wetBatch.name, 'world_wbrick1_5_lm3_underwater', 'underwater batch name' );

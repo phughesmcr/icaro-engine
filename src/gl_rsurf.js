@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { GL_RegisterCullMaterial } from './glquake.js';
 import { Sys_Error } from './sys.js';
+import { Fog_PatchSkyShader } from './gl_fog.js';
 
 /*
 r_lightmap: GLQuake's R_BlendLightmaps draws the lightmaps without blending
@@ -138,6 +139,8 @@ function R_PatchSkyVertexShader( shader, speedUniform ) {
 			'\tquakeSkyDir.z *= 3.0;\n' +
 			'\tvMapUv = ( quakeSkySpeed + quakeSkyDir.xy * ( 6.0 * 63.0 / length( quakeSkyDir ) ) ) * ( 1.0 / 128.0 );\n' +
 			'#endif' );
+	// the sky's flat fog mix (the sky materials have fog: false)
+	Fog_PatchSkyShader( shader );
 
 }
 
@@ -2658,7 +2661,8 @@ function R_DrawSkyChain( s ) {
 
 		solidSkyMaterial = new THREE.MeshBasicMaterial( {
 			map: solidskytexture,
-			side: THREE.DoubleSide
+			side: THREE.DoubleSide,
+			fog: false // Fog_PatchSkyShader
 		} );
 		solidSkyMaterial.onBeforeCompile = R_PatchSolidSkyVertexShader;
 		solidSkyMaterial.customProgramCacheKey = R_SolidSkyProgramKey;
@@ -2671,7 +2675,8 @@ function R_DrawSkyChain( s ) {
 			map: alphaskytexture,
 			side: THREE.DoubleSide,
 			transparent: true,
-			alphaTest: 0.05
+			alphaTest: 0.05,
+			fog: false // Fog_PatchSkyShader
 		} );
 		alphaSkyMaterial.onBeforeCompile = R_PatchAlphaSkyVertexShader;
 		alphaSkyMaterial.customProgramCacheKey = R_AlphaSkyProgramKey;
@@ -2683,8 +2688,10 @@ function R_DrawSkyChain( s ) {
 
 		solidSkyMaterial = new THREE.MeshBasicMaterial( {
 			color: 0x3366aa,
-			side: THREE.DoubleSide
+			side: THREE.DoubleSide,
+			fog: false
 		} );
+		solidSkyMaterial.onBeforeCompile = Fog_PatchSkyShader;
 
 	}
 
@@ -3228,22 +3235,29 @@ export function R_CollectWorldBatchGroups( worldmodel, surfaceToLeaves ) {
 }
 
 /*
-Names a world batch and, for an underwater group, turns off Three.js frustum
-culling: the warp moves vertices up to 8 units past the static bounds Three.js
-culls with, so culling could drop a surface still on screen. C sends every
-visible surface to GL; the PVS (setVisibleAt) still applies.
+Names a world batch and sets how Three.js culls and sorts it.
+
+Every batch skips the per-instance work BatchedMesh does by default: sorting
+instances by depth and testing each one against the frustum. Both run on
+every frame for every batch while either is on, and re-upload the batch's
+indirect texture. The world is static and the PVS (setVisibleAt) already picks
+the surfaces, so with both off BatchedMesh does that work only when visibility
+changes. In E1M1 this halved the frame time of a busy view (GPU included).
+C culls BSP nodes, not single surfaces, against the frustum (R_CullBox in
+R_RecursiveWorldNode); the whole-batch bounding-sphere test stays on.
+
+An underwater group also turns that off: the warp moves vertices up to 8
+units past the static bounds Three.js culls with, so culling could drop a
+surface still on screen.
 */
 export function R_InitWorldBatch( batchedMesh, group ) {
 
 	const texName = group.texture.name || '';
 	batchedMesh.name = `world_${texName}_lm${group.lmNum}` + ( group.underwater ? '_underwater' : '' );
 
-	if ( group.underwater ) {
-
-		batchedMesh.frustumCulled = false;
-		batchedMesh.perObjectFrustumCulled = false;
-
-	}
+	batchedMesh.sortObjects = false;
+	batchedMesh.perObjectFrustumCulled = false;
+	if ( group.underwater ) batchedMesh.frustumCulled = false;
 
 }
 

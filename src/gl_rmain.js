@@ -13,6 +13,7 @@ import {
 } from './mathlib.js';
 import { R_DrawWorld as R_DrawWorld_impl, R_MarkLeaves as R_MarkLeaves_impl, GL_BuildLightmaps as GL_BuildLightmaps_rsurf, R_DrawBrushModel as R_DrawBrushModel_rsurf, R_DrawWaterSurfaces as R_DrawWaterSurfaces_rsurf, R_CleanupWaterMeshes as R_CleanupWaterMeshes_rsurf, R_GetMirrorItems } from './gl_rsurf.js';
 import { R_MirrorGate, R_MirrorPass, R_MirrorCleanup } from './gl_rmirror.js';
+import { Fog_SetupFrame } from './gl_fog.js';
 import {
 	Mod_PointInLeaf, SPR_SINGLE, SPR_VP_PARALLEL_UPRIGHT, SPR_FACING_UPRIGHT,
 	SPR_VP_PARALLEL, SPR_ORIENTED, SPR_VP_PARALLEL_ORIENTED
@@ -26,7 +27,7 @@ import {
 	R_InitParticles, R_SetParticleExternals, R_ClearParticles,
 	R_DrawParticles as R_DrawParticles_impl
 } from './r_part.js';
-import { isXRActive, getXRRig, XR_SetCamera, XR_SCALE, XR_GetControllerWorldPose } from './webxr.js';
+import { isXRActive, getXRRig, XR_SetCamera, XR_SCALE, XR_GetControllerWorldPose, XR_RenderHUD } from './webxr.js';
 import {
 	cl, cl_visedicts, cl_numvisedicts, cl_dlights, cl_entities,
 	cl_static_entities, cl_temp_entities, cl_lightstyle,
@@ -504,6 +505,9 @@ export function R_SetupGL() {
 //============================================================================
 // R_Clear
 //============================================================================
+
+// Scene background while XR is presenting (see R_RenderView)
+const _xrBackground = new THREE.Color( 0x000000 );
 
 export function R_Clear() {
 
@@ -1382,6 +1386,8 @@ export function R_RenderScene() {
 
 	R_SetupGL();
 
+	Fog_SetupFrame( scene ); // johnfitz (Ironwail R_SetupView)
+
 	R_MarkLeaves(); // done here so we know if we're in water
 
 	R_DrawWorld(); // adds static entities to the list
@@ -1452,6 +1458,11 @@ export function R_RenderView() {
 	// Present the frame via Three.js
 	if ( renderer && scene && camera ) {
 
+		// GL_BeginRendering and R_Clear have already cleared the canvas, so
+		// the scene has no background, which would make render() clear it a
+		// third time. In XR those clears don't reach the headset's eye
+		// buffers, so the background does that.
+		scene.background = isXRActive() ? _xrBackground : null;
 		renderer.render( scene, camera );
 
 	}
@@ -1464,6 +1475,11 @@ export function R_RenderView() {
 	if ( isXRActive() === false ) {
 
 		R_PolyBlend();
+
+	} else if ( camera ) {
+
+		// The 2D overlay quad, on top of the world and particles
+		XR_RenderHUD( camera );
 
 	}
 
@@ -1570,7 +1586,6 @@ export function R_Init() {
 
 	// create the Three.js scene
 	scene = new THREE.Scene();
-	scene.background = new THREE.Color( 0x000000 );
 
 	// initialize light style values to default
 	for ( let i = 0; i < 256; i ++ ) {
