@@ -282,9 +282,9 @@ export class msurface_t {
 		// Deliberate deviation (Ironwail, gl_model.h): texturemins is
 		// `int`, not id's `short`. Large BSP2 maps (the rerelease's mg3
 		// map7) have texture-space minimums beyond +-32768, which wrap in
-		// 16 bits and move the lightmap origin. BSP29 values fit in a
-		// short either way. extents stays `short`, as in Ironwail: it is
-		// at most MAX_SURFACE_EXTENTS, or 16384 on turbulent surfaces.
+		// 16 bits and move the lightmap origin. Values that fit in a short
+		// (all of id's maps) are unchanged. extents stays `short`, as in
+		// Ironwail: lightmapped faces are capped at MAX_SURFACE_EXTENTS.
 		this.texturemins = new Int32Array( 2 );
 		this.extents = new Int16Array( 2 );
 
