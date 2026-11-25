@@ -65,7 +65,7 @@ let wakeLockPending = false;
 // Movement stick (nipplejs, loaded on demand from the import map)
 const JOYSTICK_SIZE = 120; // px, at touch_size 1
 const JOYSTICK_DEADZONE = 0.15; // fraction of the radius
-const JOYSTICK_RUN_THRESHOLD = 0.9; // past this the stick runs (+speed)
+const JOYSTICK_FULL = 0.9; // deflection that gives full speed (the thumb rarely reaches the rim)
 let nipplejs = null;
 let nippleLoad = null;
 let stickManager = null;
@@ -1087,8 +1087,11 @@ function Stick_Destroy() {
 Touch_SetJoystick
 
 x, y: knob offset as a fraction of the radius (screen axes, y down).
-Applies the deadzone (rescaled so movement starts at zero) and the run
-threshold (full deflection in that direction, flagged as running).
+Applies the deadzone, then ramps the magnitude linearly from 0 at the
+deadzone edge to 1 at JOYSTICK_FULL. IN_Move multiplies it by
+cl_movespeedkey, so the response is continuous: walk speed (1x
+cl_forwardspeed) lands mid-throw and run speed (cl_movespeedkey x) at full
+deflection, with no jump between them. `run` only flags full deflection.
 =================
 */
 export function Touch_SetJoystick( x, y ) {
@@ -1104,10 +1107,9 @@ export function Touch_SetJoystick( x, y ) {
 
 	}
 
-	// Rescale so speed rises from 0 past the deadzone to 1 at the run
-	// threshold, then stays at full deflection while running
-	moveRun = mag >= JOYSTICK_RUN_THRESHOLD;
-	const scale = moveRun ? 1 / mag : ( mag - JOYSTICK_DEADZONE ) / ( JOYSTICK_RUN_THRESHOLD - JOYSTICK_DEADZONE ) / mag;
+	const t = Math.min( ( mag - JOYSTICK_DEADZONE ) / ( JOYSTICK_FULL - JOYSTICK_DEADZONE ), 1 );
+	moveRun = t >= 1;
+	const scale = t / mag;
 
 	// Note: Y is inverted (up = forward = positive)
 	moveRight = x * scale;

@@ -130,6 +130,71 @@ export function VID_ShiftPalette( palette ) {
 }
 
 //============================================================================
+// VID_GetPixelRatio
+//
+// Web-only deviation, no C equivalent. The device pixel ratio that every
+// canvas size and UI scale is derived from. On touch-primary devices (coarse
+// primary pointer, no fine pointer) it is capped at VID_TOUCH_DPR_CAP: a DPR-3
+// phone would otherwise fill about 3M pixels per frame, the biggest battery
+// and thermal cost. ?dpr=<number> sets it explicitly (clamped to 0.5..4) and
+// ?dpr=native removes the cap on any device. Taps are mapped in CSS pixels,
+// so they are unaffected. Desktop is not capped; DPR 2 displays are common.
+//============================================================================
+
+export const VID_TOUCH_DPR_CAP = 2;
+
+// Returns the ?dpr= override: a number, 'native', or null when absent/invalid.
+export function VID_ParsePixelRatio( search ) {
+
+	const raw = new URLSearchParams( search ).get( 'dpr' );
+	if ( raw === null ) return null;
+	if ( raw.toLowerCase() === 'native' ) return 'native';
+	if ( raw.trim() === '' ) return null;
+	const value = Number( raw );
+	if ( ! Number.isFinite( value ) || value <= 0 ) return null;
+	return Math.min( 4, Math.max( 0.5, value ) );
+
+}
+
+// Pure part of VID_GetPixelRatio. override is VID_ParsePixelRatio's result.
+export function VID_ComputePixelRatio( dpr, override, touchPrimary ) {
+
+	if ( typeof override === 'number' ) return override;
+	if ( ! ( dpr > 0 ) ) dpr = 1;
+	if ( override === 'native' ) return dpr;
+	return touchPrimary === true ? Math.min( dpr, VID_TOUCH_DPR_CAP ) : dpr;
+
+}
+
+let _dprOverride = undefined; // undefined = not read yet
+let _dprTouchPrimary = false;
+
+// The override and pointer type are fixed for the page's lifetime, so read
+// them once; this runs several times a frame (gl_draw's virtual size getters).
+export function VID_GetPixelRatio() {
+
+	if ( _dprOverride === undefined ) {
+
+		_dprOverride = VID_ParsePixelRatio( window.location !== undefined && window.location !== null ? window.location.search : '' );
+		_dprTouchPrimary = typeof window.matchMedia === 'function' &&
+			window.matchMedia( '(pointer: coarse)' ).matches === true &&
+			window.matchMedia( '(any-pointer: fine)' ).matches !== true;
+
+	}
+
+	return VID_ComputePixelRatio( window.devicePixelRatio, _dprOverride, _dprTouchPrimary );
+
+}
+
+// Forget the cached override and pointer check (tests).
+export function VID_ResetPixelRatio() {
+
+	_dprOverride = undefined;
+	_dprTouchPrimary = false;
+
+}
+
+//============================================================================
 // VID_ParseRenderScale
 //
 // Web-only, no C equivalent. Reads ?scale= from a URL query string: the
@@ -218,10 +283,10 @@ export function VID_Init( palette, gammaparm = null ) {
 
 	// Web-only: ?scale= renders the 3D view below screen resolution (see
 	// VID_ParseRenderScale). The 2D overlay canvas in gl_draw.js keeps the
-	// full device pixel ratio, so menus and the HUD stay sharp.
+	// same VID_GetPixelRatio, so menus and the HUD stay sharp.
 	vid_renderscale = VID_ParseRenderScale( window.location.search );
 	renderer.setSize( canvas.width, canvas.height );
-	renderer.setPixelRatio( window.devicePixelRatio * vid_renderscale );
+	renderer.setPixelRatio( VID_GetPixelRatio() * vid_renderscale );
 	if ( vid_renderscale < 1 ) canvas.style.imageRendering = 'pixelated';
 	renderer.outputColorSpace = THREE.SRGBColorSpace;
 	renderer.autoClear = false; // we manage clearing ourselves, like Quake did
@@ -280,10 +345,10 @@ export function VID_Resize( r = renderer, c = canvas ) {
 	vid.conheight = vid.height;
 	vid.recalc_refdef = 1;
 
-	// Re-read devicePixelRatio: browser zoom and moving the window to a
+	// Re-read the pixel ratio: browser zoom and moving the window to a
 	// screen with another DPI change it and fire 'resize'.
 	r.setSize( c.width, c.height );
-	r.setPixelRatio( window.devicePixelRatio * vid_renderscale );
+	r.setPixelRatio( VID_GetPixelRatio() * vid_renderscale );
 
 }
 

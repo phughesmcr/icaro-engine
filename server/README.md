@@ -130,6 +130,8 @@ Both `--allow-net` grants are needed in every case: a missing grant fails startu
 | `-wsport <port>` | off | Also accept game clients over WebSocket on this TCP port. A room started by the lobby gets its own port here |
 | `-wshost <addr>` | `127.0.0.1` | WebSocket listen address |
 | `-wstls` | off | Serve `wss://` with `-cert`/`-key` instead of plain `ws://` |
+| `-nowt` | off | No WebTransport listener: WebSocket only. Needs `-wsport`; without `-wstls` no cert or key is read and `--unstable-net` isn't needed. Not for rooms the lobby starts: it waits for the WebTransport listener's startup line (see [WebSocket-only rooms](#websocket-only-rooms)) |
+| `-trustproxy` | off | Take the client's address from `CF-Connecting-IP`, then `?ip=`, whatever the peer, not only from loopback. Only for a listener that nothing but the proxy can reach (see [WebSocket-only rooms](#websocket-only-rooms)) |
 
 ## Connecting from Browser
 
@@ -203,6 +205,20 @@ Notes:
 - Cloudflare closes a WebSocket that carries no data for a while, and may close WebSockets when it restarts servers; stopping or restarting `cloudflared` drops them too ([WebSockets](https://developers.cloudflare.com/network/websockets/)). A game connection carries updates every frame, so it is not idle, and Deno pings each server-side socket after 30 s of silence (`Deno.upgradeWebSocket`'s `idleTimeout`). A dropped connection returns the player to the menu, and the room link (`?room=`) rejoins. Cloudflare documents no WebSocket message size limit; game messages are at most 8 KB.
 - The lobby takes `CF-Connecting-IP` as the client address ([HTTP headers](https://developers.cloudflare.com/fundamentals/reference/http-headers/)). If a Managed Transform removes visitor IP headers, every tunnel client appears as `127.0.0.1` and shares one set of per-IP limits.
 
+### WebSocket-only rooms
+
+A room can run with only its WebSocket listener, for a host that carries no UDP or that has no certificate, such as a Cloudflare Container reached through its Durable Object ([always-on-hosting.md](../docs/always-on-hosting.md)). From the repository root:
+
+```bash
+deno run '--allow-net=0.0.0.0:8080' --allow-read=static server/game_server.js -nowt -wsport 8080 -wshost 0.0.0.0 -trustproxy -room ABC123 -pak static/pak0.pak -map start
+```
+
+- `-nowt` skips the WebTransport listener, so the room reads no cert or key (unless `-wstls`) and runs without `--unstable-net`. `-wshost 0.0.0.0` accepts the proxy's connections from outside the container.
+- `-room` turns on the idle exit (`-idletimeout`). Without `-trustproxy`, a room trusts a forwarded address only from a loopback peer, as behind the lobby.
+- `-trustproxy`: inside a container the peer is the platform's proxy, not loopback, so the room would see every player at the proxy's address and apply one set of per-IP limits to all of them. With it, the room takes `CF-Connecting-IP` from any peer, then `?ip=` only when there is no such header, so a client-supplied `?ip=` can't override it (a malformed header means the peer's address); a proxy that doesn't forward the header must set or overwrite `?ip=` itself.
+- Use `-trustproxy` only when the proxy is the only way to reach the port. Anyone who can connect directly can claim any address and get round the per-IP limits.
+- The lobby can't start these rooms: it waits for the "WebTransport server listening" line, which a `-nowt` room never prints. Its listener line is "WebSocket server listening on ...", followed by "Server initialized!" once the map has spawned.
+
 ## Architecture
 
 ### Transport & Protocol
@@ -260,11 +276,12 @@ Notes:
 - `game_server.js` — Dedicated game server running the full Quake VM, physics, and protocol from `../src/`
 - `net_webtransport_server.ts` — Deno WebTransport server network driver
 - `net_websocket_server.ts` — Deno WebSocket server network driver (`-wsport`)
-- `client_address.ts` — Client address behind a local proxy (`CF-Connecting-IP`, the lobby proxy's `?ip=`)
+- `client_address.ts` — Client address behind a proxy (`CF-Connecting-IP`, the lobby proxy's `?ip=`): from loopback peers, or from any peer with `-trustproxy`
 - `quic_listen.ts` — Binds the dual-stack (`[::]` and `0.0.0.0`) QUIC endpoints for the lobby and rooms
 - `browser_shim.js` — Minimal `three` stubs mapped via `deno.json` for headless execution
 - `sys_server.ts` — Deno system utilities and production log filtering (`__ICARO_QUIET_LOGS`)
 - `deno.json` — Maps `"three"` to `browser_shim.js` when running from `server/` (the root `deno.json` does the same from the repository root)
+- `Dockerfile` — The game-room image (see [Container Image](#container-image))
 
 **Tests & utilities:**
 
@@ -273,6 +290,28 @@ Notes:
 - `../tests/net_websocket_test.js` — WebSocket client and server drivers against each other over in-memory sockets (`../tests/fake_websocket.js`): handshake, rejects, acks, backpressure and close paths
 - `../tests/quic_listen_test.ts` — IPv6/IPv4 bind fallback tests for `quic_listen.ts`
 - `../tests/server_lobby_test.js` — Lobby and room-manager tests (`deno task test` from the repository root). The room-process tests need run access to `tests/fixtures/fake_room_server.sh`, write access and the `FAKE_ROOM_*` env vars (the task grants them), and are skipped without them.
+
+## Container Image
+
+`server/Dockerfile` builds a game-room image: one `game_server.js` room per container, for hosting rooms on Cloudflare Containers or a VM (see [always-on-hosting.md](../docs/always-on-hosting.md)). Build it from the repository root, so the root `.dockerignore` applies:
+
+```bash
+docker build -f server/Dockerfile -t icaro-room .
+```
+
+Cloudflare Containers run `linux/amd64`; on an Apple Silicon Mac add `--platform linux/amd64`.
+
+The image is the pinned `denoland/deno` Debian image (the Deno version in `.tool-versions`) plus an allowlist: `deno.json`, `server/`, `src/` and `static/pak0.pak`. It never copies `static/` whole: registered and rerelease data (`static/pak1.pak`, `hipnotic/`, `rogue/`, `rerelease/`, `id1/`, `mg1/` and the other add-ons) must never reach an image or a registry. The root `.dockerignore` is a second guard: it excludes everything but the allowlist, then every `.pak` but `static/pak0.pak`, and TLS and env files. Keep both when you change either. The custom maps in `static/maps/` are not in the image, so a room can only start on maps in `pak0.pak`.
+
+The entry point is `deno run` on `server/game_server.js -pak /app/static/pak0.pak`, as the unprivileged `deno` user. Arguments after the image name are passed on to it (see [`game_server.js` options](#game_serverjs)) and replace the defaults, `-map start -cert /certs/cert.pem -key /certs/key.pem -wsport 4433 -wshost 0.0.0.0`. The room can listen on any port of `0.0.0.0`, `[::]` and `127.0.0.1` and read `/app/static` and `/certs`. A room still needs a TLS certificate and key for its WebTransport listener; mount them at `/certs` at run time and never bake them into the image. The key must be readable by uid 1993. For example, with the development certificate from step 1:
+
+```bash
+docker run --rm -v "$PWD/server/cert.pem:/certs/cert.pem:ro" -v "$PWD/server/key.pem:/certs/key.pem:ro" \
+  -p 4433:4433/tcp -p 4433:4433/udp icaro-room \
+  -map e1m1 -maxclients 8 -cert /certs/cert.pem -key /certs/key.pem -wsport 4433 -wshost 0.0.0.0
+```
+
+`deno task image-check` (`tools/check_container_image.sh`, needs Docker) checks the build context of your working tree and of a copy with decoy paks and keys planted, builds the image, fails if it holds any `.pak` but `/app/static/pak0.pak` or any TLS or env file, and starts a room in it (`--no-run` skips that). CI runs it on PRs to `dev` and `main`. Run it before building an image from a working tree that has registered data in it. Nothing here pushes the image; publishing it is a later step of the hosting plan.
 
 ## Production Deployment
 
