@@ -489,6 +489,15 @@ function Host_Name_f() {
 
 function Host_Pause_f() {
 
+	// ericw -- demo pause support (QuakeSpasm, inspired by MarkV)
+	if ( cls.demoplayback ) {
+
+		cls.demopaused = cls.demopaused !== true;
+		cl.paused = cls.demopaused;
+		return;
+
+	}
+
 	if ( cmd_source === src_command ) {
 
 		Cmd_ForwardToServer();
