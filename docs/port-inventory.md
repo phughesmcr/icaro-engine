@@ -118,7 +118,7 @@ own fix PR.
   `M_Menu_Help_f`. That screen pages through `gfx/help0.lmp`–`help5.lmp`
   with the arrow keys (`menu.c:349`, `:1535-1575`, `:3016`).
 - **JS:** both open `M_Menu_Credits_f` instead (`src/menu.js:812`,
-  `:2618`). That is a hand-drawn text box that links to the GitHub repo.
+  `:2942`). That is a hand-drawn text box that links to the GitHub repo.
   `m_help` is declared but has no handler. No comment explains the change.
 - **Seen:** players lose the in-game controls and help pages that ship in
   `pak0.pak`.
@@ -176,9 +176,9 @@ own fix PR.
   (0–100 in steps of 10) and timelimit (0–60 in steps of 5) (`menu.c:2537`,
   `:2610-2619`, `:2717-2728`). `maxplayers` goes up to `svs.maxclientslimit`,
   which is 4 unless `-listen`/`-dedicated` asks for more (`host.c:181-194`).
-- **JS:** it has seven rows (`src/menu.js:139-140`). There are no fraglimit
+- **JS:** it has seven rows (`src/menu.js:144`). There are no fraglimit
   or timelimit rows, so Episode and Level move up 8 px. The maxplayers cap
-  is a hard-coded 4 (`src/menu.js:1470`) rather than `svs.maxclientslimit`,
+  is a hard-coded 4 (`src/menu.js:148`) rather than `svs.maxclientslimit`,
   which gives the same result at default settings.
 - **Seen:** a host can set limits only from the console before creating a
   room.
@@ -232,7 +232,7 @@ own fix PR.
   bar, console and menu scales separately. A non-zero value is clamped to
   between 1 and `width / 320` and may be fractional
   (`src/gl_draw.js:196-209`; applied at `src/gl_screen.js:721` and
-  `:1226`, and in `src/menu.js:395`). The default layout is unchanged.
+  `:1226`, and in `src/menu.js:399`). The default layout is unchanged.
 
 ### G7 · No version string on the console background — **low**
 
