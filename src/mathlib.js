@@ -292,11 +292,26 @@ export function R_ConcatTransforms( in1, in2, out ) {
 
 }
 
+// Scratch for ProjectPointOnPlane, PerpendicularVector and
+// RotatePointAroundVector, which R_SetFrustum calls every frame when fov_x
+// isn't 90 (Golden Rule #4). None of the three recurses, and each has its
+// own scratch, so nesting is safe.
+const _ppop_n = new Float32Array( 3 );
+const _pv_tempvec = new Float32Array( 3 );
+const _rpav_m = [ new Float32Array( 3 ), new Float32Array( 3 ), new Float32Array( 3 ) ];
+const _rpav_im = [ new Float32Array( 3 ), new Float32Array( 3 ), new Float32Array( 3 ) ];
+const _rpav_zrot = [ new Float32Array( 3 ), new Float32Array( 3 ), new Float32Array( 3 ) ];
+const _rpav_tmpmat = [ new Float32Array( 3 ), new Float32Array( 3 ), new Float32Array( 3 ) ];
+const _rpav_rot = [ new Float32Array( 3 ), new Float32Array( 3 ), new Float32Array( 3 ) ];
+const _rpav_vr = new Float32Array( 3 );
+const _rpav_vup = new Float32Array( 3 );
+const _rpav_vf = new Float32Array( 3 );
+
 export function ProjectPointOnPlane( dst, p, normal ) {
 
 	const inv_denom = 1.0 / DotProduct( normal, normal );
 	const d = DotProduct( normal, p ) * inv_denom;
-	const n = new Float32Array( 3 );
+	const n = _ppop_n;
 
 	n[ 0 ] = normal[ 0 ] * inv_denom;
 	n[ 1 ] = normal[ 1 ] * inv_denom;
@@ -315,7 +330,7 @@ export function PerpendicularVector( dst, src ) {
 
 	let pos = 0;
 	let minelem = 1.0;
-	const tempvec = new Float32Array( 3 );
+	const tempvec = _pv_tempvec;
 
 	// find the smallest magnitude axially aligned vector
 	for ( let i = 0; i < 3; i ++ ) {
@@ -342,14 +357,14 @@ export function PerpendicularVector( dst, src ) {
 
 export function RotatePointAroundVector( dst, dir, point, degrees ) {
 
-	const m = [ new Float32Array( 3 ), new Float32Array( 3 ), new Float32Array( 3 ) ];
-	const im = [ new Float32Array( 3 ), new Float32Array( 3 ), new Float32Array( 3 ) ];
-	const zrot = [ new Float32Array( 3 ), new Float32Array( 3 ), new Float32Array( 3 ) ];
-	const tmpmat = [ new Float32Array( 3 ), new Float32Array( 3 ), new Float32Array( 3 ) ];
-	const rot = [ new Float32Array( 3 ), new Float32Array( 3 ), new Float32Array( 3 ) ];
-	const vr = new Float32Array( 3 );
-	const vup = new Float32Array( 3 );
-	const vf = new Float32Array( 3 );
+	const m = _rpav_m;
+	const im = _rpav_im;
+	const zrot = _rpav_zrot;
+	const tmpmat = _rpav_tmpmat;
+	const rot = _rpav_rot;
+	const vr = _rpav_vr;
+	const vup = _rpav_vup;
+	const vf = _rpav_vf;
 
 	vf[ 0 ] = dir[ 0 ];
 	vf[ 1 ] = dir[ 1 ];
@@ -382,6 +397,8 @@ export function RotatePointAroundVector( dst, dir, point, degrees ) {
 	im[ 2 ][ 0 ] = m[ 0 ][ 2 ];
 	im[ 2 ][ 1 ] = m[ 1 ][ 2 ];
 
+	// C memsets zrot. Nothing writes [0][2], [1][2], [2][0] or [2][1], so
+	// the reused scratch keeps those zeros.
 	zrot[ 0 ][ 0 ] = zrot[ 1 ][ 1 ] = zrot[ 2 ][ 2 ] = 1.0;
 
 	zrot[ 0 ][ 0 ] = Math.cos( DEG2RAD( degrees ) );
