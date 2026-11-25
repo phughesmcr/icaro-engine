@@ -94,7 +94,9 @@ The test counts in the table were taken on each PR's own branch with `deno test 
   next map" callback, the view model and player alpha are read in the
   same frame rather than from the previous frame's entity pass, and a map
   with more submodels than `MAX_MODELS` stops with a `Host_Error` in
-  `SV_SpawnServer`.
+  `SV_SpawnServer`. #145 added the frame shorts and `PE_FRAME2`, the
+  `SU_EXTEND` bytes, `PF_ALPHA`, `max_edicts` and alpha on everything but
+  brush models; #140 had the rest.
 
 Deploy the client and server together, and make sure clients don't keep a cached bundle from before these changes.
 
@@ -120,12 +122,17 @@ PRs #34 to #114:
 PRs #115 to #140:
 
 - **Back to id's C:** the crosshair drawn at the centre of `scr_vrect`, off by default and archived (#123), the version string stamped onto the console background by `Draw_CharToConback` (#125), and the particle pool sized from `-particles` as `r_part.c` does (#127). These close the inventory's G5, G7 and the `-particles` part of G10.
-- **2021 rerelease:** each of these departs from WinQuake on purpose and has an entry in section 7. Localised `$key` strings (#124), BSP2 maps (#126), global fog and `r_skyfog` from Ironwail (#134), `.lit` coloured lighting (#137) and the alias-model tint from it (#139), and the server's own protocol, 1015, with the rerelease limits and entity alpha (#140; see "Wire format" above). [`rerelease-gaps.md`](rerelease-gaps.md) tracks what is left: skyboxes, the QEX effect lights, console noise and MD5 models.
+- **2021 rerelease:** each of these departs from WinQuake on purpose and has an entry in section 7. Localised `$key` strings (#124), BSP2 maps (#126), global fog and `r_skyfog` from Ironwail (#134), `.lit` coloured lighting (#137) and the alias-model tint from it (#139), and the server's own protocol, 1015, with the rerelease limits and entity alpha (#140; see "Wire format" above). The rest of the rerelease work is in the next list.
 - **Three.js rendering and memory:** one shared index attribute per alias model (#120), cached water and sky geometry disposed at map change (#121), alias materials cached by skin texture (#122), per-frame allocations removed (#129, #136), no per-instance sorting or frustum culling in world batches (#131), alias vertices relit only when the lighting changes (#132), no redundant background clear outside XR (#133), and the VR HUD drawn in its own pass with capped texture uploads (#135). [`threejs-review.md`](threejs-review.md) (#130, #138) is the review these came from.
 - **Menus:** the Advanced options pages were reorganised, with 39 player-facing cvar rows (#115) and Local game and Developer pages (#116); the Developer page is hidden in online games (#118).
 - **Docs:** this fix status up to #114 (#117), the rerelease gaps fixed by #111 to #114 (#119), and the mirror check by eye (#128).
 
-At `772379d` (`dev`, after #140), `deno task test` passes 611 tests, including `tests/net_webtransport_server_test.ts`. At `223a180` (after #114) it passed 546.
+PRs #141 to #146:
+
+- **2021 rerelease:** these finish the plan in [`rerelease-gaps.md`](rerelease-gaps.md), which now records how each gap was closed. Section 7 has an entry for each except #145, whose changes are under "Wire format" above. The PRs are: a no-op `vibrate` command (#142), the quad and pentagram dlights `EF_QEX_QUADLIGHT` and `EF_QEX_PENTALIGHT` (#143), skyboxes from the worldspawn `sky` key (#144), alpha for alias models, the player and the view model, with `U_FRAME2` and the `max_edicts` cvar (#145), and MD5 replacement models (#146). `vibrate` is a deliberate addition: neither id's Quake nor Ironwail has it, and the rerelease's own QuakeC that sends it is commented out.
+- **Docs:** this fix status up to #140 (#141).
+
+At `3d1947b` (`dev`, after #146), `deno task test` passes 651 tests, including `tests/net_webtransport_server_test.ts`. At `772379d` (after #140) it passed 611, and at `223a180` (after #114) 546.
 
 ### Residuals and follow-ups
 
@@ -430,7 +437,7 @@ Later PRs changed some of these on purpose: the `MSG_Write*` rounding, the wire 
 - **Registered-content checks kept looser on purpose** (decided in [#10]):
   - `COM_FindFile`'s shareware rule that refuses loose files whose path contains `/` is not ported. The port ships its deathmatch maps as loose `static/maps/*.bsp` files next to the shareware pak, and the rule would refuse them.
   - WinQuake's `#if WINDED` check in `COM_CheckRegistered`, which stops a dedicated server without the registered `gfx/pop.lmp`, is not ported. The Deno room server is a dedicated server that runs on the shareware pak by design.
-- **Behaviour taken from QuakeSpasm and Ironwail** (added after this review, #42 to #140): these C source ports fix bugs in id's code and raise its limits. The port takes some of their changes, so in these places it no longer matches WinQuake:
+- **Behaviour taken from QuakeSpasm and Ironwail** (added after this review, #42 to #146): these C source ports fix bugs in id's code and raise its limits. The port takes some of their changes, so in these places it no longer matches WinQuake:
   - `MSG_WriteCoord` and `MSG_WriteAngle` round with `Q_rint` (#69, #42), where WinQuake truncates. QW's `MSG_WriteAngle16` no longer drops the fraction of a degree before quantising (#42).
   - The wire format changed at the same `PROTOCOL_VERSION` 15 until #140 moved the server to `PROTOCOL_ICARO` (1015); the client still reads 15 for demos. `clc_move` carries 16-bit angles (#42), the movevars include `sv_altnoclip` (#93), and `svc_localsound` is new (#106). See "Wire format" under the fix status.
   - The QuakeC builtin table goes past index 78, with Ironwail's extension builtins (#80, #106) and two rerelease builtins (#111).
@@ -442,6 +449,7 @@ Later PRs changed some of these on purpose: the `MSG_Write*` rounding, the wire 
   - MD5 replacement models (#146): `r_enhancedmodels` (default 1, as in Ironwail) draws an `.md5mesh`/`.md5anim` beside an `.mdl` instead of it (`src/gl_md5.js`). Unlike Ironwail, the `.mdl` stays loaded for bounds and the server, each pose is skinned on the CPU and lit from the nearest of the 162 Quake normals, files with more than one mesh are skipped, and skins are read only as `.lmp`.
   - Skyboxes (#144), which WinQuake and GLQuake lack: `src/gl_sky.js` ports Ironwail's `Sky_LoadSkyBox` and the skybox part of `Sky_NewMap` (the worldspawn `sky` key, with or without the leading `_`, plus `skyname` and `qlsky`) and the `sky` command. `src/image.js` ports QuakeSpasm's `Image_LoadTGA`. The faces `gfx/env/<name>{rt,bk,lf,ft,up,dn}.tga` become one cube map, and the sky surfaces sample it in the direction from the eye, as Ironwail's cubemap path (`R_DrawBrushModels_SkyCubemap`) does, with the same `r_skyfog` mix. A map without the key draws the scrolling sky as before. Unlike Ironwail: the faces are fetched on demand, so the scrolling sky shows until they arrive; only `.tga` is tried (not png, jpg, pcx or lmp); a set whose faces aren't all square and the same size keeps the scrolling sky (Ironwail draws six separate sides); a bad targa warns where QuakeSpasm calls `Sys_Error`; only the current box stays loaded; and `r_fastsky`, `r_skyalpha` and the `skywind` commands are not ported.
   - The 2021 rerelease's coloured powerup glows (#143): as Ironwail, `EF_QEX_QUADLIGHT` (16) and `EF_QEX_PENTALIGHT` (32) give blue and red dlights, and `PR_FindSupportedEffects` lets the server send them and `EF_QEX_CANDLELIGHT` (64, no light) only for a progs that defines them, so other progs see id's effects byte. Dlights carry QuakeSpasm's `color`, applied to `.lit` lightmaps and the alias shade. With `gl_flashblend 1` (the default) the port's PointLights light in that colour; white dlights keep their `0xffaa44`, which stands in for GLQuake's orange flashblend corona.
+  - A no-op `vibrate` command (#142), which neither id's Quake nor Ironwail has. The rerelease's published QuakeC stuffs `vibrate tactile/<name>.bnvib` at sites that are all commented out, so it only keeps a mod that turns them back on from printing "Unknown command". It drives no gamepad haptics.
   - Datagram size, as FitzQuake and QuakeSpasm: `MAX_DATAGRAM` (id: 1024) sizes the server's buffers and the local client's datagram, and a network client gets at most `DATAGRAM_MTU` (1400), so the 2021 rerelease maps stop printing `packet overflow` in single player. It is 4096 rather than QuakeSpasm's 32000 or more, because the loopback driver puts the datagram and a reliable message in one 8192-byte buffer and demos cap a message at `MAX_MSGLEN`. Unlike QuakeSpasm, a WebTransport client's limit is the session's `maxDatagramSize` less the 9-byte transport header, re-read every frame and clamped to 1024–1400, with 1024 when it is unknown (`SV_ClientDatagramSize`, `sock.maxdatagram`). `sv.reliable_datagram` keeps id's 1024 bytes, because it is appended to each client's 8000-byte reliable message, where an overflow drops the client.
   - New cvars and commands that WinQuake lacks. `r_lerpmodels` and `r_lerpmove` default to 0, so id's unlerped animation stays the default.
 

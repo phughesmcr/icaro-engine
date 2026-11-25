@@ -8,6 +8,7 @@ const { cl } = await import( '../src/client.js' );
 const { r_wateralpha, r_novis } = await import( '../src/glquake.js' );
 const bspfile = await import( '../src/bspfile.js' );
 const { COM_AddPack } = await import( '../src/pak.js' );
+const { Con_SetPrintFunctions } = await import( '../src/common.js' );
 
 function assertEqual( actual, expected, message ) {
 
@@ -154,6 +155,8 @@ Deno.test( 'a map without entities drops the last map\'s worldspawn alpha', () =
 // ----------------------------------------------------------------------------
 // Mod_CheckWaterVis on a tiny BSP: leaf 1 is slime and sees leaf 2 (empty),
 // leaves 3 and 4 are lava and see only lava, and there is no water.
+// extraLeafs appends leafs past visleafs (as submodels' leafs are), and vis
+// replaces the vis lump.
 // ----------------------------------------------------------------------------
 
 function buildBsp( lumps ) {
@@ -195,7 +198,7 @@ function lump( size, fill ) {
 
 }
 
-function waterVisBsp() {
+function waterVisBsp( extraLeafs = 0, vis = [ 0x02, 0x04 ] ) {
 
 	const lumps = [];
 	lumps[ bspfile.LUMP_PLANES ] = lump( 20, ( v ) => v.setFloat32( 0, 1, true ) );
@@ -203,6 +206,9 @@ function waterVisBsp() {
 	// leaf 4 is lava too and sees only leaf 3 (lava)
 	const leafs = [ [ bspfile.CONTENTS_SOLID, - 1 ], [ bspfile.CONTENTS_SLIME, 0 ],
 		[ bspfile.CONTENTS_EMPTY, - 1 ], [ bspfile.CONTENTS_LAVA, 1 ], [ bspfile.CONTENTS_LAVA, 1 ] ];
+	const visleafs = leafs.length - 1;
+	for ( let i = 0; i < extraLeafs; i ++ )
+		leafs.push( [ bspfile.CONTENTS_EMPTY, - 1 ] );
 	lumps[ bspfile.LUMP_LEAFS ] = lump( leafs.length * 28, ( v ) => leafs.forEach( ( l, i ) => {
 
 		v.setInt32( i * 28, l[ 0 ], true );
@@ -210,7 +216,7 @@ function waterVisBsp() {
 
 	} ) );
 	// leaf 1 sees leaf 2 (bit 1); leaves 3 and 4 see leaf 3 (bit 2)
-	lumps[ bspfile.LUMP_VISIBILITY ] = new Uint8Array( [ 0x02, 0x04 ] );
+	lumps[ bspfile.LUMP_VISIBILITY ] = new Uint8Array( vis );
 	lumps[ bspfile.LUMP_NODES ] = lump( 24, ( v ) => {
 
 		v.setUint16( 4, 0xffff, true );
@@ -232,16 +238,16 @@ function waterVisBsp() {
 
 		}
 
-		v.setInt32( 52, leafs.length - 1, true );	// visleafs
+		v.setInt32( 52, visleafs, true );
 
 	} );
 	return buildBsp( lumps );
 
 }
 
-function loadWaterVisBsp( name ) {
+function loadWaterVisBsp( name, extraLeafs = 0, vis = undefined ) {
 
-	const bytes = waterVisBsp();
+	const bytes = waterVisBsp( extraLeafs, vis );
 	COM_AddPack( { files: [ { name: name, filepos: 0, filelen: bytes.length } ], data: bytes.buffer } );
 	return gl_model.Mod_ForName( name, true );
 
@@ -254,6 +260,31 @@ Deno.test( 'Mod_CheckWaterVis finds the liquids the vis sees through', () => {
 	assertEqual( mod.contentstransparent & gl_model.SURF_DRAWLAVA, 0, 'lava sees only lava' );
 	assertEqual( mod.contentstransparent & ( gl_model.SURF_DRAWWATER | gl_model.SURF_DRAWTELE ),
 		gl_model.SURF_DRAWWATER | gl_model.SURF_DRAWTELE, 'liquids the map lacks count as see-through' );
+
+} );
+
+// Every map has more leafs than visleafs (submodels' leafs have no vis), so
+// a PVS row sized from all the leafs runs on into the next leaf's data. Here
+// 17 leafs make a 3-byte row and 4 visleafs a 1-byte one; decoding leaf 1 on
+// past its byte reaches leaf 3's data and then a zero run of 9 bytes.
+Deno.test( 'Mod_CheckWaterVis sizes PVS rows from visleafs, not all the leafs', () => {
+
+	const printed = [];
+	Con_SetPrintFunctions( ( msg ) => printed.push( msg ), () => {} );
+	try {
+
+		const mod = loadWaterVisBsp( 'maps/__watervis_rows.bsp', 12, [ 0x02, 0x04, 0x00, 0x09 ] );
+		assertEqual( mod.numleafs, 4, 'world numleafs is visleafs' );
+		assertEqual( printed.filter( ( m ) => m.includes( 'Mod_DecompressVis' ) ).length, 0, 'vis warnings' );
+		assertEqual( mod.viswarn, false, 'viswarn' );
+		assertEqual( mod.contentstransparent & gl_model.SURF_DRAWSLIME, gl_model.SURF_DRAWSLIME, 'slime sees out' );
+		assertEqual( mod.contentstransparent & gl_model.SURF_DRAWLAVA, 0, 'lava sees only lava' );
+
+	} finally {
+
+		Con_SetPrintFunctions( null, null );
+
+	}
 
 } );
 
