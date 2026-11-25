@@ -119,6 +119,7 @@ export function NET_NewQSocket( pendingConnections = 0 ) {
 	sock.receiveSequence = 0;
 	sock.unreliableReceiveSequence = 0;
 	sock.receiveMessageLength = 0;
+	sock.maxdatagram = 0; // the driver sets it (SV_ClientDatagramSize)
 
 	return sock;
 

@@ -228,9 +228,19 @@ Groups that can run at the same time:
   brush submodels only, before QC precaches; the phase 4 run under "Headless
   spawn" counts the precaches and sounds. The edict counts are static map
   entities, before skill and deathmatch filtering and runtime spawns.
-- Datagram size on big maps was not measured: `MAX_DATAGRAM` is 1024, and WebTransport datagrams are
-  about 1200 bytes. More visible entities per frame may drop packet entities.
-  Phase 4's wider coordinates and model numbers make each entity update a few
-  bytes larger.
+- Datagram size on big maps (measured headless, then fixed): with id's
+  1024-byte `MAX_DATAGRAM`, the first frame after a teleport needs more on mg1
+  `mge1m1` and `mge2m2` and mg3 `map3`, `map5`, `map8` and `secret2` (largest
+  seen 1711, 1315, 1476, 3454, 1297 and 1111 bytes; shareware `e1m1` peaks
+  near 500). `packet overflow` then defers the rest of the entities to later
+  frames (MP-1). The server now does what FitzQuake and QuakeSpasm do: the
+  local client gets `MAX_DATAGRAM` (4096 here), and a WebTransport client gets
+  the session's `maxDatagramSize` less the 9-byte transport header, clamped to
+  1024–1400 (`DATAGRAM_MTU`), or 1024 when it is unknown
+  (`SV_ClientDatagramSize`). Single player no longer overflows on these maps.
+  A network client still defers on the busiest frames (most often on `map5`),
+  but at a 1150-byte limit it overflows on about half as many frames as before
+  on `mge2m2` and `map8`. Deno's `maxDatagramSize` grows as QUIC probes the path MTU, so
+  the server reads it again every frame.
 - The headless run did not set `-hipnotic`/`-rogue` (they affect the HUD and some engine
   behaviour), and used default skill and `deathmatch 0`.

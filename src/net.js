@@ -78,6 +78,11 @@ export class qsocket_t {
 		this.addr = null;
 		this.address = '';
 
+		// Largest unreliable payload the driver can send as one datagram, or 0
+		// if unknown. The WebTransport server sets it; SV_ClientDatagramSize
+		// sizes the client's datagram from it.
+		this.maxdatagram = 0;
+
 	}
 
 }

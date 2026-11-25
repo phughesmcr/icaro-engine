@@ -1,6 +1,6 @@
 // Ported from: WinQuake/server.h -- server structures and constants
 
-import { MAX_MODELS, MAX_SOUNDS, MAX_LIGHTSTYLES, MAX_DATAGRAM, MAX_MSGLEN, packet_entities_t } from './quakedef.js';
+import { MAX_MODELS, MAX_SOUNDS, MAX_LIGHTSTYLES, MAX_DATAGRAM, MAX_DATAGRAM_ID, MAX_MSGLEN, packet_entities_t } from './quakedef.js';
 import { sizebuf_t } from './common.js';
 import { PE_UPDATE_BACKUP } from './protocol.js';
 
@@ -73,7 +73,7 @@ export class server_t {
 		this.datagram_buf = new Uint8Array( MAX_DATAGRAM );
 
 		this.reliable_datagram = new sizebuf_t(); // copied to all clients at end of frame
-		this.reliable_datagram_buf = new Uint8Array( MAX_DATAGRAM );
+		this.reliable_datagram_buf = new Uint8Array( MAX_DATAGRAM_ID ); // id's size (quakedef.js)
 
 		// johnfitz/Ironwail: the signon is a list of buffers, filled by
 		// SV_ReserveSignonSpace and sent one per frame (SV_SendClientMessages).

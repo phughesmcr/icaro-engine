@@ -424,6 +424,71 @@ Deno.test( 'NET-5: a stalled datagram path only affects its own connection', asy
 
 } );
 
+Deno.test( 'the session\'s maxDatagramSize reaches the engine as sock.maxdatagram and follows path MTU changes', async () => {
+
+	const teardown = setupServer();
+	try {
+
+		const { pair, accepted } = openSession( null, { maxDatagramSize: 1159 } );
+		const client = await rawClient( pair );
+		await accepted;
+		assertEqual( net.WT_ParseHandshakeReply( await client.frames.read() ).status, net.WT_HANDSHAKE_ACCEPT, 'handshake' );
+		const [ sock ] = svCheckForNewClients();
+		assertEqual( sock.maxdatagram, 1159 - net.WT_PACKET_HEADER_BYTES, 'limit at accept' );
+
+		// Deno's value is live: path MTU discovery raises it after the handshake
+		pair.server.datagrams.maxDatagramSize = 1413;
+		assertEqual( server.WT_CanSendUnreliableMessage( sock ), true, 'can send' );
+		assertEqual( sock.maxdatagram, 1413 - net.WT_PACKET_HEADER_BYTES, 'limit after the probe' );
+
+		// an unreadable value keeps the last one
+		pair.server.datagrams.maxDatagramSize = undefined;
+		server.WT_CanSendUnreliableMessage( sock );
+		assertEqual( sock.maxdatagram, 1413 - net.WT_PACKET_HEADER_BYTES, 'limit kept' );
+
+	} finally {
+
+		await teardown();
+
+	}
+
+} );
+
+Deno.test( 'a message of sock.maxdatagram bytes goes as a datagram; one byte more falls back to the reliable stream', async () => {
+
+	const teardown = setupServer();
+	try {
+
+		const { pair, accepted } = openSession( null, { maxDatagramSize: 1159 } );
+		const client = await rawClient( pair );
+		await accepted;
+		await client.frames.read(); // handshake reply
+		const [ sock ] = svCheckForNewClients();
+		const limit = sock.maxdatagram;
+
+		// a sequenced client gets sequenced packets (9-byte header)
+		await client.writer.write( frame( sequencedPacket( 0, 0, new Uint8Array( [ clc_nop ] ) ) ) );
+		await waitFor( () => sock.driverdata.pendingMessages.length >= 1, 1000, 'client packet' );
+		drainMessages( sock );
+
+		assertEqual( server.WT_SendUnreliableMessage( sock, message( new Array( limit ).fill( 0x01 ) ) ), 1, 'send at the limit' );
+		await waitFor( () => pair.datagramsToClient.written.length === 1, 1000, 'datagram at the limit' );
+		assertEqual( pair.datagramsToClient.written[ 0 ].length, 1159, 'datagram fills maxDatagramSize' );
+
+		assertEqual( server.WT_SendUnreliableMessage( sock, message( new Array( limit + 1 ).fill( 0x02 ) ) ), 1, 'send past the limit' );
+		const reliable = await client.frames.read();
+		assertEqual( reliable.length, net.WT_PACKET_HEADER_BYTES + limit + 1, 'oversized update on the reliable stream' );
+		await delay( 20 );
+		assertEqual( pair.datagramsToClient.written.length, 1, 'no second datagram' );
+
+	} finally {
+
+		await teardown();
+
+	}
+
+} );
+
 Deno.test( 'PRED-2: the server ack covers datagrams as well as the reliable stream', async () => {
 
 	const teardown = setupServer();
