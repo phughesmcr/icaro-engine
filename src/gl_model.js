@@ -1103,15 +1103,18 @@ export function Mod_PointInLeaf( p, model ) {
 
 // ============================================================================
 // Mod_DecompressVis
+//
+// numleafs sizes the row. It defaults to model.numleafs as in the C;
+// Mod_CheckWaterVis passes the visleafs count (see there).
 // ============================================================================
 
-export function Mod_DecompressVis( _in, inOffset, model ) {
+export function Mod_DecompressVis( _in, inOffset, model, numleafs = model.numleafs ) {
 
-	const row = ( model.numleafs + 7 ) >> 3;
+	const row = ( numleafs + 7 ) >> 3;
 	let outIdx = 0;
 
 	if ( row > decompressed.length )
-		Mod_AllocVisBuffers( model.numleafs );	// model built without Mod_LoadLeafs
+		Mod_AllocVisBuffers( numleafs );	// model built without Mod_LoadLeafs
 
 	if ( _in === null ) {
 
@@ -1158,8 +1161,10 @@ export function Mod_DecompressVis( _in, inOffset, model ) {
 		let c = pos + 1 < inend ? _in[ pos + 1 ] : 0;
 		pos += 2;
 
-		// QuakeSpasm: a run past the end of the row is an output overrun;
-		// stop there rather than write past the row.
+		// QuakeSpasm clamps a run past the end of the row so it can't write
+		// past the buffer. Deliberate deviation: QuakeSpasm and Ironwail
+		// clamp silently (their overrun warning can't be reached after the
+		// clamp); the port warns once, as the vis data is bad.
 		if ( c > row - outIdx ) {
 
 			if ( model.viswarn !== true ) {
@@ -2051,11 +2056,11 @@ export function Mod_LiquidFlagFromName( texname ) {
 // ============================================================================
 // Mod_CheckWaterVis
 //
-// Deliberate deviation, from QuakeSpasm (gl_model.c, by Spike): finds which
-// liquids the map's vis lets you see through (a liquid leaf whose PVS holds
-// a leaf of other contents), for the worldspawn _wateralpha keys
-// (gl_rsurf.js). Liquids the map doesn't have count as see-through, so
-// submodel liquids work.
+// Deliberate deviation, from QuakeSpasm-Spiked and Ironwail (gl_model.c, by
+// Spike): finds which liquids the map's vis lets you see through (a liquid
+// leaf whose PVS holds a leaf of other contents), for the worldspawn
+// _wateralpha keys (gl_rsurf.js). Liquids the map doesn't have count as
+// see-through, so submodel liquids work.
 // ============================================================================
 
 const SURF_DRAWLIQUIDS = SURF_DRAWWATER | SURF_DRAWTELE | SURF_DRAWSLIME | SURF_DRAWLAVA;
@@ -2123,7 +2128,12 @@ function Mod_CheckWaterVis() {
 			continue; // found one of this type already
 
 		contentfound |= contenttype;
-		const vis = Mod_DecompressVis( leaf.compressed_vis, leaf.compressed_vis_offset, loadmodel );
+		// Deliberate deviation: Ironwail runs this before the submodel loop
+		// sets numleafs to visleafs, so its rows are sized from every leaf
+		// and decoding runs on into the next leaf's data, clamped silently.
+		// Size the row from the vis clusters, as Mod_LeafPVS later does. The
+		// bytes read below are the same either way.
+		const vis = Mod_DecompressVis( leaf.compressed_vis, leaf.compressed_vis_offset, loadmodel, numclusters );
 		search: for ( let j = 0; j < ( numclusters + 7 ) >> 3; j ++ ) {
 
 			if ( vis[ j ] === 0 ) continue;
