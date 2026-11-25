@@ -12,7 +12,11 @@ process per room. It was forked from mrdoob's three-quake.
 - `src/`: the engine, shared by the browser and the Deno server. File names
   mirror the C files (`sv_phys.js` is `sv_phys.c`). Web-only additions:
   `in_web.js`, `touch.js`, `webxr.js`, `net_webtransport.js`,
-  `net_websocket.js`, `pak.js`, `menu_cvars.js`.
+  `net_websocket.js`, `pak.js`, `menu_cvars.js`. Some files port features
+  from Ironwail or QuakeSpasm rather than id's C, and their headers cite it
+  (`gl_fog.js`, `gl_sky.js`, `gl_md5.js`, `gl_entalpha.js`,
+  `gl_screenwarp.js`, `image.js`, `pr_sprintf.js`, `default_cfg.js`,
+  `unicode_translit.js`). For those, Ironwail's source is the reference.
 - `main.js` and `index.html`: the browser entry. `index.html`'s import map
   loads `three` and `nipplejs` from jsDelivr. Assets are in `static/`.
 - `server/`: `lobby_server.js`, `game_server.js` and the WebTransport and
@@ -28,6 +32,11 @@ process per room. It was forked from mrdoob's three-quake.
 - `docs/rerelease-gaps.md`: what blocked the 2021 rerelease content and
   how each item was done; every item is now done or not needed. It is a
   snapshot too.
+- `docs/threejs-review.md`: a review of the Three.js rendering code against
+  r183, with the status of each finding. A snapshot.
+- `docs/cloudflare-multiplayer.md`: research notes on hosting multiplayer
+  behind Cloudflare. Checked against `dev` when written; Cloudflare facts
+  can change.
 - `tools/`: `port_inventory.py` regenerates that inventory's raw tables
   (Python, standard library only; not linted or run in CI).
 
@@ -35,16 +44,18 @@ process per room. It was forked from mrdoob's three-quake.
 
 - `deno task ci` runs what CI runs: `deno task test`, `deno task lint` and
   `deno task check`. Run it before calling work done.
-- `deno task test`: the whole suite (~600 tests, ~14 s). Its permissions are
+- `deno task test`: the whole suite (~750 tests, ~20 s). Its permissions are
   scoped: no network, env limited to the `FAKE_ROOM_*` variables, and run
   limited to `tests/fixtures/fake_room_server.sh`. A test that needs more must
   widen the task deliberately. For one file:
   `deno test --allow-read --allow-write tests/<file>_test.js` (add the task's
   `--allow-env`/`--allow-run` for `server_lobby_test.js`). Narrow further with
   `--filter`.
-- `deno task check` type-checks `main.js`, the server entry points, the
-  WebSocket server driver (`server/net_websocket_server.ts`) and
-  `tests/net_webtransport_server_test.ts`.
+- `deno task check` type-checks `main.js`, the server entry points, the room
+  process manager (`server/room_process_manager.ts`), the
+  WebSocket server driver (`server/net_websocket_server.ts`) and the two
+  TypeScript tests (`tests/net_webtransport_server_test.ts`,
+  `tests/quic_listen_test.ts`).
 - `deno task lobby` and `deno task game` need `server/cert.pem` and
   `server/key.pem` (see `server/README.md`). Both are gitignored.
 - To run the client, serve the repo root with any static file server

@@ -21,7 +21,7 @@ Stop and report if any step fails. Never merge the PR, and never target `main`.
    - If parallel sessions own other files, check that you only touched yours.
 3. **Tests.** Run `NO_COLOR=1 deno task test` and record the pass count.
 4. **Type check.** Run `deno task check`. It covers the client and server
-   entry points and the TypeScript test.
+   entry points and the TypeScript tests.
 5. **Lint.** Run `deno task lint`. It must pass with zero problems; CI runs
    the same command.
    - Keep C-parity parameters with a `_` prefix rather than deleting them.

@@ -273,7 +273,6 @@ Notes:
 - `../tests/net_websocket_test.js` — WebSocket client and server drivers against each other over in-memory sockets (`../tests/fake_websocket.js`): handshake, rejects, acks, backpressure and close paths
 - `../tests/quic_listen_test.ts` — IPv6/IPv4 bind fallback tests for `quic_listen.ts`
 - `../tests/server_lobby_test.js` — Lobby and room-manager tests (`deno task test` from the repository root). The room-process tests need run access to `tests/fixtures/fake_room_server.sh`, write access and the `FAKE_ROOM_*` env vars (the task grants them), and are skipped without them.
-- `test_imports.js` — Smoke check verifying Deno imports of `../src/` modules (`cd server && deno run --allow-read test_imports.js`)
 
 ## Production Deployment
 
