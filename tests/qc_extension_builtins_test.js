@@ -409,7 +409,7 @@ Deno.test( 'Builtins are reached through OP_CALL with its argument count, and un
 
 		// function 1: min( 4, -3, 2 ); function 2 is builtin #94 (min)
 		const fn = 30;
-		PR_SetFunctions( [ null, makeFunction( 0 ), makeFunction( - 94 ), makeFunction( - 80 ), makeFunction( - 1279 ) ] );
+		PR_SetFunctions( [ null, makeFunction( 0 ), makeFunction( - 94 ), makeFunction( - 294 ), makeFunction( - 1279 ) ] );
 		PR_SetProgs( { numfunctions: 5 } );
 		PR_SetStatements( [ { op: OP_CALL3, a: fn, b: 0, c: 0 }, { op: OP_DONE, a: OFS_RETURN, b: 0, c: 0 } ] );
 		pr_globals_int[ fn ] = 2;
@@ -466,7 +466,7 @@ Deno.test( 'PR_InitProgsBuiltins binds "= #0" functions by name', () => {
 
 	try {
 
-		const names = [ 'ftoi', 'sin', 'makevectors', 'not_a_builtin', 'strlen', 'localsound', 'ex_bprint' ];
+		const names = [ 'ftoi', 'sin', 'makevectors', 'not_a_builtin', 'strlen', 'localsound', 'ex_bprint', 'ex_localsound' ];
 		const functions = [ makeFunction( 0 ) ];
 		for ( const name of names )
 			functions.push( makeFunction( 0, str( name ) ) );
@@ -480,10 +480,11 @@ Deno.test( 'PR_InitProgsBuiltins binds "= #0" functions by name', () => {
 		assertEqual( functions[ 3 ].first_statement, - 1, 'makevectors' );
 		assertEqual( functions[ 4 ].first_statement, 0, 'unknown name' );
 		assertEqual( functions[ 5 ].first_statement, 0, 'function with locals' );
-		assertEqual( functions[ 6 ].first_statement, - 80, 'unported localsound is bound to its slot' );
-		assertEqual( pr_builtins[ 80 ], pr_builtins[ 0 ], 'localsound slot is PF_Fixme' );
+		assertEqual( functions[ 6 ].first_statement, - 80, 'localsound is bound to its slot' );
+		assertEqual( pr_builtins[ 80 ] !== pr_builtins[ 0 ], true, 'localsound slot is not PF_Fixme' );
 		assertEqual( functions[ 7 ].first_statement, - 1277, 'ex_bprint' );
 		assertEqual( pr_builtins[ 1277 ], pr_builtins[ 23 ], 'ex_bprint is bprint' );
+		assertEqual( pr_builtins[ - functions[ 8 ].first_statement ], pr_builtins[ 80 ], 'ex_localsound is localsound' );
 
 	} finally {
 
