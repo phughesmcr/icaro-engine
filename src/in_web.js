@@ -19,7 +19,8 @@ import { cl, cls, ca_connected } from './client.js';
 import { sensitivity, m_pitch, m_yaw, m_forward, m_side, lookstrafe } from './cl_main.js';
 import {
 	in_mlook, in_strafe, in_speed,
-	cl_forwardspeed, cl_backspeed, cl_sidespeed, cl_yawspeed, cl_pitchspeed, cl_movespeedkey
+	cl_forwardspeed, cl_backspeed, cl_sidespeed, cl_yawspeed, cl_pitchspeed, cl_movespeedkey,
+	CL_ClampPitch
 } from './cl_input.js';
 import { V_StopPitchDrift } from './view.js';
 import { host_frametime } from './host.js';
@@ -444,10 +445,7 @@ function GP_Poll( cmd ) {
 
 		V_StopPitchDrift();
 		cl.viewangles[ PITCH ] += ry * cl_pitchspeed.value * host_frametime * gp_look_pitch.value;
-		if ( cl.viewangles[ PITCH ] > 80 )
-			cl.viewangles[ PITCH ] = 80;
-		if ( cl.viewangles[ PITCH ] < - 70 )
-			cl.viewangles[ PITCH ] = - 70;
+		CL_ClampPitch();
 
 	}
 
@@ -1700,10 +1698,7 @@ export function IN_Move( cmd ) {
 
 			cl.viewangles[ PITCH ] += m_pitch.value < 0 ? - touchLook.pitch : touchLook.pitch;
 			if ( touchLook.pitch !== 0 ) V_StopPitchDrift();
-			if ( cl.viewangles[ PITCH ] > 80 )
-				cl.viewangles[ PITCH ] = 80;
-			if ( cl.viewangles[ PITCH ] < - 70 )
-				cl.viewangles[ PITCH ] = - 70;
+			CL_ClampPitch();
 
 		}
 
@@ -1731,10 +1726,7 @@ export function IN_Move( cmd ) {
 	if ( ( in_mlook.state & 1 ) && ! ( in_strafe.state & 1 ) ) {
 
 		cl.viewangles[ PITCH ] += m_pitch.value * my;
-		if ( cl.viewangles[ PITCH ] > 80 )
-			cl.viewangles[ PITCH ] = 80;
-		if ( cl.viewangles[ PITCH ] < - 70 )
-			cl.viewangles[ PITCH ] = - 70;
+		CL_ClampPitch();
 
 	} else {
 
