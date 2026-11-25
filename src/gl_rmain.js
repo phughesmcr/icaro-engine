@@ -29,7 +29,7 @@ import {
 	R_InitParticles, R_SetParticleExternals, R_ClearParticles,
 	R_DrawParticles as R_DrawParticles_impl
 } from './r_part.js';
-import { isXRActive, getXRRig, XR_SetCamera, XR_SCALE, XR_GetControllerWorldPose, XR_RenderHUD, XR_SetupFrusta, XR_PolyBlend } from './webxr.js';
+import { isXRActive, getXRRig, XR_SetCamera, XR_SCALE, XR_GetControllerWorldPose, XR_RenderHUD, XR_SetupFrusta, XR_PolyBlend, XR_GetHeadOrigin } from './webxr.js';
 import {
 	cl, cl_visedicts, cl_numvisedicts, cl_dlights, cl_entities,
 	cl_static_entities, cl_temp_entities, cl_lightstyle,
@@ -369,7 +369,12 @@ export function R_SetupFrame() {
 	inc_r_framecount();
 
 	// build the transformation matrix for the given view angles
-	VectorCopy( r_refdef.vieworg, r_origin );
+	// Deviation (web-only): C's camera is r_refdef.vieworg. In an XR session
+	// the camera is the head, which leans away from the body, so r_origin,
+	// the view leaf (PVS) and the contents colour use the previous frame's
+	// head position (the pose is only known inside render()).
+	if ( isXRActive() === false || XR_GetHeadOrigin( r_origin ) === false )
+		VectorCopy( r_refdef.vieworg, r_origin );
 
 	AngleVectors( r_refdef.viewangles, vpn, vright, vup );
 
@@ -484,7 +489,22 @@ export function R_SetupGL() {
 	);
 
 	// Build orientation using AngleVectors to get forward/right/up
-	AngleVectors( r_refdef.viewangles, _setupgl_forward, _setupgl_right, _setupgl_up );
+	// Deviation (web-only): in XR the headset supplies pitch, so the rig takes
+	// only yaw (and roll) from the body. cl.viewangles pitch can be non-zero
+	// (svc_setangle, V_DriftPitch toward idealpitch, the chase camera) and
+	// would tilt the world around the player.
+	if ( isXRActive() ) {
+
+		_setupgl_angles[ 0 ] = 0;
+		_setupgl_angles[ 1 ] = r_refdef.viewangles[ 1 ];
+		_setupgl_angles[ 2 ] = r_refdef.viewangles[ 2 ];
+		AngleVectors( _setupgl_angles, _setupgl_forward, _setupgl_right, _setupgl_up );
+
+	} else {
+
+		AngleVectors( r_refdef.viewangles, _setupgl_forward, _setupgl_right, _setupgl_up );
+
+	}
 
 	// Build a rotation matrix from the Quake basis vectors.
 	// In Quake: forward = where camera looks, right = camera right, up = camera up.
@@ -927,6 +947,7 @@ const _dlightDist = [ 0, 0, 0 ];
 const _shadevector = new Float32Array( 3 );
 
 // Cached buffers for R_SetupGL (Golden Rule #4)
+const _setupgl_angles = new Float32Array( 3 ); // XR: viewangles without pitch
 const _setupgl_forward = new Float32Array( 3 );
 const _setupgl_right = new Float32Array( 3 );
 const _setupgl_up = new Float32Array( 3 );

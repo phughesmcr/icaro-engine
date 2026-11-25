@@ -58,6 +58,8 @@ function R() {
 }
 
 let xrSessionActive = false;
+const xrHeadOrigin = new Float32Array( 3 ); // head (mean of the eyes) in Quake units, from the last posed frame
+let xrHeadValid = false; // xrHeadOrigin is from this session
 let xrRig = null; // THREE.Group — NOT in scene, positioned at vieworg/XR_SCALE each frame
 let xrOffset = null; // child of xrRig holding camera and controllers (floor offset)
 const controllers = [ null, null ]; // targetRay (pointer) spaces for input slots 0 and 1
@@ -204,6 +206,7 @@ export function XR_Init( scene ) {
 	R().xr.addEventListener( 'sessionstart', function () {
 
 		xrSessionActive = true;
+		xrHeadValid = false;
 
 		// Scale scene to meters so it matches XR coordinate space
 		if ( _scene != null ) _scene.scale.setScalar( 1 / XR_SCALE );
@@ -216,6 +219,7 @@ export function XR_Init( scene ) {
 	R().xr.addEventListener( 'sessionend', function () {
 
 		xrSessionActive = false;
+		xrHeadValid = false;
 
 		// Restore scene scale for non-XR rendering
 		if ( _scene != null ) _scene.scale.setScalar( 1 );
@@ -341,15 +345,44 @@ export function XR_SetupFrusta( views ) {
 
 	const n = Math.min( cameras.length, views.length );
 	const parent = xrOffset.matrixWorld.elements;
+	let hx = 0, hy = 0, hz = 0;
 
 	for ( let i = 0; i < n; i ++ ) {
 
 		_mul4( parent, cameras[ i ].matrix.elements, _eyeWorld );
 		XR_FrustumFromView( cameras[ i ].projectionMatrix.elements, _eyeWorld, views[ i ] );
+		hx += _eyeWorld[ 12 ];
+		hy += _eyeWorld[ 13 ];
+		hz += _eyeWorld[ 14 ];
+
+	}
+
+	// Remember the head (the eyes' mean, meters to Quake units) for the next
+	// frame's R_SetupFrame: the pose is only known here, after R_SetupGL.
+	if ( n > 0 ) {
+
+		xrHeadOrigin[ 0 ] = hx / n * XR_SCALE;
+		xrHeadOrigin[ 1 ] = hy / n * XR_SCALE;
+		xrHeadOrigin[ 2 ] = hz / n * XR_SCALE;
+		xrHeadValid = true;
 
 	}
 
 	return n;
+
+}
+
+// Web-only deviation. Copies the head's world position in Quake units, as of
+// the previous posed frame, into out and returns true; false outside a
+// presenting session or before the first pose. R_SetupFrame uses it where C
+// uses the camera (gl_rmain.c R_SetupFrame: r_origin = r_refdef.vieworg).
+export function XR_GetHeadOrigin( out ) {
+
+	if ( xrSessionActive === false || xrHeadValid === false ) return false;
+	out[ 0 ] = xrHeadOrigin[ 0 ];
+	out[ 1 ] = xrHeadOrigin[ 1 ];
+	out[ 2 ] = xrHeadOrigin[ 2 ];
+	return true;
 
 }
 
