@@ -45,24 +45,18 @@ const pt_explode2 = 5;
 const pt_blob = 6;
 const pt_blob2 = 7;
 
-class particle_t {
-
-	constructor() {
-
-		this.org = new Float32Array( 3 );
-		this.vel = new Float32Array( 3 );
-		this.color = 0;
-		this.ramp = 0;
-		this.die = - 1;
-		this.type = pt_static;
-
-	}
-
-}
-
-// Particle pool — use array index as linked list via nextIndex. Sized by
-// R_InitParticles (C's Hunk_AllocName), never per frame.
-let particles = new Array( r_numparticles );
+// Particle pool, struct of arrays: one index into each array is a particle
+// (C's particle_t). Walking 16384 small objects, each owning two typed
+// arrays, cost several times more than these flat arrays (see
+// tools/bench/render_bench.js). Sized by R_InitParticles (C's Hunk_AllocName),
+// never per frame. A particle's list link is particleNext, so the free and
+// active lists need no allocation.
+let pOrg = new Float32Array( r_numparticles * 3 );
+let pVel = new Float32Array( r_numparticles * 3 );
+let pColor = new Int32Array( r_numparticles );
+let pRamp = new Float64Array( r_numparticles );
+let pDie = new Float64Array( r_numparticles );
+let pType = new Uint8Array( r_numparticles );
 let particleNext = new Int32Array( r_numparticles ); // -1 = end of list
 
 let activeList = - 1; // head index of active list
@@ -203,7 +197,12 @@ export function R_InitParticles() {
 	// it is dropped and R_DrawParticles builds a new one.
 	if ( particleNext.length !== r_numparticles ) {
 
-		particles = new Array( r_numparticles );
+		pOrg = new Float32Array( r_numparticles * 3 );
+		pVel = new Float32Array( r_numparticles * 3 );
+		pColor = new Int32Array( r_numparticles );
+		pRamp = new Float64Array( r_numparticles );
+		pDie = new Float64Array( r_numparticles );
+		pType = new Uint8Array( r_numparticles );
 		particleNext = new Int32Array( r_numparticles );
 		positionArray = new Float32Array( r_numparticles * 3 );
 		colorArray = new Float32Array( r_numparticles * 3 );
@@ -221,11 +220,9 @@ export function R_InitParticles() {
 
 	}
 
-	for ( let j = 0; j < r_numparticles; j ++ ) {
-
-		particles[ j ] = new particle_t();
-
-	}
+	// C's Hunk_AllocName zeroes the pool; the list is rebuilt below
+	pOrg.fill( 0 ); pVel.fill( 0 ); pColor.fill( 0 ); pRamp.fill( 0 ); pType.fill( 0 );
+	pDie.fill( - 1 );
 
 	R_ClearParticles();
 	R_InitParticleTexture();
@@ -266,7 +263,7 @@ export function R_ClearParticles() {
 
 function allocParticle() {
 
-	if ( freeList === - 1 ) return null;
+	if ( freeList === - 1 ) return - 1;
 
 	const idx = freeList;
 	freeList = particleNext[ idx ];
@@ -274,13 +271,13 @@ function allocParticle() {
 	particleNext[ idx ] = activeList;
 	activeList = idx;
 
-	const p = particles[ idx ];
-	p.org[ 0 ] = 0; p.org[ 1 ] = 0; p.org[ 2 ] = 0;
-	p.vel[ 0 ] = 0; p.vel[ 1 ] = 0; p.vel[ 2 ] = 0;
-	p.color = 0;
-	p.ramp = 0;
-	p.die = - 1;
-	p.type = pt_static;
+	const p = idx;
+	pOrg[ p * 3 ] = 0; pOrg[ p * 3 + 1 ] = 0; pOrg[ p * 3 + 2 ] = 0;
+	pVel[ p * 3 ] = 0; pVel[ p * 3 + 1 ] = 0; pVel[ p * 3 + 2 ] = 0;
+	pColor[ p ] = 0;
+	pRamp[ p ] = 0;
+	pDie[ p ] = - 1;
+	pType[ p ] = pt_static;
 
 	return p;
 
@@ -330,19 +327,19 @@ export function R_LoadPointFile( coords ) {
 		c ++;
 
 		const p = allocParticle();
-		if ( p === null ) {
+		if ( p === - 1 ) {
 
 			Con_Printf( 'Not enough free particles\n' );
 			break;
 
 		}
 
-		p.die = 99999;
-		p.color = ( - c ) & 15;
-		p.type = pt_static;
-		p.org[ 0 ] = coords[ i ];
-		p.org[ 1 ] = coords[ i + 1 ];
-		p.org[ 2 ] = coords[ i + 2 ];
+		pDie[ p ] = 99999;
+		pColor[ p ] = ( - c ) & 15;
+		pType[ p ] = pt_static;
+		pOrg[ p * 3 ] = coords[ i ];
+		pOrg[ p * 3 + 1 ] = coords[ i + 1 ];
+		pOrg[ p * 3 + 2 ] = coords[ i + 2 ];
 
 	}
 
@@ -406,29 +403,29 @@ export function R_ParticleExplosion( org ) {
 	for ( let i = 0; i < 1024; i ++ ) {
 
 		const p = allocParticle();
-		if ( ! p ) return;
+		if ( p === - 1 ) return;
 
-		p.die = client_cl.time + 5;
-		p.color = ramp1[ 0 ];
-		p.ramp = Math.random() * 4 | 0;
+		pDie[ p ] = client_cl.time + 5;
+		pColor[ p ] = ramp1[ 0 ];
+		pRamp[ p ] = Math.random() * 4 | 0;
 
 		if ( i & 1 ) {
 
-			p.type = pt_explode;
+			pType[ p ] = pt_explode;
 			for ( let j = 0; j < 3; j ++ ) {
 
-				p.org[ j ] = org[ j ] + ( ( Math.random() * 32 | 0 ) - 16 );
-				p.vel[ j ] = ( Math.random() * 512 | 0 ) - 256;
+				pOrg[ p * 3 + j ] = org[ j ] + ( ( Math.random() * 32 | 0 ) - 16 );
+				pVel[ p * 3 + j ] = ( Math.random() * 512 | 0 ) - 256;
 
 			}
 
 		} else {
 
-			p.type = pt_explode2;
+			pType[ p ] = pt_explode2;
 			for ( let j = 0; j < 3; j ++ ) {
 
-				p.org[ j ] = org[ j ] + ( ( Math.random() * 32 | 0 ) - 16 );
-				p.vel[ j ] = ( Math.random() * 512 | 0 ) - 256;
+				pOrg[ p * 3 + j ] = org[ j ] + ( ( Math.random() * 32 | 0 ) - 16 );
+				pVel[ p * 3 + j ] = ( Math.random() * 512 | 0 ) - 256;
 
 			}
 
@@ -451,17 +448,17 @@ export function R_ParticleExplosion2( org, colorStart, colorLength ) {
 	for ( let i = 0; i < 512; i ++ ) {
 
 		const p = allocParticle();
-		if ( ! p ) return;
+		if ( p === - 1 ) return;
 
-		p.die = client_cl.time + 0.3;
-		p.color = colorStart + ( colorMod % colorLength );
+		pDie[ p ] = client_cl.time + 0.3;
+		pColor[ p ] = colorStart + ( colorMod % colorLength );
 		colorMod ++;
-		p.type = pt_blob;
+		pType[ p ] = pt_blob;
 
 		for ( let j = 0; j < 3; j ++ ) {
 
-			p.org[ j ] = org[ j ] + ( ( Math.random() * 32 | 0 ) - 16 );
-			p.vel[ j ] = ( Math.random() * 512 | 0 ) - 256;
+			pOrg[ p * 3 + j ] = org[ j ] + ( ( Math.random() * 32 | 0 ) - 16 );
+			pVel[ p * 3 + j ] = ( Math.random() * 512 | 0 ) - 256;
 
 		}
 
@@ -481,26 +478,26 @@ export function R_BlobExplosion( org ) {
 	for ( let i = 0; i < 1024; i ++ ) {
 
 		const p = allocParticle();
-		if ( ! p ) return;
+		if ( p === - 1 ) return;
 
-		p.die = client_cl.time + 1 + ( Math.random() * 8 | 0 ) * 0.05;
+		pDie[ p ] = client_cl.time + 1 + ( Math.random() * 8 | 0 ) * 0.05;
 
 		if ( i & 1 ) {
 
-			p.type = pt_blob;
-			p.color = 66 + ( Math.random() * 6 | 0 );
+			pType[ p ] = pt_blob;
+			pColor[ p ] = 66 + ( Math.random() * 6 | 0 );
 
 		} else {
 
-			p.type = pt_blob2;
-			p.color = 150 + ( Math.random() * 6 | 0 );
+			pType[ p ] = pt_blob2;
+			pColor[ p ] = 150 + ( Math.random() * 6 | 0 );
 
 		}
 
 		for ( let j = 0; j < 3; j ++ ) {
 
-			p.org[ j ] = org[ j ] + ( ( Math.random() * 32 | 0 ) - 16 );
-			p.vel[ j ] = ( Math.random() * 512 | 0 ) - 256;
+			pOrg[ p * 3 + j ] = org[ j ] + ( ( Math.random() * 32 | 0 ) - 16 );
+			pVel[ p * 3 + j ] = ( Math.random() * 512 | 0 ) - 256;
 
 		}
 
@@ -520,32 +517,32 @@ export function R_RunParticleEffect( org, dir, color, count ) {
 	for ( let i = 0; i < count; i ++ ) {
 
 		const p = allocParticle();
-		if ( ! p ) return;
+		if ( p === - 1 ) return;
 
 		if ( count === 1024 ) {
 
 			// rocket explosion
-			p.die = client_cl.time + 5;
-			p.color = ramp1[ 0 ];
-			p.ramp = Math.random() * 4 | 0;
+			pDie[ p ] = client_cl.time + 5;
+			pColor[ p ] = ramp1[ 0 ];
+			pRamp[ p ] = Math.random() * 4 | 0;
 
 			if ( i & 1 ) {
 
-				p.type = pt_explode;
+				pType[ p ] = pt_explode;
 				for ( let j = 0; j < 3; j ++ ) {
 
-					p.org[ j ] = org[ j ] + ( ( Math.random() * 32 | 0 ) - 16 );
-					p.vel[ j ] = ( Math.random() * 512 | 0 ) - 256;
+					pOrg[ p * 3 + j ] = org[ j ] + ( ( Math.random() * 32 | 0 ) - 16 );
+					pVel[ p * 3 + j ] = ( Math.random() * 512 | 0 ) - 256;
 
 				}
 
 			} else {
 
-				p.type = pt_explode2;
+				pType[ p ] = pt_explode2;
 				for ( let j = 0; j < 3; j ++ ) {
 
-					p.org[ j ] = org[ j ] + ( ( Math.random() * 32 | 0 ) - 16 );
-					p.vel[ j ] = ( Math.random() * 512 | 0 ) - 256;
+					pOrg[ p * 3 + j ] = org[ j ] + ( ( Math.random() * 32 | 0 ) - 16 );
+					pVel[ p * 3 + j ] = ( Math.random() * 512 | 0 ) - 256;
 
 				}
 
@@ -553,14 +550,14 @@ export function R_RunParticleEffect( org, dir, color, count ) {
 
 		} else {
 
-			p.die = client_cl.time + 0.1 * ( Math.random() * 5 | 0 );
-			p.color = ( color & ~ 7 ) + ( Math.random() * 8 | 0 );
-			p.type = pt_slowgrav;
+			pDie[ p ] = client_cl.time + 0.1 * ( Math.random() * 5 | 0 );
+			pColor[ p ] = ( color & ~ 7 ) + ( Math.random() * 8 | 0 );
+			pType[ p ] = pt_slowgrav;
 
 			for ( let j = 0; j < 3; j ++ ) {
 
-				p.org[ j ] = org[ j ] + ( ( Math.random() * 16 | 0 ) - 8 );
-				p.vel[ j ] = dir[ j ] * 15;
+				pOrg[ p * 3 + j ] = org[ j ] + ( ( Math.random() * 16 | 0 ) - 8 );
+				pVel[ p * 3 + j ] = dir[ j ] * 15;
 
 			}
 
@@ -587,25 +584,25 @@ export function R_LavaSplash( org ) {
 		for ( let j = - 16; j < 16; j ++ ) {
 
 			const p = allocParticle();
-			if ( ! p ) return;
+			if ( p === - 1 ) return;
 
-			p.die = client_cl.time + 2 + ( Math.random() * 32 | 0 ) * 0.02;
-			p.color = 224 + ( Math.random() * 8 | 0 );
-			p.type = pt_slowgrav;
+			pDie[ p ] = client_cl.time + 2 + ( Math.random() * 32 | 0 ) * 0.02;
+			pColor[ p ] = 224 + ( Math.random() * 8 | 0 );
+			pType[ p ] = pt_slowgrav;
 
 			dir[ 0 ] = j * 8 + ( Math.random() * 8 | 0 );
 			dir[ 1 ] = i * 8 + ( Math.random() * 8 | 0 );
 			dir[ 2 ] = 256;
 
-			p.org[ 0 ] = org[ 0 ] + dir[ 0 ];
-			p.org[ 1 ] = org[ 1 ] + dir[ 1 ];
-			p.org[ 2 ] = org[ 2 ] + ( Math.random() * 64 | 0 );
+			pOrg[ p * 3 ] = org[ 0 ] + dir[ 0 ];
+			pOrg[ p * 3 + 1 ] = org[ 1 ] + dir[ 1 ];
+			pOrg[ p * 3 + 2 ] = org[ 2 ] + ( Math.random() * 64 | 0 );
 
 			VectorNormalize( dir );
 			const vel = 50 + ( Math.random() * 64 | 0 );
-			p.vel[ 0 ] = dir[ 0 ] * vel;
-			p.vel[ 1 ] = dir[ 1 ] * vel;
-			p.vel[ 2 ] = dir[ 2 ] * vel;
+			pVel[ p * 3 ] = dir[ 0 ] * vel;
+			pVel[ p * 3 + 1 ] = dir[ 1 ] * vel;
+			pVel[ p * 3 + 2 ] = dir[ 2 ] * vel;
 
 		}
 
@@ -632,25 +629,25 @@ export function R_TeleportSplash( org ) {
 			for ( let k = - 24; k < 32; k += 4 ) {
 
 				const p = allocParticle();
-				if ( ! p ) return;
+				if ( p === - 1 ) return;
 
-				p.die = client_cl.time + 0.2 + ( Math.random() * 8 | 0 ) * 0.02;
-				p.color = 7 + ( Math.random() * 8 | 0 );
-				p.type = pt_slowgrav;
+				pDie[ p ] = client_cl.time + 0.2 + ( Math.random() * 8 | 0 ) * 0.02;
+				pColor[ p ] = 7 + ( Math.random() * 8 | 0 );
+				pType[ p ] = pt_slowgrav;
 
 				dir[ 0 ] = j * 8;
 				dir[ 1 ] = i * 8;
 				dir[ 2 ] = k * 8;
 
-				p.org[ 0 ] = org[ 0 ] + i + ( Math.random() * 4 | 0 );
-				p.org[ 1 ] = org[ 1 ] + j + ( Math.random() * 4 | 0 );
-				p.org[ 2 ] = org[ 2 ] + k + ( Math.random() * 4 | 0 );
+				pOrg[ p * 3 ] = org[ 0 ] + i + ( Math.random() * 4 | 0 );
+				pOrg[ p * 3 + 1 ] = org[ 1 ] + j + ( Math.random() * 4 | 0 );
+				pOrg[ p * 3 + 2 ] = org[ 2 ] + k + ( Math.random() * 4 | 0 );
 
 				VectorNormalize( dir );
 				const vel = 50 + ( Math.random() * 64 | 0 );
-				p.vel[ 0 ] = dir[ 0 ] * vel;
-				p.vel[ 1 ] = dir[ 1 ] * vel;
-				p.vel[ 2 ] = dir[ 2 ] * vel;
+				pVel[ p * 3 ] = dir[ 0 ] * vel;
+				pVel[ p * 3 + 1 ] = dir[ 1 ] * vel;
+				pVel[ p * 3 + 2 ] = dir[ 2 ] * vel;
 
 			}
 
@@ -696,74 +693,74 @@ export function R_RocketTrail( start, end, type ) {
 		len -= dec;
 
 		const p = allocParticle();
-		if ( ! p ) return;
+		if ( p === - 1 ) return;
 
-		p.vel[ 0 ] = 0; p.vel[ 1 ] = 0; p.vel[ 2 ] = 0;
-		p.die = client_cl.time + 2;
+		pVel[ p * 3 ] = 0; pVel[ p * 3 + 1 ] = 0; pVel[ p * 3 + 2 ] = 0;
+		pDie[ p ] = client_cl.time + 2;
 
 		switch ( type ) {
 
 			case 0: // rocket trail
-				p.ramp = Math.random() * 4 | 0;
-				p.color = ramp3[ Math.min( p.ramp | 0, ramp3.length - 1 ) ];
-				p.type = pt_fire;
+				pRamp[ p ] = Math.random() * 4 | 0;
+				pColor[ p ] = ramp3[ Math.min( pRamp[ p ] | 0, ramp3.length - 1 ) ];
+				pType[ p ] = pt_fire;
 				for ( let j = 0; j < 3; j ++ )
-					p.org[ j ] = s[ j ] + ( ( Math.random() * 6 | 0 ) - 3 );
+					pOrg[ p * 3 + j ] = s[ j ] + ( ( Math.random() * 6 | 0 ) - 3 );
 				break;
 
 			case 1: // smoke
-				p.ramp = ( Math.random() * 4 | 0 ) + 2;
-				p.color = ramp3[ Math.min( p.ramp | 0, ramp3.length - 1 ) ];
-				p.type = pt_fire;
+				pRamp[ p ] = ( Math.random() * 4 | 0 ) + 2;
+				pColor[ p ] = ramp3[ Math.min( pRamp[ p ] | 0, ramp3.length - 1 ) ];
+				pType[ p ] = pt_fire;
 				for ( let j = 0; j < 3; j ++ )
-					p.org[ j ] = s[ j ] + ( ( Math.random() * 6 | 0 ) - 3 );
+					pOrg[ p * 3 + j ] = s[ j ] + ( ( Math.random() * 6 | 0 ) - 3 );
 				break;
 
 			case 2: // blood
-				p.type = pt_grav;
-				p.color = 67 + ( Math.random() * 4 | 0 );
+				pType[ p ] = pt_grav;
+				pColor[ p ] = 67 + ( Math.random() * 4 | 0 );
 				for ( let j = 0; j < 3; j ++ )
-					p.org[ j ] = s[ j ] + ( ( Math.random() * 6 | 0 ) - 3 );
+					pOrg[ p * 3 + j ] = s[ j ] + ( ( Math.random() * 6 | 0 ) - 3 );
 				break;
 
 			case 3: // tracer
 			case 5:
-				p.die = client_cl.time + 0.5;
-				p.type = pt_static;
+				pDie[ p ] = client_cl.time + 0.5;
+				pType[ p ] = pt_static;
 				if ( type === 3 )
-					p.color = 52 + ( ( tracercount & 4 ) << 1 );
+					pColor[ p ] = 52 + ( ( tracercount & 4 ) << 1 );
 				else
-					p.color = 230 + ( ( tracercount & 4 ) << 1 );
+					pColor[ p ] = 230 + ( ( tracercount & 4 ) << 1 );
 				tracercount ++;
-				VectorCopy( s, p.org );
+				pOrg[ p * 3 ] = s[ 0 ]; pOrg[ p * 3 + 1 ] = s[ 1 ]; pOrg[ p * 3 + 2 ] = s[ 2 ];
 				if ( tracercount & 1 ) {
 
-					p.vel[ 0 ] = 30 * vec[ 1 ];
-					p.vel[ 1 ] = 30 * - vec[ 0 ];
+					pVel[ p * 3 ] = 30 * vec[ 1 ];
+					pVel[ p * 3 + 1 ] = 30 * - vec[ 0 ];
 
 				} else {
 
-					p.vel[ 0 ] = 30 * - vec[ 1 ];
-					p.vel[ 1 ] = 30 * vec[ 0 ];
+					pVel[ p * 3 ] = 30 * - vec[ 1 ];
+					pVel[ p * 3 + 1 ] = 30 * vec[ 0 ];
 
 				}
 
 				break;
 
 			case 4: // slight blood
-				p.type = pt_grav;
-				p.color = 67 + ( Math.random() * 4 | 0 );
+				pType[ p ] = pt_grav;
+				pColor[ p ] = 67 + ( Math.random() * 4 | 0 );
 				for ( let j = 0; j < 3; j ++ )
-					p.org[ j ] = s[ j ] + ( ( Math.random() * 6 | 0 ) - 3 );
+					pOrg[ p * 3 + j ] = s[ j ] + ( ( Math.random() * 6 | 0 ) - 3 );
 				len -= 3;
 				break;
 
 			case 6: // voor trail
-				p.color = 9 * 16 + 8 + ( Math.random() * 4 | 0 );
-				p.type = pt_static;
-				p.die = client_cl.time + 0.3;
+				pColor[ p ] = 9 * 16 + 8 + ( Math.random() * 4 | 0 );
+				pType[ p ] = pt_static;
+				pDie[ p ] = client_cl.time + 0.3;
 				for ( let j = 0; j < 3; j ++ )
-					p.org[ j ] = s[ j ] + ( ( Math.random() * 16 | 0 ) - 8 );
+					pOrg[ p * 3 + j ] = s[ j ] + ( ( Math.random() * 16 | 0 ) - 8 );
 				break;
 
 		}
@@ -826,15 +823,15 @@ export function R_EntityParticles( ent ) {
 		_epForward[ 2 ] = - sp;
 
 		const p = allocParticle();
-		if ( p == null ) return;
+		if ( p === - 1 ) return;
 
-		p.die = client_cl.time + 0.01;
-		p.color = 0x6f;
-		p.type = pt_explode;
+		pDie[ p ] = client_cl.time + 0.01;
+		pColor[ p ] = 0x6f;
+		pType[ p ] = pt_explode;
 
-		p.org[ 0 ] = ent.origin[ 0 ] + r_avertexnormals[ i ][ 0 ] * dist + _epForward[ 0 ] * beamlength;
-		p.org[ 1 ] = ent.origin[ 1 ] + r_avertexnormals[ i ][ 1 ] * dist + _epForward[ 1 ] * beamlength;
-		p.org[ 2 ] = ent.origin[ 2 ] + r_avertexnormals[ i ][ 2 ] * dist + _epForward[ 2 ] * beamlength;
+		pOrg[ p * 3 ] = ent.origin[ 0 ] + r_avertexnormals[ i ][ 0 ] * dist + _epForward[ 0 ] * beamlength;
+		pOrg[ p * 3 + 1 ] = ent.origin[ 1 ] + r_avertexnormals[ i ][ 1 ] * dist + _epForward[ 1 ] * beamlength;
+		pOrg[ p * 3 + 2 ] = ent.origin[ 2 ] + r_avertexnormals[ i ][ 2 ] * dist + _epForward[ 2 ] * beamlength;
 
 	}
 
@@ -888,8 +885,10 @@ export function R_DrawParticles() {
 	const grav = frametime * _sv_gravity.value * 0.05;
 	const dvel = 4 * frametime;
 
+	const time = client_cl.time;
+
 	// Remove dead particles from front of active list
-	while ( activeList !== - 1 && particles[ activeList ].die < client_cl.time ) {
+	while ( activeList !== - 1 && pDie[ activeList ] < time ) {
 
 		const killIdx = activeList;
 		activeList = particleNext[ killIdx ];
@@ -908,7 +907,7 @@ export function R_DrawParticles() {
 		const nextIdx = particleNext[ idx ];
 
 		// Remove dead particles in the middle of the list
-		if ( particles[ idx ].die < client_cl.time ) {
+		if ( pDie[ idx ] < time ) {
 
 			if ( prevIdx !== - 1 ) {
 
@@ -927,80 +926,93 @@ export function R_DrawParticles() {
 
 		}
 
-		const p = particles[ idx ];
+		const o = idx * 3;
+		const c = count * 3;
 
 		// Store position for rendering (raw Quake coordinates — camera uses them too)
-		positionArray[ count * 3 ] = p.org[ 0 ];
-		positionArray[ count * 3 + 1 ] = p.org[ 1 ];
-		positionArray[ count * 3 + 2 ] = p.org[ 2 ];
+		positionArray[ c ] = pOrg[ o ];
+		positionArray[ c + 1 ] = pOrg[ o + 1 ];
+		positionArray[ c + 2 ] = pOrg[ o + 2 ];
 
 		// Convert palette color to linear RGB (palette is sRGB, Three.js expects linear)
-		const rgba = d_8to24table[ p.color & 0xff ];
-		colorArray[ count * 3 ] = srgbToLinear[ rgba & 0xff ];
-		colorArray[ count * 3 + 1 ] = srgbToLinear[ ( rgba >> 8 ) & 0xff ];
-		colorArray[ count * 3 + 2 ] = srgbToLinear[ ( rgba >> 16 ) & 0xff ];
+		const rgba = d_8to24table[ pColor[ idx ] & 0xff ];
+		colorArray[ c ] = srgbToLinear[ rgba & 0xff ];
+		colorArray[ c + 1 ] = srgbToLinear[ ( rgba >> 8 ) & 0xff ];
+		colorArray[ c + 2 ] = srgbToLinear[ ( rgba >> 16 ) & 0xff ];
 
 		count ++;
 
 		// Update physics
-		p.org[ 0 ] += p.vel[ 0 ] * frametime;
-		p.org[ 1 ] += p.vel[ 1 ] * frametime;
-		p.org[ 2 ] += p.vel[ 2 ] * frametime;
+		pOrg[ o ] += pVel[ o ] * frametime;
+		pOrg[ o + 1 ] += pVel[ o + 1 ] * frametime;
+		pOrg[ o + 2 ] += pVel[ o + 2 ] * frametime;
 
-		switch ( p.type ) {
+		switch ( pType[ idx ] ) {
 
 			case pt_static:
 				break;
 
-			case pt_fire:
-				p.ramp += time1;
-				if ( p.ramp >= 6 )
-					p.die = - 1;
+			case pt_fire: {
+
+				const ramp = pRamp[ idx ] + time1;
+				pRamp[ idx ] = ramp;
+				if ( ramp >= 6 )
+					pDie[ idx ] = - 1;
 				else
-					p.color = ramp3[ Math.min( p.ramp | 0, ramp3.length - 1 ) ];
-				p.vel[ 2 ] += grav;
+					pColor[ idx ] = ramp3[ Math.min( ramp | 0, ramp3.length - 1 ) ];
+				pVel[ o + 2 ] += grav;
 				break;
 
-			case pt_explode:
-				p.ramp += time2;
-				if ( p.ramp >= 8 )
-					p.die = - 1;
+			}
+
+			case pt_explode: {
+
+				const ramp = pRamp[ idx ] + time2;
+				pRamp[ idx ] = ramp;
+				if ( ramp >= 8 )
+					pDie[ idx ] = - 1;
 				else
-					p.color = ramp1[ Math.min( p.ramp | 0, ramp1.length - 1 ) ];
-				for ( let i = 0; i < 3; i ++ )
-					p.vel[ i ] += p.vel[ i ] * dvel;
-				p.vel[ 2 ] -= grav;
+					pColor[ idx ] = ramp1[ Math.min( ramp | 0, ramp1.length - 1 ) ];
+				for ( let i = o; i < o + 3; i ++ )
+					pVel[ i ] += pVel[ i ] * dvel;
+				pVel[ o + 2 ] -= grav;
 				break;
 
-			case pt_explode2:
-				p.ramp += time3;
-				if ( p.ramp >= 8 )
-					p.die = - 1;
+			}
+
+			case pt_explode2: {
+
+				const ramp = pRamp[ idx ] + time3;
+				pRamp[ idx ] = ramp;
+				if ( ramp >= 8 )
+					pDie[ idx ] = - 1;
 				else
-					p.color = ramp2[ Math.min( p.ramp | 0, ramp2.length - 1 ) ];
-				for ( let i = 0; i < 3; i ++ )
-					p.vel[ i ] -= p.vel[ i ] * frametime;
-				p.vel[ 2 ] -= grav;
+					pColor[ idx ] = ramp2[ Math.min( ramp | 0, ramp2.length - 1 ) ];
+				for ( let i = o; i < o + 3; i ++ )
+					pVel[ i ] -= pVel[ i ] * frametime;
+				pVel[ o + 2 ] -= grav;
 				break;
+
+			}
 
 			case pt_blob:
-				for ( let i = 0; i < 3; i ++ )
-					p.vel[ i ] += p.vel[ i ] * dvel;
-				p.vel[ 2 ] -= grav;
+				for ( let i = o; i < o + 3; i ++ )
+					pVel[ i ] += pVel[ i ] * dvel;
+				pVel[ o + 2 ] -= grav;
 				break;
 
 			case pt_blob2:
-				for ( let i = 0; i < 2; i ++ )
-					p.vel[ i ] -= p.vel[ i ] * dvel;
-				p.vel[ 2 ] -= grav;
+				for ( let i = o; i < o + 2; i ++ )
+					pVel[ i ] -= pVel[ i ] * dvel;
+				pVel[ o + 2 ] -= grav;
 				break;
 
 			case pt_grav:
-				p.vel[ 2 ] -= grav;
+				pVel[ o + 2 ] -= grav;
 				break;
 
 			case pt_slowgrav:
-				p.vel[ 2 ] -= grav;
+				pVel[ o + 2 ] -= grav;
 				break;
 
 		}
