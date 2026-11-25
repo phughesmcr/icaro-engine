@@ -269,6 +269,7 @@ export const MAX_LIGHTMAPS = 64;
 const MAX_SANITY_LIGHTMAPS = 1 << 20;
 
 const GL_LUMINANCE = 0x1909;
+const GL_RGBA = 0x1908;
 
 //============================================================================
 // Module-level state
@@ -277,13 +278,15 @@ const GL_LUMINANCE = 0x1909;
 export let skytexturenum = - 1; // index in cl.loadmodel, not gl texture object
 export function set_skytexturenum( v ) { skytexturenum = v; }
 
-let lightmap_bytes = 1; // 1, 2, or 4
+// 1 (GL_LUMINANCE), or 4 (GL_RGBA) when a model has .lit coloured lighting
+let lightmap_bytes = 1;
 
 // Deliberate deviation: GLQuake's 18*18 only fits 256-unit extents (WinQuake's
 // limit), not GLQuake's own 512, and writes past it were dropped. Size it for
 // one whole lightmap block as QuakeSpasm does: 2000-unit extents (gl_model.js
-// MAX_SURFACE_EXTENTS) give at most 126x126 luxels.
-const blocklights = new Uint32Array( BLOCK_WIDTH * BLOCK_HEIGHT );
+// MAX_SURFACE_EXTENTS) give at most 126x126 luxels. GL_BuildLightmaps makes
+// it three times bigger (r, g, b a luxel) the first time a map has a .lit.
+let blocklights = new Uint32Array( BLOCK_WIDTH * BLOCK_HEIGHT );
 
 // Cached buffers for R_AddDynamicLights (Golden Rule #4)
 const _dlight_impact = new Float32Array( 3 );
@@ -1505,8 +1508,25 @@ export function R_AddDynamicLights( surf ) {
 				else
 					dist = td + ( sd >> 1 );
 
-				if ( dist < minlight )
-					blocklights[ t * smax + s ] += ( ( rad - dist ) * 256 ) | 0;
+				if ( dist < minlight ) {
+
+					const add = ( ( rad - dist ) * 256 ) | 0;
+					if ( lightmap_bytes === 4 ) {
+
+						// QuakeSpasm (lit support via lordhavoc): white here,
+						// as dlight_t has no colour in this port
+						const bl = ( t * smax + s ) * 3;
+						blocklights[ bl ] += add;
+						blocklights[ bl + 1 ] += add;
+						blocklights[ bl + 2 ] += add;
+
+					} else {
+
+						blocklights[ t * smax + s ] += add;
+
+					}
+
+				}
 
 			}
 
@@ -1531,6 +1551,13 @@ export function R_BuildLightMap( surf, dest, destOffset, stride ) {
 	let lightmapOffset = surf.sampleOffset || 0;
 
 	surf.cached_dlight = ( surf.dlightframe === r_framecount );
+
+	if ( lightmap_bytes === 4 ) {
+
+		R_BuildLightMapRGBA( surf, dest, destOffset, stride );
+		return;
+
+	}
 
 	// set to full bright if no light data
 	// C code: r_fullbright.value || !cl.worldmodel->lightdata
@@ -1583,6 +1610,98 @@ export function R_BuildLightMap( surf, dest, destOffset, stride ) {
 			if ( t > 255 ) t = 255;
 			dest[ di ] = 255 - t;
 			di ++;
+
+		}
+
+	}
+
+}
+
+/*
+R_BuildLightMapRGBA
+
+R_BuildLightMap for GL_RGBA blocks, used when a model has a .lit: QuakeSpasm's
+"lit support via lordhavoc" version, which keeps r, g and b in blocklights. It
+bounds, inverts and shifts each channel as the GL_LUMINANCE case does (no
+overbright), so a white .lit looks like the mono map. Surfaces without RGB
+samples (a model with no .lit in a map that has one) add their mono sample to
+all three channels. The fourth byte is never read.
+*/
+function R_BuildLightMapRGBA( surf, dest, destOffset, stride ) {
+
+	const smax = ( surf.extents[ 0 ] >> 4 ) + 1;
+	const tmax = ( surf.extents[ 1 ] >> 4 ) + 1;
+	const size = smax * tmax;
+	const size3 = size * 3;
+	const lightmap = surf.samples;
+	let lightmapOffset = surf.sampleOffset || 0;
+
+	if ( r_fullbright.value || ( cl.worldmodel != null && cl.worldmodel.lightdata == null ) ) {
+
+		for ( let i = 0; i < size3; i ++ )
+			blocklights[ i ] = 255 * 256;
+
+	} else {
+
+		// clear to no light
+		for ( let i = 0; i < size3; i ++ )
+			blocklights[ i ] = 0;
+
+		// add all the lightmaps
+		if ( lightmap != null ) {
+
+			for ( let maps = 0; maps < MAXLIGHTMAPS && surf.styles[ maps ] !== 255; maps ++ ) {
+
+				const scale = d_lightstylevalue[ surf.styles[ maps ] ];
+				surf.cached_light[ maps ] = scale; // 8.8 fraction
+				if ( surf.rgbsamples === true ) {
+
+					for ( let i = 0; i < size3; i ++ )
+						blocklights[ i ] += lightmap[ lightmapOffset + i ] * scale;
+					lightmapOffset += size3; // skip to next lightmap
+
+				} else {
+
+					for ( let i = 0, bl = 0; i < size; i ++, bl += 3 ) {
+
+						const v = lightmap[ lightmapOffset + i ] * scale;
+						blocklights[ bl ] += v;
+						blocklights[ bl + 1 ] += v;
+						blocklights[ bl + 2 ] += v;
+
+					}
+
+					lightmapOffset += size;
+
+				}
+
+			}
+
+		}
+
+		// add all the dynamic lights
+		if ( surf.dlightframe === r_framecount )
+			R_AddDynamicLights( surf );
+
+	}
+
+	// bound, invert, and shift
+	stride -= smax * 4;
+	let bl = 0; // index into blocklights
+	let di = destOffset;
+
+	for ( let i = 0; i < tmax; i ++, di += stride ) {
+
+		for ( let j = 0; j < smax; j ++, di += 4 ) {
+
+			for ( let c = 0; c < 3; c ++ ) {
+
+				let t = blocklights[ bl ++ ];
+				t >>= 7;
+				if ( t > 255 ) t = 255;
+				dest[ di + c ] = 255 - t;
+
+			}
 
 		}
 
@@ -2208,13 +2327,49 @@ function R_CheckLightmapCvars() {
 }
 
 /*
+R_LightmapToRGBA
+
+Converts texels start to end of a lightmap block (255 - light: GL_LUMINANCE,
+one byte a texel, or GL_RGBA, r, g and b in four bytes) to the RGBA
+brightness of its texture.
+*/
+function R_LightmapToRGBA( src, dstData, start, end ) {
+
+	if ( lightmap_bytes === 4 ) {
+
+		for ( let p = start * 4, e = end * 4; p < e; p += 4 ) {
+
+			dstData[ p ] = 255 - src[ p ];
+			dstData[ p + 1 ] = 255 - src[ p + 1 ];
+			dstData[ p + 2 ] = 255 - src[ p + 2 ];
+			dstData[ p + 3 ] = 255;
+
+		}
+
+		return;
+
+	}
+
+	for ( let p = start; p < end; p ++ ) {
+
+		const val = 255 - src[ p ];
+		dstData[ p * 4 ] = val;
+		dstData[ p * 4 + 1 ] = val;
+		dstData[ p * 4 + 2 ] = val;
+		dstData[ p * 4 + 3 ] = 255;
+
+	}
+
+}
+
+/*
 R_UploadLightmapRect
 
 The upload half of R_BlendLightmaps for lightmap block i. GLQuake sends only
 the changed rows:
 	glTexSubImage2D (GL_TEXTURE_2D, 0, 0, theRect->t, BLOCK_WIDTH, theRect->h, ...)
 Three.js has no sub-image upload on the texture itself, so convert those rows
-of the GL_LUMINANCE block (255 - light) to the texture's RGBA brightness and
+of the block (255 - light) to the texture's RGBA brightness and
 hand them to renderer.copyTextureToTexture. For CPU data that is one
 texSubImage2D, and it uploads the destination first if it is still pending.
 
@@ -2234,19 +2389,7 @@ export function R_UploadLightmapRect( i, theRect, r ) {
 	if ( theRect.h <= 0 )
 		return;
 
-	const src = lightmaps[ i ];
-	const dstData = tex.image.data;
-	const end = ( theRect.t + theRect.h ) * BLOCK_WIDTH;
-
-	for ( let p = theRect.t * BLOCK_WIDTH; p < end; p ++ ) {
-
-		const val = 255 - src[ p ];
-		dstData[ p * 4 ] = val;
-		dstData[ p * 4 + 1 ] = val;
-		dstData[ p * 4 + 2 ] = val;
-		dstData[ p * 4 + 3 ] = 255;
-
-	}
+	R_LightmapToRGBA( lightmaps[ i ], tex.image.data, theRect.t * BLOCK_WIDTH, ( theRect.t + theRect.h ) * BLOCK_WIDTH );
 
 	if ( r == null ) {
 
@@ -3285,9 +3428,36 @@ export function GL_BuildLightmaps() {
 
 	set_r_framecount( 1 ); // no dlightcache
 
-	// set lightmap format -- use luminance (1 byte per texel)
-	gl_lightmap_format = GL_LUMINANCE;
-	lightmap_bytes = 1;
+	// set lightmap format -- use luminance (1 byte per texel), or RGBA for
+	// .lit coloured lighting (QuakeSpasm keeps every map RGBA; this port only
+	// those that need it). The blocks always hold 4 bytes a texel.
+	let litfile = false;
+	for ( let j = 1; j < MAX_MODELS; j ++ ) {
+
+		const m = cl_ref.model_precache ? cl_ref.model_precache[ j ] : null;
+		if ( ! m ) break;
+		if ( m.litfile === true ) {
+
+			litfile = true;
+			break;
+
+		}
+
+	}
+
+	if ( litfile ) {
+
+		gl_lightmap_format = GL_RGBA;
+		lightmap_bytes = 4;
+		if ( blocklights.length < BLOCK_WIDTH * BLOCK_HEIGHT * 3 )
+			blocklights = new Uint32Array( BLOCK_WIDTH * BLOCK_HEIGHT * 3 );
+
+	} else {
+
+		gl_lightmap_format = GL_LUMINANCE;
+		lightmap_bytes = 1;
+
+	}
 
 	// build lightmaps for all brush models
 	for ( let j = 1; j < MAX_MODELS; j ++ ) {
@@ -3336,18 +3506,9 @@ export function GL_BuildLightmaps() {
 		// R_BuildLightMap stores 255-brightness (Quake subtractive format).
 		// Three.js lightMap is multiplicative, so invert to get brightness.
 		// Use RGBA format — LuminanceFormat is not supported in WebGL 2.
-		const src = lightmaps[ i ];
 		const pixelCount = BLOCK_WIDTH * BLOCK_HEIGHT;
 		const data = new Uint8Array( pixelCount * 4 );
-		for ( let p = 0; p < pixelCount; p ++ ) {
-
-			const val = 255 - src[ p ];
-			data[ p * 4 ] = val;
-			data[ p * 4 + 1 ] = val;
-			data[ p * 4 + 2 ] = val;
-			data[ p * 4 + 3 ] = 255;
-
-		}
+		R_LightmapToRGBA( lightmaps[ i ], data, 0, pixelCount );
 
 		const texture = new THREE.DataTexture(
 			data,

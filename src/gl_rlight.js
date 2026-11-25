@@ -120,6 +120,11 @@ const LIGHTPOINT_MAXDIST = 8192;
 let _lightRayOrg = _lightPointStart;
 let _lightMaxDist = LIGHTPOINT_MAXDIST;
 
+// QuakeSpasm lightcolor ("lit support via lordhavoc"): the colour R_LightPoint
+// found, r, g and b on the scale of its return value. All three equal it
+// without a .lit.
+export const lightcolor = new Float32Array( 3 );
+
 // Pool of PointLights for dynamic lights
 const _dlightPool = [];
 
@@ -494,7 +499,35 @@ function RecursiveLightPoint( node, start, end, surfaces, depth = 0 ) {
 
 		const lightmap = surf.samples;
 		r = 0;
-		if ( lightmap ) {
+		if ( lightmap && surf.rgbsamples === true ) {
+
+			// QuakeSpasm (lit support via lordhavoc): *3 for colour. id's
+			// point sample, not QuakeSpasm's bilinear filter, as for mono.
+			let lightmapOffset = ( surf.sampleOffset || 0 ) + ( dt4 * ( ( surf.extents[ 0 ] >> 4 ) + 1 ) + ds4 ) * 3;
+			let g = 0;
+			let b = 0;
+
+			for ( let maps = 0; maps < MAXLIGHTMAPS && surf.styles[ maps ] !== 255; maps ++ ) {
+
+				const scale = d_lightstylevalue[ surf.styles[ maps ] ];
+				r += lightmap[ lightmapOffset ] * scale;
+				g += lightmap[ lightmapOffset + 1 ] * scale;
+				b += lightmap[ lightmapOffset + 2 ] * scale;
+				lightmapOffset += ( ( surf.extents[ 0 ] >> 4 ) + 1 )
+					* ( ( surf.extents[ 1 ] >> 4 ) + 1 ) * 3;
+
+			}
+
+			r >>= 8;
+			g >>= 8;
+			b >>= 8;
+			lightcolor[ 0 ] = r;
+			lightcolor[ 1 ] = g;
+			lightcolor[ 2 ] = b;
+			// QuakeSpasm R_LightPoint returns the mean of the three
+			return ( ( r + g + b ) / 3 ) | 0;
+
+		} else if ( lightmap ) {
 
 			let lightmapOffset = ( surf.sampleOffset || 0 ) + dt4 * ( ( surf.extents[ 0 ] >> 4 ) + 1 ) + ds4;
 
@@ -511,6 +544,7 @@ function RecursiveLightPoint( node, start, end, surfaces, depth = 0 ) {
 
 		}
 
+		lightcolor[ 0 ] = lightcolor[ 1 ] = lightcolor[ 2 ] = r;
 		return r;
 
 	}
@@ -530,8 +564,14 @@ R_LightPoint
 // models whose origin is just below the floor.
 export function R_LightPoint( p, cl, ofs = 0 ) {
 
-	if ( ! cl.worldmodel || ! cl.worldmodel.lightdata )
+	if ( ! cl.worldmodel || ! cl.worldmodel.lightdata ) {
+
+		lightcolor[ 0 ] = lightcolor[ 1 ] = lightcolor[ 2 ] = 255;
 		return 255;
+
+	}
+
+	lightcolor[ 0 ] = lightcolor[ 1 ] = lightcolor[ 2 ] = 0;
 
 	const start = _lightPointStart;
 	start[ 0 ] = p[ 0 ];
