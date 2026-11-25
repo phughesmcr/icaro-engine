@@ -131,6 +131,7 @@ const arrivals = {
 	raf: [],
 	main_interval: [],
 	worker_interval: [],
+	dc_main_sent: [],
 	dc_main: [],
 	dc_worker: [],
 };
@@ -395,8 +396,15 @@ function workerTicks( from, to ) {
 
 	return new Promise( ( resolve ) => {
 
-		pending_ticks = resolve;
-		worker.postMessage( { get_ticks: true, from, to } );
+		// The Worker keeps absolute times; convert both ways
+		const origin = performance.timeOrigin;
+		const handle = resolve;
+		pending_ticks = ( msg ) => handle( {
+			ticks: msg.ticks.map( ( t ) => t - origin ),
+			sent: msg.sent.map( ( t ) => t - origin ),
+			channel_state: msg.channel_state,
+		} );
+		worker.postMessage( { get_ticks: true, from: origin + from, to: origin + to } );
 
 	} );
 
@@ -412,8 +420,13 @@ async function summariseHidden( from, to ) {
 		main_interval: gapStats( arrivals.main_interval, from, to ),
 		worker_interval_own_clock: gapStats( worker_reply.ticks, from, to ),
 		worker_interval_arrival_on_page: gapStats( arrivals.worker_interval, from, to ),
-		dc_sent_from_main_interval: gapStats( arrivals.dc_main, from, to ),
-		dc_sent_from_worker: gapStats( arrivals.dc_worker, from, to ),
+		// Sender side: when each packet was sent, on the sender's clock
+		dc_main_sent: gapStats( arrivals.dc_main_sent, from, to ),
+		dc_worker_sent: gapStats( worker_reply.sent, from, to ),
+		// Receiver side: timed on this (hidden) page's main thread, so these
+		// mix delivery with the page's own event delays
+		dc_main_received_on_page: gapStats( arrivals.dc_main, from, to ),
+		dc_worker_received_on_page: gapStats( arrivals.dc_worker, from, to ),
 		worker_channel: worker_reply.channel_state,
 		worker_pair_connection: worker_pair !== null ? worker_pair.a.connectionState : null,
 		main_pair_connection: main_pair !== null ? main_pair.a.connectionState : null,
@@ -442,6 +455,7 @@ function startRecording() {
 			packet[ 0 ] = TAG_DC_MAIN;
 			new DataView( packet.buffer ).setUint32( 1, dc_seq ++, true );
 			unreliable_a.send( packet );
+			arrivals.dc_main_sent.push( performance.now() );
 
 		}
 

@@ -2,20 +2,23 @@
 //
 // - Ticks a 50 ms setInterval, as server/game_server.js does at sys_ticrate
 //   0.05, and keeps its own tick times so its timer cadence can be told
-//   apart from postMessage delivery to the page.
+//   apart from postMessage delivery to the page. Times are absolute
+//   (timeOrigin + now): a Worker's performance.now() starts when the Worker
+//   does, not with the page.
 // - Posts each tick to the page ("worker-interval").
 // - If the page transfers a data channel here, sends a small packet on it
 //   every tick ("dc-worker"), as a server in a Worker would.
 
 const TICK_MS = 50;
 const ticks = [];
+const sent = [];
 let channel = null;
 let channel_state = 'none';
 let seq = 0;
 
 setInterval( function () {
 
-	const t = performance.now();
+	const t = performance.timeOrigin + performance.now();
 	ticks.push( t );
 	self.postMessage( { tick: t } );
 	if ( channel !== null && channel.readyState === 'open' ) {
@@ -26,6 +29,7 @@ setInterval( function () {
 		try {
 
 			channel.send( packet );
+			sent.push( t );
 
 		} catch ( e ) {
 
@@ -63,7 +67,8 @@ self.onmessage = function ( event ) {
 
 	if ( msg.get_ticks === true ) {
 
-		self.postMessage( { ticks: ticks.filter( ( t ) => t >= msg.from && t <= msg.to ), channel_state } );
+		const inside = ( t ) => t >= msg.from && t <= msg.to;
+		self.postMessage( { ticks: ticks.filter( inside ), sent: sent.filter( inside ), channel_state } );
 
 	}
 

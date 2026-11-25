@@ -357,13 +357,19 @@ joining.
 | --- | --- |
 | 1. Unreliable channel | Opens; both sides report `ordered: false`, `maxRetransmits: 0`. `sctp.maxMessageSize` is 262,144 on both peers. |
 | 2. Paced sends, 1,000–16,000 bytes | 300 of 300 at every size. |
-| 2. Burst of 300 | All delivered except 281 of 300 at 4,000 bytes. A burst can overrun the local buffers, so the host driver should cap queued bytes per peer. |
+| 2. Burst of 300 | All delivered except 281 of 300 at 4,000 bytes, in one run. The cause isn't established (`bufferedAmount` wasn't recorded); a local buffer overrun is the likely one [unverified]. The host driver should cap queued bytes per peer anyway. |
 | 3. Hidden page | Not run. The pane keeps a background tab visible (`visibilityState` stays `visible`), so it can't test throttling. |
 | 4a. Transfer a channel created here | Works; it opens in the Worker. |
 | 4b. Transfer a channel from `ondatachannel` | Works; it opens in the Worker. |
 | 4c. Import map in a module Worker | Not honoured. The bare specifier fails to load, and the same import by relative path loads. |
 
-So option B needs a bundle with `three` resolved at build time. The
+So option B needs a bundle with `three` resolved at build time.
+
+Test 3's sender-side series (`main_interval`, `worker_interval_own_clock`,
+`dc_main_sent`, `dc_worker_sent`) show each timer's cadence. The
+`*_received_on_page` series are timed on the hidden page's own main thread,
+so they mix delivery with that page's event delays; a joiner on another
+device is the true receiver. The
 pane's Chromium is embedded in Electron and may differ from Chrome on
 throttling, so test 3 must run in real browsers.
 
