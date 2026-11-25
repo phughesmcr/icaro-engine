@@ -789,6 +789,8 @@ export function S_Update( origin, forward, right, up ) {
 
 	}
 
+	let combine = null;
+
 	// update spatialization for static and dynamic sounds
 	// (ambients are handled by S_UpdateAmbientSounds)
 	for ( let i = NUM_AMBIENTS; i < total_channels; i ++ ) {
@@ -797,9 +799,66 @@ export function S_Update( origin, forward, right, up ) {
 
 		if ( ! ch.sfx )
 			continue;
+		SND_Spatialize( ch ); // respatialize channel
+		if ( ch.leftvol === 0 && ch.rightvol === 0 )
+			continue;
 
-		// Recalculate spatialization based on new listener position
-		SND_Spatialize( ch );
+		// try to combine static sounds with a previous channel of the same
+		// sound effect so we don't mix five torches every frame
+
+		if ( i >= MAX_DYNAMIC_CHANNELS + NUM_AMBIENTS ) {
+
+			// see if it can just use the last one
+			if ( combine !== null && combine.sfx === ch.sfx ) {
+
+				combine.leftvol += ch.leftvol;
+				combine.rightvol += ch.rightvol;
+				ch.leftvol = ch.rightvol = 0;
+				continue;
+
+			}
+
+			// search for one
+			let j;
+			for ( j = MAX_DYNAMIC_CHANNELS + NUM_AMBIENTS; j < i; j ++ )
+				if ( channels[ j ].sfx === ch.sfx )
+					break;
+			combine = channels[ j ];
+
+			// mirrors the C: j stops at i, so it never reaches total_channels
+			// and an unmatched channel becomes the next combine target itself
+			if ( j === total_channels ) {
+
+				combine = null;
+
+			} else {
+
+				if ( combine !== ch ) {
+
+					combine.leftvol += ch.leftvol;
+					combine.rightvol += ch.rightvol;
+					ch.leftvol = ch.rightvol = 0;
+
+				}
+
+				continue;
+
+			}
+
+		}
+
+	}
+
+	// Web-only: the port has no mixer (S_Update_ / S_PaintChannels), so
+	// start or update each channel's WebAudio nodes from the volumes above,
+	// after combining has moved volume onto earlier channels. Summed volumes
+	// over 255 are clamped by SND_ChannelGain, as the C mixer clamps them.
+	for ( let i = NUM_AMBIENTS; i < total_channels; i ++ ) {
+
+		const ch = channels[ i ];
+
+		if ( ! ch.sfx )
+			continue;
 
 		const isStatic = i >= NUM_AMBIENTS + MAX_DYNAMIC_CHANNELS;
 		const isAudible = ch.leftvol > 0 || ch.rightvol > 0;
