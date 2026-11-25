@@ -11,7 +11,7 @@ line of sight checks trace->crosscontent, but bullets don't
 import { Sys_Error } from './sys.js';
 import { Host_Error } from './host.js';
 import { Con_DPrintf, link_t, ClearLink, RemoveLink, InsertLinkBefore } from './common.js';
-import { VectorCopy, VectorAdd, VectorSubtract, DotProduct, vec3_origin, BoxOnPlaneSide } from './mathlib.js';
+import { VectorCopy, VectorAdd, VectorSubtract, BoxOnPlaneSide } from './mathlib.js';
 import {
 	sv,
 	SOLID_NOT, SOLID_TRIGGER, SOLID_BSP,
@@ -30,6 +30,21 @@ import { EDICT_TO_PROG, PROG_TO_EDICT, pr_global_struct } from './progs.js';
 // Grow this pool on demand because valid BSP hulls can be deeper than the common case.
 const _hullMidPool = [];
 for ( let i = 0; i < 32; i ++ ) _hullMidPool[ i ] = new Float32Array( 3 );
+
+//============================================================================
+// entvars_t slots read straight from an edict's typed arrays ( edict_t
+// _floatView / _intView ) by the walks below. The layout is fixed by
+// progdefs.h ( PROGHEADER_CRC ); progdefs.js has the same numbers in its
+// accessors.
+//============================================================================
+
+const EV_ABSMIN = 1;
+const EV_ABSMAX = 4;
+const EV_SOLID = 9;
+const EV_FLAGS = 76;
+const EV_SIZE = 39;
+const EV_TOUCH = 42;
+const EV_OWNER = 95;
 
 //============================================================================
 // world.h types
@@ -164,6 +179,8 @@ export function SV_InitBoxHull() {
 		box_planes[ i ].normal[ 2 ] = 0;
 		box_planes[ i ].normal[ i >> 1 ] = 1;
 
+		hull_flat_fill( box_flat, box_hull, i, box_clipnodes[ i ] );
+
 	}
 
 }
@@ -184,6 +201,13 @@ export function SV_HullForBox( mins, maxs ) {
 	box_planes[ 3 ].dist = mins[ 1 ];
 	box_planes[ 4 ].dist = maxs[ 2 ];
 	box_planes[ 5 ].dist = mins[ 2 ];
+
+	box_flat.dist[ 0 ] = maxs[ 0 ];
+	box_flat.dist[ 1 ] = mins[ 0 ];
+	box_flat.dist[ 2 ] = maxs[ 1 ];
+	box_flat.dist[ 3 ] = mins[ 1 ];
+	box_flat.dist[ 4 ] = maxs[ 2 ];
+	box_flat.dist[ 5 ] = mins[ 2 ];
 
 	return box_hull;
 
@@ -392,20 +416,25 @@ change under the walk. Mirrors the tests of C's SV_TouchLinks.
 */
 function SV_AreaTriggerEdicts( ent, node, listspace ) {
 
+	// the entvars are read straight from the edicts' typed arrays: this is the
+	// walk every SV_LinkEdict makes, and the v.* accessors cost more than the tests
+	const ef = ent._floatView;
+
 	// touch linked edicts
 	for ( let l = node.trigger_edicts.next; l !== node.trigger_edicts; l = l.next ) {
 
 		const touch = l._owner; // EDICT_FROM_AREA(l)
 		if ( ! touch || touch === ent )
 			continue;
-		if ( ! touch.v.touch || touch.v.solid !== SOLID_TRIGGER )
+		const tf = touch._floatView;
+		if ( ! touch._intView[ EV_TOUCH ] || tf[ EV_SOLID ] !== SOLID_TRIGGER )
 			continue;
-		if ( ent.v.absmin[ 0 ] > touch.v.absmax[ 0 ]
-			|| ent.v.absmin[ 1 ] > touch.v.absmax[ 1 ]
-			|| ent.v.absmin[ 2 ] > touch.v.absmax[ 2 ]
-			|| ent.v.absmax[ 0 ] < touch.v.absmin[ 0 ]
-			|| ent.v.absmax[ 1 ] < touch.v.absmin[ 1 ]
-			|| ent.v.absmax[ 2 ] < touch.v.absmin[ 2 ] )
+		if ( ef[ EV_ABSMIN ] > tf[ EV_ABSMAX ]
+			|| ef[ EV_ABSMIN + 1 ] > tf[ EV_ABSMAX + 1 ]
+			|| ef[ EV_ABSMIN + 2 ] > tf[ EV_ABSMAX + 2 ]
+			|| ef[ EV_ABSMAX ] < tf[ EV_ABSMIN ]
+			|| ef[ EV_ABSMAX + 1 ] < tf[ EV_ABSMIN + 1 ]
+			|| ef[ EV_ABSMAX + 2 ] < tf[ EV_ABSMIN + 2 ] )
 			continue;
 
 		if ( touch_count - touch_base === listspace )
@@ -419,9 +448,9 @@ function SV_AreaTriggerEdicts( ent, node, listspace ) {
 	if ( node.axis === - 1 )
 		return;
 
-	if ( ent.v.absmax[ node.axis ] > node.dist )
+	if ( ef[ EV_ABSMAX + node.axis ] > node.dist )
 		SV_AreaTriggerEdicts( ent, node.children[ 0 ], listspace );
-	if ( ent.v.absmin[ node.axis ] < node.dist )
+	if ( ef[ EV_ABSMIN + node.axis ] < node.dist )
 		SV_AreaTriggerEdicts( ent, node.children[ 1 ], listspace );
 
 }
@@ -503,6 +532,184 @@ SV_FindTouchedLeafs
 */
 export function SV_FindTouchedLeafs( ent, node ) {
 
+	SV_FindTouchedLeafs_r( ent, node, ent.v.absmin, ent.v.absmax );
+
+}
+
+/*
+===============
+SV_LeafTree
+
+A flat copy of a world model's BSP tree: the plane of each node as doubles
+holding the values the plane objects hold ( normal x y z and dist, four per
+node ), its type and signbits, its two children ( a node number, or
+~leafIndex for a leaf ), and which leaves are solid. Walking it with the
+same arithmetic as the object tree gives the same answers without
+chasing node, plane and children objects. Not in C. Built on first use for
+each model, and null when the model's root is a leaf.
+===============
+*/
+class leaftree_t {
+
+	constructor( nodecount ) {
+
+		this.plane = new Float64Array( nodecount * 4 );
+		this.type = new Int32Array( nodecount );
+		this.signbits = new Int32Array( nodecount );
+		this.child = new Int32Array( nodecount * 2 );
+		this.solid = new Uint8Array( 0 ); // by leaf index
+
+	}
+
+}
+
+let leaftree_model = null;
+let leaftree_root = null;
+let leaftree = null;
+
+export function SV_LeafTree( model ) {
+
+	const root = model.nodes[ 0 ];
+	if ( model === leaftree_model && root === leaftree_root )
+		return leaftree;
+
+	leaftree_model = model;
+	leaftree_root = root;
+	leaftree = null;
+	if ( root.contents < 0 )
+		return null;
+
+	const nodes = [ root ];
+	const ids = new Map( [ [ root, 0 ] ] );
+	const leafs = [];
+
+	// number the nodes breadth first
+	for ( let i = 0; i < nodes.length; i ++ ) {
+
+		for ( let side = 0; side < 2; side ++ ) {
+
+			const c = nodes[ i ].children[ side ];
+			if ( c.contents >= 0 && ! ids.has( c ) ) {
+
+				ids.set( c, nodes.length );
+				nodes.push( c );
+
+			}
+
+		}
+
+	}
+
+	const tree = new leaftree_t( nodes.length );
+	let maxleaf = - 1;
+	for ( let i = 0; i < nodes.length; i ++ ) {
+
+		const node = nodes[ i ];
+		const plane = node.plane;
+		tree.plane[ i * 4 ] = plane.normal[ 0 ];
+		tree.plane[ i * 4 + 1 ] = plane.normal[ 1 ];
+		tree.plane[ i * 4 + 2 ] = plane.normal[ 2 ];
+		tree.plane[ i * 4 + 3 ] = plane.dist;
+		tree.type[ i ] = plane.type;
+		tree.signbits[ i ] = plane.signbits;
+
+		for ( let side = 0; side < 2; side ++ ) {
+
+			const c = node.children[ side ];
+			if ( c.contents < 0 ) {
+
+				tree.child[ i * 2 + side ] = ~ c._leafIndex;
+				leafs.push( c );
+				if ( c._leafIndex > maxleaf ) maxleaf = c._leafIndex;
+
+			} else {
+
+				tree.child[ i * 2 + side ] = ids.get( c );
+
+			}
+
+		}
+
+	}
+
+	tree.solid = new Uint8Array( maxleaf + 1 );
+	for ( const leaf of leafs )
+		tree.solid[ leaf._leafIndex ] = leaf.contents === CONTENTS_SOLID ? 1 : 0;
+
+	leaftree = tree;
+	return tree;
+
+}
+
+// SV_FindTouchedLeafs( ent, sv.worldmodel.nodes[ 0 ] ) over the flat tree.
+// node is a node number from SV_LeafTree; BoxOnPlaneSide is open coded.
+export function SV_FindTouchedLeafs_flat( ent, tree, node, absmin, absmax ) {
+
+	const o = node << 2;
+	const type = tree.type[ node ];
+	const pdist = tree.plane[ o + 3 ];
+	let sides;
+
+	if ( type < 3 ) {
+
+		// fast axial cases
+		if ( pdist <= absmin[ type ] )
+			sides = 1;
+		else if ( pdist >= absmax[ type ] )
+			sides = 2;
+		else
+			sides = 3;
+
+	} else {
+
+		// general case: the far corner for dist1 and the near one for dist2
+		// are picked per axis by the sign of the normal, as BoxOnPlaneSide's
+		// signbits cases do
+		const s = tree.signbits[ node ];
+		const nx = tree.plane[ o ], ny = tree.plane[ o + 1 ], nz = tree.plane[ o + 2 ];
+		const dist1 = nx * ( ( s & 1 ) ? absmin[ 0 ] : absmax[ 0 ] )
+			+ ny * ( ( s & 2 ) ? absmin[ 1 ] : absmax[ 1 ] )
+			+ nz * ( ( s & 4 ) ? absmin[ 2 ] : absmax[ 2 ] );
+		const dist2 = nx * ( ( s & 1 ) ? absmax[ 0 ] : absmin[ 0 ] )
+			+ ny * ( ( s & 2 ) ? absmax[ 1 ] : absmin[ 1 ] )
+			+ nz * ( ( s & 4 ) ? absmax[ 2 ] : absmin[ 2 ] );
+		sides = 0;
+		if ( dist1 >= pdist )
+			sides = 1;
+		if ( dist2 < pdist )
+			sides |= 2;
+
+	}
+
+	// recurse down the contacted sides
+	for ( let side = 0; side < 2; side ++ ) {
+
+		if ( ! ( sides & ( 1 << side ) ) )
+			continue;
+
+		const c = tree.child[ ( node << 1 ) + side ];
+		if ( c >= 0 ) {
+
+			SV_FindTouchedLeafs_flat( ent, tree, c, absmin, absmax );
+
+		} else {
+
+			const leafIndex = ~ c;
+			if ( tree.solid[ leafIndex ] === 1 || ent.num_leafs === 16 ) // MAX_ENT_LEAFS
+				continue;
+
+			// C: leafnum = leaf - sv.worldmodel->leafs - 1
+			ent.leafnums[ ent.num_leafs ] = leafIndex - 1;
+			ent.num_leafs ++;
+
+		}
+
+	}
+
+}
+
+function SV_FindTouchedLeafs_r( ent, node, absmin, absmax ) {
+
 	if ( ! node )
 		return;
 
@@ -528,14 +735,14 @@ export function SV_FindTouchedLeafs( ent, node ) {
 
 	// NODE_MIXED
 	const splitplane = node.plane;
-	const sides = BoxOnPlaneSide( ent.v.absmin, ent.v.absmax, splitplane );
+	const sides = BoxOnPlaneSide( absmin, absmax, splitplane );
 
 	// recurse down the contacted sides
 	if ( sides & 1 )
-		SV_FindTouchedLeafs( ent, node.children[ 0 ] );
+		SV_FindTouchedLeafs_r( ent, node.children[ 0 ], absmin, absmax );
 
 	if ( sides & 2 )
-		SV_FindTouchedLeafs( ent, node.children[ 1 ] );
+		SV_FindTouchedLeafs_r( ent, node.children[ 1 ], absmin, absmax );
 
 }
 
@@ -585,8 +792,15 @@ export function SV_LinkEdict( ent, touch_triggers ) {
 
 	// link to PVS leafs
 	ent.num_leafs = 0;
-	if ( ent.v.modelindex && sv.worldmodel && sv.worldmodel.nodes )
-		SV_FindTouchedLeafs( ent, sv.worldmodel.nodes[ 0 ] );
+	if ( ent.v.modelindex && sv.worldmodel && sv.worldmodel.nodes ) {
+
+		const tree = SV_LeafTree( sv.worldmodel );
+		if ( tree !== null )
+			SV_FindTouchedLeafs_flat( ent, tree, 0, ent.v.absmin, ent.v.absmax );
+		else
+			SV_FindTouchedLeafs( ent, sv.worldmodel.nodes[ 0 ] );
+
+	}
 
 	if ( ent.v.solid === SOLID_NOT )
 		return;
@@ -630,32 +844,114 @@ POINT TESTING IN HULLS
 
 /*
 ==================
+Flattened hulls
+
+hull.clipnodes is an array of {planenum, children} objects and hull.planes an
+array of {normal, dist, type} objects. Walking them chases two pointers per
+node. The first time a hull is traced through, its tree is copied into typed
+arrays indexed by node number, with the plane resolved. The values are the
+same ones, so every distance comes out bit for bit as before. Brush models'
+clipnodes and planes are not changed once loaded. The box hull is the exception:
+SV_HullForBox writes its distances into box_flat.dist directly.
+==================
+*/
+class hull_flat_t {
+
+	constructor( count ) {
+
+		this.planes = null;
+		this.child0 = new Int32Array( count );
+		this.child1 = new Int32Array( count );
+		this.type = new Int8Array( count );
+		this.normal = new Float32Array( count * 3 );
+		this.dist = new Float64Array( count );
+
+	}
+
+}
+
+const hull_flats = new WeakMap(); // clipnodes array -> hull_flat_t
+const box_flat = new hull_flat_t( 6 );
+
+function hull_flat_fill( f, hull, i, node ) {
+
+	const plane = hull.planes[ node.planenum ];
+	f.child0[ i ] = node.children[ 0 ];
+	f.child1[ i ] = node.children[ 1 ];
+	f.type[ i ] = plane.type;
+	f.normal[ i * 3 ] = plane.normal[ 0 ];
+	f.normal[ i * 3 + 1 ] = plane.normal[ 1 ];
+	f.normal[ i * 3 + 2 ] = plane.normal[ 2 ];
+	f.dist[ i ] = plane.dist;
+
+}
+
+function hull_flat( hull ) {
+
+	const clipnodes = hull.clipnodes;
+	if ( clipnodes === box_clipnodes )
+		return box_flat;
+
+	let f = hull_flats.get( clipnodes );
+	if ( f !== undefined && f.planes === hull.planes && f.child0.length === clipnodes.length )
+		return f;
+
+	const count = clipnodes.length;
+	f = new hull_flat_t( count );
+	f.planes = hull.planes;
+	for ( let i = 0; i < count; i ++ ) {
+
+		const node = clipnodes[ i ];
+		if ( node === undefined || node === null )
+			continue; // not a node (unfilled slot); the bounds check rejects it
+		hull_flat_fill( f, hull, i, node );
+
+	}
+
+	hull_flats.set( clipnodes, f );
+	return f;
+
+}
+
+/*
+==================
 SV_HullPointContents
 ==================
 */
-export function SV_HullPointContents( hull, num, p ) {
+function hull_point_contents( f, firstclipnode, lastclipnode, num, p ) {
+
+	const p0 = p[ 0 ], p1 = p[ 1 ], p2 = p[ 2 ];
+	const type = f.type, dist = f.dist, normal = f.normal;
 
 	while ( num >= 0 ) {
 
-		if ( num < hull.firstclipnode || num > hull.lastclipnode )
+		if ( num < firstclipnode || num > lastclipnode )
 			Sys_Error( 'SV_HullPointContents: bad node number' );
 
-		const node = hull.clipnodes[ num ];
-		const plane = hull.planes[ node.planenum ];
-
+		const t = type[ num ];
 		let d;
-		if ( plane.type < 3 )
-			d = p[ plane.type ] - plane.dist;
+		if ( t === 0 )
+			d = p0 - dist[ num ];
+		else if ( t === 1 )
+			d = p1 - dist[ num ];
+		else if ( t === 2 )
+			d = p2 - dist[ num ];
 		else
-			d = DotProduct( plane.normal, p ) - plane.dist;
+			d = normal[ num * 3 ] * p0 + normal[ num * 3 + 1 ] * p1 + normal[ num * 3 + 2 ] * p2 - dist[ num ];
 		if ( d < 0 )
-			num = node.children[ 1 ];
+			num = f.child1[ num ];
 		else
-			num = node.children[ 0 ];
+			num = f.child0[ num ];
 
 	}
 
 	return num;
+
+}
+
+export function SV_HullPointContents( hull, num, p ) {
+
+	return hull_point_contents( hull_flat( hull ), hull.firstclipnode, hull.lastclipnode, num, p );
 
 }
 
@@ -722,133 +1018,171 @@ const DIST_EPSILON = 0.03125;
 /*
 ==================
 SV_RecursiveHullCheck
+
+The C recurses for every branch; the cases that end in a tail call (both
+points on one side, passing the node) loop here instead.
 ==================
 */
-export function SV_RecursiveHullCheck( hull, num, p1f, p2f, p1, p2, trace, depth = 0 ) {
+function hull_recursive_check( f, firstclipnode, lastclipnode, num, p1f, p2f, p1, p2, trace, depth ) {
 
-	// check for empty
-	if ( num < 0 ) {
+	const type = f.type, dist = f.dist, normal = f.normal;
 
-		if ( num !== CONTENTS_SOLID ) {
+	while ( true ) {
 
-			trace.allsolid = false;
-			if ( num === CONTENTS_EMPTY )
-				trace.inopen = true;
-			else
-				trace.inwater = true;
+		// check for empty
+		if ( num < 0 ) {
+
+			if ( num !== CONTENTS_SOLID ) {
+
+				trace.allsolid = false;
+				if ( num === CONTENTS_EMPTY )
+					trace.inopen = true;
+				else
+					trace.inwater = true;
+
+			} else {
+
+				trace.startsolid = true;
+
+			}
+
+			return true; // empty
+
+		}
+
+		if ( num < firstclipnode || num > lastclipnode )
+			Sys_Error( 'SV_RecursiveHullCheck: bad node number' );
+
+		//
+		// find the point distances
+		//
+		const ty = type[ num ];
+		const pd = dist[ num ];
+		let t1, t2;
+		if ( ty < 3 ) {
+
+			t1 = p1[ ty ] - pd;
+			t2 = p2[ ty ] - pd;
 
 		} else {
 
-			trace.startsolid = true;
+			const n0 = normal[ num * 3 ], n1 = normal[ num * 3 + 1 ], n2 = normal[ num * 3 + 2 ];
+			t1 = n0 * p1[ 0 ] + n1 * p1[ 1 ] + n2 * p1[ 2 ] - pd;
+			t2 = n0 * p2[ 0 ] + n1 * p2[ 1 ] + n2 * p2[ 2 ] - pd;
 
 		}
 
-		return true; // empty
+		if ( t1 >= 0 && t2 >= 0 ) {
 
-	}
+			num = f.child0[ num ];
+			continue;
 
-	if ( num < hull.firstclipnode || num > hull.lastclipnode )
-		Sys_Error( 'SV_RecursiveHullCheck: bad node number' );
+		}
 
-	//
-	// find the point distances
-	//
-	const node = hull.clipnodes[ num ];
-	const plane = hull.planes[ node.planenum ];
+		if ( t1 < 0 && t2 < 0 ) {
 
-	let t1, t2;
-	if ( plane.type < 3 ) {
+			num = f.child1[ num ];
+			continue;
 
-		t1 = p1[ plane.type ] - plane.dist;
-		t2 = p2[ plane.type ] - plane.dist;
+		}
 
-	} else {
+		// put the crosspoint DIST_EPSILON pixels on the near side
+		let frac;
+		if ( t1 < 0 )
+			frac = ( t1 + DIST_EPSILON ) / ( t1 - t2 );
+		else
+			frac = ( t1 - DIST_EPSILON ) / ( t1 - t2 );
+		if ( frac < 0 )
+			frac = 0;
+		if ( frac > 1 )
+			frac = 1;
 
-		t1 = DotProduct( plane.normal, p1 ) - plane.dist;
-		t2 = DotProduct( plane.normal, p2 ) - plane.dist;
+		let midf = p1f + ( p2f - p1f ) * frac;
+		// Use pre-allocated scratch vector from pool (indexed by recursion depth)
+		let mid = _hullMidPool[ depth ];
+		if ( mid == null ) {
 
-	}
+			mid = new Float32Array( 3 );
+			_hullMidPool[ depth ] = mid;
 
-	if ( t1 >= 0 && t2 >= 0 )
-		return SV_RecursiveHullCheck( hull, node.children[ 0 ], p1f, p2f, p1, p2, trace, depth );
-	if ( t1 < 0 && t2 < 0 )
-		return SV_RecursiveHullCheck( hull, node.children[ 1 ], p1f, p2f, p1, p2, trace, depth );
+		}
+		mid[ 0 ] = p1[ 0 ] + frac * ( p2[ 0 ] - p1[ 0 ] );
+		mid[ 1 ] = p1[ 1 ] + frac * ( p2[ 1 ] - p1[ 1 ] );
+		mid[ 2 ] = p1[ 2 ] + frac * ( p2[ 2 ] - p1[ 2 ] );
 
-	// put the crosspoint DIST_EPSILON pixels on the near side
-	let frac;
-	if ( t1 < 0 )
-		frac = ( t1 + DIST_EPSILON ) / ( t1 - t2 );
-	else
-		frac = ( t1 - DIST_EPSILON ) / ( t1 - t2 );
-	if ( frac < 0 )
-		frac = 0;
-	if ( frac > 1 )
-		frac = 1;
+		const side = ( t1 < 0 ) ? 1 : 0;
+		const near = side === 0 ? f.child0[ num ] : f.child1[ num ];
+		const far = side === 0 ? f.child1[ num ] : f.child0[ num ];
 
-	let midf = p1f + ( p2f - p1f ) * frac;
-	// Use pre-allocated scratch vector from pool (indexed by recursion depth)
-	let mid = _hullMidPool[ depth ];
-	if ( mid == null ) {
-
-		mid = new Float32Array( 3 );
-		_hullMidPool[ depth ] = mid;
-
-	}
-	mid[ 0 ] = p1[ 0 ] + frac * ( p2[ 0 ] - p1[ 0 ] );
-	mid[ 1 ] = p1[ 1 ] + frac * ( p2[ 1 ] - p1[ 1 ] );
-	mid[ 2 ] = p1[ 2 ] + frac * ( p2[ 2 ] - p1[ 2 ] );
-
-	const side = ( t1 < 0 ) ? 1 : 0;
-
-	// move up to the node
-	if ( ! SV_RecursiveHullCheck( hull, node.children[ side ], p1f, midf, p1, mid, trace, depth + 1 ) )
-		return false;
-
-	if ( SV_HullPointContents( hull, node.children[ side ^ 1 ], mid ) !== CONTENTS_SOLID )
-		// go past the node
-		return SV_RecursiveHullCheck( hull, node.children[ side ^ 1 ], midf, p2f, mid, p2, trace, depth + 1 );
-
-	if ( trace.allsolid )
-		return false; // never got out of the solid area
-
-	//==================
-	// the other side of the node is solid, this is the impact point
-	//==================
-	if ( ! side ) {
-
-		VectorCopy( plane.normal, trace.plane.normal );
-		trace.plane.dist = plane.dist;
-
-	} else {
-
-		VectorSubtract( vec3_origin, plane.normal, trace.plane.normal );
-		trace.plane.dist = - plane.dist;
-
-	}
-
-	while ( SV_HullPointContents( hull, hull.firstclipnode, mid ) === CONTENTS_SOLID ) {
-
-		// shouldn't really happen, but does occasionally
-		frac -= 0.1;
-		if ( frac < 0 ) {
-
-			trace.fraction = midf;
-			VectorCopy( mid, trace.endpos );
-			Con_DPrintf( 'backup past 0\n' );
+		// move up to the node
+		if ( ! hull_recursive_check( f, firstclipnode, lastclipnode, near, p1f, midf, p1, mid, trace, depth + 1 ) )
 			return false;
 
+		if ( hull_point_contents( f, firstclipnode, lastclipnode, far, mid ) !== CONTENTS_SOLID ) {
+
+			// go past the node
+			num = far;
+			p1f = midf;
+			p1 = mid;
+			depth ++;
+			continue;
+
 		}
 
-		midf = p1f + ( p2f - p1f ) * frac;
-		for ( let i = 0; i < 3; i ++ )
-			mid[ i ] = p1[ i ] + frac * ( p2[ i ] - p1[ i ] );
+		if ( trace.allsolid )
+			return false; // never got out of the solid area
+
+		//==================
+		// the other side of the node is solid, this is the impact point
+		//==================
+		if ( side === 0 ) {
+
+			trace.plane.normal[ 0 ] = normal[ num * 3 ];
+			trace.plane.normal[ 1 ] = normal[ num * 3 + 1 ];
+			trace.plane.normal[ 2 ] = normal[ num * 3 + 2 ];
+			trace.plane.dist = pd;
+
+		} else {
+
+			// VectorSubtract( vec3_origin, plane.normal, trace.plane.normal )
+			trace.plane.normal[ 0 ] = 0 - normal[ num * 3 ];
+			trace.plane.normal[ 1 ] = 0 - normal[ num * 3 + 1 ];
+			trace.plane.normal[ 2 ] = 0 - normal[ num * 3 + 2 ];
+			trace.plane.dist = - pd;
+
+		}
+
+		while ( hull_point_contents( f, firstclipnode, lastclipnode, firstclipnode, mid ) === CONTENTS_SOLID ) {
+
+			// shouldn't really happen, but does occasionally
+			frac -= 0.1;
+			if ( frac < 0 ) {
+
+				trace.fraction = midf;
+				VectorCopy( mid, trace.endpos );
+				Con_DPrintf( 'backup past 0\n' );
+				return false;
+
+			}
+
+			midf = p1f + ( p2f - p1f ) * frac;
+			for ( let i = 0; i < 3; i ++ )
+				mid[ i ] = p1[ i ] + frac * ( p2[ i ] - p1[ i ] );
+
+		}
+
+		trace.fraction = midf;
+		VectorCopy( mid, trace.endpos );
+
+		return false;
 
 	}
 
-	trace.fraction = midf;
-	VectorCopy( mid, trace.endpos );
+}
 
-	return false;
+export function SV_RecursiveHullCheck( hull, num, p1f, p2f, p1, p2, trace, depth = 0 ) {
+
+	return hull_recursive_check( hull_flat( hull ), hull.firstclipnode, hull.lastclipnode, num, p1f, p2f, p1, p2, trace, depth );
 
 }
 
@@ -934,6 +1268,13 @@ Mins and maxs enclose the entire area swept by the move
 */
 function SV_ClipToLinks( node, clip ) {
 
+	// entvars are read straight from the edicts' typed arrays, as in
+	// SV_AreaTriggerEdicts
+	const passedict = clip.passedict;
+	const pf = passedict ? passedict._floatView : null;
+	const boxmins = clip.boxmins;
+	const boxmaxs = clip.boxmaxs;
+
 	// touch linked edicts
 	let l = node.solid_edicts.next;
 	while ( l !== node.solid_edicts ) {
@@ -947,43 +1288,46 @@ function SV_ClipToLinks( node, clip ) {
 
 		}
 
-		if ( touch.v.solid === SOLID_NOT ) {
+		const tf = touch._floatView;
+		const solid = tf[ EV_SOLID ];
+
+		if ( solid === SOLID_NOT ) {
 
 			l = next;
 			continue;
 
 		}
 
-		if ( touch === clip.passedict ) {
+		if ( touch === passedict ) {
 
 			l = next;
 			continue;
 
 		}
 
-		if ( touch.v.solid === SOLID_TRIGGER )
+		if ( solid === SOLID_TRIGGER )
 			Sys_Error( 'Trigger in clipping list' );
 
-		if ( clip.type === MOVE_NOMONSTERS && touch.v.solid !== SOLID_BSP ) {
+		if ( clip.type === MOVE_NOMONSTERS && solid !== SOLID_BSP ) {
 
 			l = next;
 			continue;
 
 		}
 
-		if ( clip.boxmins[ 0 ] > touch.v.absmax[ 0 ]
-			|| clip.boxmins[ 1 ] > touch.v.absmax[ 1 ]
-			|| clip.boxmins[ 2 ] > touch.v.absmax[ 2 ]
-			|| clip.boxmaxs[ 0 ] < touch.v.absmin[ 0 ]
-			|| clip.boxmaxs[ 1 ] < touch.v.absmin[ 1 ]
-			|| clip.boxmaxs[ 2 ] < touch.v.absmin[ 2 ] ) {
+		if ( boxmins[ 0 ] > tf[ EV_ABSMAX ]
+			|| boxmins[ 1 ] > tf[ EV_ABSMAX + 1 ]
+			|| boxmins[ 2 ] > tf[ EV_ABSMAX + 2 ]
+			|| boxmaxs[ 0 ] < tf[ EV_ABSMIN ]
+			|| boxmaxs[ 1 ] < tf[ EV_ABSMIN + 1 ]
+			|| boxmaxs[ 2 ] < tf[ EV_ABSMIN + 2 ] ) {
 
 			l = next;
 			continue;
 
 		}
 
-		if ( clip.passedict && clip.passedict.v.size && clip.passedict.v.size[ 0 ] && ! touch.v.size[ 0 ] ) {
+		if ( passedict && pf[ EV_SIZE ] && ! tf[ EV_SIZE ] ) {
 
 			l = next;
 			continue; // points never interact
@@ -997,11 +1341,12 @@ function SV_ClipToLinks( node, clip ) {
 
 		}
 
-		if ( clip.passedict ) {
+		if ( passedict ) {
 
 			// don't clip against own missiles
 			// owner field is an entity index, need PROG_TO_EDICT to get entity reference
-			if ( touch.v.owner !== 0 && PROG_TO_EDICT( touch.v.owner ) === clip.passedict ) {
+			const touch_owner = touch._intView[ EV_OWNER ];
+			if ( touch_owner !== 0 && PROG_TO_EDICT( touch_owner ) === passedict ) {
 
 				l = next;
 				continue;
@@ -1009,7 +1354,8 @@ function SV_ClipToLinks( node, clip ) {
 			}
 
 			// don't clip against owner
-			if ( clip.passedict.v.owner !== 0 && PROG_TO_EDICT( clip.passedict.v.owner ) === touch ) {
+			const pass_owner = passedict._intView[ EV_OWNER ];
+			if ( pass_owner !== 0 && PROG_TO_EDICT( pass_owner ) === touch ) {
 
 				l = next;
 				continue;
@@ -1019,7 +1365,7 @@ function SV_ClipToLinks( node, clip ) {
 		}
 
 		const trace = clip_touch_trace;
-		if ( ( touch.v.flags | 0 ) & FL_MONSTER )
+		if ( ( tf[ EV_FLAGS ] | 0 ) & FL_MONSTER )
 			SV_ClipMoveToEntity( touch, clip.start, clip.mins2, clip.maxs2, clip.end, trace );
 		else
 			SV_ClipMoveToEntity( touch, clip.start, clip.mins, clip.maxs, clip.end, trace );
@@ -1055,9 +1401,9 @@ function SV_ClipToLinks( node, clip ) {
 	if ( node.axis === - 1 )
 		return;
 
-	if ( clip.boxmaxs[ node.axis ] > node.dist )
+	if ( boxmaxs[ node.axis ] > node.dist )
 		SV_ClipToLinks( node.children[ 0 ], clip );
-	if ( clip.boxmins[ node.axis ] < node.dist )
+	if ( boxmins[ node.axis ] < node.dist )
 		SV_ClipToLinks( node.children[ 1 ], clip );
 
 }
@@ -1097,11 +1443,27 @@ const sv_move_clip = new moveclip_t();
 
 export function SV_Move( start, mins, maxs, end, type, passedict ) {
 
+	// C returns the trace by value, and callers keep it across later SV_Move
+	// calls, so this one trace_t is still new each call.
+	return SV_MoveInto( start, mins, maxs, end, type, passedict, new trace_t() );
+
+}
+
+/*
+==================
+SV_MoveInto
+
+SV_Move filling in a trace_t the caller owns, for callers that finish with
+the trace before their next SV_Move and before anything that can run QuakeC,
+and so can reuse one scratch trace_t instead of allocating one per move.
+==================
+*/
+export function SV_MoveInto( start, mins, maxs, end, type, passedict, trace ) {
+
 	const clip = sv_move_clip;
 
-	// clip to world. C returns the trace by value, and callers keep it
-	// across later SV_Move calls, so this one trace_t is still new each call.
-	clip.trace = SV_ClipMoveToEntity( sv.edicts[ 0 ], start, mins, maxs, end, new trace_t() );
+	// clip to world
+	clip.trace = SV_ClipMoveToEntity( sv.edicts[ 0 ], start, mins, maxs, end, trace );
 
 	clip.start = start;
 	clip.end = end;

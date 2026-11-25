@@ -19,12 +19,11 @@ import {
 import {
 	pr_global_struct,
 	pr_argc, pr_xfunction,
-	PR_GetString, PR_SetTrace, PR_SetXFunction,
+	PR_GetString, PR_strcmp_ofs, PR_SetTrace, PR_SetXFunction,
 	G_FLOAT, G_FLOAT_SET, G_INT, G_INT_SET, G_VECTOR, G_STRING, G_EDICT, G_EDICTNUM,
 	EDICT_NUM, NUM_FOR_EDICT,
 	EDICT_TO_PROG, PROG_TO_EDICT,
 	RETURN_EDICT,
-	E_STRING,
 	sv,
 	PR_SetBuiltins,
 	PR_SetTempString,
@@ -36,7 +35,7 @@ import {
 	ED_Alloc, ED_Free, ED_Print, ED_PrintNum, ED_PrintEdicts,
 } from './pr_edict.js';
 import { PR_HostError, PR_RunError } from './pr_exec.js';
-import { SV_Move, SV_LinkEdict, SV_PointContents } from './world.js';
+import { SV_Move, SV_MoveInto, SV_LeafTree, trace_t, SV_LinkEdict, SV_PointContents } from './world.js';
 import { SV_movestep, SV_CheckBottom, SV_MoveToGoal as SV_MoveToGoal_Real, SV_Move_SetCallbacks } from './sv_move.js';
 import { SV_StartSound, SV_StartParticle, sv_aim, SV_ReserveSignonSpace, SV_LocalSound } from './sv_main.js';
 import { Cbuf_AddText } from './cmd.js';
@@ -600,7 +599,11 @@ function PF_traceline() {
 
 	}
 
-	const trace = SV_Move( v1, vec3_origin, vec3_origin, v2, nomonsters, ent );
+	// the trace is copied into the globals below, before any other SV_Move or
+	// QuakeC, so one scratch trace_t serves every traceline
+	if ( traceline_trace === null )
+		traceline_trace = new trace_t();
+	const trace = SV_MoveInto( v1, vec3_origin, vec3_origin, v2, nomonsters, ent, traceline_trace );
 
 	pr_global_struct.trace_allsolid = trace.allsolid ? 1 : 0;
 	pr_global_struct.trace_startsolid = trace.startsolid ? 1 : 0;
@@ -626,6 +629,7 @@ valid target.
 =================
 */
 let checkpvs = null;
+let traceline_trace = null; // PF_traceline's scratch trace_t, made on first use
 
 // Scratch vectors for builtins (Golden Rule #4). None of these builtins runs
 // QuakeC while its scratch is live, except PF_walkmove, whose SV_movestep
@@ -639,6 +643,67 @@ const aim_start = new Float32Array( 3 );
 const aim_dir = new Float32Array( 3 );
 const aim_end = new Float32Array( 3 );
 const aim_bestdir = new Float32Array( 3 );
+
+// PF_checkclient's per-call leaf lookup, which Mod_PointInLeaf spends a lot of
+// time on over the node objects ( every monster that is looking for a target
+// calls it each frame ). It walks world.js's flat copy of the BSP tree, which
+// holds the same plane values as doubles and applies the same test, so it
+// picks the same leaf.
+
+// The last leaf found for each entity's view point, by entity number: a
+// monster standing still asks about the same point every frame. A slot holds
+// x, y, z and the leaf index; NaN never matches, so an empty slot misses.
+let leafmemo_key = new Float32Array( 0 );
+let leafmemo_leaf = new Int32Array( 0 );
+let leafmemo_tree = null; // the SV_LeafTree the memo's leaves belong to
+
+// Mod_PointInLeaf( p, model )._leafIndex, remembering the answer for entnum
+export function PF_LeafIndexForPoint( p, model, entnum ) {
+
+	const tree = SV_LeafTree( model );
+	if ( tree === null )
+		return Mod_PointInLeaf( p, model )._leafIndex;
+
+	if ( tree !== leafmemo_tree ) {
+
+		leafmemo_tree = tree;
+		leafmemo_key.fill( NaN );
+
+	}
+
+	if ( entnum >= leafmemo_leaf.length ) {
+
+		const size = Math.max( entnum + 1, leafmemo_leaf.length * 2, 256 );
+		leafmemo_key = new Float32Array( size * 3 ).fill( NaN );
+		leafmemo_leaf = new Int32Array( size );
+
+	}
+
+	const k = entnum * 3;
+	const key = leafmemo_key;
+	if ( key[ k ] === p[ 0 ] && key[ k + 1 ] === p[ 1 ] && key[ k + 2 ] === p[ 2 ] )
+		return leafmemo_leaf[ entnum ];
+
+	const plane = tree.plane;
+	const child = tree.child;
+	const x = p[ 0 ], y = p[ 1 ], z = p[ 2 ];
+	let node = 0;
+
+	do {
+
+		const o = node << 2;
+		const d = x * plane[ o ] + y * plane[ o + 1 ] + z * plane[ o + 2 ] - plane[ o + 3 ];
+		node = child[ ( node << 1 ) + ( d > 0 ? 0 : 1 ) ];
+
+	} while ( node >= 0 );
+
+	key[ k ] = p[ 0 ];
+	key[ k + 1 ] = p[ 1 ];
+	key[ k + 2 ] = p[ 2 ];
+	leafmemo_leaf[ entnum ] = ~ node;
+	return ~ node;
+
+}
 
 function PF_newcheckclient( check ) {
 
@@ -720,9 +785,8 @@ function PF_checkclient() {
 		const self = PROG_TO_EDICT( pr_global_struct.self );
 		const view = checkclient_view;
 		VectorAdd( self.v.origin, self.v.view_ofs, view );
-		const leaf = Mod_PointInLeaf( view, sv.worldmodel );
 		// get leaf index: leaf._leafIndex is set during BSP load
-		const l = ( leaf._leafIndex != null ? leaf._leafIndex : - 1 ) - 1;
+		const l = PF_LeafIndexForPoint( view, sv.worldmodel, self.index ) - 1;
 		if ( l < 0 || ! ( checkpvs[ l >> 3 ] & ( 1 << ( l & 7 ) ) ) ) {
 
 			RETURN_EDICT( sv.edicts[ 0 ] );
@@ -920,22 +984,19 @@ function PF_Find() {
 
 	let e = G_EDICTNUM( OFS_PARM0 );
 	const f = G_INT( OFS_PARM1 );
-	const s = G_STRING( OFS_PARM2 );
 
-	// C tests char pointers here, which are never NULL: an empty string is a
-	// valid search that matches entities whose field is empty or unset.
-	if ( s == null )
-		PR_RunError( 'PF_Find: bad search string' );
+	// The search string and each entity's field are compared in the string
+	// table, not as JS strings: this loop visits every entity on each call. An
+	// empty string is a valid search that matches entities whose field is
+	// empty or unset ( C tests char pointers here, which are never NULL ).
+	const s = G_INT( OFS_PARM2 );
 
 	for ( e ++; e < sv.num_edicts; e ++ ) {
 
 		const ed = EDICT_NUM( e );
 		if ( ed.free )
 			continue;
-		const t = E_STRING( ed, f );
-		if ( t == null )
-			continue;
-		if ( t === s ) {
+		if ( PR_strcmp_ofs( ed._intView[ f ], s ) === 0 ) {
 
 			RETURN_EDICT( ed );
 			return;

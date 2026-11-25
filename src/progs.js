@@ -32,6 +32,7 @@ export class EdictFieldAccessor {
 		this._length = length;
 		this._floatView = new Float32Array( buffer, byteOffset, length );
 		this._intView = new Int32Array( buffer, byteOffset, length );
+		this._vectors = null; // lazily allocated cache of getVector views, by slot
 
 	}
 
@@ -61,7 +62,24 @@ export class EdictFieldAccessor {
 
 	getVector( ofs ) {
 
-		return new Float32Array( this._buffer, this._byteOffset + ofs * 4, 3 );
+		// The view aliases the same bytes every time, so build it once per slot
+		// instead of allocating a typed array on every field read.
+		let vectors = this._vectors;
+		if ( vectors === null ) {
+
+			vectors = this._vectors = new Array( this._length ).fill( null );
+
+		}
+
+		let v = vectors[ ofs ];
+		if ( v === null || v === undefined ) {
+
+			v = new Float32Array( this._buffer, this._byteOffset + ofs * 4, 3 );
+			if ( ofs >= 0 && ofs < vectors.length ) vectors[ ofs ] = v;
+
+		}
+
+		return v;
 
 	}
 
@@ -121,6 +139,9 @@ export class edict_t {
 		// Additional fields from progs come immediately after
 		this._fieldBuffer = new ArrayBuffer( entityfields * 4 );
 		this._fieldAccessor = new EdictFieldAccessor( this._fieldBuffer, 0, entityfields );
+		// The accessor's views, for the interpreter's field opcodes
+		this._intView = this._fieldAccessor._intView;
+		this._floatView = this._fieldAccessor._floatView;
 
 		// C exported fields from progs (entvars_t)
 		this.v = new entvars_t( this._fieldAccessor );
@@ -151,6 +172,10 @@ export let pr_strings_size = 0; // bytes in use; pr_strings_data may have zeroed
 export let pr_globaldefs = null; // ddef_t[]
 export let pr_fielddefs = null; // ddef_t[]
 export let pr_statements = null; // dstatement_t[]
+// pr_statements flattened to four int32 per statement ( op, a, b, c ) for the
+// interpreter loop, which reads it instead of the dstatement_t objects. Set
+// only by PR_SetStatements, so it always matches pr_statements.
+export let pr_code = null;
 export let pr_global_struct = null; // globalvars_t
 export let pr_globals = null; // EdictFieldAccessor (same memory as pr_global_struct)
 export let pr_globals_float = null; // Float32Array view on globals
@@ -191,7 +216,30 @@ export function PR_SetStringsData( d ) {
 }
 export function PR_SetGlobalDefs( g ) { pr_globaldefs = g; }
 export function PR_SetFieldDefs( f ) { pr_fielddefs = f; }
-export function PR_SetStatements( s ) { pr_statements = s; }
+export function PR_SetStatements( s ) {
+
+	pr_statements = s;
+	if ( s === null || s === undefined ) {
+
+		pr_code = null;
+		return;
+
+	}
+
+	const code = new Int32Array( s.length * 4 );
+	for ( let i = 0; i < s.length; i ++ ) {
+
+		const st = s[ i ];
+		code[ i * 4 ] = st.op;
+		code[ i * 4 + 1 ] = st.a;
+		code[ i * 4 + 2 ] = st.b;
+		code[ i * 4 + 3 ] = st.c;
+
+	}
+
+	pr_code = code;
+
+}
 export function PR_SetGlobalStruct( g ) { pr_global_struct = g; }
 export function PR_SetGlobals( g ) { pr_globals = g; }
 export function PR_SetGlobalsFloat( f ) { pr_globals_float = f; }
@@ -360,9 +408,32 @@ export function G_INT_SET( o, v ) {
 
 }
 
+// The views G_VECTOR has made, by slot, for the pr_globals_float they were made
+// on. A view aliases the same bytes every time, so builtins that read a
+// vector parameter get the one view instead of allocating a typed array per
+// call, as EdictFieldAccessor.getVector does.
+let g_vector_views = null;
+let g_vector_floats = null;
+
 export function G_VECTOR( o ) {
 
-	return new Float32Array( pr_globals_float.buffer, pr_globals_float.byteOffset + o * 4, 3 );
+	const floats = pr_globals_float;
+	if ( g_vector_floats !== floats ) {
+
+		g_vector_floats = floats;
+		g_vector_views = new Array( floats.length ).fill( null );
+
+	}
+
+	let v = g_vector_views[ o ];
+	if ( v === null || v === undefined ) {
+
+		v = new Float32Array( floats.buffer, floats.byteOffset + o * 4, 3 );
+		if ( o >= 0 && o < g_vector_views.length ) g_vector_views[ o ] = v;
+
+	}
+
+	return v;
 
 }
 
@@ -397,6 +468,39 @@ export function PR_GetString( ofs ) {
 	}
 
 	return s;
+
+}
+
+/*
+============
+PR_strcmp_ofs
+
+PR_strcmp( PR_GetString( a ), PR_GetString( b ) ) for OP_EQ_S, OP_NE_S and PF_Find,
+comparing the bytes in pr_strings_data without building JS strings. An offset
+outside the table reads as "", and so does a string with no NUL before the end
+of the table, as in PR_GetString.
+============
+*/
+export function PR_strcmp_ofs( a, b ) {
+
+	if ( a === b )
+		return 0;
+
+	const data = pr_strings_data;
+	const size = pr_strings_size;
+	if ( ! ( a >= 0 && a < size ) ) a = size;
+	if ( ! ( b >= 0 && b < size ) ) b = size;
+
+	for ( ; ; a ++, b ++ ) {
+
+		const ca = a < size ? data[ a ] : 0;
+		const cb = b < size ? data[ b ] : 0;
+		if ( ca !== cb )
+			return ca < cb ? - 1 : 1;
+		if ( ca === 0 )
+			return 0;
+
+	}
 
 }
 

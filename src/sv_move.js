@@ -6,8 +6,9 @@ import { YAW } from './quakedef.js';
 import { FL_FLY, FL_SWIM, FL_ONGROUND,
 	FL_PARTIALGROUND, CONTENTS_EMPTY, CONTENTS_SOLID,
 	sv, pr_global_struct,
-	SV_Move, SV_LinkEdict, SV_PointContents,
+	SV_LinkEdict, SV_PointContents,
 	EDICT_TO_PROG, PROG_TO_EDICT } from './sv_phys.js';
+import { SV_MoveInto, trace_t } from './world.js';
 
 const STEPSIZE = 18;
 
@@ -18,6 +19,14 @@ const _checkbottom_mins = new Float32Array( 3 );
 const _checkbottom_maxs = new Float32Array( 3 );
 const _checkbottom_start = new Float32Array( 3 );
 const _checkbottom_stop = new Float32Array( 3 );
+
+// Scratch traces for SV_CheckBottom and SV_movestep (Golden Rule #4), made on
+// first use because this module can load before world.js has run. Each use
+// finishes with its trace before its next SV_Move and before anything that
+// can run QuakeC ( SV_LinkEdict, a touch function ), so one trace_t each is
+// enough. SV_movestep reads its trace after calling SV_CheckBottom, hence two.
+let _checkbottom_trace = null;
+let _movestep_trace = null;
 
 // Cached buffers for SV_movestep (Golden Rule #4)
 const _movestep_oldorg = new Float32Array( 3 );
@@ -62,6 +71,7 @@ export function SV_CheckBottom( ent ) {
 	const maxs = _checkbottom_maxs;
 	const start = _checkbottom_start;
 	const stop = _checkbottom_stop;
+	const scratch = _checkbottom_trace !== null ? _checkbottom_trace : ( _checkbottom_trace = new trace_t() );
 
 	VectorAdd( ent.v.origin, ent.v.mins, mins );
 	VectorAdd( ent.v.origin, ent.v.maxs, maxs );
@@ -107,7 +117,7 @@ export function SV_CheckBottom( ent ) {
 	start[ 0 ] = stop[ 0 ] = ( mins[ 0 ] + maxs[ 0 ] ) * 0.5;
 	start[ 1 ] = stop[ 1 ] = ( mins[ 1 ] + maxs[ 1 ] ) * 0.5;
 	stop[ 2 ] = start[ 2 ] - 2 * STEPSIZE;
-	let trace = SV_Move( start, vec3_origin, vec3_origin, stop, true, ent );
+	let trace = SV_MoveInto( start, vec3_origin, vec3_origin, stop, true, ent, scratch );
 
 	if ( trace.fraction === 1.0 )
 		return false;
@@ -122,7 +132,7 @@ export function SV_CheckBottom( ent ) {
 			start[ 0 ] = stop[ 0 ] = x ? maxs[ 0 ] : mins[ 0 ];
 			start[ 1 ] = stop[ 1 ] = y ? maxs[ 1 ] : mins[ 1 ];
 
-			trace = SV_Move( start, vec3_origin, vec3_origin, stop, true, ent );
+			trace = SV_MoveInto( start, vec3_origin, vec3_origin, stop, true, ent, scratch );
 
 			if ( trace.fraction !== 1.0 && trace.endpos[ 2 ] > bottom )
 				bottom = trace.endpos[ 2 ];
@@ -153,6 +163,7 @@ export function SV_movestep( ent, move, relink ) {
 	const oldorg = _movestep_oldorg;
 	const neworg = _movestep_neworg;
 	const end = _movestep_end;
+	const scratch = _movestep_trace !== null ? _movestep_trace : ( _movestep_trace = new trace_t() );
 
 	// try the move
 	VectorCopy( ent.v.origin, oldorg );
@@ -176,7 +187,7 @@ export function SV_movestep( ent, move, relink ) {
 
 			}
 
-			const trace = SV_Move( ent.v.origin, ent.v.mins, ent.v.maxs, neworg, false, ent );
+			const trace = SV_MoveInto( ent.v.origin, ent.v.mins, ent.v.maxs, neworg, false, ent, scratch );
 
 			if ( trace.fraction === 1 ) {
 
@@ -204,7 +215,7 @@ export function SV_movestep( ent, move, relink ) {
 	VectorCopy( neworg, end );
 	end[ 2 ] -= STEPSIZE * 2;
 
-	let trace = SV_Move( neworg, ent.v.mins, ent.v.maxs, end, false, ent );
+	let trace = SV_MoveInto( neworg, ent.v.mins, ent.v.maxs, end, false, ent, scratch );
 
 	if ( trace.allsolid )
 		return false;
@@ -212,7 +223,7 @@ export function SV_movestep( ent, move, relink ) {
 	if ( trace.startsolid ) {
 
 		neworg[ 2 ] -= STEPSIZE;
-		trace = SV_Move( neworg, ent.v.mins, ent.v.maxs, end, false, ent );
+		trace = SV_MoveInto( neworg, ent.v.mins, ent.v.maxs, end, false, ent, scratch );
 		if ( trace.allsolid || trace.startsolid )
 			return false;
 

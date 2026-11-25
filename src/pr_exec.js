@@ -4,9 +4,9 @@ import { Con_Printf } from './common.js';
 import { PR_GlobalString, PR_GlobalStringNoContents } from './pr_edict.js';
 import {
 	progs, pr_functions, pr_strings_data,
-	pr_statements,
+	pr_statements, pr_code,
 	pr_global_struct, pr_globals_float, pr_globals_int,
-	PR_GetString,
+	PR_GetString, PR_strcmp_ofs,
 	PROG_TO_EDICT,
 	sv,
 	pr_builtins, pr_numbuiltins,
@@ -17,21 +17,9 @@ import {
 } from './progs.js';
 import {
 	OFS_RETURN, OFS_PARM0,
-	OP_DONE, OP_MUL_F, OP_MUL_V, OP_MUL_FV, OP_MUL_VF,
-	OP_DIV_F, OP_ADD_F, OP_ADD_V, OP_SUB_F, OP_SUB_V,
-	OP_EQ_F, OP_EQ_V, OP_EQ_S, OP_EQ_E, OP_EQ_FNC,
-	OP_NE_F, OP_NE_V, OP_NE_S, OP_NE_E, OP_NE_FNC,
-	OP_LE, OP_GE, OP_LT, OP_GT,
-	OP_LOAD_F, OP_LOAD_V, OP_LOAD_S, OP_LOAD_ENT, OP_LOAD_FLD, OP_LOAD_FNC,
-	OP_ADDRESS,
-	OP_STORE_F, OP_STORE_V, OP_STORE_S, OP_STORE_ENT, OP_STORE_FLD, OP_STORE_FNC,
-	OP_STOREP_F, OP_STOREP_V, OP_STOREP_S, OP_STOREP_ENT, OP_STOREP_FLD, OP_STOREP_FNC,
-	OP_RETURN, OP_NOT_F, OP_NOT_V, OP_NOT_S, OP_NOT_ENT, OP_NOT_FNC,
-	OP_IF, OP_IFNOT,
-	OP_CALL0, OP_CALL1, OP_CALL2, OP_CALL3, OP_CALL4,
-	OP_CALL5, OP_CALL6, OP_CALL7, OP_CALL8,
-	OP_STATE, OP_GOTO, OP_AND, OP_OR,
-	OP_BITAND, OP_BITOR,
+	OP_STORE_F, OP_STORE_FNC,
+	OP_IF, OP_IFNOT, OP_GOTO,
+	OP_CALL0,
 } from './pr_comp.js';
 import { ED_Print } from './pr_edict.js';
 import { ss_active } from './server.js';
@@ -303,22 +291,14 @@ or one at or past sv.max_edicts, sv.edicts[ n ] is undefined and the opcode
 throws a TypeError, which Host_Frame rethrows and the room dies. Turn that
 into a PR_RunError (a Host_Error, as Ironwail's PARANOID NUM_FOR_EDICT
 check does). The check runs only after a throw, so the interpreter loop
-pays nothing for it.
+pays nothing for it. The loop keeps its statement counter in a local and
+writes pr_xstatement only where something reads it (a call, an error, this
+check), so its catch block stores the counter before running the check.
 ====================
 */
 export function PR_ExecuteProgram( fnum ) {
 
-	try {
-
-		PR_ExecuteProgram_Loop( fnum );
-
-	} catch ( e ) {
-
-		if ( e instanceof TypeError )
-			PR_CheckBadEdict();
-		throw e;
-
-	}
+	PR_ExecuteProgram_Loop( fnum );
 
 }
 
@@ -340,26 +320,26 @@ function PR_CheckBadEdict() {
 	let n;
 	switch ( st.op ) {
 
-		case OP_ADDRESS:
-		case OP_LOAD_F:
-		case OP_LOAD_V:
-		case OP_LOAD_FLD:
-		case OP_LOAD_ENT:
-		case OP_LOAD_S:
-		case OP_LOAD_FNC:
+		case 30: // OP_ADDRESS
+		case 24: // OP_LOAD_F
+		case 25: // OP_LOAD_V
+		case 28: // OP_LOAD_FLD
+		case 27: // OP_LOAD_ENT
+		case 26: // OP_LOAD_S
+		case 29: // OP_LOAD_FNC
 			n = pr_globals_int[ st.a ];
 			break;
 
-		case OP_STOREP_F:
-		case OP_STOREP_V:
-		case OP_STOREP_ENT:
-		case OP_STOREP_FLD:
-		case OP_STOREP_S:
-		case OP_STOREP_FNC:
+		case 37: // OP_STOREP_F
+		case 38: // OP_STOREP_V
+		case 40: // OP_STOREP_ENT
+		case 41: // OP_STOREP_FLD
+		case 39: // OP_STOREP_S
+		case 42: // OP_STOREP_FNC
 			n = ( pr_globals_int[ st.b ] >> 16 ) & 0xFFFF;
 			break;
 
-		case OP_STATE:
+		case 60: // OP_STATE
 			n = pr_global_struct.self;
 			break;
 
@@ -376,7 +356,6 @@ function PR_CheckBadEdict() {
 function PR_ExecuteProgram_Loop( fnum ) {
 
 	let s;
-	let st;
 	let runaway;
 
 	if ( fnum === 0 || fnum >= progs.numfunctions ) {
@@ -402,170 +381,186 @@ function PR_ExecuteProgram_Loop( fnum ) {
 	// Cached references to typed views for performance
 	const gf = pr_globals_float;
 	const gi = pr_globals_int;
+	const code = pr_code;
+	let xf = pr_xfunction; // pr_xfunction, which only PR_EnterFunction and PR_LeaveFunction change
+
+	// pr_xstatement is only read by PR_EnterFunction, PR_RunError, a builtin
+	// and the catch below, so it is stored at those points, not per statement.
+	try {
 
 	while ( true ) {
 
 		s ++; // next statement
 
-		st = pr_statements[ s ];
+		const o = s << 2;
+		const stA = code[ o + 1 ];
+		const stB = code[ o + 2 ];
+		const stC = code[ o + 3 ];
 
-		const stA = st.a;
-		const stB = st.b;
-		const stC = st.c;
+		if ( ! -- runaway ) {
 
-		if ( ! -- runaway )
+			PR_SetXStatement( s );
 			PR_RunError( 'runaway loop error' );
 
-		pr_xfunction.profile ++;
-		PR_SetXStatement( s );
+		}
 
-		if ( pr_trace )
-			PR_PrintStatement( st );
+		xf.profile ++;
 
-		switch ( st.op ) {
+		if ( pr_trace ) {
 
-			case OP_ADD_F:
+			PR_SetXStatement( s );
+			PR_PrintStatement( pr_statements[ s ] );
+
+		}
+
+		// The case labels are integer literals, not the OP_ constants, so V8
+		// compiles the switch to a jump table. An imported constant is not a
+		// literal to it and turns the switch into a chain of comparisons.
+		// tests/pr_exec_ops_test.js checks each label against pr_comp.js.
+		switch ( code[ o ] ) {
+
+			case 6: // OP_ADD_F
 				gf[ stC ] = gf[ stA ] + gf[ stB ];
 				break;
-			case OP_ADD_V:
+			case 7: // OP_ADD_V
 				gf[ stC ] = gf[ stA ] + gf[ stB ];
 				gf[ stC + 1 ] = gf[ stA + 1 ] + gf[ stB + 1 ];
 				gf[ stC + 2 ] = gf[ stA + 2 ] + gf[ stB + 2 ];
 				break;
 
-			case OP_SUB_F:
+			case 8: // OP_SUB_F
 				gf[ stC ] = gf[ stA ] - gf[ stB ];
 				break;
-			case OP_SUB_V:
+			case 9: // OP_SUB_V
 				gf[ stC ] = gf[ stA ] - gf[ stB ];
 				gf[ stC + 1 ] = gf[ stA + 1 ] - gf[ stB + 1 ];
 				gf[ stC + 2 ] = gf[ stA + 2 ] - gf[ stB + 2 ];
 				break;
 
-			case OP_MUL_F:
+			case 1: // OP_MUL_F
 				gf[ stC ] = gf[ stA ] * gf[ stB ];
 				break;
-			case OP_MUL_V:
+			case 2: // OP_MUL_V
 				gf[ stC ] = gf[ stA ] * gf[ stB ]
 					+ gf[ stA + 1 ] * gf[ stB + 1 ]
 					+ gf[ stA + 2 ] * gf[ stB + 2 ];
 				break;
-			case OP_MUL_FV:
+			case 3: // OP_MUL_FV
 				gf[ stC ] = gf[ stA ] * gf[ stB ];
 				gf[ stC + 1 ] = gf[ stA ] * gf[ stB + 1 ];
 				gf[ stC + 2 ] = gf[ stA ] * gf[ stB + 2 ];
 				break;
-			case OP_MUL_VF:
+			case 4: // OP_MUL_VF
 				gf[ stC ] = gf[ stB ] * gf[ stA ];
 				gf[ stC + 1 ] = gf[ stB ] * gf[ stA + 1 ];
 				gf[ stC + 2 ] = gf[ stB ] * gf[ stA + 2 ];
 				break;
 
-			case OP_DIV_F:
+			case 5: // OP_DIV_F
 				gf[ stC ] = gf[ stA ] / gf[ stB ];
 				break;
 
-			case OP_BITAND:
+			case 64: // OP_BITAND
 				gf[ stC ] = ( gf[ stA ] | 0 ) & ( gf[ stB ] | 0 );
 				break;
 
-			case OP_BITOR:
+			case 65: // OP_BITOR
 				gf[ stC ] = ( gf[ stA ] | 0 ) | ( gf[ stB ] | 0 );
 				break;
 
-			case OP_GE:
+			case 21: // OP_GE
 				gf[ stC ] = gf[ stA ] >= gf[ stB ] ? 1 : 0;
 				break;
-			case OP_LE:
+			case 20: // OP_LE
 				gf[ stC ] = gf[ stA ] <= gf[ stB ] ? 1 : 0;
 				break;
-			case OP_GT:
+			case 23: // OP_GT
 				gf[ stC ] = gf[ stA ] > gf[ stB ] ? 1 : 0;
 				break;
-			case OP_LT:
+			case 22: // OP_LT
 				gf[ stC ] = gf[ stA ] < gf[ stB ] ? 1 : 0;
 				break;
-			case OP_AND:
+			case 62: // OP_AND
 				gf[ stC ] = ( gf[ stA ] !== 0 && gf[ stB ] !== 0 ) ? 1 : 0;
 				break;
-			case OP_OR:
+			case 63: // OP_OR
 				gf[ stC ] = ( gf[ stA ] !== 0 || gf[ stB ] !== 0 ) ? 1 : 0;
 				break;
 
-			case OP_NOT_F:
+			case 44: // OP_NOT_F
 				gf[ stC ] = ( gf[ stA ] === 0 ) ? 1 : 0;
 				break;
-			case OP_NOT_V:
+			case 45: // OP_NOT_V
 				gf[ stC ] = ( gf[ stA ] === 0 && gf[ stA + 1 ] === 0 && gf[ stA + 2 ] === 0 ) ? 1 : 0;
 				break;
-			case OP_NOT_S:
+			case 46: // OP_NOT_S
 				gf[ stC ] = ( gi[ stA ] === 0 || pr_strings_data[ gi[ stA ] ] === 0 ) ? 1 : 0;
 				break;
-			case OP_NOT_FNC:
+			case 48: // OP_NOT_FNC
 				gf[ stC ] = ( gi[ stA ] === 0 ) ? 1 : 0;
 				break;
-			case OP_NOT_ENT:
+			case 47: // OP_NOT_ENT
 				gf[ stC ] = ( gi[ stA ] === 0 ) ? 1 : 0;
 				// C: (PROG_TO_EDICT(a->edict) == sv.edicts)
 				// edict index 0 is the world entity
 				break;
 
-			case OP_EQ_F:
+			case 10: // OP_EQ_F
 				gf[ stC ] = ( gf[ stA ] === gf[ stB ] ) ? 1 : 0;
 				break;
-			case OP_EQ_V:
+			case 11: // OP_EQ_V
 				gf[ stC ] = ( gf[ stA ] === gf[ stB ]
 					&& gf[ stA + 1 ] === gf[ stB + 1 ]
 					&& gf[ stA + 2 ] === gf[ stB + 2 ] ) ? 1 : 0;
 				break;
-			case OP_EQ_S:
-				gf[ stC ] = ( PR_GetString( gi[ stA ] ) === PR_GetString( gi[ stB ] ) ) ? 1 : 0;
+			case 12: // OP_EQ_S
+				gf[ stC ] = PR_strcmp_ofs( gi[ stA ], gi[ stB ] ) === 0 ? 1 : 0;
 				break;
-			case OP_EQ_E:
+			case 13: // OP_EQ_E
 				gf[ stC ] = ( gi[ stA ] === gi[ stB ] ) ? 1 : 0;
 				break;
-			case OP_EQ_FNC:
+			case 14: // OP_EQ_FNC
 				gf[ stC ] = ( gi[ stA ] === gi[ stB ] ) ? 1 : 0;
 				break;
 
-			case OP_NE_F:
+			case 15: // OP_NE_F
 				gf[ stC ] = ( gf[ stA ] !== gf[ stB ] ) ? 1 : 0;
 				break;
-			case OP_NE_V:
+			case 16: // OP_NE_V
 				gf[ stC ] = ( gf[ stA ] !== gf[ stB ]
 					|| gf[ stA + 1 ] !== gf[ stB + 1 ]
 					|| gf[ stA + 2 ] !== gf[ stB + 2 ] ) ? 1 : 0;
 				break;
-			case OP_NE_S:
+			case 17: // OP_NE_S
 				// C stores strcmp()'s raw result here, not a boolean
-				gf[ stC ] = PR_strcmp( PR_GetString( gi[ stA ] ), PR_GetString( gi[ stB ] ) );
+				gf[ stC ] = PR_strcmp_ofs( gi[ stA ], gi[ stB ] );
 				break;
-			case OP_NE_E:
+			case 18: // OP_NE_E
 				gf[ stC ] = ( gi[ stA ] !== gi[ stB ] ) ? 1 : 0;
 				break;
-			case OP_NE_FNC:
+			case 19: // OP_NE_FNC
 				gf[ stC ] = ( gi[ stA ] !== gi[ stB ] ) ? 1 : 0;
 				break;
 
 			//==================
-			case OP_STORE_F:
-			case OP_STORE_ENT:
-			case OP_STORE_FLD: // integers
-			case OP_STORE_S:
-			case OP_STORE_FNC: // pointers
+			case 31: // OP_STORE_F
+			case 34: // OP_STORE_ENT
+			case 35: // OP_STORE_FLD integers
+			case 33: // OP_STORE_S
+			case 36: // OP_STORE_FNC pointers
 				gi[ stB ] = gi[ stA ];
 				break;
-			case OP_STORE_V:
+			case 32: // OP_STORE_V
 				gi[ stB ] = gi[ stA ];
 				gi[ stB + 1 ] = gi[ stA + 1 ];
 				gi[ stB + 2 ] = gi[ stA + 2 ];
 				break;
 
-			case OP_STOREP_F:
-			case OP_STOREP_ENT:
-			case OP_STOREP_FLD: // integers
-			case OP_STOREP_S:
-			case OP_STOREP_FNC: { // pointers
+			case 37: // OP_STOREP_F
+			case 40: // OP_STOREP_ENT
+			case 41: // OP_STOREP_FLD integers
+			case 39: // OP_STOREP_S
+			case 42: { // OP_STOREP_FNC pointers
 
 				// b->_int is an edict index + field offset encoded
 				// In C: ptr = (eval_t *)((byte *)sv.edicts + b->_int);
@@ -573,30 +568,34 @@ function PR_ExecuteProgram_Loop( fnum ) {
 				const addr = gi[ stB ];
 				const edictIndex = ( addr >> 16 ) & 0xFFFF;
 				const fieldOfs = addr & 0xFFFF;
-				const ed = sv.edicts[ edictIndex ];
-				ed._fieldAccessor.setInt32( fieldOfs, gi[ stA ] );
+				sv.edicts[ edictIndex ]._intView[ fieldOfs ] = gi[ stA ];
 				break;
 
 			}
 
-			case OP_STOREP_V: {
+			case 38: { // OP_STOREP_V
 
 				const addr = gi[ stB ];
 				const edictIndex = ( addr >> 16 ) & 0xFFFF;
 				const fieldOfs = addr & 0xFFFF;
-				const ed = sv.edicts[ edictIndex ];
-				ed._fieldAccessor.setInt32( fieldOfs, gi[ stA ] );
-				ed._fieldAccessor.setInt32( fieldOfs + 1, gi[ stA + 1 ] );
-				ed._fieldAccessor.setInt32( fieldOfs + 2, gi[ stA + 2 ] );
+				const iv = sv.edicts[ edictIndex ]._intView;
+				iv[ fieldOfs ] = gi[ stA ];
+				iv[ fieldOfs + 1 ] = gi[ stA + 1 ];
+				iv[ fieldOfs + 2 ] = gi[ stA + 2 ];
 				break;
 
 			}
 
-			case OP_ADDRESS: {
+			case 30: { // OP_ADDRESS
 
 				const ed = PROG_TO_EDICT( gi[ stA ] );
-				if ( ed === sv.edicts[ 0 ] && sv.state === ss_active )
+				if ( ed === sv.edicts[ 0 ] && sv.state === ss_active ) {
+
+					PR_SetXStatement( s );
 					PR_RunError( 'assignment to world entity' );
+
+				}
+
 				// Encode edict index and field offset into a single int
 				// b->_int is the field offset within the edict
 				gi[ stC ] = ( ed.index << 16 ) | ( gi[ stB ] & 0xFFFF );
@@ -604,56 +603,60 @@ function PR_ExecuteProgram_Loop( fnum ) {
 
 			}
 
-			case OP_LOAD_F:
-			case OP_LOAD_FLD:
-			case OP_LOAD_ENT:
-			case OP_LOAD_S:
-			case OP_LOAD_FNC: {
+			case 24: // OP_LOAD_F
+			case 28: // OP_LOAD_FLD
+			case 27: // OP_LOAD_ENT
+			case 26: // OP_LOAD_S
+			case 29: { // OP_LOAD_FNC
 
-				const ed = PROG_TO_EDICT( gi[ stA ] );
-				gi[ stC ] = ed._fieldAccessor.getInt32( gi[ stB ] );
+				let ed = sv.edicts[ gi[ stA ] ];
+				if ( ed === undefined ) ed = PROG_TO_EDICT( gi[ stA ] );
+				gi[ stC ] = ed._intView[ gi[ stB ] ];
 				break;
 
 			}
 
-			case OP_LOAD_V: {
+			case 25: { // OP_LOAD_V
 
-				const ed = PROG_TO_EDICT( gi[ stA ] );
+				let ed = sv.edicts[ gi[ stA ] ];
+				if ( ed === undefined ) ed = PROG_TO_EDICT( gi[ stA ] );
 				const fieldOfs = gi[ stB ];
-				gf[ stC ] = ed._fieldAccessor.getFloat( fieldOfs );
-				gf[ stC + 1 ] = ed._fieldAccessor.getFloat( fieldOfs + 1 );
-				gf[ stC + 2 ] = ed._fieldAccessor.getFloat( fieldOfs + 2 );
+				const fv = ed._floatView;
+				gf[ stC ] = fv[ fieldOfs ];
+				gf[ stC + 1 ] = fv[ fieldOfs + 1 ];
+				gf[ stC + 2 ] = fv[ fieldOfs + 2 ];
 				break;
 
 			}
 
 			//==================
 
-			case OP_IFNOT:
+			case 50: // OP_IFNOT
 				if ( gi[ stA ] === 0 )
 					s += stB - 1; // offset the s++
 				break;
 
-			case OP_IF:
+			case 49: // OP_IF
 				if ( gi[ stA ] !== 0 )
 					s += stB - 1; // offset the s++
 				break;
 
-			case OP_GOTO:
+			case 61: // OP_GOTO
 				s += stA - 1; // offset the s++
 				break;
 
-			case OP_CALL0:
-			case OP_CALL1:
-			case OP_CALL2:
-			case OP_CALL3:
-			case OP_CALL4:
-			case OP_CALL5:
-			case OP_CALL6:
-			case OP_CALL7:
-			case OP_CALL8: {
+			case 51: // OP_CALL0
+			case 52: // OP_CALL1
+			case 53: // OP_CALL2
+			case 54: // OP_CALL3
+			case 55: // OP_CALL4
+			case 56: // OP_CALL5
+			case 57: // OP_CALL6
+			case 58: // OP_CALL7
+			case 59: { // OP_CALL8
 
-				PR_SetArgc( st.op - OP_CALL0 );
+				PR_SetXStatement( s );
+				PR_SetArgc( code[ o ] - OP_CALL0 );
 
 				if ( ! gi[ stA ] )
 					PR_RunError( 'NULL function' );
@@ -672,12 +675,13 @@ function PR_ExecuteProgram_Loop( fnum ) {
 				}
 
 				s = PR_EnterFunction( newf );
+				xf = pr_xfunction;
 				break;
 
 			}
 
-			case OP_DONE:
-			case OP_RETURN:
+			case 0: // OP_DONE
+			case 43: // OP_RETURN
 				gi[ OFS_RETURN ] = gi[ stA ];
 				gi[ OFS_RETURN + 1 ] = gi[ stA + 1 ];
 				gi[ OFS_RETURN + 2 ] = gi[ stA + 2 ];
@@ -685,9 +689,10 @@ function PR_ExecuteProgram_Loop( fnum ) {
 				s = PR_LeaveFunction();
 				if ( pr_depth === exitdepth )
 					return; // all done
+				xf = pr_xfunction;
 				break;
 
-			case OP_STATE: {
+			case 60: { // OP_STATE
 
 				const ed = PROG_TO_EDICT( pr_global_struct.self );
 				ed.v.nextthink = pr_global_struct.time + 0.1;
@@ -703,9 +708,20 @@ function PR_ExecuteProgram_Loop( fnum ) {
 			}
 
 			default:
-				PR_RunError( 'Bad opcode %i', st.op );
+				PR_SetXStatement( s );
+				PR_RunError( 'Bad opcode %i', code[ o ] );
 
 		}
+
+	}
+
+	} catch ( e ) {
+
+		// the statement that threw is s, whatever pr_xstatement last held
+		PR_SetXStatement( s );
+		if ( e instanceof TypeError )
+			PR_CheckBadEdict();
+		throw e;
 
 	}
 
