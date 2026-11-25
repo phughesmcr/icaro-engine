@@ -10,7 +10,7 @@ import { Host_Error } from './host.js';
 import { Con_Printf, Con_DPrintf, COM_StripExtension } from './common.js';
 import { d_8to24table, vid, renderer } from './vid.js';
 import { COM_LoadFile, COM_FindFile, COM_FileExists, COM_EnsureFile } from './pak.js';
-import { DotProduct, VectorCopy, Length } from './mathlib.js';
+import { VectorCopy, Length } from './mathlib.js';
 import { Cvar_RegisterVariable, Cvar_SetValue } from './cvar.js';
 import { r_nolerp_list } from './render.js';
 import { MAX_DLIGHTS, cls, ca_dedicated } from './client.js';
@@ -179,11 +179,15 @@ export const MAX_SURFACE_EXTENTS = 2000;
 // In-memory model structures (m*_t)
 // ============================================================================
 
+// Typed-array fields can be views into a caller's slab: `new Float32Array( 3 )`
+// per struct costs ~6x a view over a shared buffer in V8 (a BSP has tens of
+// thousands of structs), and each backing store adds GC work. A struct built
+// without a slab allocates its own, as before. Slab offsets are 4-aligned.
 export class mvertex_t {
 
-	constructor() {
+	constructor( buffer = null, byteOffset = 0 ) {
 
-		this.position = new Float32Array( 3 );
+		this.position = buffer !== null ? new Float32Array( buffer, byteOffset, 3 ) : new Float32Array( 3 );
 
 	}
 
@@ -191,9 +195,9 @@ export class mvertex_t {
 
 export class mplane_t {
 
-	constructor() {
+	constructor( buffer = null, byteOffset = 0 ) {
 
-		this.normal = new Float32Array( 3 );
+		this.normal = buffer !== null ? new Float32Array( buffer, byteOffset, 3 ) : new Float32Array( 3 );
 		this.dist = 0;
 		this.type = 0;		// for texture axis selection and fast side tests
 		this.signbits = 0;	// signx + signy<<1 + signz<<2
@@ -225,12 +229,12 @@ export class texture_t {
 
 export class medge_t {
 
-	constructor() {
+	constructor( buffer = null, byteOffset = 0 ) {
 
 		// Deliberate deviation (Ironwail medge_t): unsigned int vertex
 		// numbers, so BSP2 maps with more than 65535 vertexes load. The C
 		// holds unsigned shorts.
-		this.v = new Uint32Array( 2 );
+		this.v = buffer !== null ? new Uint32Array( buffer, byteOffset, 2 ) : new Uint32Array( 2 );
 		this.cachededgeoffset = 0;
 
 	}
@@ -267,9 +271,19 @@ export class glpoly_t {
 
 }
 
+// Bytes of typed-array storage per msurface_t slab slot, in the order
+// texturemins (Int32 x2), cached_light (Int32 x MAXLIGHTMAPS), dlightbits
+// (Uint32 words), extents (Int16 x2), styles (Uint8 x MAXLIGHTMAPS)
+// (a function: MAX_DLIGHTS comes from client.js, which is in an import cycle)
+export function MSURFACE_SLAB_BYTES() {
+
+	return 8 + MAXLIGHTMAPS * 4 + ( ( MAX_DLIGHTS + 31 ) >> 5 ) * 4 + 4 + ( ( MAXLIGHTMAPS + 3 ) & ~ 3 );
+
+}
+
 export class msurface_t {
 
-	constructor() {
+	constructor( buffer = null, byteOffset = 0 ) {
 
 		this.visframe = 0;		// should be drawn when node is crossed
 
@@ -285,8 +299,24 @@ export class msurface_t {
 		// 16 bits and move the lightmap origin. Values that fit in a short
 		// (all of id's maps) are unchanged. extents stays `short`, as in
 		// Ironwail: lightmapped faces are capped at MAX_SURFACE_EXTENTS.
-		this.texturemins = new Int32Array( 2 );
-		this.extents = new Int16Array( 2 );
+		const dlightwords = ( MAX_DLIGHTS + 31 ) >> 5;
+		if ( buffer !== null ) {
+
+			this.texturemins = new Int32Array( buffer, byteOffset, 2 );
+			this.cached_light = new Int32Array( buffer, byteOffset + 8, MAXLIGHTMAPS );	// values currently used in lightmap
+			this.dlightbits = new Uint32Array( buffer, byteOffset + 8 + MAXLIGHTMAPS * 4, dlightwords );
+			this.extents = new Int16Array( buffer, byteOffset + 8 + MAXLIGHTMAPS * 4 + dlightwords * 4, 2 );
+			this.styles = new Uint8Array( buffer, byteOffset + 12 + MAXLIGHTMAPS * 4 + dlightwords * 4, MAXLIGHTMAPS );
+
+		} else {
+
+			this.texturemins = new Int32Array( 2 );
+			this.cached_light = new Int32Array( MAXLIGHTMAPS );
+			this.dlightbits = new Uint32Array( dlightwords );
+			this.extents = new Int16Array( 2 );
+			this.styles = new Uint8Array( MAXLIGHTMAPS );
+
+		}
 
 		this.light_s = 0;
 		this.light_t = 0;		// gl lightmap coordinates
@@ -298,12 +328,9 @@ export class msurface_t {
 
 		// lighting info
 		this.dlightframe = 0;
-		// QuakeSpasm: one bit per dynamic light, in 32-bit words
-		this.dlightbits = new Uint32Array( ( MAX_DLIGHTS + 31 ) >> 5 );
+		// QuakeSpasm: one bit per dynamic light, in 32-bit words (dlightbits, above)
 
 		this.lightmaptexturenum = 0;
-		this.styles = new Uint8Array( MAXLIGHTMAPS );
-		this.cached_light = new Int32Array( MAXLIGHTMAPS );	// values currently used in lightmap
 		this.cached_dlight = false;							// true if dynamic light in cache
 		this.samples = null;		// Uint8Array -- [numstyles*surfsize]
 		this.sampleOffset = 0;		// offset into lightdata
@@ -316,13 +343,13 @@ export class msurface_t {
 
 export class mnode_t {
 
-	constructor() {
+	constructor( buffer = null, byteOffset = 0 ) {
 
 		// common with leaf
 		this.contents = 0;		// 0, to differentiate from leafs
 		this.visframe = 0;		// node needs to be traversed if current
 
-		this.minmaxs = new Float32Array( 6 );	// for bounding box culling
+		this.minmaxs = buffer !== null ? new Float32Array( buffer, byteOffset, 6 ) : new Float32Array( 6 );	// for bounding box culling
 
 		this.parent = null;
 
@@ -337,17 +364,25 @@ export class mnode_t {
 
 }
 
+// minmaxs (Float32 x6) then ambient_sound_level (Uint8 x NUM_AMBIENTS)
+export function MLEAF_SLAB_BYTES() {
+
+	return 24 + ( ( NUM_AMBIENTS + 3 ) & ~ 3 );
+
+}
+
 export class mleaf_t {
 
-	constructor() {
+	constructor( buffer = null, byteOffset = 0 ) {
 
 		// common with node
 		this.contents = 0;		// will be a negative contents number
 		this.visframe = 0;		// node needs to be traversed if current
 
-		this.minmaxs = new Float32Array( 6 );	// for bounding box culling
+		this.minmaxs = buffer !== null ? new Float32Array( buffer, byteOffset, 6 ) : new Float32Array( 6 );	// for bounding box culling
 
 		this.parent = null;
+		this._leafIndex = 0;			// set by Mod_LoadLeafs; declared here so the shape doesn't change
 
 		// leaf specific
 		this.compressed_vis = null;		// Uint8Array slice
@@ -357,7 +392,7 @@ export class mleaf_t {
 		this.firstmarksurface = 0;		// index into marksurfaces array
 		this.nummarksurfaces = 0;
 		this.key = 0;					// BSP sequence number for leaf's contents
-		this.ambient_sound_level = new Uint8Array( NUM_AMBIENTS );
+		this.ambient_sound_level = buffer !== null ? new Uint8Array( buffer, byteOffset + 24, NUM_AMBIENTS ) : new Uint8Array( NUM_AMBIENTS );
 
 	}
 
@@ -365,13 +400,13 @@ export class mleaf_t {
 
 export class dclipnode_t {
 
-	constructor() {
+	constructor( buffer = null, byteOffset = 0 ) {
 
 		this.planenum = 0;
 		// Deliberate deviation (QuakeSpasm mclipnode_t): int children, so
 		// clipnode and hull 0 node indices past 32767 don't wrap. dclipnode_t
 		// holds short children.
-		this.children = new Int32Array( 2 );
+		this.children = buffer !== null ? new Int32Array( buffer, byteOffset, 2 ) : new Int32Array( 2 );
 
 	}
 
@@ -727,6 +762,19 @@ let decompressed = new Uint8Array( 0 );
 
 export function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbright, keepBase = false ) {
 
+	// Not in the C: a dedicated server never uploads or draws, so it keeps
+	// the texture object (models still own and dispose one per texture) but
+	// skips the resample, the 8-bit to RGBA conversion and the filter-update
+	// registry (glquake.js scans it linearly per texture)
+	if ( cls.state === ca_dedicated ) {
+
+		const texture = new THREE.DataTexture( null, width, height, THREE.RGBAFormat );
+		texture.name = name;
+		if ( loadmodel != null ) loadmodel._threeTextures.add( texture );
+		return texture;
+
+	}
+
 	const scaled = GL_ScaledTextureSize( width, height );
 	if ( scaled.width !== width || scaled.height !== height ) {
 
@@ -845,6 +893,11 @@ export function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitF
 }
 
 function GL_SubdivideSurface( s ) {
+
+	// Not in the C: the warp polygons are drawing data a dedicated server
+	// never reads
+	if ( cls.state === ca_dedicated )
+		return;
 
 	GL_Warp_SetLoadmodel( loadmodel );
 	GL_SubdivideSurface_warp( s );
@@ -1097,7 +1150,8 @@ export function Mod_PointInLeaf( p, model ) {
 		}
 
 		const plane = node.plane;
-		const d = DotProduct( p, plane.normal ) - plane.dist;
+		const n = plane.normal;
+		const d = p[ 0 ] * n[ 0 ] + p[ 1 ] * n[ 1 ] + p[ 2 ] * n[ 2 ] - plane.dist;
 		if ( d > 0 )
 			node = node.children[ 0 ];
 		else
@@ -1799,9 +1853,10 @@ function Mod_LoadVertexes( fileofs, filelen ) {
 	loadmodel.vertexes = out;
 	loadmodel.numvertexes = count;
 
+	const slab = new ArrayBuffer( count * SIZEOF_DVERTEX );
 	for ( let i = 0; i < count; i ++ ) {
 
-		const v = new mvertex_t();
+		const v = new mvertex_t( slab, i * SIZEOF_DVERTEX );
 		const base = i * SIZEOF_DVERTEX;
 		v.position[ 0 ] = view.getFloat32( base, true );
 		v.position[ 1 ] = view.getFloat32( base + 4, true );
@@ -1831,9 +1886,10 @@ function Mod_LoadEdges( fileofs, filelen, bsp2 = false ) {
 	loadmodel.edges = out;
 	loadmodel.numedges = count;
 
+	const slab = new ArrayBuffer( ( count + 1 ) * 8 );
 	for ( let i = 0; i < count; i ++ ) {
 
-		const e = new medge_t();
+		const e = new medge_t( slab, i * 8 );
 		const base = i * size;
 		if ( bsp2 ) {
 
@@ -1852,7 +1908,7 @@ function Mod_LoadEdges( fileofs, filelen, bsp2 = false ) {
 	}
 
 	// +1 slot (matches C allocation)
-	out[ count ] = new medge_t();
+	out[ count ] = new medge_t( slab, count * 8 );
 
 }
 
@@ -1893,9 +1949,10 @@ function Mod_LoadPlanes( fileofs, filelen ) {
 	loadmodel.planes = out;
 	loadmodel.numplanes = count;
 
+	const slab = new ArrayBuffer( count * 2 * 12 );
 	for ( let i = 0; i < count; i ++ ) {
 
-		const p = new mplane_t();
+		const p = new mplane_t( slab, i * 12 );
 		const base = i * SIZEOF_DPLANE;
 		let bits = 0;
 
@@ -1917,7 +1974,7 @@ function Mod_LoadPlanes( fileofs, filelen ) {
 
 	// Fill remaining slots (C allocates count*2)
 	for ( let i = count; i < count * 2; i ++ )
-		out[ i ] = new mplane_t();
+		out[ i ] = new mplane_t( slab, i * 12 );
 
 }
 
@@ -2003,39 +2060,36 @@ function CalcSurfaceExtents( s ) {
 	// +/-FLT_MAX. Both give the same result for any face inside the old seeds
 	// (any BSP29 map id could build, and every shipped map); only a face
 	// entirely beyond them (possible in BSP2) differs, where id's is wrong.
-	const mins = [ FLT_MAX, FLT_MAX ];
-	const maxs = [ - FLT_MAX, - FLT_MAX ];
+	let mins0 = FLT_MAX, mins1 = FLT_MAX;
+	let maxs0 = - FLT_MAX, maxs1 = - FLT_MAX;
 
 	const tex = s.texinfo;
+	const vec0 = tex.vecs[ 0 ], vec1 = tex.vecs[ 1 ];
+	const surfedges = loadmodel.surfedges, edges = loadmodel.edges, vertexes = loadmodel.vertexes;
 
 	for ( let i = 0; i < s.numedges; i ++ ) {
 
-		const e = loadmodel.surfedges[ s.firstedge + i ];
+		const e = surfedges[ s.firstedge + i ];
 		let v;
 		if ( e >= 0 )
-			v = loadmodel.vertexes[ loadmodel.edges[ e ].v[ 0 ] ];
+			v = vertexes[ edges[ e ].v[ 0 ] ];
 		else
-			v = loadmodel.vertexes[ loadmodel.edges[ - e ].v[ 1 ] ];
+			v = vertexes[ edges[ - e ].v[ 1 ] ];
 
-		for ( let j = 0; j < 2; j ++ ) {
-
-			const val = v.position[ 0 ] * tex.vecs[ j ][ 0 ] +
-						v.position[ 1 ] * tex.vecs[ j ][ 1 ] +
-						v.position[ 2 ] * tex.vecs[ j ][ 2 ] +
-						tex.vecs[ j ][ 3 ];
-			if ( val < mins[ j ] )
-				mins[ j ] = val;
-			if ( val > maxs[ j ] )
-				maxs[ j ] = val;
-
-		}
+		const p = v.position;
+		const val0 = p[ 0 ] * vec0[ 0 ] + p[ 1 ] * vec0[ 1 ] + p[ 2 ] * vec0[ 2 ] + vec0[ 3 ];
+		const val1 = p[ 0 ] * vec1[ 0 ] + p[ 1 ] * vec1[ 1 ] + p[ 2 ] * vec1[ 2 ] + vec1[ 3 ];
+		if ( val0 < mins0 ) mins0 = val0;
+		if ( val0 > maxs0 ) maxs0 = val0;
+		if ( val1 < mins1 ) mins1 = val1;
+		if ( val1 > maxs1 ) maxs1 = val1;
 
 	}
 
 	for ( let i = 0; i < 2; i ++ ) {
 
-		const bmins = Math.floor( mins[ i ] / 16 );
-		const bmaxs = Math.ceil( maxs[ i ] / 16 );
+		const bmins = Math.floor( ( i === 0 ? mins0 : mins1 ) / 16 );
+		const bmaxs = Math.ceil( ( i === 0 ? maxs0 : maxs1 ) / 16 );
 
 		s.texturemins[ i ] = bmins * 16;
 		s.extents[ i ] = ( bmaxs - bmins ) * 16;
@@ -2198,9 +2252,11 @@ function Mod_LoadFaces( fileofs, filelen, bsp2 = false ) {
 	loadmodel.surfaces = out;
 	loadmodel.numsurfaces = count;
 
+	const slabBytes = MSURFACE_SLAB_BYTES();
+	const slab = new ArrayBuffer( count * slabBytes );
 	for ( let surfnum = 0; surfnum < count; surfnum ++ ) {
 
-		const s = new msurface_t();
+		const s = new msurface_t( slab, surfnum * slabBytes );
 		const base = surfnum * size;
 
 		let planenum, side, texinfon, stylesofs, lightofs;
@@ -2322,15 +2378,21 @@ function Mod_LoadNodes( fileofs, filelen, bsp2 = false ) {
 	loadmodel.nodes = out;
 	loadmodel.numnodes = count;
 
+	// Child numbers, resolved once every node and leaf exists: nodeChild[ 2 * i + j ]
+	// is the node index, or -1 for a leaf, whose index is in leafChild[ 2 * i + j ].
+	// (A property added then deleted per node would put every node in slow
+	// dictionary mode, which the BSP walks in physics and rendering pay for.)
+	const nodeChild = new Int32Array( count * 2 );
+	const leafChild = new Int32Array( count * 2 );
+	const slab = new ArrayBuffer( count * 24 );
+
 	for ( let i = 0; i < count; i ++ ) {
 
-		const node = new mnode_t();
+		const node = new mnode_t( slab, i * 24 );
 		const base = i * size;
 
 		const p = view.getInt32( base, true );
 		node.plane = loadmodel.planes[ p ];
-
-		node._childIndex = [];
 
 		if ( bsp2 ) {
 
@@ -2349,7 +2411,7 @@ function Mod_LoadNodes( fileofs, filelen, bsp2 = false ) {
 				let c = view.getInt32( base + 4 + j * 4, true );
 				if ( c > 0 && c < count ) {
 
-					node._childIndex[ j ] = { type: 'node', index: c };
+					nodeChild[ i * 2 + j ] = c;
 
 				} else {
 
@@ -2361,7 +2423,8 @@ function Mod_LoadNodes( fileofs, filelen, bsp2 = false ) {
 
 					}
 
-					node._childIndex[ j ] = { type: 'leaf', index: c };
+					nodeChild[ i * 2 + j ] = - 1;
+					leafChild[ i * 2 + j ] = c;
 
 				}
 
@@ -2390,8 +2453,7 @@ function Mod_LoadNodes( fileofs, filelen, bsp2 = false ) {
 			let p = view.getUint16( base + 4 + j * 2, true );
 			if ( p < count ) {
 
-				node.children[ j ] = null; // will be resolved after all nodes created
-				node._childIndex[ j ] = { type: 'node', index: p };
+				nodeChild[ i * 2 + j ] = p; // children[ j ] is resolved after all nodes are created
 
 			} else {
 
@@ -2403,7 +2465,8 @@ function Mod_LoadNodes( fileofs, filelen, bsp2 = false ) {
 
 				}
 
-				node._childIndex[ j ] = { type: 'leaf', index: p };
+				nodeChild[ i * 2 + j ] = - 1;
+				leafChild[ i * 2 + j ] = p;
 
 			}
 
@@ -2419,20 +2482,10 @@ function Mod_LoadNodes( fileofs, filelen, bsp2 = false ) {
 		const node = out[ i ];
 		for ( let j = 0; j < 2; j ++ ) {
 
-			const ci = node._childIndex[ j ];
-			if ( ci.type === 'node' ) {
-
-				node.children[ j ] = loadmodel.nodes[ ci.index ];
-
-			} else {
-
-				node.children[ j ] = loadmodel.leafs[ ci.index ];
-
-			}
+			const ci = nodeChild[ i * 2 + j ];
+			node.children[ j ] = ci >= 0 ? out[ ci ] : loadmodel.leafs[ leafChild[ i * 2 + j ] ];
 
 		}
-
-		delete node._childIndex;
 
 	}
 
@@ -2469,9 +2522,11 @@ function Mod_LoadLeafs( fileofs, filelen, bsp2 = false ) {
 	// size the PVS rows now so Mod_LeafPVS never allocates per frame
 	Mod_AllocVisBuffers( count );
 
+	const slabBytes = MLEAF_SLAB_BYTES();
+	const slab = new ArrayBuffer( count * slabBytes );
 	for ( let i = 0; i < count; i ++ ) {
 
-		const leaf = new mleaf_t();
+		const leaf = new mleaf_t( slab, i * slabBytes );
 		leaf._leafIndex = i; // store index for PVS checks (C uses pointer arithmetic: leaf - sv.worldmodel->leafs)
 		const base = i * size;
 
@@ -2592,9 +2647,10 @@ function Mod_LoadClipnodes( fileofs, filelen, bsp2 = false ) {
 	hull2.clip_maxs[ 1 ] = 32;
 	hull2.clip_maxs[ 2 ] = 64;
 
+	const slab = new ArrayBuffer( count * 8 );
 	for ( let i = 0; i < count; i ++ ) {
 
-		const cn = new dclipnode_t();
+		const cn = new dclipnode_t( slab, i * 8 );
 		const base = i * size;
 
 		cn.planenum = view.getInt32( base, true );
@@ -2659,9 +2715,10 @@ function Mod_MakeHull0() {
 	for ( let i = 0; i < count; i ++ )
 		nodenums.set( _in[ i ], i );
 
+	const slab = new ArrayBuffer( count * 8 );
 	for ( let i = 0; i < count; i ++ ) {
 
-		const cn = new dclipnode_t();
+		const cn = new dclipnode_t( slab, i * 8 );
 		const node = _in[ i ];
 
 		const planenum = planenums.get( node.plane );
@@ -3173,11 +3230,17 @@ function Mod_LoadAllSkins( buf, numskins, offset ) {
 			// Skin data starts after the type int
 			const skinDataOfs = pos + SIZEOF_DALIASSKINTYPE;
 			const skin = new Uint8Array( buf, skinDataOfs, s );
-			Mod_FloodFillSkin( skin, pheader.skinwidth, pheader.skinheight );
 
-			// Save 8 bit texels for player model remapping
-			pheader.texels[ i ] = new Uint8Array( s );
-			pheader.texels[ i ].set( skin );
+			// a dedicated server never draws or remaps a skin
+			if ( cls.state !== ca_dedicated ) {
+
+				Mod_FloodFillSkin( skin, pheader.skinwidth, pheader.skinheight );
+
+				// Save 8 bit texels for player model remapping
+				pheader.texels[ i ] = new Uint8Array( s );
+				pheader.texels[ i ].set( skin );
+
+			}
 
 			const name = loadmodel.name + '_' + i;
 			pheader.gl_texturenum[ i ][ 0 ] =
@@ -3202,9 +3265,10 @@ function Mod_LoadAllSkins( buf, numskins, offset ) {
 			for ( let j = 0; j < groupskins; j ++ ) {
 
 				const skin = new Uint8Array( buf, pos, s );
-				Mod_FloodFillSkin( skin, pheader.skinwidth, pheader.skinheight );
+				if ( cls.state !== ca_dedicated )
+					Mod_FloodFillSkin( skin, pheader.skinwidth, pheader.skinheight );
 
-				if ( j === 0 ) {
+				if ( j === 0 && cls.state !== ca_dedicated ) {
 
 					pheader.texels[ i ] = new Uint8Array( s );
 					pheader.texels[ i ].set( skin );
@@ -3336,10 +3400,10 @@ function Mod_LoadAliasModel( mod, buffer ) {
 	const SIZEOF_STVERT = 12;
 	for ( let i = 0; i < pheader.numverts; i ++ ) {
 
-		const sv = new DataView( buffer, pos + i * SIZEOF_STVERT );
-		stverts[ i ].onseam = sv.getInt32( 0, true );
-		stverts[ i ].s = sv.getInt32( 4, true );
-		stverts[ i ].t = sv.getInt32( 8, true );
+		const o = pos + i * SIZEOF_STVERT;
+		stverts[ i ].onseam = view.getInt32( o, true );
+		stverts[ i ].s = view.getInt32( o + 4, true );
+		stverts[ i ].t = view.getInt32( o + 8, true );
 
 	}
 
@@ -3352,10 +3416,10 @@ function Mod_LoadAliasModel( mod, buffer ) {
 	const SIZEOF_DTRIANGLE = 16;
 	for ( let i = 0; i < pheader.numtris; i ++ ) {
 
-		const tv = new DataView( buffer, pos + i * SIZEOF_DTRIANGLE );
-		triangles[ i ].facesfront = tv.getInt32( 0, true );
+		const o = pos + i * SIZEOF_DTRIANGLE;
+		triangles[ i ].facesfront = view.getInt32( o, true );
 		for ( let j = 0; j < 3; j ++ )
-			triangles[ i ].vertindex[ j ] = tv.getInt32( 4 + j * 4, true );
+			triangles[ i ].vertindex[ j ] = view.getInt32( o + 4 + j * 4, true );
 
 	}
 
@@ -3392,39 +3456,46 @@ function Mod_LoadAliasModel( mod, buffer ) {
 	mod.mins[ 0 ] = mod.mins[ 1 ] = mod.mins[ 2 ] = - 16;
 	mod.maxs[ 0 ] = mod.maxs[ 1 ] = mod.maxs[ 2 ] = 16;
 
-	//
-	// Decode poseverts from raw {buffer, offset} into arrays of trivertx_t objects
-	// so that GL_MakeAliasModelDisplayLists can index them
-	//
-	const decodedPoseverts = [];
-	for ( let i = 0; i < pheader.numposes; i ++ ) {
+	// Not in the C: a dedicated server never draws, and nothing else reads
+	// the decoded vertices or the display lists (posedata, commands and the
+	// cull sphere are renderer data), so it skips building them
+	if ( cls.state !== ca_dedicated ) {
 
-		const pv = poseverts[ i ];
-		const verts = [];
-		const data = new Uint8Array( pv.buffer );
-		for ( let j = 0; j < pheader.numverts; j ++ ) {
+		//
+		// Decode poseverts from raw {buffer, offset} into arrays of trivertx_t objects
+		// so that GL_MakeAliasModelDisplayLists can index them
+		//
+		const decodedPoseverts = [];
+		for ( let i = 0; i < pheader.numposes; i ++ ) {
 
-			const off = pv.offset + j * 4; // trivertx_t = 4 bytes: v[3] + lightnormalindex
-			verts.push( {
-				v: [ data[ off ], data[ off + 1 ], data[ off + 2 ] ],
-				lightnormalindex: data[ off + 3 ]
-			} );
+			const pv = poseverts[ i ];
+			const verts = [];
+			const data = new Uint8Array( pv.buffer );
+			for ( let j = 0; j < pheader.numverts; j ++ ) {
+
+				const off = pv.offset + j * 4; // trivertx_t = 4 bytes: v[3] + lightnormalindex
+				verts.push( {
+					v: [ data[ off ], data[ off + 1 ], data[ off + 2 ] ],
+					lightnormalindex: data[ off + 3 ]
+				} );
+
+			}
+
+			decodedPoseverts.push( verts );
 
 		}
 
-		decodedPoseverts.push( verts );
+		// Wire up data needed by GL_MakeAliasModelDisplayLists
+		pheader.triangles = triangles;
+		pheader.stverts = stverts;
+		pheader.poseverts = decodedPoseverts;
+
+		//
+		// build the draw lists
+		//
+		GL_MakeAliasModelDisplayLists( mod, pheader );
 
 	}
-
-	// Wire up data needed by GL_MakeAliasModelDisplayLists
-	pheader.triangles = triangles;
-	pheader.stverts = stverts;
-	pheader.poseverts = decodedPoseverts;
-
-	//
-	// build the draw lists
-	//
-	GL_MakeAliasModelDisplayLists( mod, pheader );
 
 	//
 	// move the complete, relocatable alias model to the cache

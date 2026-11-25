@@ -157,7 +157,7 @@ PRs #163 to #166 (Part 3's low findings):
 
 - **CD music:** the rest of CD-3 (#163). One control sets the music level: the gain node when the element is routed through Web Audio, with the element at full volume, or the element's own volume when it isn't, so the level is no longer applied twice. An unrouted element pauses while the tab is hidden, as the sound system does. `cd eject` stops the music first, as `cd_win.c` does. `cd close` has nothing to do without a tray. Not checked in a browser; #163 lists the manual steps.
 - **Textures and WebXR:** TEX-2, TEX-3 and XR-3 (#164).
-  - `VID_SetPalette` clears only the alpha of palette index 255, as `gl_vidnt.c` does, so it keeps its colour (159, 91, 83). `GL_LoadTexture` in `gl_model.js` (#166) and the 2D paths in `gl_draw.js` carry that colour under transparent texels, as `GL_Upload8` does. The 2D pictures go through a canvas, which drops the colour under alpha 0, so only the 3D textures change on screen.
+  - `VID_SetPalette` clears only the alpha of palette index 255, as `gl_vidnt.c` does, so it keeps its colour (159, 91, 83). `GL_LoadTexture` in `gl_model.js` (#166) and the 2D paths in `gl_draw.js` carry that colour under transparent texels, as `GL_Upload8` does. (A dedicated server skips the conversion and keeps an empty texture, as it never draws.) The 2D pictures go through a canvas, which drops the colour under alpha 0, so only the 3D textures change on screen.
   - The sky's `GL_LINEAR` already matches `R_InitSky`, so it is unchanged.
   - In XR, the window `resize` handler no longer resizes the renderer while a session is presenting, and it resyncs when the session ends. The rig ignores `cl.viewangles` pitch, which the headset supplies; section 7 has the entry. `r_origin`, the view leaf, `R_MarkLeaves` and `V_SetContentsColor` use the head's position from the previous frame, as C uses the camera's. That position is reset on a new map and on a jump of more than 128 units. The desktop path is unchanged.
   - No headset or browser check was done.
@@ -475,7 +475,7 @@ Later PRs changed some of these on purpose: the `MSG_Write*` rounding, the wire 
   - `CL_UpdateTEnts` loop variable.
   - `chase.c` trace initialisation.
   - Alias frame `bboxmax`.
-  - `Mod_FloodFillSkin` on every skin.
+  - `Mod_FloodFillSkin` on every skin (except on a dedicated server, which never draws or remaps skins).
 - **Omitted platform features:** the DOS/Win32 platform code, serial/modem/IPX menus, the video mode menu, and `#ifdef QUAKE2` code.
 - **Registered-content checks kept looser on purpose** (decided in [#10]):
   - `COM_FindFile`'s shareware rule that refuses loose files whose path contains `/` is not ported. The port ships its deathmatch maps as loose `static/maps/*.bsp` files next to the shareware pak, and the rule would refuse them.
