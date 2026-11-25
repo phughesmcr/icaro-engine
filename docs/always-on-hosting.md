@@ -22,11 +22,12 @@ joins the room and stops when the room's idle timeout makes the process
 exit. So the game is always *reachable* without anything always *running*,
 and nothing depends on the Mac.
 
-- **Why not a Durable Object per room:** a room needs about 97 MB of heap and
-  buffers after a full GC, and more at peak [measured], against a 128 MB
-  isolate limit that instances of the same class can share [docs]. The
-  engine keeps its state in module globals, so two rooms can't share an
-  isolate either. Fitting would mean trimming the server build *and*
+- **Why not a Durable Object per room:** the deciding reason is that
+  instances of one class can share an isolate [docs], and the engine keeps
+  its state in module globals, so two rooms in one isolate would corrupt
+  each other. Memory alone is marginal: a room needs about 97 MB of heap
+  and buffers after a full GC, and 95–230 MB under load without one
+  [measured], against a 128 MB isolate limit [docs]. Fitting would mean trimming the server build *and*
   de-globalising `src/`. That is a large refactor for a saving of about
   $3/month over Containers at this scale.
 - **Why Containers over a VPS:** it is Cloudflare-hosted, there is no machine
@@ -59,8 +60,9 @@ Deno process per room through `server/room_process_manager.ts`. A room:
 - **Game data:** `static/pak0.pak` (18.7 MB) is read whole into memory; only
   paks over 64 MB (`COM_LAZY_PAK_SIZE`) are read lazily from disk. Loose
   files (custom maps) are read from `static/` on demand.
-- **Startup requirements:** `-cert`/`-key` are mandatory, because the room
-  always opens a WebTransport listener and exits if it can't. A
+- **Startup requirements:** a loadable certificate and key (`-cert`/`-key`,
+  default `cert.pem`/`key.pem`), because the room always opens a
+  WebTransport listener and exits if it can't. A
   WebSocket-only room needs a small change (plan step 3).
 - **Timers:** one `setInterval` at `sys_ticrate` (50 ms, 20 Hz) plus a 5 s
   watchdog. `Sys_FloatTime` is `performance.now()`.
@@ -84,7 +86,7 @@ Tools added for this (not part of the game or CI, not linted):
 
 Hardware: Apple M4 Pro, Deno 2.9.8. A shared cloud vCPU is slower than one
 M4 Pro core; budget about 2× the CPU figures below [unverified]. Each row is
-a 30 s window after an 8 s warm-up, one run each, nothing else running.
+a 30 s window after an 8 s warm-up, one run each (two rows rerun, see † and ‡), nothing else running.
 Bandwidth counts WebSocket payload bytes only (add TCP/IP and TLS overhead).
 
 | Map | Bots | RSS | Heap + off-heap | CPU (% of a core) | CPU per tick | Tick wall time mean / p99 / max | Down (all clients) | Up (all clients) | Messages in / out per s |
@@ -93,7 +95,7 @@ Bandwidth counts WebSocket payload bytes only (add TCP/IP and TLS overhead).
 | e1m1 | 0 | 195 MB | 99 MB | 1.1% | 0.55 ms | 0.18 / 0.48 / 1.29 ms | 0 | 0 | 0 / 0 |
 | start | 1 | 202 MB | 101 MB | 3.4% | 1.73 ms | 0.68 / 1.42 / 2.69 ms | 1.4 KB/s | 2.2 KB/s | 71 / 20 |
 | e1m1 | 1 | 202 MB | 101 MB | 3.3% | 1.69 ms | 0.65 / 1.44 / 2.39 ms | 1.3 KB/s | 2.2 KB/s | 71 / 20 |
-| start | 4 | 313 MB | 125 MB | 4.6% | 2.37 ms | 1.07 / 2.28 / 73.3 ms | 6.8 KB/s | 8.6 KB/s | 285 / 70 † |
+| start | 4 | 206 MB | 106 MB | 4.1% | 2.09 ms | 0.91 / 2.72 / 8.33 ms | 8.1 KB/s | 8.6 KB/s | 285 / 78 † |
 | e1m1 | 4 | 211 MB | 105 MB | 5.0% | 2.55 ms | 1.46 / 2.62 / 3.28 ms | 6.5 KB/s | 8.6 KB/s | 285 / 78 |
 | e1m3 | 4 | 211 MB | 105 MB | 2.6% | 1.33 ms | 0.59 / 0.98 / 1.12 ms | 8.4 KB/s | 8.7 KB/s | 287 / 78 |
 | e1m7 | 4 | 194 MB | 95 MB | 2.8% | 1.43 ms | 0.50 / 0.92 / 1.33 ms | 10.5 KB/s | 8.7 KB/s | 286 / 78 |
@@ -102,65 +104,62 @@ Bandwidth counts WebSocket payload bytes only (add TCP/IP and TLS overhead).
 | e1m3 | 8 | 291 MB | 120 MB | 3.8% | 1.96 ms | 1.03 / 1.70 / 2.12 ms | 17.9 KB/s | 17.3 KB/s | 571 / 157 |
 | e1m7 | 8 | 286 MB | 131 MB | 4.3% | 2.18 ms | 1.07 / 1.93 / 2.22 ms | 31.7 KB/s | 17.3 KB/s | 571 / 157 |
 | start | 16 | 369 MB | 173 MB | 8.2% | 4.21 ms | 2.64 / 5.20 / 6.07 ms | 84.8 KB/s | 34.5 KB/s | 1140 / 314 |
-| e1m1 | 16 | 352 MB | 185 MB | 6.6% | 3.40 ms | 1.65 / 5.27 / 80.5 ms | 28.1 KB/s | 34.6 KB/s | 1141 / 162 † |
+| e1m1 | 16 | 372 MB | 229 MB | 5.5% | 2.83 ms | 1.70 / 4.14 / 4.72 ms | 72.1 KB/s | 34.5 KB/s | 1139 / 313 † |
 | e1m3 | 16 | 361 MB | 179 MB | 6.2% | 3.17 ms | 1.94 / 4.13 / 8.19 ms | 78.6 KB/s | 34.5 KB/s | 1139 / 313 |
 | e1m7 | 16 | 424 MB | 207 MB | 8.5% | 4.33 ms | 2.83 / 4.82 / 6.46 ms | 116 KB/s | 34.5 KB/s | 1139 / 313 |
 
 - RSS and heap + off-heap are at the end of the window, without a forced
   GC. CPU is the room process's user + system time over the window, so it
   includes WebSocket I/O and GC; tick wall time is the tick callback alone.
-- † The room stopped sending datagrams to every bot for part of the window
-  while it kept ticking (see "Datagram stalls" below), so these rows
-  understate the bandwidth and CPU.
-- ‡ From a rerun: the matrix run of e1m1 with 8 bots stalled after 7
-  seconds and sent no datagrams for the rest of the window.
+- † From a rerun. In the matrix run, a bot walked into the exit and the
+  level changed partway through, so the bots stopped receiving datagrams
+  (see "Level changes" below). The rerun had one map load. Every other
+  row with bots kept receiving 19.5 datagrams per bot per second for the
+  whole window, so none of them changed level.
+- ‡ From a rerun, as for †, of a run that changed level after 7 s.
 
 What the numbers say:
 
-- **Memory:** an idle room is about 195 MB RSS; 4 players about 195–310 MB,
-  16 players 350–425 MB. Heap plus off-heap, without a forced GC, is 95–130
-  MB up to 8 players and 170–210 MB at 16. That rules out a Workers isolate
+- **Memory:** an idle room is about 195 MB RSS (about 255 MB just after
+  startup; see "Memory by stage"); 4 players about 195–210 MB, 16 players
+  350–425 MB. Heap plus off-heap, without a forced GC, is 95–130
+  MB up to 8 players and 170–230 MB at 16. That rules out a Workers isolate
   and Cloudflare's `lite` container (256 MiB).
 - **CPU:** small. About 3–5% of one M4 Pro core for 4 players and up to 9%
-  for 16; a tick takes 0.5–3 ms on average and at most about 8 ms, against
-  its 50 ms budget. An idle room costs about 1%.
+  for 16. A tick's wall time averages 0.2–2.8 ms and never exceeded about
+  8 ms, against its 50 ms budget; process CPU per tick, which adds
+  WebSocket I/O and GC, is 0.5–4.3 ms. An idle room costs about 1%.
 - **Bandwidth:** each player receives 19.5 datagrams a second (the 20 Hz
-  tick). Down per player is 1.3–2.6 KB/s at 4 players and 5–7 KB/s at 16
+  tick). Down per player is 1.3–2.6 KB/s at 4 players and 4.5–7.3 KB/s at 16
   (more players in view). Up is 2.2 KB/s per player: 71 `clc_move`
   messages a second.
 - **Bots are not players:** they fire constantly and wander, so combat and
   projectiles are heavier than usual and movement is less spread out. Read
   the numbers as an order of magnitude.
 
-### Datagram stalls (WebSocket)
+### Level changes: `noexit` doesn't reach QuakeC
 
-In two matrix runs (e1m1 with 8 and with 16 bots), and briefly in a third,
-the room stopped sending datagrams to *every* client at once, while it kept
-ticking, the sockets stayed open and the bots kept sending moves. In the
-8-bot run it never recovered (7 s of datagrams, then none for 30 s). A
-rerun of the same case didn't stall. The cause is **not found**:
+In three of the first matrix runs (`start` with 4 bots, e1m1 with 8 and
+16), the room stopped sending datagrams to every bot partway through. The
+cause is a level change. A bot ran into the exit, the room loaded the next
+map (the 60–81 ms tick hitches in these runs are `SV_SpawnServer`), and the bots don't
+follow the `reconnect`, so the room had no spawned players for the rest of
+the run. `tools/room_bench.js` now reports `mapLoads` and prints a line when
+the level changes. Rerunning with the room's console shown reproduced it:
+`start` → e1m1 and e1m1 → e1m2. Earlier guesses at a WebSocket send-gate
+problem were wrong. In clean runs, the unacked-packet gap stays at 1–2 (the
+limit is 20) and `bufferedAmount` stays under 200 bytes.
 
-- Five more instrumented runs of the same case didn't stall. In them the
-  server's unacked-packet gap stayed at 1–2 (the limit is 20,
-  `WS_MAX_UNACKED_PACKETS`) and `bufferedAmount` stayed under 200 bytes, so
-  neither send gate in `server/net_websocket_server.ts` came near tripping.
-- Pausing the bot process (`SIGSTOP`) for 2 s, or the room for 2 s, lost
-  exactly those 2 s of datagrams, and both recovered at once.
-- A level change would look like this, because the bots don't sign on
-  again. The stalled runs' room logs weren't kept, so it isn't ruled out,
-  but nothing in these rooms should change level (`noexit 1`, no
-  `timelimit` or `fraglimit`). The client driver has no send gate of its
-  own.
-- The stalled runs had a 73–80 ms tick hitch; the clean ones had none
-  above about 8 ms. Earlier runs that overlapped other CPU-heavy work here
-  showed the same symptom more often, so load on the host may trigger it.
-
-It needs its own investigation before rooms go public: log both send gates and `SV_SendClientDatagram`'s
-early return per client when no datagram has gone out for a second, then
-rerun the matrix under background CPU load.
-
-This matters for any WebSocket-only deployment, Cloudflare included: a
-stalled room looks frozen to every player.
+This is a room bug, not only a bench artifact. `server/game_server.js` sets
+`noexit.value = 1` "to prevent level exits", but it never registers
+`noexit` (this process doesn't run `Host_InitLocal`). QuakeC reads it
+through `cvar("noexit")`, which looks in the cvar list, finds nothing and
+returns 0. So in any room, one player walking into an exit changes the map
+for everyone. Real clients follow the reconnect, so players see a level
+change rather than a freeze [unverified]. `applyGameOptions` already registers the
+cvars it sets for this reason. A fix should register `noexit` the same
+way. It also needs to decide what co-op rooms want, since `noexit 1` blocks
+exits in co-op too. That fix is separate from this document.
 
 ### Memory by stage (after a forced GC)
 
@@ -181,6 +180,12 @@ server-only build could probably shed part of that and of the 31 MB of
 imported modules [unverified]. Process RSS includes Deno's own runtime and
 V8's reserved heap, so it is the number that matters for a container or VM;
 heap plus off-heap is the number that matters for a Workers isolate.
+
+The probe's 253–256 MB RSS after spawning matches the bench: at the first
+tick, every bench room was at 228–258 MB RSS. An idle room then drops to
+about 195 MB within the 38 s before the window ends, as V8 and the OS give
+back pages used at load. So budget for the startup peak, not only the idle
+figure [measured].
 
 The lobby on its own, idle, uses about 35 MB RSS [measured].
 
@@ -326,9 +331,9 @@ so it would need testing [unverified].
 
 ## Plan: rooms on Cloudflare Containers
 
-Each step is its own PR against `dev`, except where noted. First, and
-whichever option is chosen, find the cause of the WebSocket datagram stalls
-above: they affect the VM option's WebSocket players too.
+Each step is its own PR against `dev`, except where noted. Separately, and
+whichever option is chosen, register `noexit` in rooms (see "Level changes"
+above).
 
 1. **Paid spike (needs your go-ahead: Workers Paid, $5/month).** Deploy one
    container running a room with the shareware pak and a Worker that proxies
@@ -392,8 +397,6 @@ the work.
 
 ## Not verified
 
-- The cause of the intermittent WebSocket datagram stalls, and whether real
-  players would hit them.
 - Whether each WebSocket message proxied to a container is billed as a DO
   request.
 - Container cold start for this image, placement for UK players, and the

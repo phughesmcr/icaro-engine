@@ -83,7 +83,7 @@ const room = new Deno.Command( Deno.execPath(), {
 		'-room', 'BENCH', '-idletimeout', '0', '-map', opts.map, '-maxclients', String( opts.maxclients ),
 		'-pak', opts.pak, '-cert', opts.cert, '-key', opts.key, '-port', String( opts.port ), '-wsport', String( opts.wsport )
 	],
-	stdout: 'null', stderr: 'piped', stdin: 'null'
+	stdout: 'piped', stderr: 'piped', stdin: 'null'
 } ).spawn();
 
 const reports = [];
@@ -108,6 +108,34 @@ let ready = false;
 			} else if ( line.startsWith( 'Fatal' ) || line.includes( 'Error' ) ) {
 
 				quietLog( '[room] ' + line );
+
+			}
+
+		}
+
+	}
+
+} )();
+
+// The room's console. Count map loads: a bot that walks into an exit changes
+// the level, and the bots don't follow a reconnect, so a second load means the
+// rest of the run measured a room with no players in it.
+let mapLoads = 0;
+( async () => {
+
+	let buf = '';
+	for await ( const chunk of room.stdout.pipeThrough( new TextDecoderStream() ) ) {
+
+		buf += chunk;
+		let nl;
+		while ( ( nl = buf.indexOf( '\n' ) ) >= 0 ) {
+
+			const line = buf.slice( 0, nl );
+			buf = buf.slice( nl + 1 );
+			if ( line.startsWith( 'SpawnServer:' ) ) {
+
+				mapLoads ++;
+				if ( mapLoads > 1 ) quietLog( '[room] level changed: ' + line );
 
 			}
 
@@ -317,6 +345,7 @@ quietLog( JSON.stringify( {
 	serverMsgsOutPerS: Math.round( ( w1.rxMsgs - w0.rxMsgs ) / secs ),
 	serverMsgsInPerS: Math.round( ( w1.txMsgs - w0.txMsgs ) / secs ),
 	unreliablePerBotPerS: +( ( w1.unreliable - w0.unreliable ) / secs / Math.max( 1, opts.bots ) ).toFixed( 1 ),
-	unreliableTotalsPerBot: perBot
+	unreliableTotalsPerBot: perBot,
+	mapLoads
 } ) );
 Deno.exit( 0 );

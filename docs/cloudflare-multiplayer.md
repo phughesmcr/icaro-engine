@@ -436,7 +436,8 @@ would still need the lobby reworked (see 3b and 5b).
    - Run `deno task lobby` with that cert, and play via `?server=https://mp.anglezarke.games:4433`.
    - Test on desktop, then from a phone on mobile data (outside the LAN).
    - Then test from a device on the home LAN, to check hairpin NAT.
-3. **Move to Containers** later if you want the game off the Mac.
+3. **Move to Containers** to get the game off the Mac: the plan is in
+   [always-on-hosting.md](always-on-hosting.md).
 
 ## Not verified
 
@@ -450,7 +451,8 @@ would still need the lobby reworked (see 3b and 5b).
 - Container placement and cold-start latency for this image (the docs say
   cold starts are often 1–3 s).
 - Settled in always-on-hosting.md: one room's memory (about 97 MB of heap and
-  buffers after GC, 200–350 MB RSS), which rules out a DO per room, and room
+  buffers after GC, about 195 MB RSS idle and up to 425 MB with 16
+  players), which rules out a DO per room, and room
   memory needs for a container.
 - Deno WebRTC library viability.
 - Firefox for Android WebTransport support, and how often UDP is blocked on
