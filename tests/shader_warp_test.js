@@ -27,7 +27,8 @@ function makeShader() {
 
 	return {
 		uniforms: {},
-		vertexShader: '#include <common>\nvoid main() {\n#include <uv_vertex>\n#include <begin_vertex>\n}\n'
+		vertexShader: '#include <common>\nvoid main() {\n#include <uv_vertex>\n#include <begin_vertex>\n}\n',
+		fragmentShader: 'void main() {\n\t#include <opaque_fragment>\n\t#include <colorspace_fragment>\n\t#include <fog_fragment>\n}\n'
 	};
 
 }
@@ -100,10 +101,14 @@ Deno.test( 'sky patches share the origin and keep one speed per layer', () => {
 		assertIncludes( shader.vertexShader, 'uniform float quakeSkySpeed;', 'speed declared' );
 		assertIncludes( shader.vertexShader, '\tquakeSkyDir.z *= 3.0;\n', 'sphere flattened' );
 		assertIncludes( shader.vertexShader, '6.0 * 63.0 / length( quakeSkyDir )', 'length scale' );
+		// gl_fog.js: the flat sky fog mix, after colorspace_fragment
+		assertIncludes( shader.fragmentShader, 'uniform vec4 quakeSkyFog;', 'sky fog declared' );
+		assertIncludes( shader.fragmentShader, '#include <colorspace_fragment>\n\tgl_FragColor.rgb = mix( gl_FragColor.rgb, quakeSkyFog.rgb, quakeSkyFog.a );', 'sky fog mix' );
 
 	}
 
 	assertEqual( solid.uniforms.quakeSkyOrigin, alpha.uniforms.quakeSkyOrigin, 'one shared origin' );
+	assertEqual( solid.uniforms.quakeSkyFog, alpha.uniforms.quakeSkyFog, 'one shared sky fog' );
 	if ( solid.uniforms.quakeSkySpeed === alpha.uniforms.quakeSkySpeed )
 		throw new Error( 'the two sky layers share one speed uniform' );
 

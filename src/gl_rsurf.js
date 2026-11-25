@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { GL_RegisterCullMaterial } from './glquake.js';
 import { Sys_Error } from './sys.js';
+import { Fog_PatchSkyShader } from './gl_fog.js';
 
 /*
 r_lightmap: GLQuake's R_BlendLightmaps draws the lightmaps without blending
@@ -138,6 +139,8 @@ function R_PatchSkyVertexShader( shader, speedUniform ) {
 			'\tquakeSkyDir.z *= 3.0;\n' +
 			'\tvMapUv = ( quakeSkySpeed + quakeSkyDir.xy * ( 6.0 * 63.0 / length( quakeSkyDir ) ) ) * ( 1.0 / 128.0 );\n' +
 			'#endif' );
+	// the sky's flat fog mix (the sky materials have fog: false)
+	Fog_PatchSkyShader( shader );
 
 }
 
@@ -2513,7 +2516,8 @@ function R_DrawSkyChain( s ) {
 
 		solidSkyMaterial = new THREE.MeshBasicMaterial( {
 			map: solidskytexture,
-			side: THREE.DoubleSide
+			side: THREE.DoubleSide,
+			fog: false // Fog_PatchSkyShader
 		} );
 		solidSkyMaterial.onBeforeCompile = R_PatchSolidSkyVertexShader;
 		solidSkyMaterial.customProgramCacheKey = R_SolidSkyProgramKey;
@@ -2526,7 +2530,8 @@ function R_DrawSkyChain( s ) {
 			map: alphaskytexture,
 			side: THREE.DoubleSide,
 			transparent: true,
-			alphaTest: 0.05
+			alphaTest: 0.05,
+			fog: false // Fog_PatchSkyShader
 		} );
 		alphaSkyMaterial.onBeforeCompile = R_PatchAlphaSkyVertexShader;
 		alphaSkyMaterial.customProgramCacheKey = R_AlphaSkyProgramKey;
@@ -2538,8 +2543,10 @@ function R_DrawSkyChain( s ) {
 
 		solidSkyMaterial = new THREE.MeshBasicMaterial( {
 			color: 0x3366aa,
-			side: THREE.DoubleSide
+			side: THREE.DoubleSide,
+			fog: false
 		} );
+		solidSkyMaterial.onBeforeCompile = Fog_PatchSkyShader;
 
 	}
 
