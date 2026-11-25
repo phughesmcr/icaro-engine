@@ -505,6 +505,9 @@ export function R_SetupGL() {
 // R_Clear
 //============================================================================
 
+// Scene background while XR is presenting (see R_RenderView)
+const _xrBackground = new THREE.Color( 0x000000 );
+
 export function R_Clear() {
 
 	if ( ! renderer ) return;
@@ -1452,6 +1455,11 @@ export function R_RenderView() {
 	// Present the frame via Three.js
 	if ( renderer && scene && camera ) {
 
+		// GL_BeginRendering and R_Clear have already cleared the canvas, so
+		// the scene has no background, which would make render() clear it a
+		// third time. In XR those clears don't reach the headset's eye
+		// buffers, so the background does that.
+		scene.background = isXRActive() ? _xrBackground : null;
 		renderer.render( scene, camera );
 
 	}
@@ -1570,7 +1578,6 @@ export function R_Init() {
 
 	// create the Three.js scene
 	scene = new THREE.Scene();
-	scene.background = new THREE.Color( 0x000000 );
 
 	// initialize light style values to default
 	for ( let i = 0; i < 256; i ++ ) {

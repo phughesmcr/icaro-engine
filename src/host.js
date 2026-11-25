@@ -161,16 +161,19 @@ export { sv } from './server.js';
 ====================
 GL_BeginRendering / GL_EndRendering
 
-In original Quake these are in gl_vidnt.c.
-For Three.js, BeginRendering clears the renderer and EndRendering is a no-op
-(the browser composites on the next frame automatically).
+In original Quake these are in gl_vidnt.c. Deliberate deviation: C's
+GL_BeginRendering doesn't clear, but this one clears the colour buffer so no
+earlier frame shows through where nothing is drawn (the 2D overlay is a
+separate canvas, and the browser doesn't reliably clear the WebGL canvas
+between frames). R_Clear clears depth, as in C. EndRendering is a no-op: the
+browser composites on the next frame automatically.
 ====================
 */
 function _GL_BeginRendering() {
 
 	if ( renderer ) {
 
-		renderer.clear();
+		renderer.clear( true, false, false );
 
 	}
 
