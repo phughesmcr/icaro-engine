@@ -107,7 +107,9 @@ function PF_objerror() {
 	ED_Print( ed );
 	ED_Free( ed );
 
-	PR_HostError( 'Program error' );
+	// Deviation from id's C, which called Host_Error( "Program error" ) here
+	// and ended the level. Ironwail and QuakeSpasm comment it out (johnfitz:
+	// "by design, this should not be fatal"): self is freed and play goes on.
 
 }
 
@@ -597,6 +599,19 @@ valid target.
 */
 let checkpvs = null;
 
+// Scratch vectors for builtins (Golden Rule #4). None of these builtins runs
+// QuakeC while its scratch is live, except PF_walkmove, whose SV_movestep
+// calls touch functions only after its last use of move.
+const newcheck_org = new Float32Array( 3 );
+const checkclient_view = new Float32Array( 3 );
+const findradius_eorg = new Float32Array( 3 );
+const walkmove_move = new Float32Array( 3 );
+const droptofloor_end = new Float32Array( 3 );
+const aim_start = new Float32Array( 3 );
+const aim_dir = new Float32Array( 3 );
+const aim_end = new Float32Array( 3 );
+const aim_bestdir = new Float32Array( 3 );
+
 function PF_newcheckclient( check ) {
 
 	// cycle to the next one
@@ -637,7 +652,7 @@ function PF_newcheckclient( check ) {
 	// get the PVS for the entity
 	if ( sv.worldmodel ) {
 
-		const org = new Float32Array( 3 );
+		const org = newcheck_org;
 		VectorAdd( ent.v.origin, ent.v.view_ofs, org );
 		const leaf = Mod_PointInLeaf( org, sv.worldmodel );
 		const pvs = Mod_LeafPVS( leaf, sv.worldmodel );
@@ -675,7 +690,7 @@ function PF_checkclient() {
 	if ( sv.worldmodel && checkpvs ) {
 
 		const self = PROG_TO_EDICT( pr_global_struct.self );
-		const view = new Float32Array( 3 );
+		const view = checkclient_view;
 		VectorAdd( self.v.origin, self.v.view_ofs, view );
 		const leaf = Mod_PointInLeaf( view, sv.worldmodel );
 		// get leaf index: leaf._leafIndex is set during BSP load
@@ -781,7 +796,7 @@ function PF_findradius() {
 	const org = G_VECTOR( OFS_PARM0 );
 	const rad = G_FLOAT( OFS_PARM1 );
 
-	const eorg = new Float32Array( 3 );
+	const eorg = findradius_eorg;
 
 	for ( let i = 1; i < sv.num_edicts; i ++ ) {
 
@@ -1027,7 +1042,7 @@ function PF_walkmove() {
 	}
 
 	const yawRad = yaw * M_PI / 180;
-	const move = new Float32Array( 3 );
+	const move = walkmove_move;
 	move[ 0 ] = Math.cos( yawRad ) * dist;
 	move[ 1 ] = Math.sin( yawRad ) * dist;
 	move[ 2 ] = 0;
@@ -1055,7 +1070,7 @@ function PF_droptofloor() {
 
 	const ent = PROG_TO_EDICT( pr_global_struct.self );
 
-	const end = new Float32Array( 3 );
+	const end = droptofloor_end;
 	VectorCopy( ent.v.origin, end );
 	end[ 2 ] -= 256;
 
@@ -1221,10 +1236,10 @@ function PF_aim() {
 	const teamplayValue = teamplay.value;
 	// speed = G_FLOAT( OFS_PARM1 ); // not used in original C
 
-	const start = new Float32Array( 3 );
-	const dir = new Float32Array( 3 );
-	const end = new Float32Array( 3 );
-	const bestdir = new Float32Array( 3 );
+	const start = aim_start;
+	const dir = aim_dir;
+	const end = aim_end;
+	const bestdir = aim_bestdir;
 
 	VectorCopy( ent.v.origin, start );
 	start[ 2 ] += 20;
