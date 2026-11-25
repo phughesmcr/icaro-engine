@@ -20,6 +20,18 @@ export class DataTexture {
 	dispose() {}
 }
 
+// Cube texture stub (gl_sky.js skyboxes): keeps its six face textures
+export class CubeTexture {
+	constructor(images = []) {
+		this.image = images;
+		this.needsUpdate = false;
+	}
+	get images() {
+		return this.image;
+	}
+	dispose() {}
+}
+
 // Constants that might be referenced
 export const RGBAFormat = 1023;
 export const LinearFilter = 1006;
@@ -142,6 +154,14 @@ export class Matrix4 {
 }
 
 // Vector4 - renderer.getViewport target in gl_rmirror.js
+// Sphere - the alias cull sphere in gl_mesh.js R_DrawAliasModel
+export class Sphere {
+	constructor( center = new Vector3(), radius = - 1 ) {
+		this.center = center;
+		this.radius = radius;
+	}
+}
+
 export class Vector4 {
 	constructor(x = 0, y = 0, z = 0, w = 1) {
 		this.x = x;
@@ -343,7 +363,7 @@ export class Object3D {
 export class PointLight extends Object3D {
 	constructor(color, intensity = 1, distance = 0, decay = 2) {
 		super();
-		this.color = color;
+		this.color = new Color().setHex(color);
 		this.intensity = intensity;
 		this.distance = distance;
 		this.decay = decay;
@@ -421,6 +441,12 @@ export class Color {
 		this.r = r;
 		this.g = g;
 		this.b = b;
+		return this;
+	}
+	setHex(hex) {
+		this.r = ((hex >> 16) & 255) / 255;
+		this.g = ((hex >> 8) & 255) / 255;
+		this.b = (hex & 255) / 255;
 		return this;
 	}
 }

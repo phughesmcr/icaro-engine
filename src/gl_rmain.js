@@ -18,7 +18,7 @@ import { Fog_SetupFrame } from './gl_fog.js';
 import { ENTALPHA_ZERO } from './protocol.js';
 import {
 	Mod_PointInLeaf, SPR_SINGLE, SPR_VP_PARALLEL_UPRIGHT, SPR_FACING_UPRIGHT,
-	SPR_VP_PARALLEL, SPR_ORIENTED, SPR_VP_PARALLEL_ORIENTED
+	SPR_VP_PARALLEL, SPR_ORIENTED, SPR_VP_PARALLEL_ORIENTED, Mod_EnhancedAliasHeader
 } from './gl_model.js';
 import { R_AnimateLight as R_AnimateLight_impl, R_RenderDlights as R_RenderDlights_impl, R_DlightDistance, R_LightPoint, lightspot, lightcolor } from './gl_rlight.js';
 import { R_DrawAliasModel as R_DrawAliasModel_mesh, GL_DrawAliasShadow, alias_lerpdata } from './gl_mesh.js';
@@ -973,9 +973,11 @@ export function R_SetupAliasLighting( e ) {
 
 				ambientlight += add;
 				shadelight += add;
-				shadecolor[ 0 ] += add;
-				shadecolor[ 1 ] += add;
-				shadecolor[ 2 ] += add;
+				// QuakeSpasm R_SetupAliasLighting: lightcolor += add * color
+				const color = cl_dlights[ lnum ].color;
+				shadecolor[ 0 ] += add * color[ 0 ];
+				shadecolor[ 1 ] += add * color[ 1 ];
+				shadecolor[ 2 ] += add * color[ 2 ];
 
 			}
 
@@ -1036,8 +1038,9 @@ export function R_SetupAliasLighting( e ) {
 function R_DrawAliasModel( e ) {
 
 	if ( ! e || ! e.model ) return;
-	const paliashdr = e.model.cache ? e.model.cache.data : null;
-	if ( ! paliashdr || ! paliashdr.posedata ) return;
+	// the .mdl, or its MD5 replacement (r_enhancedmodels)
+	const paliashdr = e.model.cache ? Mod_EnhancedAliasHeader( e.model ) : null;
+	if ( ! paliashdr || ( ! paliashdr.posedata && ! paliashdr.md5 ) ) return;
 
 	//
 	// get lighting information

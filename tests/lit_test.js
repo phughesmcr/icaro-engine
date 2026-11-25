@@ -396,7 +396,7 @@ Deno.test( 'a map without a .lit keeps one-byte lightmaps', () => {
 
 } );
 
-Deno.test( 'dynamic lights add white to RGB lightmaps', () => {
+Deno.test( 'dynamic lights add their colour to RGB lightmaps', () => {
 
 	const saved = cl_dlights.map( ( l ) => [ l.radius, l.minlight, Array.from( l.origin ) ] );
 	const rgb = makeSurface( new Uint8Array( 12 ), true );
@@ -423,6 +423,11 @@ Deno.test( 'dynamic lights add white to RGB lightmaps', () => {
 			assertEqual( Array.from( dest.subarray( 0, 4 ) ).join( ',' ), '55,55,55,1', 'white dlight, alpha byte untouched' );
 			assertEqual( dest[ 4 ] === dest[ 5 ] && dest[ 5 ] === dest[ 6 ], true, 'second luxel grey' );
 
+			// a coloured dlight (the 2021 quad glow) scales each channel
+			cl_dlights[ 0 ].color.set( [ 0.25, 0.25, 1 ] );
+			gl_rsurf.R_BuildLightMap( rgb, dest, 0, 2 * 4 );
+			assertEqual( Array.from( dest.subarray( 0, 4 ) ).join( ',' ), '205,205,55,1', 'blue dlight' );
+
 		} );
 
 	} finally {
@@ -432,6 +437,7 @@ Deno.test( 'dynamic lights add white to RGB lightmaps', () => {
 			l.radius = saved[ i ][ 0 ];
 			l.minlight = saved[ i ][ 1 ];
 			l.origin.set( saved[ i ][ 2 ] );
+			l.color.fill( 1 );
 
 		} );
 

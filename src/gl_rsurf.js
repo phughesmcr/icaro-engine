@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { GL_RegisterCullMaterial } from './glquake.js';
 import { Sys_Error } from './sys.js';
 import { Fog_PatchSkyShader } from './gl_fog.js';
+import { Sky_GetSkyBox } from './gl_sky.js';
 
 /*
 r_lightmap: GLQuake's R_BlendLightmaps draws the lightmaps without blending
@@ -165,6 +166,79 @@ function R_SolidSkyProgramKey() {
 function R_AlphaSkyProgramKey() {
 
 	return 'quake-sky-alpha';
+
+}
+
+/*
+Skybox: Ironwail's sky_cubemap shaders (gl_shaders.h), for the box set by the
+worldspawn "sky" key (gl_sky.js). The sky surfaces sample the cubemap in the
+direction from the eye, so the box shows through them as Ironwail's
+R_DrawBrushModels_SkyCubemap draws it:
+	out_dir.x = -(pos.y - EyePos.y);
+	out_dir.y =  (pos.z - EyePos.z);
+	out_dir.z =  (pos.x - EyePos.x);
+	...
+	out_fragcolor = texture(Skybox, in_dir);
+	out_fragcolor.rgb = mix(out_fragcolor.rgb, SkyFog.rgb, SkyFog.a);
+The fog mix is Fog_PatchSkyShader's. Tone mapping and the colour space
+conversion are included so gamma (vid.js) applies as on the other sky.
+Ironwail's skywind animation is not ported.
+*/
+const _skyBoxMap = { value: null };
+
+const R_SKYBOX_VERTEX_SHADER = `
+uniform vec3 quakeSkyOrigin;
+varying vec3 vQuakeSkyDir;
+#include <common>
+#include <logdepthbuf_pars_vertex>
+void main() {
+	vec3 quakeSkyDelta = position - quakeSkyOrigin;
+	vQuakeSkyDir = vec3( - quakeSkyDelta.y, quakeSkyDelta.z, quakeSkyDelta.x );
+	#include <begin_vertex>
+	#include <project_vertex>
+	#include <logdepthbuf_vertex>
+}
+`;
+
+const R_SKYBOX_FRAGMENT_SHADER = `
+uniform samplerCube quakeSkyBox;
+varying vec3 vQuakeSkyDir;
+#include <common>
+#include <logdepthbuf_pars_fragment>
+void main() {
+	#include <logdepthbuf_fragment>
+	gl_FragColor = vec4( textureCube( quakeSkyBox, vQuakeSkyDir ).rgb, 1.0 );
+	#include <tonemapping_fragment>
+	#include <colorspace_fragment>
+}
+`;
+
+function R_SkyBoxProgramKey() {
+
+	return 'quake-sky-box';
+
+}
+
+let skyBoxMaterial = null;
+
+function R_SkyBoxMaterial( cubemap ) {
+
+	if ( skyBoxMaterial === null ) {
+
+		skyBoxMaterial = new THREE.ShaderMaterial( {
+			uniforms: { quakeSkyOrigin: _skyOrigin, quakeSkyBox: _skyBoxMap },
+			vertexShader: R_SKYBOX_VERTEX_SHADER,
+			fragmentShader: R_SKYBOX_FRAGMENT_SHADER,
+			side: THREE.DoubleSide,
+			fog: false // Fog_PatchSkyShader
+		} );
+		skyBoxMaterial.onBeforeCompile = Fog_PatchSkyShader;
+		skyBoxMaterial.customProgramCacheKey = R_SkyBoxProgramKey;
+
+	}
+
+	_skyBoxMap.value = cubemap;
+	return skyBoxMaterial;
 
 }
 
@@ -1510,19 +1584,18 @@ export function R_AddDynamicLights( surf ) {
 
 				if ( dist < minlight ) {
 
-					const add = ( ( rad - dist ) * 256 ) | 0;
 					if ( lightmap_bytes === 4 ) {
 
-						// QuakeSpasm (lit support via lordhavoc): white here,
-						// as dlight_t has no colour in this port
+						// QuakeSpasm (lit support via lordhavoc): each channel
+						// scaled by the dlight's colour (cred, cgreen, cblue)
 						const bl = ( t * smax + s ) * 3;
-						blocklights[ bl ] += add;
-						blocklights[ bl + 1 ] += add;
-						blocklights[ bl + 2 ] += add;
+						blocklights[ bl ] += ( ( rad - dist ) * dl.color[ 0 ] * 256 ) | 0;
+						blocklights[ bl + 1 ] += ( ( rad - dist ) * dl.color[ 1 ] * 256 ) | 0;
+						blocklights[ bl + 2 ] += ( ( rad - dist ) * dl.color[ 2 ] * 256 ) | 0;
 
 					} else {
 
-						blocklights[ t * smax + s ] += add;
+						blocklights[ t * smax + s ] += ( ( rad - dist ) * 256 ) | 0;
 
 					}
 
@@ -2695,6 +2768,10 @@ function R_DrawSkyChain( s ) {
 
 	}
 
+	// Skybox (gl_sky.js): drawn on the sky surfaces in place of both layers
+	const sky = Sky_GetSkyBox();
+	const solidMaterial = sky !== null ? R_SkyBoxMaterial( sky.cubemap ) : solidSkyMaterial;
+
 	// Solid sky layer (background, speed = time*8)
 	const time = R_WarpTime();
 	let solidSpeed = time * 8;
@@ -2713,13 +2790,13 @@ function R_DrawSkyChain( s ) {
 			let mesh = fa._skyMesh;
 			if ( ! mesh ) {
 
-				mesh = new THREE.Mesh( geometry, solidSkyMaterial );
+				mesh = new THREE.Mesh( geometry, solidMaterial );
 				fa._skyMesh = mesh;
 
 			} else {
 
 				if ( mesh.geometry !== geometry ) mesh.geometry = geometry;
-				mesh.material = solidSkyMaterial;
+				mesh.material = solidMaterial;
 
 			}
 
@@ -2738,7 +2815,7 @@ function R_DrawSkyChain( s ) {
 	}
 
 	// Alpha sky layer (overlay, speed = time*16)
-	if ( alphaSkyMaterial ) {
+	if ( alphaSkyMaterial && sky === null ) {
 
 		let alphaSpeed = time * 16;
 		alphaSpeed -= ( alphaSpeed | 0 ) & ~127;

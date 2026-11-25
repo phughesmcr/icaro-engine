@@ -33,6 +33,7 @@ import {
 import { PR_ExecuteProgram } from './pr_exec.js';
 import { SV_UnlinkEdict } from './world.js';
 import { SV_ReserveSignonSpace } from './sv_main.js';
+import { EF_QEX_QUADLIGHT, EF_QEX_PENTALIGHT, EF_QEX_CANDLELIGHT } from './server.js';
 
 //============================================================================
 // Module state
@@ -95,6 +96,12 @@ export function ED_ClearEdict( e ) {
 // Ironwail's qcvm->extfields: field offsets for the extension fields the
 // engine reads (set by PR_LoadProgs; -1 if the progs lacks the field)
 export const pr_extfields = { alpha: - 1 };
+
+// Ironwail's qcvm->effects_mask (set by PR_LoadProgs): the effects bits the
+// server sends. The 2021 rerelease light bits are on only for a progs that
+// defines them (PR_FindSupportedEffects).
+export let pr_effects_mask = - 1;
+export function PR_SetEffectsMask( mask ) { pr_effects_mask = mask; }
 
 /*
 =================
@@ -1237,6 +1244,41 @@ export function PR_LoadProgs( fileData ) {
 	// extensions the engine reads, -1 when the progs doesn't declare them
 	const alphadef = ED_FindField( 'alpha' );
 	pr_extfields.alpha = alphadef !== null ? alphadef.ofs : - 1;
+
+	pr_effects_mask = PR_FindSupportedEffects();
+
+}
+
+/*
+===============
+PR_HasGlobal
+
+Ironwail pr_edict.c
+===============
+*/
+function PR_HasGlobal( name, value ) {
+
+	const g = ED_FindGlobal( name );
+	return g !== null && ( g.type & ~ DEF_SAVEGLOBAL ) === ev_float && pr_globals.getFloat( g.ofs ) === value;
+
+}
+
+/*
+===============
+PR_FindSupportedEffects
+
+Ironwail pr_edict.c: checks for the presence of Quake 2021 release effects
+flags and returns a mask with the corresponding bits either on or off
+depending on the result, in order to avoid conflicts (e.g. Arcane Dimensions
+uses bit 32 for its explosions)
+===============
+*/
+export function PR_FindSupportedEffects() {
+
+	const isqex =
+		PR_HasGlobal( 'EF_QUADLIGHT', EF_QEX_QUADLIGHT ) &&
+		( PR_HasGlobal( 'EF_PENTLIGHT', EF_QEX_PENTALIGHT ) || PR_HasGlobal( 'EF_PENTALIGHT', EF_QEX_PENTALIGHT ) );
+	return isqex ? - 1 : - 1 & ~ ( EF_QEX_QUADLIGHT | EF_QEX_PENTALIGHT | EF_QEX_CANDLELIGHT );
 
 }
 
