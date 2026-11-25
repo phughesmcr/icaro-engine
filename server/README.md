@@ -156,7 +156,7 @@ WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on t
   - Full server physics and collision (`SV_Physics`, `Mod_Init`, BSP hulls)
   - Full Quake client/server protocol (`SV_SpawnServer`, `SV_RunClients`, `SV_SendClientMessages`)
 - Runs at `sys_ticrate` (default `0.05`s / 20 Hz) with `deathmatch 1`, `samelevel 2`, and `noexit 1`.
-- Loads `pak0.pak` and any `pak1.pak`, `pak2.pak`, ... in the same directory (stopping at the first missing one). Rooms spawned by the lobby can read extra paks only when they are under `static/`; otherwise the room prints a "Failed to load" read-permission error and continues with the paks it has. Supports on-demand loose map files via `COM_EnsureFile`.
+- Loads `pak0.pak` and any `pak1.pak`, `pak2.pak`, ... in the same directory (stopping at the first missing one). Rooms spawned by the lobby can read extra paks only when they are under `static/`; otherwise the room prints a "Failed to load" read-permission error and continues with the paks it has. A pak over 64 MB is not read into memory: the room reads its directory, then each file from disk when it is loaded. Supports on-demand loose map files via `COM_EnsureFile`.
 - In room mode, reports its player count to the lobby on a structured stdout status line (`@@ICARO_STATUS`), on every change and every 5s. It also emits `[Heartbeat]` log lines every 30s and `[WATCHDOG]` stderr ticks every 5s, which `room_process_manager.ts` uses to hide or terminate wedged processes.
 
 ### Room lifecycle
