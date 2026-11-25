@@ -256,7 +256,7 @@ What the PRs above leave open, on purpose or because it can't be checked here.
 ### MP-1 · Datagram overflow is fatal — **high impact, low-medium probability**, Verified
 
 - **Port:**
-  - The client datagram is `{ maxsize: MAX_DATAGRAM /*1024*/, allowoverflow: false }` ([`src/sv_main.js:1245`](../src/sv_main.js)).
+  - The client datagram is `{ maxsize: MAX_DATAGRAM /*1024*/, allowoverflow: false }` ([`src/sv_main.js:1245`](../src/sv_main.js)). (Since then, `maxsize` is set per client by `SV_ClientDatagramSize`, and `MAX_DATAGRAM` is 4096; see section 7.)
   - Entities are capped only by count (`:842`). `SV_WriteDelta`, `SV_EmitPacketEntities` and `SV_WritePlayersToClient` never check the remaining size.
   - [`src/common.js:246`](../src/common.js) `SZ_GetSpace` then calls `Sys_Error('SZ_GetSpace: overflow without allowoverflow set')`.
 - **C:** `sv_main.c` `SV_WriteEntitiesToClient` stops with "packet overflow" when fewer than 16 bytes remain.
