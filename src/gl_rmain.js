@@ -40,7 +40,7 @@ import { d_lightstylevalue, r_framecount, set_r_framecount, inc_r_framecount,
 	gl_clear, gl_cull, gl_texsort, gl_smoothmodels, gl_affinemodels,
 	gl_polyblend, gl_flashblend, gl_playermip, gl_nocolors,
 	gl_keeptjunctions, gl_reporttjunctions,
-	gl_doubleeyes, gl_max_size, gl_finish, GL_UpdateCull
+	gl_doubleeyes, gl_max_size, gl_finish, GL_UpdateCull, GL_RegisterCullMaterial
 } from './glquake.js';
 export { GL_BuildLightmaps_rsurf as GL_BuildLightmaps };
 export { r_norefresh, r_drawentities, r_drawviewmodel, r_speeds,
@@ -706,15 +706,28 @@ export function R_DrawViewModel() {
 
 		} else {
 
-			if ( currententity._viewmodelMaterial == null || currententity._viewmodelMaterialBase !== baseMaterial ) {
+			// One transparent clone per base material, kept until the map
+			// changes: an animated skin or a weapon change switches the base,
+			// and replacing a single clone made a new one each switch and
+			// leaked the old. Registered so gl_cull reaches the clones.
+			let clones = currententity._viewmodelMaterials;
+			if ( clones == null ) {
 
-				currententity._viewmodelMaterial = baseMaterial.clone();
-				currententity._viewmodelMaterial.transparent = true;
-				currententity._viewmodelMaterialBase = baseMaterial;
+				clones = new Map();
+				currententity._viewmodelMaterials = clones;
 
 			}
 
-			mesh.material = currententity._viewmodelMaterial;
+			let clone = clones.get( baseMaterial );
+			if ( clone === undefined ) {
+
+				clone = GL_RegisterCullMaterial( baseMaterial.clone() );
+				clone.transparent = true;
+				clones.set( baseMaterial, clone );
+
+			}
+
+			mesh.material = clone;
 
 		}
 		mesh.renderOrder = 999;
@@ -768,12 +781,12 @@ function _clearEntityMeshCache( entity, geometries, materials ) {
 	const shadowMesh = entity._aliasShadowMesh;
 	const aliasGeometry = entity._aliasGeo;
 	const shadowGeometry = entity._aliasShadowGeo;
-	const viewmodelMaterial = entity._viewmodelMaterial;
+	const viewmodelMaterials = entity._viewmodelMaterials;
 	const playerMaterial = entity._playerMaterial;
 	const lerpMaterial = entity._aliasLerpMaterial;
 	if ( spriteMesh == null && aliasMesh == null && shadowMesh == null &&
 		aliasGeometry == null && shadowGeometry == null &&
-		viewmodelMaterial == null && playerMaterial == null && lerpMaterial == null ) return;
+		viewmodelMaterials == null && playerMaterial == null && lerpMaterial == null ) return;
 
 	_detachEntityMesh( spriteMesh );
 	_detachEntityMesh( aliasMesh );
@@ -782,7 +795,13 @@ function _clearEntityMeshCache( entity, geometries, materials ) {
 	_disposeEntityGeometry( spriteMesh != null ? spriteMesh.geometry : null, geometries );
 	_disposeEntityGeometry( aliasGeometry, geometries );
 	_disposeEntityGeometry( shadowGeometry, geometries );
-	_disposeEntityMaterial( viewmodelMaterial, materials );
+	if ( viewmodelMaterials != null ) {
+
+		for ( const clone of viewmodelMaterials.values() )
+			_disposeEntityMaterial( clone, materials );
+
+	}
+
 	_disposeEntityMaterial( playerMaterial, materials );
 	_disposeEntityMaterial( lerpMaterial, materials );
 
@@ -797,8 +816,7 @@ function _clearEntityMeshCache( entity, geometries, materials ) {
 	entity._aliasShadowGeo = null;
 	entity._aliasShadowPosArray = null;
 	entity._aliasShadowVertCount = undefined;
-	entity._viewmodelMaterial = null;
-	entity._viewmodelMaterialBase = null;
+	entity._viewmodelMaterials = null;
 	entity._playerMaterial = null;
 	entity._playerSkinTexture = null;
 	entity._aliasLerpMaterial = null;
