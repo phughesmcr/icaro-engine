@@ -68,7 +68,7 @@ Fixes merged into or opened against `dev` after the snapshot:
 - **#122** (merged): findings 5 and 14. Alias materials are cached by skin
   texture, so a single-frame skin has one material pair, and the viewmodel
   keeps one registered clone per base material.
-- **#129** (open): findings 8 and 9, and finding 15's polyblend tone mapping,
+- **#129** (merged): findings 8 and 9, and finding 15's polyblend tone mapping,
   water transparency, per-frame `Set`, particle scratch vectors, batch key
   and stale comment. Not done from 15: `addUpdateRange` objects, brush
   entity group re-adds, shutdown disposal and `powerPreference`. For
@@ -81,8 +81,50 @@ map. Before #121, `geometries` grew by 72 per cycle; after
 it, the count was flat across cycles. Screenshots of each map after #120,
 #121 and #122 showed no missing or broken world, sky or viewmodel geometry.
 
-Still open: 3, 4, 6, 7, 10, 11, 12, the rest of 13 and the items above
-from 15.
+- **#131** (merged): finding 7. World batches set `sortObjects`,
+  `perObjectFrustumCulled` and (underwater) `frustumCulled` to false. On
+  e1m1 the frame went from 1.34 to 0.75 ms at yaw 90, 11 of 12 test views
+  got faster, and the output was pixel-identical.
+- **#132** (merged): finding 6. The per-vertex lighting and colour upload are
+  skipped unless the shade dots, shade light, pose templates or blend
+  change. The colour attributes use `DynamicDrawUsage`. 60 idle frames made
+  no upload, and the viewmodel relit when moved into a dark spot. Not done:
+  lighting in the shader (6b), as nothing measured justified another
+  shader variant.
+- **#133** (merged): finding 3. `scene.background` is `null` outside XR and
+  `GL_BeginRendering` clears colour only, leaving two clears per frame
+  (colour, then `R_Clear`'s depth). The review's fix of dropping that
+  colour clear, as C has none, was tried and rejected. Chromium kept old
+  pixels around a small view (`viewsize 50`, `gl_clear 0`), so the clear
+  stays as a marked deviation. XR still clears with a background colour.
+- **#135** (merged): findings 4 and 10. The HUD quad has its own scene,
+  rendered after the world only while XR is presenting. Two renders per XR
+  frame are safe because `antialias: false` gives the XR target no samples
+  (no colour-invalidating resolve), and a null background with
+  `autoClear = false` clears nothing. HUD uploads are capped at 30 Hz, and
+  a map swap no longer recompiles the material. Not verified on a headset.
+  Not done from 10: uploading only when the overlay changed and sizing the
+  canvas for the headset (both need `gl_draw.js`).
+- **#136** (merged): finding 11's unused return object in
+  `_calculateUIScale`. Overlay caching was not done: an open console made
+  679 to 1394 `drawImage` calls at about 0.4 ms of CPU, which doesn't
+  justify it.
+
+**Finding 12, not done.** On e1m3 the world batches are in the scene at
+`R_NewMap`, but entity, water and particle meshes are added lazily by the
+per-frame render. Only four programs compiled, on the first two frames
+after signon (13 and 5 ms, on a warm page). `compileAsync` at `R_NewMap`
+would only pre-compile world materials that the first frame compiles
+anyway, not the mid-game compiles (dlight counts, first water or sky, new
+entity materials).
+
+**Finding 13, rest not done.** The regrown colour attribute is still
+replaced without freeing its buffer. It regrows only when an entity
+switches to a model with more vertices, so the leak is bounded.
+
+Still open: the items above from 15 (`addUpdateRange` objects, brush entity
+group re-adds, shutdown disposal and `powerPreference`), uploading the XR
+HUD only on change (10), and the rest of 13. All were judged low value.
 
 ## Summary
 
@@ -90,16 +132,16 @@ from 15.
 |---|-----|------|---------|--------|
 | 1 | High | models | `setIndex( array )` makes a new index attribute and GL buffer on every pose change | verified; fixed (#120) |
 | 2 | Med | world | Water and sky geometries that are off screen at map change are never disposed; the renderer keeps them | verified; fixed (#121, measured) |
-| 3 | Med | renderer | Each frame clears three times, two of them redundant | verified |
-| 4 | Med | XR | `renderOrder` is ignored (`sortObjects = false`), so particles draw over the VR HUD | verified |
+| 3 | Med | renderer | Each frame clears three times, two of them redundant | verified; fixed (#133, one colour clear kept on purpose) |
+| 4 | Med | XR | `renderOrder` is ignored (`sortObjects = false`), so particles draw over the VR HUD | verified; fixed (#135, no headset test) |
 | 5 | Med | models | Viewmodel material is cloned every 100 ms with default cvars, and the old clones are never disposed | verified; fixed (#122) |
-| 6 | Med | models | Per-vertex CPU lighting and a full colour re-upload per alias entity per frame | verified (cost unmeasured) |
-| 7 | Med | world | `BatchedMesh.sortObjects` defaults to true, so every batch is culled and sorted per instance each frame | verified |
+| 6 | Med | models | Per-vertex CPU lighting and a full colour re-upload per alias entity per frame | verified; fixed (#132) |
+| 7 | Med | world | `BatchedMesh.sortObjects` defaults to true, so every batch is culled and sorted per instance each frame | verified; fixed (#131, measured) |
 | 8 | Med | perf | `R_SetFrustum` allocates about 100 typed arrays per frame when fov is not 90 | verified; fixed (#129) |
 | 9 | Low-med | renderer | Resize handler never refreshes the pixel ratio | verified; fixed (#129) |
-| 10 | Low-med | XR | HUD texture re-uploaded every XR frame at window size times DPR | reported |
-| 11 | Low-med | overlay | Full-size Canvas2D overlay is cleared and redrawn every frame (one `drawImage` per glyph) | reported |
-| 12 | Low-med | renderer | No shader precompile at map load | reported |
+| 10 | Low-med | XR | HUD texture re-uploaded every XR frame at window size times DPR | reported; capped at 30 Hz (#135) |
+| 11 | Low-med | overlay | Full-size Canvas2D overlay is cleared and redrawn every frame (one `drawImage` per glyph) | measured; caching not justified, allocation fixed (#136) |
+| 12 | Low-med | renderer | No shader precompile at map load | measured; not done (would not help) |
 | 13 | Low | models | Shadow geometry and regrown colour attribute replaced without `dispose()` | reported; partly fixed (#120) |
 | 14 | Low | models | Material cache makes 4 identical materials per non-animated skin | verified; fixed (#122) |
 | 15 | Low | various | Smaller items (see below) | reported; mostly fixed (#129) |
