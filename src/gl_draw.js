@@ -7,6 +7,7 @@ import { W_GetLumpName } from './wad.js';
 import { d_8to24table as vid_d_8to24table } from './vid.js';
 import { COM_FindFile } from './pak.js';
 import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from './cmd.js';
+import { VERSION, GLQUAKE_VERSION } from './quakedef.js';
 import {
 	GL_NEAREST, GL_LINEAR, GL_NEAREST_MIPMAP_NEAREST, GL_LINEAR_MIPMAP_NEAREST,
 	GL_NEAREST_MIPMAP_LINEAR, GL_LINEAR_MIPMAP_LINEAR,
@@ -53,6 +54,10 @@ let overlayCtx = null;
 
 // Charset
 let char_canvas = null;
+// gl_draw.c draw_chars: the conchars lump's palette indices, kept for
+// Draw_CharToConback. C turns its 0s into 255 in place; this copy is left
+// as loaded, and Draw_CharToConback skips both.
+let draw_chars = null;
 let conback = null;
 let draw_disc = null;
 let draw_backtile = null;
@@ -490,6 +495,63 @@ function _loadCharset() {
 
 	ctx.putImageData( imageData, 0, 0 );
 	char_canvas = cs;
+	draw_chars = data;
+
+}
+
+/*
+================
+Draw_CharToConback
+
+gl_draw.c. C's dest is a byte pointer into the conback; here it is the
+conback's pixels and an offset into them, and chars is draw_chars.
+================
+*/
+export function Draw_CharToConback( num, dest, destofs, chars ) {
+
+	const row = num >> 4;
+	const col = num & 15;
+	let source = ( row << 10 ) + ( col << 3 );
+
+	let drawline = 8;
+
+	while ( drawline -- ) {
+
+		for ( let x = 0; x < 8; x ++ ) {
+
+			// C tests != 255 after Draw_Init's 0 -> 255 pass
+			const c = chars[ source + x ];
+			if ( c !== 0 && c !== 255 )
+				dest[ destofs + x ] = 0x60 + c; // Uint8Array wraps like C's byte
+
+		}
+
+		source += 128;
+		destofs += 320;
+
+	}
+
+}
+
+/*
+================
+Draw_ConbackVersion
+
+The "hack the version number directly into the pic" block of gl_draw.c
+Draw_Init: stamps "(gl 1.00) 1.09" into the bottom-right corner of the
+320x200 conback's palette indices. C assumes that size; a conback of any
+other size is left alone.
+================
+*/
+export function Draw_ConbackVersion( pixels, width, height, chars ) {
+
+	if ( width !== 320 || height !== 200 || chars === null )
+		return;
+
+	const ver = '(gl ' + GLQUAKE_VERSION.toFixed( 2 ).padStart( 4 ) + ') ' + VERSION.toFixed( 2 ).padStart( 4 );
+	const dest = 320 * 186 + 320 - 11 - 8 * ver.length;
+	for ( let x = 0; x < ver.length; x ++ )
+		Draw_CharToConback( ver.charCodeAt( x ), pixels, dest + ( x << 3 ), chars );
 
 }
 
@@ -518,7 +580,10 @@ function _loadConback() {
 	const width = view.getInt32( 0, true );
 	const height = view.getInt32( 4, true );
 
-	const pixels = new Uint8Array( result.data.buffer, result.data.byteOffset + 8, width * height );
+	// A copy: the version is stamped into it, and the PAK's buffer must stay
+	// as loaded (C stamps a temp-file copy)
+	const pixels = new Uint8Array( result.data.buffer, result.data.byteOffset + 8, width * height ).slice();
+	Draw_ConbackVersion( pixels, width, height, draw_chars );
 
 	const cs = _qpicToCanvas( width, height, pixels, false );
 	if ( ! cs ) return;
@@ -1163,7 +1228,10 @@ export function Draw_CachePic( path ) {
 	const view = new DataView( result.data.buffer, result.data.byteOffset, result.size );
 	const width = view.getInt32( 0, true );
 	const height = view.getInt32( 4, true );
-	const pixels = new Uint8Array( result.data.buffer, result.data.byteOffset + 8, width * height );
+	// A copy: the version is stamped into it, and the PAK's buffer must stay
+	// as loaded (C stamps a temp-file copy)
+	const pixels = new Uint8Array( result.data.buffer, result.data.byteOffset + 8, width * height ).slice();
+	Draw_ConbackVersion( pixels, width, height, draw_chars );
 
 	// Save raw pixel data for menuplyr.lmp (used by Draw_TransPicTranslate)
 	if ( path === 'gfx/menuplyr.lmp' ) {
