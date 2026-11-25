@@ -512,6 +512,7 @@ const CONTENTS_EMPTY = - 1;
 const CONTENTS_SOLID = - 2;
 const CONTENTS_SLIME = - 4;
 const CONTENTS_LAVA = - 5;
+const CONTENTS_SKY = - 6;
 
 export function V_SetContentsColor( contents ) {
 
@@ -519,6 +520,9 @@ export function V_SetContentsColor( contents ) {
 
 		case CONTENTS_EMPTY:
 		case CONTENTS_SOLID:
+		// Deviation (FitzQuake/QuakeSpasm): id's C falls to the default case
+		// and gives the water tint inside sky brushes. No blend in sky.
+		case CONTENTS_SKY: //johnfitz -- no blend in sky
 			cl.cshifts[ CSHIFT_CONTENTS ].destcolor[ 0 ] = cshift_empty.destcolor[ 0 ];
 			cl.cshifts[ CSHIFT_CONTENTS ].destcolor[ 1 ] = cshift_empty.destcolor[ 1 ];
 			cl.cshifts[ CSHIFT_CONTENTS ].destcolor[ 2 ] = cshift_empty.destcolor[ 2 ];

@@ -1,7 +1,7 @@
 // Ported from: WinQuake/cl_tent.c -- client side temporary entities
 
 import { Con_Printf } from './common.js';
-import { Sys_Error } from './sys.js';
+import { Host_Error } from './host.js';
 import {
 	MSG_ReadByte, MSG_ReadShort, MSG_ReadCoord
 } from './common.js';
@@ -264,7 +264,9 @@ export function CL_ParseTEnt() {
 		}
 
 		default:
-			Sys_Error( 'CL_ParseTEnt: bad type' );
+			// Deviation: Sys_Error in id's C and Ironwail, which in the browser
+			// replaces the page. Bad server data drops to the console instead.
+			Host_Error( 'CL_ParseTEnt: bad type' );
 
 	}
 
@@ -305,12 +307,44 @@ function CL_NewTempEntity() {
 
 /*
 =================
+CL_TEntRand
+
+Stands in for C's srand/rand in CL_UpdateTEnts (mulberry32). The seed is
+mixed, so neighbouring seeds give unrelated rolls, as rand() does.
+=================
+*/
+let _tent_seed = 0;
+
+export function CL_TEntSRand( seed ) {
+
+	_tent_seed = seed | 0;
+
+}
+
+export function CL_TEntRand() {
+
+	_tent_seed = ( _tent_seed + 0x6D2B79F5 ) | 0;
+	let t = _tent_seed;
+	t = Math.imul( t ^ ( t >>> 15 ), t | 1 );
+	t ^= t + Math.imul( t ^ ( t >>> 7 ), t | 61 );
+	return ( ( t ^ ( t >>> 14 ) ) >>> 0 ) & 0x7fffffff;
+
+}
+
+// Golden Rule #4: scratch vectors for CL_UpdateTEnts
+const _beam_dist = new Float32Array( 3 );
+const _beam_org = new Float32Array( 3 );
+
+/*
+=================
 CL_UpdateTEnts
 =================
 */
 export function CL_UpdateTEnts() {
 
 	num_temp_entities = 0;
+
+	CL_TEntSRand( Math.floor( cl.time * 1000 ) ); //johnfitz -- freeze beams when paused
 
 	// cl_tent.c: beams expire against cl.time, as set in CL_ParseBeam
 	const beamTime = cl.time;
@@ -331,7 +365,7 @@ export function CL_UpdateTEnts() {
 		}
 
 		// calculate pitch and yaw
-		const dist = new Float32Array( 3 );
+		const dist = _beam_dist;
 		VectorSubtract( b.end, b.start, dist );
 
 		let yaw, pitch;
@@ -357,7 +391,7 @@ export function CL_UpdateTEnts() {
 		}
 
 		// add new entities for the lightning
-		const org = new Float32Array( 3 );
+		const org = _beam_org;
 		VectorCopy( b.start, org );
 		let d = VectorNormalize( dist );
 		while ( d > 0 ) {
@@ -369,7 +403,7 @@ export function CL_UpdateTEnts() {
 			ent.model = b.model;
 			ent.angles[ 0 ] = pitch;
 			ent.angles[ 1 ] = yaw;
-			ent.angles[ 2 ] = ( Math.random() * 360 ) | 0;
+			ent.angles[ 2 ] = CL_TEntRand() % 360;
 
 			for ( let j = 0; j < 3; j ++ )
 				org[ j ] += dist[ j ] * 30;
