@@ -5,9 +5,9 @@ import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from './cmd.js';
 import { Con_Printf, con_forcedup, Con_SetBackscroll, con_totallines, con_vislines,
 	Con_Scroll, Con_TabComplete, Con_ResetTabComplete } from './console.js';
 import { M_Keydown, M_KeyRepeats, M_ToggleMenu_f } from './menu.js';
-import { SCR_UpdateScreen } from './gl_screen.js';
+import { SCR_UpdateScreen, scr_conscale } from './gl_screen.js';
 import { Sys_Error } from './sys.js';
-import { Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
+import { Draw_GetVirtualWidth, Draw_GetVirtualHeight, Draw_SetCanvasScale } from './gl_draw.js';
 
 /*
 ==============================================================================
@@ -711,6 +711,34 @@ function Key_PasteFromClipboard() {
 
 /*
 ====================
+Key_ScrollConsole
+
+Ctrl+Home (top) or Con_Scroll( lines ). Both limit the backscroll by the
+console's height, which id takes from vid.height: the console's own
+canvas here (scr_conscale), as SCR_UpdateScreen lays the console out, not
+the automatic UI scale's virtual screen.
+====================
+*/
+function Key_ScrollConsole( lines, top ) {
+
+	Draw_SetCanvasScale( scr_conscale.value );
+	try {
+
+		if ( top )
+			Con_SetBackscroll( Math.max( 0, con_totallines - ( _vid.height >> 3 ) - 1 ) );
+		else
+			Con_Scroll( lines );
+
+	} finally {
+
+		Draw_SetCanvasScale( 0 );
+
+	}
+
+}
+
+/*
+====================
 Key_Console -- johnfitz -- heavy revision
 
 Interactive line editing and console scrollback. Follows QuakeSpasm, which
@@ -781,7 +809,7 @@ function Key_Console( key ) {
 
 		case K_HOME:
 			if ( ctrl )
-				Con_SetBackscroll( Math.max( 0, con_totallines - ( _vid.height >> 3 ) - 1 ) );
+				Key_ScrollConsole( 0, true );
 			else
 				key_linepos = 1;
 			Con_ResetTabComplete();
@@ -797,12 +825,12 @@ function Key_Console( key ) {
 
 		case K_PGUP:
 		case K_MWHEELUP:
-			Con_Scroll( ctrl ? ( con_vislines >> 3 ) - 4 : 2 );
+			Key_ScrollConsole( ctrl ? ( con_vislines >> 3 ) - 4 : 2, false );
 			return;
 
 		case K_PGDN:
 		case K_MWHEELDOWN:
-			Con_Scroll( ctrl ? - ( ( con_vislines >> 3 ) - 4 ) : - 2 );
+			Key_ScrollConsole( ctrl ? - ( ( con_vislines >> 3 ) - 4 ) : - 2, false );
 			return;
 
 		case K_LEFTARROW:
