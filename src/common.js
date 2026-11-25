@@ -4,6 +4,7 @@
 import { Sys_Error } from './sys.js';
 import { cvar_t, Cvar_RegisterVariable, Cvar_Set } from './cvar.js';
 import { COM_LoadFile } from './pak.js';
+import { unicode_translit_src } from './unicode_translit.js';
 
 //============================================================================
 // common.h types
@@ -969,5 +970,551 @@ export function Con_DPrintf( fmt, ...args ) {
 		console.debug( fmt, ...args );
 
 	}
+
+}
+
+/*
+============================================================================
+
+					LOCALIZATION (2021 rerelease)
+
+Ported from Ironwail Quake/common.c: LOC_* and UTF8_ToQuake. The rerelease
+QuakeC prints "$key" strings (for example "$qc_item_health") that these
+resolve from localization/loc_<language>.txt in id1's pak0.pak.
+
+Deliberate deviations from Ironwail (docs/port-review.md section 7 names the main ones):
+- Only the game's paks are searched. Ironwail also opens QuakeEX.kpf (a zip)
+  and the Steam and Epic install folders; the port reads neither.
+- The file is decoded with TextDecoder, which turns invalid UTF-8 into U+FFFD
+  and so into QCHAR_BOX, as UTF8_ReadCodePoint's UNICODE_UNKNOWN does.
+- Entries go in a Map rather than Ironwail's open-addressed FNV-1a table. As
+  there, the first of two entries with the same key wins.
+- An unquoted value has all trailing whitespace trimmed. Ironwail's trim loop
+  keeps one trailing blank and leaves the '\r' of a CRLF line (every value in
+  the rerelease files is quoted, so neither case occurs there).
+- The port's cvars have no change callbacks, so a change to "language" is
+  picked up by the next lookup rather than by LOC_Language_f at once.
+- A missing file is reported with Con_DPrintf, not Con_Printf, so the
+  shareware game (which has none) boots without a new console line.
+- "auto" reads navigator.languages instead of SDL_GetPreferredLocales.
+- LOC_Load doesn't retry loc_english.txt when that was the file that failed.
+- PF_VarString and LOC_Format have no 1024-byte output buffer, so no
+  overflow warnings (the port's PF_VarString never had a limit).
+- Not ported: LOC_Init's "Language initialization" banner, the developer 2
+  list of entries with unprintable characters, "[skipnotify]" on the
+  "Loaded N strings" line, and language completion.
+
+============================================================================
+*/
+
+const QCHAR_BOX = 11;
+
+// Quake character set to Unicode (Ironwail common.c qchar_to_unicode)
+const qchar_to_unicode = new Uint32Array( [
+	0x00B7, 0x0000, 0x0000, 0x0000, 0x0000, 0x00B7, 0x0000, 0x0000, 0x0000, 0x0000, 0x000A, 0x25A0, 0x0020, 0x25B6, 0x00B7, 0x00B7, // 0
+	0x301A, 0x301B, 0x0030, 0x0031, 0x0032, 0x0033, 0x0034, 0x0035, 0x0036, 0x0037, 0x0038, 0x0039, 0x00B7, 0x002D, 0x002D, 0x002D, // 1
+	0x0020, 0x0021, 0x0022, 0x0023, 0x0024, 0x0025, 0x0026, 0x0027, 0x0028, 0x0029, 0x002A, 0x002B, 0x002C, 0x002D, 0x002E, 0x002F, // 2
+	0x0030, 0x0031, 0x0032, 0x0033, 0x0034, 0x0035, 0x0036, 0x0037, 0x0038, 0x0039, 0x003A, 0x003B, 0x003C, 0x003D, 0x003E, 0x003F, // 3
+	0x0040, 0x0041, 0x0042, 0x0043, 0x0044, 0x0045, 0x0046, 0x0047, 0x0048, 0x0049, 0x004A, 0x004B, 0x004C, 0x004D, 0x004E, 0x004F, // 4
+	0x0050, 0x0051, 0x0052, 0x0053, 0x0054, 0x0055, 0x0056, 0x0057, 0x0058, 0x0059, 0x005A, 0x005B, 0x005C, 0x005D, 0x005E, 0x005F, // 5
+	0x0060, 0x0061, 0x0062, 0x0063, 0x0064, 0x0065, 0x0066, 0x0067, 0x0068, 0x0069, 0x006A, 0x006B, 0x006C, 0x006D, 0x006E, 0x006F, // 6
+	0x0070, 0x0071, 0x0072, 0x0073, 0x0074, 0x0075, 0x0076, 0x0077, 0x0078, 0x0079, 0x007A, 0x007B, 0x007C, 0x007D, 0x007E, 0x2190, // 7
+	0x002D, 0x002D, 0x002D, 0x002D, 0x0000, 0x2022, 0x0000, 0x0000, 0x0000, 0x0000, 0x000A, 0x25A0, 0x0020, 0x25B6, 0x2022, 0x2022, // 8
+	0x301A, 0x301B, 0x0030, 0x0031, 0x0032, 0x0033, 0x0034, 0x0035, 0x0036, 0x0037, 0x0038, 0x0039, 0x2022, 0x002D, 0x002D, 0x002D, // 9
+	0x0020, 0x0021, 0x0022, 0x0023, 0x0024, 0x0025, 0x0026, 0x0027, 0x0028, 0x0029, 0x002A, 0x002B, 0x002C, 0x002D, 0x002E, 0x002F, // 10
+	0x0030, 0x0031, 0x0032, 0x0033, 0x0034, 0x0035, 0x0036, 0x0037, 0x0038, 0x0039, 0x003A, 0x003B, 0x003C, 0x003D, 0x003E, 0x003F, // 11
+	0x0040, 0x0041, 0x0042, 0x0043, 0x0044, 0x0045, 0x0046, 0x0047, 0x0048, 0x0049, 0x004A, 0x004B, 0x004C, 0x004D, 0x004E, 0x004F, // 12
+	0x0050, 0x0051, 0x0052, 0x0053, 0x0054, 0x0055, 0x0056, 0x0057, 0x0058, 0x0059, 0x005A, 0x005B, 0x005C, 0x005D, 0x005E, 0x005F, // 13
+	0x0060, 0x0061, 0x0062, 0x0063, 0x0064, 0x0065, 0x0066, 0x0067, 0x0068, 0x0069, 0x006A, 0x006B, 0x006C, 0x006D, 0x006E, 0x006F, // 14
+	0x0070, 0x0071, 0x0072, 0x0073, 0x0074, 0x0075, 0x0076, 0x0077, 0x0078, 0x0079, 0x007A, 0x007B, 0x007C, 0x007D, 0x007E, 0x2190, // 15
+] );
+
+// unicode_translit[ cp * 2 ], [ cp * 2 + 1 ]: one or two Quake characters per
+// code point below 65536 (the second is 0 when unused). Built on first use.
+let unicode_translit = null;
+
+/*
+==================
+UTF8_ToQuake
+
+Transliterates a string to Quake encoding. Ironwail decodes UTF-8 here; the
+port takes the string TextDecoder already decoded, and returns one character
+(code 0-255) per Quake byte, as PR_GetString builds them.
+==================
+*/
+export function UTF8_ToQuake( src ) {
+
+	if ( unicode_translit === null ) {
+
+		unicode_translit = new Uint8Array( 65536 * 2 );
+
+		// precomputed single-character/two-character transliterations
+		for ( let i = 0; i < unicode_translit_src.length; i ++ ) {
+
+			const code = unicode_translit_src[ i ][ 0 ];
+			const remap = unicode_translit_src[ i ][ 1 ];
+			unicode_translit[ code * 2 ] = remap.charCodeAt( 0 );
+			unicode_translit[ code * 2 + 1 ] = remap.length > 1 ? remap.charCodeAt( 1 ) : 0;
+
+		}
+
+		// Quake-specific characters: we process the list in reverse order
+		// so that codepoints used for both colored and non-colored qchars
+		// end up being remapped to the non-colored versions
+		// Note: 0 is not included
+		for ( let i = qchar_to_unicode.length - 1; i > 0; i -- ) {
+
+			const cp = qchar_to_unicode[ i ];
+			if ( cp >= 128 && cp < 65536 ) {
+
+				unicode_translit[ cp * 2 ] = i;
+				unicode_translit[ cp * 2 + 1 ] = 0;
+
+			}
+
+		}
+
+		// map ASCII characters to themselves
+		for ( let i = 0; i < 128; i ++ ) {
+
+			unicode_translit[ i * 2 ] = i;
+			unicode_translit[ i * 2 + 1 ] = 0;
+
+		}
+
+		// Map all other characters to QCHAR_BOX (unknown character)
+		for ( let i = 0; i < 65536; i ++ ) {
+
+			if ( unicode_translit[ i * 2 ] === 0 ) {
+
+				unicode_translit[ i * 2 ] = QCHAR_BOX;
+				unicode_translit[ i * 2 + 1 ] = 0;
+
+			}
+
+		}
+
+	}
+
+	let dst = '';
+	for ( const ch of src ) {
+
+		const cp = ch.codePointAt( 0 );
+		if ( cp < 65536 ) {
+
+			dst += String.fromCharCode( unicode_translit[ cp * 2 ] );
+			const c1 = unicode_translit[ cp * 2 + 1 ];
+			if ( c1 !== 0 ) dst += String.fromCharCode( c1 );
+
+		} else {
+
+			dst += String.fromCharCode( QCHAR_BOX );
+
+		}
+
+	}
+
+	return dst;
+
+}
+
+export let language = null; // cvar_t "language", registered by LOC_Init
+
+const knownlangs = [
+	[ '', 'auto' ],
+	[ 'en', 'english' ],
+	[ 'fr', 'french' ],
+	[ 'de', 'german' ],
+	[ 'it', 'italian' ],
+	[ 'es', 'spanish' ],
+];
+
+// Different from language cvar if language is "auto"
+let userlang = 'english';
+
+const loc_entries = new Map(); // key (without '$') -> value in Quake encoding
+let loc_initialized = false;
+let loc_cvarstring = null; // language.string when the strings were last loaded
+let loc_argend = 0; // LOC_ParseArg's advanced position
+const loc_decoder = new TextDecoder( 'utf-8' ); // strips a leading BOM
+
+function q_isblank( c ) {
+
+	return c === 0x20 || c === 0x09;
+
+}
+
+function q_isspace( c ) {
+
+	return c === 0x20 || ( c >= 0x09 && c <= 0x0D );
+
+}
+
+/*
+================
+LOC_LoadFile
+================
+*/
+export function LOC_LoadFile( file ) {
+
+	// clear existing data
+	loc_entries.clear();
+
+	if ( file === null || file === '' )
+		return false;
+
+	const buf = COM_LoadFile( file );
+	if ( buf === null ) {
+
+		Con_DPrintf( 'Couldn\'t load \'%s\'\n', file );
+		return false;
+
+	}
+
+	const text = loc_decoder.decode( buf );
+	const len = text.length;
+	let numentries = 0;
+	let lineno = 0;
+	let cursor = 0;
+
+	while ( cursor < len ) {
+
+		lineno ++;
+
+		// skip leading whitespace
+		while ( cursor < len && q_isblank( text.charCodeAt( cursor ) ) )
+			cursor ++;
+
+		const line = cursor;
+		let equals = - 1;
+		// find line end and first equals sign, if any
+		while ( cursor < len && text.charCodeAt( cursor ) !== 0x0A ) {
+
+			if ( text.charCodeAt( cursor ) === 0x3D && equals < 0 )
+				equals = cursor;
+			cursor ++;
+
+		}
+
+		if ( text.charCodeAt( line ) === 0x2F ) {
+
+			if ( text.charCodeAt( line + 1 ) !== 0x2F )
+				Con_DPrintf( 'LOC_LoadFile: malformed comment on line %d\n', lineno );
+
+		} else if ( equals >= 0 ) {
+
+			// trim whitespace before equals sign
+			let key_end = equals;
+			while ( key_end !== line && q_isspace( text.charCodeAt( key_end - 1 ) ) )
+				key_end --;
+			const key = text.substring( line, key_end );
+
+			let value = equals + 1;
+			// skip whitespace after equals sign
+			while ( value !== cursor && q_isspace( text.charCodeAt( value ) ) )
+				value ++;
+
+			const leading_quote = value !== cursor && text.charCodeAt( value ) === 0x22;
+			let trailing_quote = false;
+			if ( leading_quote ) value ++;
+
+			// transform escape sequences
+			let out = '';
+			let src = value;
+			while ( src !== cursor ) {
+
+				const c = text[ src ];
+				if ( c === '\\' && src + 1 !== cursor ) {
+
+					const e = text[ src + 1 ];
+					src += 2;
+					switch ( e ) {
+
+						case 'n': out += '\n'; break;
+						case 't': out += '\t'; break;
+						case 'v': out += '\v'; break;
+						case 'b': out += '\b'; break;
+						case 'f': out += '\f'; break;
+
+						case '"':
+						case '\'':
+							out += e;
+							break;
+
+						default:
+							Con_Printf( 'LOC_LoadFile: unrecognized escape sequence \\%s on line %d\n', e, lineno );
+							out += e;
+							break;
+
+					}
+
+					continue;
+
+				}
+
+				if ( c === '"' ) {
+
+					trailing_quote = true;
+					break;
+
+				}
+
+				out += c;
+				src ++;
+
+			}
+
+			// if not a quoted string, trim trailing whitespace
+			if ( ! trailing_quote ) {
+
+				let end = out.length;
+				while ( end > 0 && q_isspace( out.charCodeAt( end - 1 ) ) )
+					end --;
+				out = out.substring( 0, end );
+
+			}
+
+			numentries ++;
+			if ( ! loc_entries.has( key ) )
+				loc_entries.set( key, UTF8_ToQuake( out ) );
+
+		}
+
+		cursor ++; // past the '\n'
+
+	}
+
+	if ( numentries === 0 ) {
+
+		Con_Printf( 'No localized strings in file \'%s\'\n', file );
+		return false;
+
+	}
+
+	Con_Printf( 'Loaded %d strings from \'%s\'\n', numentries, file );
+
+	return true;
+
+}
+
+/*
+================
+LOC_Load
+================
+*/
+export function LOC_Load() {
+
+	// Ironwail retries loc_english.txt even when that was the file that failed
+	if ( ! LOC_LoadFile( 'localization/loc_' + userlang + '.txt' ) && userlang !== 'english' )
+		LOC_LoadFile( 'localization/loc_english.txt' );
+
+}
+
+/*
+================
+LOC_GetSystemLanguage
+================
+*/
+export function LOC_GetSystemLanguage() {
+
+	if ( typeof navigator === 'undefined' || ! Array.isArray( navigator.languages ) )
+		return 'english';
+
+	for ( const pref of navigator.languages ) {
+
+		// BCP 47 tags ("fr-FR"); SDL_Locale.language is the part before '-'
+		const lang = String( pref ).split( '-' )[ 0 ].toLowerCase();
+		for ( let j = 1; j < knownlangs.length; j ++ ) { // start at 1, skipping "auto"
+
+			if ( lang === knownlangs[ j ][ 0 ] )
+				return knownlangs[ j ][ 1 ];
+
+		}
+
+	}
+
+	return 'english';
+
+}
+
+/*
+================
+LOC_Language_f
+
+Called when language changes
+================
+*/
+export function LOC_Language_f() {
+
+	loc_cvarstring = language.string;
+	if ( language.string.toLowerCase() === 'auto' )
+		userlang = LOC_GetSystemLanguage();
+	else
+		userlang = language.string;
+	LOC_Load();
+
+}
+
+// Reloads the strings when "language" changed since they were loaded (the
+// port's stand-in for Ironwail's cvar callback)
+function LOC_CheckLanguage() {
+
+	if ( loc_initialized && language.string !== loc_cvarstring )
+		LOC_Language_f();
+
+}
+
+/*
+================
+LOC_Init
+================
+*/
+export function LOC_Init() {
+
+	if ( language === null ) {
+
+		language = new cvar_t( 'language', 'auto', true ); // for 2021 rerelease text
+		Cvar_RegisterVariable( language );
+
+	}
+
+	loc_initialized = true;
+	LOC_Language_f();
+
+}
+
+/*
+================
+LOC_Shutdown
+================
+*/
+export function LOC_Shutdown() {
+
+	loc_entries.clear();
+	loc_initialized = false;
+	loc_cvarstring = null;
+
+}
+
+/*
+================
+LOC_GetRawString
+
+Returns localized string if available, or null otherwise
+================
+*/
+export function LOC_GetRawString( key ) {
+
+	LOC_CheckLanguage();
+
+	if ( loc_entries.size === 0 || key === null || key.length === 0 || key.charCodeAt( 0 ) !== 0x24 )
+		return null;
+
+	const value = loc_entries.get( key.substring( 1 ) );
+	return value !== undefined ? value : null;
+
+}
+
+/*
+================
+LOC_GetString
+
+Returns localized string if available, or input string otherwise
+================
+*/
+export function LOC_GetString( key ) {
+
+	const value = LOC_GetRawString( key );
+	return value !== null ? value : key;
+
+}
+
+/*
+================
+LOC_ParseArg
+
+Returns argument index (>= 0) and sets loc_argend past the placeholder if str
+has one ({} or {N}) at pos, otherwise returns a negative value
+================
+*/
+function LOC_ParseArg( str, pos ) {
+
+	// opening brace
+	if ( str.charCodeAt( pos ) !== 0x7B )
+		return - 1;
+	let p = pos + 1;
+
+	// optional index, defaulting to 0
+	let arg = 0;
+	let c = str.charCodeAt( p );
+	while ( c >= 0x30 && c <= 0x39 ) {
+
+		arg = arg * 10 + c - 0x30;
+		c = str.charCodeAt( ++ p );
+
+	}
+
+	// closing brace
+	if ( c !== 0x7D )
+		return - 1;
+	loc_argend = p + 1;
+
+	return arg;
+
+}
+
+/*
+================
+LOC_HasPlaceholders
+================
+*/
+export function LOC_HasPlaceholders( str ) {
+
+	LOC_CheckLanguage();
+
+	if ( loc_entries.size === 0 )
+		return false;
+	for ( let i = 0; i < str.length; i ++ ) {
+
+		if ( LOC_ParseArg( str, i ) >= 0 )
+			return true;
+
+	}
+
+	return false;
+
+}
+
+/*
+================
+LOC_Format
+
+Replaces placeholders (of the form {} or {N}) with the corresponding arguments.
+Ironwail writes into a fixed buffer; the port's strings have no length limit.
+================
+*/
+export function LOC_Format( format, getarg_fn, userdata ) {
+
+	let out = '';
+	let run = 0; // start of the literal text not yet copied
+	let i = 0;
+
+	while ( i < format.length ) {
+
+		const argindex = LOC_ParseArg( format, i );
+		if ( argindex < 0 ) {
+
+			i ++;
+			continue;
+
+		}
+
+		out += format.substring( run, i ) + getarg_fn( argindex, userdata );
+		i = loc_argend;
+		run = i;
+
+	}
+
+	return out + format.substring( run );
 
 }

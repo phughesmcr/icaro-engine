@@ -7,7 +7,7 @@
 
 import { Sys_Printf, Sys_FloatTime } from '../src/sys.js';
 import { COM_AddPakSequence, COM_AddGameDirectory, COM_SetLooseFileBasePaths, COM_EnsureFile } from '../src/pak.js';
-import { COM_InitArgv, rogue, hipnotic } from '../src/common.js';
+import { COM_InitArgv, LOC_Init, rogue, hipnotic } from '../src/common.js';
 import { Cbuf_Init, Cbuf_Execute, Cmd_Init } from '../src/cmd.js';
 import { Host_InitCommands } from '../src/host_cmd.js';
 import { deathmatch, samelevel, noexit, sys_ticrate, campaign, horde, sv_cheats, Host_ShutdownServer } from '../src/host.js';
@@ -346,6 +346,11 @@ async function Host_Init_Server() {
 			throw new Error('-' + dir.slice(dir.lastIndexOf('/') + 1) + ' needs ' + dir + '/pak0.pak');
 		}
 	}
+
+	// Ironwail host.c Host_Init: LOC_Init, once the game data is mounted. The
+	// server resolves the 2021 rerelease's "$key" strings, so this process
+	// needs the strings rather than the client.
+	LOC_Init();
 
 	// Base paths for on-demand loose file loading (custom maps not in PAK):
 	// the game directories, then id1's when it is not static/ itself, then static/

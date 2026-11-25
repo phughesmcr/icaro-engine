@@ -39,9 +39,11 @@ The findings come from four sources:
   2. **Finding a secret disconnected the client.** `multi_trigger` writes
      `svc_achievement` (52) on every secret. The client had no case for 52, so it
      hit "Illegible server message". Fixed in #112.
-- **The text shows raw keys.** id1's QuakeC uses 135 distinct `$key` strings,
-  such as `$qc_item_health`. Nothing resolves them, so pickups, triggers and
-  the finale print the keys.
+- **The text showed raw keys.** id1's QuakeC uses 135 distinct `$key` strings,
+  such as `$qc_item_health`. Nothing resolved them, so pickups, triggers and
+  the finale printed the keys. Fixed in #124: all but `$qc_death_knight`, which
+  `loc_english.txt` itself lacks, now resolve, as do every string in the
+  hipnotic, rogue, mg1, mg3, dopa and ctf progs.
 - **58 of the 192 `.bsp` files are BSP2.** The 192 are 171 maps plus 21
   `b_*` box models; ctf's `archive/` copies are left out. The BSP2 files are
   all 13 maps of Dimension of the Past (`dopa`), 22 of 25 in Dimension of the
@@ -67,7 +69,7 @@ week or more.
 | 1d | Other progs builtins | **done** (harmless) | Every rerelease progs also declares `ex_draw_*` (debug), `ex_bot_*` (bots) and `checkextension` (#99). The ctf progs adds `setcolor` (#401) and `ex_prompt`/`ex_promptchoice`/`ex_clearprompt`. The unbound `#0` ones return 0 silently. `setcolor` and the prompts are only called after `cvar("pr_checkextension")` and `checkextension(...)` checks, which are false here. mg3's `draw_bounds` is debug-only. | – | – |
 | 1e | `svc_achievement` (52) | **done** (#112) | Fixed: `svc_achievement` is defined in `src/protocol.js:103`, and `src/cl_parse.js:1653` reads and ignores the string. Before #112: QC writes it in id1 (18 sites), hipnotic (13), mg1 (11), mg3 (16), rogue (8) and ctf (1). It comes from `multi_trigger` on every secret, and from intermissions and kills. The `src/cl_parse.js:1425` default case called `Host_Error`. Ironwail reads and ignores the string (`Quake/cl_parse.c:1374`). No other KEX svc is written by QC. | – | – |
 | 1f | `campaign`, `horde`, `sv_cheats` cvars | **done** (#113) | Fixed: `src/host.js:109-111` defines them, `Host_InitLocal` registers them (`:242-244`), and `server/game_server.js` registers them for the game server, which doesn't call `Host_InitLocal`. Before #113: every `StartFrame` runs `cvar_set("campaign", …)` (`quakec/world.qc:369`). With no such cvar, `Cvar_Set` (`src/cvar.js:186`) printed "variable campaign not found" every server frame: 101 times in a 100-frame headless run. `horde` turns on mg1's horde mode. Ironwail registers all three (`Quake/host.c:91-93`). | – | – |
-| 2 | Localisation | **missing** | `loc_<language>.txt` is in id1's `pak0.pak` under `localization/` (1645 keys, 213 `{}` placeholders, UTF-8) and in `QuakeEX.kpf`. Ironwail resolves keys on the server: in `PF_VarString` (`Quake/pr_cmds.c:60-95`, with `{}` placeholders) and `PF_WriteString` (`:1583`, which covers `svc_finale "$qc_finale_end"`). Its loader is `LOC_*` in `Quake/common.c:3687-4070`, with a `language` cvar. Map names are plain text, and the classic `.lmp` menus need no keys. Only `mapdb.json` episode names use them (menu only). | M | `src/common.js` (`LOC_*`, `UTF8_ToQuake`), `src/pr_cmds.js` (`PF_VarString`, `PF_WriteString`), `src/host.js` (`LOC_Init`), new tests |
+| 2 | Localisation | **done** (#124) | `loc_<language>.txt` is in id1's `pak0.pak` under `localization/` (1645 keys, 213 `{}` placeholders, UTF-8) and in `QuakeEX.kpf`. Ironwail resolves keys on the server: in `PF_VarString` (`Quake/pr_cmds.c:60-95`, with `{}` placeholders) and `PF_WriteString` (`:1583`, which covers `svc_finale "$qc_finale_end"`). Its loader is `LOC_*` in `Quake/common.c:3687-4070`, with a `language` cvar. Map names are plain text, and the classic `.lmp` menus need no keys. Only `mapdb.json` episode names use them (menu only); the port has no such menu. #124 ports Ironwail's loader and both call sites, and calls `LOC_Init` in the room server too. It reads the strings from the paks only, not from `QuakeEX.kpf`. | M | `src/common.js` (`LOC_*`, `UTF8_ToQuake`), `src/pr_cmds.js` (`PF_VarString`, `PF_WriteString`), `src/host.js` and `server/game_server.js` (`LOC_Init`), new tests |
 | 3 | BSP2 maps | **missing** | `src/gl_model.js:2578` accepts only version 29. The rerelease has 58 BSP2 files (56 maps and 2 box models) and no 2PSB ones. Every BSP29 map fits the current limits; the largest is `mg1/mgdm3`, with 8980 leafs under `MAX_MAP_LEAFS` 32767 (`src/bspfile.js:18`). Ironwail's loaders are `Quake/gl_model.c` `Mod_LoadNodes_L2` (`:1549`) and `Mod_LoadClipnodes(…, bsp2)` (`:1923`), with leafs, faces, edges and marksurfaces done the same way. | L | `src/bspfile.js`, `src/gl_model.js` (`Mod_LoadEdges`, `Mod_LoadFaces`, `Mod_LoadNodes`, `Mod_LoadLeafs`, `Mod_LoadClipnodes`, `Mod_LoadMarksurfaces`), and anything that stores 16-bit children or indexes (check `src/world.js` hull code), tests |
 | 4a | Signon size | **done** (#96) | Signon buffers of `MAX_MSGLEN/2`, up to 256 of them (`MAX_SIGNON_BUFFERS`, `src/server.js`), allow about 1 MB of signon. Even 2000 baselines at 35 bytes each fit. | – | – |
 | 4b | Edict count | **partial** | `MAX_EDICTS` 1024 (`src/quakedef.js:29`) is bounded by `PE_ENT_BITS` 10 (`src/protocol.js:187`). Before skill filtering, `mg3/secret2` has 1572 entities that aren't lights or `info_null`, and `mg3/map8` has 988. Runtime spawns add to that. Ironwail: `MAX_EDICTS` 32000 (`Quake/quakedef.h:106`). | L (with 4c, 4d) | `src/protocol.js`, `src/quakedef.js`, `src/sv_main.js` (packet entities), `src/cl_parse.js`, `src/cl_main.js` |
@@ -128,7 +130,7 @@ rogue, ctf, and the BSP29 maps in mg1 and mg3. All but the `vibrate` no-op is do
 5. The `archive/` deferral 6j (`src/pak.js`). Done in #114.
 
 **Phase 2: localisation (M).** Item 2. Pickups, triggers and the finale need it to read
-properly. It touches `src/pr_cmds.js`, as step 1 did; step 1 is in (#111), so nothing blocks it.
+properly. Done in #124.
 
 **Phase 3: BSP2 (L).** Item 3. This unlocks dopa, the rest of mg1 and mg3, and the two vault
 maps. Of those, all but the maps named in phase 4 then run within today's
@@ -155,13 +157,12 @@ not have to adopt Ironwail's 666 or 999 wire formats, because the client and ser
 These share files, so run them in sequence or bundle them. Items already done
 (#111–#114) are left out:
 
-- **`src/pr_cmds.js`:** localisation (2) and the `PF_makestatic` part of the index widening (4c).
+- **`src/pr_cmds.js`:** the `PF_makestatic` part of the index widening (4c).
 - **`src/protocol.js` and `src/cl_parse.js`:** protocol limits (4b–4d), alpha (6c), and `svc_fog` if it is ever sent.
 - **`src/gl_model.js`:** BSP2 (3), `.lit` (5) and MD5 (6k). They change different
   functions, but conflict in the `Mod_LoadBrushModel` dispatch.
 - **`src/pak.js`:** `.lit` (5), skybox `.tga` (6b) and MD5 (6k). Each changes
   `DEFERRED_EXTENSIONS` or `DEFERRED_DIRS`, or adds a `COM_EnsureFile` at map load.
-- **`src/host.js`:** `LOC_Init` (2), and the `vibrate` no-op (6i) if it goes there. Both are small additions, so the conflict is trivial.
 - **`src/cl_main.js`:** effect lights (6d) and protocol limits (4b, the client entity
   state).
 - **`src/gl_rmain.js`:** fog (6a), entity alpha (6c) and MD5 (6k).
@@ -173,7 +174,6 @@ These share files, so run them in sequence or bundle them. Items already done
 Groups that can run at the same time:
 
 - **Now:**
-  - Localisation (one owner of `pr_cmds.js`).
   - The `vibrate` no-op.
   - BSP2.
 - **After BSP2 lands** (`svc_achievement` landed in #112):
