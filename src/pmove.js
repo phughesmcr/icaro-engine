@@ -2,7 +2,7 @@
 // Shared player movement physics for client-side prediction
 // This code runs identically on both client and server
 
-import { vec3_origin, DotProduct, VectorCopy, VectorAdd, VectorSubtract,
+import { DotProduct, VectorCopy, VectorAdd, VectorSubtract,
 	VectorMA, VectorScale, VectorNormalize, Length, AngleVectors, CrossProduct } from './mathlib.js';
 import { CONTENTS_EMPTY, CONTENTS_SOLID, CONTENTS_WATER, CONTENTS_SLIME,
 	CONTENTS_CURRENT_0, CONTENTS_CURRENT_DOWN } from './bspfile.js';
@@ -27,7 +27,8 @@ const _pm_flymove_planes = [];
 for ( let i = 0; i < MAX_CLIP_PLANES; i++ )
 	_pm_flymove_planes[ i ] = new Float32Array( 3 );
 
-// Note: PM_RecursiveHullCheck's `mid` cannot be cached — it's recursive
+// PM_RecursiveHullCheck's `mid` is recursive: one scratch vector per depth
+const _pm_hullmid_pool = [];
 const _pm_testpos_mins = new Float32Array( 3 );
 const _pm_testpos_maxs = new Float32Array( 3 );
 const _pm_testpos_test = new Float32Array( 3 );
@@ -238,15 +239,95 @@ To keep everything totally uniform, bounding boxes are turned into small
 BSP trees instead of being compared directly.
 ===================
 */
-function PM_HullForBox( mins, maxs ) {
+export function PM_HullForBox( mins, maxs ) {
 	box_hull.planes[ 0 ].dist = maxs[ 0 ];
 	box_hull.planes[ 1 ].dist = mins[ 0 ];
 	box_hull.planes[ 2 ].dist = maxs[ 1 ];
 	box_hull.planes[ 3 ].dist = mins[ 1 ];
 	box_hull.planes[ 4 ].dist = maxs[ 2 ];
 	box_hull.planes[ 5 ].dist = mins[ 2 ];
+	box_flat.dist[ 0 ] = maxs[ 0 ];
+	box_flat.dist[ 1 ] = mins[ 0 ];
+	box_flat.dist[ 2 ] = maxs[ 1 ];
+	box_flat.dist[ 3 ] = mins[ 1 ];
+	box_flat.dist[ 4 ] = maxs[ 2 ];
+	box_flat.dist[ 5 ] = mins[ 2 ];
 
 	return box_hull;
+}
+
+/*
+==================
+Flattened hulls
+
+Not in QW. hull.clipnodes is an array of {planenum, children} objects and
+hull.planes an array of {normal, dist, type} objects, so walking a hull
+chases two pointers per node. The first time a hull is traced through, its
+tree is copied into typed arrays indexed by node number, with the plane
+resolved. The values are the same ones, so every distance comes out bit for
+bit as before. Brush models' clipnodes and planes are not changed once
+loaded; the box hull is the exception, and PM_HullForBox writes its
+distances into box_flat directly. (world.js does the same for the server's
+traces; pmove.js can't import it, as the cycle it is in with cl_pred.js
+fails with a TDZ error.)
+==================
+*/
+class pm_hull_flat_t {
+
+	constructor( count ) {
+
+		this.planes = null;
+		this.child0 = new Int32Array( count );
+		this.child1 = new Int32Array( count );
+		this.type = new Int8Array( count );
+		this.normal = new Float32Array( count * 3 );
+		this.dist = new Float64Array( count );
+
+	}
+
+}
+
+const pm_hull_flats = new WeakMap(); // clipnodes array -> pm_hull_flat_t
+const box_flat = new pm_hull_flat_t( 6 );
+for ( let i = 0; i < 6; i++ ) {
+	box_flat.normal[ i * 3 + ( i >> 1 ) ] = 1;
+	box_flat.type[ i ] = i >> 1;
+}
+
+function pm_hull_flat( hull ) {
+	if ( hull === box_hull ) {
+		// PM_InitBoxHull may have been run since: take its tree
+		for ( let i = 0; i < 6; i++ ) {
+			box_flat.child0[ i ] = box_hull.clipnodes[ i ].children[ 0 ];
+			box_flat.child1[ i ] = box_hull.clipnodes[ i ].children[ 1 ];
+		}
+		return box_flat;
+	}
+
+	const clipnodes = hull.clipnodes;
+	let f = pm_hull_flats.get( clipnodes );
+	if ( f !== undefined && f.planes === hull.planes && f.child0.length === clipnodes.length )
+		return f;
+
+	const count = clipnodes.length;
+	f = new pm_hull_flat_t( count );
+	f.planes = hull.planes;
+	for ( let i = 0; i < count; i++ ) {
+		const node = clipnodes[ i ];
+		if ( node === undefined || node === null )
+			continue; // not a node (unfilled slot); the bounds check rejects it
+		const plane = hull.planes[ node.planenum ];
+		f.child0[ i ] = node.children[ 0 ];
+		f.child1[ i ] = node.children[ 1 ];
+		f.type[ i ] = plane.type;
+		f.normal[ i * 3 ] = plane.normal[ 0 ];
+		f.normal[ i * 3 + 1 ] = plane.normal[ 1 ];
+		f.normal[ i * 3 + 2 ] = plane.normal[ 2 ];
+		f.dist[ i ] = plane.dist;
+	}
+
+	pm_hull_flats.set( clipnodes, f );
+	return f;
 }
 
 /*
@@ -254,29 +335,38 @@ function PM_HullForBox( mins, maxs ) {
 PM_HullPointContents
 ==================
 */
-export function PM_HullPointContents( hull, num, p ) {
+function pm_hull_point_contents( f, firstclipnode, lastclipnode, num, p ) {
+	const p0 = p[ 0 ], p1 = p[ 1 ], p2 = p[ 2 ];
+	const type = f.type, dist = f.dist, normal = f.normal;
+
 	while ( num >= 0 ) {
-		if ( num < hull.firstclipnode || num > hull.lastclipnode ) {
+		if ( num < firstclipnode || num > lastclipnode ) {
 			console.error( 'PM_HullPointContents: bad node number' );
 			return CONTENTS_SOLID;
 		}
 
-		const node = hull.clipnodes[ num ];
-		const plane = hull.planes[ node.planenum ];
-
+		const t = type[ num ];
 		let d;
-		if ( plane.type < 3 )
-			d = p[ plane.type ] - plane.dist;
+		if ( t === 0 )
+			d = p0 - dist[ num ];
+		else if ( t === 1 )
+			d = p1 - dist[ num ];
+		else if ( t === 2 )
+			d = p2 - dist[ num ];
 		else
-			d = DotProduct( plane.normal, p ) - plane.dist;
+			d = normal[ num * 3 ] * p0 + normal[ num * 3 + 1 ] * p1 + normal[ num * 3 + 2 ] * p2 - dist[ num ];
 
 		if ( d < 0 )
-			num = node.children[ 1 ];
+			num = f.child1[ num ];
 		else
-			num = node.children[ 0 ];
+			num = f.child0[ num ];
 	}
 
 	return num;
+}
+
+export function PM_HullPointContents( hull, num, p ) {
+	return pm_hull_point_contents( pm_hull_flat( hull ), hull.firstclipnode, hull.lastclipnode, num, p );
 }
 
 /*
@@ -295,100 +385,131 @@ export function PM_PointContents( p ) {
 /*
 ==================
 PM_RecursiveHullCheck
+
+The C recurses for every branch; the cases that end in a tail call (both
+points on one side, passing the node) loop here instead.
 ==================
 */
-function PM_RecursiveHullCheck( hull, num, p1f, p2f, p1, p2, trace ) {
-	// check for empty
-	if ( num < 0 ) {
-		if ( num !== CONTENTS_SOLID ) {
-			trace.allsolid = false;
-			if ( num === CONTENTS_EMPTY )
-				trace.inopen = true;
-			else
-				trace.inwater = true;
+function pm_recursive_hull_check( f, firstclipnode, lastclipnode, num, p1f, p2f, p1, p2, trace, depth ) {
+	const type = f.type, dist = f.dist, normal = f.normal;
+
+	while ( true ) {
+		// check for empty
+		if ( num < 0 ) {
+			if ( num !== CONTENTS_SOLID ) {
+				trace.allsolid = false;
+				if ( num === CONTENTS_EMPTY )
+					trace.inopen = true;
+				else
+					trace.inwater = true;
+			} else {
+				trace.startsolid = true;
+			}
+			return true; // empty
+		}
+
+		if ( num < firstclipnode || num > lastclipnode ) {
+			console.error( 'PM_RecursiveHullCheck: bad node number' );
+			return true;
+		}
+
+		// find the point distances
+		const ty = type[ num ];
+		const pd = dist[ num ];
+		let t1, t2;
+		if ( ty < 3 ) {
+			t1 = p1[ ty ] - pd;
+			t2 = p2[ ty ] - pd;
 		} else {
-			trace.startsolid = true;
+			const n0 = normal[ num * 3 ], n1 = normal[ num * 3 + 1 ], n2 = normal[ num * 3 + 2 ];
+			t1 = n0 * p1[ 0 ] + n1 * p1[ 1 ] + n2 * p1[ 2 ] - pd;
+			t2 = n0 * p2[ 0 ] + n1 * p2[ 1 ] + n2 * p2[ 2 ] - pd;
 		}
-		return true; // empty
-	}
 
-	if ( num < hull.firstclipnode || num > hull.lastclipnode ) {
-		console.error( 'PM_RecursiveHullCheck: bad node number' );
-		return true;
-	}
+		if ( t1 >= 0 && t2 >= 0 ) {
+			num = f.child0[ num ];
+			continue;
+		}
+		if ( t1 < 0 && t2 < 0 ) {
+			num = f.child1[ num ];
+			continue;
+		}
 
-	// find the point distances
-	const node = hull.clipnodes[ num ];
-	const plane = hull.planes[ node.planenum ];
+		// put the crosspoint DIST_EPSILON pixels on the near side
+		let frac;
+		if ( t1 < 0 )
+			frac = ( t1 + DIST_EPSILON ) / ( t1 - t2 );
+		else
+			frac = ( t1 - DIST_EPSILON ) / ( t1 - t2 );
 
-	let t1, t2;
-	if ( plane.type < 3 ) {
-		t1 = p1[ plane.type ] - plane.dist;
-		t2 = p2[ plane.type ] - plane.dist;
-	} else {
-		t1 = DotProduct( plane.normal, p1 ) - plane.dist;
-		t2 = DotProduct( plane.normal, p2 ) - plane.dist;
-	}
+		if ( frac < 0 ) frac = 0;
+		if ( frac > 1 ) frac = 1;
 
-	if ( t1 >= 0 && t2 >= 0 )
-		return PM_RecursiveHullCheck( hull, node.children[ 0 ], p1f, p2f, p1, p2, trace );
-	if ( t1 < 0 && t2 < 0 )
-		return PM_RecursiveHullCheck( hull, node.children[ 1 ], p1f, p2f, p1, p2, trace );
+		let midf = p1f + ( p2f - p1f ) * frac;
+		// recursive: one scratch vector per depth
+		let mid = _pm_hullmid_pool[ depth ];
+		if ( mid === undefined )
+			mid = _pm_hullmid_pool[ depth ] = new Float32Array( 3 );
+		mid[ 0 ] = p1[ 0 ] + frac * ( p2[ 0 ] - p1[ 0 ] );
+		mid[ 1 ] = p1[ 1 ] + frac * ( p2[ 1 ] - p1[ 1 ] );
+		mid[ 2 ] = p1[ 2 ] + frac * ( p2[ 2 ] - p1[ 2 ] );
 
-	// put the crosspoint DIST_EPSILON pixels on the near side
-	let frac;
-	if ( t1 < 0 )
-		frac = ( t1 + DIST_EPSILON ) / ( t1 - t2 );
-	else
-		frac = ( t1 - DIST_EPSILON ) / ( t1 - t2 );
+		const side = ( t1 < 0 ) ? 1 : 0;
+		const near = side === 0 ? f.child0[ num ] : f.child1[ num ];
+		const far = side === 0 ? f.child1[ num ] : f.child0[ num ];
 
-	if ( frac < 0 ) frac = 0;
-	if ( frac > 1 ) frac = 1;
-
-	let midf = p1f + ( p2f - p1f ) * frac;
-	const mid = new Float32Array( 3 ); // must allocate: recursive function needs separate buffer per call
-	for ( let i = 0; i < 3; i++ )
-		mid[ i ] = p1[ i ] + frac * ( p2[ i ] - p1[ i ] );
-
-	const side = ( t1 < 0 ) ? 1 : 0;
-
-	// move up to the node
-	if ( ! PM_RecursiveHullCheck( hull, node.children[ side ], p1f, midf, p1, mid, trace ) )
-		return false;
-
-	if ( PM_HullPointContents( hull, node.children[ side ^ 1 ], mid ) !== CONTENTS_SOLID )
-		// go past the node
-		return PM_RecursiveHullCheck( hull, node.children[ side ^ 1 ], midf, p2f, mid, p2, trace );
-
-	if ( trace.allsolid )
-		return false; // never got out of the solid area
-
-	// the other side of the node is solid, this is the impact point
-	if ( side === 0 ) {
-		VectorCopy( plane.normal, trace.plane.normal );
-		trace.plane.dist = plane.dist;
-	} else {
-		VectorSubtract( vec3_origin, plane.normal, trace.plane.normal );
-		trace.plane.dist = -plane.dist;
-	}
-
-	while ( PM_HullPointContents( hull, hull.firstclipnode, mid ) === CONTENTS_SOLID ) {
-		// shouldn't really happen, but does occasionally
-		frac -= 0.1;
-		if ( frac < 0 ) {
-			trace.fraction = midf;
-			VectorCopy( mid, trace.endpos );
+		// move up to the node
+		if ( ! pm_recursive_hull_check( f, firstclipnode, lastclipnode, near, p1f, midf, p1, mid, trace, depth + 1 ) )
 			return false;
+
+		if ( pm_hull_point_contents( f, firstclipnode, lastclipnode, far, mid ) !== CONTENTS_SOLID ) {
+			// go past the node
+			num = far;
+			p1f = midf;
+			p1 = mid;
+			depth++;
+			continue;
 		}
-		midf = p1f + ( p2f - p1f ) * frac;
-		for ( let i = 0; i < 3; i++ )
-			mid[ i ] = p1[ i ] + frac * ( p2[ i ] - p1[ i ] );
+
+		if ( trace.allsolid )
+			return false; // never got out of the solid area
+
+		// the other side of the node is solid, this is the impact point
+		if ( side === 0 ) {
+			trace.plane.normal[ 0 ] = normal[ num * 3 ];
+			trace.plane.normal[ 1 ] = normal[ num * 3 + 1 ];
+			trace.plane.normal[ 2 ] = normal[ num * 3 + 2 ];
+			trace.plane.dist = pd;
+		} else {
+			// VectorSubtract( vec3_origin, plane.normal, trace.plane.normal )
+			trace.plane.normal[ 0 ] = 0 - normal[ num * 3 ];
+			trace.plane.normal[ 1 ] = 0 - normal[ num * 3 + 1 ];
+			trace.plane.normal[ 2 ] = 0 - normal[ num * 3 + 2 ];
+			trace.plane.dist = - pd;
+		}
+
+		while ( pm_hull_point_contents( f, firstclipnode, lastclipnode, firstclipnode, mid ) === CONTENTS_SOLID ) {
+			// shouldn't really happen, but does occasionally
+			frac -= 0.1;
+			if ( frac < 0 ) {
+				trace.fraction = midf;
+				VectorCopy( mid, trace.endpos );
+				return false;
+			}
+			midf = p1f + ( p2f - p1f ) * frac;
+			for ( let i = 0; i < 3; i++ )
+				mid[ i ] = p1[ i ] + frac * ( p2[ i ] - p1[ i ] );
+		}
+
+		trace.fraction = midf;
+		VectorCopy( mid, trace.endpos );
+
+		return false;
 	}
+}
 
-	trace.fraction = midf;
-	VectorCopy( mid, trace.endpos );
-
-	return false;
+export function PM_RecursiveHullCheck( hull, num, p1f, p2f, p1, p2, trace ) {
+	return pm_recursive_hull_check( pm_hull_flat( hull ), hull.firstclipnode, hull.lastclipnode, num, p1f, p2f, p1, p2, trace, 0 );
 }
 
 /*

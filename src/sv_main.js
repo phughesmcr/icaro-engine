@@ -61,7 +61,7 @@ import { COM_LoadFile } from './pak.js';
 import { VectorCopy, VectorAdd, DotProduct } from './mathlib.js';
 import { Mod_ForName, Mod_LeafPVS } from './gl_model.js';
 import { PR_LoadProgs, PR_AllocEdicts, ED_ClearEdict, ED_LoadFromFile, ED_NewString, GetEdictFieldValue, PR_SetCurrentSkill, PR_SetDeathmatch, nomonsters, pr_extfields, pr_effects_mask } from './pr_edict.js';
-import { MAX_ENT_LEAFS, pr_global_struct, progs, pr_crc, EDICT_NUM, NUM_FOR_EDICT, PR_SetSV, PR_SetSVS, EDICT_TO_PROG, PROG_TO_EDICT, NEXT_EDICT, PR_GetString } from './progs.js';
+import { MAX_ENT_LEAFS, pr_global_struct, progs, pr_crc, EDICT_NUM, NUM_FOR_EDICT, PR_SetSV, PR_SetSVS, EDICT_TO_PROG, PROG_TO_EDICT, NEXT_EDICT, PR_GetString, pr_strings_data, pr_strings_size } from './progs.js';
 import { SV_ClearWorld, SV_Move, SV_TestEntityPosition, SV_LinkEdict, SV_PointContents } from './world.js';
 import { SV_Physics, SV_SetState, SV_SetCallbacks,
 	sv_maxvelocity, sv_gravity, sv_nostep, sv_friction, sv_edgefriction,
@@ -682,6 +682,9 @@ export function SV_SendClientMessages() {
 	// update frags, names, etc
 	SV_UpdateToReliableMessages();
 
+	SV_BuildEntityCandidates();
+	sv_ec_valid = true;
+
 	// build individual updates
 	for ( let i = 0; i < svs.maxclients; i ++ ) {
 
@@ -779,6 +782,8 @@ export function SV_SendClientMessages() {
 		}
 
 	}
+
+	sv_ec_valid = false;
 
 	// clear muzzle flashes
 	SV_CleanupEnts();
@@ -1072,8 +1077,13 @@ export function SV_SetStateSolid( state, ent, clent ) {
 
 	} else {
 
-		state.mins.fill( 0 );
-		state.maxs.fill( 0 );
+		// not .fill( 0 ): a call per entity per client costs more than six stores
+		state.mins[ 0 ] = 0;
+		state.mins[ 1 ] = 0;
+		state.mins[ 2 ] = 0;
+		state.maxs[ 0 ] = 0;
+		state.maxs[ 1 ] = 0;
+		state.maxs[ 2 ] = 0;
 
 	}
 
@@ -1267,6 +1277,59 @@ export function SV_EmitPacketEntities( client, to, msg ) {
 
 /*
 =============
+SV_StringIsEmpty
+
+Not in C. PR_GetString( ofs ) === '' without building the string: the
+offset is outside the strings in use, or the first byte is the terminator.
+=============
+*/
+function SV_StringIsEmpty( ofs ) {
+
+	return ofs < 0 || ofs >= pr_strings_size || pr_strings_data[ ofs ] === 0;
+
+}
+
+/*
+=============
+SV_BuildEntityCandidates
+
+Not in C. The entities SV_WriteEntitiesToClient can send, in order: not a
+player, with a model. That doesn't depend on the client, so
+SV_SendClientMessages builds the list once for all of them. Nothing it reads
+changes while the messages are built, except when SV_DropClient runs QuakeC;
+it then clears sv_ec_valid so the list is rebuilt for the clients after it.
+=============
+*/
+const sv_ec_ents = [];
+const sv_ec_nums = [];
+let sv_ec_count = 0;
+let sv_ec_valid = false;
+
+function SV_BuildEntityCandidates() {
+
+	let n = 0;
+
+	// skip player entities (handled by svc_playerinfo), start after maxclients
+	for ( let e = svs.maxclients + 1; e < sv.num_edicts; e ++ ) {
+
+		const ent = EDICT_NUM( e );
+
+		// ignore ents without visible models
+		if ( ent.v.modelindex === 0 || SV_StringIsEmpty( ent.v.model ) )
+			continue;
+
+		sv_ec_ents[ n ] = ent;
+		sv_ec_nums[ n ] = e;
+		n ++;
+
+	}
+
+	sv_ec_count = n;
+
+}
+
+/*
+=============
 SV_WriteEntitiesToClient
 
 Encodes the current state of the world as a svc_packetentities message.
@@ -1282,14 +1345,14 @@ export function SV_WriteEntitiesToClient( client, clent, pvs, msg ) {
 	const pack = frame.entities;
 	pack.num_entities = 0;
 
-	// skip player entities (handled by svc_playerinfo), start after maxclients
-	for ( let e = svs.maxclients + 1; e < sv.num_edicts; e ++ ) {
+	// the entities with visible models, which don't depend on the client
+	if ( sv_ec_valid === false )
+		SV_BuildEntityCandidates();
 
-		const ent = EDICT_NUM( e );
+	for ( let c = 0; c < sv_ec_count; c ++ ) {
 
-		// ignore ents without visible models
-		if ( ent.v.modelindex === 0 || PR_GetString( ent.v.model ) === '' )
-			continue;
+		const e = sv_ec_nums[ c ];
+		const ent = sv_ec_ents[ c ];
 
 		// PVS check - ignore if not touching a PV leaf
 		let visible = false;
@@ -2003,6 +2066,7 @@ export function SV_DropClient( crash ) {
 		pr_global_struct.self = EDICT_TO_PROG( client.edict );
 		PR_ExecuteProgram( pr_global_struct.ClientDisconnect );
 		pr_global_struct.self = saveSelf;
+		sv_ec_valid = false; // QuakeC may have changed any entity; rebuilt per client until the frame ends
 
 	}
 
