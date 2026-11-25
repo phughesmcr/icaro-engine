@@ -10,8 +10,8 @@ const cmd = await import( '../src/cmd.js' );
 const cvar = await import( '../src/cvar.js' );
 const consolejs = await import( '../src/console.js' );
 const keys = await import( '../src/keys.js' );
-const { CL_InitInput } = await import( '../src/cl_input.js' );
-const { COM_AddPack } = await import( '../src/pak.js' );
+const { CL_InitInput, in_mlook } = await import( '../src/cl_input.js' );
+const { COM_AddPack, COM_FindFile } = await import( '../src/pak.js' );
 
 function assertEqual( actual, expected, message ) {
 
@@ -48,20 +48,55 @@ function exec( text ) {
 
 }
 
+// Restores the cvars the configs set, the key bindings and +mlook
+function snapshot() {
+
+	const values = [ 'gamma', 'volume', 'sensitivity', 'viewsize' ].map( ( name ) => [ name, cvar.Cvar_VariableString( name ) ] );
+	const bindings = keys.keybindings.slice();
+	const mlook = { state: in_mlook.state, down: in_mlook.down.slice() };
+	return () => {
+
+		for ( const [ name, value ] of values )
+			cvar.Cvar_Set( name, value );
+		for ( let i = 0; i < bindings.length; i ++ )
+			keys.keybindings[ i ] = bindings[ i ];
+		in_mlook.state = mlook.state;
+		in_mlook.down.set( mlook.down );
+
+	};
+
+}
+
+// Runs first: the next test adds a pak with a default.cfg, which stays on the
+// search path for the rest of this file.
 Deno.test( 'exec default.cfg with no default.cfg runs the embedded one without errors', () => {
 
-	const out = exec( 'exec default.cfg\n' );
+	const restore = snapshot();
 
-	assertEqual( out, 'execing default.cfg\n', 'console output' );
-	assertEqual( cvar.Cvar_VariableString( 'gamma' ), '0.95', 'gamma' );
-	assertEqual( cvar.Cvar_VariableString( 'viewsize' ), '110', 'viewsize' );
-	assertEqual( keys.keybindings[ keys.Key_StringToKeynum( '1' ) ], 'impulse 1', 'weapon key' );
-	assertEqual( keys.keybindings[ keys.Key_StringToKeynum( 'F6' ) ], 'echo Quicksaving...; wait; save quick', 'quicksave key' );
-	assertEqual( keys.keybindings[ keys.Key_StringToKeynum( '\\' ) ], '+mlook', 'backslash key' );
+	try {
+
+		assertEqual( COM_FindFile( 'default.cfg' ), null, 'no default.cfg in the search path' );
+
+		const out = exec( 'exec default.cfg\n' );
+
+		assertEqual( out, 'execing default.cfg\n', 'console output' );
+		assertEqual( cvar.Cvar_VariableString( 'gamma' ), '0.95', 'gamma' );
+		assertEqual( cvar.Cvar_VariableString( 'viewsize' ), '110', 'viewsize' );
+		assertEqual( keys.keybindings[ keys.Key_StringToKeynum( '1' ) ], 'impulse 1', 'weapon key' );
+		assertEqual( keys.keybindings[ keys.Key_StringToKeynum( 'F6' ) ], 'echo Quicksaving...; wait; save quick', 'quicksave key' );
+		assertEqual( keys.keybindings[ keys.Key_StringToKeynum( '\\' ) ], '+mlook', 'backslash key' );
+
+	} finally {
+
+		restore();
+
+	}
 
 } );
 
 Deno.test( 'exec default.cfg runs a pak\'s default.cfg, and other names don\'t fall back', () => {
+
+	const restore = snapshot();
 
 	try {
 
@@ -78,8 +113,7 @@ Deno.test( 'exec default.cfg runs a pak\'s default.cfg, and other names don\'t f
 
 	} finally {
 
-		cvar.Cvar_Set( 'gamma', '1' );
-		cvar.Cvar_Set( 'viewsize', '100' );
+		restore();
 
 	}
 
