@@ -12,7 +12,9 @@ process per room. It was forked from mrdoob's three-quake.
 - `src/`: the engine, shared by the browser and the Deno server. File names
   mirror the C files (`sv_phys.js` is `sv_phys.c`). Web-only additions:
   `in_web.js`, `touch.js`, `webxr.js`, `net_webtransport.js`,
-  `net_websocket.js`, `pak.js`, `menu_cvars.js`, `agent.js` (the agent API,
+  `net_websocket.js`, `net_webrtc.js` (browser-hosted rooms; the design is
+  `docs/browser-hosted-rooms.md`, added in #195), `pak.js`,
+  `menu_cvars.js`, `agent.js` (the agent API,
   `window.icaro`; see `docs/agent-interface.md`). Some files port features
   from Ironwail or QuakeSpasm rather than id's C, and their headers cite it
   (`gl_fog.js`, `gl_sky.js`, `gl_md5.js`, `gl_entalpha.js`,
