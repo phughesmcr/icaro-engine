@@ -33,6 +33,10 @@ const GAME_DIRS = [ 'mg1', 'mg3', 'dopa', 'ctf' ]; // the 2021 rerelease's add-o
 // are static/pak*.pak and game directories are static/<game>.
 const BASE_DIRS = { rerelease: 'static/rerelease' };
 
+// ?particles=<n> stands in for -particles <n> (r_part.c R_InitParticles
+// sizes the particle pool from it). Only whole numbers are passed on.
+const PARTICLES_ARG = /^[0-9]+$/;
+
 async function main() {
 
 	try {
@@ -70,6 +74,19 @@ async function main() {
 		} else if ( base !== null ) {
 
 			Sys_Printf( 'Ignoring unknown base "%s" (expected %s)\n', base, Object.keys( BASE_DIRS ).join( ', ' ) );
+
+		}
+
+		const particles = urlParams.get( 'particles' );
+		if ( particles !== null && PARTICLES_ARG.test( particles ) ) {
+
+			if ( parms.argv.length === 0 ) parms.argv = [ 'quake' ];
+			parms.argv = [ ...parms.argv, '-particles', particles ];
+			parms.argc = parms.argv.length;
+
+		} else if ( particles !== null ) {
+
+			Sys_Printf( 'Ignoring particles "%s" (expected a whole number)\n', particles );
 
 		}
 
