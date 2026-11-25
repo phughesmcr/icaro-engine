@@ -24,6 +24,7 @@ import {
 } from './cl_input.js';
 import { V_StopPitchDrift } from './view.js';
 import { host_frametime } from './host.js';
+import { sv, svs } from './server.js';
 import { PITCH, YAW } from './quakedef.js';
 import {
 	Touch_IsMobile, Touch_IsTouchCapable, Touch_Init, Touch_Enable, Touch_Disable, Touch_IsEnabled,
@@ -1279,6 +1280,21 @@ function handleVisibilityChange() {
 	if ( document.visibilityState === 'hidden' ) {
 
 		IN_ClearAllStates();
+
+		// Web-only deviation: a single-player game goes to the menu when the
+		// page is hidden (tab switch, app switch, screen lock). In NQ the menu
+		// halts SV_Physics in single player (Host_Frame: svs.maxclients > 1 ||
+		// key_dest == key_game), so the game is paused when the player
+		// returns. The same Escape that handlePointerLockChange sends on
+		// desktop; whichever runs first leaves key_dest at key_menu, so the
+		// other does nothing. Never in multiplayer or demos.
+		if ( key_dest === key_game && sv.active === true && svs.maxclients === 1 &&
+			cls.state === ca_connected && ! cls.demoplayback ) {
+
+			Key_Event( K_ESCAPE, true );
+			Key_Event( K_ESCAPE, false );
+
+		}
 
 	}
 

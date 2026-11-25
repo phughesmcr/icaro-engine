@@ -2006,3 +2006,58 @@ Deno.test( 'IN-4: touch joystick run speed in IN_Move', () => {
 	} );
 
 } );
+
+Deno.test( 'IN: hiding the page opens the menu in single player only', async () => {
+
+	const { cls, ca_connected } = await import( '../src/client.js' );
+	const { sv, svs } = await import( '../src/server.js' );
+	const oldDest = keys.key_dest;
+	const oldState = cls.state;
+	const oldDemo = cls.demoplayback;
+	const oldActive = sv.active;
+	const oldMax = svs.maxclients;
+
+	// The menu reaches key_dest through these hooks. They match the wiring in
+	// Host_Init (src/host.js), so leaving them in place is the real app state.
+	const { M_SetExternals } = await import( '../src/menu.js' );
+	M_SetExternals( { key_dest_get: () => keys.key_dest, key_dest_set: ( v ) => keys.set_key_dest( v ) } );
+
+	// Hides the page and returns the resulting key_dest
+	const hide = ( dom, setup ) => {
+
+		keys.set_key_dest( keys.key_game );
+		cls.state = ca_connected;
+		cls.demoplayback = false;
+		sv.active = true;
+		svs.maxclients = 1;
+		setup();
+		dom.document.visibilityState = 'hidden';
+		dom.document.fire( 'visibilitychange', {} );
+		dom.document.visibilityState = 'visible';
+		return keys.key_dest;
+
+	};
+
+	try {
+
+		withFakeDom( ( dom ) => {
+
+			assertEqual( hide( dom, () => {} ), keys.key_menu, 'single player opens the menu' );
+			assertEqual( hide( dom, () => { svs.maxclients = 4; } ), keys.key_game, 'multiplayer keeps playing' );
+			assertEqual( hide( dom, () => { cls.demoplayback = true; } ), keys.key_game, 'demo keeps playing' );
+			assertEqual( hide( dom, () => { sv.active = false; } ), keys.key_game, 'no local server (remote game)' );
+			assertEqual( hide( dom, () => { keys.set_key_dest( keys.key_console ); } ), keys.key_console, 'console is left alone' );
+
+		} );
+
+	} finally {
+
+		keys.set_key_dest( oldDest );
+		cls.state = oldState;
+		cls.demoplayback = oldDemo;
+		sv.active = oldActive;
+		svs.maxclients = oldMax;
+
+	}
+
+} );
