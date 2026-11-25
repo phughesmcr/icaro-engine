@@ -3085,22 +3085,29 @@ export function R_CollectWorldBatchGroups( worldmodel, surfaceToLeaves ) {
 }
 
 /*
-Names a world batch and, for an underwater group, turns off Three.js frustum
-culling: the warp moves vertices up to 8 units past the static bounds Three.js
-culls with, so culling could drop a surface still on screen. C sends every
-visible surface to GL; the PVS (setVisibleAt) still applies.
+Names a world batch and sets how Three.js culls and sorts it.
+
+Every batch skips the per-instance work BatchedMesh does by default: sorting
+instances by depth and testing each one against the frustum. Both run on
+every frame for every batch while either is on, and re-upload the batch's
+indirect texture. The world is static and the PVS (setVisibleAt) already picks
+the surfaces, so with both off BatchedMesh does that work only when visibility
+changes. In E1M1 this halved the frame time of a busy view (GPU included).
+C culls BSP nodes, not single surfaces, against the frustum (R_CullBox in
+R_RecursiveWorldNode); the whole-batch bounding-sphere test stays on.
+
+An underwater group also turns that off: the warp moves vertices up to 8
+units past the static bounds Three.js culls with, so culling could drop a
+surface still on screen.
 */
 export function R_InitWorldBatch( batchedMesh, group ) {
 
 	const texName = group.texture.name || '';
 	batchedMesh.name = `world_${texName}_lm${group.lmNum}` + ( group.underwater ? '_underwater' : '' );
 
-	if ( group.underwater ) {
-
-		batchedMesh.frustumCulled = false;
-		batchedMesh.perObjectFrustumCulled = false;
-
-	}
+	batchedMesh.sortObjects = false;
+	batchedMesh.perObjectFrustumCulled = false;
+	if ( group.underwater ) batchedMesh.frustumCulled = false;
 
 }
 
