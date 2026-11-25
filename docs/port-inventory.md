@@ -238,8 +238,7 @@ own fix PR.
 
 - **C:** `Draw_Init` stamps `(gl 1.00) 1.09` onto `gfx/conback.lmp`, in the
   bottom-right corner (`gl_draw.c:410-419`, `Draw_CharToConback`).
-- **JS:** `_loadConback` (`src/gl_draw.js:376-405`) uses the picture
-  unchanged.
+- **JS:** `_loadConback` (`src/gl_draw.js`) used the picture unchanged.
 
 - **Status: fixed.** `Draw_CharToConback` is ported, and `_loadConback`
   stamps `(gl 1.00) 1.09` with it (`Draw_ConbackVersion`, the C block from

@@ -1228,10 +1228,7 @@ export function Draw_CachePic( path ) {
 	const view = new DataView( result.data.buffer, result.data.byteOffset, result.size );
 	const width = view.getInt32( 0, true );
 	const height = view.getInt32( 4, true );
-	// A copy: the version is stamped into it, and the PAK's buffer must stay
-	// as loaded (C stamps a temp-file copy)
-	const pixels = new Uint8Array( result.data.buffer, result.data.byteOffset + 8, width * height ).slice();
-	Draw_ConbackVersion( pixels, width, height, draw_chars );
+	const pixels = new Uint8Array( result.data.buffer, result.data.byteOffset + 8, width * height );
 
 	// Save raw pixel data for menuplyr.lmp (used by Draw_TransPicTranslate)
 	if ( path === 'gfx/menuplyr.lmp' ) {

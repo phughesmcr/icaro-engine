@@ -109,3 +109,65 @@ Deno.test( 'G7: the shareware conback gets the version stamp and nothing else ch
 	if ( changed < 100 ) throw new Error( `only ${changed} pixels stamped` );
 
 } );
+
+Deno.test( 'G7: Draw_Init stamps a copy of gfx/conback.lmp with the loaded conchars', async () => {
+
+	await pak.COM_AddPakSequence( new URL( '../static/pak0.pak', import.meta.url ).pathname );
+	wad.W_LoadWadFile( pak.COM_FindFile( 'gfx.wad' ).data.slice().buffer );
+	const cb = pak.COM_FindFile( 'gfx/conback.lmp' );
+	const before = cb.data.slice();
+
+	// An identity palette, so each canvas pixel's red channel is its index
+	const identity = new Uint32Array( 256 );
+	for ( let i = 0; i < 256; i ++ ) identity[ i ] = i;
+
+	// Fake canvases record the pixels put into them
+	const canvases = [];
+	const fakeCanvas = () => {
+
+		const cs = { width: 0, height: 0, pixels: null };
+		cs.getContext = () => ( {
+			createImageData: ( w, h ) => ( { data: new Uint8ClampedArray( w * h * 4 ) } ),
+			putImageData: ( img ) => { cs.pixels = img.data; },
+			setTransform: () => {}, clearRect: () => {}, drawImage: () => {}, fillRect: () => {}, fillText: () => {},
+		} );
+		canvases.push( cs );
+		return cs;
+
+	};
+
+	const oldDocument = globalThis.document;
+	const oldWindow = globalThis.window;
+	globalThis.document = { createElement: fakeCanvas };
+	globalThis.window = { devicePixelRatio: 1 };
+	try {
+
+		draw.Draw_SetExternals( { d_8to24table: identity } );
+		draw.Draw_Init( fakeCanvas() );
+
+		const conback = canvases.find( ( cs ) => cs.width === 320 && cs.height === 200 );
+		if ( conback === undefined ) throw new Error( 'no 320x200 conback canvas' );
+
+		const lump = wad.W_GetLumpName( 'conchars' );
+		const expected = before.slice( 8 );
+		draw.Draw_ConbackVersion( expected, 320, 200, lump.data.subarray( lump.offset, lump.offset + lump.size ) );
+		let stamped = 0;
+		for ( let i = 0; i < 320 * 200; i ++ ) {
+
+			if ( conback.pixels[ i * 4 ] !== expected[ i ] )
+				throw new Error( `conback pixel ${i}: expected ${expected[ i ]}, got ${conback.pixels[ i * 4 ]}` );
+			if ( expected[ i ] !== before[ 8 + i ] ) stamped ++;
+
+		}
+
+		if ( stamped < 100 ) throw new Error( `only ${stamped} pixels stamped` );
+		assertEqual( cb.data.every( ( v, i ) => v === before[ i ] ), true, 'the PAK\'s conback bytes are unchanged' );
+
+	} finally {
+
+		globalThis.document = oldDocument;
+		globalThis.window = oldWindow;
+
+	}
+
+} );
