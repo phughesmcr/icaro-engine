@@ -13,7 +13,9 @@ import {
 import { cl_forwardspeed } from './cl_input.js';
 import { sensitivity, m_pitch, lookspring, lookstrafe, cl_color } from './cl_main.js';
 import { volume, bgmvolume } from './sound.js';
-import { Cvar_SetValue, Cvar_VariableValue, Cvar_RegisterVariable, Cvar_FindVar } from './cvar.js';
+import { Cvar_SetValue, Cvar_VariableValue, Cvar_RegisterVariable, Cvar_FindVar, Cvar_Reset } from './cvar.js';
+import { advancedPages, M_CvarItem_IsSlider, M_CvarItem_Step, M_CvarItem_Fraction,
+	M_CvarItem_FromFraction, M_CvarItem_Format } from './menu_cvars.js';
 import { scr_viewsize, scr_con_current, SCR_ModalMessage, SCR_DrawYesNo, SCR_YesNoHit,
 	SCR_ModalYesNoAt } from './gl_screen.js';
 import { v_gamma } from './view.js';
@@ -54,6 +56,8 @@ export const m_search = 17;
 export const m_slist = 18;
 export const m_credits = 19;
 export const m_touch = 20;
+export const m_advanced = 21; // web-only: the Advanced page list
+export const m_advpage = 22; // web-only: one Advanced page
 
 export let m_state = m_none;
 export let m_entersound = false;
@@ -1851,7 +1855,7 @@ function M_AdjustSliders( dir ) {
 ==============================================================================
 */
 
-const OPTIONS_ITEMS = 16;
+const OPTIONS_ITEMS = 17;
 let m_options_cursor = 0;
 
 function M_Menu_Options_f() {
@@ -1914,10 +1918,14 @@ function M_Options_Draw() {
 
 	M_Print( 16, 144, '        Touch controls' );
 
+	// Web-only: the Advanced pages (M_Advanced_*) for cvars that phone and
+	// tablet players could otherwise only set from the console
+	M_Print( 16, 152, '              Advanced' );
+
 	// Port addition: the main menu's fourth row is C's Help again, so the
 	// credits screen (attribution and source link) is reached from here,
 	// which mouse and touch players can use without the console.
-	M_Print( 16, 152, '               Credits' );
+	M_Print( 16, 160, '               Credits' );
 
 	// cursor
 	M_DrawCharacter( 200, 32 + m_options_cursor * 8, 12 + ( ( Math.floor( _realtime_get() * 4 ) ) & 1 ) );
@@ -1946,6 +1954,9 @@ function M_Options_Key( key ) {
 					M_Menu_Touch_f();
 					break;
 				case 15:
+					M_Menu_Advanced_f();
+					break;
+				case 16:
 					M_Menu_Credits_f();
 					break;
 				case 2:
@@ -2119,6 +2130,289 @@ function M_Touch_Key( key ) {
 		case K_RIGHTARROW:
 			M_TouchItem_Adjust( touchItems[ m_touch_cursor ], 1 );
 			break;
+
+	}
+
+}
+
+/*
+==============================================================================
+
+			ADVANCED MENU
+
+Web-only addition, no Quake equivalent. Phone and tablet players have no
+console, so Options > Advanced lists pages of the player-facing cvars
+(menu_cvars.js) that they could otherwise only set there. Each row shows the
+cvar's value; changes go through Cvar_SetValue like a console change, so the
+archived ones are saved with the config. Long pages scroll like the Keys
+menu, with "more" rows that a tap pages.
+
+==============================================================================
+*/
+
+const ADV_TOP = 48;
+const ADV_VIEWSIZE = 17; // rows 48 to 183; the "more" row below is at 184
+const ADV_LABEL_RIGHT = 136; // labels are right-aligned to here
+const ADV_CURSOR_X = 144;
+const ADV_VALUE_X = 156; // up to 6 characters, clear of the slider at 212
+const ADV_RESET_LABEL = 'Reset defaults';
+
+let m_advanced_cursor = 0;
+
+// The open page's rows: its registered cvars, then null for the reset row.
+// Filled when the page opens, so drawing doesn't look the cvars up.
+let ADV_MAX = 0;
+for ( const page of advancedPages )
+	ADV_MAX = Math.max( ADV_MAX, page.items.length + 1 );
+const adv_items = new Array( ADV_MAX ).fill( null );
+const adv_vars = new Array( ADV_MAX ).fill( null );
+// The value each row's text was made for, so the text is made only on a change
+const adv_shown_value = new Float64Array( ADV_MAX );
+const adv_shown_text = new Array( ADV_MAX ).fill( '' );
+let adv_count = 0;
+let adv_page = 0;
+let adv_cursor = 0;
+let adv_scroll = 0;
+
+function M_Menu_Advanced_f() {
+
+	setKeyDest( key_menu );
+	m_state = m_advanced;
+	m_entersound = true;
+
+}
+
+function M_Advanced_DrawHeader( title ) {
+
+	M_DrawTransPic( 16, 4, _Draw_CachePic( 'gfx/qplaque.lmp' ) );
+	const p = _Draw_CachePic( 'gfx/p_option.lmp' );
+	M_DrawPic( ( 320 - ( p ? p.width : 0 ) ) / 2, 4, p );
+	M_PrintWhite( ( 320 - title.length * 8 ) >> 1, 32, title );
+
+}
+
+function M_Advanced_Draw() {
+
+	if ( ! _Draw_CachePic ) return;
+
+	M_Advanced_DrawHeader( 'Advanced' );
+
+	for ( let i = 0; i < advancedPages.length; i ++ ) {
+
+		const title = advancedPages[ i ].title;
+		M_Print( ADV_LABEL_RIGHT - title.length * 8, ADV_TOP + i * 8, title );
+
+	}
+
+	M_DrawCharacter( ADV_CURSOR_X, ADV_TOP + m_advanced_cursor * 8, 12 + ( ( Math.floor( _realtime_get() * 4 ) ) & 1 ) );
+
+}
+
+function M_Advanced_Key( key ) {
+
+	const count = advancedPages.length;
+
+	switch ( key ) {
+
+		case K_ESCAPE:
+			M_Menu_Options_f();
+			break;
+		case K_ENTER:
+		case K_RIGHTARROW:
+			M_AdvPage_Open( m_advanced_cursor );
+			break;
+		case K_UPARROW:
+			if ( _S_LocalSound ) _S_LocalSound( 'misc/menu1.wav' );
+			m_advanced_cursor = ( m_advanced_cursor + count - 1 ) % count;
+			break;
+		case K_DOWNARROW:
+			if ( _S_LocalSound ) _S_LocalSound( 'misc/menu1.wav' );
+			m_advanced_cursor = ( m_advanced_cursor + 1 ) % count;
+			break;
+
+	}
+
+}
+
+// Opens page i with the rows whose cvars are registered (in_web.js's are
+// only registered in the browser)
+function M_AdvPage_Open( i ) {
+
+	const items = advancedPages[ i ].items;
+	adv_page = i;
+	adv_count = 0;
+	for ( let j = 0; j < items.length; j ++ ) {
+
+		const v = Cvar_FindVar( items[ j ].cvar );
+		if ( v === null )
+			continue;
+		adv_items[ adv_count ] = items[ j ];
+		adv_vars[ adv_count ] = v;
+		adv_count ++;
+
+	}
+
+	adv_items[ adv_count ] = null; // Reset defaults
+	adv_vars[ adv_count ] = null;
+	adv_count ++;
+
+	adv_shown_value.fill( NaN );
+	adv_cursor = 0;
+	adv_scroll = 0;
+
+	setKeyDest( key_menu );
+	m_state = m_advpage;
+	m_entersound = true;
+
+}
+
+// Keep the cursor row on screen (as M_Keys_AutoScroll)
+function M_AdvPage_AutoScroll() {
+
+	if ( adv_cursor < adv_scroll )
+		adv_scroll = adv_cursor;
+	else if ( adv_cursor >= adv_scroll + ADV_VIEWSIZE )
+		adv_scroll = adv_cursor - ADV_VIEWSIZE + 1;
+
+}
+
+// Scroll by rows, keeping the cursor on screen (as M_Keys_Scroll)
+function M_AdvPage_Scroll( rows ) {
+
+	adv_scroll = Math.min( Math.max( adv_scroll + rows, 0 ), Math.max( adv_count - ADV_VIEWSIZE, 0 ) );
+	M_UpdateHover();
+	if ( adv_cursor < adv_scroll )
+		adv_cursor = adv_scroll;
+	else if ( adv_cursor >= adv_scroll + ADV_VIEWSIZE )
+		adv_cursor = adv_scroll + ADV_VIEWSIZE - 1;
+
+}
+
+function M_AdvPage_Draw() {
+
+	if ( ! _Draw_CachePic ) return;
+
+	M_Advanced_DrawHeader( advancedPages[ adv_page ].title );
+
+	if ( adv_scroll > 0 )
+		M_DrawEllipsisBar( 0, ADV_TOP - 8, 40 );
+	if ( adv_scroll + ADV_VIEWSIZE < adv_count )
+		M_DrawEllipsisBar( 0, ADV_TOP + ADV_VIEWSIZE * 8, 40 );
+
+	for ( let row = 0; row < ADV_VIEWSIZE && adv_scroll + row < adv_count; row ++ ) {
+
+		const i = adv_scroll + row;
+		const y = ADV_TOP + row * 8;
+		const item = adv_items[ i ];
+
+		if ( item === null ) {
+
+			M_Print( ADV_LABEL_RIGHT - ADV_RESET_LABEL.length * 8, y, ADV_RESET_LABEL );
+			continue;
+
+		}
+
+		M_Print( ADV_LABEL_RIGHT - item.label.length * 8, y, item.label );
+
+		const value = adv_vars[ i ].value;
+		if ( adv_shown_value[ i ] !== value ) {
+
+			adv_shown_value[ i ] = value;
+			adv_shown_text[ i ] = M_CvarItem_Format( item, value );
+
+		}
+
+		M_PrintWhite( ADV_VALUE_X, y, adv_shown_text[ i ] );
+
+		if ( M_CvarItem_IsSlider( item ) )
+			M_DrawSlider( 220, y, M_CvarItem_Fraction( item, value ) );
+
+	}
+
+	M_DrawCharacter( ADV_CURSOR_X, ADV_TOP + ( adv_cursor - adv_scroll ) * 8, 12 + ( ( Math.floor( _realtime_get() * 4 ) ) & 1 ) );
+
+	// The cursor row's console name, for players who also use the console
+	const v = adv_vars[ adv_cursor ];
+	if ( v !== null )
+		M_Print( ( 320 - v.name.length * 8 ) >> 1, ADV_TOP + ( ADV_VIEWSIZE + 1 ) * 8, v.name );
+
+}
+
+function M_AdvPage_Adjust( dir ) {
+
+	const item = adv_items[ adv_cursor ];
+	if ( item === null )
+		return;
+
+	if ( _S_LocalSound ) _S_LocalSound( 'misc/menu3.wav' );
+	Cvar_SetValue( item.cvar, M_CvarItem_Step( item, adv_vars[ adv_cursor ].value, dir ) );
+
+}
+
+// Reset defaults: this page's cvars only (resetall would also reset the
+// player's name, colours and the server cvars)
+function M_AdvPage_Reset() {
+
+	if ( _S_LocalSound ) _S_LocalSound( 'misc/menu3.wav' );
+	for ( let i = 0; i < adv_count; i ++ ) {
+
+		if ( adv_vars[ i ] !== null )
+			Cvar_Reset( adv_vars[ i ].name );
+
+	}
+
+}
+
+function M_AdvPage_Key( key ) {
+
+	switch ( key ) {
+
+		case K_ESCAPE:
+			M_Menu_Advanced_f();
+			break;
+		case K_ENTER:
+			if ( adv_items[ adv_cursor ] === null )
+				M_AdvPage_Reset();
+			else
+				M_AdvPage_Adjust( 1 );
+			break;
+		case K_UPARROW:
+			if ( _S_LocalSound ) _S_LocalSound( 'misc/menu1.wav' );
+			adv_cursor = ( adv_cursor + adv_count - 1 ) % adv_count;
+			M_AdvPage_AutoScroll();
+			break;
+		case K_DOWNARROW:
+			if ( _S_LocalSound ) _S_LocalSound( 'misc/menu1.wav' );
+			adv_cursor = ( adv_cursor + 1 ) % adv_count;
+			M_AdvPage_AutoScroll();
+			break;
+		case K_LEFTARROW:
+			M_AdvPage_Adjust( - 1 );
+			break;
+		case K_RIGHTARROW:
+			M_AdvPage_Adjust( 1 );
+			break;
+
+	}
+
+}
+
+// Advanced page: tap or click on row i. A tap on a slider sets it there;
+// elsewhere on the row it acts as Enter (sliders step up, choices and
+// toggles step and wrap, the last row resets the page).
+function M_AdvPage_Touch( vx, i ) {
+
+	const item = adv_items[ i ];
+	adv_cursor = i;
+
+	if ( item !== null && M_CvarItem_IsSlider( item ) && vx >= SLIDER_TAP_LEFT ) {
+
+		if ( _S_LocalSound ) _S_LocalSound( 'misc/menu3.wav' );
+		Cvar_SetValue( item.cvar, M_CvarItem_FromFraction( item, M_SliderTapFraction( vx ) ) );
+
+	} else {
+
+		M_AdvPage_Key( K_ENTER );
 
 	}
 
@@ -2948,6 +3242,8 @@ export function M_Keydown( key ) {
 		case m_lanconfig: M_LanConfig_Key( key ); return;
 		case m_gameoptions: M_GameOptions_Key( key ); return;
 		case m_touch: M_Touch_Key( key ); return;
+		case m_advanced: M_Advanced_Key( key ); return;
+		case m_advpage: M_AdvPage_Key( key ); return;
 		default: return;
 
 	}
@@ -3022,6 +3318,8 @@ function M_DrawState() {
 		case m_lanconfig: M_LanConfig_Draw(); break;
 		case m_gameoptions: M_GameOptions_Draw(); break;
 		case m_touch: M_Touch_Draw(); break;
+		case m_advanced: M_Advanced_Draw(); break;
+		case m_advpage: M_AdvPage_Draw(); break;
 
 	}
 
@@ -3143,6 +3441,14 @@ export function M_MenuRowAt( vx, vy ) {
 			return M_RowAt( vy, 32, 8, OPTIONS_ITEMS );
 		case m_touch:
 			return M_RowAt( vy, TOUCH_TOP, 8, TOUCH_ITEMS );
+		case m_advanced:
+			return M_RowAt( vy, ADV_TOP, 8, advancedPages.length );
+		case m_advpage: {
+
+			const row = M_RowAt( vy, ADV_TOP, 8, Math.min( ADV_VIEWSIZE, adv_count - adv_scroll ) );
+			return row < 0 ? - 1 : adv_scroll + row;
+
+		}
 		case m_setup:
 			return M_TableRowAt( vy, setup_cursor_table, NUM_SETUP_CMDS );
 		case m_gameoptions:
@@ -3201,6 +3507,8 @@ function M_UpdateHover() {
 		case m_multiplayer: m_multiplayer_cursor = row; break;
 		case m_options: m_options_cursor = row; break;
 		case m_touch: m_touch_cursor = row; break;
+		case m_advanced: m_advanced_cursor = row; break;
+		case m_advpage: adv_cursor = row; break;
 		case m_setup: setup_cursor = row; break;
 		case m_gameoptions: gameoptions_cursor = row; break;
 		case m_keys: m_keys_cursor = row; break;
@@ -3333,6 +3641,26 @@ function M_MenuClick( vx, vy ) {
 		if ( vy >= bottom && vy < bottom + 8 && m_keys_scroll + KEYS_VIEWSIZE < NUMCOMMANDS ) {
 
 			M_Keys_Scroll( KEYS_VIEWSIZE );
+			return;
+
+		}
+
+	}
+
+	// Advanced pages: the same "more" rows page the list
+	if ( m_state === m_advpage && vx >= 0 && vx <= 320 ) {
+
+		if ( vy >= ADV_TOP - 8 && vy < ADV_TOP && adv_scroll > 0 ) {
+
+			M_AdvPage_Scroll( - ADV_VIEWSIZE );
+			return;
+
+		}
+
+		const bottom = ADV_TOP + ADV_VIEWSIZE * 8;
+		if ( vy >= bottom && vy < bottom + 8 && adv_scroll + ADV_VIEWSIZE < adv_count ) {
+
+			M_AdvPage_Scroll( ADV_VIEWSIZE );
 			return;
 
 		}
@@ -3473,6 +3801,21 @@ function M_MenuClick( vx, vy ) {
 		case m_touch:
 			if ( row >= 0 )
 				M_Touch_Touch( vx, row );
+			break;
+
+		case m_advanced:
+			if ( row >= 0 ) {
+
+				m_advanced_cursor = row;
+				M_Advanced_Key( K_ENTER );
+
+			}
+
+			break;
+
+		case m_advpage:
+			if ( row >= 0 )
+				M_AdvPage_Touch( vx, row );
 			break;
 
 	}
