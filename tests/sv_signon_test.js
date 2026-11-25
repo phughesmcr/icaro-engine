@@ -265,25 +265,21 @@ Deno.test( 'pending reliable data is sent first when a signon buffer does not fi
 
 } );
 
-Deno.test( 'sendsignon true (id\'s flush, still set by Host_Spawn_f) and PRESPAWN_FLUSH flush once', () => {
+Deno.test( 'PRESPAWN_FLUSH (SV_SendServerinfo, Host_Spawn_f) flushes once', () => {
 
-	for ( const flush of [ true, PRESPAWN_FLUSH ] ) {
+	withClient( ( client, sent ) => {
 
-		withClient( ( client, sent ) => {
+		client.sendsignon = PRESPAWN_FLUSH;
+		SZ_Write( client.message, filler( 10, 1 ), 10 );
+		SV_SendClientMessages();
+		assert( sent.length === 1, 'message not sent' );
+		assert( client.sendsignon === PRESPAWN_DONE, `sendsignon ${client.sendsignon}` );
 
-			client.sendsignon = flush;
-			SZ_Write( client.message, filler( 10, 1 ), 10 );
-			SV_SendClientMessages();
-			assert( sent.length === 1, `${flush}: message not sent` );
-			assert( client.sendsignon === PRESPAWN_DONE, `${flush}: sendsignon ${client.sendsignon}` );
+		SZ_Write( client.message, filler( 10, 1 ), 10 );
+		SV_SendClientMessages();
+		assert( sent.length === 1, 'sent again before the next signon stage' );
 
-			SZ_Write( client.message, filler( 10, 1 ), 10 );
-			SV_SendClientMessages();
-			assert( sent.length === 1, `${flush}: sent again before the next signon stage` );
-
-		} );
-
-	}
+	} );
 
 } );
 

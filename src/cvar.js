@@ -19,7 +19,7 @@ Cvar_RegisterVariable(host_framerate);
 */
 
 import { Con_Printf, Q_atof } from './common.js';
-import { Cmd_Exists, Cmd_Argc, Cmd_Argv } from './cmd.js';
+import { Cmd_Exists, Cmd_Argc, Cmd_Argv, Cmd_AddCommand } from './cmd.js';
 
 // Callback for broadcasting server cvar changes (injected to avoid circular deps)
 let _serverBroadcast = null;
@@ -77,6 +77,7 @@ export class cvar_t {
 		this.archive = archive || false; // set to true to cause it to be saved to vars.rc
 		this.server = server || false; // notifies players when changed
 		this.value = Q_atof( this.string );
+		this.default_string = null; // johnfitz: the value "reset" restores, set by Cvar_RegisterVariable
 		this.next = null;
 
 	}
@@ -85,6 +86,11 @@ export class cvar_t {
 
 export let cvar_vars = null; // read by the console's tab completion
 
+// Name lookup for Cvar_FindVar, which runs for every console command and
+// QuakeC cvar() call. C walks the cvar_vars list; this map holds the same
+// cvars.
+const cvar_map = new Map();
+
 /*
 ============
 Cvar_FindVar
@@ -92,16 +98,8 @@ Cvar_FindVar
 */
 export function Cvar_FindVar( var_name ) {
 
-	let _var = cvar_vars;
-	while ( _var ) {
-
-		if ( _var.name === var_name )
-			return _var;
-		_var = _var.next;
-
-	}
-
-	return null;
+	const _var = cvar_map.get( var_name );
+	return _var === undefined ? null : _var;
 
 }
 
@@ -259,6 +257,12 @@ export function Cvar_RegisterVariable( variable ) {
 
 	}
 
+	// johnfitz: keep the initial value for "reset". Ironwail also takes
+	// values set before Host_Init ends (default.cfg) as the default; this
+	// port runs its configs after init, so the default is the value the code
+	// registers, taken before a saved value replaces it.
+	variable.default_string = variable.string;
+
 	// Check for saved value in localStorage (for archived cvars)
 	if ( variable.archive ) {
 
@@ -277,6 +281,7 @@ export function Cvar_RegisterVariable( variable ) {
 	// link the variable in
 	variable.next = cvar_vars;
 	cvar_vars = variable;
+	cvar_map.set( variable.name, variable );
 
 }
 
@@ -293,10 +298,22 @@ export function Cvar_Command() {
 	if ( ! v )
 		return false;
 
-	// perform a variable print or set
+	// perform a variable print or set. Ironwail adds the default.
 	if ( Cmd_Argc() === 1 ) {
 
-		Con_Printf( '"' + v.name + '" is "' + v.string + '"\n' );
+		if ( v.default_string !== null ) {
+
+			if ( v.string === v.default_string )
+				Con_Printf( '"' + v.name + '" is "' + v.string + '" (default)\n' );
+			else
+				Con_Printf( '"' + v.name + '" is "' + v.string + '" (default: "' + v.default_string + '")\n' );
+
+		} else {
+
+			Con_Printf( '"' + v.name + '" is "' + v.string + '"\n' );
+
+		}
+
 		return true;
 
 	}
@@ -327,5 +344,242 @@ export function Cvar_WriteVariables() {
 	}
 
 	return lines.join( '' );
+
+}
+
+/*
+============
+Cvar_Reset -- johnfitz
+============
+*/
+export function Cvar_Reset( name ) {
+
+	const _var = Cvar_FindVar( name );
+	if ( _var === null )
+		Con_Printf( 'variable "' + name + '" not found\n' );
+	else
+		Cvar_Set( _var.name, _var.default_string );
+
+}
+
+// cvar_vars sorted by name: Ironwail keeps its list in that order
+function Cvar_SortedList() {
+
+	const list = [];
+	for ( let _var = cvar_vars; _var !== null; _var = _var.next )
+		list.push( _var );
+	return list.sort( ( a, b ) => ( a.name < b.name ? - 1 : a.name > b.name ? 1 : 0 ) );
+
+}
+
+/*
+============
+Cvar_List_f -- johnfitz
+============
+*/
+function Cvar_List_f() {
+
+	const partial = Cmd_Argc() > 1 ? Cmd_Argv( 1 ) : null;
+
+	let count = 0;
+	for ( const _var of Cvar_SortedList() ) {
+
+		if ( partial !== null && _var.name.startsWith( partial ) !== true )
+			continue;
+		Con_Printf( ( _var.archive ? '*' : ' ' ) + ( _var.server ? 's' : ' ' )
+			+ ' ' + _var.name + ' "' + _var.string + '"\n' );
+		count ++;
+
+	}
+
+	Con_Printf( count + ' cvars' + ( partial !== null ? ' beginning with "' + partial + '"' : '' ) + '\n' );
+
+}
+
+/*
+============
+Cvar_Inc_f -- johnfitz
+============
+*/
+function Cvar_Inc_f() {
+
+	switch ( Cmd_Argc() ) {
+
+		default:
+		case 1:
+			Con_Printf( 'inc <cvar> [amount] : increment cvar\n' );
+			break;
+		case 2:
+			Cvar_SetValue( Cmd_Argv( 1 ), Cvar_VariableValue( Cmd_Argv( 1 ) ) + 1 );
+			break;
+		case 3:
+			Cvar_SetValue( Cmd_Argv( 1 ), Cvar_VariableValue( Cmd_Argv( 1 ) ) + Q_atof( Cmd_Argv( 2 ) ) );
+			break;
+
+	}
+
+}
+
+/*
+============
+Cvar_Toggle_f -- johnfitz
+============
+*/
+function Cvar_Toggle_f() {
+
+	switch ( Cmd_Argc() ) {
+
+		default:
+		case 1:
+			Con_Printf( 'toggle <cvar> : toggle cvar\n' );
+			break;
+		case 2:
+			if ( Cvar_VariableValue( Cmd_Argv( 1 ) ) !== 0 )
+				Cvar_Set( Cmd_Argv( 1 ), '0' );
+			else
+				Cvar_Set( Cmd_Argv( 1 ), '1' );
+			break;
+
+	}
+
+}
+
+/*
+============
+Cvar_HasValue
+
+Ironwail: a value that reads as a number (sscanf "%f") matches the cvar's
+value, anything else its string. Compared as floats, as C does. Unlike
+sscanf, this doesn't read inf, nan or hex as numbers; those compare as
+strings.
+============
+*/
+const CVAR_FLOAT_PREFIX = /^\s*[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?/;
+
+function Cvar_HasValue( _var, value ) {
+
+	const m = CVAR_FLOAT_PREFIX.exec( value );
+	if ( m !== null )
+		return Math.fround( parseFloat( m[ 0 ] ) ) === Math.fround( _var.value );
+	return value === _var.string;
+
+}
+
+/*
+============
+Cvar_Cycle_f -- johnfitz
+
+cycle and cycleback
+============
+*/
+function Cvar_Cycle_f() {
+
+	const argc = Cmd_Argc();
+	if ( argc < 3 ) {
+
+		Con_Printf( Cmd_Argv( 0 ) + ' <cvar> <value list>: cycle cvar through a list of values\n' );
+		return;
+
+	}
+
+	const _var = Cvar_FindVar( Cmd_Argv( 1 ) );
+	if ( _var === null ) {
+
+		Con_Printf( 'Cvar "' + Cmd_Argv( 1 ) + '" not found\n' );
+		return;
+
+	}
+
+	// loop through the args until you find one that matches the current cvar value.
+	// yes, this will get stuck on a list that contains the same value twice.
+	// it's not worth dealing with, and i'm not even sure it can be dealt with.
+	let i;
+	if ( Cmd_Argv( 0 ).toLowerCase() === 'cycle' ) { // forward
+
+		for ( i = 2; i < argc; i ++ )
+			if ( Cvar_HasValue( _var, Cmd_Argv( i ) ) )
+				break;
+		if ( ++ i >= argc )
+			i = 2;
+
+	} else { // backward
+
+		for ( i = argc - 1; i >= 2; i -- )
+			if ( Cvar_HasValue( _var, Cmd_Argv( i ) ) )
+				break;
+		if ( -- i < 2 )
+			i = argc - 1;
+
+	}
+
+	Cvar_Set( _var.name, Cmd_Argv( i ) );
+
+}
+
+/*
+============
+Cvar_Reset_f -- johnfitz
+============
+*/
+function Cvar_Reset_f() {
+
+	switch ( Cmd_Argc() ) {
+
+		default:
+		case 1:
+			Con_Printf( 'reset <cvar> : reset cvar to default\n' );
+			break;
+		case 2:
+			Cvar_Reset( Cmd_Argv( 1 ) );
+			break;
+
+	}
+
+}
+
+/*
+============
+Cvar_ResetAll_f -- johnfitz
+============
+*/
+function Cvar_ResetAll_f() {
+
+	for ( const _var of Cvar_SortedList() )
+		Cvar_Reset( _var.name );
+
+}
+
+/*
+============
+Cvar_ResetCfg_f -- QuakeSpasm
+
+Resets the archived cvars, the ones a config saves
+============
+*/
+function Cvar_ResetCfg_f() {
+
+	for ( const _var of Cvar_SortedList() )
+		if ( _var.archive )
+			Cvar_Reset( _var.name );
+
+}
+
+/*
+============
+Cvar_Init -- johnfitz
+
+Registers the cvar commands (Ironwail; id's cvar.c has none)
+============
+*/
+export function Cvar_Init() {
+
+	Cmd_AddCommand( 'cvarlist', Cvar_List_f );
+	Cmd_AddCommand( 'toggle', Cvar_Toggle_f );
+	Cmd_AddCommand( 'cycle', Cvar_Cycle_f );
+	Cmd_AddCommand( 'cycleback', Cvar_Cycle_f );
+	Cmd_AddCommand( 'inc', Cvar_Inc_f );
+	Cmd_AddCommand( 'reset', Cvar_Reset_f );
+	Cmd_AddCommand( 'resetall', Cvar_ResetAll_f );
+	Cmd_AddCommand( 'resetcfg', Cvar_ResetCfg_f );
 
 }

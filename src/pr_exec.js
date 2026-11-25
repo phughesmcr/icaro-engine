@@ -294,9 +294,84 @@ export function PR_LeaveFunction() {
 /*
 ====================
 PR_ExecuteProgram
+
+Port addition: in C a bad edict number in OP_LOAD_*, OP_STOREP_*,
+OP_ADDRESS or OP_STATE reads or writes stray memory (Ironwail range-checks
+only under PARANOID). In JS sv.edicts[ n ] is undefined and the opcode
+throws a TypeError, which Host_Frame rethrows and the room dies. Turn that
+into a PR_RunError (a Host_Error, as Ironwail's PARANOID NUM_FOR_EDICT
+check does). The check runs only after a throw, so the interpreter loop
+pays nothing for it.
 ====================
 */
 export function PR_ExecuteProgram( fnum ) {
+
+	try {
+
+		PR_ExecuteProgram_Loop( fnum );
+
+	} catch ( e ) {
+
+		if ( e instanceof TypeError )
+			PR_CheckBadEdict();
+		throw e;
+
+	}
+
+}
+
+/*
+====================
+PR_CheckBadEdict
+
+Cold path for PR_ExecuteProgram. If the statement that threw is an edict
+opcode with an edict number outside sv.edicts, abort it with PR_RunError.
+Any other TypeError (from a builtin, say) is left for the caller to rethrow.
+====================
+*/
+function PR_CheckBadEdict() {
+
+	const st = pr_statements[ pr_xstatement ];
+	if ( st === undefined )
+		return;
+
+	let n;
+	switch ( st.op ) {
+
+		case OP_ADDRESS:
+		case OP_LOAD_F:
+		case OP_LOAD_V:
+		case OP_LOAD_FLD:
+		case OP_LOAD_ENT:
+		case OP_LOAD_S:
+		case OP_LOAD_FNC:
+			n = pr_globals_int[ st.a ];
+			break;
+
+		case OP_STOREP_F:
+		case OP_STOREP_V:
+		case OP_STOREP_ENT:
+		case OP_STOREP_FLD:
+		case OP_STOREP_S:
+		case OP_STOREP_FNC:
+			n = ( pr_globals_int[ st.b ] >> 16 ) & 0xFFFF;
+			break;
+
+		case OP_STATE:
+			n = pr_global_struct.self;
+			break;
+
+		default:
+			return;
+
+	}
+
+	if ( sv.edicts[ n ] === undefined )
+		PR_RunError( 'bad edict number %i', n );
+
+}
+
+function PR_ExecuteProgram_Loop( fnum ) {
 
 	let s;
 	let st;

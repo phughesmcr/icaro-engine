@@ -2107,6 +2107,7 @@ function M_Touch_Key( key ) {
 let m_keys_cursor = 0;
 let m_keys_scroll = 0; // first row shown
 let bind_grab = false;
+let bind_grab_key = - 1; // the key the last grab bound; its autorepeats are dropped
 
 // QS/Ironwail add the previous-weapon row (impulse 12) and Ironwail the
 // weapon rows (impulse 1-8) to id's list. Labels stop before the cursor at
@@ -2313,6 +2314,7 @@ function M_Keys_Key( key ) {
 	if ( bind_grab ) {
 
 		// Grabbed a key
+		bind_grab_key = key;
 		if ( _S_LocalSound ) _S_LocalSound( 'misc/menu1.wav' );
 		if ( key === K_ESCAPE ) {
 
@@ -2837,6 +2839,26 @@ export function M_Init() {
 M_Keydown
 ================
 */
+/*
+================
+M_KeyRepeats
+
+Ironwail M_Keydown: only a few navigational keys repeat in menus, which
+reduces sound spam. Escape is left out (a held Escape would back out of
+every level and close the menu), and so is a key while it is being bound
+or is still held from being bound, so the repeat doesn't move the cursor.
+================
+*/
+export function M_KeyRepeats( key ) {
+
+	if ( bind_grab || key === bind_grab_key )
+		return false;
+
+	return key === K_UPARROW || key === K_DOWNARROW
+		|| key === K_LEFTARROW || key === K_RIGHTARROW;
+
+}
+
 export function M_Keydown( key ) {
 
 	// Ironwail M_Keydown: mouse keys only work with ui_mouse, except while
@@ -2845,6 +2867,10 @@ export function M_Keydown( key ) {
 	// wheel, and the port's other menus move the cursor with it.
 	const click = m_mouse_click;
 	m_mouse_click = false;
+
+	// A fresh press (or another key's repeat) ends the hold on a grabbed key
+	if ( bind_grab === false )
+		bind_grab_key = - 1;
 
 	if ( bind_grab === false ) {
 

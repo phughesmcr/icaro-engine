@@ -5,13 +5,12 @@ import { Con_Printf, SZ_Clear,
 	MSG_WriteByte,
 	LittleLong,
 	net_message, COM_DefaultExtension } from './common.js';
-import { Sys_Error } from './sys.js';
 import { Cmd_Argc, Cmd_Argv, Cmd_ExecuteString, cmd_source, src_command } from './cmd.js';
 import { svc_nop, svc_disconnect } from './protocol.js';
 import { VectorCopy } from './mathlib.js';
 import { SIGNONS, cl, cls, ca_disconnected, ca_connected } from './client.js';
 import { CL_Disconnect } from './cl_main.js';
-import { host_framecount, realtime } from './host.js';
+import { host_framecount, realtime, Host_Error } from './host.js';
 import { NET_GetMessage } from './net_main.js';
 import { COM_FindFile } from './pak.js';
 
@@ -41,6 +40,13 @@ export function CL_StopPlayback() {
 		return;
 
 	cls.demoplayback = false;
+	if ( cls.demopaused === true ) {
+
+		cls.demopaused = false;
+		cl.paused = false;
+
+	}
+
 	cls.demofile = null;
 	cls.demodata = null;
 	cls.demopos = 0;
@@ -146,6 +152,17 @@ export function CL_GetMessage() {
 
 	if ( cls.demoplayback ) {
 
+		// ericw -- demo pause support (QuakeSpasm). QuakeSpasm lets cl.time
+		// run on and leaves CL_LerpPoint to pull it back to mtime[0]; this
+		// port holds it here, as Ironwail's demospeed 0 does, by undoing the
+		// advance CL_ReadFromServer just made.
+		if ( cls.demopaused === true ) {
+
+			cl.time = cl.oldtime;
+			return 0;
+
+		}
+
 		// decide if it is time to grab the next message
 		if ( cls.signon === SIGNONS ) { // allways grab until fully connected
 
@@ -184,7 +201,7 @@ export function CL_GetMessage() {
 		}
 
 		const view = new DataView( cls.demodata.buffer, cls.demodata.byteOffset + cls.demopos, 4 );
-		net_message.cursize = view.getInt32( 0, true ); // little-endian
+		const msgsize = LittleLong( view.getInt32( 0, true ) ); // little-endian
 		cls.demopos += 4;
 
 		// read view angles (3 floats = 12 bytes)
@@ -204,9 +221,14 @@ export function CL_GetMessage() {
 
 		}
 
-		net_message.cursize = LittleLong( net_message.cursize );
-		if ( net_message.cursize > MAX_MSGLEN )
-			Sys_Error( 'Demo message > MAX_MSGLEN' );
+		// Deliberate deviation: id's C (and Ironwail) Sys_Error here, which
+		// wipes the page; a bad demo is not worth that. A negative size (which
+		// C doesn't check) is rejected too.
+		if ( msgsize > MAX_MSGLEN )
+			Host_Error( 'Demo message > MAX_MSGLEN' );
+		if ( msgsize < 0 )
+			Host_Error( 'Demo message size ' + msgsize + ' is negative' );
+		net_message.cursize = msgsize;
 
 		// read message data
 		if ( cls.demopos + net_message.cursize > cls.demodata.length ) {
@@ -426,6 +448,7 @@ export function CL_PlayDemoFromData( data ) {
 	cls.demopos = 0;
 
 	cls.demoplayback = true;
+	cls.demopaused = false;
 	cls.state = ca_connected;
 	cls.forcetrack = 0;
 

@@ -14,7 +14,7 @@ import {
 import { R_DrawWorld as R_DrawWorld_impl, R_MarkLeaves as R_MarkLeaves_impl, GL_BuildLightmaps as GL_BuildLightmaps_rsurf, R_DrawBrushModel as R_DrawBrushModel_rsurf, R_DrawWaterSurfaces as R_DrawWaterSurfaces_rsurf, R_CleanupWaterMeshes as R_CleanupWaterMeshes_rsurf, R_GetMirrorItems } from './gl_rsurf.js';
 import { R_MirrorGate, R_MirrorPass, R_MirrorCleanup } from './gl_rmirror.js';
 import { Mod_PointInLeaf, SPR_SINGLE, SPR_ORIENTED } from './gl_model.js';
-import { R_AnimateLight as R_AnimateLight_impl, R_RenderDlights as R_RenderDlights_impl, R_LightPoint, lightspot } from './gl_rlight.js';
+import { R_AnimateLight as R_AnimateLight_impl, R_RenderDlights as R_RenderDlights_impl, R_DlightDistance, R_LightPoint, lightspot } from './gl_rlight.js';
 import { R_DrawAliasModel as R_DrawAliasModel_mesh, GL_DrawAliasShadow, alias_lerpdata } from './gl_mesh.js';
 import { r_avertexnormal_dots } from './anorm_dots.js';
 import { V_SetContentsColor as V_SetContentsColor_view, V_CalcBlend as V_CalcBlend_view } from './view.js';
@@ -57,6 +57,15 @@ export const ALIAS_BASE_SIZE_RATIO = ( 1.0 / 11.0 );
 export const MAX_LBM_HEIGHT = 480;
 
 export const TILE_SIZE = 128;
+
+/*
+gl_farclip, from QuakeSpasm and Ironwail (gl_rmain.c): the far clip
+distance. id's R_SetupGL hard-codes 4096, so that is the default here;
+QuakeSpasm and Ironwail default to 65536 for large custom maps. With
+zNear 4 the far plane barely changes depth precision: a 24-bit depth step
+at distance z is about z * z / ( 4 * 2^24 ) units whatever the far plane.
+*/
+export const gl_farclip = { name: 'gl_farclip', string: '4096', value: 4096, archive: true };
 export const SKYSHIFT = 7;
 export const SKYSIZE = ( 1 << SKYSHIFT );
 export const SKYMASK = ( SKYSIZE - 1 );
@@ -319,7 +328,7 @@ export function R_SetupGL() {
 			r_refdef.fov_y,
 			screenaspect,
 			4, // zNear
-			4096 // zFar
+			gl_farclip.value // zFar
 		);
 
 		// Parent camera to XR rig (if available).
@@ -337,12 +346,12 @@ export function R_SetupGL() {
 		if ( isXRActive() ) {
 
 			camera.near = 4 / XR_SCALE;
-			camera.far = 4096 / XR_SCALE;
+			camera.far = gl_farclip.value / XR_SCALE;
 
 		} else {
 
 			camera.near = 4;
-			camera.far = 4096;
+			camera.far = gl_farclip.value;
 
 		}
 
@@ -1084,6 +1093,11 @@ function R_DrawSpriteModel( e ) {
 		}
 
 		mesh = new THREE.Mesh( geometry, material );
+		// The four positions are rewritten in world space every frame, but
+		// Three.js computes the bounding sphere only once, so frustum culling
+		// would test a moving sprite (or a reused entity slot) against where
+		// it was first drawn. C submits sprites without culling them.
+		mesh.frustumCulled = false;
 		e._spriteMesh = mesh;
 
 	} else {
@@ -1420,6 +1434,8 @@ export function R_Init() {
 	Cvar_RegisterVariable( r_lerpmodels );
 	Cvar_RegisterVariable( r_lerpmove );
 	Cvar_RegisterVariable( r_nolerp_list );
+	// QuakeSpasm and Ironwail register this in gl_rmisc.c R_Init
+	Cvar_RegisterVariable( gl_farclip );
 
 	// create the Three.js scene
 	scene = new THREE.Scene();
@@ -1573,6 +1589,81 @@ function R_RenderDlights() {
 	if ( cl != null ) {
 
 		R_RenderDlights_impl( cl, scene );
+		R_PadDlights( scene );
+
+	}
+
+}
+
+/*
+=============
+R_PadDlights
+
+Not in C. gl_flashblend draws dlights as PointLights (gl_rlight.js), and
+Three.js compiles a new shader program for every lit material each time the
+number of lights in the scene changes. Measured in Chrome on the start map:
+each light count seen for the first time added about 7 programs and a
+20-250 ms frame. Keeping all MAX_DLIGHTS lights in the scene avoids that but
+makes every lit fragment loop over them: 64 zero-intensity lights took a
+frame from about 3 ms to 12-18 ms (2048x1536, render plus a 1-pixel
+readPixels). So pad the count with zero-intensity lights up to the next of
+4, 8, 16, 32 or 64: at most five program sets per material, and the per-pixel
+cost stays near what the frame actually uses.
+=============
+*/
+const _dlightFillers = [];
+
+export function R_CountRenderedDlights() {
+
+	if ( gl_flashblend.value === 0 || cl == null )
+		return 0;
+
+	// Same test as R_RenderDlights in gl_rlight.js
+	let count = 0;
+	for ( let i = 0; i < MAX_DLIGHTS; i ++ ) {
+
+		const l = cl_dlights[ i ];
+		if ( l != null && l.die >= cl.time && l.radius > 0 && R_DlightDistance( l ) > 0 )
+			count ++;
+
+	}
+
+	return count;
+
+}
+
+export function R_DlightBucket( count ) {
+
+	if ( count === 0 ) return 0;
+	let bucket = 4;
+	while ( bucket < count ) bucket *= 2;
+	return bucket;
+
+}
+
+export function R_PadDlights( targetScene ) {
+
+	const active = R_CountRenderedDlights();
+	const fillers = active === 0 ? 0 : R_DlightBucket( active ) - active;
+
+	for ( let i = 0; i < fillers; i ++ ) {
+
+		let light = _dlightFillers[ i ];
+		if ( light === undefined ) {
+
+			light = new THREE.PointLight( 0xffffff, 0, 1, 0 );
+			_dlightFillers[ i ] = light;
+
+		}
+
+		if ( light.parent !== targetScene && targetScene !== null ) targetScene.add( light );
+
+	}
+
+	for ( let i = fillers; i < _dlightFillers.length; i ++ ) {
+
+		const light = _dlightFillers[ i ];
+		if ( light.parent !== null ) light.parent.remove( light );
 
 	}
 
