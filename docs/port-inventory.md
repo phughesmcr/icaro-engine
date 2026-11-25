@@ -285,8 +285,8 @@ own fix PR.
 - **`host_speeds` and `serverprofile`:** registered (`src/host.js:83`,
   `:86`) but never read. In C they print per-frame timings
   (`host.c:697-720`, `:736-762`).
-- **`-particles <n>`:** ignored. `MAX_PARTICLES` is fixed at 2048
-  (`src/r_part.js:13`), the same as C's default (`r_part.c:50-58`).
+- **`-particles <n>`:** was ignored. `MAX_PARTICLES` was fixed at 2048,
+  the same as C's default (`r_part.c:50-58`).
 
 - **Status: fixed.** `host_speeds` prints the
   `tot`/`server`/`gfx`/`snd` line each frame, and `serverprofile` the
@@ -296,7 +296,8 @@ own fix PR.
   (`src/r_part.js:18`), a deliberate deviation from C's 2048 taken from
   Ironwail. `-particles <n>` sizes the pool in `R_InitParticles`, as in C
   and Ironwail: at least 512, no maximum, and the default when no number
-  follows (Ironwail's check). The browser passes it from `?particles=<n>`.
+  follows (Ironwail's check). The browser passes it from `?particles=<n>`, which ignores values over
+  262144 because a link can carry it (a port addition).
 
 ## Command-line parms
 
