@@ -41,6 +41,13 @@ export function CL_StopPlayback() {
 		return;
 
 	cls.demoplayback = false;
+	if ( cls.demopaused === true ) {
+
+		cls.demopaused = false;
+		cl.paused = false;
+
+	}
+
 	cls.demofile = null;
 	cls.demodata = null;
 	cls.demopos = 0;
@@ -145,6 +152,17 @@ Handles recording and playback of demos, on top of NET_ code
 export function CL_GetMessage() {
 
 	if ( cls.demoplayback ) {
+
+		// ericw -- demo pause support (QuakeSpasm). QuakeSpasm lets cl.time
+		// run on, so the demo skips ahead on unpause; Ironwail stops it
+		// (demospeed 0). This port stops it too, by undoing the advance
+		// CL_ReadFromServer just made.
+		if ( cls.demopaused === true ) {
+
+			cl.time = cl.oldtime;
+			return 0;
+
+		}
 
 		// decide if it is time to grab the next message
 		if ( cls.signon === SIGNONS ) { // allways grab until fully connected
@@ -426,6 +444,7 @@ export function CL_PlayDemoFromData( data ) {
 	cls.demopos = 0;
 
 	cls.demoplayback = true;
+	cls.demopaused = false;
 	cls.state = ca_connected;
 	cls.forcetrack = 0;
 
