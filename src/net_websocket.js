@@ -11,6 +11,13 @@
 // dropping the odd update. To limit how much stale data can pile up, senders
 // drop unreliable messages while the socket is backed up, and the receiver
 // only ever delivers the newest of consecutive queued unreliable messages.
+//
+// Sources: the driver interface follows Ironwail's Quake/net_dgrm.c and
+// Quake/net_main.c (https://github.com/andrei-drexler/ironwail) as
+// net_webtransport.js does; the server side is server/net_websocket_server.ts.
+// Cloudflare proxies WebSockets on every plan, closes idle ones and may drop
+// them on restarts (https://developers.cloudflare.com/network/websockets/);
+// a dropped connection ends like any lost connection.
 
 import { Con_Printf, Con_DPrintf, SZ_Clear, SZ_Write } from './common.js';
 import { NET_NewQSocket } from './net_main.js';

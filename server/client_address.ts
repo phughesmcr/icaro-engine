@@ -15,6 +15,13 @@ function _isLoopback(hostname: string): boolean {
  * peer is loopback, so a loopback peer's forwarded address is used: ?ip=
  * (only when trustQuery is set, for a room behind the lobby's proxy), then
  * Cloudflare's CF-Connecting-IP header. Anything else is the peer itself.
+ *
+ * Cloudflare documents CF-Connecting-IP as the client address it sends from
+ * its edge to the origin, and recommends it over X-Forwarded-For
+ * (https://developers.cloudflare.com/fundamentals/reference/http-headers/).
+ * The page does not mention Tunnel traffic by name, and the "Remove visitor
+ * IP headers" Managed Transform strips it; without it every tunnel client
+ * shares 127.0.0.1 and the per-IP limits apply to all of them together.
  */
 export function WS_ClientAddress(
   url: URL,

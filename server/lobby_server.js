@@ -555,7 +555,14 @@ async function acceptConnections( listener ) {
 //   <prefix>/room/<ID>   a game connection, proxied to the room's own
 //                        WebSocket listener on 127.0.0.1:<room port>
 // Any prefix works (the tunnel's /mp, or none), since only the path's tail
-// is matched. src/net_websocket.js is the client side.
+// is matched: cloudflared forwards the full request path to the origin
+// without stripping the part its ingress rule matched
+// (https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/configure-tunnels/local-management/configuration-file/).
+// Cloudflare closes a WebSocket that carries no data for a while and may
+// drop WebSockets when it restarts servers
+// (https://developers.cloudflare.com/network/websockets/). A game connection
+// carries server updates every frame, and a dropped one ends like any lost
+// connection (the client returns to the menu; the room link rejoins). src/net_websocket.js is the client side.
 //============================================================================
 
 const WS_OPEN = 1;

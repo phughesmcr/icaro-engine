@@ -10,6 +10,22 @@
 // updates are never lost, only late. To keep stale updates from piling up,
 // unreliable sends are dropped while the socket is backed up or while the
 // client is far behind in acknowledging what it has been sent.
+//
+// Sources:
+// - Ironwail Quake/net_dgrm.c and Quake/net_main.c
+//   (https://github.com/andrei-drexler/ironwail): the driver interface this
+//   fills in (QGetMessage 0/1/2/-1, SendUnreliableMessage, CanSendMessage).
+//   Where it differs (sequencing header, send gating) it follows
+//   net_webtransport_server.ts, which already differs from net_dgrm.c.
+// - Deno.serve and Deno.upgradeWebSocket
+//   (https://docs.deno.com/api/deno/http-server/,
+//   https://docs.deno.com/api/deno/websockets/): the returned response must
+//   answer the request, and upgradeWebSocket's idleTimeout (default 30 s)
+//   closes a peer that stops answering the server's keepalive with a pong.
+//   Browsers answer it themselves, so a client busy loading a map is not
+//   dropped. The docs say nothing about bufferedAmount, a message size limit,
+//   whether close() flushes queued sends, or TCP_NODELAY, so the close path
+//   below waits for bufferedAmount to reach 0 itself, bounded by a deadline.
 
 import { Sys_Printf } from "./sys_server.ts";
 import { WS_ClientAddress } from "./client_address.ts";
@@ -493,7 +509,8 @@ function _onHello(
   sock.unreliableReceiveSequence = -1;
   sock.ackSequence = -1;
   // No path MTU on a TCP stream: SV_ClientDatagramSize clamps this to
-  // DATAGRAM_MTU, the size every remote client gets in FitzQuake.
+  // DATAGRAM_MTU (1400), what Ironwail's SV_SendClientDatagram (sv_main.c,
+  // from FitzQuake) gives every nonlocal client.
   sock.maxdatagram = NET_MAXMESSAGE;
   conn.sock = sock;
 
@@ -954,7 +971,9 @@ export function WS_CanSendMessage(sock: QSocket): boolean {
 
 /**
  * False while unreliable sends would be dropped, so SV_SendClientDatagram
- * skips building the frame's datagram.
+ * skips building the frame's datagram. Ironwail's
+ * Datagram_CanSendUnreliableMessage (net_dgrm.c) always returns true; this
+ * port's SV_SendClientDatagram gates on it QW-style, as for WebTransport.
  */
 export function WS_CanSendUnreliableMessage(sock: QSocket): boolean {
   const conn = sock.driverdata;

@@ -132,7 +132,7 @@ Both `--allow-net` grants are needed in every case: a missing grant fails startu
 
 ## Connecting from Browser
 
-- **Multiplayer menu (lobby mode):** Queries `lobby_server.js` on port `4433` to list, create, or join rooms, then connects directly to the assigned room's `game_server.js` port (`4434`–`4443`). Joining a valid 6-character shared room code for an expired room re-creates it, subject to the same limits as creating a room.
+- **Multiplayer menu (lobby mode):** Queries `lobby_server.js` on port `4433` to list, create, or join rooms, then connects directly to the assigned room's `game_server.js` port (`4434`–`4443`). A WebSocket client instead connects to the lobby's `<prefix>/room/<id>` path, which the lobby proxies to the room, so only the lobby's port needs to be reachable. Joining a valid 6-character shared room code for an expired room re-creates it, subject to the same limits as creating a room.
 - **Direct console connection:** In the Icaro Engine console, connect directly to a `game_server.js` instance:
 
 ```text
@@ -191,13 +191,16 @@ https://quake.example.com/?transport=ws                       # force WebSocket 
 https://quake.example.com/?server=wss://quake.example.com/mp  # explicit lobby
 ```
 
-On a browser that has WebTransport, the page still tries WebTransport first unless `?transport=ws` or a `wss://` `?server=` is given, and WebTransport cannot reach the lobby through the tunnel. Share links with `?transport=ws`.
+On a browser that has WebTransport, the page still tries WebTransport first unless `?transport=ws` or a `wss://` `?server=` is given, and WebTransport does not reach the lobby through the tunnel: `cloudflared` connects to the origin over HTTP/1.1, or HTTP/2 with `http2Origin` ([origin parameters](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/configure-tunnels/origin-parameters/)), and Cloudflare documents no WebTransport or HTTP/3 path to an origin. Share links with `?transport=ws`.
 
 Notes:
 
 - Keep `-wshost` at its default `127.0.0.1` so only `cloudflared` (and the lobby's own proxy) can reach the WebSocket listeners. The lobby takes the client's address from the `CF-Connecting-IP` header on loopback connections, for its per-IP limits, and passes it on to the room.
 - The lobby still starts its WebTransport listener, so it still needs `-cert` and `-key` (a self-signed pair is enough when nobody connects over WebTransport).
 - Nothing else needs a public port: the rooms' WebSocket listeners are loopback-only, and the lobby proxies to them.
+- `cloudflared` forwards the full request path (`/mp/lobby`, `/mp/room/<id>`) without stripping the matched part, and `path` is a regular expression ([configuration file](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/configure-tunnels/local-management/configuration-file/)). The lobby matches only the end of the path, so the prefix can be anything.
+- Cloudflare closes a WebSocket that carries no data for a while, and may close WebSockets when it restarts servers; stopping or restarting `cloudflared` drops them too ([WebSockets](https://developers.cloudflare.com/network/websockets/)). A game connection carries updates every frame, so it is not idle, and Deno pings each server-side socket after 30 s of silence (`Deno.upgradeWebSocket`'s `idleTimeout`). A dropped connection returns the player to the menu, and the room link (`?room=`) rejoins. Cloudflare documents no WebSocket message size limit; game messages are at most 8 KB.
+- The lobby takes `CF-Connecting-IP` as the client address ([HTTP headers](https://developers.cloudflare.com/fundamentals/reference/http-headers/)). If a Managed Transform removes visitor IP headers, every tunnel client appears as `127.0.0.1` and shares one set of per-IP limits.
 
 ## Architecture
 
@@ -209,6 +212,7 @@ Notes:
   - 64 concurrent lobby sessions, 8 per client IP.
   - Room creation (including re-creating a shared room on join) is limited to 3 per minute per IP and 10 per minute overall. Attempts whose room fails to start still count.
   - Each IP may have at most 3 live rooms.
+  - With `-wsport`: at most 160 proxied WebSocket room connections, 16 per client IP (`maxProxies`, `maxProxiesPerIp`). WebSocket lobby requests count against the lobby session limits above.
   - `maxPlayers` is clamped to an integer from 1 to 16; `hostName` has control characters stripped and is capped at 32 UTF-8 bytes; map names must match `[A-Za-z0-9_]{1,32}`.
 - **Game transport (`net_webtransport_server.ts`)**:
   - **Bidirectional stream** (length-prefixed frames) for reliable Quake messages (signon data, string commands, score/name updates).

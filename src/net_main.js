@@ -424,7 +424,7 @@ const slistPollProcedure = new PollProcedure( null, 0.0, Slist_Poll );
 NET_Connect
 
 Connects to a host. For local connections, this is synchronous.
-For remote connections (WebTransport), this returns a Promise.
+For remote connections (WebTransport or WebSocket), this returns a Promise.
 ===================
 */
 export function NET_Connect( host ) {

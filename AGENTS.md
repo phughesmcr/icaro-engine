@@ -42,7 +42,8 @@ process per room. It was forked from mrdoob's three-quake.
   `deno test --allow-read --allow-write tests/<file>_test.js` (add the task's
   `--allow-env`/`--allow-run` for `server_lobby_test.js`). Narrow further with
   `--filter`.
-- `deno task check` type-checks `main.js`, the server entry points and
+- `deno task check` type-checks `main.js`, the server entry points, the
+  WebSocket server driver (`server/net_websocket_server.ts`) and
   `tests/net_webtransport_server_test.ts`.
 - `deno task lobby` and `deno task game` need `server/cert.pem` and
   `server/key.pem` (see `server/README.md`). Both are gitignored.
