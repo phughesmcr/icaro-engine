@@ -45,7 +45,7 @@ import { FL_ONGROUND, FL_FLY, FL_SWIM, svs, ss_loading, ss_active, teamplay } fr
 import { Mod_ForName, Mod_PointInLeaf, Mod_LeafPVS } from './gl_model.js';
 import {
 	svc_print, svc_centerprint, svc_stufftext, svc_lightstyle,
-	svc_spawnstatic, svc_spawnstaticsound,
+	svc_spawnstatic, svc_spawnstaticsound, ENTALPHA_ZERO,
 } from './protocol.js';
 
 /*
@@ -506,14 +506,15 @@ function PF_ambientsound() {
 
 	}
 
-	SV_ReserveSignonSpace( 17 ); // Ironwail's size, for svc_spawnstaticsound2
+	// PROTOCOL_ICARO (protocol.js): 4-byte coords and a short sound index
+	SV_ReserveSignonSpace( 1 + 3 * 4 + 2 + 1 + 1 );
 
 	// write it to the signon buffer
 	MSG_WriteByte( sv.signon, svc_spawnstaticsound );
 	for ( let i = 0; i < 3; i ++ )
 		MSG_WriteCoord( sv.signon, pos[ i ] );
 
-	MSG_WriteByte( sv.signon, soundnum );
+	MSG_WriteShort( sv.signon, soundnum ); // C: a byte
 	MSG_WriteByte( sv.signon, ( vol * 255 ) | 0 );
 	MSG_WriteByte( sv.signon, ( attenuation * 64 ) | 0 );
 
@@ -1489,10 +1490,21 @@ function PF_makestatic() {
 
 	const ent = G_EDICT( OFS_PARM0 );
 
-	SV_ReserveSignonSpace( 34 ); // Ironwail's size, for its largest svc_spawnstatic2
+	//johnfitz -- don't send invisible static entities
+	if ( ent.alpha === ENTALPHA_ZERO ) {
+
+		ED_Free( ent );
+		return;
+
+	}
+	//johnfitz
+
+	// PROTOCOL_ICARO (protocol.js): a short model index, 4-byte coords and
+	// an alpha byte (Ironwail's svc_spawnstatic2 sends them with B_* bits)
+	SV_ReserveSignonSpace( 1 + 2 + 3 + 3 * ( 4 + 1 ) + 1 );
 
 	MSG_WriteByte( sv.signon, svc_spawnstatic );
-	MSG_WriteByte( sv.signon, ent.v.modelindex | 0 );
+	MSG_WriteShort( sv.signon, ent.v.modelindex | 0 );
 	MSG_WriteByte( sv.signon, ent.v.frame | 0 );
 	MSG_WriteByte( sv.signon, ent.v.colormap | 0 );
 	MSG_WriteByte( sv.signon, ent.v.skin | 0 );
@@ -1502,6 +1514,7 @@ function PF_makestatic() {
 		MSG_WriteAngle( sv.signon, ent.v.angles[ i ] );
 
 	}
+	MSG_WriteByte( sv.signon, ent.alpha ); //johnfitz -- alpha
 
 	// throw the entity away now
 	ED_Free( ent );

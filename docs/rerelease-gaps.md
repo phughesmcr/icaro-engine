@@ -16,6 +16,10 @@ are from `d6f2058`, apart from the BSP2 rerun below.
 headless spawn table and the phase 3 and 4 notes were updated from a new
 headless run of every BSP2 map on that branch.
 
+**Items 4b, 4c, 4d and 6c (phase 4) fixed** on `agent/loving-ramanujan-d1bce5`.
+Their rows, the limits summary bullet, the headless spawn table and the
+phase 4 note were updated from a headless run of 109 maps on that branch.
+
 The findings come from four sources:
 
 - **The rerelease data.** The 2021 paks in a local `static/rerelease/`
@@ -55,12 +59,13 @@ The findings come from four sources:
   `maps/bmodel/b_*` models, and 2 id1 vault maps. At `d6f2058` every one
   failed on `Mod_LoadBrushModel`'s version check. #126 loads them all, and
   47 of the 56 maps spawn and run headless.
-- **The 9 BSP2 maps that still fail hit the protocol's limits:**
+- **The 9 BSP2 maps that failed hit the protocol's limits.** Phase 4 raised
+  them, and all 9 now spawn and run headless:
   - All 9 need more than 256 models (`MAX_MODELS`), counting the QC's
-    precaches. `mg3/secret2`'s 525 submodels also fill `MAX_MOD_KNOWN` 512.
+    precaches. `mg3/secret2`'s 525 submodels also filled `MAX_MOD_KNOWN` 512.
   - `mg3/secret2` has 1572 entities at load, against `MAX_EDICTS` 1024.
-  - 5 maps extend past the ±4096 coordinate range. They spawn and run
-    headless, but positions past it would wrap on the wire.
+  - 5 maps extend past the ±4096 coordinate range. They spawned and ran
+    headless before, but positions past it would have wrapped on the wire.
 
 ## Status of each gap
 
@@ -79,13 +84,13 @@ week or more.
 | 2 | Localisation | **done** (#124) | `loc_<language>.txt` is in id1's `pak0.pak` under `localization/` (1645 keys, 213 `{}` placeholders, UTF-8) and in `QuakeEX.kpf`. Ironwail resolves keys on the server: in `PF_VarString` (`Quake/pr_cmds.c:60-95`, with `{}` placeholders) and `PF_WriteString` (`:1583`, which covers `svc_finale "$qc_finale_end"`). Its loader is `LOC_*` in `Quake/common.c:3687-4070`, with a `language` cvar. Map names are plain text, and the classic `.lmp` menus need no keys. Only `mapdb.json` episode names use them (menu only); the port has no such menu. #124 ports Ironwail's loader and both call sites, and calls `LOC_Init` in the room server too. It reads the strings from the paks only, not from `QuakeEX.kpf`. | M | `src/common.js` (`LOC_*`, `UTF8_ToQuake`), `src/pr_cmds.js` (`PF_VarString`, `PF_WriteString`), `src/host.js` and `server/game_server.js` (`LOC_Init`), new tests |
 | 3 | BSP2 maps | **done** (#126) | Fixed: `Mod_LoadBrushModel` (`src/gl_model.js:2768`) accepts `BSP2VERSION_BSP2` (`src/bspfile.js:44`) and passes a `bsp2` flag to `Mod_LoadEdges`, `Mod_LoadFaces`, `Mod_LoadMarksurfaces`, `Mod_LoadLeafs`, `Mod_LoadNodes` and `Mod_LoadClipnodes`, ported from Ironwail's `Quake/gl_model.c` (`Mod_LoadNodes_L2` `:1549`, `Mod_ProcessLeafs_L2`, `Mod_LoadClipnodes(…, bsp2)` `:1923`). BSP2 has no leaf limit. `medge_t.v` and `edict_t.leafnums` (`src/progs.js:111`) widened to 32 bits as in Ironwail. Clipnode children were already `Int32Array`, and `world.js` and `pmove.js` walk them unchanged. BSP29 loads byte-for-byte as before (176 BSP29 maps compared). 2PSB is still refused: the rerelease has none. Before #126: `src/gl_model.js:2578` accepted only version 29. The rerelease has 58 BSP2 files (56 maps and 2 box models). The largest is `mg1/hub`: 68228 leafs, 228829 vertexes, 412867 edges. | – | – |
 | 4a | Signon size | **done** (#96) | Signon buffers of `MAX_MSGLEN/2`, up to 256 of them (`MAX_SIGNON_BUFFERS`, `src/server.js`), allow about 1 MB of signon. Even 2000 baselines at 35 bytes each fit. | – | – |
-| 4b | Edict count | **partial** | `MAX_EDICTS` 1024 (`src/quakedef.js:29`) is bounded by `PE_ENT_BITS` 10 (`src/protocol.js:187`). Before skill filtering, `mg3/secret2` has 1572 entities that aren't lights or `info_null`, and `mg3/map8` has 988. Runtime spawns add to that. Ironwail: `MAX_EDICTS` 32000 (`Quake/quakedef.h:106`). | L (with 4c, 4d) | `src/protocol.js`, `src/quakedef.js`, `src/sv_main.js` (packet entities), `src/cl_parse.js`, `src/cl_main.js` |
-| 4c | Model and sound indexes | **missing** | Models are sent as bytes in packet entities (`src/sv_main.js:854`), `svc_playerinfo` (`:1572`), baselines (`:1969`) and `svc_spawnstatic` (`src/pr_cmds.js:1472`). Sounds are bytes at `src/sv_main.js:254`. Six maps have more than 200 brush submodels before the QC precaches: `mg1/mge2m2` 285, `mge5m2` 202; `mg3/map2b` 255, `map7` 230, `map8` 364, `secret2` 525. With the QC's precaches, `mg1/mge2m1` and `mg3/map4` and `map6` pass 256 too: the headless run after #126 ends them in `PF_precache_model: overflow`. The `SV_SpawnServer` submodel loop (`src/sv_main.js:2119-2123`) also reads `localmodels[ i ]` past `MAX_MODELS` with no bounds check, so it fails with a crash rather than an error (`Mod_ForName: NULL name` on `mge2m2` and `map8`). `secret2` first fills `mod_known` (`MAX_MOD_KNOWN` 512, `src/gl_model.js:670`; Ironwail 2048). Ironwail: `MAX_MODELS` 4096, `MAX_SOUNDS` 2048, `U_MODEL2` and large-sound flags (`Quake/protocol.h:64`). Sound precache counts were not measured. | (in 4b) | as 4b, plus `src/pr_cmds.js` (`PF_makestatic`, precache) |
-| 4d | Coordinate range | **missing** | `MSG_WriteCoord` (`src/common.js:423`) writes a short in eighths of a unit, ±4096. World bounds pass ±4096 on `id1/vault/jrwiz3`, `mg1/mge1m2`, `mge4m1` and `mge4m2` (±5183), and `mg3/secret1`. Ironwail uses `PROTOCOL_RMQ` with `PRFL_INT32COORD` or float coords (`Quake/protocol.h:31-37`, default `sv_protocol` 999). | (in 4b) | `src/common.js`, `src/protocol.js`, `src/cl_parse.js`, prediction (`src/pmove.js`, `src/cl_pred.js`) |
+| 4b | Edict count | **done** (phase 4) | Fixed: `MAX_EDICTS` is 32000 (`src/quakedef.js:32`), as in Ironwail. Packet entities carry the number in 15 bits (`PE_ENT_BITS`, `src/protocol.js:212`). The server's edict array grows on demand (`ED_GrowEdicts`, `src/pr_edict.js`), as do the client's `cl_entities` (`CL_EnsureEntities`, `src/client.js`) and `sv_phys.js`'s push tables, so small maps allocate no more than before. `mg3/secret2` has 1467 edicts after 100 frames. Ironwail's `max_edicts` cvar is not ported. Before: `MAX_EDICTS` 1024 was bounded by `PE_ENT_BITS` 10. Before skill filtering, `mg3/secret2` has 1572 entities that aren't lights or `info_null`, and `mg3/map8` has 988. | – | – |
+| 4c | Model and sound indexes | **done** (phase 4) | Fixed: `MAX_MODELS` 4096 and `MAX_SOUNDS` 2048 (`src/quakedef.js:34-35`), and `MAX_MOD_KNOWN` 2048 (`src/gl_model.js:673`), as in Ironwail. Under `PROTOCOL_ICARO` (1015, `src/protocol.js:22`) models are shorts in packet entities, baselines, `svc_spawnstatic`, `svc_clientdata` and `svc_playerinfo`, and `svc_spawnstaticsound` sends a short. `svc_sound` and `svc_localsound` use Ironwail's `SND_LARGEENTITY` and `SND_LARGESOUND` flags. The `SV_SpawnServer` submodel loop now stops with a `Host_Error` when the map has more submodels than `MAX_MODELS`. `mg3/secret2` precaches 607 models; the most sounds on any map is 209. Before: models are sent as bytes in packet entities (`src/sv_main.js:854`), `svc_playerinfo` (`:1572`), baselines (`:1969`) and `svc_spawnstatic` (`src/pr_cmds.js:1472`). Sounds are bytes at `src/sv_main.js:254`. Six maps have more than 200 brush submodels before the QC precaches: `mg1/mge2m2` 285, `mge5m2` 202; `mg3/map2b` 255, `map7` 230, `map8` 364, `secret2` 525. With the QC's precaches, `mg1/mge2m1` and `mg3/map4` and `map6` pass 256 too: the headless run after #126 ends them in `PF_precache_model: overflow`. The `SV_SpawnServer` submodel loop (`src/sv_main.js:2119-2123`) also reads `localmodels[ i ]` past `MAX_MODELS` with no bounds check, so it fails with a crash rather than an error (`Mod_ForName: NULL name` on `mge2m2` and `map8`). `secret2` first fills `mod_known` (`MAX_MOD_KNOWN` 512, `src/gl_model.js:667`; Ironwail 2048). Ironwail: `MAX_MODELS` 4096, `MAX_SOUNDS` 2048, `U_MODEL2` and large-sound flags (`Quake/protocol.h:64`). | – | – |
+| 4d | Coordinate range | **done** (phase 4) | Fixed: under `PROTOCOL_ICARO` every coordinate is an int32 of eighths of a unit (`MSG_WriteCoord`, `src/common.js`), as Ironwail's `PRFL_INT32COORD`. `MSG_WriteCoord16` keeps the short form. Prediction needed no change: `pmove.js` still snaps to 1/8 unit. All 5 maps spawn and run headless; `mg1/mge4m2` reaches -5184. Before: `MSG_WriteCoord` (`src/common.js:423`) writes a short in eighths of a unit, ±4096. World bounds pass ±4096 on `id1/vault/jrwiz3`, `mg1/mge1m2`, `mge4m1` and `mge4m2` (±5183), and `mg3/secret1`. Ironwail uses `PROTOCOL_RMQ` with `PRFL_INT32COORD` or float coords (`Quake/protocol.h:31-37`, default `sv_protocol` 999). | – | – |
 | 5 | `.lit` coloured lighting | **done** (#137) | Fixed: `Mod_LoadLighting` (`src/gl_model.js`) ports Ironwail's loader (`Quake/gl_model.c:860-895`): it reads `maps/<name>.lit`, checks `QLIT`, version 1, the size and the search-path priority, and otherwise keeps the BSP's mono data, which stays one byte a sample (Ironwail expands it to RGB). `GL_BuildLightmaps` (`src/gl_rsurf.js`) switches to 4-byte RGBA blocks only when a loaded model has a `.lit`, and `R_BuildLightMap`, `R_AddDynamicLights` and the upload carry RGB. `R_LightPoint` (`src/gl_rlight.js`) fills `lightcolor` and returns its mean. `COM_EnsureFile` (`src/pak.js`) fetches the deferred `.lit` with its map. Checked on all six games' data: 127 `.lit` files, all QLIT version 1 (id1 42, mg1 25, mg3 20, dopa 13, hipnotic 18, ctf 9, rogue none). Alias models are tinted by `lightcolor`: `R_SetupAliasLighting` (`src/gl_rmain.js`) carries it through id's clamps as QuakeSpasm's `R_SetupAliasLighting` does, and `src/gl_mesh.js` shades each channel. | – | – |
 | 6a | Fog | **done** (#134) | Fixed: `src/gl_fog.js` ports Ironwail's `Quake/gl_fog.c`: `Fog_ParseWorldspawn` reads the worldspawn `fog` key (42 id1, 17 hipnotic and 9 ctf maps), and the `fog` command takes all its argument forms, timed fades included, so mg1, mg3 and dopa's `stuffcmd(…, "fog …")` (`quakec_mg1/fog.qc`) works. Their `fog_*` entity keys are QuakeC fields that feed those commands. Three.js draws it as `FogExp2`, set only while the fog is on. The sky gets Ironwail's flat `r_skyfog` mix (worldspawn `skyfog`, set by 35 mg1, mg3, dopa and ctf maps) instead of distance fog. `svc_fog` isn't needed: QuakeC uses `stuffcmd`. | – | – |
 | 6b | Skyboxes | **missing** | 15 mg1 and mg3 maps set `_sky` (for example `mge2m1/mge2m1_`), and their paks ship `gfx/env/*.tga` (mg1 66, mg3 78). Ironwail strips the leading `_` and loads the box (`Quake/gl_sky.c:557-600`). Here `pak.js` defers `.tga`, and there is no skybox renderer or TGA loader. | M | `src/gl_warp.js` or a new `src/gl_sky.js`, `src/pak.js`, an image loader |
-| 6c | Entity `alpha` | **missing** | 233 mg1 and 321 mg3 entities have an `alpha` key, and the mg1 progs declares `.float alpha`. `src/pr_edict.js:917` only suppresses the "not a field" warning. The protocol carries no alpha. Ironwail: `U_ALPHA` (`Quake/protocol.h:62`), with `ENTALPHA_ENCODE` in `ED_ParseEdict` (`Quake/pr_edict.c:1391`). | M (with 4b) | `src/protocol.js`, `src/sv_main.js`, `src/cl_parse.js`, `src/gl_rmain.js`, `src/pr_edict.js` |
+| 6c | Entity `alpha` | **done** (phase 4, brush models only) | Fixed: `ED_ParseEdict` reads the `alpha` key with `ENTALPHA_ENCODE` (`src/pr_edict.js`), and the progs field is read when it exists. Packet entities carry it as `PE_ALPHA`, and baselines and statics carry it under `PROTOCOL_ICARO`. Entities at `ENTALPHA_ZERO` with no effects are not sent, and such statics are freed, as in Ironwail. `src/gl_entalpha.js` draws brush entities blended. Alias models, sprites, the player and the view model ignore alpha. Before: 233 mg1 and 321 mg3 entities have an `alpha` key, and the mg1 progs declares `.float alpha`. `src/pr_edict.js:917` only suppresses the "not a field" warning. The protocol carries no alpha. Ironwail: `U_ALPHA` (`Quake/protocol.h:62`), with `ENTALPHA_ENCODE` in `ED_ParseEdict` (`Quake/pr_edict.c:1391`). | – | – |
 | 6d | `EF_QUADLIGHT`, `EF_PENTALIGHT`, `EF_CANDLELIGHT` (16, 32, 64) | **missing** | The rerelease `defs.qc` defines them. `src/cl_main.js:682-693` handles only 4 and 8. Ironwail: `Quake/cl_main.c:654`, gated by `PR_FindSupportedEffects` (`Quake/pr_edict.c`) so mods that use those bits differently are left alone. | S | `src/cl_main.js`, `src/pr_edict.js` |
 | 6e | Liquid alpha keys | **done** | `R_ParseWorldspawn` strips the leading `_` (`src/gl_rsurf.js:474-516`), so the rerelease's `_lavaalpha` and `_slimealpha` keys work. | – | – |
 | 6f | Music | **done** | `music/trackNN.ogg` is looked up per game dir (`main.js:123-127`). id1, hipnotic, rogue and mg3 ship `music/`. | – | – |
@@ -112,8 +117,8 @@ id1's `pak0.pak`.
 | hipnotic | 18 | 18 | – |
 | rogue | 17 | 17 | – |
 | ctf | 10 | 10 | – |
-| mg1 | 25 | 22 | 3 over `MAX_MODELS` (`mge2m1`, `mge2m2`, `mge5m2`) |
-| mg3 | 20 | 14 | 6 over `MAX_MODELS` (`map2b`, `map4`, `map6`, `map7`, `map8`, `secret2`) |
+| mg1 | 25 | 25 (`mge2m1`, `mge2m2` and `mge5m2` since phase 4) | – |
+| mg3 | 20 | 20 (`map2b`, `map4`, `map6`, `map7`, `map8` and `secret2` since phase 4) | – |
 | dopa | 13 | 13 | – |
 
 Before #126, all 56 BSP2 maps failed: 22 in mg1, 19 in mg3 and all 13 in
@@ -123,6 +128,13 @@ full `mod_known`, since `Mod_ClearAll` keeps the slots as in the C. Each was
 rerun in its own process. Of the 47 BSP2 maps that run, the most edicts
 after 100 frames is 680 (`mg3/map2`, `map5`), and 3 have more than 32767
 leafs (`mg1/hub`, `start` and `mg3/map5`).
+
+Phase 4 reran 109 maps the same way, each in its own process: id1's 40
+`maps/*.bsp` and 11 `vault/` maps, and every mg1, mg3 and dopa map. All 109
+spawn and run 100 frames. The largest counts are on `mg3/secret2`: 607
+models and 1467 edicts. The most sounds is 209. The 9 maps that failed
+before precache 269 (`mg1/mge2m1`) to 607 models. The 5 coordinate maps'
+world bounds reach -5184 (`mg1/mge4m2`).
 
 The most edicts in use after 100 frames was 541, on `rogue/r2m6`. The
 mission-pack flags (`-hipnotic`, `-rogue`) were not set. Calling the rerelease's
@@ -153,7 +165,8 @@ maps. Of those, all but the 9 maps named in phase 4 run within today's
 limits. That relies on the `walkpathtogoal` fix from phase 1 (#111).
 
 **Phase 4: protocol limits (L).** Items 4b, 4c and 4d, with entity alpha (6c) in the same
-change. This unlocks nine maps for models (`mg1/mge2m1`, `mge2m2` and `mge5m2`; `mg3/map2b`, `map4`, `map6`, `map7`,
+change. Done on `agent/loving-ramanujan-d1bce5`, as `PROTOCOL_ICARO` (1015);
+the client still reads protocol 15 for the demos. This unlocks nine maps for models (`mg1/mge2m1`, `mge2m2` and `mge5m2`; `mg3/map2b`, `map4`, `map6`, `map7`,
 `map8` and `secret2`), `mg3/secret2` (and probably `map8`) for edicts, and five maps for coordinates.
 `secret2` also needs `MAX_MOD_KNOWN` raised.
 AGENTS.md requires a message-format change to update the client and server in one PR. The
@@ -172,26 +185,20 @@ not have to adopt Ironwail's 666 or 999 wire formats, because the client and ser
 ### What can run in parallel
 
 These share files, so run them in sequence or bundle them. Items already done
-(#111–#114, BSP2 in #126 and `.lit` in #137) are left out:
+(#111–#114, BSP2 in #126, `.lit` in #137, and the protocol limits and alpha
+of phase 4) are left out:
 
-- **`src/pr_cmds.js`:** the `PF_makestatic` part of the index widening (4c).
-- **`src/protocol.js` and `src/cl_parse.js`:** protocol limits (4b–4d), alpha (6c), and `svc_fog` if it is ever sent.
+- **`src/protocol.js` and `src/cl_parse.js`:** `svc_fog`, if it is ever sent.
 - **`src/pak.js`:** skybox `.tga` (6b) and MD5 (6k). Each changes
   `DEFERRED_EXTENSIONS` or `DEFERRED_DIRS`, or adds a `COM_EnsureFile` at map
   load. `.lit` (5, #137) shows the pattern: `COM_EnsureLitFile`.
-- **`src/cl_main.js`:** effect lights (6d) and protocol limits (4b, the client entity
-  state).
-- **`src/gl_rmain.js`:** fog (6a), entity alpha (6c) and MD5 (6k).
-- **`src/pr_edict.js`:** alpha (6c) and the effect lights' `PR_FindSupportedEffects`
-  (6d).
-- **`src/sv_main.js`:** protocol limits (4b, 4c) and alpha (6c), which are one
-  change anyway.
+- **`src/gl_rmain.js`:** fog (6a) and MD5 (6k). Entity alpha (6c) adds one
+  call into `src/gl_entalpha.js` there.
 
 Groups that can run at the same time:
 
 - **Now:**
   - The `vibrate` no-op.
-  - Protocol limits with alpha (network files).
   - Fog (new `gl_fog.js`, `gl_rmain.js`). Done in #134; its `gl_rmain.js`
     change is one call into `gl_fog.js`.
   - Skyboxes (`gl_warp.js` or `gl_sky.js`). `.lit` has landed in `pak.js`.
@@ -203,16 +210,21 @@ Groups that can run at the same time:
   was not exercised. The fixes in #111 and #112 have unit tests
   (`tests/qc_extension_builtins_test.js`, `tests/cl_parse_achievement_test.js`),
   but no rerelease map has been played since.
-- The attract demos were checked only for their protocol number (15), not played. Icaro's
+- The attract demos were checked for their protocol number (15). Since phase
+  4, `tests/protocol_icaro_test.js` parses `demo1` through to its end headless;
+  none was played in a browser. Icaro's
   `svc_packetentities`, `svc_deltapacketentities` and `svc_serversequence`
-  (47–49, `src/protocol.js:180-182`) reuse KEX's numbers for
+  (47–49, `src/protocol.js:205-207`) reuse KEX's numbers for
   `svc_updatesocial`, `svc_updateplinfo` and `svc_rawprint`. A demo that contains those would misparse. Single-player
   demos probably don't.
 - 44.1 kHz 16-bit `.wav` playback and `.ogg` music under `?base=rerelease` were not tested.
-- Sound precache counts per map were not measured. The model counts above are
-  brush submodels only, before QC precaches. The edict counts are static map
+- The model counts in rows 4b and 4c are
+  brush submodels only, before QC precaches; the phase 4 run under "Headless
+  spawn" counts the precaches and sounds. The edict counts are static map
   entities, before skill and deathmatch filtering and runtime spawns.
 - Datagram size on big maps was not measured: `MAX_DATAGRAM` is 1024, and WebTransport datagrams are
   about 1200 bytes. More visible entities per frame may drop packet entities.
+  Phase 4's wider coordinates and model numbers make each entity update a few
+  bytes larger.
 - The headless run did not set `-hipnotic`/`-rogue` (they affect the HUD and some engine
   behaviour), and used default skill and `deathmatch 0`.

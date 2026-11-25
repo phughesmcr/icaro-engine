@@ -23,13 +23,16 @@ export const MAX_DATAGRAM = 1024; // max length of unreliable message
 //
 // per-level limits
 //
-// C has 600 (with "FIXME: ouch! ouch! ouch!"); QuakeSpasm and Ironwail raise
-// it for bigger maps. 1024 is the most the packet entities protocol carries
-// (PE_ENT_BITS in protocol.js), so no message format changes.
-export const MAX_EDICTS = 1024;
+// Deliberate deviations, Ironwail's limits for the 2021 rerelease maps. C
+// has 600 edicts (with "FIXME: ouch! ouch! ouch!") and 256 models and
+// sounds, sent as bytes. PROTOCOL_ICARO (protocol.js) carries the larger
+// numbers: 15-bit packet entity numbers and short model and sound indexes.
+// Ironwail's max_edicts cvar is not ported: the server and client edict
+// arrays grow on demand up to MAX_EDICTS instead.
+export const MAX_EDICTS = 32000; // johnfitz -- highest allowed value for max_edicts cvar
 export const MAX_LIGHTSTYLES = 64;
-export const MAX_MODELS = 256; // these are sent over the net as bytes
-export const MAX_SOUNDS = 256; // so they cannot be blindly increased
+export const MAX_MODELS = 4096; // johnfitz -- was 256
+export const MAX_SOUNDS = 2048; // johnfitz -- was 256
 
 export const SAVEGAME_COMMENT_LENGTH = 39;
 
@@ -145,6 +148,7 @@ export class entity_state_t {
 		this.solid = 0; // PS_* bits, sent with PE_SOLID
 		this.mins = new Float32Array( 3 ); // box for PS_BOX
 		this.maxs = new Float32Array( 3 );
+		this.alpha = 0; // ENTALPHA_* byte (Ironwail entity_state_t), sent with PE_ALPHA
 
 	}
 
@@ -170,6 +174,7 @@ export class entity_state_t {
 		this.maxs[ 0 ] = other.maxs[ 0 ];
 		this.maxs[ 1 ] = other.maxs[ 1 ];
 		this.maxs[ 2 ] = other.maxs[ 2 ];
+		this.alpha = other.alpha;
 
 	}
 

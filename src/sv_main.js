@@ -15,10 +15,10 @@ import {
 	STAT_PING
 } from './quakedef.js';
 import {
-	PROTOCOL_VERSION,
+	PROTOCOL_ICARO,
 	GAME_COOP, GAME_DEATHMATCH,
 	DEFAULT_SOUND_PACKET_VOLUME, DEFAULT_SOUND_PACKET_ATTENUATION,
-	SND_VOLUME, SND_ATTENUATION,
+	SND_VOLUME, SND_ATTENUATION, SND_LARGEENTITY, SND_LARGESOUND,
 	svc_print, svc_serverinfo, svc_cdtrack, svc_setview, svc_signonnum,
 	svc_time, svc_particle, svc_sound, svc_clientdata, svc_updatestat, svc_updatefrags,
 	svc_stufftext, svc_nop, svc_spawnbaseline, svc_disconnect,
@@ -33,6 +33,7 @@ import {
 	PE_ENT_MASK, PE_ORIGIN1, PE_ORIGIN2, PE_ORIGIN3,
 	PE_ANGLE2, PE_REMOVE, PE_MOREBITS,
 	PE_FRAME, PE_ANGLE1, PE_ANGLE3, PE_MODEL, PE_COLORMAP, PE_SKIN, PE_EFFECTS, PE_SOLID,
+	PE_ALPHA, ENTALPHA_DEFAULT, ENTALPHA_ZERO, ENTALPHA_ENCODE,
 	PS_BSP, PS_BOX, PS_NOLERP,
 	MAX_PACKET_ENTITIES, PE_UPDATE_BACKUP, PE_UPDATE_MASK
 } from './protocol.js';
@@ -58,7 +59,7 @@ import { realtime, Host_ClearMemory, Host_Error, set_host_frametime } from './ho
 import { COM_LoadFile } from './pak.js';
 import { VectorCopy, VectorAdd, DotProduct } from './mathlib.js';
 import { Mod_ForName, Mod_LeafPVS } from './gl_model.js';
-import { PR_LoadProgs, PR_AllocEdicts, ED_ClearEdict, ED_LoadFromFile, ED_NewString, GetEdictFieldValue, PR_SetCurrentSkill, PR_SetDeathmatch, nomonsters } from './pr_edict.js';
+import { PR_LoadProgs, PR_AllocEdicts, ED_ClearEdict, ED_LoadFromFile, ED_NewString, GetEdictFieldValue, PR_SetCurrentSkill, PR_SetDeathmatch, nomonsters, pr_extfields } from './pr_edict.js';
 import { MAX_ENT_LEAFS, pr_global_struct, progs, pr_crc, EDICT_NUM, NUM_FOR_EDICT, PR_SetSV, PR_SetSVS, EDICT_TO_PROG, PROG_TO_EDICT, NEXT_EDICT, PR_GetString } from './progs.js';
 import { SV_ClearWorld, SV_Move, SV_TestEntityPosition, SV_LinkEdict, SV_PointContents } from './world.js';
 import { SV_Physics, SV_SetState, SV_SetCallbacks,
@@ -72,6 +73,10 @@ import { key_dest } from './keys.js';
 //============================================================================
 // Module-level state
 //============================================================================
+
+// The edicts SV_SpawnServer allocates up front; more are added on demand
+// (progs.js ED_GrowEdicts). Not in C, which allocates sv.max_edicts.
+const SV_INITIAL_EDICTS = 1024;
 
 const localmodels = new Array( MAX_MODELS );
 for ( let i = 0; i < MAX_MODELS; i ++ )
@@ -163,7 +168,9 @@ Make sure the event gets sent to all clients
 */
 export function SV_StartParticle( org, dir, color, count ) {
 
-	if ( sv.datagram.cursize > MAX_DATAGRAM - 16 )
+	// C checks MAX_DATAGRAM-16, the size of the message with 2-byte coords.
+	// PROTOCOL_ICARO's coords are 4 bytes, so the message is 18.
+	if ( sv.datagram.cursize > MAX_DATAGRAM - 18 )
 		return;
 	MSG_WriteByte( sv.datagram, svc_particle );
 	MSG_WriteCoord( sv.datagram, org[ 0 ] );
@@ -213,7 +220,8 @@ export function SV_StartSound( entity, channel, sample, volume, attenuation ) {
 	if ( channel < 0 || channel > 7 )
 		Host_Error( 'SV_StartSound: channel = ' + channel );
 
-	if ( sv.datagram.cursize > MAX_DATAGRAM - 16 )
+	// Ironwail's MAX_DATAGRAM-21, the largest svc_sound (C: -16)
+	if ( sv.datagram.cursize > MAX_DATAGRAM - 21 )
 		return;
 
 	// find precache number for sound
@@ -235,13 +243,19 @@ export function SV_StartSound( entity, channel, sample, volume, attenuation ) {
 	// NUM_FOR_EDICT -- entity index in edicts array
 	const ent = NUM_FOR_EDICT( entity );
 
-	channel = ( ent << 3 ) | channel;
-
 	let field_mask = 0;
 	if ( volume !== DEFAULT_SOUND_PACKET_VOLUME )
 		field_mask |= SND_VOLUME;
 	if ( attenuation !== DEFAULT_SOUND_PACKET_ATTENUATION )
 		field_mask |= SND_ATTENUATION;
+
+	//johnfitz -- PROTOCOL_FITZQUAKE (Ironwail sv_main.c): entity numbers
+	// past 8191 and sound numbers past 255 don't fit NetQuake's fields
+	if ( ent >= 8192 )
+		field_mask |= SND_LARGEENTITY;
+	if ( sound_num >= 256 || channel >= 8 )
+		field_mask |= SND_LARGESOUND;
+	//johnfitz
 
 	// directed messages go only to the entity they are targeted on
 	MSG_WriteByte( sv.datagram, svc_sound );
@@ -250,8 +264,20 @@ export function SV_StartSound( entity, channel, sample, volume, attenuation ) {
 		MSG_WriteByte( sv.datagram, volume );
 	if ( field_mask & SND_ATTENUATION )
 		MSG_WriteByte( sv.datagram, ( attenuation * 64 ) | 0 );
-	MSG_WriteShort( sv.datagram, channel );
-	MSG_WriteByte( sv.datagram, sound_num );
+
+	//johnfitz -- PROTOCOL_FITZQUAKE
+	if ( field_mask & SND_LARGEENTITY ) {
+
+		MSG_WriteShort( sv.datagram, ent );
+		MSG_WriteByte( sv.datagram, channel );
+
+	} else
+		MSG_WriteShort( sv.datagram, ( ent << 3 ) | channel );
+	if ( field_mask & SND_LARGESOUND )
+		MSG_WriteShort( sv.datagram, sound_num );
+	else
+		MSG_WriteByte( sv.datagram, sound_num );
+	//johnfitz
 	for ( let i = 0; i < 3; i ++ )
 		MSG_WriteCoord( sv.datagram, entity.v.origin[ i ] + 0.5 * ( entity.v.mins[ i ] + entity.v.maxs[ i ] ) );
 
@@ -261,8 +287,7 @@ export function SV_StartSound( entity, channel, sample, volume, attenuation ) {
 ==================
 SV_LocalSound - for 2021 rerelease
 
-Ported from Ironwail's sv_main.c. Its SND_LARGESOUND branch is left out:
-with MAX_SOUNDS at 256 a sound number always fits in a byte.
+Ported from Ironwail's sv_main.c.
 ==================
 */
 export function SV_LocalSound( client, sample ) {
@@ -282,14 +307,19 @@ export function SV_LocalSound( client, sample ) {
 
 	}
 
-	const field_mask = 0;
+	let field_mask = 0;
+	if ( sound_num >= 256 )
+		field_mask = SND_LARGESOUND;
 
 	if ( client.message.cursize > client.message.maxsize - 4 )
 		return;
 
 	MSG_WriteByte( client.message, svc_localsound );
 	MSG_WriteByte( client.message, field_mask );
-	MSG_WriteByte( client.message, sound_num );
+	if ( field_mask & SND_LARGESOUND )
+		MSG_WriteShort( client.message, sound_num );
+	else
+		MSG_WriteByte( client.message, sound_num );
 
 }
 
@@ -316,7 +346,7 @@ export function SV_SendServerinfo( client ) {
 	MSG_WriteString( client.message, message );
 
 	MSG_WriteByte( client.message, svc_serverinfo );
-	MSG_WriteLong( client.message, PROTOCOL_VERSION );
+	MSG_WriteLong( client.message, PROTOCOL_ICARO ); // C: PROTOCOL_VERSION (see protocol.js)
 	MSG_WriteByte( client.message, svs.maxclients );
 
 	if ( ! coop.value && deathmatch.value )
@@ -828,8 +858,11 @@ function SV_WriteDelta( from, to, msg, force ) {
 	if ( to.solid !== from.solid || ( ( to.solid & PS_BOX ) && ! SV_SameBox( from, to ) ) )
 		bits |= PE_SOLID;
 
-	// Check if morebits byte is needed (any of the lower-byte flags set)
-	if ( bits & 0xFF )
+	if ( to.alpha !== from.alpha )
+		bits |= PE_ALPHA;
+
+	// Check if the second byte of bits is needed
+	if ( bits & 0xFF00 )
 		bits |= PE_MOREBITS;
 
 	//
@@ -843,15 +876,14 @@ function SV_WriteDelta( from, to, msg, force ) {
 	if ( bits === 0 && ! force )
 		return; // nothing to send!
 
-	const i = to.number | ( bits & ~PE_ENT_MASK );
-	if ( i & PE_REMOVE )
-		Sys_Error( 'SV_WriteDelta: PE_REMOVE' );
-	MSG_WriteShort( msg, i );
-
+	// the entity number, then the bits (see PE_* in protocol.js)
+	MSG_WriteShort( msg, to.number );
+	MSG_WriteByte( msg, bits & 0xFF );
 	if ( bits & PE_MOREBITS )
-		MSG_WriteByte( msg, bits & 0xFF );
+		MSG_WriteByte( msg, bits >> 8 );
+
 	if ( bits & PE_MODEL )
-		MSG_WriteByte( msg, to.modelindex );
+		MSG_WriteShort( msg, to.modelindex );
 	if ( bits & PE_FRAME )
 		MSG_WriteByte( msg, to.frame );
 	if ( bits & PE_COLORMAP )
@@ -885,6 +917,8 @@ function SV_WriteDelta( from, to, msg, force ) {
 		}
 
 	}
+	if ( bits & PE_ALPHA )
+		MSG_WriteByte( msg, to.alpha );
 
 }
 
@@ -949,18 +983,23 @@ export function SV_SetStateSolid( state, ent, clent ) {
 
 }
 
-// Largest single entry SV_WriteDelta can write: short + morebits byte
-// + model, frame, colormap, skin, effects + 3 coords + 3 angles
-// + PE_SOLID byte and box (6 coords)
-const MAX_PACKETENTITY_BYTES = 2 + 1 + 5 + 3 * 2 + 3 + 1 + 6 * 2;
+// Largest single entry SV_WriteDelta can write: entity number short + 2
+// bytes of bits + model short + frame, colormap, skin, effects + 3 coords
+// (4 bytes each, MSG_WriteCoord) + 3 angles + PE_SOLID byte and box
+// (6 coords) + alpha
+const MAX_PACKETENTITY_BYTES = 2 + 2 + 2 + 4 + 3 * 4 + 3 + 1 + 6 * 4 + 1;
 
 // Largest svc_playerinfo SV_WritePlayersToClient can write: svc + num + flags
 // + origin + frame + msec + usercmd (bits, 3 angle16, 3 moves, buttons,
-// impulse) + velocity + model, skin, effects, weaponframe, teleport time
-const MAX_PLAYERINFO_BYTES = 1 + 1 + 2 + 3 * 2 + 1 + 1 + ( 1 + 3 * 2 + 3 * 2 + 1 + 1 ) + 3 * 2 + 4 + 1;
+// impulse) + velocity + model short, skin, effects, weaponframe, teleport time
+const MAX_PLAYERINFO_BYTES = 1 + 1 + 2 + 3 * 4 + 1 + 1 + ( 1 + 3 * 2 + 3 * 2 + 1 + 1 ) + 3 * 2 + 2 + 4;
 
 // An empty packetentities: svc_deltapacketentities + sequence + terminator
 const MIN_PACKETENTITIES_BYTES = 2 + 2;
+
+// Past the last entity number, for the merges in SV_EmitPacketEntities
+// (QW uses 9999, below MAX_EDICTS here)
+const PE_NUM_END = MAX_EDICTS;
 
 /*
 =============
@@ -1037,8 +1076,8 @@ export function SV_EmitPacketEntities( client, to, msg ) {
 
 		}
 
-		const newnum = newindex >= newcount ? 9999 : to.entities[ newindex ].number;
-		const oldnum = oldindex >= oldmax ? 9999 : from.entities[ oldindex ].number;
+		const newnum = newindex >= newcount ? PE_NUM_END : to.entities[ newindex ].number;
+		const oldnum = oldindex >= oldmax ? PE_NUM_END : from.entities[ oldindex ].number;
 
 		if ( newnum === oldnum ) {
 
@@ -1088,8 +1127,8 @@ export function SV_EmitPacketEntities( client, to, msg ) {
 			safesize = msg.cursize;
 			safeout = outindex;
 			safeold = oldindex;
-			safenum = Math.min( newindex >= newcount ? 9999 : to.entities[ newindex ].number,
-				oldindex >= oldmax ? 9999 : from.entities[ oldindex ].number );
+			safenum = Math.min( newindex >= newcount ? PE_NUM_END : to.entities[ newindex ].number,
+				oldindex >= oldmax ? PE_NUM_END : from.entities[ oldindex ].number );
 
 		}
 
@@ -1109,7 +1148,7 @@ export function SV_EmitPacketEntities( client, to, msg ) {
 		for ( let j = safeold; j < oldmax; j ++, n ++ )
 			to.state( n ).copyFrom( from.entities[ j ] );
 		to.num_entities = n;
-		client.pe_cursor = safenum < 9999 ? safenum : 0;
+		client.pe_cursor = safenum < PE_NUM_END ? safenum : 0;
 
 	} else {
 
@@ -1168,6 +1207,15 @@ export function SV_WriteEntitiesToClient( client, clent, pvs, msg ) {
 		if ( ! visible && ent.num_leafs < MAX_ENT_LEAFS )
 			continue;
 
+		//johnfitz -- alpha (Ironwail sv_main.c SV_WriteEntitiesToClient)
+		if ( pr_extfields.alpha >= 0 )
+			ent.alpha = ENTALPHA_ENCODE( ent._fieldAccessor.getFloat( pr_extfields.alpha ) );
+
+		//don't send invisible entities unless they have effects
+		if ( ent.alpha === ENTALPHA_ZERO && ent.v.effects === 0 )
+			continue;
+		//johnfitz
+
 		// add to the packetentities
 		if ( pack.num_entities >= MAX_PACKET_ENTITIES )
 			continue; // all full
@@ -1189,6 +1237,7 @@ export function SV_WriteEntitiesToClient( client, clent, pvs, msg ) {
 		state.colormap = ent.v.colormap;
 		state.skin = ent.v.skin;
 		state.effects = ent.v.effects;
+		state.alpha = ent.alpha;
 
 	}
 
@@ -1314,8 +1363,10 @@ export function SV_WriteClientdataToMessage( ent, msg ) {
 		MSG_WriteByte( msg, ent.v.weaponframe );
 	if ( bits & SU_ARMOR )
 		MSG_WriteByte( msg, ent.v.armorvalue );
+	// C writes a byte; PROTOCOL_ICARO a short (MAX_MODELS 4096). Ironwail
+	// sends the high byte with SU_WEAPON2 instead.
 	if ( bits & SU_WEAPON )
-		MSG_WriteByte( msg, SV_ModelIndex( PR_GetString( ent.v.weaponmodel ) ) );
+		MSG_WriteShort( msg, SV_ModelIndex( PR_GetString( ent.v.weaponmodel ) ) );
 
 	MSG_WriteShort( msg, ent.v.health );
 	MSG_WriteByte( msg, ent.v.currentammo );
@@ -1569,7 +1620,7 @@ export function SV_WritePlayersToClient( _client, clent, pvs, msg ) {
 		}
 
 		if ( pflags & PF_MODEL )
-			MSG_WriteByte( msg, ent.v.modelindex );
+			MSG_WriteShort( msg, ent.v.modelindex ); // QW: a byte (MAX_MODELS 4096 here)
 
 		if ( pflags & PF_SKINNUM )
 			MSG_WriteByte( msg, ent.v.skin );
@@ -1950,10 +2001,13 @@ function SV_CreateBaseline() {
 				svent.baseline.colormap = entnum;
 				svent.baseline.modelindex = SV_ModelIndex( 'progs/player.mdl' );
 
+				svent.baseline.alpha = ENTALPHA_DEFAULT; //johnfitz -- alpha support
+
 			} else {
 
 				svent.baseline.colormap = 0;
 				svent.baseline.modelindex = SV_ModelIndex( PR_GetString( svent.v.model ) );
+				svent.baseline.alpha = svent.alpha; //johnfitz -- alpha support
 
 			}
 
@@ -1962,11 +2016,14 @@ function SV_CreateBaseline() {
 		//
 		// add to the message
 		//
-		SV_ReserveSignonSpace( 35 ); // Ironwail's size, for its largest baseline
+		// PROTOCOL_ICARO's baseline (protocol.js): a short model index, 4-byte
+		// coords and an alpha byte. svc + entnum + model + frame, colormap,
+		// skin + 3 coords and angles + alpha.
+		SV_ReserveSignonSpace( 1 + 2 + 2 + 3 + 3 * ( 4 + 1 ) + 1 );
 		MSG_WriteByte( sv.signon, svc_spawnbaseline );
 		MSG_WriteShort( sv.signon, entnum );
 
-		MSG_WriteByte( sv.signon, svent.baseline.modelindex );
+		MSG_WriteShort( sv.signon, svent.baseline.modelindex );
 		MSG_WriteByte( sv.signon, svent.baseline.frame );
 		MSG_WriteByte( sv.signon, svent.baseline.colormap );
 		MSG_WriteByte( sv.signon, svent.baseline.skin );
@@ -1976,6 +2033,7 @@ function SV_CreateBaseline() {
 			MSG_WriteAngle( sv.signon, svent.baseline.angles[ i ] );
 
 		}
+		MSG_WriteByte( sv.signon, svent.baseline.alpha );
 
 	}
 
@@ -2061,9 +2119,11 @@ export function SV_SpawnServer( server ) {
 	// allocate server memory
 	sv.max_edicts = MAX_EDICTS;
 
-	// Allocate edicts array using entityfields from loaded progs
+	// Allocate edicts array using entityfields from loaded progs. Unlike C,
+	// only the first SV_INITIAL_EDICTS: EDICT_NUM and ED_Alloc grow the
+	// array up to sv.max_edicts (progs.js ED_GrowEdicts).
 	const entityfields = progs ? progs.entityfields : 105; // 105 is default for standard Quake
-	sv.edicts = PR_AllocEdicts( sv.max_edicts, entityfields );
+	sv.edicts = PR_AllocEdicts( SV_INITIAL_EDICTS, entityfields );
 
 	// set up sizebuf data pointers
 	sv.datagram.maxsize = MAX_DATAGRAM;
@@ -2115,6 +2175,12 @@ export function SV_SpawnServer( server ) {
 	sv.sound_precache[ 0 ] = '';
 	sv.model_precache[ 0 ] = '';
 	sv.model_precache[ 1 ] = sv.modelname;
+
+	// Neither id's C nor Ironwail checks this, and both run past
+	// model_precache and localmodels on a map with MAX_MODELS or more
+	// submodels. A Host_Error instead (deliberate deviation).
+	if ( sv.worldmodel.numsubmodels > MAX_MODELS - 1 )
+		Host_Error( 'SV_SpawnServer: too many submodels (%d, max = %d)', sv.worldmodel.numsubmodels, MAX_MODELS - 1 );
 
 	for ( let i = 1; i < sv.worldmodel.numsubmodels; i ++ ) {
 

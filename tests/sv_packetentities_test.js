@@ -6,7 +6,7 @@ import { entity_state_t, packet_entities_t, MAX_EDICTS } from '../src/quakedef.j
 import {
 	MAX_PACKET_ENTITIES, PE_ENT_MASK, PE_MOREBITS, PE_REMOVE,
 	PE_ORIGIN1, PE_ORIGIN2, PE_ORIGIN3, PE_ANGLE1, PE_ANGLE2, PE_ANGLE3,
-	PE_MODEL, PE_FRAME, PE_COLORMAP, PE_SKIN, PE_EFFECTS, PE_SOLID, PS_BSP, PS_BOX, PS_NOLERP,
+	PE_MODEL, PE_FRAME, PE_COLORMAP, PE_SKIN, PE_EFFECTS, PE_SOLID, PE_ALPHA, PS_BSP, PS_BOX, PS_NOLERP,
 	svc_packetentities, svc_deltapacketentities, svc_playerinfo, PF_TELEPORT,
 } from '../src/protocol.js';
 import { PR_SetSV, sv as progs_sv } from '../src/progs.js';
@@ -73,6 +73,14 @@ function decode( msg, oldp, baselines ) {
 		return v;
 
 	};
+	// MSG_ReadCoord under PROTOCOL_ICARO: int32 of eighths
+	const coord = () => {
+
+		const v = msg.data[ pos ] | ( msg.data[ pos + 1 ] << 8 ) | ( msg.data[ pos + 2 ] << 16 ) | ( msg.data[ pos + 3 ] << 24 );
+		pos += 4;
+		return v / 8;
+
+	};
 
 	const cmd = byte();
 	if ( cmd === svc_deltapacketentities )
@@ -82,38 +90,39 @@ function decode( msg, oldp, baselines ) {
 
 	const out = [];
 	let oldindex = 0;
-	const oldnum = () => ( oldindex >= oldp.num_entities ? 9999 : oldp.entities[ oldindex ].number );
+	const oldnum = () => ( oldindex >= oldp.num_entities ? PE_ENT_MASK + 1 : oldp.entities[ oldindex ].number );
 	const readDelta = ( from, word ) => {
 
 		const to = new entity_state_t();
 		to.copyFrom( from );
 		to.number = word & PE_ENT_MASK;
-		let bits = word & ~PE_ENT_MASK;
+		let bits = byte();
 		if ( bits & PE_MOREBITS )
-			bits |= byte();
+			bits |= byte() << 8;
 		to.flags = bits;
-		if ( bits & PE_MODEL ) to.modelindex = byte();
+		if ( bits & PE_MODEL ) to.modelindex = short();
 		if ( bits & PE_FRAME ) to.frame = byte();
 		if ( bits & PE_COLORMAP ) to.colormap = byte();
 		if ( bits & PE_SKIN ) to.skin = byte();
 		if ( bits & PE_EFFECTS ) to.effects = byte();
-		if ( bits & PE_ORIGIN1 ) to.origin[ 0 ] = ( ( short() << 16 ) >> 16 ) / 8;
+		if ( bits & PE_ORIGIN1 ) to.origin[ 0 ] = coord();
 		if ( bits & PE_ANGLE1 ) to.angles[ 0 ] = byte();
-		if ( bits & PE_ORIGIN2 ) to.origin[ 1 ] = ( ( short() << 16 ) >> 16 ) / 8;
+		if ( bits & PE_ORIGIN2 ) to.origin[ 1 ] = coord();
 		if ( bits & PE_ANGLE2 ) to.angles[ 1 ] = byte();
-		if ( bits & PE_ORIGIN3 ) to.origin[ 2 ] = ( ( short() << 16 ) >> 16 ) / 8;
+		if ( bits & PE_ORIGIN3 ) to.origin[ 2 ] = coord();
 		if ( bits & PE_ANGLE3 ) to.angles[ 2 ] = byte();
 		if ( bits & PE_SOLID ) {
 
 			to.solid = byte();
 			if ( to.solid & PS_BOX ) {
 
-				for ( let i = 0; i < 3; i ++ ) to.mins[ i ] = ( ( short() << 16 ) >> 16 ) / 8;
-				for ( let i = 0; i < 3; i ++ ) to.maxs[ i ] = ( ( short() << 16 ) >> 16 ) / 8;
+				for ( let i = 0; i < 3; i ++ ) to.mins[ i ] = coord();
+				for ( let i = 0; i < 3; i ++ ) to.maxs[ i ] = coord();
 
 			}
 
 		}
+		if ( bits & PE_ALPHA ) to.alpha = byte();
 
 		return to;
 

@@ -667,12 +667,15 @@ let loadmodel = null;
 // model's leaf count in Mod_LoadLeafs (Mod_AllocVisBuffers), never per frame.
 let mod_novis = new Uint8Array( 0 );
 
-const MAX_MOD_KNOWN = 512;
+// Deliberate deviation: Ironwail's 2048 (id: 512). mg3/secret2 alone has
+// 525 brush submodels. Only the first 512 are allocated up front; Mod_FindName
+// adds the rest on demand.
+const MAX_MOD_KNOWN = 2048;
 const mod_known = [];
 let mod_numknown = 0;
 
 // Initialize mod_known array
-for ( let i = 0; i < MAX_MOD_KNOWN; i ++ )
+for ( let i = 0; i < 512; i ++ )
 	mod_known[ i ] = new model_t();
 
 // Alias model globals
@@ -1267,6 +1270,8 @@ export function Mod_FindName( name ) {
 
 		if ( mod_numknown === MAX_MOD_KNOWN )
 			Sys_Error( 'mod_numknown == MAX_MOD_KNOWN' );
+		if ( i === mod_known.length )
+			mod_known.push( new model_t() );
 		mod_known[ i ].name = name;
 		mod_known[ i ].needload = true;
 		mod_numknown ++;

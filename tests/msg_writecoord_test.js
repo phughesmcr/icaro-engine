@@ -7,7 +7,7 @@ function writeCoord( f ) {
 
 	const sb = new common.sizebuf_t();
 	common.SZ_Alloc( sb, 256 );
-	common.MSG_WriteCoord( sb, f );
+	common.MSG_WriteCoord16( sb, f ); // the NetQuake short form
 	const v = sb.data[ 0 ] | ( sb.data[ 1 ] << 8 );
 	return ( v > 32767 ? v - 65536 : v ) / 8;
 

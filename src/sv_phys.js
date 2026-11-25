@@ -110,10 +110,19 @@ const _pushmove_maxs = new Float32Array( 3 );
 const _pushmove_move = new Float32Array( 3 );
 const _pushmove_entorig = new Float32Array( 3 );
 const _pushmove_pushorig = new Float32Array( 3 );
+// moved_from grows on demand (_movedFrom) rather than holding MAX_EDICTS
+// (32000) vectors from the start
 const _pushmove_moved_edict = new Array( MAX_EDICTS );
 const _pushmove_moved_from = [];
-for ( let i = 0; i < MAX_EDICTS; i ++ )
-	_pushmove_moved_from[ i ] = new Float32Array( 3 );
+
+// moved_from[ i ], allocated on first use
+function _movedFrom( moved_from, i ) {
+
+	while ( moved_from.length <= i )
+		moved_from.push( new Float32Array( 3 ) );
+	return moved_from[ i ];
+
+}
 
 // Cached buffers for SV_CheckStuck (Golden Rule #4)
 const _checkstuck_org = new Float32Array( 3 );
@@ -179,8 +188,6 @@ const _pushrotate_right = new Float32Array( 3 );
 const _pushrotate_up = new Float32Array( 3 );
 const _pushrotate_moved_edict = new Array( MAX_EDICTS );
 const _pushrotate_moved_from = [];
-for ( let i = 0; i < MAX_EDICTS; i ++ )
-	_pushrotate_moved_from[ i ] = new Float32Array( 3 );
 
 //
 // cvars (proper cvar_t instances, registered in sv_main.js SV_Init)
@@ -686,8 +693,8 @@ export function SV_PushRotate( pusher, movetime ) {
 	const up = _pushrotate_up;
 	const moved_edict = _pushrotate_moved_edict;
 	const moved_from = _pushrotate_moved_from;
-	// Clear moved_edict array for reuse
-	for ( let i = 0; i < MAX_EDICTS; i ++ )
+	// Clear moved_edict array for reuse (only the slots an edict can fill)
+	for ( let i = 0; i < sv.num_edicts; i ++ )
 		moved_edict[ i ] = null;
 
 	// If no angular velocity, just advance time
@@ -749,7 +756,7 @@ export function SV_PushRotate( pusher, movetime ) {
 			check.v.flags = ( check.v.flags | 0 ) & ~FL_ONGROUND;
 
 		VectorCopy( check.v.origin, entorig );
-		VectorCopy( check.v.origin, moved_from[ num_moved ] );
+		VectorCopy( check.v.origin, _movedFrom( moved_from, num_moved ) );
 		moved_edict[ num_moved ] = check;
 		num_moved ++;
 
@@ -901,7 +908,7 @@ export function SV_PushMove( pusher, movetime ) {
 			check.v.flags = ( check.v.flags | 0 ) & ~FL_ONGROUND;
 
 		VectorCopy( check.v.origin, entorig );
-		VectorCopy( check.v.origin, moved_from[ num_moved ] );
+		VectorCopy( check.v.origin, _movedFrom( moved_from, num_moved ) );
 		moved_edict[ num_moved ] = check;
 		num_moved ++;
 

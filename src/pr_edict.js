@@ -1,12 +1,12 @@
 // Ported from: WinQuake/pr_edict.c -- entity dictionary
 
 import { Sys_Error } from './sys.js';
-import { Con_Printf, Con_DPrintf, COM_Parse, com_token } from './common.js';
+import { Con_Printf, Con_DPrintf, COM_Parse, com_token, Q_atof } from './common.js';
 import { Cmd_AddCommand, Cmd_Argv } from './cmd.js';
 import { cvar_t, Cvar_RegisterVariable } from './cvar.js';
 import { PR_InitBuiltins, PR_InitProgsBuiltins, PF_Format5_1f } from './pr_cmds.js';
 import { CRC_Init, CRC_ProcessByte, CRC_Value } from './crc.js';
-import { MAX_EDICTS } from './quakedef.js';
+import { ENTALPHA_DEFAULT, ENTALPHA_ENCODE, ENTALPHA_TOSAVE } from './protocol.js';
 import {
 	dprograms_t, dfunction_t, ddef_t, dstatement_t,
 	DEF_SAVEGLOBAL, MAX_PARMS, PROG_VERSION,
@@ -27,7 +27,7 @@ import {
 	PR_HostError, STRINGTEMP_BUFFERS, STRINGTEMP_LENGTH,
 	EdictFieldAccessor, edict_t,
 	PR_GetString,
-	EDICT_NUM, NUM_FOR_EDICT, EDICT_TO_PROG,
+	EDICT_NUM, NUM_FOR_EDICT, EDICT_TO_PROG, ED_GrowEdicts,
 	sv, svs,
 } from './progs.js';
 import { PR_ExecuteProgram } from './pr_exec.js';
@@ -92,6 +92,10 @@ export function ED_ClearEdict( e ) {
 
 }
 
+// Ironwail's qcvm->extfields: field offsets for the extension fields the
+// engine reads (set by PR_LoadProgs; -1 if the progs lacks the field)
+export const pr_extfields = { alpha: - 1 };
+
 /*
 =================
 ED_Alloc
@@ -123,10 +127,12 @@ export function ED_Alloc() {
 
 	}
 
-	if ( i === MAX_EDICTS )
+	// id compares with MAX_EDICTS; Ironwail with qcvm->max_edicts
+	if ( i === sv.max_edicts )
 		PR_HostError( 'ED_Alloc: no free edicts' ); // id: Sys_Error; Ironwail's Host_Error (deliberate deviation)
 
 	sv.num_edicts ++;
+	ED_GrowEdicts( sv.num_edicts + 1 ); // keep NEXT_EDICT of the last one valid
 	e = EDICT_NUM( i );
 	ED_ClearEdict( e );
 
@@ -158,6 +164,7 @@ export function ED_Free( ed ) {
 	angles[ 0 ] = 0; angles[ 1 ] = 0; angles[ 2 ] = 0;
 	ed.v.nextthink = - 1;
 	ed.v.solid = 0;
+	ed.alpha = ENTALPHA_DEFAULT; //johnfitz -- reset alpha for next entity
 
 	ed.freetime = sv.time;
 
@@ -562,6 +569,11 @@ export function ED_Write( lines, ed ) {
 
 	}
 
+	//johnfitz -- save entity alpha manually when progs.dat doesn't know about alpha
+	if ( pr_extfields.alpha < 0 && ed.alpha !== ENTALPHA_DEFAULT )
+		lines.push( '"alpha" "' + ENTALPHA_TOSAVE( ed.alpha ).toFixed( 6 ) + '"' );
+	//johnfitz
+
 	lines.push( '}' );
 
 }
@@ -908,6 +920,11 @@ export function ED_ParseEdict( data, ent ) {
 		if ( keyname[ 0 ] === '_' )
 			continue;
 
+		//johnfitz -- hack to support .alpha even when progs.dat doesn't know about it
+		if ( keyname === 'alpha' )
+			ent.alpha = ENTALPHA_ENCODE( Q_atof( com_token ) );
+		//johnfitz
+
 		const key = ED_FindField( keyname );
 		if ( ! key ) {
 
@@ -1215,6 +1232,11 @@ export function PR_LoadProgs( fileData ) {
 	// In C: pr_edict_size = progs->entityfields * 4 + sizeof(edict_t) - sizeof(entvars_t);
 	// In JS we just store entityfields count - the edict_t class handles the rest
 	PR_SetEdictSize( header.entityfields );
+
+	// Ironwail PR_LoadProgs (QCEXTFIELD): the field offsets of the
+	// extensions the engine reads, -1 when the progs doesn't declare them
+	const alphadef = ED_FindField( 'alpha' );
+	pr_extfields.alpha = alphadef !== null ? alphadef.ofs : - 1;
 
 }
 

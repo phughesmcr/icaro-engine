@@ -61,12 +61,27 @@ The test counts in the table were taken on each PR's own branch with `deno test 
 | Input residuals: Ctrl/Alt chords, Keyboard Lock, `xr_turnspeed`, touch and XR tests; numpad keeps the WinQuake mapping, now tested | [#12] | Fixed (77 pass) |
 | Netcode residuals: teleport lock and `punchangle` prediction, `hasAck`, `delta_sequence` age check, entity starvation, moves as datagrams, lobby join reply | [#13] | Fixed (120 pass) |
 
-**Wire format:** #10 changed the packet-entity format without bumping `PROTOCOL_VERSION`, which has to stay 15 for the shipped demos, and #13 added a flag and a byte to `svc_playerinfo`. Later PRs changed it again, still at version 15:
+**Wire format:** #10 changed the packet-entity format without bumping `PROTOCOL_VERSION`, which had to stay 15 for the shipped demos, and #13 added a flag and a byte to `svc_playerinfo`. Later PRs changed it again, at version 15 until phase 4 gave the server its own version (the last item):
 
 - #42 sends `clc_move` view angles as 16-bit angles, as the FitzQuake protocol does.
 - #93 adds `sv_altnoclip` to the movevars the server sends for prediction.
 - #106 adds `svc_localsound` (56) from Ironwail and the 2021 rerelease.
 - #112 has the client read and ignore the rerelease's `svc_achievement` (52).
+- Phase 4 of `docs/rerelease-gaps.md` gives the server its own version,
+  `PROTOCOL_ICARO` (1015, `src/protocol.js`), for the 2021 rerelease limits
+  (`MAX_EDICTS` 32000, `MAX_MODELS` 4096, `MAX_SOUNDS` 2048), rather than
+  Ironwail's 666 or 999 formats. Under it, coordinates are int32 eighths of a
+  unit; models are shorts in baselines, `svc_spawnstatic`, `svc_clientdata`
+  and `svc_playerinfo`; `svc_spawnstaticsound` sends a short; baselines and
+  statics end with an alpha byte; and packet entities carry 15-bit entity
+  numbers, a short model and an alpha byte (`PE_ALPHA`). `svc_sound` and
+  `svc_localsound` use Ironwail's `SND_LARGEENTITY` and `SND_LARGESOUND`
+  flags. The client still accepts protocol 15 and reads it in the NetQuake
+  form, so the attract demos play; demos recorded by Icaro before this
+  change (15 with packet entities) no longer do. Deviations from Ironwail:
+  only brush models draw alpha (`src/gl_entalpha.js`), there is no
+  `max_edicts` cvar (the edict arrays grow on demand), and a map with more
+  submodels than `MAX_MODELS` stops with a `Host_Error` in `SV_SpawnServer`.
 
 Deploy the client and server together, and make sure clients don't keep a cached bundle from before these changes.
 
@@ -396,9 +411,9 @@ Later PRs changed some of these on purpose: the `MSG_Write*` rounding, the wire 
   - WinQuake's `#if WINDED` check in `COM_CheckRegistered`, which stops a dedicated server without the registered `gfx/pop.lmp`, is not ported. The Deno room server is a dedicated server that runs on the shareware pak by design.
 - **Behaviour taken from QuakeSpasm and Ironwail** (added after this review, #42 to #111): these C source ports fix bugs in id's code and raise its limits. The port takes some of their changes, so in these places it no longer matches WinQuake:
   - `MSG_WriteCoord` and `MSG_WriteAngle` round with `Q_rint` (#69, #42), where WinQuake truncates. QW's `MSG_WriteAngle16` no longer drops the fraction of a degree before quantising (#42).
-  - The wire format changed at the same `PROTOCOL_VERSION` 15. `clc_move` carries 16-bit angles (#42), the movevars include `sv_altnoclip` (#93), and `svc_localsound` is new (#106). See "Wire format" under the fix status.
+  - The wire format changed at the same `PROTOCOL_VERSION` 15 until phase 4 of `docs/rerelease-gaps.md` moved the server to `PROTOCOL_ICARO` (1015); the client still reads 15 for demos. `clc_move` carries 16-bit angles (#42), the movevars include `sv_altnoclip` (#93), and `svc_localsound` is new (#106). See "Wire format" under the fix status.
   - The QuakeC builtin table goes past index 78, with Ironwail's extension builtins (#80, #106) and two rerelease builtins (#111).
-  - Limits are higher than C's, for example `MAX_EDICTS` 1024, `MAX_DLIGHTS` 64 and `MAX_PARTICLES` 16384 (#45 to #48, #51, #72).
+  - Limits are higher than C's, for example `MAX_EDICTS` 32000 (phase 4; it was 1024), `MAX_DLIGHTS` 64 and `MAX_PARTICLES` 16384 (#45 to #48, #51, #72).
   - 2021 rerelease localisation (#124): Ironwail's `LOC_*` loader reads `localization/loc_<language>.txt` (`language` cvar, default `auto`), and on the server `PF_VarString` and `PF_WriteString` resolve `$key` strings (`PF_VarString` also fills `{}` placeholders). With no such file (the shareware and original registered data) prints are unchanged. It differs from Ironwail in a few places, listed in the comment that opens the localisation section of `src/common.js`. The main ones: it doesn't read `QuakeEX.kpf`, a change to `language` takes effect at the next lookup, and a missing file is only a developer message.
   - `.lit` coloured lighting (#137): `Mod_LoadLighting` reads `maps/<name>.lit` as Ironwail does (`QLIT` version 1, the right size, and from the map's own search path or a higher one), and the lightmaps, dynamic lights and `R_LightPoint` carry r, g and b as in QuakeSpasm. WinQuake has only mono lighting. Maps without a `.lit` (all the shareware and original registered data) keep one-byte lightmaps and render as before. Unlike Ironwail, mono data is not expanded to RGB, a dedicated server does not read the `.lit`, and there is no overbright. Alias models are tinted by `lightcolor` as in QuakeSpasm's `R_SetupAliasLighting`, but keep id's order and clamps, so maps without a `.lit` shade them exactly as before.
   - Global fog (#134), which WinQuake and GLQuake lack: `src/gl_fog.js` ports Ironwail's `gl_fog.c` (the worldspawn `fog` key and the `fog` command, with timed fades) and the `r_skyfog` part of `gl_sky.c` (the worldspawn `skyfog` key, a flat mix of the sky towards the fog colour, default 0.5). The 2021 rerelease maps and QuakeC depend on it. Three.js draws it with `FogExp2` over the planar view depth at `density / 64`, as FitzQuake's `GL_EXP2` fog, where Ironwail uses the radial distance with a 0.85 correction. A map without fog leaves `scene.fog` null, so it renders as before. `svc_fog` and volumetric fog (a stub in Ironwail) are not ported.

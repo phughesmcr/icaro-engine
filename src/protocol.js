@@ -2,6 +2,25 @@
 
 export const PROTOCOL_VERSION = 15;
 
+// Not in id's C: the version Icaro's server sends. Client and server ship
+// together, so instead of Ironwail's 666/999 formats it has its own, chosen
+// for the 2021 rerelease limits:
+// - coordinates are int32 in 1/8 units (MSG_WriteCoord), not shorts, so
+//   positions past +-4096 don't wrap; the 1/8 grid prediction snaps to is
+//   unchanged;
+// - model indexes are shorts in svc_spawnbaseline, svc_spawnstatic, the
+//   svc_clientdata weapon model and svc_playerinfo (MAX_MODELS 4096), and
+//   svc_spawnstaticsound sends a short sound index (MAX_SOUNDS 2048);
+// - svc_spawnbaseline and svc_spawnstatic end with an alpha byte
+//   (ENTALPHA_ENCODE);
+// - packet entities use the PE_* layout below (15-bit entity numbers).
+// svc_sound and svc_localsound use Ironwail's SND_LARGEENTITY and
+// SND_LARGESOUND bits, which protocol 15 never sets. The client still
+// accepts protocol 15 for NetQuake demos (the attract demos), and reads
+// those messages in their NetQuake form. Demos recorded by Icaro builds
+// before this protocol (15 plus packet entities) no longer play.
+export const PROTOCOL_ICARO = 1015;
+
 // if the high bit of the servercmd is set, the low bits are fast update flags:
 export const U_MOREBITS = ( 1 << 0 );
 export const U_ORIGIN1 = ( 1 << 1 );
@@ -41,6 +60,9 @@ export const SU_WEAPON = ( 1 << 14 );
 export const SND_VOLUME = ( 1 << 0 ); // a byte
 export const SND_ATTENUATION = ( 1 << 1 ); // a byte
 export const SND_LOOPING = ( 1 << 2 ); // a long
+// Ironwail (FitzQuake) protocol.h
+export const SND_LARGEENTITY = ( 1 << 3 ); // a short + byte (instead of just a short)
+export const SND_LARGESOUND = ( 1 << 4 ); // a short soundindex (instead of a byte)
 
 // defaults for clientinfo messages
 export const DEFAULT_VIEWHEIGHT = 22;
@@ -172,9 +194,12 @@ export const CM_ANGLE2 = ( 1 << 7 );
 // QW-style delta compression for packet entities
 // Ported from: QW/client/protocol.h
 //
-// The first 16 bits of a packetentities update holds 10 bits
-// of entity number (max 1024, which bounds MAX_EDICTS) and
-// 6 bits of flags.
+// Deliberate deviation from QW's layout (and from this port's earlier one,
+// which packed a 10-bit entity number and 6 flags into the first short):
+// each entry starts with a short holding the entity number in its low 15
+// bits (MAX_EDICTS 32000) and PE_REMOVE in bit 15. 0 ends the list. Unless
+// PE_REMOVE is set, a byte of PE_* bits follows, and a second byte when
+// PE_MOREBITS is set in the first.
 //==============================================
 
 export const svc_packetentities = 47; // [...]
@@ -183,33 +208,34 @@ export const svc_serversequence = 49; // [long] server frame sequence number
 
 export const clc_delta = 5; // [byte] sequence number, requests delta compression
 
-// Entity number mask: 10 bits for entity number (0-1023)
-export const PE_ENT_BITS = 10;
-export const PE_ENT_MASK = ( 1 << PE_ENT_BITS ) - 1; // 0x3FF
+// Entity number: the low 15 bits of the first short
+export const PE_ENT_BITS = 15;
+export const PE_ENT_MASK = ( 1 << PE_ENT_BITS ) - 1; // 0x7FFF
+export const PE_REMOVE = ( 1 << 15 ); // REMOVE this entity, don't add it
 
-// Packet entity U_* flags (upper 6 bits of the short, plus morebits byte)
-// Bits 10-15 of the first short:
-export const PE_ORIGIN1 = ( 1 << 10 );
-export const PE_ORIGIN2 = ( 1 << 11 );
-export const PE_ORIGIN3 = ( 1 << 12 );
-export const PE_ANGLE2 = ( 1 << 13 );
-export const PE_REMOVE = ( 1 << 14 ); // REMOVE this entity, don't add it
-export const PE_MOREBITS = ( 1 << 15 );
+// The first byte of bits
+export const PE_ORIGIN1 = ( 1 << 0 );
+export const PE_ORIGIN2 = ( 1 << 1 );
+export const PE_ORIGIN3 = ( 1 << 2 );
+export const PE_ANGLE1 = ( 1 << 3 );
+export const PE_ANGLE2 = ( 1 << 4 );
+export const PE_ANGLE3 = ( 1 << 5 );
+export const PE_FRAME = ( 1 << 6 );
+export const PE_MOREBITS = ( 1 << 7 );
 
-// If PE_MOREBITS is set, these additional flags are read in the next byte:
-export const PE_FRAME = ( 1 << 0 );
-export const PE_ANGLE1 = ( 1 << 1 );
-export const PE_ANGLE3 = ( 1 << 2 );
-export const PE_MODEL = ( 1 << 3 );
-export const PE_COLORMAP = ( 1 << 4 );
-export const PE_SKIN = ( 1 << 5 );
-export const PE_EFFECTS = ( 1 << 6 );
+// The second byte, read when PE_MOREBITS is set
+export const PE_MODEL = ( 1 << 8 ); // [short] modelindex
+export const PE_COLORMAP = ( 1 << 9 );
+export const PE_SKIN = ( 1 << 10 );
+export const PE_EFFECTS = ( 1 << 11 );
 // PE_SOLID: the entity's prediction info changed. QW sends it, without a
 // payload, on every update of a solid entity. Here it is delta'd like the
 // other fields: it is set only when the PS_* byte or the box differs from
 // the state being delta'd from, and it is followed, after the angles, by
 // the PS_* byte and, if PS_BOX is set, the box as 6 coords (mins, maxs).
-export const PE_SOLID = ( 1 << 7 );
+export const PE_SOLID = ( 1 << 12 );
+// [byte] entity alpha, ENTALPHA_ENCODE (Ironwail's U_ALPHA), sent last
+export const PE_ALPHA = ( 1 << 13 );
 
 // PS_* bits: the byte that follows PE_SOLID (entity_state_t.solid)
 export const PS_BSP = ( 1 << 0 ); // collide with the entity's brush model hull
@@ -221,6 +247,38 @@ export const PS_NOLERP = ( 1 << 2 ); // MOVETYPE_STEP: don't interpolate (NQ U_N
 // the edict limit (MAX_EDICTS in quakedef.js) and never binds: entity
 // numbers are below it and the world and players are not in the packet.
 // The frame arrays grow on demand (packet_entities_t.state).
-export const MAX_PACKET_ENTITIES = 1024; // MAX_EDICTS
+export const MAX_PACKET_ENTITIES = 32000; // MAX_EDICTS
 export const PE_UPDATE_BACKUP = 64; // must be power of 2
 export const PE_UPDATE_MASK = PE_UPDATE_BACKUP - 1;
+
+//==============================================
+// Entity alpha
+// Ported from: Ironwail Quake/protocol.h (johnfitz)
+//==============================================
+
+export const ENTALPHA_DEFAULT = 0; // entity's alpha is "default" (i.e. water obeys r_wateralpha) -- must be zero so zeroed out memory works
+export const ENTALPHA_ZERO = 1; // entity is invisible (lowest possible alpha)
+export const ENTALPHA_ONE = 255; // entity is fully opaque (highest possible alpha)
+
+// server convert to byte to send to client
+export function ENTALPHA_ENCODE( a ) {
+
+	if ( a === 0 ) return ENTALPHA_DEFAULT;
+	const x = Math.min( 255, Math.max( 1, a * 254 + 1 ) );
+	return ( x > 0 ? x + 0.5 : x - 0.5 ) | 0; // Q_rint
+
+}
+
+// client convert to float for rendering
+export function ENTALPHA_DECODE( a ) {
+
+	return a === ENTALPHA_DEFAULT ? 1.0 : ( a - 1 ) / 254;
+
+}
+
+// server convert to float for savegame
+export function ENTALPHA_TOSAVE( a ) {
+
+	return a === ENTALPHA_DEFAULT ? 0.0 : ( a === ENTALPHA_ZERO ? - 1.0 : ( a - 1 ) / 254 );
+
+}

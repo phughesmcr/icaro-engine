@@ -9,7 +9,7 @@ import { Con_Printf, Con_DPrintf, SZ_Clear,
 	MSG_BeginReading, MSG_ReadByte, MSG_ReadChar, MSG_ReadShort, MSG_ReadLong,
 	MSG_ReadFloat, MSG_ReadString, MSG_ReadCoord, MSG_ReadAngle,
 	MSG_ReadAngle16,
-	MSG_WriteByte,
+	MSG_WriteByte, MSG_SetCoord32,
 	msg_readcount, msg_badread,
 	net_message, standard_quake } from './common.js';
 import { Sys_FloatTime } from './sys.js';
@@ -18,7 +18,7 @@ import { Cbuf_AddText } from './cmd.js';
 import { Cmd_ExecuteString } from './cmd.js';
 import { src_command } from './cmd.js';
 import {
-	PROTOCOL_VERSION,
+	PROTOCOL_VERSION, PROTOCOL_ICARO,
 	svc_nop, svc_disconnect, svc_updatestat, svc_version,
 	svc_setview, svc_sound, svc_time, svc_print, svc_stufftext,
 	svc_setangle, svc_serverinfo, svc_lightstyle, svc_updatename,
@@ -32,7 +32,7 @@ import {
 	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_TELEPORT,
 	CM_ANGLE1, CM_ANGLE2, CM_ANGLE3, CM_FORWARD, CM_SIDE, CM_UP, CM_BUTTONS, CM_IMPULSE,
 	clc_nop,
-	SND_VOLUME, SND_ATTENUATION,
+	SND_VOLUME, SND_ATTENUATION, SND_LARGEENTITY, SND_LARGESOUND,
 	DEFAULT_VIEWHEIGHT,
 	SU_VIEWHEIGHT, SU_IDEALPITCH, SU_PUNCH1, SU_VELOCITY1,
 	SU_ONGROUND, SU_INWATER, SU_WEAPONFRAME,
@@ -46,12 +46,13 @@ import {
 	PE_ENT_MASK, PE_ORIGIN1, PE_ORIGIN2, PE_ORIGIN3,
 	PE_ANGLE2, PE_REMOVE, PE_MOREBITS,
 	PE_FRAME, PE_ANGLE1, PE_ANGLE3, PE_MODEL, PE_COLORMAP, PE_SKIN, PE_EFFECTS, PE_SOLID,
+	PE_ALPHA, ENTALPHA_DEFAULT,
 	PS_BOX, MAX_PACKET_ENTITIES, PE_UPDATE_BACKUP
 } from './protocol.js';
 import {
 	SIGNONS, MAX_STATIC_ENTITIES,
 	cl, cls, cl_entities, cl_static_entities, cl_lightstyle,
-	scoreboard_t } from './client.js';
+	CL_EnsureEntities, scoreboard_t } from './client.js';
 import { VectorCopy } from './mathlib.js';
 import { V_ParseDamage, V_StopPitchDrift, V_UpdatePunchAngles } from './view.js';
 import { Mod_ForName } from './gl_model.js';
@@ -135,6 +136,7 @@ export function CL_EntityNum( num ) {
 
 		if ( num >= MAX_EDICTS )
 			Host_Error( 'CL_EntityNum: ' + num + ' is an invalid number' );
+		CL_EnsureEntities( num + 1 ); // cl_entities grows on demand (client.js)
 		while ( cl.num_entities <= num ) {
 
 			cl_entities[ cl.num_entities ].colormap = null; // vid.colormap
@@ -172,13 +174,28 @@ export function CL_ParseStartSoundPacket() {
 	else
 		attenuation = DEFAULT_SOUND_PACKET_ATTENUATION;
 
-	const channel = MSG_ReadShort();
-	const sound_num = MSG_ReadByte();
+	// Ironwail cl_parse.c: large entity / large sound flags
+	let ent, ch;
+	if ( field_mask & SND_LARGEENTITY ) {
 
-	const ent = channel >> 3;
-	const ch = channel & 7;
+		ent = MSG_ReadShort() & 0xFFFF;
+		ch = MSG_ReadByte();
 
-	if ( ent > MAX_EDICTS )
+	} else {
+
+		const channel = MSG_ReadShort() & 0xFFFF;
+		ent = channel >> 3;
+		ch = channel & 7;
+
+	}
+
+	let sound_num;
+	if ( field_mask & SND_LARGESOUND )
+		sound_num = MSG_ReadShort() & 0xFFFF;
+	else
+		sound_num = MSG_ReadByte();
+
+	if ( ent >= MAX_EDICTS )
 		Host_Error( 'CL_ParseStartSoundPacket: ent = %i', ent );
 
 	for ( let i = 0; i < 3; i ++ )
@@ -207,14 +224,13 @@ export function CL_ParseStartSoundPacket() {
 ==================
 CL_ParseLocalSound - for 2021 rerelease
 
-Ported from Ironwail's cl_parse.c. The server never sets SND_LARGESOUND
-(MAX_SOUNDS is 256), so the sound number is always a byte.
+Ported from Ironwail's cl_parse.c.
 ==================
 */
 export function CL_ParseLocalSound() {
 
-	MSG_ReadByte(); // field_mask
-	const sound_num = MSG_ReadByte();
+	const field_mask = MSG_ReadByte();
+	const sound_num = ( field_mask & SND_LARGESOUND ) ? ( MSG_ReadShort() & 0xFFFF ) : MSG_ReadByte();
 
 	const sfx = cl.sound_precache[ sound_num ];
 	if ( sfx == null ) {
@@ -321,9 +337,13 @@ export function CL_ParseServerInfo() {
 	// Deviation (QuakeSpasm/Ironwail): id's C prints and returns at each of
 	// the failure checks below, leaving the client half-connected with no
 	// world. Host_Error drops back to the console instead.
+	// Fitz/Ironwail accept several protocols; Icaro accepts NetQuake 15 (the
+	// shareware attract demos) and its own PROTOCOL_ICARO (protocol.js)
 	let i = MSG_ReadLong();
-	if ( i !== PROTOCOL_VERSION )
-		Host_Error( 'Server returned version ' + i + ', not ' + PROTOCOL_VERSION );
+	if ( i !== PROTOCOL_VERSION && i !== PROTOCOL_ICARO )
+		Host_Error( 'Server returned version ' + i + ', not ' + PROTOCOL_VERSION + ' or ' + PROTOCOL_ICARO );
+	cl.protocol = i;
+	MSG_SetCoord32( i === PROTOCOL_ICARO );
 
 	// parse maxclients
 	cl.maxclients = MSG_ReadByte();
@@ -461,28 +481,33 @@ CL_ParseDelta
 Parse a QW-style delta-compressed entity state.
 Can delta from either a baseline or a previous packet_entity.
 Ported from: QW/client/cl_ents.c
+
+Deviation: QW packs the entity number and the high bits into one short.
+Icaro's word is the entity number (and PE_REMOVE) alone, and the bits
+follow in one or two bytes (see PE_* in protocol.js). The model index is a
+short and PE_ALPHA adds an alpha byte at the end.
 ==================
 */
-function CL_ParseDelta( from, to, bits ) {
+function CL_ParseDelta( from, to, word ) {
 
 	// set everything to the state we are delta'ing from
 	to.copyFrom( from );
 
-	to.number = bits & PE_ENT_MASK;
-	bits &= ~PE_ENT_MASK;
+	to.number = word & PE_ENT_MASK;
 
+	let bits = MSG_ReadByte();
 	if ( bits & PE_MOREBITS ) {
 
-		// read in the low order bits
+		// read in the high order bits
 		const i = MSG_ReadByte();
-		bits |= i;
+		bits |= i << 8;
 
 	}
 
 	to.flags = bits;
 
 	if ( bits & PE_MODEL )
-		to.modelindex = MSG_ReadByte();
+		to.modelindex = MSG_ReadShort() & 0xFFFF;
 
 	if ( bits & PE_FRAME )
 		to.frame = MSG_ReadByte();
@@ -529,6 +554,9 @@ function CL_ParseDelta( from, to, bits ) {
 
 	}
 
+	if ( bits & PE_ALPHA )
+		to.alpha = MSG_ReadByte();
+
 }
 
 /*
@@ -565,6 +593,9 @@ function FlushEntityPacket() {
 		if ( word === 0 )
 			break; // done
 
+		if ( word & PE_REMOVE )
+			continue; // a removal carries no bits
+
 		CL_ParseDelta( _flushOlde, _flushNewe, word );
 
 	}
@@ -581,6 +612,10 @@ Ported from: QW/client/cl_ents.c
 ==================
 */
 function CL_ParsePacketEntities( delta ) {
+
+	// NetQuake 15 (demos) has no packet entities, and its coords are shorts
+	if ( cl.protocol !== PROTOCOL_ICARO )
+		Host_Error( 'CL_ParsePacketEntities: packet entities under protocol ' + cl.protocol );
 
 	// First entity update completes the signon process
 	// (same as CL_ParseUpdate does for NQ-style updates)
@@ -671,7 +706,7 @@ function CL_ParsePacketEntities( delta ) {
 		}
 
 		const newnum = word & PE_ENT_MASK;
-		let oldnum = oldindex >= oldp.num_entities ? 9999 : oldp.entities[ oldindex ].number;
+		let oldnum = oldindex >= oldp.num_entities ? PE_NUM_END : oldp.entities[ oldindex ].number;
 
 		// copy unchanged old entities that sort before this new entry
 		while ( newnum > oldnum ) {
@@ -695,7 +730,7 @@ function CL_ParsePacketEntities( delta ) {
 			newp.state( newindex ).copyFrom( oldp.entities[ oldindex ] );
 			newindex ++;
 			oldindex ++;
-			oldnum = oldindex >= oldp.num_entities ? 9999 : oldp.entities[ oldindex ].number;
+			oldnum = oldindex >= oldp.num_entities ? PE_NUM_END : oldp.entities[ oldindex ].number;
 
 		}
 
@@ -724,7 +759,7 @@ function CL_ParsePacketEntities( delta ) {
 
 			}
 
-			CL_ParseDelta( cl_entities[ newnum ].baseline, newp.state( newindex ), word );
+			CL_ParseDelta( CL_EntityBaseline( newnum ), newp.state( newindex ), word );
 			newindex ++;
 			continue;
 
@@ -763,6 +798,27 @@ function CL_ParsePacketEntities( delta ) {
 	}
 
 	newp.num_entities = newindex;
+
+}
+
+// QW's 9999 sentinel: past every entity number (PE_ENT_MASK is 32767)
+const PE_NUM_END = PE_ENT_MASK + 1;
+
+/*
+==================
+CL_EntityBaseline
+
+The baseline to delta a new entity from. QW indexes cl_baselines directly;
+cl_entities grows on demand here (client.js CL_EnsureEntities), so make sure
+the slot exists. Numbers past MAX_EDICTS are a bad message.
+==================
+*/
+function CL_EntityBaseline( num ) {
+
+	if ( num >= MAX_EDICTS )
+		Host_Error( 'CL_ParsePacketEntities: entity ' + num + ' >= MAX_EDICTS' );
+	CL_EnsureEntities( num + 1 );
+	return cl_entities[ num ].baseline;
 
 }
 
@@ -914,6 +970,9 @@ export function CL_ParseUpdate( bits ) {
 	else
 		ent.effects = ent.baseline.effects;
 
+	// NetQuake 15 has no U_ALPHA (Fitz/Ironwail): keep the baseline's
+	ent.alpha = ent.baseline.alpha;
+
 	// shift the known values for interpolation
 	VectorCopy( ent.msg_origins[ 0 ], ent.msg_origins[ 1 ] );
 	VectorCopy( ent.msg_angles[ 0 ], ent.msg_angles[ 1 ] );
@@ -970,11 +1029,15 @@ export function CL_ParseUpdate( bits ) {
 /*
 ==================
 CL_ParseBaseline
+
+Under PROTOCOL_ICARO the model index is a short and an alpha byte ends the
+message (protocol.js). NetQuake 15 (the demos) keeps id's layout.
 ==================
 */
 export function CL_ParseBaseline( ent ) {
 
-	ent.baseline.modelindex = MSG_ReadByte();
+	const icaro = cl.protocol === PROTOCOL_ICARO;
+	ent.baseline.modelindex = icaro ? ( MSG_ReadShort() & 0xFFFF ) : MSG_ReadByte();
 	ent.baseline.frame = MSG_ReadByte();
 	ent.baseline.colormap = MSG_ReadByte();
 	ent.baseline.skin = MSG_ReadByte();
@@ -984,6 +1047,8 @@ export function CL_ParseBaseline( ent ) {
 		ent.baseline.angles[ i ] = MSG_ReadAngle();
 
 	}
+
+	ent.baseline.alpha = icaro ? MSG_ReadByte() : ENTALPHA_DEFAULT;
 
 }
 
@@ -1061,8 +1126,8 @@ export function CL_ParseClientdata( bits ) {
 
 	}
 
-	if ( bits & SU_WEAPON )
-		i = MSG_ReadByte();
+	if ( bits & SU_WEAPON ) // a short under PROTOCOL_ICARO (MAX_MODELS 4096)
+		i = cl.protocol === PROTOCOL_ICARO ? ( MSG_ReadShort() & 0xFFFF ) : MSG_ReadByte();
 	else
 		i = 0;
 	if ( cl.stats[ STAT_WEAPON ] !== i ) {
@@ -1234,8 +1299,8 @@ function CL_ParsePlayerInfo() {
 
 	// Read optional model (default to player model if not specified)
 	let modelindex = cl_playerindex;
-	if ( flags & PF_MODEL )
-		modelindex = MSG_ReadByte();
+	if ( flags & PF_MODEL ) // a short (MAX_MODELS 4096); only Icaro servers send playerinfo
+		modelindex = MSG_ReadShort() & 0xFFFF;
 
 	// Read optional skin
 	let skin = 0;
@@ -1298,6 +1363,7 @@ export function CL_ParseStatic() {
 	ent.colormap = null; // vid.colormap
 	ent.skinnum = ent.baseline.skin;
 	ent.effects = ent.baseline.effects;
+	ent.alpha = ent.baseline.alpha; //johnfitz -- alpha (Ironwail cl_parse.c)
 
 	VectorCopy( ent.baseline.origin, ent.origin );
 	VectorCopy( ent.baseline.angles, ent.angles );
@@ -1315,7 +1381,8 @@ export function CL_ParseStaticSound() {
 	const org = _staticSoundOrg;
 	for ( let i = 0; i < 3; i ++ )
 		org[ i ] = MSG_ReadCoord();
-	const sound_num = MSG_ReadByte();
+	// a short under PROTOCOL_ICARO (MAX_SOUNDS 2048)
+	const sound_num = cl.protocol === PROTOCOL_ICARO ? ( MSG_ReadShort() & 0xFFFF ) : MSG_ReadByte();
 	const vol = MSG_ReadByte();
 	const atten = MSG_ReadByte();
 
@@ -1442,8 +1509,11 @@ export function CL_ParseServerMessage() {
 
 			case svc_version:
 				i = MSG_ReadLong();
-				if ( i !== PROTOCOL_VERSION )
-					Host_Error( 'CL_ParseServerMessage: Server is protocol %i instead of %i\n', i, PROTOCOL_VERSION );
+				// Ironwail: accept any supported protocol and switch to it
+				if ( i !== PROTOCOL_VERSION && i !== PROTOCOL_ICARO )
+					Host_Error( 'CL_ParseServerMessage: Server is protocol ' + i + ' instead of ' + PROTOCOL_VERSION + ' or ' + PROTOCOL_ICARO );
+				cl.protocol = i;
+				MSG_SetCoord32( i === PROTOCOL_ICARO );
 				break;
 
 			case svc_disconnect:

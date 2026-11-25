@@ -100,6 +100,7 @@ export class entity_t {
 		this.colormap = null; // byte pointer
 		this.effects = 0; // light, particles, etc
 		this.skinnum = 0; // for Alias models
+		this.alpha = 0; //johnfitz -- alpha (ENTALPHA_* in protocol.js; 0 is opaque)
 		this.visframe = 0; // last frame this entity was found in an active leaf
 
 		this.dlightframe = 0; // dynamic lighting
