@@ -5,7 +5,10 @@
 //   baselines, statics, clientdata and playerinfo;
 // - sound indexes and entity numbers use Ironwail's SND_LARGE* flags;
 // - packet entity numbers are 15 bits (MAX_EDICTS 32000);
-// - entity alpha rides on packet entities, baselines and statics.
+// - entity alpha rides on packet entities, baselines, statics, playerinfo
+//   (PF_ALPHA) and clientdata (SU_WEAPONALPHA);
+// - frames above 255: PE_FRAME2, short baseline, static and playerinfo
+//   frames, and SU_WEAPONFRAME2.
 // NetQuake 15 (the shareware attract demos) must still parse.
 
 // Bootstrap the client renderer graph in its established safe import order.
@@ -14,21 +17,29 @@ await import( '../src/gl_rsurf.js' );
 const common = await import( '../src/common.js' );
 const net = await import( '../src/net.js' );
 const pak = await import( '../src/pak.js' );
-const { MAX_EDICTS, MAX_MODELS, STAT_WEAPON, packet_entities_t } = await import( '../src/quakedef.js' );
+const { MIN_EDICTS, MAX_EDICTS, MAX_MODELS, STAT_WEAPON, STAT_WEAPONFRAME, packet_entities_t } = await import( '../src/quakedef.js' );
 const {
 	PROTOCOL_VERSION, PROTOCOL_ICARO, svc_version, svc_spawnbaseline, svc_spawnstatic,
 	svc_spawnstaticsound, svc_serversequence, svc_sound, svc_clientdata,
-	SND_LARGEENTITY, SND_LARGESOUND, SU_WEAPON, SU_ITEMS,
+	SND_LARGEENTITY, SND_LARGESOUND, SU_WEAPON, SU_ITEMS, SU_WEAPONFRAME,
+	SU_EXTEND1, SU_EXTEND2, SU_WEAPONFRAME2, SU_WEAPONALPHA, PF_ALPHA,
 	ENTALPHA_DEFAULT, ENTALPHA_ZERO, ENTALPHA_ONE, ENTALPHA_ENCODE, ENTALPHA_DECODE, ENTALPHA_TOSAVE,
 } = await import( '../src/protocol.js' );
 const { cl, cls, cl_entities, cl_static_entities, scoreboard_t, SIGNONS } = await import( '../src/client.js' );
 const { CL_ParseServerMessage } = await import( '../src/cl_parse.js' );
 const { CL_GetEntityFrame, CL_GetPredictedPlayer, CL_ResetPrediction } = await import( '../src/cl_pred.js' );
 const { cl_shownet } = await import( '../src/cl_main.js' );
-const { PR_SetSV, PR_SetSVS, sv: progs_sv, svs: progs_svs, edict_t } = await import( '../src/progs.js' );
+const {
+	PR_SetSV, PR_SetSVS, PR_SetHostError, sv: progs_sv, svs: progs_svs, edict_t,
+	progs, pr_fielddefs, pr_global_struct, pr_strings_data,
+	PR_SetProgs, PR_SetFieldDefs, PR_SetGlobalStruct, PR_SetStringsData,
+} = await import( '../src/progs.js' );
 const { PR_AllocEdicts, ED_Alloc, ED_Free } = await import( '../src/pr_edict.js' );
 const { sv, svs } = await import( '../src/server.js' );
-const { SV_EmitPacketEntities, SV_WritePlayersToClient, SV_StartSound } = await import( '../src/sv_main.js' );
+const {
+	SV_EmitPacketEntities, SV_WritePlayersToClient, SV_StartSound, SV_WriteClientdataToMessage, max_edicts,
+} = await import( '../src/sv_main.js' );
+const { sv_player, SV_SetPlayer } = await import( '../src/sv_phys.js' );
 const consolejs = await import( '../src/console.js' );
 
 function assertEqual( actual, expected, message ) {
@@ -162,7 +173,7 @@ Deno.test( 'svc_version switches the client between NetQuake 15 and PROTOCOL_ICA
 		common.MSG_WriteByte( m, svc_spawnbaseline );
 		common.MSG_WriteShort( m, 9999 );
 		common.MSG_WriteShort( m, 3000 ); // model
-		common.MSG_WriteByte( m, 4 );
+		common.MSG_WriteShort( m, 300 ); // frame: a short (B_LARGEFRAME)
 		common.MSG_WriteByte( m, 0 );
 		common.MSG_WriteByte( m, 2 );
 		for ( let i = 0; i < 3; i ++ ) {
@@ -178,10 +189,13 @@ Deno.test( 'svc_version switches the client between NetQuake 15 and PROTOCOL_ICA
 		assertEqual( cl.protocol, PROTOCOL_ICARO, 'protocol after the second svc_version' );
 		const b7 = cl_entities[ 7 ].baseline;
 		assertEqual( b7.modelindex, 200, 'NQ baseline model' );
+		assertEqual( b7.frame, 3, 'NQ baseline frame' );
 		assertEqual( b7.origin[ 2 ], - 3998, 'NQ baseline coord' );
 		assertEqual( b7.alpha, ENTALPHA_DEFAULT, 'NQ baseline alpha' );
 		const b = cl_entities[ 9999 ].baseline;
 		assertEqual( b.modelindex, 3000, 'baseline model' );
+		assertEqual( b.frame, 300, 'baseline frame' );
+		assertEqual( b.skin, 2, 'baseline skin after the short frame' );
 		assertEqual( b.origin[ 0 ], - 5000.5, 'baseline coord' );
 		assertEqual( b.origin[ 2 ], 5000.5, 'baseline coord' );
 		assertEqual( b.alpha, 128, 'baseline alpha' );
@@ -209,14 +223,14 @@ Deno.test( 'an unknown protocol is refused', () => {
 
 } );
 
-Deno.test( 'svc_spawnstatic and svc_spawnstaticsound read short indexes and alpha', () => {
+Deno.test( 'svc_spawnstatic and svc_spawnstaticsound read short indexes, frames and alpha', () => {
 
 	clientParse( PROTOCOL_ICARO, ( m ) => {
 
 		// PF_makestatic's layout
 		common.MSG_WriteByte( m, svc_spawnstatic );
 		common.MSG_WriteShort( m, MAX_MODELS - 1 );
-		common.MSG_WriteByte( m, 5 );
+		common.MSG_WriteShort( m, 777 ); // frame: a short
 		common.MSG_WriteByte( m, 0 );
 		common.MSG_WriteByte( m, 1 );
 		for ( let i = 0; i < 3; i ++ ) {
@@ -238,6 +252,8 @@ Deno.test( 'svc_spawnstatic and svc_spawnstaticsound read short indexes and alph
 
 		const ent = cl_static_entities[ cl.num_statics - 1 ];
 		assertEqual( ent.baseline.modelindex, MAX_MODELS - 1, 'static model' );
+		assertEqual( ent.frame, 777, 'static frame' );
+		assertEqual( ent.skinnum, 1, 'static skin after the short frame' );
 		assertEqual( ent.origin[ 1 ], - 6000, 'static origin' );
 		assertEqual( ent.alpha, ENTALPHA_ENCODE( 0.25 ), 'static alpha' );
 
@@ -350,6 +366,58 @@ Deno.test( 'packet entities carry 15-bit numbers, short models, wide coords and 
 
 } );
 
+Deno.test( 'packet entities send frames above 255 with PE_FRAME2', () => {
+
+	withServerEdicts( () => {
+
+		const FIRST = [ 300, 7, 1000, 255, 256 ];
+		// 300 -> 44 has the same low byte: PE_FRAME alone must clear the
+		// high byte. 7 is unchanged, so 1023's frame isn't sent at all.
+		const SECOND = [ 44, 7, 1001, 256, 4095 ];
+
+		const first = new packet_entities_t();
+		fillPacket( first, [ 0, 0, 0, 0, 0 ] );
+		for ( let i = 0; i < FIRST.length; i ++ ) first.state( i ).frame = FIRST[ i ];
+		const full = makeMsg( 2048 );
+		SV_EmitPacketEntities( { delta_sequence: - 1, frames: [] }, first, full );
+
+		const second = new packet_entities_t();
+		fillPacket( second, [ 0, 0, 0, 0, 0 ] );
+		for ( let i = 0; i < SECOND.length; i ++ ) second.state( i ).frame = SECOND[ i ];
+		const frames = [];
+		for ( let i = 0; i < 64; i ++ ) frames.push( { entities: new packet_entities_t() } );
+		frames[ 20 ].entities = first;
+		const delta = makeMsg( 2048 );
+		SV_EmitPacketEntities( { delta_sequence: 20, outgoing_sequence: 21, frames }, second, delta );
+
+		clientParse( PROTOCOL_ICARO, ( m ) => {
+
+			cls.signon = SIGNONS;
+			common.MSG_WriteByte( m, svc_serversequence );
+			common.MSG_WriteLong( m, 20 );
+			copyInto( m, full );
+			common.MSG_WriteByte( m, svc_serversequence );
+			common.MSG_WriteLong( m, 21 );
+			copyInto( m, delta );
+
+		}, () => {
+
+			const a = CL_GetEntityFrame( 20 ).packet_entities;
+			const b = CL_GetEntityFrame( 21 ).packet_entities;
+			for ( let i = 0; i < FIRST.length; i ++ ) {
+
+				assertEqual( a.entities[ i ].frame, FIRST[ i ], `full frame ${i}` );
+				assertEqual( b.entities[ i ].frame, SECOND[ i ], `delta frame ${i}` );
+				assertEqual( b.entities[ i ].origin[ 1 ], - 12000.25, `origin after the frame ${i}` );
+
+			}
+
+		} );
+
+	} );
+
+} );
+
 Deno.test( 'ED_Alloc grows sv.edicts past its initial size and ED_Free resets alpha', () => {
 
 	const oldSV = progs_sv;
@@ -372,12 +440,48 @@ Deno.test( 'ED_Alloc grows sv.edicts past its initial size and ED_Free resets al
 		ED_Free( last );
 		assertEqual( last.alpha, ENTALPHA_DEFAULT, 'ED_Free resets alpha' );
 
+		// Ironwail's message names the cvar that raises the cap
+		s.max_edicts = s.num_edicts;
+		assertEqual( ED_Alloc(), last, 'the freed edict is reused first' );
+		let error = null;
+		const oldHostError = PR_SetHostError( ( m ) => {
+
+			throw new Error( m );
+
+		} );
+		try {
+
+			ED_Alloc();
+
+		} catch ( e ) {
+
+			error = e;
+
+		} finally {
+
+			PR_SetHostError( oldHostError );
+
+		}
+
+		if ( error === null || ! String( error.message ).includes( 'max_edicts is 1032' ) )
+			throw new Error( 'expected "no free edicts (max_edicts is 1032)", got ' + error );
+
 	} finally {
 
 		PR_SetSV( oldSV );
 		PR_SetSVS( oldSVS );
 
 	}
+
+} );
+
+Deno.test( 'max_edicts is Ironwail\'s cvar, with its default and bounds', () => {
+
+	assertEqual( max_edicts.name, 'max_edicts', 'cvar name' );
+	assertEqual( max_edicts.string, '16384', 'Ironwail default' );
+	assertEqual( max_edicts.archive, false, 'not archived (ericw)' );
+	assertEqual( MIN_EDICTS, 256, 'MIN_EDICTS' );
+	assertEqual( MAX_EDICTS, 32000, 'MAX_EDICTS' );
 
 } );
 
@@ -500,6 +604,162 @@ Deno.test( 'svc_playerinfo carries a short model index and wide coords', () => {
 			assertEqual( p.modelindex, 3001, 'player model' );
 			assertEqual( p.origin[ 0 ], - 7000.5, 'player origin x' );
 			assertEqual( p.origin[ 1 ], 9000, 'player origin y' );
+
+		} );
+
+	} finally {
+
+		svs.clients = oldClients;
+		svs.maxclients = oldMaxclients;
+		sv.model_precache = oldPrecache;
+		sv.time = oldTime;
+
+	}
+
+} );
+
+// SV_WriteClientdataToMessage needs a progs: no fields, an empty string
+// table, serverflags 0 (as sv_main_test.js sets up)
+function withClientdataProgs( ent, fn ) {
+
+	const saved = {
+		progs, fielddefs: pr_fielddefs, globals: pr_global_struct, strings: pr_strings_data,
+		player: sv_player, precache: sv.model_precache,
+	};
+	try {
+
+		PR_SetProgs( { numfielddefs: 0 } );
+		PR_SetFieldDefs( [] );
+		PR_SetStringsData( new TextEncoder().encode( '\0' ) );
+		PR_SetGlobalStruct( { serverflags: 0 } );
+		sv.model_precache = [ '' ];
+		SV_SetPlayer( ent );
+		fn();
+
+	} finally {
+
+		PR_SetProgs( saved.progs );
+		PR_SetFieldDefs( saved.fielddefs );
+		PR_SetGlobalStruct( saved.globals );
+		PR_SetStringsData( saved.strings );
+		sv.model_precache = saved.precache;
+		SV_SetPlayer( saved.player );
+
+	}
+
+}
+
+Deno.test( 'clientdata SU_WEAPONFRAME2 and SU_WEAPONALPHA ride on SU_EXTEND1 and SU_EXTEND2', () => {
+
+	const ent = new edict_t( 1, 105 );
+	ent.v.view_ofs[ 2 ] = 22; // DEFAULT_VIEWHEIGHT
+	const savedFrame = cl.stats[ STAT_WEAPONFRAME ];
+	const savedAlpha = cl.viewent.alpha;
+
+	const write = ( weaponframe, alpha ) => {
+
+		ent.v.weaponframe = weaponframe;
+		ent.alpha = alpha;
+		const msg = makeMsg( 64 );
+		withClientdataProgs( ent, () => SV_WriteClientdataToMessage( ent, msg ) );
+		return msg;
+
+	};
+
+	try {
+
+		// 513: SU_WEAPONFRAME2 (bit 24) needs both extend bytes
+		const wide = write( 513, 128 );
+		const bits = wide.data[ 1 ] | ( wide.data[ 2 ] << 8 );
+		assertEqual( bits & ( SU_EXTEND1 | SU_WEAPONFRAME | SU_WEAPON ), SU_EXTEND1 | SU_WEAPONFRAME | SU_WEAPON, 'short bits' );
+		assertEqual( wide.data[ 3 ], ( SU_EXTEND2 >> 16 ) & 0xFF, 'first extend byte' );
+		assertEqual( wide.data[ 4 ], ( SU_WEAPONFRAME2 | SU_WEAPONALPHA ) >>> 24, 'second extend byte' );
+		clientParse( PROTOCOL_ICARO, ( m ) => copyInto( m, wide ), () => {
+
+			assertEqual( cl.stats[ STAT_WEAPONFRAME ], 513, 'weaponframe high byte' );
+			assertEqual( cl.viewent.alpha, 128, 'view model alpha' );
+
+		} );
+
+		// an opaque player and a byte frame: no extend bytes, and the view
+		// model goes back to ENTALPHA_DEFAULT
+		const narrow = write( 3, ENTALPHA_DEFAULT );
+		assertEqual( narrow.data[ 2 ] & 0x80, 0, 'no SU_EXTEND1' );
+		clientParse( PROTOCOL_ICARO, ( m ) => copyInto( m, narrow ), () => {
+
+			assertEqual( cl.stats[ STAT_WEAPONFRAME ], 3, 'weaponframe' );
+			assertEqual( cl.viewent.alpha, ENTALPHA_DEFAULT, 'view model alpha reset' );
+
+		} );
+
+		// alpha alone (bit 25) still needs SU_EXTEND1 before SU_EXTEND2
+		const alphaOnly = write( 0, ENTALPHA_ONE );
+		clientParse( PROTOCOL_ICARO, ( m ) => copyInto( m, alphaOnly ), () => {
+
+			assertEqual( cl.stats[ STAT_WEAPONFRAME ], 0, 'no weaponframe' );
+			assertEqual( cl.viewent.alpha, ENTALPHA_ONE, 'alpha alone' );
+
+		} );
+
+	} finally {
+
+		cl.stats[ STAT_WEAPONFRAME ] = savedFrame;
+		cl.viewent.alpha = savedAlpha;
+
+	}
+
+} );
+
+Deno.test( 'svc_playerinfo carries short frames and PF_ALPHA', () => {
+
+	const oldClients = svs.clients;
+	const oldMaxclients = svs.maxclients;
+	const oldPrecache = sv.model_precache;
+	const oldTime = sv.time;
+	const edicts = PR_AllocEdicts( 4, 105 );
+
+	try {
+
+		sv.model_precache = [ '', 'progs/player.mdl' ];
+		sv.time = 1;
+		svs.maxclients = 2;
+		const self = edicts[ 1 ], other = edicts[ 2 ];
+		for ( const e of [ self, other ] ) {
+
+			e.v.modelindex = 1;
+			e.v.health = 100;
+			e.v.mins[ 2 ] = - 24;
+
+		}
+		self.v.frame = 400;
+		self.v.weaponframe = 600;
+		self.alpha = 64;
+		other.v.frame = 12;
+		svs.clients = [
+			{ active: true, spawned: true, edict: self, localtime: 0 },
+			{ active: true, spawned: true, edict: other, localtime: 0 },
+		];
+		other.num_leafs = 1;
+		other.leafnums[ 0 ] = 0;
+		const msg = makeMsg( 400 );
+		SV_WritePlayersToClient( svs.clients[ 0 ], self, new Uint8Array( [ 1 ] ), msg );
+		const flags = msg.data[ 2 ] | ( msg.data[ 3 ] << 8 );
+		assertEqual( flags & PF_ALPHA, PF_ALPHA, 'PF_ALPHA on the translucent player' );
+
+		clientParse( PROTOCOL_ICARO, ( m ) => {
+
+			cl.maxclients = 2;
+			copyInto( m, msg );
+
+		}, () => {
+
+			const p = CL_GetPredictedPlayer( 0 );
+			assertEqual( p.frame, 400, 'player frame' );
+			assertEqual( p.weaponframe, 600, 'player weaponframe' );
+			assertEqual( p.alpha, 64, 'player alpha' );
+			const q = CL_GetPredictedPlayer( 1 );
+			assertEqual( q.frame, 12, 'other frame' );
+			assertEqual( q.alpha, ENTALPHA_DEFAULT, 'other alpha' );
 
 		} );
 

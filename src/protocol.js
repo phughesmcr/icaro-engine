@@ -11,8 +11,12 @@ export const PROTOCOL_VERSION = 15;
 // - model indexes are shorts in svc_spawnbaseline, svc_spawnstatic, the
 //   svc_clientdata weapon model and svc_playerinfo (MAX_MODELS 4096), and
 //   svc_spawnstaticsound sends a short sound index (MAX_SOUNDS 2048);
-// - svc_spawnbaseline and svc_spawnstatic end with an alpha byte
-//   (ENTALPHA_ENCODE);
+// - svc_spawnbaseline and svc_spawnstatic send the frame as a short (Ironwail
+//   B_LARGEFRAME) and end with an alpha byte (ENTALPHA_ENCODE);
+// - svc_clientdata sends Ironwail's SU_EXTEND1/SU_EXTEND2 bytes, with
+//   SU_WEAPONFRAME2 and SU_WEAPONALPHA;
+// - svc_playerinfo sends the frame and weaponframe as shorts and the
+//   player's alpha with PF_ALPHA;
 // - packet entities use the PE_* layout below (15-bit entity numbers).
 // svc_sound and svc_localsound use Ironwail's SND_LARGEENTITY and
 // SND_LARGESOUND bits, which protocol 15 never sets. The client still
@@ -55,6 +59,13 @@ export const SU_INWATER = ( 1 << 11 ); // no data follows, the bit is it
 export const SU_WEAPONFRAME = ( 1 << 12 );
 export const SU_ARMOR = ( 1 << 13 );
 export const SU_WEAPON = ( 1 << 14 );
+// Ironwail (FitzQuake) protocol.h. Icaro sends only these extended bits:
+// its weapon model is already a short (no SU_WEAPON2), and armor and ammo
+// stay bytes (SU_ARMOR2 to SU_CELLS2, bits 16 to 22, are not sent).
+export const SU_EXTEND1 = ( 1 << 15 ); // another byte to follow
+export const SU_EXTEND2 = ( 1 << 23 ); // another byte to follow
+export const SU_WEAPONFRAME2 = ( 1 << 24 ); // 1 byte, this is .weaponframe & 0xFF00 (second byte)
+export const SU_WEAPONALPHA = ( 1 << 25 ); // 1 byte, this is alpha for weaponmodel, uses ENTALPHA_ENCODE, not sent if ENTALPHA_DEFAULT
 
 // a sound with no channel is a local only sound
 export const SND_VOLUME = ( 1 << 0 ); // a byte
@@ -161,7 +172,8 @@ export const TE_BEAM = 13;
 export const svc_playerinfo = 42;
 
 // playerinfo flags from server
-// playerinfo always sends: playernum, flags, origin[] and frame
+// playerinfo always sends: playernum, flags, origin[] and frame (a short
+// here, QW: a byte; PF_WEAPONFRAME is a short too)
 export const PF_MSEC = ( 1 << 0 );
 export const PF_COMMAND = ( 1 << 1 );
 export const PF_VELOCITY1 = ( 1 << 2 );
@@ -179,6 +191,9 @@ export const PF_NOCLIP = ( 1 << 12 ); // MOVETYPE_NOCLIP
 // Not in QW: [byte] ent->v.teleport_time - sv.time in 10 ms units (view player
 // only), for the teleporter back-move lock and waterjump in prediction
 export const PF_TELEPORT = ( 1 << 13 );
+// Not in QW: [byte] the player's alpha (ENTALPHA_ENCODE), not sent if
+// ENTALPHA_DEFAULT. Ironwail sends player entities with U_ALPHA.
+export const PF_ALPHA = ( 1 << 14 );
 
 // command move bits (for delta compression of usercmd_t)
 export const CM_ANGLE1 = ( 1 << 0 );
@@ -236,6 +251,9 @@ export const PE_EFFECTS = ( 1 << 11 );
 export const PE_SOLID = ( 1 << 12 );
 // [byte] entity alpha, ENTALPHA_ENCODE (Ironwail's U_ALPHA), sent last
 export const PE_ALPHA = ( 1 << 13 );
+// [byte] frame & 0xFF00 (Ironwail's U_FRAME2), sent after PE_ALPHA. Only
+// with PE_FRAME, which carries the low byte.
+export const PE_FRAME2 = ( 1 << 14 );
 
 // PS_* bits: the byte that follows PE_SOLID (entity_state_t.solid)
 export const PS_BSP = ( 1 << 0 ); // collide with the entity's brush model hull

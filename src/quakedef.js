@@ -27,8 +27,9 @@ export const MAX_DATAGRAM = 1024; // max length of unreliable message
 // has 600 edicts (with "FIXME: ouch! ouch! ouch!") and 256 models and
 // sounds, sent as bytes. PROTOCOL_ICARO (protocol.js) carries the larger
 // numbers: 15-bit packet entity numbers and short model and sound indexes.
-// Ironwail's max_edicts cvar is not ported: the server and client edict
-// arrays grow on demand up to MAX_EDICTS instead.
+// Ironwail's max_edicts cvar (sv_main.js) caps the server's edicts; its
+// edict array and the client's grow on demand up to that cap.
+export const MIN_EDICTS = 256; // johnfitz -- lowest allowed value for max_edicts cvar
 export const MAX_EDICTS = 32000; // johnfitz -- highest allowed value for max_edicts cvar
 export const MAX_LIGHTSTYLES = 64;
 export const MAX_MODELS = 4096; // johnfitz -- was 256

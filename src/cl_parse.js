@@ -29,14 +29,14 @@ import {
 	svc_intermission, svc_finale, svc_cdtrack, svc_sellscreen,
 	svc_cutscene, svc_achievement, svc_localsound,
 	svc_playerinfo, PF_MSEC, PF_COMMAND, PF_VELOCITY1, PF_VELOCITY2, PF_VELOCITY3,
-	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_TELEPORT,
+	PF_MODEL, PF_SKINNUM, PF_EFFECTS, PF_WEAPONFRAME, PF_TELEPORT, PF_ALPHA,
 	CM_ANGLE1, CM_ANGLE2, CM_ANGLE3, CM_FORWARD, CM_SIDE, CM_UP, CM_BUTTONS, CM_IMPULSE,
 	clc_nop,
 	SND_VOLUME, SND_ATTENUATION, SND_LARGEENTITY, SND_LARGESOUND,
 	DEFAULT_VIEWHEIGHT,
 	SU_VIEWHEIGHT, SU_IDEALPITCH, SU_PUNCH1, SU_VELOCITY1,
 	SU_ONGROUND, SU_INWATER, SU_WEAPONFRAME,
-	SU_ARMOR, SU_WEAPON,
+	SU_ARMOR, SU_WEAPON, SU_EXTEND1, SU_EXTEND2, SU_WEAPONFRAME2, SU_WEAPONALPHA,
 	U_MOREBITS, U_ORIGIN1, U_ORIGIN2, U_ORIGIN3,
 	U_ANGLE1, U_ANGLE2, U_ANGLE3,
 	U_MODEL, U_FRAME, U_COLORMAP, U_SKIN, U_EFFECTS,
@@ -46,7 +46,7 @@ import {
 	PE_ENT_MASK, PE_ORIGIN1, PE_ORIGIN2, PE_ORIGIN3,
 	PE_ANGLE2, PE_REMOVE, PE_MOREBITS,
 	PE_FRAME, PE_ANGLE1, PE_ANGLE3, PE_MODEL, PE_COLORMAP, PE_SKIN, PE_EFFECTS, PE_SOLID,
-	PE_ALPHA, ENTALPHA_DEFAULT,
+	PE_ALPHA, PE_FRAME2, ENTALPHA_DEFAULT,
 	PS_BOX, MAX_PACKET_ENTITIES, PE_UPDATE_BACKUP
 } from './protocol.js';
 import {
@@ -485,7 +485,8 @@ Ported from: QW/client/cl_ents.c
 Deviation: QW packs the entity number and the high bits into one short.
 Icaro's word is the entity number (and PE_REMOVE) alone, and the bits
 follow in one or two bytes (see PE_* in protocol.js). The model index is a
-short and PE_ALPHA adds an alpha byte at the end.
+short, PE_ALPHA adds an alpha byte at the end and PE_FRAME2 the frame's
+high byte after it (Ironwail U_ALPHA and U_FRAME2).
 ==================
 */
 function CL_ParseDelta( from, to, word ) {
@@ -556,6 +557,11 @@ function CL_ParseDelta( from, to, word ) {
 
 	if ( bits & PE_ALPHA )
 		to.alpha = MSG_ReadByte();
+
+	// Ironwail cl_parse.c CL_ParseUpdate: U_FRAME2. PE_FRAME set the low
+	// byte and cleared the high one.
+	if ( bits & PE_FRAME2 )
+		to.frame = ( to.frame & 0x00FF ) | ( MSG_ReadByte() << 8 );
 
 }
 
@@ -1030,15 +1036,16 @@ export function CL_ParseUpdate( bits ) {
 ==================
 CL_ParseBaseline
 
-Under PROTOCOL_ICARO the model index is a short and an alpha byte ends the
-message (protocol.js). NetQuake 15 (the demos) keeps id's layout.
+Under PROTOCOL_ICARO the model index and frame are shorts and an alpha
+byte ends the message (protocol.js). NetQuake 15 (the demos) keeps id's
+layout.
 ==================
 */
 export function CL_ParseBaseline( ent ) {
 
 	const icaro = cl.protocol === PROTOCOL_ICARO;
 	ent.baseline.modelindex = icaro ? ( MSG_ReadShort() & 0xFFFF ) : MSG_ReadByte();
-	ent.baseline.frame = MSG_ReadByte();
+	ent.baseline.frame = icaro ? ( MSG_ReadShort() & 0xFFFF ) : MSG_ReadByte(); // Ironwail B_LARGEFRAME
 	ent.baseline.colormap = MSG_ReadByte();
 	ent.baseline.skin = MSG_ReadByte();
 	for ( let i = 0; i < 3; i ++ ) {
@@ -1060,6 +1067,14 @@ Server information pertaining to this client only
 ==================
 */
 export function CL_ParseClientdata( bits ) {
+
+	//johnfitz -- PROTOCOL_FITZQUAKE (Ironwail reads the bits here: unsigned short)
+	bits &= 0xFFFF;
+	if ( bits & SU_EXTEND1 )
+		bits |= ( MSG_ReadByte() << 16 );
+	if ( bits & SU_EXTEND2 )
+		bits |= ( MSG_ReadByte() << 24 );
+	//johnfitz
 
 	if ( bits & SU_VIEWHEIGHT )
 		cl.viewheight = MSG_ReadChar();
@@ -1187,6 +1202,15 @@ export function CL_ParseClientdata( bits ) {
 
 	}
 
+	//johnfitz -- PROTOCOL_FITZQUAKE (only these two; see SU_EXTEND1 in protocol.js)
+	if ( bits & SU_WEAPONFRAME2 )
+		cl.stats[ STAT_WEAPONFRAME ] |= ( MSG_ReadByte() << 8 );
+	if ( bits & SU_WEAPONALPHA )
+		cl.viewent.alpha = MSG_ReadByte();
+	else
+		cl.viewent.alpha = ENTALPHA_DEFAULT;
+	//johnfitz
+
 	//johnfitz -- lerping
 	if ( cl.viewent.model !== cl.model_precache[ cl.stats[ STAT_WEAPON ] ] )
 		cl.viewent.lerpflags |= LERP_RESETANIM; //don't lerp animation across model changes
@@ -1245,7 +1269,7 @@ function CL_ParsePlayerInfo() {
 	origin[ 1 ] = MSG_ReadCoord();
 	origin[ 2 ] = MSG_ReadCoord();
 
-	const frame = MSG_ReadByte();
+	const frame = MSG_ReadShort() & 0xFFFF; // QW: a byte (protocol.js)
 
 	// Read optional msec
 	let msec = 0;
@@ -1315,15 +1339,20 @@ function CL_ParsePlayerInfo() {
 	// Read optional weaponframe
 	let weaponframe = 0;
 	if ( flags & PF_WEAPONFRAME )
-		weaponframe = MSG_ReadByte();
+		weaponframe = MSG_ReadShort() & 0xFFFF; // QW: a byte
 
 	// Read optional teleport_time left (view player), 10 ms units
 	let teleport = 0;
 	if ( flags & PF_TELEPORT )
 		teleport = MSG_ReadByte();
 
+	// Read optional alpha (Ironwail sends players with U_ALPHA)
+	let alpha = ENTALPHA_DEFAULT;
+	if ( flags & PF_ALPHA )
+		alpha = MSG_ReadByte();
+
 	// Store the player info for prediction and rendering
-	CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, skin, effects, weaponframe, msec, cmd, modelindex, teleport );
+	CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, skin, effects, weaponframe, msec, cmd, modelindex, teleport, alpha );
 
 }
 

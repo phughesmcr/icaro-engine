@@ -129,7 +129,7 @@ export function ED_Alloc() {
 
 	// id compares with MAX_EDICTS; Ironwail with qcvm->max_edicts
 	if ( i === sv.max_edicts )
-		PR_HostError( 'ED_Alloc: no free edicts' ); // id: Sys_Error; Ironwail's Host_Error (deliberate deviation)
+		PR_HostError( 'ED_Alloc: no free edicts (max_edicts is ' + sv.max_edicts + ')' ); // id: Sys_Error; Ironwail's Host_Error (deliberate deviation)
 
 	sv.num_edicts ++;
 	ED_GrowEdicts( sv.num_edicts + 1 ); // keep NEXT_EDICT of the last one valid

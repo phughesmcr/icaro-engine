@@ -46,6 +46,7 @@ class predicted_player_t {
 		this.skin = 0;
 		this.effects = 0;
 		this.weaponframe = 0;
+		this.alpha = 0; // ENTALPHA_* byte, PF_ALPHA (0 is ENTALPHA_DEFAULT)
 		this.msec = 0; // Time since last server frame
 		this.serverSequence = 0; // Last svc_serversequence this player was updated in
 		// Movement command for physics prediction
@@ -768,7 +769,7 @@ Called from CL_ParsePlayerInfo to set player state from server.
 This stores the QuakeWorld-style player info for prediction.
 =================
 */
-export function CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, skin, effects, weaponframe, msec, cmd, modelindex, teleport ) {
+export function CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, skin, effects, weaponframe, msec, cmd, modelindex, teleport, alpha = 0 ) {
 	if ( playernum < 0 || playernum >= MAX_CLIENTS )
 		return;
 
@@ -792,6 +793,7 @@ export function CL_SetPlayerInfo( playernum, origin, velocity, frame, flags, ski
 	pplayer.skin = skin;
 	pplayer.effects = effects;
 	pplayer.weaponframe = weaponframe;
+	pplayer.alpha = alpha;
 	pplayer.msec = msec;
 	if ( modelindex != null )
 		pplayer.modelindex = modelindex;
@@ -1239,6 +1241,7 @@ export function CL_ResetPrediction() {
 		pplayer.serverSequence = - 1;
 		pplayer.modelindex = 0;
 		pplayer.flags = 0;
+		pplayer.alpha = 0;
 		pplayer.origin.fill( 0 );
 		pplayer.velocity.fill( 0 );
 		pplayer.state_origin.fill( 0 );
