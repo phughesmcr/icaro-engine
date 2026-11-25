@@ -18,6 +18,7 @@ import {
 	RoomManager_ClampMaxPlayers,
 	RoomManager_SanitizeHostName,
 	RoomManager_SanitizeMapName,
+	RoomManager_SanitizeGameOptions,
 	RoomManager_SetConfig,
 	RoomManager_CreateRoom,
 	RoomManager_GetRoom,
@@ -96,6 +97,50 @@ Deno.test( 'parseCreateConfig validates LOBBY_CREATE payloads (SRV-2, SRV-3)', (
 	assert.throws( () => parse( [ 1 ] ), /Invalid room config/ );
 	assert.throws( () => parse( null ), /Invalid room config/ );
 	assert.throws( () => parseCreateConfig( encoder.encode( '{' ) ), /Invalid room config/ );
+} );
+
+Deno.test( 'game options are whitelisted and clamped to the Game Options menu ranges (MENU-4)', () => {
+	const parse = ( options ) => parseCreateConfig( encoder.encode( JSON.stringify( { map: 'e1m1', options } ) ) ).gameOptions;
+	const all = { coop: 1, teamplay: 2, skill: 3, fraglimit: 100, timelimit: 60 };
+	assert.deepEqual( parse( all ), all );
+	assert.deepEqual( parse( { coop: 0, teamplay: 0, skill: 0, fraglimit: 0, timelimit: 0 } ),
+		{ coop: 0, teamplay: 0, skill: 0, fraglimit: 0, timelimit: 0 } );
+
+	// Out of range clamps; fractions truncate; -0 becomes 0
+	assert.deepEqual( parse( { coop: 7, teamplay: 99, skill: -4, fraglimit: 1e300, timelimit: -1e300 } ),
+		{ coop: 1, teamplay: 2, skill: 0, fraglimit: 100, timelimit: 0 } );
+	assert.deepEqual( parse( { skill: 2.9, fraglimit: -0.5 } ), { skill: 2, fraglimit: 0 } );
+	assert.ok( Object.is( parse( { fraglimit: -0.5 } ).fraglimit, 0 ) );
+
+	// Anything that is not a finite number is dropped, field by field
+	const hostile = {
+		coop: '1; quit', teamplay: '"; map e1m1 "', skill: 'x\nquit', fraglimit: null,
+		timelimit: NaN, extra: 'rm -rf', '__proto__': { skill: 3 }, 'constructor': 1,
+	};
+	assert.equal( parse( hostile ), undefined );
+	assert.deepEqual( parse( { ...hostile, skill: 2 } ), { skill: 2 } );
+	assert.deepEqual( parse( { skill: Infinity, timelimit: -Infinity, coop: [ 1 ], teamplay: { a: 1 }, fraglimit: true } ), undefined );
+	assert.deepEqual( parse( { skill: 1, bogus: 5 } ), { skill: 1 } );
+
+	// Missing, empty or non-object options: no gameOptions key at all
+	for ( const options of [ undefined, null, {}, [], [ 1, 2 ], 'skill=3', 7, true ] ) {
+		const config = parseCreateConfig( encoder.encode( JSON.stringify( { map: 'e1m1', options } ) ) );
+		assert.equal( 'gameOptions' in config, false );
+	}
+	assert.deepEqual( parse( { skill: 3 } ), { skill: 3 } );
+
+	// The same function guards RoomManager_CreateRoom, whatever the caller passes
+	assert.deepEqual( RoomManager_SanitizeGameOptions( { skill: 9 } ), { skill: 3 } );
+	assert.equal( RoomManager_SanitizeGameOptions( 'skill' ), undefined );
+
+	// Teamplay 3..6 are Rogue modes (menu.c: count = rogue ? 6 : 2)
+	RoomManager_SetConfig( { gameFlags: [ '-rogue' ] } );
+	try {
+		assert.deepEqual( parse( { teamplay: 99 } ), { teamplay: 6 } );
+	} finally {
+		RoomManager_SetConfig( { gameFlags: [] } );
+	}
+	assert.deepEqual( parse( { teamplay: 99 } ), { teamplay: 2 } );
 } );
 
 Deno.test( 'rate limiter enforces a sliding window per key (SRV-2)', () => {
@@ -245,6 +290,62 @@ Deno.test( {
 			Deno.env.delete( 'FAKE_ROOM_PLAYERS_FILE' );
 			await new Promise( ( r ) => setTimeout( r, 600 ) );
 			await Deno.remove( playersFile );
+		}
+	},
+} );
+
+Deno.test( {
+	name: 'room manager passes validated game options to the room process (MENU-4)',
+	ignore: canRun === false,
+	sanitizeOps: false,
+	sanitizeResources: false,
+	async fn() {
+		const argsFile = await Deno.makeTempFile();
+		Deno.env.set( 'FAKE_ROOM_ARGS_FILE', argsFile );
+		RoomManager_SetConfig( { denoPath: fake } );
+		const silence = console.log;
+		console.log = () => {};
+		try {
+			// Through the lobby's parser, as LOBBY_CREATE does
+			const payload = { map: 'e1m1', maxPlayers: 4, hostName: 'host', options: {
+				coop: 1, teamplay: '1; quit', skill: 99, fraglimit: -5, timelimit: 15.9, evil: '-exec',
+			} };
+			const config = parseCreateConfig( encoder.encode( JSON.stringify( payload ) ) );
+			const room = await RoomManager_CreateRoom( { ...config, owner: '1.2.3.4', specificId: 'OPT001' } );
+			assert.ok( room !== null, 'room should start' );
+			let args = ( await Deno.readTextFile( argsFile ) ).split( '\n' );
+			const i = args.indexOf( '-coop' );
+			assert.deepEqual( args.slice( i, i + 8 ), [ '-coop', '1', '-skill', '3', '-fraglimit', '0', '-timelimit', '15' ] );
+			assert.equal( args.includes( '-teamplay' ), false, 'invalid field dropped' );
+			assert.equal( args.some( ( a ) => a.includes( 'quit' ) || a.includes( 'evil' ) || a === '-exec' ), false );
+			RoomManager_TerminateRoom( 'OPT001' );
+
+			// RoomManager_CreateRoom re-validates what its caller hands it
+			await new Promise( ( r ) => setTimeout( r, 600 ) );
+			const raw = { skill: '3; quit', coop: 5, teamplay: 'x\n-exec' };
+			const room2 = await RoomManager_CreateRoom( { map: 'e1m1', maxPlayers: 4, hostName: 'host', gameOptions: raw, specificId: 'OPT002' } );
+			assert.ok( room2 !== null );
+			args = ( await Deno.readTextFile( argsFile ) ).split( '\n' );
+			const j = args.indexOf( '-coop' );
+			assert.equal( args[ j + 1 ], '1' );
+			assert.equal( args.includes( '-skill' ), false );
+			assert.equal( args.includes( '-teamplay' ), false );
+			RoomManager_TerminateRoom( 'OPT002' );
+
+			// No options: nothing extra on the command line, as before
+			await new Promise( ( r ) => setTimeout( r, 600 ) );
+			const room3 = await RoomManager_CreateRoom( { map: 'e1m1', maxPlayers: 4, hostName: 'host', specificId: 'OPT003' } );
+			assert.ok( room3 !== null );
+			args = ( await Deno.readTextFile( argsFile ) ).split( '\n' );
+			for ( const name of [ '-coop', '-teamplay', '-skill', '-fraglimit', '-timelimit' ] ) {
+				assert.equal( args.includes( name ), false, name );
+			}
+		} finally {
+			RoomManager_ShutdownAll();
+			console.log = silence;
+			Deno.env.delete( 'FAKE_ROOM_ARGS_FILE' );
+			await new Promise( ( r ) => setTimeout( r, 600 ) );
+			await Deno.remove( argsFile );
 		}
 	},
 } );

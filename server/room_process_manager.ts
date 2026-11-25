@@ -120,6 +120,63 @@ export function RoomManager_ClampMaxPlayers( value: unknown ): number {
 }
 
 /**
+ * Game options a client may request for a new room: the Game Options menu's
+ * rows (WinQuake/menu.c M_GameOptions_Key). Each field maps to the cvar of
+ * the same name, and each range is the one that menu allows.
+ */
+export interface GameOptions {
+	coop?: number;
+	teamplay?: number;
+	skill?: number;
+	fraglimit?: number;
+	timelimit?: number;
+}
+
+export const GAME_OPTION_RANGES: Record<keyof GameOptions, [ number, number ]> = {
+	coop: [ 0, 1 ],
+	teamplay: [ 0, 2 ], // 0..6 when the lobby serves Rogue (menu.c: count = rogue ? 6 : 2)
+	skill: [ 0, 3 ],
+	fraglimit: [ 0, 100 ],
+	timelimit: [ 0, 60 ],
+};
+
+/**
+ * Whitelist and clamp a client's requested game options. Only the known
+ * fields are read, only finite numbers are accepted (truncated to integers
+ * and clamped to the menu's range); anything else is dropped so the room
+ * keeps its default for that cvar. Returns undefined when nothing valid was
+ * requested, so a request without options behaves as before.
+ */
+export function RoomManager_SanitizeGameOptions( value: unknown ): GameOptions | undefined {
+	if ( value === null || typeof value !== 'object' || Array.isArray( value ) ) return undefined;
+	const raw = value as Record<string, unknown>;
+	const out: GameOptions = {};
+	let any = false;
+	for ( const key of Object.keys( GAME_OPTION_RANGES ) as ( keyof GameOptions )[] ) {
+		if ( Object.prototype.hasOwnProperty.call( raw, key ) === false ) continue;
+		const n = raw[ key ];
+		if ( typeof n !== 'number' || Number.isFinite( n ) === false ) continue;
+		let max = GAME_OPTION_RANGES[ key ][ 1 ];
+		if ( key === 'teamplay' && gameFlags.includes( '-rogue' ) ) max = 6;
+		// + 0 turns -0 into 0
+		out[ key ] = Math.max( GAME_OPTION_RANGES[ key ][ 0 ], Math.min( max, Math.trunc( n ) ) ) + 0;
+		any = true;
+	}
+	return any ? out : undefined;
+}
+
+/** -coop N -skill N ... for sanitized options (integers only). */
+function gameOptionArgs( options: GameOptions | undefined ): string[] {
+	const args: string[] = [];
+	if ( options === undefined ) return args;
+	for ( const key of Object.keys( GAME_OPTION_RANGES ) as ( keyof GameOptions )[] ) {
+		const n = options[ key ];
+		if ( n !== undefined ) args.push( '-' + key, String( n ) );
+	}
+	return args;
+}
+
+/**
  * Strip control characters, collapse whitespace and cap at
  * MAX_HOST_NAME_BYTES of UTF-8 (without splitting a code point).
  */
@@ -324,6 +381,7 @@ export async function RoomManager_CreateRoom( config: {
 	map: string;
 	maxPlayers: number;
 	hostName: string;
+	gameOptions?: GameOptions;
 	owner?: string;
 	specificId?: string;
 } ): Promise<{ id: string; port: number } | null> {
@@ -345,6 +403,8 @@ export async function RoomManager_CreateRoom( config: {
 	}
 	const maxPlayers = RoomManager_ClampMaxPlayers( config.maxPlayers );
 	const hostName = RoomManager_SanitizeHostName( config.hostName );
+	// Re-validated here too: only whitelisted integers reach the child's argv
+	const gameOptions = RoomManager_SanitizeGameOptions( config.gameOptions );
 
 	// Find available port
 	const port = findAvailablePort();
@@ -420,6 +480,7 @@ export async function RoomManager_CreateRoom( config: {
 				'-statusnonce', nonce,
 				'-parentwatch', // Exit when our stdin closes (lobby died)
 				...gameFlags,
+				...gameOptionArgs( gameOptions ),
 				...( gameDir !== null ? [ '-game', gameDir ] : [] ),
 			],
 			stdin: 'piped',

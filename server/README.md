@@ -148,6 +148,7 @@ WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on t
   - Room creation (including re-creating a shared room on join) is limited to 3 per minute per IP and 10 per minute overall. Attempts whose room fails to start still count.
   - Each IP may have at most 3 live rooms.
   - `maxPlayers` is clamped to an integer from 1 to 16; `hostName` has control characters stripped and is capped at 32 UTF-8 bytes; map names must match `[A-Za-z0-9_]{1,32}`.
+  - `LOBBY_CREATE` may carry `options`, the Game Options menu rows: `coop` (0-1), `teamplay` (0-2, 0-6 when the lobby serves Rogue), `skill` (0-3), `fraglimit` (0-100) and `timelimit` (0-60). Only these keys are read, only finite numbers are accepted, truncated to integers and clamped to those ranges; any other field or value is dropped and the room keeps its default. The room process gets them as `-coop N -teamplay N -skill N -fraglimit N -timelimit N` (only the ones given) and sets the cvars before its map spawns. A request without `options` starts the room as before.
 - **Game transport (`net_webtransport_server.ts`)**:
   - **Bidirectional stream** (length-prefixed frames) for reliable Quake messages (signon data, string commands, score/name updates).
   - **WebTransport datagrams** (with serialized outbound writes and reliable-stream fallback on timeout/error) for unreliable messages (entity updates, clientdata, `clc_move`).

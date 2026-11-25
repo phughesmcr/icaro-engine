@@ -10,8 +10,8 @@ import { COM_AddPakSequence, COM_AddGameDirectory, COM_SetLooseFileBasePaths, CO
 import { COM_InitArgv, LOC_Init, rogue, hipnotic } from '../src/common.js';
 import { Cbuf_Init, Cbuf_Execute, Cmd_Init } from '../src/cmd.js';
 import { Host_InitCommands } from '../src/host_cmd.js';
-import { deathmatch, samelevel, noexit, sys_ticrate, campaign, horde, sv_cheats, Host_ShutdownServer } from '../src/host.js';
-import { Cvar_RegisterVariable } from '../src/cvar.js';
+import { deathmatch, coop, skill, teamplay, fraglimit, timelimit, samelevel, noexit, sys_ticrate, campaign, horde, sv_cheats, Host_ShutdownServer } from '../src/host.js';
+import { Cvar_RegisterVariable, Cvar_FindVar, Cvar_SetValue } from '../src/cvar.js';
 import { cls, ca_dedicated } from '../src/client.js';
 import { Memory_Init } from '../src/zone.js';
 import { PR_Init } from '../src/pr_edict.js';
@@ -43,7 +43,7 @@ import {
 	WT_GetMaxPendingWrites,
 } from './net_webtransport_server.ts';
 import { NET_NewQSocket, NET_FreeQSocket } from '../src/net_main.js';
-import { formatRoomStatusLine, MAX_PLAYERS_LIMIT, DEFAULT_MAX_PLAYERS } from './room_process_manager.ts';
+import { formatRoomStatusLine, MAX_PLAYERS_LIMIT, DEFAULT_MAX_PLAYERS, GAME_OPTION_RANGES } from './room_process_manager.ts';
 
 // Server configuration
 export function createConfig() {
@@ -61,6 +61,7 @@ export function createConfig() {
 		parentWatch: false,  // Exit when stdin closes (the lobby holds the other end)
 		gameFlags: [],       // -rogue and/or -hipnotic: load <basedir>/rogue or hipnotic too
 		gameDir: null,       // -game <dir>: load <basedir>/<dir> too (e.g. the rerelease's mg1)
+		gameOptions: {},     // -coop/-teamplay/-skill/-fraglimit/-timelimit N: cvars set before the map spawns
 	};
 }
 const CONFIG = createConfig();
@@ -108,9 +109,41 @@ export function parseArgs(args = Deno.args, config = CONFIG) {
 		} else if (arg === '-game' && args[i + 1]) {
 			const dir = args[++i];
 			if (isGameDirName(dir)) config.gameDir = dir;
+		} else if (arg.length > 1 && arg[0] === '-' && Object.hasOwn(GAME_OPTION_RANGES, arg.slice(1)) && args[i + 1] !== undefined) {
+			// The lobby has already clamped these; this re-checks them (a
+			// room can also be started by hand) and ignores anything else.
+			const name = arg.slice(1);
+			const text = args[++i];
+			if (/^[0-9]{1,6}$/.test(text)) {
+				const [min, max] = GAME_OPTION_RANGES[name];
+				const top = name === 'teamplay' && config.gameFlags.includes('-rogue') ? 6 : max;
+				config.gameOptions[name] = Math.max(min, Math.min(top, parseInt(text, 10)));
+			}
 		}
 	}
 	return config;
+}
+
+/**
+ * menu.c M_GameOptions_Key sets coop, teamplay, skill, fraglimit and
+ * timelimit before "map". Same here, before SV_SpawnServer. Only the options
+ * given are touched; with none, the room is exactly as before. These cvars
+ * are not registered in this process (Host_InitLocal never runs), so
+ * register them first or Cvar_SetValue finds nothing.
+ */
+export function applyGameOptions(options) {
+	const cvars = { coop, teamplay, skill, fraglimit, timelimit };
+	for (const name of Object.keys(cvars)) {
+		if (Object.hasOwn(options, name) === false) continue;
+		if (Cvar_FindVar(name) === null) Cvar_RegisterVariable(cvars[name]);
+		Cvar_SetValue(name, options[name]);
+	}
+	// SV_SpawnServer zeroes deathmatch when coop is set, but only through the
+	// cvar list, where this process keeps deathmatch unregistered.
+	if (options.coop === 1) {
+		deathmatch.value = 0;
+		deathmatch.string = '0';
+	}
 }
 
 /**
@@ -373,6 +406,7 @@ async function Host_Init_Server() {
 	if (await COM_EnsureFile('maps/' + CONFIG.defaultMap + '.bsp') !== true) {
 		throw new Error('Map not found: maps/' + CONFIG.defaultMap + '.bsp');
 	}
+	applyGameOptions(CONFIG.gameOptions);
 	SV_SpawnServer(CONFIG.defaultMap);
 	if (sv.active !== true) {
 		throw new Error('Could not spawn map ' + CONFIG.defaultMap);
