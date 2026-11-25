@@ -139,6 +139,11 @@ export const EF_TRACER3 = 128;		// purple trail
 // aren't in the mdl, set by Mod_SetExtraFlags.
 export const MOD_NOLERP = 256;		// don't lerp when animating
 
+// Deliberate deviation, from MarkV/QSS via QuakeSpasm and Ironwail
+// (gl_model.h): a model flag that makes palette index 255 transparent in
+// the mdl's skins. Mods set it in the mdl header; id's models don't.
+export const MF_HOLEY = 1 << 14;
+
 // ============================================================================
 // Alias model limits
 // ============================================================================
@@ -2695,6 +2700,9 @@ function Mod_LoadAllSkins( buf, numskins, offset ) {
 	const SIZEOF_DALIASSKINTYPE = 4; // int type
 	// no palette (the Deno server never runs VID_Init): no masks to make
 	const splitFullbright = vid.fullbright > 0;
+	// MF_HOLEY (QuakeSpasm/Ironwail TEXPREF_ALPHA): index 255 is transparent;
+	// gl_mesh.js alpha-tests these skins
+	const holey = ( loadmodel.flags & MF_HOLEY ) !== 0;
 
 	let pos = offset;
 
@@ -2719,7 +2727,7 @@ function Mod_LoadAllSkins( buf, numskins, offset ) {
 			pheader.gl_texturenum[ i ][ 1 ] =
 			pheader.gl_texturenum[ i ][ 2 ] =
 			pheader.gl_texturenum[ i ][ 3 ] =
-				GL_LoadTexture( name, pheader.skinwidth, pheader.skinheight, skin, true, false, splitFullbright, true );
+				GL_LoadTexture( name, pheader.skinwidth, pheader.skinheight, skin, true, holey, splitFullbright, true );
 
 			pos = skinDataOfs + s;
 
@@ -2748,7 +2756,7 @@ function Mod_LoadAllSkins( buf, numskins, offset ) {
 
 				const name = loadmodel.name + '_' + i + '_' + j;
 				pheader.gl_texturenum[ i ][ j & 3 ] =
-					GL_LoadTexture( name, pheader.skinwidth, pheader.skinheight, skin, true, false, splitFullbright, true );
+					GL_LoadTexture( name, pheader.skinwidth, pheader.skinheight, skin, true, holey, splitFullbright, true );
 
 				pos += s;
 
