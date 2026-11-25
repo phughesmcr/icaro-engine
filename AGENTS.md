@@ -44,6 +44,9 @@ process per room. It was forked from mrdoob's three-quake.
   (Containers, Durable Objects, VMs), with room memory/CPU/bandwidth
   measurements and the plan. Supersedes the recommendation in
   `cloudflare-multiplayer.md`. A snapshot.
+- `docs/browser-hosted-rooms.md`: design for rooms hosted in a player's
+  browser tab and joined over WebRTC, with a Durable Object lobby for
+  signalling. A design; nothing in it is built or tested yet.
 - `docs/mobile-roadmap.md`: mobile-friendliness review (controls, rendering,
   offline, lifecycle, networking, competitive landscape) with confirmed bugs
   and a ranked roadmap. A snapshot; nothing in it was tested on a device.
