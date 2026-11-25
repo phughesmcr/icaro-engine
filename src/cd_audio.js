@@ -35,6 +35,8 @@ let musicSource = null; // MediaElementAudioSourceNode
 
 // The unrouted element was paused because sound was blocked (tab hidden)
 let hiddenPaused = false;
+// Sound is blocked (tab hidden)
+let soundBlocked = false;
 
 // Track URL provider (set externally)
 let _getTrackURL = null;
@@ -142,6 +144,8 @@ the same block and unblock.
 */
 function CDAudio_BlockSound() {
 
+	soundBlocked = true;
+
 	if ( ! initialized || ! playing || musicElement === null || musicGainNode !== null )
 		return;
 
@@ -155,6 +159,8 @@ function CDAudio_BlockSound() {
 }
 
 function CDAudio_UnblockSound() {
+
+	soundBlocked = false;
 
 	if ( ! hiddenPaused )
 		return;
@@ -183,6 +189,14 @@ to the element's error event.
 ================
 */
 function CDAudio_StartElement( attempt ) {
+
+	// An unrouted element would play aloud in a hidden tab: wait for unblock
+	if ( soundBlocked === true && musicGainNode === null ) {
+
+		hiddenPaused = true;
+		return;
+
+	}
 
 	const promise = musicElement.play();
 

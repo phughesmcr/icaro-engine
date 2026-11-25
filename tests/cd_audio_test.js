@@ -417,3 +417,28 @@ Deno.test( 'CD-3: cd eject stops the playing track, cd close does nothing', asyn
 	} );
 
 } );
+
+Deno.test( 'CD-3: a track started or resumed while hidden waits for the tab to return', async () => {
+
+	await withSound( 'throws', () => {
+
+		cd_audio.CDAudio_Play( 2, true );
+		const el = FakeAudio.last;
+		snd_dma.S_BlockSound();
+		const plays = el.plays.length;
+
+		cd_audio.CDAudio_Play( 3, true );
+		assertEqual( el.plays.length, plays, 'a new track does not play while hidden' );
+		assertEqual( el.src, 'a/track03.ogg', 'but it is loaded' );
+
+		cd_audio.CDAudio_Pause();
+		cd_audio.CDAudio_Resume();
+		assertEqual( el.plays.length, plays, 'Resume does not play while hidden' );
+
+		snd_dma.S_UnblockSound();
+		assertEqual( el.plays.length, plays + 1, 'plays on unblock' );
+		assertEqual( el.plays[ el.plays.length - 1 ], 'a/track03.ogg', 'the new track' );
+
+	} );
+
+} );
