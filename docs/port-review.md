@@ -139,7 +139,14 @@ PRs #147 to #150:
 - **Three.js rendering:** world batches with no instance in the PVS are hidden, so Three.js no longer binds and draws empty batches on big BSP2 maps (#149).
 - **Docs:** this fix status up to #146 (#147).
 
-At `055c52f` (`dev`, after #150), `deno task test` passes 661 tests, including `tests/net_webtransport_server_test.ts`. At `3d1947b` (after #146) it passed 651, at `772379d` (after #140) it passed 611, and at `223a180` (after #114) 546.
+PRs #151 to #156 (Part 3's findings):
+
+- **Docs:** this fix status up to #150 (#151), and Part 3 of this review, sections 13 to 18 (#152).
+- **Back to id's C:** BSP-1, `texturemins` stored as `int`, as in Ironwail, so lightmap origins no longer wrap on large BSP2 maps (#153). All 26 affected faces in the rerelease's `mg3` `map7` now get the right values, and no map in id1, hipnotic or rogue had a value out of range. CD-1, CD-2 and part of CD-3 (#154): `CDAudio_Stop` and `CDAudio_Play` follow `cd_win.c`'s order, the track is taken as a byte, and the `cd` subcommands are case-insensitive. CD-3's `close`, `eject`, volume and hidden-tab items are not fixed.
+- **Web multiplayer menus:** MENU-1, MENU-2 and MENU-3 (#155). `?server=` is validated by `Sys_ParseLobbyURL` and kept in the page URL, `connect` arguments are quoted safely, and Start Game has an in-flight guard that Escape cancels. MENU-4 is not fixed.
+- **WebXR rendering:** XR-1 and XR-2 (#156). In XR, `R_CullBox` culls with the eyes' frustum, not the body's, and the screen blends draw on a head-locked quad under the HUD. XR-3 is not fixed. No headset test was done; #156 lists the manual steps.
+
+At `10e13c4` (`dev`, after #156), `deno task test` passes 684 tests. At `055c52f` (after #150) it passed 661, including `tests/net_webtransport_server_test.ts`. At `3d1947b` (after #146) it passed 651, at `772379d` (after #140) it passed 611, and at `223a180` (after #114) 546.
 
 ### Residuals and follow-ups
 
@@ -740,6 +747,8 @@ The method is the one Part 1 used. Reviewers, one per area, compared the port wi
 7. **CD-1, CD-2:** a map without a CD track stops the music, where id keeps it playing, and a stopped track restarts on unpause.
 8. **Low-medium:** `gl_texsort 0` freezes lightmaps (TEX-1), liquid alpha is gated on vis the other way round from Ironwail (BSP-2), remote players lose all sounds and particles on a busy frame (PROTO-1), and the room list races (MENU-4).
 9. **Low:** the rest of sections 13 to 17.
+
+**Status:** items 1 to 7 are fixed in `dev` by #153 to #156, with CD-3 partly fixed; see "PRs #151 to #156" in the fix status at the top. The sections below still describe the port at `055c52f`.
 
 Nothing in #115 to #150 changed what id's data does: BSP29 maps, mono lighting, protocol 15 demos and progs without the rerelease effects all take id's path (section 17).
 
