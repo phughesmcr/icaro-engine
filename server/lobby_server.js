@@ -10,6 +10,21 @@ import { QUIC_CloseEndpoints, QUIC_OpenEndpoints } from './quic_listen.ts';
 import { WS_ClientAddress } from './client_address.ts';
 import { WT_BuildHandshakeReplyFrame, WT_HANDSHAKE_REJECT, WS_CHANNEL_UNRELIABLE } from '../src/net.js';
 import {
+	RtcLobby,
+	RTC_LOBBY_LIMITS,
+	RTC_ROOM_CODE_PATTERN,
+	LOBBY_LIST,
+	LOBBY_JOIN,
+	LOBBY_CREATE,
+	LOBBY_HOST,
+	LOBBY_SIGNAL,
+	LOBBY_HEARTBEAT,
+	LOBBY_ROOMS,
+	LOBBY_ERROR,
+	Lobby_WantsRtcRooms,
+	createRateLimiter,
+} from './lobby_rtc.js';
+import {
 	RoomManager_SetConfig,
 	RoomManager_CreateRoom,
 	RoomManager_GetRoom,
@@ -90,42 +105,8 @@ function parseArgs() {
 	}
 }
 
-/**
- * Sliding-window rate limiter keyed by string (client IP, or '*' for global).
- */
-export function createRateLimiter( limit, windowMs ) {
-	const hits = new Map();
-
-	function prune( now ) {
-		for ( const [ key, times ] of hits ) {
-			while ( times.length > 0 && now - times[ 0 ] >= windowMs ) times.shift();
-			if ( times.length === 0 ) hits.delete( key );
-		}
-	}
-
-	return {
-		// True if `key` may act now (does not record a hit)
-		canTake( key, now = Date.now() ) {
-			prune( now );
-			const times = hits.get( key );
-			return times === undefined || times.length < limit;
-		},
-		// True if `key` may act now (and records the hit)
-		tryTake( key, now = Date.now() ) {
-			if ( this.canTake( key, now ) === false ) return false;
-			let times = hits.get( key );
-			if ( times === undefined ) {
-				times = [];
-				hits.set( key, times );
-			}
-			times.push( now );
-			return true;
-		},
-		size() {
-			return hits.size;
-		},
-	};
-}
+// In lobby_rtc.js, which the Cloudflare lobby shares
+export { createRateLimiter };
 
 const perIpCreateLimiter = createRateLimiter( LIMITS.createsPerIpPerWindow, LIMITS.createWindowMs );
 const globalCreateLimiter = createRateLimiter( LIMITS.createsGlobalPerWindow, LIMITS.createWindowMs );
@@ -184,13 +165,19 @@ export function parseCreateConfig( data ) {
 	return parsed;
 }
 
-// Lobby message types
-const LOBBY_LIST = 0x01;
-const LOBBY_JOIN = 0x02;
-const LOBBY_CREATE = 0x03;
-const LOBBY_ROOMS = 0x81;
-const LOBBY_ERROR = 0x82;
+// Lobby message types are in lobby_rtc.js
 const ROOM_ID_PATTERN = /^[A-Z0-9]{6}$/;
+
+// Rooms hosted in browsers (lobby_rtc.js). Only the WebSocket lobby serves
+// them: their hosts and joiners keep a lobby socket open to signal.
+export const rtcLobby = new RtcLobby( {
+	isCodeTaken: ( code ) => RoomManager_HasRoom( code ),
+	limits: { ...RTC_LOBBY_LIMITS, maxSessions: 256, maxSessionsPerIp: 8 },
+} );
+// Session id -> socket, for the long-lived lobby sockets rtcLobby knows
+const rtcSockets = new Map();
+let rtcNextSession = 1;
+let rtcPruneTimer = null;
 
 // QUIC endpoints (IPv6 and/or IPv4, see quic_listen.ts)
 let quicEndpoints = null;
@@ -342,6 +329,7 @@ export async function handleLobbyRequest( msg, ip, address ) {
 		case LOBBY_LIST: {
 			// Send room list
 			const rooms = RoomManager_ListRooms();
+			if ( Lobby_WantsRtcRooms( msg.data ) ) rooms.push( ...rtcLobby.listRooms( Date.now() ) );
 			Sys_Printf( 'LIST from %s: %d rooms\n', address, rooms.length );
 			return { type: LOBBY_ROOMS, data: new TextEncoder().encode( JSON.stringify( rooms ) ) };
 		}
@@ -374,6 +362,14 @@ export async function handleLobbyRequest( msg, ip, address ) {
 		case LOBBY_JOIN: {
 			// Get room info so client knows which port to connect to
 			const roomId = new TextDecoder().decode( msg.data ).trim().toUpperCase();
+			if ( RTC_ROOM_CODE_PATTERN.test( roomId ) ) {
+				// serveLobbySocket hands these to rtcLobby; this is the
+				// WebTransport lobby, which can't keep the socket open
+				Sys_Printf( 'JOIN %s from %s: browser-hosted room, not over WebTransport\n', roomId, address );
+				return errorReply( rtcLobby.hasRoom( roomId )
+					? 'This room is hosted in a browser. Join it over WebSocket.'
+					: 'Room not found. The game may have ended.' );
+			}
 			let room = ROOM_ID_PATTERN.test( roomId ) ? RoomManager_GetRoom( roomId ) : null;
 			let errorMsg = 'Room not found. The game may have ended.';
 
@@ -618,16 +614,63 @@ function closeWhenDrained( socket, code = 1000, reason = '' ) {
 }
 
 /**
- * One lobby request over WebSocket: read a frame, answer it, close.
+ * True if a first lobby frame is for rtcLobby: hosting, signalling, or
+ * joining a room whose code is a browser-hosted room's.
+ */
+function isRtcRequest( type, data ) {
+	if ( type === LOBBY_HOST || type === LOBBY_SIGNAL || type === LOBBY_HEARTBEAT ) return true;
+	return type === LOBBY_JOIN && RTC_ROOM_CODE_PATTERN.test( new TextDecoder().decode( data ).trim().toUpperCase() );
+}
+
+function decodeLobbyFrame( raw ) {
+	const bytes = raw instanceof ArrayBuffer ? new Uint8Array( raw ) : null;
+	const length = bytes !== null && bytes.length >= 3 ? bytes[ 1 ] | ( bytes[ 2 ] << 8 ) : -1;
+	if ( bytes === null || length < 0 || bytes.length !== 3 + length ) return null;
+	return { type: bytes[ 0 ], data: bytes.subarray( 3 ) };
+}
+
+function sendRtcFrames( frames ) {
+	for ( const frame of frames ) {
+		const socket = rtcSockets.get( frame.to );
+		if ( socket === undefined || socket.readyState !== WS_OPEN ) continue;
+		try {
+			socket.send( encodeFrame( frame.type, frame.data ) );
+		} catch { /* closing */ }
+	}
+}
+
+/**
+ * Close the long-lived lobby sockets rtcLobby has given up on (hosts with
+ * no heartbeat, joiners that have had their time). Runs on a timer.
+ */
+export function pruneRtcSessions( now = Date.now() ) {
+	for ( const sid of rtcLobby.prune( now ) ) {
+		const socket = rtcSockets.get( sid );
+		rtcSockets.delete( sid );
+		if ( socket !== undefined ) closeWhenDrained( socket );
+	}
+}
+
+/**
+ * One lobby request over WebSocket: read a frame, answer it, close. A host
+ * (LOBBY_HOST) or a joiner of a browser-hosted room keeps its socket open
+ * instead, and rtcLobby handles everything it sends from then on.
  */
 export function serveLobbySocket( socket, ip, address, release ) {
 	socket.binaryType = 'arraybuffer';
 	let done = false;
+	let sid = null;
 	const finish = () => {
 		if ( done ) return;
 		done = true;
 		clearTimeout( timer );
 		release();
+	};
+	const endRtc = () => {
+		if ( sid === null ) return;
+		rtcLobby.close( sid );
+		rtcSockets.delete( sid );
+		sid = null;
 	};
 	const timer = setTimeout( () => {
 		Sys_Printf( 'Message read error from %s: Message read timeout\n', address );
@@ -635,22 +678,72 @@ export function serveLobbySocket( socket, ip, address, release ) {
 		try { socket.close( 1000 ); } catch { /* ignore */ }
 	}, WS_LOBBY_REQUEST_TIMEOUT_MS );
 
-	socket.onclose = finish;
-	socket.onerror = finish;
+	socket.onclose = () => {
+		finish();
+		endRtc();
+	};
+	socket.onerror = socket.onclose;
+
+	// Every frame after the first on a host's or joiner's socket
+	const onRtcMessage = async ( event ) => {
+		const msg = decodeLobbyFrame( event.data );
+		if ( msg === null ) {
+			Sys_Printf( 'Message read error from %s: malformed lobby frame\n', address );
+			endRtc();
+			try { socket.close( 1002 ); } catch { /* ignore */ }
+			return;
+		}
+		if ( sid === null ) return;
+		const frames = await rtcLobby.handle( sid, msg.type, msg.data, Date.now() );
+		if ( frames === null ) {
+			sendRtcFrames( [ { to: sid, type: LOBBY_ERROR, data: new TextEncoder().encode( 'Not available on this connection' ) } ] );
+		} else {
+			sendRtcFrames( frames );
+		}
+	};
+
 	socket.onmessage = async ( event ) => {
 		socket.onmessage = null;
 		clearTimeout( timer );
-		const raw = event.data;
-		const bytes = raw instanceof ArrayBuffer ? new Uint8Array( raw ) : null;
-		const length = bytes !== null && bytes.length >= 3 ? bytes[ 1 ] | ( bytes[ 2 ] << 8 ) : -1;
-		if ( bytes === null || length < 0 || bytes.length !== 3 + length ) {
+		const msg = decodeLobbyFrame( event.data );
+		if ( msg === null ) {
 			Sys_Printf( 'Message read error from %s: malformed lobby frame\n', address );
 			finish();
 			try { socket.close( 1002 ); } catch { /* ignore */ }
 			return;
 		}
+
+		if ( isRtcRequest( msg.type, msg.data ) ) {
+			if ( rtcLobby.canOpen( ip ) === false ) {
+				Sys_Printf( 'Rejecting lobby session from %s: too many open\n', address );
+				socket.send( encodeFrame( LOBBY_ERROR, new TextEncoder().encode( 'Too many connections. Try again shortly.' ) ) );
+				finish();
+				closeWhenDrained( socket );
+				return;
+			}
+			sid = 'w' + ( rtcNextSession++ );
+			rtcLobby.open( sid, ip, Date.now() );
+			rtcSockets.set( sid, socket );
+			// A long-lived socket stops counting against the one-request budget
+			finish();
+			try {
+				const frames = await rtcLobby.handle( sid, msg.type, msg.data, Date.now() );
+				sendRtcFrames( frames ?? [] );
+			} catch ( error ) {
+				Sys_Printf( 'Session error from %s: %s\n', address, error.message );
+			}
+			if ( sid !== null && rtcLobby.isLongLived( sid ) ) {
+				Sys_Printf( 'Lobby session %s from %s: %s\n', sid, address, msg.type === LOBBY_HOST ? 'hosting' : 'joining' );
+				socket.onmessage = onRtcMessage;
+			} else {
+				endRtc();
+				closeWhenDrained( socket );
+			}
+			return;
+		}
+
 		try {
-			const reply = await handleLobbyRequest( { type: bytes[ 0 ], data: bytes.subarray( 3 ) }, ip, address );
+			const reply = await handleLobbyRequest( msg, ip, address );
 			if ( reply !== null && socket.readyState === WS_OPEN ) socket.send( encodeFrame( reply.type, reply.data ) );
 		} catch ( error ) {
 			Sys_Printf( 'Session error from %s: %s\n', address, error.message );
@@ -868,6 +961,7 @@ async function startWebSocketListener() {
 	wsAbort = new AbortController();
 	options.signal = wsAbort.signal;
 	Deno.serve( options, handleLobbyHttpRequest );
+	rtcPruneTimer = setInterval( () => pruneRtcSessions(), 15 * 1000 );
 }
 
 /**
@@ -938,6 +1032,10 @@ function shutdown( reason, code ) {
 	if ( wsAbort !== null ) {
 		wsAbort.abort();
 		wsAbort = null;
+	}
+	if ( rtcPruneTimer !== null ) {
+		clearInterval( rtcPruneTimer );
+		rtcPruneTimer = null;
 	}
 	Deno.exit( code );
 }

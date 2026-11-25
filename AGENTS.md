@@ -24,7 +24,10 @@ process per room. It was forked from mrdoob's three-quake.
 - `main.js` and `index.html`: the browser entry. `index.html`'s import map
   loads `three` and `nipplejs` from jsDelivr. Assets are in `static/`.
 - `server/`: `lobby_server.js`, `game_server.js` and the WebTransport and
-  WebSocket server drivers (`.ts`). Under Deno, `three` maps to `server/browser_shim.js` (root
+  WebSocket server drivers (`.ts`). `lobby_rtc.js` is the lobby for rooms
+  hosted in browsers (room table and WebRTC signal relay) and
+  `room_config.js` the room-config checks; both are pure, so the Cloudflare
+  lobby imports them too. Under Deno, `three` maps to `server/browser_shim.js` (root
   `deno.json`). If `src/` starts using a new Three.js export, add it to the
   shim or the server and tests break. `server/headless_host.js` runs the
   whole game (host, local server and a loopback client) under Deno with no
@@ -33,6 +36,12 @@ process per room. It was forked from mrdoob's three-quake.
   game-room image from an allowlist (`deno.json`, `server/`, `src/`,
   `static/pak0.pak`), with the root `.dockerignore` as a second guard; never
   widen either to registered data (see Game data).
+- `cloudflare/lobby/`: the lobby Worker and Durable Object for rooms hosted
+  in browsers, with TURN credentials (its README says how to deploy).
+  `src/worker.js` imports `cloudflare:workers`, so tests run
+  `src/lobby_core.js` instead. Run wrangler only from that folder: from the
+  repository root it offers to upload the whole repository, registered
+  data included.
 - `docs/port-review.md`: a fidelity review of the port against the C source.
   It is a snapshot taken at a past revision, so check its claims against the
   code before relying on them.
@@ -119,7 +128,7 @@ process per room. It was forked from mrdoob's three-quake.
 ### Lint and format
 
 - `deno task lint` (config in root `deno.json`: `main.js`, `src/`, `server/`,
-  `tests/`; `no-window` rules off) passes with zero problems. The bar is
+  `tests/`, `cloudflare/`; `no-window` rules off) passes with zero problems. The bar is
   **lint passes**; CI enforces it.
 - Unused parameters kept for C-signature parity get a `_` prefix
   (`Z_Free( _ptr )`). Use a line-level `// deno-lint-ignore no-unused-vars`

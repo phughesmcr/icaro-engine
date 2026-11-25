@@ -136,6 +136,7 @@ Both `--allow-net` grants are needed in every case: a missing grant fails startu
 ## Connecting from Browser
 
 - **Multiplayer menu (lobby mode):** Queries `lobby_server.js` on port `4433` to list, create, or join rooms, then connects directly to the assigned room's `game_server.js` port (`4434`–`4443`). A WebSocket client instead connects to the lobby's `<prefix>/room/<id>` path, which the lobby proxies to the room, so only the lobby's port needs to be reachable. Joining a valid 6-character shared room code for an expired room re-creates it, subject to the same limits as creating a room.
+- **Rooms hosted in browsers:** the WebSocket lobby also serves the lobby side of rooms that a player's tab hosts over WebRTC (`lobby_rtc.js`, shared with `cloudflare/lobby/`): a host registers with `LOBBY_HOST` and keeps its lobby socket open, joiners `LOBBY_JOIN` its 8-character code, and the lobby relays their signals. The lobby gives these clients STUN only; TURN credentials come from the Cloudflare lobby. The client side is not built yet (see `docs/browser-hosted-rooms.md`).
 - **Direct console connection:** In the Icaro Engine console, connect directly to a `game_server.js` instance:
 
 ```text
