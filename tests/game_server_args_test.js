@@ -120,3 +120,34 @@ Deno.test( 'room options are parsed as clamped integers and applied as cvars bef
 	}
 
 } );
+
+Deno.test( 'room exit rules reach QuakeC through the cvar list: noexit/samelevel on in deathmatch, off in co-op', async () => {
+
+	const { applyExitRules } = await import( '../server/game_server.js' );
+	const cvar = await import( '../src/cvar.js' );
+	const names = [ 'noexit', 'samelevel' ];
+
+	const saved = names.map( ( n ) => [ n, cvar.Cvar_FindVar( n ) === null ? null : cvar.Cvar_VariableString( n ) ] );
+	try {
+
+		// PF_cvar reads Cvar_VariableValue, which is 0 for an unregistered cvar
+		applyExitRules( {} );
+		assertEqual( cvar.Cvar_VariableValue( 'noexit' ), 1, 'deathmatch room: noexit' );
+		assertEqual( cvar.Cvar_VariableValue( 'samelevel' ), 2, 'deathmatch room: samelevel' );
+
+		applyExitRules( { coop: 1 } );
+		assertEqual( cvar.Cvar_VariableValue( 'noexit' ), 0, 'co-op room: noexit' );
+		assertEqual( cvar.Cvar_VariableValue( 'samelevel' ), 0, 'co-op room: samelevel' );
+
+		applyExitRules( { teamplay: 1 } );
+		assertEqual( cvar.Cvar_VariableValue( 'noexit' ), 1, 'deathmatch again: noexit' );
+		assertEqual( cvar.Cvar_VariableValue( 'samelevel' ), 2, 'deathmatch again: samelevel' );
+
+	} finally {
+
+		// registration can't be undone; an unregistered cvar goes back to its default
+		for ( const [ n, v ] of saved ) cvar.Cvar_Set( n, v === null ? '0' : v );
+
+	}
+
+} );
