@@ -9,7 +9,7 @@ import { r_avertexnormals } from './anorm_dots.js';
 import { VectorCopy, VectorCompare } from './mathlib.js';
 import { r_lerpmodels, r_lerpmove, r_nolerp_list,
 	LERP_MOVESTEP, LERP_RESETANIM, LERP_RESETANIM2, LERP_RESETMOVE, LERP_FINISH } from './render.js';
-import { MOD_NOLERP, Mod_SetExtraFlags } from './gl_model.js';
+import { MOD_NOLERP, MF_HOLEY, Mod_SetExtraFlags } from './gl_model.js';
 
 /*
 =================================================================
@@ -876,6 +876,17 @@ export class AliasMaterial extends THREE.MeshBasicMaterial {
 
 }
 
+// MF_HOLEY skins: Ironwail's alias shader discards texels with alpha
+// below 0.666 (QuakeSpasm: glAlphaFunc GL_GREATER 0.666)
+const HOLEY_ALPHATEST = 0.666;
+
+function _skinAlphaTest( entity ) {
+
+	return entity !== null && entity.model !== null && ( entity.model.flags & MF_HOLEY ) !== 0
+		? HOLEY_ALPHATEST : 0;
+
+}
+
 // A skin's fullbright mask, or null. Unloaded gl_texturenum slots hold 0.
 function _skinFullbright( texture ) {
 
@@ -927,6 +938,8 @@ export function R_GetAliasMaterial( paliashdr, entity, hasLighting, playerSkinTe
 			// the translated skin has the model skin's layout, so its
 			// fullbright mask lines up
 			entity._playerMaterial.fullbrightMap = _skinFullbright( R_GetAliasSkinTexture( paliashdr, entity, 0 ) );
+			// MF_HOLEY isn't applied here: R_TranslatePlayerSkin (gl_rmisc.js)
+			// builds the translated skin fully opaque
 			entity._playerSkinTexture = playerSkinTexture;
 
 		}
@@ -958,6 +971,7 @@ export function R_GetAliasMaterial( paliashdr, entity, hasLighting, playerSkinTe
 			vertexColors: hasLighting
 		} );
 		material.fullbrightMap = _skinFullbright( texture );
+		material.alphaTest = _skinAlphaTest( entity );
 
 	} else {
 
@@ -1012,6 +1026,7 @@ export function R_GetAliasLerpMaterial( entity, base, blend ) {
 			material.needsUpdate = true;
 		material.map = base.map;
 		material.fullbrightMap = base.fullbrightMap;
+		material.alphaTest = base.alphaTest;	// Three recompiles when it turns on or off
 		material.color.copy( base.color );
 		material.vertexColors = base.vertexColors;
 		material._lerpbase = base;
