@@ -311,12 +311,58 @@ function GP_GetPrimary() {
 
 }
 
-function GP_ApplyDeadzone( v, deadzone ) {
+// Stick scratch vectors, [ x, y ] (Golden Rule #4)
+const _gpMove = new Float32Array( 2 );
+const _gpLook = new Float32Array( 2 );
 
-	if ( Math.abs( v ) < deadzone ) return 0;
+/*
+================
+GP_ApplyDeadzone
 
-	// Rescale so movement starts smoothly at the edge of the deadzone
-	return ( v - Math.sign( v ) * deadzone ) / ( 1 - deadzone );
+Ironwail in_sdl.c IN_ApplyDeadzone: a circular inner deadzone and a
+circular outer threshold. The magnitude is rescaled so the deadzone edge
+becomes 0 and 1 - outer_threshold becomes 1, then clamped at 1.
+================
+*/
+function GP_ApplyDeadzone( out, x, y, deadzone, outer_threshold ) {
+
+	const magnitude = Math.sqrt( x * x + y * y );
+
+	if ( magnitude > deadzone ) {
+
+		// Ironwail expects deadzone + outer_threshold < 1; if they meet, any
+		// push past the deadzone is full scale rather than a division by 0
+		const range = 1 - deadzone - outer_threshold;
+		const new_magnitude = range > 0 ? Math.min( 1, ( magnitude - deadzone ) / range ) : 1;
+		const scale = new_magnitude / magnitude;
+		out[ 0 ] = x * scale;
+		out[ 1 ] = y * scale;
+
+	} else {
+
+		out[ 0 ] = 0;
+		out[ 1 ] = 0;
+
+	}
+
+}
+
+/*
+================
+GP_ApplyEasing
+
+Ironwail in_sdl.c IN_ApplyEasing: raises the magnitude (at most 1) to the
+given exponent, keeping the direction
+================
+*/
+function GP_ApplyEasing( v, exponent ) {
+
+	const magnitude = Math.sqrt( v[ 0 ] * v[ 0 ] + v[ 1 ] * v[ 1 ] );
+	if ( magnitude === 0 ) return;
+
+	const scale = Math.pow( magnitude, exponent ) / magnitude;
+	v[ 0 ] *= scale;
+	v[ 1 ] *= scale;
 
 }
 
@@ -421,13 +467,18 @@ function GP_Poll( cmd ) {
 	// Gameplay movement/look (skip in menus; skip when cmd is missing)
 	if ( ! cmd || key_dest !== key_game || cls.demoplayback ) return;
 
-	const moveDeadzone = 0.15;
-	const lookDeadzone = 0.12;
+	// Ironwail IN_JoyMove: radial deadzone, then easing, per stick
+	GP_ApplyDeadzone( _gpMove, gp.axes?.[ 0 ] ?? 0, gp.axes?.[ 1 ] ?? 0,
+		joy_deadzone_move.value, joy_outer_threshold_move.value );
+	GP_ApplyDeadzone( _gpLook, gp.axes?.[ 2 ] ?? 0, gp.axes?.[ 3 ] ?? 0,
+		joy_deadzone_look.value, joy_outer_threshold_look.value );
+	GP_ApplyEasing( _gpMove, joy_exponent_move.value );
+	GP_ApplyEasing( _gpLook, joy_exponent.value );
 
-	const lx = GP_ApplyDeadzone( gp.axes?.[ 0 ] ?? 0, moveDeadzone );
-	const ly = GP_ApplyDeadzone( gp.axes?.[ 1 ] ?? 0, moveDeadzone );
-	const rx = GP_ApplyDeadzone( gp.axes?.[ 2 ] ?? 0, lookDeadzone );
-	const ry = GP_ApplyDeadzone( gp.axes?.[ 3 ] ?? 0, lookDeadzone );
+	const lx = _gpMove[ 0 ];
+	const ly = _gpMove[ 1 ];
+	const rx = _gpLook[ 0 ];
+	const ry = _gpLook[ 1 ];
 
 	// Left stick → movement
 	cmd.forwardmove -= cl_forwardspeed.value * ly;
@@ -459,6 +510,16 @@ const m_filter = { name: 'm_filter', string: '0', value: 0 };
 // Defaults keep yaw/pitch even and slower than the prior hardcoded multiplier.
 const gp_look_yaw = { name: 'gp_look_yaw', string: '1', value: 1 };
 const gp_look_pitch = { name: 'gp_look_pitch', string: '1', value: 1 };
+// Stick deadzones and response curve, named as in Ironwail's in_sdl.c. The
+// defaults keep the port's old feel (per-axis deadzones of 0.15 move and
+// 0.12 look, linear response); Ironwail's are 0.175, outer 0.02 and
+// exponent 2.
+const joy_deadzone_look = { name: 'joy_deadzone_look', string: '0.12', value: 0.12, archive: true };
+const joy_deadzone_move = { name: 'joy_deadzone_move', string: '0.15', value: 0.15, archive: true };
+const joy_outer_threshold_look = { name: 'joy_outer_threshold_look', string: '0', value: 0, archive: true };
+const joy_outer_threshold_move = { name: 'joy_outer_threshold_move', string: '0', value: 0, archive: true };
+const joy_exponent = { name: 'joy_exponent', string: '1', value: 1, archive: true };
+const joy_exponent_move = { name: 'joy_exponent_move', string: '1', value: 1, archive: true };
 // XR turning: 0 = smooth turn with the right stick, otherwise snap by this many degrees
 const xr_snapturn = { name: 'xr_snapturn', string: '0', value: 0, archive: true };
 // XR smooth-turn rate at full stick deflection, degrees per second (was a fixed 2 * cl_yawspeed, 280 at its default of 140)
@@ -1311,6 +1372,12 @@ export function IN_Init( element ) {
 	Cvar_RegisterVariable( m_filter );
 	Cvar_RegisterVariable( gp_look_yaw );
 	Cvar_RegisterVariable( gp_look_pitch );
+	Cvar_RegisterVariable( joy_deadzone_look );
+	Cvar_RegisterVariable( joy_deadzone_move );
+	Cvar_RegisterVariable( joy_outer_threshold_look );
+	Cvar_RegisterVariable( joy_outer_threshold_move );
+	Cvar_RegisterVariable( joy_exponent );
+	Cvar_RegisterVariable( joy_exponent_move );
 	Cvar_RegisterVariable( xr_snapturn );
 	Cvar_RegisterVariable( xr_turnspeed );
 	Touch_RegisterCvars();
