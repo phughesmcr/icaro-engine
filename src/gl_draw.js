@@ -712,8 +712,8 @@ export function Draw_Character( x, y, num ) {
 	if ( char_canvas ) {
 
 		// Character sheet is 16x16 grid of 8x8 chars
-		const row = Math.floor( num / 16 );
-		const col = num % 16;
+		const row = num >> 4; // num is 0..255
+		const col = num & 15;
 
 		overlayCtx.drawImage(
 			char_canvas,
@@ -949,6 +949,10 @@ export function Draw_ConsoleBackground( lines ) {
 
 }
 
+let _tile_pattern = null; // CanvasPattern of draw_backtile (Draw_TileClear)
+let _tile_pattern_ctx = null;
+let _tile_pattern_canvas = null;
+
 /*
 =============
 Draw_TileClear
@@ -963,8 +967,16 @@ export function Draw_TileClear( x, y, w, h ) {
 
 	if ( draw_backtile && draw_backtile.canvas ) {
 
-		const pattern = overlayCtx.createPattern( draw_backtile.canvas, 'repeat' );
-		overlayCtx.fillStyle = pattern;
+		// the pattern only changes with the context or the tile canvas
+		if ( _tile_pattern === null || _tile_pattern_ctx !== overlayCtx || _tile_pattern_canvas !== draw_backtile.canvas ) {
+
+			_tile_pattern = overlayCtx.createPattern( draw_backtile.canvas, 'repeat' );
+			_tile_pattern_ctx = overlayCtx;
+			_tile_pattern_canvas = draw_backtile.canvas;
+
+		}
+
+		overlayCtx.fillStyle = _tile_pattern;
 		overlayCtx.fillRect( x, y, w, h );
 
 	} else {
@@ -975,6 +987,9 @@ export function Draw_TileClear( x, y, w, h ) {
 	}
 
 }
+
+const _fill_keys = new Int32Array( 256 ); // 0 = not built yet
+const _fill_styles = new Array( 256 ).fill( '' );
 
 /*
 =============
@@ -992,7 +1007,17 @@ export function Draw_Fill( x, y, w, h, c ) {
 		const r = host_basepal[ c * 3 ];
 		const g = host_basepal[ c * 3 + 1 ];
 		const b = host_basepal[ c * 3 + 2 ];
-		overlayCtx.fillStyle = 'rgb(' + r + ',' + g + ',' + b + ')';
+		// colour strings cached per palette index. The palette is rewritten in
+		// place (VID_ShiftPalette), so the rgb values are the cache key.
+		const key = ( r << 16 | g << 8 | b ) + 1;
+		if ( _fill_keys[ c ] !== key ) {
+
+			_fill_keys[ c ] = key;
+			_fill_styles[ c ] = 'rgb(' + r + ',' + g + ',' + b + ')';
+
+		}
+
+		overlayCtx.fillStyle = _fill_styles[ c ];
 
 	} else {
 

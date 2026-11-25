@@ -785,8 +785,9 @@ weighted bone matrices. out and outnormals hold numverts * 3 floats;
 lightnormalindices, if given, gets each normal's nearest Quake normal.
 =================
 */
-const _skinmat = new Float32Array( 12 );
-
+// The blended bone matrix is held in twelve locals, rounded to float with
+// Math.fround after every add: the same values a Float32Array(12) accumulator
+// gives, without its loads and stores.
 export function MD5_SkinPose( md5, posenum, out, outnormals, lightnormalindices ) {
 
 	const numjoints = md5.numjoints;
@@ -796,32 +797,42 @@ export function MD5_SkinPose( md5, posenum, out, outnormals, lightnormalindices 
 	const normals = md5.normals;
 	const idx = md5.idx;
 	const weight = md5.weight;
-	const m = _skinmat;
+	const fround = Math.fround;
 
 	for ( let v = 0; v < md5.numverts; v ++ ) {
 
-		m.fill( 0 );
+		let m0 = 0, m1 = 0, m2 = 0, m3 = 0, m4 = 0, m5 = 0, m6 = 0, m7 = 0, m8 = 0, m9 = 0, m10 = 0, m11 = 0;
 		for ( let k = 0; k < MD5_MAXINFLUENCES; k ++ ) {
 
 			const w = weight[ v * MD5_MAXINFLUENCES + k ];
 			if ( w === 0 ) continue;
 			const b = base + idx[ v * MD5_MAXINFLUENCES + k ] * 12;
-			for ( let i = 0; i < 12; i ++ )
-				m[ i ] += posedata[ b + i ] * w;
+			m0 = fround( m0 + posedata[ b ] * w );
+			m1 = fround( m1 + posedata[ b + 1 ] * w );
+			m2 = fround( m2 + posedata[ b + 2 ] * w );
+			m3 = fround( m3 + posedata[ b + 3 ] * w );
+			m4 = fround( m4 + posedata[ b + 4 ] * w );
+			m5 = fround( m5 + posedata[ b + 5 ] * w );
+			m6 = fround( m6 + posedata[ b + 6 ] * w );
+			m7 = fround( m7 + posedata[ b + 7 ] * w );
+			m8 = fround( m8 + posedata[ b + 8 ] * w );
+			m9 = fround( m9 + posedata[ b + 9 ] * w );
+			m10 = fround( m10 + posedata[ b + 10 ] * w );
+			m11 = fround( m11 + posedata[ b + 11 ] * w );
 
 		}
 
 		const x = xyz[ v * 3 ], y = xyz[ v * 3 + 1 ], z = xyz[ v * 3 + 2 ];
-		out[ v * 3 ] = m[ 0 ] * x + m[ 1 ] * y + m[ 2 ] * z + m[ 3 ];
-		out[ v * 3 + 1 ] = m[ 4 ] * x + m[ 5 ] * y + m[ 6 ] * z + m[ 7 ];
-		out[ v * 3 + 2 ] = m[ 8 ] * x + m[ 9 ] * y + m[ 10 ] * z + m[ 11 ];
+		out[ v * 3 ] = m0 * x + m1 * y + m2 * z + m3;
+		out[ v * 3 + 1 ] = m4 * x + m5 * y + m6 * z + m7;
+		out[ v * 3 + 2 ] = m8 * x + m9 * y + m10 * z + m11;
 
 		if ( outnormals === null ) continue;
 
 		const nx = normals[ v * 3 ], ny = normals[ v * 3 + 1 ], nz = normals[ v * 3 + 2 ];
-		let tx = m[ 0 ] * nx + m[ 1 ] * ny + m[ 2 ] * nz;
-		let ty = m[ 4 ] * nx + m[ 5 ] * ny + m[ 6 ] * nz;
-		let tz = m[ 8 ] * nx + m[ 9 ] * ny + m[ 10 ] * nz;
+		let tx = m0 * nx + m1 * ny + m2 * nz;
+		let ty = m4 * nx + m5 * ny + m6 * nz;
+		let tz = m8 * nx + m9 * ny + m10 * nz;
 		const len = Math.hypot( tx, ty, tz );
 		if ( len > 0 ) {
 
@@ -875,14 +886,17 @@ every vertex of every pose.
 function MD5_CullSphere( hdr ) {
 
 	const md5 = hdr.md5;
-	const pos = new Float32Array( md5.numverts * 3 );
+	const stride = md5.numverts * 3;
+	// every pose's skinned positions, so the radius pass does not skin again
+	const all = new Float32Array( md5.numposes * stride );
 	let minx = Infinity, miny = Infinity, minz = Infinity;
 	let maxx = - Infinity, maxy = - Infinity, maxz = - Infinity;
 
 	for ( let p = 0; p < md5.numposes; p ++ ) {
 
+		const pos = all.subarray( p * stride, ( p + 1 ) * stride );
 		MD5_SkinPose( md5, p, pos, null, null );
-		for ( let i = 0; i < pos.length; i += 3 ) {
+		for ( let i = 0; i < stride; i += 3 ) {
 
 			if ( pos[ i ] < minx ) minx = pos[ i ];
 			if ( pos[ i ] > maxx ) maxx = pos[ i ];
@@ -905,16 +919,11 @@ function MD5_CullSphere( hdr ) {
 
 	const cx = ( minx + maxx ) * 0.5, cy = ( miny + maxy ) * 0.5, cz = ( minz + maxz ) * 0.5;
 	let radiusSq = 0;
-	for ( let p = 0; p < md5.numposes; p ++ ) {
+	for ( let i = 0; i < all.length; i += 3 ) {
 
-		MD5_SkinPose( md5, p, pos, null, null );
-		for ( let i = 0; i < pos.length; i += 3 ) {
-
-			const dx = pos[ i ] - cx, dy = pos[ i + 1 ] - cy, dz = pos[ i + 2 ] - cz;
-			const d = dx * dx + dy * dy + dz * dz;
-			if ( d > radiusSq ) radiusSq = d;
-
-		}
+		const dx = all[ i ] - cx, dy = all[ i + 1 ] - cy, dz = all[ i + 2 ] - cz;
+		const d = dx * dx + dy * dy + dz * dz;
+		if ( d > radiusSq ) radiusSq = d;
 
 	}
 
