@@ -7,8 +7,10 @@ One player's browser tab hosts the room, the way a NetQuake listen server
 does, and the other players join it directly over WebRTC.
 
 Tags, as in [always-on-hosting.md](always-on-hosting.md): **[docs]** read on
-the cited page on 2026-11-25; **[code]** read in this repo; **[unverified]**
-inference or estimate, to check before relying on it.
+the cited page on 2026-11-25; **[code]** read in this repo; **[C]** read in id's source; **[estimate]**
+arithmetic on measured figures from always-on-hosting.md; **[unverified]**
+inference, or a claim not checked at a primary source, to check before
+relying on it.
 
 ## What it gives, in short
 
@@ -85,8 +87,8 @@ any joiner. The joiners' data channels are transferred to the Worker.
   [unverified]. If they don't, B needs a bundle (for example `deno bundle`,
   mapping `three` to `server/browser_shim.js` as Deno does), and the repo
   has no build step today.
-- Two engine copies in one tab cost about 60 MB more [estimate from the
-  room's memory in always-on-hosting.md].
+- Two engine copies in one tab cost about 60 MB more, going by a room's
+  memory with a lazily opened pak [estimate].
 - B makes the host's view the same as everyone else's. It doesn't help
   phones, which suspend Workers along with the tab.
 
@@ -111,9 +113,13 @@ Deno program, with the game in the webview.
     users see Gatekeeper warnings.
   - Windows builds have to be signed separately.
   - Auto-update doesn't apply on Windows [docs].
+- The executable may bundle only `static/pak0.pak`, the same rule as the
+  game-room image's allowlist. Registered data stays on the player's own
+  disk, loaded at run time, as in the browser.
 - It fits the "downloadable executable" idea better than `deno compile`.
-  `deno compile` gives a headless room with no WebRTC, and players would
-  still need a port forward and a certificate to reach it.
+  `deno compile` gives a headless room, which could only serve WebRTC if
+  Deno had it [unverified], so players would most likely still need a port
+  forward and a certificate to reach it over WebSocket or WebTransport.
 
 **Choice:** ship A, and specify the host side of the WebRTC driver against
 a narrow channel interface: `send`, `onmessage`, `onclose`,
@@ -131,14 +137,16 @@ then means relocating the driver, not rewriting it.
   keeps the C's per-frame server tick.
 - Remote clients would then get up to 72 snapshots a second, against the
   20 the dedicated rooms send. That is about 3.6 times the downstream
-  traffic, and it all comes out of the host's upload: 7 joiners at the
-  bench's 1.3–7.3 KB/s each would take 30–180 KB/s
-  [estimate from always-on-hosting.md].
+  traffic, and it all comes out of the host's upload. At the bench's
+  1.3 KB/s (4 players) to 7.3 KB/s (16 players) per client at 20 Hz, 7
+  joiners would take at most 30–180 KB/s [estimate]. That is an upper
+  bound: delta packets shrink when sent more often.
 - **Proposed deviation:** send datagrams to non-`LOCAL` sockets no more than
   every `sys_ticrate` seconds (50 ms), and send the host's own client every
-  frame. Joiners would then see the same 20 Hz stream they get from a
-  dedicated room, which their prediction is tested against [code: the
-  `CL_CalcPing` note in `src/cl_pred.js`]. Mark it in `SV_SendClientMessages`
+  frame. Joiners would then get updates at the rate a dedicated room sends
+  them, the case the client's prediction and ping readout were built for
+  [unverified]. The stream isn't identical: the host's physics still steps
+  every frame, where a dedicated room steps at 20 Hz. Mark it in `SV_SendClientMessages`
   as a deviation, and test it in a browser.
 
 ## Transport
@@ -165,9 +173,11 @@ driver, behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js`
   - An unreliable message bigger than the path MTU (about 1,200 bytes of
     payload after DTLS and SCTP) gets fragmented. Losing one fragment then
     loses the whole message [unverified].
-  - `sctp.maxMessageSize` (at least 64 KiB everywhere [docs]) is no guide for
-    unreliable messages.
-- **Address:** `sock.address` is a synthetic peer id such as `rtc:AB12`. It
+  - `sctp.maxMessageSize` (reportedly at least 64 KiB in current browsers
+    [unverified]; the spike records it) is no guide for unreliable
+    messages.
+- **Address:** `sock.address` is a synthetic peer id such as `rtc:peer7`,
+  not a room code. It
   must never be `LOCAL`, which `SV_ClientDatagramSize` treats as loopback
   [code].
 - **Selection:** `NET_Connect` takes a new `rtc:<ROOMCODE>` host form, next
@@ -202,11 +212,16 @@ driver, behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js`
   only way this gets tested in CI. The self-hosted lobby gains the same
   signalling for local development.
 - **Protocol:** it keeps the existing `[type u8][len u16le][payload]` frames
-  and `LOBBY_LIST`, `LOBBY_JOIN` and `LOBBY_ROOMS`/`LOBBY_ERROR` [code:
+  and `LOBBY_LIST`, `LOBBY_JOIN`, `LOBBY_CREATE` (for Deno rooms) and
+  `LOBBY_ROOMS`/`LOBBY_ERROR` [code:
   `server/lobby_server.js`], and adds:
   - `LOBBY_HOST`: the host registers a room and keeps its socket open. The
-    room disappears when that socket closes (`webSocketClose`) or misses
-    heartbeats.
+    room disappears when that socket closes (`webSocketClose`), or when its
+    last heartbeat is more than 90 s old. `webSocketClose` doesn't always
+    fire when a connection drops abruptly, and a hibernating DO can't
+    notice a missed heartbeat by itself. So the DO prunes stale rooms
+    whenever it handles a `LIST` or `JOIN`, and sets an alarm only while
+    rooms exist. Alarms wake the DO and count as requests [unverified].
   - `LOBBY_SIGNAL`: `{ to, from, kind: offer | answer | candidate, data }`,
     relayed by peer id. The lobby never parses SDP.
   - `LOBBY_ICE`: the ICE server list for this client (see NAT traversal).
@@ -216,9 +231,16 @@ driver, behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js`
   connect. Today the client opens one socket per request [code:
   `src/net_websocket.js` lobby helpers].
 - **Room record:** `{ id, transport: 'rtc', map, maxPlayers, players,
-  hostName, options }`. A Deno room has `transport: 'ws'` or `'wt'`, so one
-  list can show both kinds, and the client picks the driver by `transport`.
-  The `/mp/lobby` default from #178 stays the same address.
+  hostName, options }`. A Deno room has `transport: 'ws'` or `'wt'`, and
+  the client picks the driver by `transport`.
+  - The DO lobby lists browser-hosted rooms. The Deno lobby lists its own
+    rooms and, through the shared module, any browser-hosted rooms
+    registered with it.
+  - The two lobbies don't share a room table. A deployment points its
+    `/mp/lobby` at one of them, and players see that lobby's rooms. A
+    combined list would need one lobby to query the other, which would
+    make the DO depend on the Mac. That is out of scope.
+  - The `/mp/lobby` default from #178 stays the same address.
 - **Behaviour that changes:** a `JOIN` for an unknown room code is an error.
   The Deno lobby's auto-create on `JOIN` doesn't apply, since the DO can't
   start a room. Everything a host says about its room (map, options, name)
@@ -241,41 +263,66 @@ driver, behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js`
   - Offer `turns:turn.cloudflare.com:443?transport=tcp` for networks that
     block UDP.
 - **How often TURN is needed:** older studies put it at about 15–22% of
-  connections [docs, dated 2015–16]. Mobile carriers' NATs often behave as
-  symmetric NATs [secondary source]. Without TURN, a share of mobile players
+  connections [docs: studies from 2015–16]. Mobile carriers' NATs often behave as
+  symmetric NATs [unverified]. Without TURN, a share of mobile players
   couldn't join, so STUN alone doesn't meet the mobile requirement.
 - **Privacy:** ICE candidates show peers each other's IP addresses. A
   *Hide my IP* setting (`iceTransportPolicy: 'relay'`) would route that
   player through TURN at the cost of relay bandwidth.
-- **Bandwidth:** a 4-player game relayed for every joiner is about 0.03–0.1
-  GB an hour [estimate from the bench], so 1,000 GB a month is about 10,000
-  relayed game-hours.
+- **Bandwidth:** in a 4-player game with all 3 joiners relayed, each
+  joiner moves about 3.5–4.8 KB/s at 20 Hz (1.3–2.6 KB/s down, 2.2 KB/s
+  up, from the bench). That is 10.5–14.4 KB/s, or about 0.04–0.05 GB an
+  hour, before DTLS, SCTP and UDP headers (roughly 60 bytes a packet,
+  about 30% more) [estimate]. 1,000 GB a month is then about 15,000
+  relayed 4-player game-hours. At an uncapped 72 Hz it would be about a
+  third of that.
 
 ## Listen-server rules
 
-- **Player limit:** C's `Host_FindMaxClients` keeps a listen server at 4
-  slots unless `-listen [n]` is given; this port fixes `maxclientslimit` at
-  4 in the browser [code: `src/host.js:261`]. The host page should pass
-  `-listen 16` through `COM_InitArgv`, as the C would take it on the command
-  line, rather than adding a new cvar. Check the C's `-listen` default with
-  the `quake-c-reference` skill before implementing it.
+- **Player limit:** the client slots are allocated once, at start-up, by
+  `Host_FindMaxClients`. This port has dropped its `-dedicated` and
+  `-listen` handling, so the browser always has `maxclients` 1 and 4 slots
+  [code: `src/host.js:263–266`]. In the C, `-listen [n]` sets `maxclients` and
+  the slot count to `n` (8 if omitted, capped at `MAX_SCOREBOARD`) and sets
+  `deathmatch 1` [C: `WinQuake/host.c`].
+  - Restore the C's `-listen` handling, and let `main.js` pass it from a
+    `?listen=N` URL parameter, as it passes `?particles=`.
+  - The listen flag changes start-up defaults (`maxclients` N,
+    `deathmatch 1`). Single player still works, because the menu's new game
+    runs `maxplayers 1`, which drops `listen` and sets `deathmatch 0` [code:
+    `src/menu.js:971`, `MaxPlayers_f` in `src/net_main.js`].
+  - Since slots can't grow after start-up, *Host in this browser* reloads
+    the page with `?listen=16` when it has fewer slots than the host asked
+    for. Loading every page with `-listen 16` would avoid the reload but
+    start every player in deathmatch mode, which the C never does without
+    the flag.
 - **Exit and game rules:**
   - `game_server.js` applies `noexit`/`samelevel` and the game options before
-    spawning (`applyGameOptions`, `applyExitRules`) [code]. The browser menu
-    sets neither, so a browser-hosted deathmatch would change level when
-    anyone touched an exit.
-  - Move both functions into a shared module, and call them from the host
-    path before `map`. The `noexit` default is already marked as a
-    deviation there.
+    spawning (`applyGameOptions`, `applyExitRules`) [code]. A deathmatch
+    room keeps its map: exits kill, and an intermission reloads the same
+    map. The browser menu sets neither, so a browser-hosted deathmatch
+    would keep the C's listen-server defaults and change level when anyone
+    touched an exit.
+  - To make the two kinds of room behave alike, move both functions into a
+    shared module and call them from the host path before `map`. The room
+    defaults aren't marked as a deviation from the C in `game_server.js`
+    today; mark them there when they move.
 - **Menu:** Start Game sends every game to `_NET_CreateRoom` today. The local
   `listen`/`maxplayers`/`map` path runs only when no lobby exists [code:
   `src/menu.js:1769–1893`]. Add *Host in this browser* next to it, and a
   *Join by code* row. `_NET_MultiplayerAvailable` should count WebRTC.
 - **Ending the game:** when the host quits or hits `Host_Error`, call
-  `Host_ShutdownServer( true )`, so joiners get `svc_disconnect` and aren't
-  left to time out. Then close the lobby socket, which removes the room.
+  `Host_ShutdownServer( true )`, so joiners get `svc_disconnect`. Then close
+  the lobby socket, which removes the room.
 - **Tab closing:** `pagehide` should send the disconnects and close the lobby
   socket, as the WebSocket driver already does for its own sockets [code].
+  - `pagehide` also fires when a phone switches apps and when a page enters
+    the back-forward cache, not only on close.
+  - Data sent then may not flush.
+  - So joiners rely on the data channel's `close` event. The fallback,
+    `net_messagetimeout`, defaults to 300 s [code: `src/net_main.js:69`],
+    which is too long to wait. Neither the lobby nor the closed lobby
+    socket tells joiners anything, since game traffic is peer to peer.
 
 ## Spike: settle the unknowns first
 
@@ -303,7 +350,7 @@ results choose between A and B, and confirm mobile joining.
 2. **`src/net_webrtc.js`** with both roles, and tests against a fake
    `RTCPeerConnection`/`RTCDataChannel` pair (in the style of
    `tests/fake_webtransport.js`): handshake, sequencing, caps, close.
-3. **Listen-server rules:** `-listen 16` from the page, the shared
+3. **Listen-server rules:** `-listen` from `?listen=N`, the shared
    `applyGameOptions`/`applyExitRules`, 20 Hz datagrams to remote sockets,
    and shutdown on errors and tab close.
 4. **The lobby module, its Deno use and the Durable Object:** the shared
@@ -340,8 +387,12 @@ and 5 needs 2–4.
   Workers.
 - Whether TURN needs a billing method on file.
 - Current rates of connections needing TURN, especially on mobile data.
+- The C's `-listen` handling restored as described, and whether every
+  single-player start path runs `maxplayers 1`.
 - Deno desktop: WebRTC on the OS-webview backend, `Deno.listenDatagram` and
   QUIC in a desktop build, timer throttling in a hidden window, and the
   absence of WebRTC in Deno itself.
-- Whether 20 Hz snapshots to joiners and 72 Hz for the host feel right in
-  play.
+- Whether 20 Hz snapshots to joiners, with the host's physics stepping at
+  up to 72 Hz, feel right in play and keep joiners' prediction accurate.
+- The bandwidth estimates: they scale bench payload figures, with packet
+  overhead guessed.
