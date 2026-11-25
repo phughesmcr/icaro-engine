@@ -106,6 +106,19 @@ let pointerLockWorked = false;
 let pointerLockRefusals = 0;
 let pointerLockUnavailable = false;
 
+// Web-only: in_rawmouse 1 asks for pointer lock with unadjustedMovement, so
+// mouse look gets raw device counts with no OS pointer acceleration, as
+// SDL's relative mouse mode gives Ironwail. Neither Ironwail nor QuakeSpasm
+// has a cvar for it; the name follows the in_ prefix of input settings.
+// Off by default: raw counts feel different at the same sensitivity, and
+// browsers that don't support it fall back to a normal lock anyway.
+// Takes effect at the next lock.
+const in_rawmouse = { name: 'in_rawmouse', string: '0', value: 0, archive: true };
+// Set once the browser rejects unadjustedMovement: later locks don't ask
+let rawMouseUnsupported = false;
+// A raw request's promise is unsettled: its pointerlockerror is decided there
+let rawMousePending = false;
+
 // Quake key sent down for each physical key (event.code), so keyup releases
 // the same Quake key even if Shift or the layout changed event.key meanwhile.
 const keyForCode = new Map();
@@ -173,10 +186,66 @@ function requestPointerLock() {
 
 	if ( targetElement.requestPointerLock == null ) return;
 
+	if ( in_rawmouse.value !== 0 && rawMouseUnsupported === false && rawMousePending === false ) {
+
+		requestRawPointerLock();
+		return;
+
+	}
+
 	// Chrome returns a promise that rejects if the request is refused
 	// (e.g. no user activation, or the user just pressed Escape).
 	const result = targetElement.requestPointerLock();
 	if ( result != null && typeof result.catch === 'function' ) result.catch( () => {} );
+
+}
+
+// Pointer lock with unadjustedMovement (in_rawmouse). Chrome rejects the
+// promise with NotSupportedError where the platform can't give raw input;
+// then ask again without it, still within the click's user activation.
+// Browsers that return no promise ignore the option and lock normally.
+function requestRawPointerLock() {
+
+	const element = targetElement;
+	let result;
+
+	try {
+
+		result = element.requestPointerLock( { unadjustedMovement: true } );
+
+	} catch {
+
+		// An old signature that rejects the argument outright
+		rawMouseUnsupported = true;
+		requestPointerLock();
+		return;
+
+	}
+
+	if ( result == null || typeof result.then !== 'function' ) return;
+
+	rawMousePending = true;
+	result.then( () => {
+
+		rawMousePending = false;
+
+	}, ( error ) => {
+
+		rawMousePending = false;
+
+		if ( error != null && error.name === 'NotSupportedError' ) {
+
+			rawMouseUnsupported = true;
+			Con_Printf( 'in_rawmouse: raw mouse input not supported, using normal pointer lock\n' );
+			if ( targetElement === element ) requestPointerLock();
+			return;
+
+		}
+
+		// Refused for another reason: count it like any refusal
+		pointerLockRefused();
+
+	} );
 
 }
 
@@ -1060,6 +1129,15 @@ function handlePointerLockChange() {
 // click's user activation, so fullscreen can still be requested here.
 function handlePointerLockError() {
 
+	// A raw request's promise says whether this was NotSupportedError
+	if ( rawMousePending ) return;
+
+	pointerLockRefused();
+
+}
+
+function pointerLockRefused() {
+
 	if ( pointerLockWorked || touchMode ) return;
 
 	pointerLockRefusals ++;
@@ -1314,6 +1392,7 @@ export function IN_Init( element ) {
 	Cvar_RegisterVariable( xr_snapturn );
 	Cvar_RegisterVariable( xr_turnspeed );
 	Touch_RegisterCvars();
+	Cvar_RegisterVariable( in_rawmouse );
 
 	// Register commands
 	Cmd_AddCommand( 'force_centerview', IN_ForceCenterView );
@@ -1331,6 +1410,8 @@ export function IN_Init( element ) {
 	pointerLockWorked = false;
 	pointerLockRefusals = 0;
 	pointerLockUnavailable = false;
+	rawMouseUnsupported = false;
+	rawMousePending = false;
 	document.addEventListener( 'pointerlockchange', handlePointerLockChange );
 	document.addEventListener( 'pointerlockerror', handlePointerLockError );
 	document.addEventListener( 'fullscreenchange', updateKeyboardLock );
