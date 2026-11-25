@@ -88,6 +88,25 @@ Deno.test( 'god, notarget and give follow Ironwail on shareware start', () => {
 		assertEqual( has( sv_phys.FL_GODMODE ), false, 'god 0' );
 		assertEqual( run( 'god 1 2' ), 'god [value] : toggle god mode. values: 0 = off, 1 = on\n', 'god usage' );
 
+		run( 'god abc' ); // Q_atof gives 0
+		assertEqual( has( sv_phys.FL_GODMODE ), false, 'god abc is off' );
+
+		// id's deathmatch gate stays: an unprivileged player can't cheat
+		const pr_global_struct = progs.pr_global_struct;
+		const oldDeathmatch = pr_global_struct.deathmatch;
+		try {
+
+			pr_global_struct.deathmatch = 1;
+			c.privileged = false;
+			run( 'god 1' );
+			assertEqual( has( sv_phys.FL_GODMODE ), false, 'deathmatch blocks god' );
+
+		} finally {
+
+			pr_global_struct.deathmatch = oldDeathmatch;
+
+		}
+
 		run( 'notarget 1' );
 		run( 'notarget 1' );
 		assertEqual( has( sv_phys.FL_NOTARGET ), true, 'notarget 1' );
@@ -104,9 +123,13 @@ Deno.test( 'god, notarget and give follow Ironwail on shareware start', () => {
 		assertEqual( Math.fround( v.armortype ), Math.fround( 0.3 ), 'green' );
 		assertEqual( v.items & armor, q.IT_ARMOR1, 'green bit only' );
 		assertEqual( v.items & q.IT_SHOTGUN, q.IT_SHOTGUN, 'weapons kept' );
+		run( 'give a 100' );
+		assertEqual( v.items & armor, q.IT_ARMOR1, '100 is still green' );
 		run( 'give a 150' );
 		assertEqual( v.items & armor, q.IT_ARMOR2, 'yellow' );
 		assertEqual( Math.fround( v.armortype ), Math.fround( 0.6 ), 'yellow type' );
+		run( 'give a 151' );
+		assertEqual( v.items & armor, q.IT_ARMOR3, '151 is red' );
 		run( 'give a 200' );
 		assertEqual( v.items & armor, q.IT_ARMOR3, 'red' );
 		assertEqual( Math.fround( v.armortype ), Math.fround( 0.8 ), 'red type' );
