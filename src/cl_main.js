@@ -484,6 +484,7 @@ export function CL_AllocDlight( key ) {
 				dl.decay = 0;
 				dl.minlight = 0;
 				dl.key = key;
+				dl.color.fill( 1 ); //johnfitz -- lit support via lordhavoc
 				return dl;
 
 			}
@@ -504,6 +505,7 @@ export function CL_AllocDlight( key ) {
 			dl.decay = 0;
 			dl.minlight = 0;
 			dl.key = key;
+			dl.color.fill( 1 ); //johnfitz -- lit support via lordhavoc
 			return dl;
 
 		}
@@ -517,7 +519,46 @@ export function CL_AllocDlight( key ) {
 	dl.decay = 0;
 	dl.minlight = 0;
 	dl.key = key;
+	dl.color.fill( 1 ); //johnfitz -- lit support via lordhavoc
 	return dl;
+
+}
+
+/*
+===============
+CL_QexEffectLights
+
+The 2021 rerelease's coloured powerup glows, from Ironwail's
+CL_RelinkEntities (cl_main.c), shared by the three places this port links
+entities. The server sends these bits only for a progs that defines them
+(PR_FindSupportedEffects). EF_QEX_CANDLELIGHT gets no light, as in Ironwail.
+===============
+*/
+export function CL_QexEffectLights( effects, key, origin ) {
+
+	if ( effects & 0x0010 ) { // EF_QEX_QUADLIGHT
+
+		const dl = CL_AllocDlight( key );
+		VectorCopy( origin, dl.origin );
+		dl.radius = 200 + ( Math.random() * 32 | 0 );
+		dl.die = cl.time + 0.001;
+		dl.color[ 0 ] = 0.25;
+		dl.color[ 1 ] = 0.25;
+		dl.color[ 2 ] = 1.0;
+
+	}
+
+	if ( effects & 0x0020 ) { // EF_QEX_PENTALIGHT
+
+		const dl = CL_AllocDlight( key );
+		VectorCopy( origin, dl.origin );
+		dl.radius = 200 + ( Math.random() * 32 | 0 );
+		dl.die = cl.time + 0.001;
+		dl.color[ 0 ] = 1.0;
+		dl.color[ 1 ] = 0.25;
+		dl.color[ 2 ] = 0.25;
+
+	}
 
 }
 
@@ -717,6 +758,9 @@ function CL_LinkPacketEntities( frac ) {
 				CL_NoLerpMuzzleFlash( s1.number );
 
 		}
+
+		// after the muzzle flash, which would take the slot (Ironwail's order)
+		CL_QexEffectLights( s1.effects, s1.number, s1.origin );
 
 		// create a new entity
 		if ( cl_numvisedicts >= MAX_VISEDICTS )
@@ -1045,6 +1089,8 @@ function CL_LinkPlayers() {
 
 		}
 
+		CL_QexEffectLights( pplayer.effects, j + 1, origin );
+
 		if ( pplayer.modelindex <= 0 ) {
 
 			if ( isView )
@@ -1290,6 +1336,8 @@ export function CL_RelinkEntities() {
 			dl.die = cl.time + 0.001;
 
 		}
+
+		CL_QexEffectLights( ent.effects, i, ent.origin );
 
 		// Deliberate deviation, from QuakeSpasm/Ironwail (cl_main.c
 		// CL_RelinkEntities, LERP_RESETMOVE resets the trail): no trail from

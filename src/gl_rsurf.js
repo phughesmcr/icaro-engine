@@ -1584,19 +1584,18 @@ export function R_AddDynamicLights( surf ) {
 
 				if ( dist < minlight ) {
 
-					const add = ( ( rad - dist ) * 256 ) | 0;
 					if ( lightmap_bytes === 4 ) {
 
-						// QuakeSpasm (lit support via lordhavoc): white here,
-						// as dlight_t has no colour in this port
+						// QuakeSpasm (lit support via lordhavoc): each channel
+						// scaled by the dlight's colour (cred, cgreen, cblue)
 						const bl = ( t * smax + s ) * 3;
-						blocklights[ bl ] += add;
-						blocklights[ bl + 1 ] += add;
-						blocklights[ bl + 2 ] += add;
+						blocklights[ bl ] += ( ( rad - dist ) * dl.color[ 0 ] * 256 ) | 0;
+						blocklights[ bl + 1 ] += ( ( rad - dist ) * dl.color[ 1 ] * 256 ) | 0;
+						blocklights[ bl + 2 ] += ( ( rad - dist ) * dl.color[ 2 ] * 256 ) | 0;
 
 					} else {
 
-						blocklights[ t * smax + s ] += add;
+						blocklights[ t * smax + s ] += ( ( rad - dist ) * 256 ) | 0;
 
 					}
 
