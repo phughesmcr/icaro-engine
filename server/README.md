@@ -112,6 +112,7 @@ Both `--allow-net` grants are needed in every case: a missing grant fails startu
 | `-pak <path>` | `../static/pak0.pak` | Path to `pak0.pak` |
 | `-rogue`, `-hipnotic` | off | Mission pack, as WinQuake's flags: also loads `rogue/pak0.pak` or `hipnotic/pak0.pak` (and later paks) from the basedir, searched first. The basedir is the `-pak` file's directory, or its parent when that directory is `id1` (as in C and the 2021 rerelease, `-pak ../static/rerelease/id1/pak0.pak`). Browser clients must use the matching `?game=` (and `?base=rerelease`) |
 | `-game <dir>` | none | The C `-game`: also loads `<basedir>/<dir>/pak0.pak` (and later paks), searched first, e.g. the rerelease's `mg1`. A single directory name only |
+| `-coop <0\|1>`, `-teamplay <n>`, `-skill <n>`, `-fraglimit <n>`, `-timelimit <n>` | off (cvar defaults) | The Game Options values the lobby forwards from a room request, set as cvars before the map spawns. Clamped to the menu's ranges (teamplay 0–2, or 0–6 with `-rogue`; skill 0–3; fraglimit 0–100; timelimit 0–60); only the options given are set. `-coop 1` turns `deathmatch` off |
 | `-cert <path>` | `cert.pem` | TLS certificate file |
 | `-key <path>` | `key.pem` | TLS private key file |
 | `-room <id>` | `null` | Room ID assigned by `lobby_server.js` (enables room idle-exit tracking) |
@@ -148,6 +149,7 @@ WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on t
   - Room creation (including re-creating a shared room on join) is limited to 3 per minute per IP and 10 per minute overall. Attempts whose room fails to start still count.
   - Each IP may have at most 3 live rooms.
   - `maxPlayers` is clamped to an integer from 1 to 16; `hostName` has control characters stripped and is capped at 32 UTF-8 bytes; map names must match `[A-Za-z0-9_]{1,32}`.
+  - `LOBBY_CREATE` may carry `options`, the Game Options menu rows: `coop` (0-1), `teamplay` (0-2, 0-6 when the lobby serves Rogue), `skill` (0-3), `fraglimit` (0-100) and `timelimit` (0-60). Only these keys are read, only finite numbers are accepted, truncated to integers and clamped to those ranges; any other field or value is dropped and the room keeps its default. The room process gets them as `-coop N -teamplay N -skill N -fraglimit N -timelimit N` (only the ones given) and sets the cvars before its map spawns. A request without `options` starts the room as before.
 - **Game transport (`net_webtransport_server.ts`)**:
   - **Bidirectional stream** (length-prefixed frames) for reliable Quake messages (signon data, string commands, score/name updates).
   - **WebTransport datagrams** (with serialized outbound writes and reliable-stream fallback on timeout/error) for unreliable messages (entity updates, clientdata, `clc_move`).
@@ -171,7 +173,7 @@ WebTransport requires valid HTTPS/TLS certificates (and UDP access for QUIC on t
   - Full QuakeC VM (`PR_Init`, `progs.dat`)
   - Full server physics and collision (`SV_Physics`, `Mod_Init`, BSP hulls)
   - Full Quake client/server protocol (`SV_SpawnServer`, `SV_RunClients`, `SV_SendClientMessages`)
-- Runs at `sys_ticrate` (default `0.05`s / 20 Hz) with `deathmatch 1`, `samelevel 2`, and `noexit 1`.
+- Runs at `sys_ticrate` (default `0.05`s / 20 Hz) with `deathmatch 1` (`0` when the room is created with `coop` 1), `samelevel 2`, and `noexit 1`.
 - Loads `pak0.pak` and any `pak1.pak`, `pak2.pak`, ... in the same directory (stopping at the first missing one). Rooms spawned by the lobby can read extra paks only when they are under `static/`; otherwise the room prints a "Failed to load" read-permission error and continues with the paks it has. A pak over 64 MB is not read into memory: the room reads its directory, then each file from disk when it is loaded. Supports on-demand loose map files via `COM_EnsureFile`.
 - In room mode, reports its player count to the lobby on a structured stdout status line (`@@ICARO_STATUS`), on every change and every 5s. It also emits `[Heartbeat]` log lines every 30s and `[WATCHDOG]` stderr ticks every 5s, which `room_process_manager.ts` uses to hide or terminate wedged processes.
 
