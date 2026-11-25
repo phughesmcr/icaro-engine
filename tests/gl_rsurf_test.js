@@ -661,6 +661,57 @@ Deno.test( 'underwater surfaces get their own unculled world batches', () => {
 
 } );
 
+// Three.js still binds the program and textures of a visible BatchedMesh whose
+// instances are all hidden, so a world batch with nothing in the PVS is hidden.
+Deno.test( 'world batches with no instance in the PVS are hidden', () => {
+
+	const makeBatch = () => ( {
+		visible: true,
+		shown: [],
+		setVisibleAt( id, v ) {
+
+			this.shown[ id ] = v;
+
+		}
+	} );
+	const a = makeBatch();
+	const b = makeBatch();
+	const leaf1 = { visframe: 0 };
+	const leaf2 = { visframe: 0 };
+	const leaf3 = { visframe: 0 };
+	const visInfo = [
+		{ batch: a, batchIndex: 0, instanceId: 0, leaves: [ leaf1 ] },
+		{ batch: a, batchIndex: 0, instanceId: 1, leaves: [ leaf1, leaf2 ] },
+		{ batch: b, batchIndex: 1, instanceId: 0, leaves: [ leaf3 ] }
+	];
+	const batches = [ a, b ];
+	const counts = new Uint32Array( 2 );
+
+	// a surface in two leaves counts once when only its second leaf is visible
+	leaf2.visframe = 1;
+	gl_rsurf.R_SetWorldBatchVisibility( visInfo, batches, counts, 1 );
+	assertEqual( a.shown[ 0 ], false, 'frame 1 instance a0' );
+	assertEqual( a.shown[ 1 ], true, 'frame 1 instance a1 (second leaf)' );
+	assertEqual( b.shown[ 0 ], false, 'frame 1 instance b0' );
+	assertEqual( counts[ 0 ], 1, 'frame 1 batch a count' );
+	assertEqual( a.visible, true, 'frame 1 batch a visible' );
+	assertEqual( b.visible, false, 'frame 1 empty batch b hidden' );
+
+	// new PVS: a goes empty and b comes back; counts restart from zero
+	leaf3.visframe = 2;
+	gl_rsurf.R_SetWorldBatchVisibility( visInfo, batches, counts, 2 );
+	assertEqual( a.visible, false, 'frame 2 empty batch a hidden' );
+	assertEqual( b.visible, true, 'frame 2 batch b visible' );
+	assertEqual( counts[ 0 ], 0, 'frame 2 batch a count' );
+
+	leaf1.visframe = 3;
+	gl_rsurf.R_SetWorldBatchVisibility( visInfo, batches, counts, 3 );
+	assertEqual( a.visible, true, 'frame 3 batch a visible again' );
+	assertEqual( counts[ 0 ], 2, 'frame 3 batch a count' );
+	assertEqual( b.visible, false, 'frame 3 batch b hidden again' );
+
+} );
+
 Deno.test( 'rebuilding lightmaps disposes water geometry no longer in the scene', () => {
 
 	const oldWorldmodel = cl.worldmodel;
