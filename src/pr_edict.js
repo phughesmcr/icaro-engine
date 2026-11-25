@@ -220,6 +220,30 @@ export function ED_FieldAtOfs( ofs ) {
 
 }
 
+// Not in the C: the C scans the defs comparing strings. The names never
+// change once a progs is loaded, so each table is indexed once by name, first
+// def winning as in the scan, and the index is rebuilt when PR_LoadProgs
+// swaps the table. (Without it every entity key and spawn function paid a
+// scan of the whole table, building a string per def.)
+let fieldIndex = null, fieldIndexDefs = null, fieldIndexCount = 0;
+let globalIndex = null, globalIndexDefs = null, globalIndexCount = 0;
+let functionIndex = null, functionIndexDefs = null, functionIndexCount = 0;
+
+function ED_BuildIndex( defs, count ) {
+
+	const index = new Map();
+	for ( let i = 0; i < count; i ++ ) {
+
+		const name = PR_GetString( defs[ i ].s_name );
+		if ( ! index.has( name ) )
+			index.set( name, i );
+
+	}
+
+	return index;
+
+}
+
 /*
 ============
 ED_FindField
@@ -227,15 +251,16 @@ ED_FindField
 */
 export function ED_FindField( name ) {
 
-	for ( let i = 0; i < progs.numfielddefs; i ++ ) {
+	if ( fieldIndex === null || fieldIndexDefs !== pr_fielddefs || fieldIndexCount !== progs.numfielddefs ) {
 
-		const def = pr_fielddefs[ i ];
-		if ( PR_GetString( def.s_name ) === name )
-			return def;
+		fieldIndex = ED_BuildIndex( pr_fielddefs, progs.numfielddefs );
+		fieldIndexDefs = pr_fielddefs;
+		fieldIndexCount = progs.numfielddefs;
 
 	}
 
-	return null;
+	const i = fieldIndex.get( name );
+	return i !== undefined ? pr_fielddefs[ i ] : null;
 
 }
 
@@ -246,15 +271,38 @@ ED_FindGlobal
 */
 export function ED_FindGlobal( name ) {
 
-	for ( let i = 0; i < progs.numglobaldefs; i ++ ) {
+	if ( globalIndex === null || globalIndexDefs !== pr_globaldefs || globalIndexCount !== progs.numglobaldefs ) {
 
-		const def = pr_globaldefs[ i ];
-		if ( PR_GetString( def.s_name ) === name )
-			return def;
+		globalIndex = ED_BuildIndex( pr_globaldefs, progs.numglobaldefs );
+		globalIndexDefs = pr_globaldefs;
+		globalIndexCount = progs.numglobaldefs;
 
 	}
 
-	return null;
+	const i = globalIndex.get( name );
+	return i !== undefined ? pr_globaldefs[ i ] : null;
+
+}
+
+/*
+============
+ED_FindFunctionIndex
+
+Not in the C: the index of the function in pr_functions, or -1.
+============
+*/
+function ED_FindFunctionIndex( name ) {
+
+	if ( functionIndex === null || functionIndexDefs !== pr_functions || functionIndexCount !== progs.numfunctions ) {
+
+		functionIndex = ED_BuildIndex( pr_functions, progs.numfunctions );
+		functionIndexDefs = pr_functions;
+		functionIndexCount = progs.numfunctions;
+
+	}
+
+	const i = functionIndex.get( name );
+	return i !== undefined ? i : - 1;
 
 }
 
@@ -265,15 +313,8 @@ ED_FindFunction
 */
 export function ED_FindFunction( name ) {
 
-	for ( let i = 0; i < progs.numfunctions; i ++ ) {
-
-		const func = pr_functions[ i ];
-		if ( PR_GetString( func.s_name ) === name )
-			return func;
-
-	}
-
-	return null;
+	const i = ED_FindFunctionIndex( name );
+	return i >= 0 ? pr_functions[ i ] : null;
 
 }
 
@@ -848,7 +889,7 @@ export function ED_ParseEpair( accessor, key, s ) {
 
 			}
 
-			accessor.setInt32( ofs, pr_functions.indexOf( func ) );
+			accessor.setInt32( ofs, ED_FindFunctionIndex( s ) );
 			break;
 
 		}
@@ -1066,7 +1107,7 @@ export function ED_LoadFromFile( data ) {
 		SV_ReserveSignonSpace( 512 );
 
 		pr_global_struct.self = EDICT_TO_PROG( ent );
-		PR_ExecuteProgram( pr_functions.indexOf( func ) );
+		PR_ExecuteProgram( ED_FindFunctionIndex( classname ) );
 
 	}
 

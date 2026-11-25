@@ -2,7 +2,6 @@
 
 import * as THREE from 'three';
 import { Sys_Error } from './sys.js';
-import { DotProduct } from './mathlib.js';
 import { VERTEXSIZE, glpoly_t, gl_subdivide_size } from './glquake.js';
 import { Con_Printf } from './common.js';
 
@@ -95,13 +94,18 @@ export function BoundPoly( numverts, verts, mins, maxs ) {
 SubdividePolygon
 =============
 */
+const subdivide_mins = new Float32Array( 3 );
+const subdivide_maxs = new Float32Array( 3 );
+const subdivide_dist = new Float32Array( 65 );
+
 export function SubdividePolygon( numverts, verts ) {
 
 	if ( numverts > 60 )
 		Sys_Error( 'numverts = ' + numverts );
 
-	const mins = new Float32Array( 3 );
-	const maxs = new Float32Array( 3 );
+	// the scratch is dead before the recursive calls below
+	const mins = subdivide_mins;
+	const maxs = subdivide_maxs;
 	BoundPoly( numverts, verts, mins, maxs );
 
 	for ( let i = 0; i < 3; i ++ ) {
@@ -114,7 +118,7 @@ export function SubdividePolygon( numverts, verts ) {
 			continue;
 
 		// cut it
-		const dist = new Float32Array( 65 );
+		const dist = subdivide_dist;
 		for ( let j = 0; j < numverts; j ++ )
 			dist[ j ] = verts[ j * 3 + i ] - m;
 
@@ -191,14 +195,10 @@ export function SubdividePolygon( numverts, verts ) {
 		vert[ 0 ] = verts[ vOff ];
 		vert[ 1 ] = verts[ vOff + 1 ];
 		vert[ 2 ] = verts[ vOff + 2 ];
-		const s = DotProduct(
-			[ verts[ vOff ], verts[ vOff + 1 ], verts[ vOff + 2 ] ],
-			warpface.texinfo.vecs[ 0 ]
-		);
-		const t = DotProduct(
-			[ verts[ vOff ], verts[ vOff + 1 ], verts[ vOff + 2 ] ],
-			warpface.texinfo.vecs[ 1 ]
-		);
+		const x = verts[ vOff ], y = verts[ vOff + 1 ], z = verts[ vOff + 2 ];
+		const vec0 = warpface.texinfo.vecs[ 0 ], vec1 = warpface.texinfo.vecs[ 1 ];
+		const s = x * vec0[ 0 ] + y * vec0[ 1 ] + z * vec0[ 2 ];
+		const t = x * vec1[ 0 ] + y * vec1[ 1 ] + z * vec1[ 2 ];
 		vert[ 3 ] = s;
 		vert[ 4 ] = t;
 		poly.verts.push( vert );
