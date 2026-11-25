@@ -31,7 +31,14 @@ Cloudflare. The game has two transports, and each has a route:
    unreliable datagrams (TCP head-of-line blocking). WebRTC with Cloudflare
    TURN would keep them, but that is still unbuilt porting work.
 
-**Recommendation:** the Tunnel route is free, needs no router ports and
+> **Superseded for always-on hosting.** The recommendation below needs the
+> home Mac on and connected. For hosting that doesn't, see
+> [always-on-hosting.md](always-on-hosting.md): rooms in Cloudflare
+> Containers with a Worker lobby, or a small VM. It also measures a room's
+> memory, CPU and bandwidth, which settles several items in "Not verified"
+> below.
+
+**Recommendation (home Mac):** the Tunnel route is free, needs no router ports and
 doesn't expose the home IP, and it works in every browser, so it is the
 simplest default. Add the hybrid (option 5) for players who have WebTransport if stalls
 under packet loss turn out to matter. Cloudflare Containers is the paid,
@@ -433,13 +440,19 @@ would still need the lobby reworked (see 3b and 5b).
 
 - Whether Tunnel *public hostnames* carry WebSockets. The Tunnel FAQ says
   Tunnel supports them, but doesn't name public hostnames.
-- Whether the Containers proxy bills each WebSocket message as a DO request.
+- Whether the Containers proxy bills each WebSocket message as a DO request
+  (still open; see [always-on-hosting.md](always-on-hosting.md)).
 - QUIC passthrough on Spectrum UDP, and Spectrum pricing.
-- Whether the Free plan's 10 ms CPU limit applies to Durable Objects.
-- Memory use of one room (pak plus engine) against the 128 MB DO limit.
-- Container placement and cold-start latency, and room memory needs.
+- Whether the Free plan's 10 ms CPU limit applies to Durable Objects (still
+  not documented).
+- Container placement and cold-start latency for this image (the docs say
+  cold starts are often 1–3 s).
+- Settled in always-on-hosting.md: one room's memory (about 97 MB of heap and
+  buffers after GC, 200–350 MB RSS), which rules out a DO per room, and room
+  memory needs for a container.
 - Deno WebRTC library viability.
 - Firefox for Android WebTransport support, and how often UDP is blocked on
   the networks players use.
 - The router's hairpin NAT and CGNAT status.
-- Actual bandwidth per room and the latency added by the Tunnel detour.
+- The latency added by the Tunnel detour. Bandwidth per room is now
+  measured in always-on-hosting.md.
