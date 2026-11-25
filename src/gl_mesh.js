@@ -7,7 +7,7 @@ import { R_GetPlayerSkinTexture } from './gl_rmisc.js';
 import { gl_nocolors, gl_doubleeyes, GL_RegisterCullMaterial } from './glquake.js';
 import { r_avertexnormals } from './anorm_dots.js';
 import { VectorCopy, VectorCompare } from './mathlib.js';
-import { r_lerpmodels, r_lerpmove, r_nolerp_list,
+import { r_refdef, r_lerpmodels, r_lerpmove, r_nolerp_list,
 	LERP_MOVESTEP, LERP_RESETANIM, LERP_RESETANIM2, LERP_RESETMOVE, LERP_FINISH } from './render.js';
 import { MOD_NOLERP, MF_HOLEY, Mod_SetExtraFlags } from './gl_model.js';
 
@@ -1044,6 +1044,38 @@ const _aliasRZ = new THREE.Matrix4();
 const _aliasRY = new THREE.Matrix4();
 const _aliasRX = new THREE.Matrix4();
 const _eyesOffset = new THREE.Vector3();
+
+/*
+=================
+cl_gun_fovscale
+
+Deliberate deviation, from Ironwail (gl_screen.c, after Qrack): above a 90
+degree fov, the view model is scaled across the screen (model y and z) by
+tan( fov / 2 ), so the gun keeps its shape instead of being stretched. The
+cvar sets how much of that correction to apply. Ironwail defaults it to 1;
+this port defaults to 0, GLQuake's unscaled gun. Ironwail registers it in
+SCR_Init; here gl_model.js Mod_Init does.
+=================
+*/
+export const cl_gun_fovscale = { name: 'cl_gun_fovscale', string: '0', value: 0, archive: true };
+
+// Ironwail r_alias.c R_DrawAliasModel_Real: fovscale for the view model.
+// Ironwail reads r_refdef.basefov, the fov cvar before the "Hor+" widening.
+// The port keeps fov_y = CalcFov( fov, 4, 3 ) (gl_screen.js SCR_CalcRefdef),
+// so tan( basefov / 2 ) = tan( fov_y / 2 ) * 4 / 3, and basefov > 90 exactly
+// when that is above 1.
+export function R_GunFovScale() {
+
+	if ( cl_gun_fovscale.value === 0 )
+		return 1;
+
+	const fovscale = Math.tan( r_refdef.fov_y * ( Math.PI / 360 ) ) * ( 4 / 3 );
+	if ( fovscale <= 1 )
+		return 1;
+
+	return 1 + ( fovscale - 1 ) * cl_gun_fovscale.value;
+
+}
 const _DEG2RAD = Math.PI / 180;
 
 /*
@@ -1257,6 +1289,14 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadelight ) {
 				- paliashdr.scale_origin[ 2 ] - ( 22 + 8 )
 			).applyQuaternion( mesh.quaternion );
 			mesh.position.add( _eyesOffset );
+
+		} else if ( entity === cl.viewent ) {
+
+			// Ironwail scales the model's y and z, and scale_origin's,
+			// by fovscale. The template holds scale * v + scale_origin,
+			// so scaling the mesh's local y and z does both.
+			const fovscale = R_GunFovScale();
+			mesh.scale.set( 1, fovscale, fovscale );
 
 		} else {
 
