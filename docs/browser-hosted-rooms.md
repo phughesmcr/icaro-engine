@@ -27,8 +27,7 @@ relying on it.
     messages, so they stay far inside the Workers Free plan.
   - Cloudflare's STUN server is free and unlimited [docs].
   - Cloudflare's TURN relay is free up to 1,000 GB a month [docs]. Whether it
-    needs a billing method on file isn't stated (see "Decisions for the
-    maintainer").
+    needs a billing method on file isn't stated (see "Decisions").
 - **What it can't do:**
   - The room ends when the host leaves. There is no host migration in Quake.
   - The host has a zero-ping advantage, and could cheat by modifying their
