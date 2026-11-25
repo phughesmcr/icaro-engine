@@ -283,7 +283,7 @@ None of these change any shareware model. All 61 MDLs produced byte-identical di
 
 | ID | Where | Difference | Status |
 |---|---|---|---|
-| C-1 | `src/gl_rmain.js:812` `R_DrawAliasModel` | Missing `progs/eyes.mdl` 2× scale under `gl_doubleeyes` (the cvar is registered but never read). | Verified |
+| C-1 | `src/gl_rmain.js:812` `R_DrawAliasModel` | Missing `progs/eyes.mdl` 2× scale under `gl_doubleeyes` (the cvar is registered but never read). | Fixed after this review: the cvar (console name `gl_doubleeys`, as in C) is read in `src/gl_mesh.js:1282` |
 | C-2 | `src/r_part.js:800` | Particles are 3-unit point sprites centred on the origin, with no `1 + dist*0.004` growth. Far particles look smaller and near ones about 2× larger than in GLQuake. | Reported (sizing verified) |
 | C-3 | `src/gl_rsurf.js` (~`:969`, `:1961`, `:1995`) | Water warp is driven by `cl.time`, not `realtime`, so it freezes when paused. | Reported |
 | C-4 | `src/gl_rsurf.js` (~`:1886`) | `r_fullbright` and `r_lightmap` have no effect; materials always apply the lightmap. | Reported |
@@ -459,7 +459,7 @@ The client predicts with QW pmove while the server simulates players with NetQua
 | Other | `sv_maxvelocity` clamp, teleport back-move lock, 2D friction speed | none / 3D speed | small divergences |
 | noclip / fly / dead | no gravity or collision / toss | always walk physics | constant rubber-banding in noclip and fly |
 
-- **Movevars sent once:** they go out at signon only (`sv_main.js:297`), so mid-game `sv_gravity`/`sv_maxspeed` changes are never predicted.
+- **Movevars sent once:** they go out at signon only (`sv_main.js:297`), so mid-game `sv_gravity`/`sv_maxspeed` changes are never predicted. **Status: fixed after this review.** They still go out at signon (`sv_main.js:351`), and `SV_CheckMovevars` (`sv_main.js:417`) re-sends them when `sv_gravity`, `sv_stopspeed`, `sv_maxspeed`, `sv_accelerate`, `sv_friction`, `sv_edgefriction`, `sv_maxvelocity` or `sv_altnoclip` changes.
 - **XR:** sends controller aim angles but predicts with head angles (see IN-3).
 
 ### PRED-4 · Collision set differs from the server — **medium**, Reported

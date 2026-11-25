@@ -218,7 +218,7 @@ own fix PR.
   ratio. The HUD, menus and console are laid out on a 640-wide virtual screen
   (640×360 at 16:9) stretched to the window.
 - **JS:**
-  - `src/gl_draw.js:78-105` uses an integer scale of
+  - `src/gl_draw.js:83-132` uses an integer scale of
     `floor(height / 240)`, with a minimum virtual width of 320. At 1080p
     that gives about 480×270 (scale 4, against C's 3), so 2D elements are
     about 1.3× larger than in GLQuake.
@@ -226,6 +226,13 @@ own fix PR.
     `-conwidth`.
 - **Seen:** larger HUD and menus. This is probably a deliberate readability
   choice, but it is not listed in port-review §7.
+
+- **Status: adjustable.** Ironwail's `scr_sbarscale`, `scr_conscale` and
+  `scr_menuscale` (default 0, the automatic scale above) set the status
+  bar, console and menu scales separately. A non-zero value is clamped to
+  between 1 and `width / 320` and may be fractional
+  (`src/gl_draw.js:196-209`; applied at `src/gl_screen.js:721` and
+  `:1226`, and in `src/menu.js:395`). The default layout is unchanged.
 
 ### G7 · No version string on the console background — **low**
 
@@ -285,7 +292,9 @@ own fix PR.
   `tot`/`server`/`gfx`/`snd` line each frame, and `serverprofile` the
   1000-frame average, as in `host.c`. Both run in the browser's
   `Host_Frame` only; the room server has its own frame loop
-  (`server/game_server.js`). `-particles` is still ignored.
+  (`server/game_server.js`). `MAX_PARTICLES` is now 16384
+  (`src/r_part.js:18`), a deliberate deviation from C's 2048 taken from
+  Ironwail. `-particles` is still ignored.
 
 ## Command-line parms
 
@@ -326,7 +335,11 @@ All (a):
   - `gl_ztrick`: registered and commented obsolete (`src/glquake.js:270`).
 - **`in_win.c`:**
   - the 19 `joy*` cvars and `joyadvancedupdate`: replaced by the Gamepad
-    API in `src/in_web.js`.
+    API in `src/in_web.js`, with six of Ironwail's tuning cvars instead
+    (`joy_deadzone_move`/`_look`, `joy_outer_threshold_move`/`_look`,
+    `joy_exponent` and `joy_exponent_move`, `src/in_web.js:600-605`).
+  - `in_rawmouse` (web-only, off by default) asks pointer lock for
+    `unadjustedMovement`, i.e. mouse input without OS acceleration.
   - `m_filter` is ported.
   - `force_centerview` is registered with the handler `IN_ForceCenterView`.
 - **`net_dgrm.c`:** `net_stats`, `test`, `test2` and `ban` (`BAN_TEST`):
