@@ -47,6 +47,18 @@ process per room. It was forked from mrdoob's three-quake.
   headless WebSocket bots, and `room_memory_probe.js` measures a room's
   memory by init stage; their headers give the commands. Not linted or run
   in CI.
+- `tools/bench/`: headless Deno benchmarks (not linted or run in CI). They
+  use pak0 by default; the server, build, model and net benchmarks also take
+  `-base rerelease` (and, except model, the game flags) to run on the
+  gitignored data. `server_bench.js` times map load, physics and
+  QuakeC frames, and hull traces (`-dedicated` measures the server's load
+  path). Its checksum column must not change: a different checksum means
+  behaviour changed. `build_bench.js` (map build), `model_bench.js` (alias
+  and MD5 loads) and `net_bench.js` (server send, client parse, prediction)
+  print hashes or checksums that must not change either. `load_bench.js`,
+  `world_bench.js` and `render_bench.js` cover cold model loads, the world's
+  visibility pass, and particles and the 2D layer. Each file's header gives
+  its command. Compare before and after on the same machine.
 
 ## Commands
 

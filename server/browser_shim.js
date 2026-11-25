@@ -34,6 +34,7 @@ export class CubeTexture {
 
 // Constants that might be referenced
 export const RGBAFormat = 1023;
+export const UnsignedByteType = 1009;
 export const LinearFilter = 1006;
 export const NearestFilter = 1003;
 export const NearestMipmapNearestFilter = 1004;
@@ -243,6 +244,16 @@ export class BufferGeometry {
 	computeBoundingBox() {}
 	computeBoundingSphere() {}
 	computeVertexNormals() {}
+	clone() {
+		const g = new BufferGeometry();
+		for (const name of Object.keys(this.attributes)) {
+			const a = this.attributes[name];
+			g.attributes[name] = new BufferAttribute(a.array.slice(), a.itemSize);
+		}
+		if (this.index !== null) g.index = new BufferAttribute(this.index.array.slice(), 1);
+		g.drawRange = { ...this.drawRange };
+		return g;
+	}
 	dispose() {}
 }
 
@@ -384,6 +395,38 @@ export class Mesh extends Object3D {
 		this.geometry = geometry;
 		this.material = material;
 	}
+}
+
+// BatchedMesh stub (gl_rsurf.js world batches): keeps each added geometry and
+// the per-instance state so headless code can build and inspect a world.
+export class BatchedMesh extends Mesh {
+	constructor(maxInstanceCount = 0, maxVertexCount = 0, maxIndexCount = 0, material = null) {
+		super(null, material);
+		this.maxInstanceCount = maxInstanceCount;
+		this.maxVertexCount = maxVertexCount;
+		this.maxIndexCount = maxIndexCount;
+		this.geometries = [];
+		this.instances = [];
+		this.sortObjects = true;
+		this.perObjectFrustumCulled = true;
+	}
+	addGeometry(geometry) {
+		this.geometries.push(geometry);
+		return this.geometries.length - 1;
+	}
+	addInstance(geometryId) {
+		this.instances.push({ geometryId, visible: true, matrix: null });
+		return this.instances.length - 1;
+	}
+	setMatrixAt(id, matrix) {
+		this.instances[id].matrix = matrix;
+		return this;
+	}
+	setVisibleAt(id, visible) {
+		this.instances[id].visible = visible;
+		return this;
+	}
+	dispose() {}
 }
 
 export class Sprite extends Object3D {
