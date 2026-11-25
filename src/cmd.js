@@ -1,7 +1,7 @@
 // Ported from: WinQuake/cmd.c -- Quake script command processing module
 
 import { Con_Printf, SZ_Alloc, SZ_Clear, SZ_Write, SZ_Print, com_token, COM_Parse, MSG_WriteByte, com_argc, com_argv } from './common.js';
-import { Cvar_Command, Cvar_VariableString } from './cvar.js';
+import { Cvar_Command, Cvar_VariableString, Cvar_Init, cvar_vars } from './cvar.js';
 import { COM_LoadFileAsString } from './pak.js';
 import { clc_stringcmd } from './protocol.js';
 
@@ -197,6 +197,18 @@ export function Cmd_Init() {
 	Cmd_AddCommand( 'alias', Cmd_Alias_f );
 	Cmd_AddCommand( 'cmd', Cmd_ForwardToServer );
 	Cmd_AddCommand( 'wait', Cmd_Wait_f );
+
+	// johnfitz / Ironwail
+	Cmd_AddCommand( 'cmdlist', Cmd_List_f );
+	Cmd_AddCommand( 'unalias', Cmd_Unalias_f );
+	Cmd_AddCommand( 'unaliasall', Cmd_Unaliasall_f );
+	Cmd_AddCommand( 'apropos', Cmd_Apropos_f );
+	Cmd_AddCommand( 'find', Cmd_Apropos_f );
+
+	// Ironwail calls Cvar_Init from Host_Init, after Cmd_Init. The room
+	// server (server/game_server.js) calls Cmd_Init but not Host_Init, so the
+	// cvar commands are registered here to reach both.
+	Cvar_Init();
 
 }
 
@@ -512,6 +524,17 @@ function Cmd_Alias_f() {
 
 	}
 
+	// johnfitz: "alias name" prints that alias, in Ironwail's format. id's
+	// C would set it to an empty string.
+	if ( Cmd_Argc() === 2 ) {
+
+		for ( let a = cmd_alias; a !== null; a = a.next )
+			if ( Cmd_Argv( 1 ) === a.name )
+				Con_Printf( '   ' + a.name + ': ' + a.value );
+		return;
+
+	}
+
 	const s = Cmd_Argv( 1 );
 	if ( s.length >= MAX_ALIAS_NAME ) {
 
@@ -553,6 +576,148 @@ function Cmd_Alias_f() {
 	cmd += '\n';
 
 	a.value = cmd;
+
+}
+
+/*
+===============
+Cmd_Unalias_f -- johnfitz
+===============
+*/
+function Cmd_Unalias_f() {
+
+	switch ( Cmd_Argc() ) {
+
+		default:
+		case 1:
+			Con_Printf( 'unalias <name> : delete alias\n' );
+			break;
+		case 2: {
+
+			let prev = null;
+			for ( let a = cmd_alias; a !== null; a = a.next ) {
+
+				if ( Cmd_Argv( 1 ) === a.name ) {
+
+					if ( prev !== null )
+						prev.next = a.next;
+					else
+						cmd_alias = a.next;
+					return;
+
+				}
+
+				prev = a;
+
+			}
+
+			Con_Printf( 'No alias named ' + Cmd_Argv( 1 ) + '\n' );
+			break;
+
+		}
+
+	}
+
+}
+
+/*
+===============
+Cmd_Unaliasall_f -- johnfitz
+===============
+*/
+function Cmd_Unaliasall_f() {
+
+	cmd_alias = null;
+
+}
+
+/*
+============
+Cmd_List_f -- johnfitz
+
+Ironwail's cmd_functions is kept sorted; this port's is not, so the names
+are sorted here.
+============
+*/
+function Cmd_List_f() {
+
+	const partial = Cmd_Argc() > 1 ? Cmd_Argv( 1 ) : null;
+
+	const names = [];
+	for ( let cmd = cmd_functions; cmd !== null; cmd = cmd.next )
+		if ( partial === null || cmd.name.startsWith( partial ) )
+			names.push( cmd.name );
+	names.sort();
+
+	for ( const name of names )
+		Con_Printf( '   ' + name + '\n' );
+
+	Con_Printf( names.length + ' commands' + ( partial !== null ? ' beginning with "' + partial + '"' : '' ) + '\n' );
+
+}
+
+/*
+============
+Cmd_ListAllContaining -- Ironwail
+
+Lists the commands and cvars whose names contain substr, ignoring case
+============
+*/
+function Cmd_ListAllContaining( substr ) {
+
+	const needle = substr.toLowerCase();
+	let hits = 0;
+
+	const names = [];
+	for ( let cmd = cmd_functions; cmd !== null; cmd = cmd.next )
+		if ( cmd.name.toLowerCase().includes( needle ) )
+			names.push( cmd.name );
+	names.sort();
+	for ( const name of names ) {
+
+		hits ++;
+		Con_Printf( '   ' + name + '\n' );
+
+	}
+
+	const vars = [];
+	for ( let v = cvar_vars; v !== null; v = v.next )
+		if ( v.name.toLowerCase().includes( needle ) )
+			vars.push( v );
+	vars.sort( ( a, b ) => ( a.name < b.name ? - 1 : a.name > b.name ? 1 : 0 ) );
+	for ( const v of vars ) {
+
+		hits ++;
+		Con_Printf( '   ' + v.name + ' (current value: "' + v.string + '")\n' );
+
+	}
+
+	const plural = hits === 1 ? '' : 's';
+	if ( hits === 0 )
+		Con_Printf( 'no cvars/commands contain \'' + substr + '\'\n' );
+	else
+		Con_Printf( hits + ' cvar' + plural + '/command' + plural + ' containing \'' + substr + '\'\n' );
+
+}
+
+/*
+============
+Cmd_Apropos_f -- Ironwail
+
+apropos and find
+============
+*/
+function Cmd_Apropos_f() {
+
+	const substr = Cmd_Argv( 1 );
+	if ( substr === '' ) {
+
+		Con_Printf( Cmd_Argv( 0 ) + ' <substring> : search through commands and cvars for the given substring\n' );
+		return;
+
+	}
+
+	Cmd_ListAllContaining( substr );
 
 }
 
