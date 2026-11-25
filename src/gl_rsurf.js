@@ -153,7 +153,7 @@ import {
 import {
 	DotProduct, VectorCopy, VectorAdd, VectorNormalize
 } from './mathlib.js';
-import { Mod_LeafPVS, solidskytexture, alphaskytexture,
+import { Mod_LeafPVS, solidskytexture, alphaskytexture, GL_CheckAnisotropy,
 	SURF_DRAWLAVA, SURF_DRAWSLIME, SURF_DRAWTELE, SURF_DRAWWATER,
 	r_lavaalpha, r_slimealpha, r_telealpha } from './gl_model.js';
 import { COM_Parse, com_token } from './common.js';
@@ -1981,6 +1981,7 @@ export function R_DrawWorld() {
 	set_currententity( r_worldentity );
 
 	VectorCopy( r_refdef.vieworg, modelorg );
+	GL_CheckAnisotropy();
 	R_UpdateWorldTextureAnimations();
 	_waterWarpTime.value = R_WaterWarpTime( realtime );
 
