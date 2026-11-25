@@ -51,7 +51,8 @@ process per room. It was forked from mrdoob's three-quake.
   `deno test --allow-read --allow-write tests/<file>_test.js` (add the task's
   `--allow-env`/`--allow-run` for `server_lobby_test.js`). Narrow further with
   `--filter`.
-- `deno task check` type-checks `main.js`, the server entry points, the
+- `deno task check` type-checks `main.js`, the server entry points, the room
+  process manager (`server/room_process_manager.ts`), the
   WebSocket server driver (`server/net_websocket_server.ts`) and the two
   TypeScript tests (`tests/net_webtransport_server_test.ts`,
   `tests/quic_listen_test.ts`).

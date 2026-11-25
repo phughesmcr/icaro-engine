@@ -33,7 +33,7 @@ Cloudflare. The game has two transports, and each has a route:
 
 **Recommendation:** the Tunnel route is free, needs no router ports and
 doesn't expose the home IP, and it works in every browser, so it is the
-simplest default. Add route 1 for players who have WebTransport if stalls
+simplest default. Add the hybrid (option 5) for players who have WebTransport if stalls
 under packet loss turn out to matter. Cloudflare Containers is the paid,
 fully Cloudflare-hosted version of the Tunnel route. Durable Objects,
 Spectrum and the Realtime SFU are poor fits; see below.
@@ -63,7 +63,7 @@ Spectrum and the Realtime SFU are poor fits; see below.
   listen with `-wsport`. A client reaches a room through the lobby's
   `<prefix>/room/<id>` proxy, so only the lobby's port has to be reachable.
   Browsers without WebTransport use it automatically; `?transport=ws` or a
-  `wss://` `?server=` forces it.
+  `ws://`/`wss://` `?server=` forces it.
 - **Client discovery** (`src/menu.js`, `main.js`, `src/sys.js`):
   - The WebTransport lobby is `?server=` or `SYS_DEFAULT_LOBBY`
     (`https://localhost:4433`). The WebSocket lobby defaults to
