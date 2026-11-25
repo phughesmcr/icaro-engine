@@ -30,7 +30,7 @@ Line numbers refer to `dfef74a`. C references use function names, which are stab
 
 Every finding, and every residual the first round of fixes left, is fixed in `dev`: PRs #2 to #13 below are all merged. Two items are handled by documentation instead: the lobby's own permissions (#4) and two registered-content checks (section 7). Each PR's description has a per-item table.
 
-The test counts in the table were taken on each PR's own branch with `deno test --allow-read --allow-net --allow-env tests/`, before the PRs were merged. The sections below this one still describe the port as it was at `dfef74a`.
+The test counts in the table were taken on each PR's own branch with `deno test --allow-read --allow-net --allow-env tests/`, before the PRs were merged. The sections below this one still describe the port as it was at `dfef74a`, including their line numbers. The exceptions are notes that cite a later PR, such as rows marked "fixed after this review".
 
 [#1]: https://github.com/phughesmcr/icaro-engine/pull/1
 [#2]: https://github.com/phughesmcr/icaro-engine/pull/2
@@ -61,16 +61,35 @@ The test counts in the table were taken on each PR's own branch with `deno test 
 | Input residuals: Ctrl/Alt chords, Keyboard Lock, `xr_turnspeed`, touch and XR tests; numpad keeps the WinQuake mapping, now tested | [#12] | Fixed (77 pass) |
 | Netcode residuals: teleport lock and `punchangle` prediction, `hasAck`, `delta_sequence` age check, entity starvation, moves as datagrams, lobby join reply | [#13] | Fixed (120 pass) |
 
-**Wire format:** #10 changed the packet-entity format without bumping `PROTOCOL_VERSION`, which has to stay 15 for the shipped demos, and #13 added a flag and a byte to `svc_playerinfo`. Deploy the client and server together, and make sure clients don't keep a cached bundle from before these changes.
+**Wire format:** #10 changed the packet-entity format without bumping `PROTOCOL_VERSION`, which has to stay 15 for the shipped demos, and #13 added a flag and a byte to `svc_playerinfo`. Later PRs changed it again, still at version 15:
+
+- #42 sends `clc_move` view angles as 16-bit angles, as the FitzQuake protocol does.
+- #93 adds `sv_altnoclip` to the movevars the server sends for prediction.
+- #106 adds `svc_localsound` (56) from Ironwail and the 2021 rerelease.
+- #112 has the client read and ignore the rerelease's `svc_achievement` (52).
+
+Deploy the client and server together, and make sure clients don't keep a cached bundle from before these changes.
 
 ### Since the review
 
-Later PRs went beyond the findings above:
+Later PRs went beyond the findings above. PRs up to #33:
 
 - **Fidelity:** registered `pak1.pak` loading (#15), the lava rendering fix (#16), `timerefresh` (#23, #29), the sbar pickup flash (#24), geometric QuakeC string-table growth (#25), mission-pack support for `-rogue` and `-hipnotic` (#27), the GL cvars `gl_picmip`, `gl_max_size`, `gl_playermip`, `gl_cull` and `gl_finish` (#31), GLQuake brightness at gamma 1 and `-gamma` (#32), and `pointfile` plus sound blocking on focus loss (#33). `envmap` is deliberately not ported (#33).
 - **Tooling:** `deno task lint` reports no problems (#22, #30), and GitHub Actions CI runs the tests, lint and type checks on every PR and on pushes to `dev` and `main` (#30).
 
-At `06d4414` (`dev`, after #33), `deno task test` passes 206 tests, and `server/net_webtransport_server_test.ts` passes 1 more.
+PRs #34 to #114:
+
+- **Back to id's C:** the sbar `flashon` reset (#37), mirrors blended in gamma space and drawing the player (#38, #39), Help screens, Game Options frag and time limits, missing host commands and `host_speeds` (#58), underwater surface warp and the `gl_texturemode` command (#59), the sky texture size passed to `R_InitSky` (#98), and `ED_ParseGlobals`' return value (#103). #58 and #59 close the inventory's G1 to G4.
+- **Taken from QuakeSpasm and Ironwail:** these C source ports fix id bugs and add features, so this group departs from WinQuake on purpose (see section 7).
+  - Bug fixes: the QuakeC VM and builtins (#44, #61), server PVS, touch links and pushers (#45), BSP loading (#46), client fixes (#47, #62), sound (#48), model and lighting fixes (#63, #64, #102), input and WAV loading (#65), command, parse and savegame fixes (#68), coordinate and angle rounding (#42, #69), and static sounds combined per sfx (#92).
+  - Raised limits: maps and models (#46), client limits (#47), sound channels (#48), `MAX_DLIGHTS` 64 (#51), `MAX_PARTICLES` 16384 (#72).
+  - Features: console line editing and tab completion (#53), `r_lerpmodels` and `r_lerpmove` (#54, both off by default), menu mouse support, HUD cvars and underwater screen warp (#55), `host_maxfps` (#56), `v_gunkick` (#66), `gl_farclip` (#67), `gl_cshiftpercent_*` (#70), `cl_maxpitch`/`cl_minpitch` (#71), the `cvar` and alias commands (#73), `con_logcenterprint` (#75), fullbright alias pixels (#76), the gamepad radial deadzone (#77), `host_timescale` (#78, #100, #101), cheat-command arguments (#79), QuakeC extension builtins (#80, #106), all five sprite orientations (#81), the solo scoreboard (#82), `MF_HOLEY` skins (#83), pausing demos (#85), `nomonsters` (#86, #104), `in_rawmouse` (#87), `scr_sbarscale`, `scr_conscale` and `scr_menuscale` (#88, #105, #107), `sv_freezenonclients` (#90), liquid alpha (#91), `sv_altnoclip` (#93), `gl_texture_anisotropy` (#94), `cl_gun_fovscale` (#95), signon buffers (#96), shader water and sky warp (#97), and the `localsound` builtin (#106).
+- **Rendering and memory:** changed lightmap rows uploaded alone (#49), lightmap blocks grown on demand (#51), no per-frame allocation in the mirror pass (#57), and dlight PointLights removed under `gl_flashblend 0` (#99).
+- **Web and platform:** dropping the connection while a missing map downloads (#41), render scale and a fullscreen fallback for TV browsers (#43), browser Back as Escape (#52), yes/no prompts on gamepads and touch (#60), IPv6 and IPv4 listeners (#74), lazy Range-request loading of paks over 64 MB (#84), and an Advanced options menu (#109).
+- **2021 rerelease:** the rerelease layout with `?base=rerelease` and `-game` (#89), the `ex_CheckPlayerEXFlags` and `ex_walkpathtogoal` builtins (#111), `svc_achievement` (#112), the rerelease cvars with an embedded `default.cfg` (#113), and a deferred ctf `archive/` tree (#114). [`rerelease-gaps.md`](rerelease-gaps.md) (#110) lists what still blocks that content.
+- **Docs and tooling:** this fix status (#34), scoped test permissions and pinned CI tooling (#35), [`port-inventory.md`](port-inventory.md) (#36, #40, #108), and the README credits for Ironwail, QuakeSpasm and FitzQuake (#50).
+
+At `223a180` (`dev`, after #114), `deno task test` passes 546 tests, including `tests/net_webtransport_server_test.ts`.
 
 ### Residuals and follow-ups
 
@@ -79,7 +98,7 @@ What the PRs above leave open, on purpose or because it can't be checked here.
 - **Prediction ([#13]):** QuakeC changes to `punchangle` or `teleport_time` made after the last server update (for example firing on a predicted frame) are not predicted. `pausetime` is a QuakeC monster field the engine never reads, so there is nothing to mirror.
 - **Input ([#12]):** browsers reserve some shortcuts (Ctrl+W, Ctrl+T, Cmd+Q and others). Keyboard Lock captures them only in fullscreen on Chrome and Edge; Firefox and Safari have no Keyboard Lock.
 - **Transport ([#13]):** moves now travel as datagrams. The load test ran on one machine over loopback; `WT_SetClientOutboundDatagrams( false )` restores the reliable stream.
-- **Mirrors ([#11]):** the reflection pass runs on a GPU without WebGL errors, and the mirror's brightness follows `r_mirroralpha`. Whether the reflected image looks right still needs checking by eye. The mirror texture `window02_1` is in `start` and `e1m5` (shareware) and `e4m3` (registered), not e2m3 as this review first said.
+- **Mirrors ([#11], #38, #39):** the reflection pass runs on a GPU without WebGL errors. The mirror texture is now blended over the reflection in gamma space, as GLQuake does (#38), and the reflection now includes the player (#39). Under client prediction the reflected player is drawn at the server's origin, so it trails the predicted camera by about one round trip. Whether the reflected image looks right still needs checking by eye. The mirror texture `window02_1` is in `start` and `e1m5` (shareware) and `e4m3` (registered), not e2m3 as this review first said.
 - **Lobby permissions ([#4]):** the lobby process's own Deno permissions are documented, not enforced.
 - **Registered content ([#10]):** `COM_FindFile`'s loose-file rule and the `WINDED` dedicated-server check are intentional deviations; see section 7.
 
@@ -340,6 +359,8 @@ These were compared function by function and found faithful:
   - the `anorms` and `anorm_dots` tables, and the `turbsin` table (diffed numerically)
 - **Particles:** every `r_part.c` effect function and the particle physics.
 
+Later PRs changed some of these on purpose: the `MSG_Write*` rounding, the wire format and the builtin table. See "Behaviour taken from QuakeSpasm and Ironwail" in section 7.
+
 ## 6. Claims checked and rejected
 
 - **`gl_doubleeys` is misspelled.** No: that is id's own spelling (`gl_rmain.c`). The real gap is C-1.
@@ -373,6 +394,12 @@ These were compared function by function and found faithful:
 - **Registered-content checks kept looser on purpose** (decided in [#10]):
   - `COM_FindFile`'s shareware rule that refuses loose files whose path contains `/` is not ported. The port ships its deathmatch maps as loose `static/maps/*.bsp` files next to the shareware pak, and the rule would refuse them.
   - WinQuake's `#if WINDED` check in `COM_CheckRegistered`, which stops a dedicated server without the registered `gfx/pop.lmp`, is not ported. The Deno room server is a dedicated server that runs on the shareware pak by design.
+- **Behaviour taken from QuakeSpasm and Ironwail** (added after this review, #42 to #111): these C source ports fix bugs in id's code and raise its limits. The port takes some of their changes, so in these places it no longer matches WinQuake:
+  - `MSG_WriteCoord` and `MSG_WriteAngle` round with `Q_rint` (#69, #42), where WinQuake truncates. QW's `MSG_WriteAngle16` no longer drops the fraction of a degree before quantising (#42).
+  - The wire format changed at the same `PROTOCOL_VERSION` 15. `clc_move` carries 16-bit angles (#42), the movevars include `sv_altnoclip` (#93), and `svc_localsound` is new (#106). See "Wire format" under the fix status.
+  - The QuakeC builtin table goes past index 78, with Ironwail's extension builtins (#80, #106) and two rerelease builtins (#111).
+  - Limits are higher than C's, for example `MAX_EDICTS` 1024, `MAX_DLIGHTS` 64 and `MAX_PARTICLES` 16384 (#45 to #48, #51, #72).
+  - New cvars and commands that WinQuake lacks. `r_lerpmodels` and `r_lerpmove` default to 0, so id's unlerped animation stays the default.
 
 ## 8. Not covered by this review
 
@@ -450,7 +477,7 @@ The client predicts with QW pmove while the server simulates players with NetQua
 | Situation | NetQuake server | pmove (client) | Result |
 |---|---|---|---|
 | Looking up or down | `AngleVectors(angles)` with pitch/3, Z zeroed, no renormalise | flattened and renormalised forward/right | server ~0.89× forward speed at 80° pitch, so rubber-banding |
-| Angles | 8-bit quantised, truncated to whole degrees | exact `cl.viewangles` | up to ~2.4° yaw error |
+| Angles | 8-bit quantised, truncated to whole degrees | exact `cl.viewangles` | up to ~2.4° yaw error. **Fixed after this review (#42):** `clc_move` sends 16-bit angles without first dropping the fraction, and `CL_QuantizeAngle` (`src/cl_input.js`) quantises the predicted angles the same way |
 | Frame time | full `host_frametime`, last command per server frame | `msec = floor(frametime*1000)` | prediction travels 4-6% less |
 | Water | NQ friction ×4 and `SV_WaterMove` accel | QW `waterlevel`-scaled friction, projected accel, step press-down | different swim speed and deceleration |
 | Edges | point trace, `edgefriction` cvar | hull trace from feet, hard-coded 2 | differs near drops |
@@ -636,8 +663,10 @@ git clone --depth 1 https://github.com/id-Software/Quake.git /tmp/idquake
 ```
 
 ```bash
-deno test --allow-read --allow-net --allow-env tests/
+deno task test
 ```
+
+The tests at `dfef74a` ran with `deno test --allow-read --allow-net --allow-env tests/`. The task now scopes permissions more narrowly (see `deno.json`).
 
 Compare each `src/*.js` file with the C file named on its first line (`// Ported from: …`).
 
