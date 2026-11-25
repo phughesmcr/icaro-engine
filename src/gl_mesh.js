@@ -1310,11 +1310,18 @@ export function R_DrawAliasModel( entity, paliashdr, shadedots, shadecolor ) {
 
 			// translated from another header's skin (the .mdl's, before its
 			// MD5 replacement arrived or r_enhancedmodels changed): its
-			// layout doesn't match these uvs, so translate again
+			// layout doesn't match these uvs, so translate again, once per
+			// header change
 			if ( playerSkinTexture != null && playerSkinTexture._paliashdr !== paliashdr ) {
 
-				R_TranslatePlayerSkin( entIdx - 1 );
-				playerSkinTexture = R_GetPlayerSkinTexture( entIdx - 1 );
+				if ( entity._skinRetranslated !== paliashdr ) {
+
+					entity._skinRetranslated = paliashdr;
+					R_TranslatePlayerSkin( entIdx - 1 );
+					playerSkinTexture = R_GetPlayerSkinTexture( entIdx - 1 );
+
+				}
+
 				if ( playerSkinTexture != null && playerSkinTexture._paliashdr !== paliashdr )
 					playerSkinTexture = null;	// no skin to translate: the base skin
 

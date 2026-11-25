@@ -9,7 +9,8 @@ await import( '../src/gl_rsurf.js' );
 const gl_model = await import( '../src/gl_model.js' );
 const gl_mesh = await import( '../src/gl_mesh.js' );
 const gl_md5 = await import( '../src/gl_md5.js' );
-const { cls, ca_dedicated } = await import( '../src/client.js' );
+const { cl, cls, ca_dedicated, cl_entities } = await import( '../src/client.js' );
+const gl_rmisc = await import( '../src/gl_rmisc.js' );
 const { r_avertexnormals } = await import( '../src/anorm_dots.js' );
 const { COM_SetModified, com_modified } = await import( '../src/common.js' );
 const {
@@ -473,6 +474,132 @@ Deno.test( 'GL_DrawAliasFrame skins an MD5 pose once and shares the uvs and inde
 
 } ) );
 
+function buildEntity( mod ) {
+
+	return {
+		frame: 0,
+		lerpflags: 0,
+		colormap: null,
+		model: mod,
+		origin: new Float32Array( 3 ),
+		angles: new Float32Array( 3 ),
+		currentorigin: new Float32Array( 3 ),
+		currentangles: new Float32Array( 3 ),
+		previousorigin: new Float32Array( 3 ),
+		previousangles: new Float32Array( 3 )
+	};
+
+}
+
+const DOTS = new Float32Array( 162 ).fill( 1 );
+const SHADE = new Float64Array( [ 0.5, 0.5, 0.5 ] );
+
+Deno.test( 'one entity drawn as the .mdl, then the MD5: geometry, frames and shadow follow the header', () => withEnhanced( 1, () => {
+
+	const name = addModel();
+	const mod = gl_model.Mod_ForName( name + '.mdl', true );
+	const mdl = gl_model.Mod_Extradata( mod );
+	const md5 = gl_model.Mod_EnhancedAliasHeader( mod );
+	const e = buildEntity( mod );
+	const lerpdata = new gl_mesh.lerpdata_t();
+	const lightspot = new Float32Array( 3 );
+	const shadevector = new Float32Array( [ 0.5, 0.5, 1 ] );
+
+	// both have 3 vertices, so only the index tells them apart
+	gl_mesh.R_DrawAliasModel( e, mdl, DOTS, SHADE );
+	gl_mesh.R_SetupAliasFrame( e, mdl, 0, lerpdata );
+	gl_mesh.GL_DrawAliasShadow( e, mdl, lerpdata, lightspot, shadevector );
+	const mdlIndex = gl_mesh.GL_DrawAliasFrame( mdl, 0 ).indexAttr;
+	assertEqual( e._aliasShadowGeo.index, mdlIndex, '.mdl shadow index' );
+
+	e.frame = 1;
+	gl_mesh.R_DrawAliasModel( e, md5, DOTS, SHADE );
+	const t1 = gl_md5.GL_DrawMD5Frame( md5, 1 );
+	assertEqual( e._aliasGeo.index, t1.indexAttr, 'MD5 index' );
+	gl_mesh.R_SetupAliasFrame( e, md5, 1, lerpdata );
+	assertEqual( lerpdata.pose2, 1, 'frame 1 is pose 1' );
+	gl_mesh.GL_DrawAliasShadow( e, md5, lerpdata, lightspot, shadevector );
+	assertEqual( e._aliasShadowGeo.index, t1.indexAttr, 'shadow rebuilt for the MD5' );
+
+	// a frame the .mdl has but the MD5 lacks, or the reverse, draws frame 0
+	e.frame = 7;
+	gl_mesh.R_DrawAliasModel( e, md5, DOTS, SHADE );
+	gl_mesh.R_SetupAliasFrame( e, md5, 7, lerpdata );
+	assertEqual( lerpdata.pose2, 0, 'past numposes: pose 0' );
+
+} ) );
+
+Deno.test( 'a player skin translated from the .mdl is translated again for its MD5, once', async () => {
+
+	const name = addModel( { skins: [ [ 3 ] ] } );
+	const bare = addModel( { skins: [] } );	// an MD5 with no skin files
+	const ent = cl_entities[ 1 ];
+	const old = {
+		scores: cl.scores, maxclients: cl.maxclients, model: ent.model,
+		skinnum: ent.skinnum, colormap: ent.colormap
+	};
+	try {
+
+		cl.scores = [ { colors: 0x4c } ];
+		cl.maxclients = 1;
+		ent.skinnum = 0;
+		ent.colormap = 1;
+		ent.frame = 0;
+		ent.lerpflags = 0;
+
+		for ( const [ base, translates ] of [ [ name, true ], [ bare, false ] ] ) {
+
+			let mod;
+			let mdl;
+			let md5;
+			// translated while r_enhancedmodels was 0: the .mdl's skin
+			await withEnhanced( 0, () => {
+
+				mod = gl_model.Mod_ForName( base + '.mdl', true );
+				mdl = gl_model.Mod_Extradata( mod );
+				ent.model = mod;
+				gl_rmisc.R_TranslatePlayerSkin( 0 );
+
+			} );
+			const mdlTexture = gl_rmisc.R_GetPlayerSkinTexture( 0 );
+			assertEqual( mdlTexture._paliashdr, mdl, base + ': .mdl translation' );
+
+			await withEnhanced( 1, () => {
+
+				md5 = gl_model.Mod_EnhancedAliasHeader( mod );
+				assertEqual( md5 !== mdl, true, base + ': MD5 loaded' );
+				gl_mesh.R_DrawAliasModel( ent, md5, DOTS, SHADE );
+				const texture = gl_rmisc.R_GetPlayerSkinTexture( 0 );
+				if ( translates ) {
+
+					assertEqual( texture._paliashdr, md5, base + ': translated for the MD5' );
+					assertEqual( texture.image.width, 16, base + ': at the MD5 skin width' );
+					gl_mesh.R_DrawAliasModel( ent, md5, DOTS, SHADE );
+					assertEqual( gl_rmisc.R_GetPlayerSkinTexture( 0 ), texture, base + ': not again' );
+
+				} else {
+
+					assertEqual( texture, mdlTexture, base + ': no skin to translate' );
+					assertEqual( ent._skinRetranslated, md5, base + ': tried once' );
+
+				}
+
+			} );
+
+		}
+
+	} finally {
+
+		cl.scores = old.scores;
+		cl.maxclients = old.maxclients;
+		ent.model = old.model;
+		ent.skinnum = old.skinnum;
+		ent.colormap = old.colormap;
+
+	}
+
+} );
+
 // ----------------------------------------------------------------------------
 // Lazily opened paks
 // ----------------------------------------------------------------------------
@@ -525,12 +652,15 @@ function stubFetch( files, log ) {
 
 }
 
-Deno.test( 'a lazy pak fetches the .md5mesh and .md5anim when the model loads', async () => {
+Deno.test( 'a lazy pak fetches the .md5mesh and .md5anim when the model loads', () => lazyTest( false ) );
+Deno.test( 'a failed MD5 fetch leaves the .mdl', () => lazyTest( true ) );
+
+async function lazyTest( fail ) {
 
 	const wasModified = com_modified;
 	const realFetch = globalThis.fetch;
 	const log = [];
-	const name = 'progs/__md5_lazy';
+	const name = 'progs/__md5_lazy' + ( fail ? '_fail' : '' );
 	const shader = name.substring( 6 );
 	const pak = makePak( [
 		[ name + '.mdl', buildMdl() ],
@@ -539,14 +669,17 @@ Deno.test( 'a lazy pak fetches the .md5mesh and .md5anim when the model loads', 
 		[ 'progs/' + shader + '_00_00.lmp', lmp( 16, 8, 3 ) ],
 	] );
 	COM_SetLazyPakSize( 0 );
-	globalThis.fetch = stubFetch( new Map( [ [ 'http://md5.test/a/pak0.pak', pak ] ] ), log );
+	const url = 'http://md5.test/' + ( fail ? 'b' : 'a' ) + '/pak0.pak';
+	const files = new Map( [ [ url, pak ] ] );
+	globalThis.fetch = stubFetch( files, log );
 	try {
 
 		await withEnhanced( 1, async () => {
 
-			assertEqual( await COM_AddPakSequence( 'http://md5.test/a/pak0.pak' ), 1, 'pak added' );
+			assertEqual( await COM_AddPakSequence( url ), 1, 'pak added' );
 			assertEqual( COM_FindFile( name + '.md5mesh' ), null, '.md5mesh deferred' );
 			assertEqual( await COM_EnsureFile( name + '.mdl' ), true, '.mdl fetched' );
+			if ( fail ) files.delete( url );	// the pak is gone when the MD5 is fetched
 			const mod = gl_model.Mod_ForName( name + '.mdl', true );
 			assertEqual( mod.md5state, gl_model.MD5_PENDING, 'fetching' );
 			assertEqual( gl_model.Mod_EnhancedAliasHeader( mod ), gl_model.Mod_Extradata( mod ), '.mdl meanwhile' );
@@ -554,6 +687,14 @@ Deno.test( 'a lazy pak fetches the .md5mesh and .md5anim when the model loads', 
 			for ( let i = 0; i < 50 && mod.md5state === gl_model.MD5_PENDING; i ++ )
 				await new Promise( ( resolve ) => setTimeout( resolve, 0 ) );
 			assertEqual( mod.md5state, gl_model.MD5_DONE, 'fetched' );
+			if ( fail ) {
+
+				assertEqual( mod.md5hdr, null, 'no MD5' );
+				assertEqual( gl_model.Mod_EnhancedAliasHeader( mod ), gl_model.Mod_Extradata( mod ), 'the .mdl' );
+				return;
+
+			}
+
 			assertEqual( mod.md5hdr !== null && mod.md5hdr.numframes === 2, true, 'MD5 loaded' );
 			assertEqual( mod.md5hdr.numskins, 1, 'its .lmp skin, fetched with the pak' );
 			assertEqual( log.filter( ( l ) => l.includes( 'bytes=' ) ).length >= 2, true, 'range requests: ' + log.join( '; ' ) );
@@ -569,4 +710,4 @@ Deno.test( 'a lazy pak fetches the .md5mesh and .md5anim when the model loads', 
 
 	}
 
-} );
+}

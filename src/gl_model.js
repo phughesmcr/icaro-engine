@@ -3485,7 +3485,7 @@ export function Mod_LoadMD5Replacement( mod ) {
 			mod.md5state = MD5_DONE;
 			Mod_LoadMD5Files( mod, meshname, animname );
 
-		} );
+		} ).catch( ( e ) => Con_Printf( 'Warning: %s: %s\n', meshname, e.message ) );
 		return;
 
 	}

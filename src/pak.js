@@ -661,7 +661,8 @@ let com_fetchmissing = false;
 const RANGE_GAP = 256 * 1024;
 
 // Files the engine reads only on demand (.lit coloured lighting, fetched with
-// its map by COM_EnsureFile) or never (editor and KEX assets; archive/ is the
+// its map by COM_EnsureFile; .md5mesh and .md5anim, fetched with their .mdl by
+// gl_model.js Mod_LoadMD5Replacement) or never (editor and KEX assets; archive/ is the
 // source and tools tree, about 97 MB, in the re-release ctf pak)
 const DEFERRED_EXTENSIONS = [ '.lit', '.map', '.ent', '.png', '.tga', '.jpg', '.md5mesh', '.md5anim', '.nav', '.fgd' ];
 const DEFERRED_DIRS = [ 'tactile/', 'vault/', 'archive/' ];

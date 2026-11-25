@@ -279,8 +279,8 @@ export function R_TranslatePlayerSkin( playernum ) {
 
 	// the skin of the header that is drawn: the .mdl's or its MD5's
 	const paliashdr = model.cache != null ? Mod_EnhancedAliasHeader( model ) : null;
-	if ( paliashdr == null )
-		return;
+	if ( paliashdr == null || paliashdr.numskins === 0 )
+		return;	// an MD5 can have no skin files
 
 	const skinnum = ( entity.skinnum >= 0 && entity.skinnum < paliashdr.numskins )
 		? entity.skinnum : 0;

@@ -185,14 +185,14 @@ not have to adopt Ironwail's 666 or 999 wire formats, because the client and ser
 ### What can run in parallel
 
 These share files, so run them in sequence or bundle them. Items already done
-(#111–#114, BSP2 in #126, `.lit` in #137, and the protocol limits and alpha
-of phase 4) are left out:
+(#111–#114, BSP2 in #126, `.lit` in #137, fog in #134, MD5 models (6k), and
+the protocol limits and alpha of phase 4) are left out:
 
 - **`src/protocol.js` and `src/cl_parse.js`:** `svc_fog`, if it is ever sent.
-- **`src/pak.js`:** skybox `.tga` (6b) and MD5 (6k, done). Each changes
+- **`src/pak.js`:** skybox `.tga` (6b). It changes
   `DEFERRED_EXTENSIONS` or `DEFERRED_DIRS`, or adds a `COM_EnsureFile` at map
   load. `.lit` (5, #137) shows the pattern: `COM_EnsureLitFile`.
-- **`src/gl_rmain.js`:** fog (6a) and MD5 (6k), both done. Entity alpha (6c) adds one
+- **`src/gl_rmain.js`:** Entity alpha (6c) adds one
   call into `src/gl_entalpha.js` there.
 
 Groups that can run at the same time:
