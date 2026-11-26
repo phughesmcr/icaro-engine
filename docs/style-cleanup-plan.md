@@ -303,9 +303,9 @@ Pilot results (`refactor/tier4-pr-edict`): `src/pr_edict.js`. `cmd.js`,
 - Outer loop variable: the only one stays, because `ED_Alloc` reads it after the
   loop, as the C does.
 
-No site was a bug. This is one file, with no `!x` on a number or string, so it
-says little about the files that have those. It doesn't justify a wider pass:
-keep the rule above.
+No site was a bug. This is one file, with no null check on a number or string,
+so it says little about the files that have those. It doesn't justify a wider
+pass: keep the rule above.
 
 ## Sequencing with open PRs
 

@@ -1,6 +1,6 @@
-// pr_edict.c paths that no other test reaches: missing names in the lookups
-// and parsers, the "angle" key hack, ED_Alloc's reuse of freed edicts and a
-// missing progs.dat.
+// Assertions on pr_edict.c's null results and the locals around them: names
+// the lookups and parsers find or miss, the "angle" key hack, when ED_Alloc
+// reuses a freed edict, and a missing progs.dat.
 
 import * as common from "../src/common.js";
 import { ev_field, ev_float, ev_function, ev_vector } from "../src/pr_comp.js";
@@ -20,10 +20,12 @@ import {
   pr_functions,
   pr_globaldefs,
   pr_globals,
+  pr_globals_int,
   PR_SetFieldDefs,
   PR_SetFunctions,
   PR_SetGlobalDefs,
   PR_SetGlobals,
+  PR_SetGlobalsInt,
   PR_SetHostError,
   PR_SetProgs,
   PR_SetStringsData,
@@ -61,6 +63,7 @@ function withVM(fn) {
     pr_functions,
     pr_globaldefs,
     pr_globals,
+    pr_globals_int,
     pr_strings_data,
     sv,
   };
@@ -88,6 +91,7 @@ function withVM(fn) {
     PR_SetFunctions(saved.pr_functions);
     PR_SetGlobalDefs(saved.pr_globaldefs);
     PR_SetGlobals(saved.pr_globals);
+    PR_SetGlobalsInt(saved.pr_globals_int);
     PR_SetSV(saved.sv);
     common.Con_SetPrintFunctions(null, null);
   }
@@ -124,7 +128,7 @@ Deno.test("PR_GlobalString and PR_GlobalStringNoContents mark an unknown offset"
   });
 });
 
-Deno.test("ED_ParseEpair returns false for an unknown field or function name", () => {
+Deno.test("ED_ParseEpair finds field and function names or returns false", () => {
   withVM((printed) => {
     const ed = PR_AllocEdicts(1, 8)[0];
     assertEqual(
@@ -143,6 +147,14 @@ Deno.test("ED_ParseEpair returns false for an unknown field or function name", (
       "known function",
     );
     assertEqual(ed._fieldAccessor.getInt32(0), 1, "function number");
+    // a field value is the global that holds the field's offset
+    PR_SetGlobalsInt(new Int32Array([0, 0, 0, 0, 123]));
+    assertEqual(
+      ED_ParseEpair(ed._fieldAccessor, { type: ev_field, ofs: 1 }, "origin"),
+      true,
+      "known field",
+    );
+    assertEqual(ed._fieldAccessor.getInt32(1), 123, "field value");
     assertEqual(
       printed.join("|"),
       "Can't find field %s\n nope|Can't find function %s\n nope",
