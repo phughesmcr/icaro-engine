@@ -39,6 +39,7 @@ import {
   Agent_RLObserve,
   Agent_RLSpec,
   Agent_RLStep,
+  Agent_ScreenRGBA,
   Agent_Screenshot,
   Agent_Step,
   Agent_TurnTo,
@@ -112,6 +113,13 @@ function Agent_ExposeAPI() {
     menu: (label) => Agent_MenuSelect(label),
     screenshot: (width = 320) =>
       Agent_Screenshot(renderer.domElement, Draw_GetOverlayCanvas(), width),
+    screen_rgba: (width = 84, height = 0, overlay = true) =>
+      Agent_ScreenRGBA(
+        renderer.domElement,
+        overlay === true ? Draw_GetOverlayCanvas() : null,
+        width,
+        height,
+      ),
   });
 }
 
