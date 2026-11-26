@@ -1,8 +1,8 @@
 # Style cleanup plan
 
-Status: tier 0 done (#217); tier 1 done (#218); tier 2 done on
-`refactor/comment-banners` (see its results below); tiers 3 and 4 not started.
-Measured on `dev` at b8f46e7 (2026-11-26), after #205–#215 merged.
+Status: tier 0 done (#217); tier 1 done (#218); tier 2 done (#219); tier 3 done
+on `refactor/markdown-fmt` (see its results below); tier 4 not started. Measured
+on `dev` at b8f46e7 (2026-11-26), after #205–#215 merged.
 
 Decisions made: adopt `deno fmt` with the settings below, and include `tests/`.
 Comment banners go: `/** */` documents a declaration, and every other comment is
@@ -58,15 +58,15 @@ This replaces the `"fmt": { "exclude": ["./"] }` block that #207 added to root
   "newLineKind": "lf",
   "exclude": [
     "static/", "tests/fixtures/", ".claude/", ".vscode/",
-    "**/*.html", "**/*.css", "**/*.svg", "**/*.md"
+    "**/*.html", "**/*.css", "**/*.svg"
   ]
 }
 ```
 
 The pinned Deno (2.9.8) accepts every option. `server/deno.json` has no `fmt`
 block, so the root settings apply under `server/` too (checked: formatting
-`server/` with `--config deno.json` gives identical output). `**/*.md` comes out
-of `exclude` in tier 3.
+`server/` with `--config deno.json` gives identical output). Tiers 1 and 2 also
+excluded `**/*.md`; tier 3 removed it.
 
 ## Scope
 
@@ -82,7 +82,7 @@ of `exclude` in tier 3.
   check below is the only proof that nothing changed.
 - Not formatted: `static/`, `tests/fixtures/`, `.claude/`, `.vscode/`, HTML, CSS
   and SVG (`index.html` and `tools/webrtc_spike/index.html` need a browser
-  check, so they wait), and Markdown until tier 3.
+  check, so they wait). Markdown was left out until tier 3.
 
 ## Trial results
 
@@ -266,9 +266,23 @@ Results, on `refactor/comment-banners`:
 `proseWrap: "always"` rewraps every Markdown file to 80 columns. A trial without
 the exclusion changed +4.1k / -2.9k lines of Markdown. It goes in its own docs
 PR because the status docs collect most merge conflicts (AGENTS.md "Git
-workflow"). That PR removes `**/*.md` from `fmt.exclude`. Check that the YAML
-front matter in `.claude/skills/*/SKILL.md` and `.claude/agents/*.md` survives,
-or keep `.claude/` excluded.
+workflow"). That PR removes `**/*.md` from `fmt.exclude`. `.claude/` stays
+excluded, so the YAML front matter of its skills and agents isn't touched.
+
+Results (`refactor/markdown-fmt`):
+
+- One sweep commit: 17 Markdown files, +4,222 / -3,060 lines, the `exclude`
+  change in `deno.json` included. Of the other 5 tracked Markdown files, the 4
+  under `.claude/` are excluded and `.github/pull_request_template.md` was
+  already formatted.
+- Rendered with markdown-it (CommonMark and GFM tables) before and after, all 17
+  files give the same prose once whitespace is collapsed. Two code blocks
+  changed, both whitespace only: `deno fmt` formats fenced YAML and JS
+  (`server/README.md`, `docs/port-review.md`).
+- dprint pads every row of a table to its widest cell, and there's no option to
+  turn that off. One long cell widens the whole table: `docs/port-review.md`
+  accounts for +1,345 / -475 of the lines, and some of its rows are now 377
+  characters wide. They render the same.
 
 ### Tier 4: C idioms in code (not a sweep)
 
@@ -318,18 +332,44 @@ One PR is open: #216 (MCP SDK), which touches `server/agent_mcp.ts`,
    ```bash
    deno run --allow-read --allow-write --allow-run=git tools/collapse_banners.js && deno fmt && git commit -am "Collapse the comment banners"
    ```
+4. Tier 3 has no prep commit: the sweep (`a4843f9`) carries the `exclude`
+   change. Its parent is `dev` at #219's merge, so a PR branched earlier merges
+   that parent first, resolving conflicts normally (after steps 2 and 3 if it
+   predates them). Only then is `-X ours` safe, because the sweep is all that is
+   left to merge:
 
-The SHAs of the sweep commits (tier 1 commit 2 and the tier 2 codemod commit) go
-into `.git-blame-ignore-revs`. GitHub reads that file automatically; locally,
-run `git config blame.ignoreRevsFile .git-blame-ignore-revs`. PRs merge with
-merge commits, so the SHAs survive. List the sweep commits, not the merge
+   ```bash
+   git merge a4843f9^
+   ```
+
+   ```bash
+   git merge -X ours a4843f9 && deno fmt
+   ```
+
+   ```bash
+   git diff --quiet || git commit -am "Format the Markdown with deno fmt"
+   ```
+
+   ```bash
+   deno fmt --check && git merge origin/dev
+   ```
+
+   Then run `deno task ci`. Tested on a scratch branch from `6469eb6` that
+   edited a paragraph and a table row in `docs/port-review.md` and a line in
+   AGENTS.md: the tree it produced was identical to the branch's edits formatted
+   with `deno fmt`.
+
+The SHAs of the sweep commits (tier 1 commit 2, tier 2 commit 2 and the tier 3
+sweep) go into `.git-blame-ignore-revs`. GitHub reads that file automatically;
+locally, run `git config blame.ignoreRevsFile .git-blame-ignore-revs`. PRs merge
+with merge commits, so the SHAs survive. List the sweep commits, not the merge
 commits.
 
 ## Side effects to expect
 
 - `src/x.js:123` line references in the snapshot docs (`docs/port-review.md` and
-  others) go stale. They are snapshots, so leave them, or fix the ones still in
-  use in the tier 3 docs PR.
+  others) go stale. They are snapshots, so leave them. Tier 3 only reformatted
+  the docs and fixed none of them.
 - Reading the port side by side with the C changes: C uses tabs and `foo( a )`
   spacing. The `quake-c-reference` skill finds functions by name and compares
   behaviour, not layout, so its steps still apply.

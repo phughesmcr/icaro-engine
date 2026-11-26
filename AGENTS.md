@@ -138,9 +138,9 @@ process per room. It was forked from mrdoob's three-quake.
   reason only for C-parity state that has no reader in the port.
 - `deno fmt` sets the layout (settings in root `deno.json`): run it before
   committing. CI runs `deno fmt --check`, and `deno task ci` runs it first.
-  Markdown, HTML, CSS, SVG, `static/`, `tests/fixtures/`, `.claude/` and
-  `.vscode/` are excluded. A data table that reads better in rows gets a
-  `// deno-fmt-ignore` line with a reason above it.
+  Markdown is formatted too (wrapped at 80 columns). HTML, CSS, SVG, `static/`,
+  `tests/fixtures/`, `.claude/` and `.vscode/` are excluded. A data table that
+  reads better in rows gets a `// deno-fmt-ignore` line with a reason above it.
 
 ## Port fidelity
 
