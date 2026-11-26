@@ -55,6 +55,7 @@ const LOOK_DEGREES_PER_PX = 0.4;
 let enabled = false;
 let initialized = false;
 let menuOverlay = null;
+let menuShown = false; // the menu overlay takes taps (Touch_ShowMenu)
 let menuTouchCallback = null;
 let menuSurfaceGetter = null; // returns the element the menu is drawn into
 let fullscreenActivated = false;
@@ -775,11 +776,11 @@ function Menu_HandleTouchEnd( e ) {
 	if ( surface != null && surface.getBoundingClientRect ) {
 
 		const rect = surface.getBoundingClientRect();
-		menuTouchCallback( touch.clientX - rect.left, touch.clientY - rect.top, rect.width, rect.height );
+		menuTouchCallback( touch.clientX - rect.left, touch.clientY - rect.top, rect.width, rect.height, true );
 
 	} else {
 
-		menuTouchCallback( touch.clientX, touch.clientY, window.innerWidth, window.innerHeight );
+		menuTouchCallback( touch.clientX, touch.clientY, window.innerWidth, window.innerHeight, true );
 
 	}
 
@@ -1647,6 +1648,7 @@ export function Touch_ShowMenu() {
 	if ( ! initialized || ! menuOverlay ) return;
 
 	menuOverlay.style.display = 'block';
+	menuShown = true;
 	Touch_ShowSysBar();
 
 }
@@ -1663,6 +1665,21 @@ export function Touch_HideMenu() {
 	if ( ! initialized || ! menuOverlay ) return;
 
 	menuOverlay.style.display = 'none';
+	menuShown = false;
+
+}
+
+/*
+=================
+Touch_MenuShown
+
+True while the menu overlay is up, so menu input comes from taps
+(menu.js sizes and confirms its rows for fingers then)
+=================
+*/
+export function Touch_MenuShown() {
+
+	return menuShown;
 
 }
 
@@ -1693,8 +1710,9 @@ export function Touch_HideSysBar() {
 Touch_SetMenuCallback
 
 Set the callback function for menu touch events
-Callback receives (touchX, touchY, surfaceWidth, surfaceHeight), relative to
-the element returned by getSurface (the canvas the menu is drawn into)
+Callback receives (touchX, touchY, surfaceWidth, surfaceHeight, true),
+relative to the element returned by getSurface (the canvas the menu is drawn
+into); the last argument says the tap came from a finger
 =================
 */
 export function Touch_SetMenuCallback( callback, getSurface ) {
