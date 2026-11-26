@@ -80,6 +80,7 @@ let _points = null;
 let _group = null; // the stand-in meshes, never in the scene
 let _fog = null;
 let _camera = null;
+let _test = null;
 let _lightsInScene = 0;
 
 let _generation = 0;
@@ -96,9 +97,12 @@ export function R_WarmupCamera() {
 
 }
 
+// the lights Three's compile() will gather: traverseVisible, by hand
 function R_CountLight( object ) {
 
+	if ( object.visible === false ) return;
 	if ( object.isLight === true ) _lightsInScene ++;
+	for ( let i = 0; i < object.children.length; i ++ ) R_CountLight( object.children[ i ] );
 
 }
 
@@ -115,7 +119,7 @@ function R_CountSceneLights( root ) {
 	}
 
 	_lightsInScene = 0;
-	root.traverse( R_CountLight );
+	R_CountLight( root );
 	return _lightsInScene;
 
 }
@@ -252,8 +256,10 @@ export function R_WarmupStart( cl ) {
 
 	}
 
-	if ( renderer === null || typeof renderer.compileAsync !== 'function' ||
-		scene === null || cl === null || cl.worldmodel === null ||
+	const r = _test !== null ? _test.renderer : renderer;
+	const s = _test !== null ? _test.scene : scene;
+	if ( r === null || typeof r.compileAsync !== 'function' ||
+		s === null || cl === null || cl.worldmodel === null ||
 		isXRActive() === true ) return;
 
 	// R_SetupGL creates the real camera on the first frame, so on a page's
@@ -262,18 +268,19 @@ export function R_WarmupStart( cl ) {
 	const view = R_WarmupCamera();
 	const generation = _generation;
 	const t0 = performance.now();
-	const programs0 = renderer.info.programs !== null ? renderer.info.programs.length : 0;
-	const promises = [];
+	const programs0 = r.info !== undefined && r.info.programs !== null ? r.info.programs.length : 0;
+	let fog = null;
+	let group = null;
+	let fillers = null;
 
 	try {
 
 		const buckets = R_WarmupBuckets( gl_flashblend.value );
-		const inScene = R_CountSceneLights( scene );
+		const inScene = R_CountSceneLights( s );
 
 		// Fog_SetupFrame sets scene.fog on the first frame, so it is stale
 		// here: use what it will set (a program's key holds only the fog
 		// type, so the density and colour don't matter).
-		let fog = null;
 		if ( Fog_GetDensity() > 0 ) {
 
 			if ( _fog === null ) _fog = new THREE.FogExp2( 0x000000, 0 );
@@ -281,19 +288,12 @@ export function R_WarmupStart( cl ) {
 
 		}
 
-		const group = R_WarmupExtras( cl.worldmodel );
-
+		group = _test !== null ? new THREE.Group() : R_WarmupExtras( cl.worldmodel );
+		fillers = [];
 		for ( let i = 0; i < buckets.length; i ++ ) {
 
-			const fillers = R_WarmupFillerCount( buckets[ i ], inScene );
-			if ( fillers < 0 ) continue;
-
-			// compile( scene ) also counts the lights already in the scene;
-			// the stand-in group has none, so it needs the whole bucket
-			R_WarmupLights( fog, fillers );
-			promises.push( renderer.compileAsync( scene, view, _lightScene ) );
-			R_WarmupLights( fog, buckets[ i ] );
-			promises.push( renderer.compileAsync( group, view, _lightScene ) );
+			const n = R_WarmupFillerCount( buckets[ i ], inScene );
+			if ( n >= 0 ) fillers.push( { bucket: buckets[ i ], fillers: n } );
 
 		}
 
@@ -304,16 +304,19 @@ export function R_WarmupStart( cl ) {
 
 	}
 
-	if ( promises.length === 0 ) return;
+	if ( fillers.length === 0 ) return;
 
 	_pending = true;
 	_timer = setTimeout( R_WarmupCapped, R_WARMUP_MAX_WAIT_MS, generation );
 
-	Promise.all( promises ).then( () => {
+	// One bucket after another: compiling the same materials for the next
+	// bucket replaces their currentProgram, and compileAsync of the earlier
+	// bucket polls that, so overlapping buckets could report ready early.
+	R_WarmupRun( r, s, view, group, fog, fillers, generation ).then( () => {
 
 		if ( generation !== _generation ) return;
 		Con_DPrintf( 'R_WarmupStart: %d programs in %d ms\n',
-			( renderer.info.programs !== null ? renderer.info.programs.length : 0 ) - programs0,
+			( r.info !== undefined && r.info.programs !== null ? r.info.programs.length : 0 ) - programs0,
 			Math.round( performance.now() - t0 ) );
 		R_WarmupFinish( generation );
 
@@ -323,6 +326,32 @@ export function R_WarmupStart( cl ) {
 		R_WarmupFinish( generation );
 
 	} );
+
+}
+
+async function R_WarmupRun( r, s, view, group, fog, plan, generation ) {
+
+	for ( let i = 0; i < plan.length; i ++ ) {
+
+		if ( generation !== _generation ) return;
+
+		// compile( scene ) also counts the lights already in the scene; the
+		// stand-in group has none, so it needs the whole bucket
+		R_WarmupLights( fog, plan[ i ].fillers );
+		const a = r.compileAsync( s, view, _lightScene );
+		R_WarmupLights( fog, plan[ i ].bucket );
+		const b = r.compileAsync( group, view, _lightScene );
+		await Promise.all( [ a, b ] );
+
+	}
+
+}
+
+// Tests only: stand in for the renderer and scene (vid.js and gl_rmain.js
+// own the real ones, which need a browser); null restores them.
+export function R_WarmupSetTest( hooks ) {
+
+	_test = hooks;
 
 }
 
@@ -347,19 +376,24 @@ export function R_WarmupWhenReady( callback ) {
 
 }
 
-// Drops a held plaque callback, for a disconnect or a new map that begins its
-// own plaque before this one's compiles are ready.
+// Stops a warm-up in progress, for a disconnect before its compiles are ready,
+// and runs the held plaque callback (once).
 export function R_WarmupCancel() {
 
 	_generation ++;
 	_pending = false;
-	_waiting = null;
 	if ( _timer !== null ) {
 
 		clearTimeout( _timer );
 		_timer = null;
 
 	}
+
+	// the plaque callback still has to run, or the screen stays disabled
+	// until the 60 s "load failed" reset
+	const callback = _waiting;
+	_waiting = null;
+	if ( callback !== null ) callback();
 
 }
 

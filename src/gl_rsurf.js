@@ -2934,15 +2934,15 @@ function R_WarmupMesh( geometry, material ) {
 export function R_WarmupMeshes( worldmodel ) {
 
 	_warmMeshes.length = 0;
-	if ( worldmodel == null || worldmodel.textures == null ) return _warmMeshes;
+	if ( worldmodel === null || worldmodel === undefined || worldmodel.textures === null || worldmodel.textures === undefined ) return _warmMeshes;
 
 	let water = null;
 	let hasSky = false;
 	for ( let i = 0; i < worldmodel.numtextures; i ++ ) {
 
 		const t = worldmodel.textures[ i ];
-		if ( t == null || t.name == null ) continue;
-		if ( water === null && t.name.charCodeAt( 0 ) === 42 && t.gl_texture != null ) water = t; // '*'
+		if ( t === null || t === undefined || t.name === null || t.name === undefined ) continue;
+		if ( water === null && t.name.charCodeAt( 0 ) === 42 && t.gl_texture !== null && t.gl_texture !== undefined ) water = t; // '*'
 		if ( t.name.substring( 0, 3 ) === 'sky' ) hasSky = true;
 
 	}

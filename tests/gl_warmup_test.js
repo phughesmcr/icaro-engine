@@ -7,7 +7,6 @@ const { R_WarmupBuckets, R_WarmupFillerCount, R_WarmupStart, R_WarmupWhenReady, 
 	await import( '../src/gl_warmup.js' );
 const { R_DlightBucket } = await import( '../src/gl_rmain.js' );
 const { MAX_DLIGHTS } = await import( '../src/client.js' );
-
 function check( cond, msg ) {
 
 	if ( cond !== true ) throw new Error( msg );
