@@ -1556,7 +1556,7 @@ Deno.test( 'IN-4: menu overlay taps select; drags send arrow keys and never tap'
 		menu.fire( 'touchstart', ev( 'touchstart', [ [ 1, 110, 70 ] ] ) );
 		assertEqual( taps.length, 0, 'nothing on touchstart' );
 		menu.fire( 'touchend', ev( 'touchend', [ [ 1, 110, 70 ] ] ) );
-		assertEqual( JSON.stringify( taps ), '[[100,50,300,200]]', 'tap relative to the surface rect' );
+		assertEqual( JSON.stringify( taps ), '[[100,50,300,200,true]]', 'tap relative to the surface rect, marked as a finger' );
 		assertEqual( prevented, 2, 'default prevented' );
 
 		// A small wobble is still a tap
@@ -1603,7 +1603,7 @@ Deno.test( 'IN-4: menu overlay taps select; drags send arrow keys and never tap'
 		touch.Touch_SetMenuCallback( ( ...args ) => taps.push( args ) );
 		menu.fire( 'touchstart', ev( 'touchstart', [ [ 8, 5, 6 ] ] ) );
 		menu.fire( 'touchend', ev( 'touchend', [ [ 8, 5, 6 ] ] ) );
-		assertEqual( JSON.stringify( taps[ 3 ] ), '[5,6,640,480]', 'window-relative fallback' );
+		assertEqual( JSON.stringify( taps[ 3 ] ), '[5,6,640,480,true]', 'window-relative fallback' );
 
 		touch.Touch_SetMenuCallback( null );
 		menu.fire( 'touchstart', ev( 'touchstart', [ [ 9, 5, 6 ] ] ) );
