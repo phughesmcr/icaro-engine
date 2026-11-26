@@ -198,6 +198,14 @@ Deno.test("sw: routes each kind of request", () => {
     [SCOPE + "static/pak0.pak", undefined, "pak0"],
     [SCOPE + "static/pak1.pak", range, "passthrough"],
     [SCOPE + "static/rerelease/id1/pak0.pak", range, "passthrough"],
+    // LibreQuake's download and a developer's unpacked copy: never cached
+    [SCOPE + "static/librequake/v0.09-beta/full.zip", undefined, "passthrough"],
+    [SCOPE + "static/librequake/id1/maps/lqdm1.bsp", undefined, "passthrough"],
+    [
+      "https://cdn.jsdelivr.net/npm/@zip.js/zip.js@2.25.0/dist/zip-core-external.min.js",
+      undefined,
+      "immutable",
+    ],
     [
       SCOPE + "static/music/track02.ogg",
       { headers: { Range: "bytes=0-" } },
@@ -247,10 +255,21 @@ Deno.test("sw: routes each kind of request", () => {
   }
 });
 
-Deno.test("sw: install precaches the shell and pak0, and an offline launch still loads", async () => {
+Deno.test("sw: install precaches the shell but no pak, and an offline launch still loads", async () => {
   const w = loadWorker(FILES);
   await w.lifecycle("install");
   await w.lifecycle("activate");
+
+  // a bot loading the page runs the install too (src/intro.js)
+  const paks = w.net.requests.filter((r) => /\.pak$/i.test(r.url));
+  if (paks.length !== 0) fail("install fetched " + paks.map((r) => r.url));
+
+  // pak0 is cached the first time the game asks for it, after Play
+  await w.fetch(
+    new Request(SCOPE + "static/pak0.pak", {
+      headers: { Range: "bytes=0-11" },
+    }),
+  );
 
   w.net.online = false;
 

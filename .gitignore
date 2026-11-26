@@ -42,6 +42,10 @@ static/dopa/
 static/ctf/
 # A player's CD rips (music/trackNN.ogg or .mp3)
 static/music/
+# LibreQuake (?base=librequake): a developer's unpacked copy and the release
+# zips. Players download it into browser storage; it is never committed or
+# deployed with the client (cloudflare/client/build.js denies the folder).
+static/librequake/
 
 # Wrangler local state and secrets (tools/do_cpu_probe)
 .wrangler/

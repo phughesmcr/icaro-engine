@@ -10,12 +10,16 @@ import {
   COM_FindFile,
   COM_LAZY_PAK_SIZE,
   COM_OpenBlobPak,
+  COM_PreloadLooseFile,
   COM_SetLazyPakSize,
+  COM_SetUserFiles,
   COM_SetUserPaks,
 } from "../src/pak.js";
+import { CDAudio_SetStoredTracks, CDAudio_TrackURLs } from "../src/cd_audio.js";
 import {
   UD_ClassifyPak,
   UD_DemoName,
+  UD_MountPaks,
   UD_PakKey,
   UD_PlayOptions,
   UD_ReadPakNames,
@@ -123,21 +127,32 @@ Deno.test("UD_ReadPakNames reads the directory and refuses what isn't a pak", as
 Deno.test("UD_PlayOptions offers only games whose paks are stored", () => {
   const labels = (keys) =>
     UD_PlayOptions(new Set(keys)).map((o) => o.query).join(" ");
-  assertEqual(labels([]), "", "shareware only");
+  assertEqual(labels([]), "?base=id1", "shareware only");
   assertEqual(
     labels(["static/pak1.pak", "static/hipnotic/pak0.pak"]),
-    " ?game=hipnotic",
+    "?base=id1 ?game=hipnotic",
     "registered and hipnotic",
   );
   assertEqual(
     labels(["static/rerelease/mg1/pak0.pak"]),
-    "",
+    "?base=id1",
     "an add-on without the rerelease's id1 can't start",
   );
   assertEqual(
     labels(["static/rerelease/id1/pak0.pak", "static/rerelease/mg1/pak0.pak"]),
-    " ?base=rerelease ?base=rerelease&game=mg1",
+    "?base=id1 ?base=rerelease ?base=rerelease&game=mg1",
     "rerelease and mg1",
+  );
+  // LibreQuake once its manifest is stored, not for its files alone
+  assertEqual(
+    labels(["static/librequake/id1/pak0.pak"]),
+    "?base=id1",
+    "LibreQuake part unpacked",
+  );
+  assertEqual(
+    labels(["librequake/manifest.json", "static/librequake/id1/pak0.pak"]),
+    "?base=librequake ?base=id1",
+    "LibreQuake installed",
   );
 });
 
@@ -230,5 +245,56 @@ Deno.test("COM_AddPakSequence opens the player's paks in place of the server's",
     COM_SetUserPaks(new Map());
     COM_SetModified(wasModified);
     await Deno.remove(dir, { recursive: true });
+  }
+});
+
+// The store interface of UD_OpenStore, in memory
+function memoryStore(files) {
+  const map = new Map(Object.entries(files));
+  return {
+    kind: "memory",
+    list: () =>
+      Promise.resolve([...map].map(([key, b]) => ({ key, size: b.size }))),
+    get: (key) => Promise.resolve(map.get(key) ?? null),
+    put: () => Promise.resolve(),
+    remove: () => Promise.resolve(),
+  };
+}
+
+Deno.test("UD_MountPaks mounts LibreQuake's loose files and music only once its manifest is stored", async () => {
+  const lq = "static/librequake/id1/";
+  const files = {
+    [lq + "maps/lqdm1.bsp"]: new Blob([new Uint8Array([29, 0, 0, 0])]),
+    [lq + "music/track02.ogg"]: new Blob(["OggS"]),
+  };
+  const track = (dirs) => CDAudio_TrackURLs(2, dirs)[0];
+  try {
+    await UD_MountPaks(memoryStore(files));
+    assertEqual(
+      await COM_PreloadLooseFile("maps/lqdm1.bsp", lq + "maps/lqdm1.bsp"),
+      false,
+      "no manifest: not mounted",
+    );
+    assertEqual(track([lq.slice(0, -1)]), lq + "music/track02.ogg", "url");
+
+    await UD_MountPaks(memoryStore({
+      ...files,
+      "librequake/manifest.json": new Blob(['{"version":"v0.09-beta"}']),
+    }));
+    assertEqual(
+      await COM_PreloadLooseFile("maps/lqdm1.bsp", lq + "maps/lqdm1.bsp"),
+      true,
+      "manifest: the stored map is read",
+    );
+    assertEqual(
+      track([lq.slice(0, -1)]).startsWith("blob:"),
+      true,
+      "the stored track plays from a blob: URL",
+    );
+    assertEqual(track(["static"]), "static/music/track02.ogg", "id1's music");
+  } finally {
+    COM_SetUserPaks(new Map());
+    COM_SetUserFiles(new Map());
+    CDAudio_SetStoredTracks(new Map());
   }
 });

@@ -419,8 +419,11 @@ export async function COM_PreloadLooseFile(filename, url) {
   try {
     let data;
 
-    // Check if running in Deno
-    if (typeof Deno !== "undefined") {
+    // a loose file in the browser's storage (see COM_SetUserFiles) first
+    const user = com_userfiles.get(url.toLowerCase());
+    if (user !== undefined) {
+      data = new Uint8Array(await user.arrayBuffer());
+    } else if (typeof Deno !== "undefined") {
       // Load from filesystem in Deno
       try {
         data = await Deno.readFile(url);
@@ -688,6 +691,18 @@ let com_userpaks = new Map();
  */
 export function COM_SetUserPaks(paks) {
   com_userpaks = paks;
+}
+
+// Loose files in the browser's storage, by lower-case URL, as com_userpaks
+let com_userfiles = new Map();
+
+/**
+ * Not in id's common.c. Sets loose files kept in the browser's storage (a Map
+ * from lower-case URL, such as "static/librequake/id1/maps/lqdm1.bsp", to
+ * Blob). COM_PreloadLooseFile reads one in place of fetching its URL.
+ */
+export function COM_SetUserFiles(files) {
+  com_userfiles = files;
 }
 
 /**

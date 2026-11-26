@@ -34,10 +34,12 @@ export const CLIENT_SHAREWARE_PAK_SHA256 =
 /** Workers static assets refuse a file over 25 MiB. */
 export const CLIENT_MAX_FILE_BYTES = 25 * 1024 * 1024;
 
-// Folders that hold registered or commercial data, or a player's CD rips
-// (.gitignore, AGENTS.md "Game data"). Matched on any folder name in a path,
-// in any case.
+// Folders that hold registered or commercial data, a player's CD rips, or
+// LibreQuake, whose paks are over the asset size limit and are served from
+// elsewhere (src/librequake.js LQ_DOWNLOAD_BASE) (.gitignore, AGENTS.md "Game
+// data"). Matched on any folder name in a path, in any case.
 const DENIED_DIRS = new Set([
+  "librequake",
   "hipnotic",
   "rogue",
   "rerelease",
