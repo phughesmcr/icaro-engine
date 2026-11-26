@@ -150,7 +150,7 @@ process per room. It was forked from mrdoob's three-quake.
 
 ### Lint and format
 
-- `deno task lint` (config in root `deno.json`: `main.js`, `src/`, `server/`,
+- `deno task lint` (config in root `deno.json`: `main.js`, `sw.js`, `src/`, `server/`,
   `tests/`, `cloudflare/`; `no-window` rules off) passes with zero problems. The bar is
   **lint passes**; CI enforces it.
 - Unused parameters kept for C-signature parity get a `_` prefix
