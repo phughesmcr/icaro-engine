@@ -27,8 +27,19 @@ Phase 1 is built: `src/agent.js`, exposed as `window.icaro` by `main.js`
   out as spoilers.
 - Not built yet: the `map`, `screen` (except `icaro.screenshot()`) and `rl`
   tiers, macro actions, the render-skip flag, labels for the options menu,
-  and every adapter except `window.icaro`. Headless play, determinism and
-  navigation are in progress on separate branches.
+  and every adapter except `window.icaro`.
+
+Parts of phases 2 and 3 are built too (status checked at `dev` `4e95d06`):
+
+- Headless play: `server/headless_host.js` runs the host, a local server
+  and a loopback client under Deno with no rendering (#191). Its header
+  gives the usage. No MCP server uses it yet.
+- Determinism: `Sys_SetRandomSeed` and `Sys_SetClockOverride` in
+  `src/sys.js` seed the gameplay randomness and override the clock, both
+  opt-in. `tests/determinism_test.js` checks them (#190).
+- Navigation: `src/nav.js` builds a walk graph from the BSP and answers A*
+  path queries; `tools/nav/nav_build.js` builds graphs offline (#194). It
+  isn't wired into map load or `window.icaro` yet, so `goto` doesn't exist.
 
 Confidence labels on outside claims: **[V]** read on a primary source,
 **[S]** secondary source or search summary, **[U]** unverified. Claims about

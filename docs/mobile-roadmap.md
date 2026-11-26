@@ -4,6 +4,18 @@ Goal: make Icaro the most mobile-friendly Quake engine. This is a snapshot
 taken against `dev` at 1d933a6 (2026-11-25). Check claims against the code
 before relying on them.
 
+## Status
+
+Checked at `dev` `4e95d06`. Tier 1 is built except controller rumble
+(item 4) and part of item 8 (the manifest's `screenshots` and
+`launch_handler`, and iOS splash screens): iOS audio resume (#180), the
+touch DPR cap (#181), `navigator.storage.persist()` after the first save
+(#183), the manifest's `id`, description and 192 and maskable icons
+(#184), hiding touch controls under a gamepad (#185), opening the menu when
+a single-player game is hidden (#186), the continuous stick (#187) and the
+portrait prompt (#188). Tiers 2 and 3 are not started. None of it was
+tested on a real phone.
+
 ## How it was made
 
 Five read-only explorers each took one angle: controls and HUD, rendering and

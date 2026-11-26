@@ -9,7 +9,8 @@ argument-hint: "[optional PR title or notes]"
 
 Notes from the user: $ARGUMENTS
 
-Stop and report if any step fails. Never merge the PR, and never target `main`.
+Stop and report if any step fails. Never target `main`, and don't merge the PR
+unless the user asks (see step 10).
 
 1. **Base.** `git fetch origin dev` (outside the sandbox). Then
    `git merge-base --is-ancestor origin/dev HEAD`. If it fails, tell the user
@@ -50,4 +51,6 @@ Stop and report if any step fails. Never merge the PR, and never target `main`.
    - **Not verified**: browser rendering, real phone/headset, live QUIC,
      registered/mission-pack data, whichever apply.
    - **Left out**: work that needs files you don't own, and follow-ups.
-10. Report the PR URL. Leave merging to the maintainer, who uses merge commits.
+10. Report the PR URL, then stop. Merge only if the user asks in chat and CI
+    has passed: `gh pr merge <n> --merge` outside the sandbox. Never squash,
+    rebase or enable auto-merge.

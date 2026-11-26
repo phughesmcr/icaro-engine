@@ -7,6 +7,13 @@ supersedes the recommendation in
 to the home Mac), which still describes the transports and the options that
 need a home machine. Nothing was deployed and no account was created.
 
+> **Status (`dev` `4e95d06`):** the recommendation below (Containers) was
+> not built. The project took the "Rooms hosted in a player's browser"
+> option from [Other free options](#other-free-options-brief) instead: see
+> [browser-hosted-rooms.md](browser-hosted-rooms.md) for the design and
+> `cloudflare/lobby/` for the Worker and Durable Object lobby. Read the
+> rest as the research behind that choice.
+
 Tags, as in that doc:
 
 - **[docs]**: read on the cited official page on 2026-11-25.

@@ -63,18 +63,23 @@ process per room. It was forked from mrdoob's three-quake.
 - `docs/always-on-hosting.md`: hosting multiplayer without the home Mac
   (Containers, Durable Objects, VMs), with room memory/CPU/bandwidth
   measurements and the plan. Supersedes the recommendation in
-  `cloudflare-multiplayer.md`. A snapshot.
+  `cloudflare-multiplayer.md`, but its own recommendation (Containers) was
+  not built: the project went with browser-hosted rooms instead. A
+  snapshot.
 - `docs/browser-hosted-rooms.md`: design for rooms hosted in a player's
   browser tab and joined over WebRTC, with a Durable Object lobby for
   signalling. Built through PR 5 (the menus); its status line says what
   has been checked in a browser.
 - `docs/mobile-roadmap.md`: mobile-friendliness review (controls, rendering,
   offline, lifecycle, networking, competitive landscape) with confirmed bugs
-  and a ranked roadmap. A snapshot; nothing in it was tested on a device.
+  and a ranked roadmap; its status section lists the items built since. A
+  snapshot; nothing in it was tested on a device.
 - `docs/agent-interface.md`: research and plan for making the engine
   playable by LLM agents and RL (lockstep clock, text observations, macro
-  actions, MCP/Gymnasium adapters). Phase 1 (`src/agent.js`) is built; the
-  rest is a plan. A snapshot.
+  actions, MCP/Gymnasium adapters). Phase 1 (`src/agent.js`) is built, and
+  so are headless play, seeded randomness and the navigation graph
+  (`src/nav.js`, built offline by `tools/nav/nav_build.js`); its status
+  section says what isn't. A snapshot.
 - `tools/`: `port_inventory.py` regenerates that inventory's raw tables
   (Python, standard library only; not linted or run in CI).
   `room_bench.js` (with `room_bench_preload.js`) load-tests one room with
@@ -107,7 +112,7 @@ process per room. It was forked from mrdoob's three-quake.
 - `deno task ci` runs what CI's main job runs: `deno task test`,
   `deno task lint` and `deno task check`. Run it before calling work done.
   CI's second job is `deno task image-check` (needs Docker).
-- `deno task test`: the whole suite (~850 tests, ~30 s). Its permissions are
+- `deno task test`: the whole suite (about 30 s). Its permissions are
   scoped: no network, env limited to the `FAKE_ROOM_*` variables, and run
   limited to `tests/fixtures/fake_room_server.sh`. A test that needs more must
   widen the task deliberately. For one file:
@@ -122,7 +127,10 @@ process per room. It was forked from mrdoob's three-quake.
 - `deno task lobby` and `deno task game` need `server/cert.pem` and
   `server/key.pem` (see `server/README.md`). Both are gitignored.
 - To run the client, serve the repo root with any static file server
-  (`python3 -m http.server`) and open `index.html`. To drive it as an
+  (`python3 -m http.server`) and open `index.html`. `.claude/launch.json`
+  defines the preview servers for Claude Code: `static` (the client, port
+  8137) and `lobby` (`deno task lobby`: port 4433, the client's default,
+  with rooms on 4434–4443; it needs the certs). To drive it as an
   agent, open `?agent=lockstep&map=e1m1&skill=1` and call `icaro.help()`
   in the page.
 - CI (`.github/workflows/ci.yml`) runs on PRs to `dev` and `main`: test, lint
@@ -221,8 +229,15 @@ list manual test steps in the PR.
 - Commit subjects are short imperative sentences: no prefix, no trailing
   period, e.g. "Restore gl_doubleeys console cvar name". The body, if any,
   says why. Commits are signed. Never disable signing.
-- Open one PR per concern with `--base dev`, then stop. **Never merge PRs.**
-  The maintainer merges with merge commits, not squash.
+- Open one PR per concern with `--base dev`, then stop. Merge a PR only
+  when the maintainer asks for it in chat ("merge into dev", "merge all"),
+  and then only PRs whose CI has passed, with
+  `gh pr merge <n> --merge` (outside the sandbox). Always a merge commit:
+  never squash, rebase or auto-merge.
+- Status docs (`docs/rerelease-gaps.md`, `docs/port-review.md`, the status
+  sections of the other `docs/` files) collect most of the merge conflicts
+  between parallel PRs. A feature PR leaves them alone unless the doc is
+  its subject; one docs PR updates them after a batch of work merges.
 - A PR body says why, lists each finding as fixed or not (with the reason),
   how it was verified (test count, lint), and what was *not* verified
   (browser, real device, live QUIC).
