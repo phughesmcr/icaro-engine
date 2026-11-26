@@ -13,12 +13,16 @@ export async function TD_Mount() {
   const pak = await import("../src/pak.js");
   if (GD_PAK_SEQUENCE === true) {
     const count = await pak.COM_AddPakSequence(GD_PAK_PATH);
-    if (count === 0) throw new Error(GD_PAK_PATH + " missing");
+    if (count === 0) {
+      throw new Error(GD_PAK_PATH + " missing: run deno task fetch-data");
+    }
     return count;
   }
   const name = GD_PAK_PATH.slice(GD_PAK_PATH.lastIndexOf("/") + 1);
   const pack = await pak.COM_FetchPak(GD_PAK_PATH, name);
-  if (pack === null) throw new Error(GD_PAK_PATH + " missing");
+  if (pack === null) {
+    throw new Error(GD_PAK_PATH + " missing: run deno task fetch-data");
+  }
   pak.COM_AddPack(pack);
   return 1;
 }

@@ -798,7 +798,9 @@ Deno.test("ENTALPHA_ENCODE / DECODE / TOSAVE match Ironwail", () => {
   assertEqual(ENTALPHA_ENCODE(ENTALPHA_TOSAVE(128)), 128, "save round trip");
 });
 
-// The shareware attract demo, recorded with NetQuake 15
+// The data's first attract demo (LibreQuake's demo1, recorded by FitzQuake
+// 0.85 under protocol 15; its first message prints the server's banner
+// before svc_serverinfo)
 
 Deno.test("demo1.dem (protocol 15) parses message by message", async () => {
   await TD_Mount();
@@ -903,6 +905,12 @@ Deno.test("demo1.dem (protocol 15) parses message by message", async () => {
 // Returns svc_version 15 plus the rest, and sets what CL_ParseServerInfo would.
 function replaceServerinfo(msg) {
   let p = 0;
+  if (msg[p] === 8) { // svc_print
+    p++;
+    while (msg[p] !== 0) p++;
+    p++;
+  }
+  const head = p;
   if (msg[p++] !== 11) {
     throw new Error("demo1 does not start with svc_serverinfo");
   }
@@ -924,9 +932,10 @@ function replaceServerinfo(msg) {
     p++;
   }
 
-  const out = new Uint8Array(5 + msg.length - p);
-  out[0] = svc_version;
-  new DataView(out.buffer).setInt32(1, PROTOCOL_VERSION, true);
-  out.set(msg.subarray(p), 5);
+  const out = new Uint8Array(head + 5 + msg.length - p);
+  out.set(msg.subarray(0, head), 0);
+  out[head] = svc_version;
+  new DataView(out.buffer).setInt32(head + 1, PROTOCOL_VERSION, true);
+  out.set(msg.subarray(p), head + 5);
   return out;
 }

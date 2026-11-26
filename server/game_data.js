@@ -7,20 +7,22 @@
 // packs, the rerelease) is chosen with -pak, -game, ?base= or the Game data
 // panel, as before, and nothing here changes how it loads.
 //
-// The data is id's shareware pak0, committed at static/pak0.pak.
+// The data is LibreQuake (docs/librequake-content.md), the full release
+// pinned in src/librequake.js: its id1 paks and loose maps, unpacked into the
+// gitignored static/librequake/id1/ by `deno task fetch-data`.
 
 /** What the data is, for text that names it (the agent MCP server's). */
-export const GD_TITLE = "id1 shareware episode 1";
+export const GD_TITLE = "LibreQuake";
 
 /** The id1 pak, relative to the repository root (deno tasks, -pak). */
-export const GD_PAK = "static/pak0.pak";
+export const GD_PAK = "static/librequake/id1/pak0.pak";
 
 /**
  * True when pak1.pak, pak2.pak... beside GD_PAK belong to the data and are
  * mounted too (headless_init's pak_sequence). The servers always mount the
  * sequence.
  */
-export const GD_PAK_SEQUENCE = false;
+export const GD_PAK_SEQUENCE = true;
 
 /** The repository root, as a file system path ending in a slash. */
 export const GD_ROOT = decodeURIComponent(
@@ -37,11 +39,10 @@ export const GD_ID1_DIR = GD_PAK_PATH.slice(
 );
 
 /**
- * The basedir holding the data (common.c's basedir: id1/ lives in it, or is
- * it, as static/ is for static/pak0.pak), as a file system path ending in a
- * slash. Loose files (maps/, music/) are looked up below it.
+ * The basedir holding the data (common.c's basedir, which id1/ is in), as a
+ * file system path ending in a slash.
  */
-export const GD_BASE_DIR = GD_ROOT + "static/";
+export const GD_BASE_DIR = GD_ROOT + "static/librequake/";
 
 /**
  * Maps by role, for code that needs a level of some kind rather than a
@@ -53,8 +54,8 @@ export const GD_BASE_DIR = GD_ROOT + "static/";
  */
 export const GD_MAPS = Object.freeze({
   hub: "start",
-  level: "e1m1",
-  next: "e1m2",
+  level: "lq_e1m1",
+  next: "lq_e1m2",
 });
 
 /**
@@ -62,14 +63,14 @@ export const GD_MAPS = Object.freeze({
  * Their checksums are recorded per map, so a list changes only with the data.
  */
 export const GD_BENCH_MAPS = Object.freeze({
-  server: Object.freeze(["start", "e1m1", "e1m3", "e1m6"]),
-  build: Object.freeze(["start", "e1m1", "e1m3", "e1m6", "e2m3"]),
-  world: Object.freeze(["start", "e1m1", "e1m3", "e1m6", "e2m3"]),
-  net: Object.freeze(["e1m3", "e1m7", "dm3", "e1m2:coop"]),
+  server: Object.freeze(["start", "lq_e1m1", "lq_e1m3", "lq_e0m1"]),
+  build: Object.freeze(["start", "lq_e1m1", "lq_e1m3", "lq_e0m1", "lq_e2m3"]),
+  world: Object.freeze(["start", "lq_e1m1", "lq_e1m3", "lq_e0m1", "lq_e2m3"]),
+  net: Object.freeze(["lq_e1m3", "lq_e0m1", "lqdm1:dm", "lq_e1m2:coop"]),
   load: Object.freeze([
     "maps/start.bsp",
-    "maps/e1m1.bsp",
-    "maps/e1m3.bsp",
-    "maps/e1m6.bsp",
+    "maps/lq_e1m1.bsp",
+    "maps/lq_e1m3.bsp",
+    "maps/lq_e0m1.bsp",
   ]),
 });

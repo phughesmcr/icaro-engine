@@ -12,6 +12,7 @@ import {
   registered,
 } from "../src/common.js";
 import { COM_AddPack, COM_LoadPackFile } from "../src/pak.js";
+import { GD_PAK_PATH } from "../server/game_data.js";
 import { OFS_PARM0, OFS_PARM1, OFS_PARM2, OFS_RETURN } from "../src/pr_comp.js";
 import {
   pr_builtins,
@@ -246,8 +247,15 @@ Deno.test("MOD-2: a modified pak is a Sys_Error on shareware (common.c com_modif
   }
 });
 
-Deno.test("MOD-2: the shipped pak0.pak is the original id1 one", () => {
+// The repository has no id1 pak, so the pak0 count and directory CRC check
+// is shown from the other side: the data's pak0.pak (LibreQuake) has its
+// own directory, so it counts as modified, as in Quake.
+Deno.test("MOD-2: LibreQuake's pak0.pak is not id1's (com_modified)", () => {
   COM_SetModified(false);
-  COM_LoadPackFile("pak0.pak", Deno.readFileSync("static/pak0.pak").buffer);
-  assertEqual(com_modified, false, "pak0.pak count and directory CRC");
+  try {
+    COM_LoadPackFile("pak0.pak", Deno.readFileSync(GD_PAK_PATH).buffer);
+    assertEqual(com_modified, true, "pak0.pak count and directory CRC");
+  } finally {
+    COM_SetModified(false);
+  }
 });

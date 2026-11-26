@@ -5,8 +5,9 @@
 //       [-json out_dir] [-skill 1] [-deathmatch]
 //
 // -json writes <out_dir>/<map>.nav.json (needs --allow-write). Without
-// -maps it builds every maps/*.bsp in the paks (-maps also finds loose ones). "first" is the first build in
-// this process (hull flattening and JIT included: what a browser pays at map
+// -maps it builds every maps/*.bsp in the paks (-maps also finds loose ones,
+// such as LibreQuake's lqdm maps). "first" is the first build in this
+// process (hull flattening and JIT included: what a browser pays at map
 // load); "median" is over -runs builds.
 //
 // Not part of the engine or the test suite.
