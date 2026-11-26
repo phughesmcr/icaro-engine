@@ -58,12 +58,17 @@ const CLOCK_BASE = 1;
 const GOTO_MAX_TICS = 8640;
 const GOTO_DEFAULT_TICS = 72 * 30;
 
+// Largest map tier: MAP_MAX_SIZE in src/agent.js (tests/agent_map_test.js
+// checks that the two agree)
+const MAP_MAX_SIZE = 41;
+
 const INSTRUCTIONS =
   `Plays Quake (id1 shareware episode 1) headless. The game is frozen between calls and advances only in start, step and goto (72 tics = 1 s of game time).
 Start with start {map: "e1m1", skill: 1}. Each result is an observation:
 - a status line (map, time, hp, armor, weapon, ammo, keys, kills, secrets, pos, yaw, pitch);
 - entity lines "#id kind distance yawN [pitchN] [hidden] [hpN]": step with {yaw: N} to face one;
 - events since the last call (pickups, damage, messages, level changes);
+- with map: N (step, goto, observe), an N x N ASCII map of 32-unit cells around you, turned so you are "^" at the centre facing up (left is left): . floor at your height, + higher (a ledge or stairs up), - lower (a drop), # wall, ~ water, ! slime or lava, blank nothing to stand on or not in view; D door, L lift, B button, E exit, T teleporter, M monster, P player, w weapon, k key, i other item, x explosive box, * projectile;
 - "tic=N hash=H": tics since start and a hash of the game state.
 step holds buttons for N tics, then releases them: buttons forward back moveleft moveright left right lookup lookdown jump attack speed up down strafe use. yaw: degrees, + turns left. pitch: + looks down. face: absolute yaw. impulse 1-8 selects a weapon.
 Quake has no use key: walk into buttons and doors; shoot some buttons. "exit" entities are level exits: walk into them.
@@ -77,6 +82,9 @@ const BUTTONS_DESC =
 // it was written
 const int = (min: number, max: number) => z.number().int().min(min).max(max);
 const ents = int(0, 64).optional().describe("Entities to list (default 10)");
+const map = int(0, MAP_MAX_SIZE).optional().describe(
+  "Add an ASCII map this many 32-unit cells across (odd; 21 is a good size; default 0, none)",
+);
 
 // Tool argument schemas. Strict: an unknown argument is an error.
 const START_ARGS = z.strictObject({
@@ -108,6 +116,7 @@ const STEP_ARGS = z.strictObject({
   ),
   hold: z.boolean().optional().describe("Keep the buttons held after the step"),
   ents,
+  map,
 });
 
 const GOTO_ARGS = z.strictObject({
@@ -125,6 +134,7 @@ const GOTO_ARGS = z.strictObject({
     "Stop when hurt (default true)",
   ),
   ents,
+  map,
 });
 
 const OBSERVE_ARGS = z.strictObject({
@@ -132,6 +142,7 @@ const OBSERVE_ARGS = z.strictObject({
   truth: z.boolean().optional().describe(
     "Add server-side facts (monster hp, doors, exits). Default true",
   ),
+  map,
 });
 
 const CMD_ARGS = z.strictObject({ text: z.string() });
@@ -288,6 +299,7 @@ export function agent_mcp_server(): McpServer {
       }
       return e.agent.Agent_Step(action, args.tics ?? 1, {
         ents: args.ents ?? 10,
+        map: args.map ?? 0,
       });
     }),
   );
@@ -308,6 +320,7 @@ export function agent_mcp_server(): McpServer {
         max_tics: args.max_tics ?? GOTO_DEFAULT_TICS,
         stop_on_damage: args.stop_on_damage !== false,
         ents: args.ents ?? 10,
+        map: args.map ?? 0,
       });
     }),
   );
@@ -324,6 +337,7 @@ export function agent_mcp_server(): McpServer {
       e.agent.Agent_Observe({
         ents: args.ents ?? 10,
         truth: args.truth !== false,
+        map: args.map ?? 0,
       })
     ),
   );
