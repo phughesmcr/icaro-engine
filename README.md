@@ -1,7 +1,8 @@
 # Icaro Engine
 
-A Three.js-based Quake engine port, forked from
-[three-quake](https://github.com/mrdoob/three-quake).
+A Three.js-based web game engine that runs Quake, forked from
+[three-quake](https://github.com/mrdoob/three-quake). `docs/vision.md` gives the
+goals.
 
 ### Assets
 
@@ -47,6 +48,16 @@ and the add-on folders. For multiplayer, start the lobby (or `game_server.js`)
 with `-pak ../static/rerelease/id1/pak0.pak` and the same `-game` or
 mission-pack flag.
 
+#### Your own data in the browser
+
+Where there is no `static/` folder to copy into (the public site, or a phone),
+**Options → Game data** (or the `menu_gamedata` command) adds your own paks from
+a file picker. They are kept in this browser's storage on this device only, are
+recognised by what they hold rather than their names, and load at the next start
+in place of the files the game would fetch. Its Play buttons start each game the
+stored paks allow. The panel also imports and exports saves, `config.cfg` and
+demos.
+
 ### Mobile
 
 On phones and tablets the game shows touch controls. Play in landscape.
@@ -63,16 +74,20 @@ On phones and tablets the game shows touch controls. Play in landscape.
   in multiplayer.
 - **Menus and console:** tap menu items directly. While a menu or the console is
   open, a bar at the top gives you Back and a keyboard button.
-- **Options → Touch controls:** look speed, gyro aiming, gyro speed, invert
-  look, left-handed layout (swaps the sides and mirrors the buttons), button
-  size and opacity, and vibration. Settings are saved as `touch_*` cvars, except
-  Invert Look, which is `m_pitch`.
+- **Options → Touch controls:** look speed, gyro aiming, gyro speed, gyro dead
+  zone and smoothing, invert look, left-handed layout (swaps the sides and
+  mirrors the buttons), look speed scaled to screen size (on by default, so a
+  drag across the same share of a tablet's screen turns as far as on a phone),
+  look acceleration, button size and opacity, and vibration. Settings are saved
+  as `touch_*` cvars, except Invert Look, which is `m_pitch`.
 - **Edit Layout** (in Options → Touch controls, or the `touch_editlayout`
   command): drag, resize and hide the buttons, and add buttons that run any
   console command (`+attack` is held while pressed). Layouts are saved on the
   device as named profiles; `touch_layout <name>` switches to one.
-- **Gyro aiming:** off by default. On iOS, the motion permission prompt appears
-  the first time you tap after turning it on.
+- **Gyro aiming:** off by default. It can be always on, on only while a finger
+  aims (lift it to re-centre the phone), or on only while FIRE is held. On iOS,
+  the motion permission prompt appears the first time you tap after turning it
+  on.
 - **Aim assist** (Options → Touch controls): sets how wide the autoaim cone is
   in a game this browser runs (single player, or a game you host), through
   `sv_aim`. The lowest level turns autoaim off and the middle one is Quake's

@@ -1,7 +1,10 @@
 # AGENTS.md
 
-Icaro Engine is a function-by-function port of id Software's WinQuake/GLQuake
-(C) to JavaScript ES modules. The client renders with Three.js r183 in the
+Icaro Engine is a multi-platform web game engine that runs Quake: an engine that
+runs Quake, not only a Quake engine. `docs/vision.md` gives the goals. It began
+as a function-by-function port of id Software's WinQuake/GLQuake (C) to
+JavaScript ES modules and is becoming a modern source port: the port's structure
+is where it started, not a limit. The client renders with Three.js r183 in the
 browser. Multiplayer uses WebTransport (or WebSocket where WebTransport is
 missing or a Cloudflare Tunnel sits in front), with QuakeWorld-style client
 prediction, and runs on a Deno lobby server that starts one `game_server.js`
@@ -19,9 +22,17 @@ process per room. It was forked from mrdoob's three-quake.
   (the agent API, `window.icaro`; see `docs/agent-interface.md`), `turnstile.js`
   (the Turnstile widget shown before creating a room), `pwa_launch.js` (what the
   installed app does when launched again while open), `nav.js` (the walk graph
-  behind the agent's `goto` and `map`). Some files port features from Ironwail
-  or QuakeSpasm rather than id's C, and their headers cite it (`gl_fog.js`,
-  `gl_sky.js`, `gl_md5.js`, `gl_entalpha.js`, `gl_screenwarp.js`, `image.js`,
+  behind the agent's `goto` and `map`), `cl_reconnect.js` (reconnect after a
+  lost multiplayer connection, browser-hosted rooms included), `autosave.js`
+  (the autosave-on-hide rules), `gl_contextloss.js` (WebGL context loss and
+  restore), `gl_warmup.js` (shader warm-up behind the loading plaque),
+  `vid_dynres.js` (dynamic resolution, `vid_dynres`), `userdata.js` (bring your
+  own data: the Game data panel, its OPFS or IndexedDB store, and the player's
+  paks, saves, configs and demos), `touch_layout.js` (the touch HUD's saved
+  layout profiles) and `touch_editor.js` (the layout editor,
+  `touch_editlayout`). Some files port features from Ironwail or QuakeSpasm
+  rather than id's C, and their headers cite it (`gl_fog.js`, `gl_sky.js`,
+  `gl_md5.js`, `gl_entalpha.js`, `gl_screenwarp.js`, `image.js`,
   `pr_sprintf.js`, `default_cfg.js`, `unicode_translit.js`). For those,
   Ironwail's source is the reference.
 - `main.js` and `index.html`: the browser entry. `index.html`'s import map loads
@@ -84,18 +95,21 @@ process per room. It was forked from mrdoob's three-quake.
   the maintainer's account. Not linted or run in CI. `make_splash.py` draws the
   iOS launch images in `static/splash/` from `static/icon.png` and writes their
   tags into `index.html` (Python, standard library only; not linted or run in
-  CI, but `tests/manifest_test.js` checks its output). `fmt_ast_check.js`
-  compares each changed file's syntax tree with its version at a git ref, to
-  show that a formatting change (see `docs/style-cleanup-plan.md`) changed
-  nothing else; its header gives the command and what it accepts. Not linted or
-  run in CI. `collapse_banners.js` turned the C-style comment banners into doc
-  comments and `//` lines (tier 2 of the plan); the plan's catch-up steps for an
-  open PR run it again. `--verify <ref>` checks that no comment text was lost
-  but the name lines of the banners it deleted. Not linted or run in CI.
-  `check_container_image.sh` (`deno task image-check`, needs Docker) fails if
-  the game-room image or its build context holds any `.pak` but
-  `static/pak0.pak`, or TLS or env files, then starts a room in the image; CI
-  runs it.
+  CI, but `tests/manifest_test.js` checks its output). `gym/icaro_env.py` is a
+  Gymnasium env that plays through the agent MCP server's rl tools, one server
+  per env (Python; needs gymnasium, numpy and Deno; its header gives the
+  command; not linted or run in CI, but `tests/agent_rl_test.js` runs its call
+  sequence). `fmt_ast_check.js` compares each changed file's syntax tree with
+  its version at a git ref, to show that a formatting change (see
+  `docs/style-cleanup-plan.md`) changed nothing else; its header gives the
+  command and what it accepts. Not linted or run in CI. `collapse_banners.js`
+  turned the C-style comment banners into doc comments and `//` lines (tier 2 of
+  the plan); the plan's catch-up steps for an open PR run it again.
+  `--verify <ref>` checks that no comment text was lost but the name lines of
+  the banners it deleted. Not linted or run in CI. `check_container_image.sh`
+  (`deno task image-check`, needs Docker) fails if the game-room image or its
+  build context holds any `.pak` but `static/pak0.pak`, or TLS or env files,
+  then starts a room in the image; CI runs it.
 - `tools/bench/`: headless Deno benchmarks (not linted or run in CI). They use
   pak0 by default; the server, build, model and net benchmarks also take
   `-base rerelease` (and, except model, the game flags) to run on the gitignored
@@ -169,28 +183,65 @@ process per room. It was forked from mrdoob's three-quake.
   excluded. A data table that reads better in rows gets a `// deno-fmt-ignore`
   line with a reason above it.
 
-## Port fidelity
+## Compatibility and fidelity
 
-- Restore the C behaviour; don't invent new behaviour. The reference is
-  [id-Software/Quake](https://github.com/id-Software/Quake): `WinQuake/` covers
-  WinQuake and GLQuake (`gl_*.c`), and `QW/` covers QuakeWorld. Note any
-  deliberate deviation in a comment and in the PR body.
-- Keep C names: functions (`SV_Physics`, `R_MarkLeaves`), globals, struct
-  fields, and **cvar/console names exactly as in Quake**. Players' configs and
-  QuakeC depend on them.
-- New ported files start with a header citing their C source, e.g.
-  `// Ported from: WinQuake/common.c`. A ported function keeps its C name. Where
-  the JS name differs, or one function covers several C ones, a comment names
-  the C function it mirrors.
-- Before deleting code that looks dead or odd, check whether it mirrors the C.
-  If it does, keep it with `// deno-lint-ignore <rule>` and a "mirrors the C"
-  comment. Unused parameters often exist only to keep the C signature.
+- Each layer of the engine has its own reference. Follow the one for the code
+  you touch:
+  - **Vanilla Quake** (id1, the mission packs, protocol 15, the QuakeC VM,
+    physics, GLQuake rendering): id's C,
+    [id-Software/Quake](https://github.com/id-Software/Quake). `WinQuake/`
+    covers WinQuake and GLQuake (`gl_*.c`), and `QW/` covers QuakeWorld.
+  - **Community standard** (protocols 666 and 999, BSP2, `.lit`, fog, skyboxes,
+    alpha, raised limits, the QuakeC extensions mods test for):
+    [QuakeSpasm](https://github.com/sezero/quakespasm) and
+    [Ironwail](https://github.com/andrei-drexler/ironwail). For extensions they
+    lack, [Quakespasm-Spiked](https://github.com/Shpoike/Quakespasm),
+    [FTEQW](https://github.com/fte-team/fteqw) and
+    [DarkPlaces](https://github.com/DarkPlacesEngine/DarkPlaces).
+  - **The 2021 rerelease (KEX)**: Ironwail.
+  - **Icaro's own features** (the web platform, netplay, input, the agent API, a
+    future Icaro-native standard): no reference. Design them, but don't let them
+    change how Quake content plays.
+- The references fix behaviour, not code structure. Within a layer, keep what
+  players and content see as the reference has it: how the game plays, looks and
+  sounds, and what QuakeC, configs, demos and saves rely on. Don't invent new
+  behaviour there, and note any deliberate deviation in a comment and in the PR
+  body. The code itself may be restructured, modernised or rewritten as long as
+  that behaviour is kept and tested (unit tests, the benchmarks' checksums).
+- Keep the names content depends on: **cvar and console names exactly as in
+  Quake** or the port that introduced them, and QuakeC builtins and fields.
+  Players' configs and QuakeC depend on them. A cvar or command that is Icaro's
+  own must not reuse a name any reference port uses for something else.
+- Code that still mirrors a reference function keeps its name (`SV_Physics`,
+  `R_MarkLeaves`), globals and struct fields, so the two can be compared. Files
+  ported from a reference start with a header citing it, e.g.
+  `// Ported from: WinQuake/common.c` or `Ironwail Quake/gl_fog.c`. Where the JS
+  name differs, or one function covers several C ones, a comment names the
+  function it mirrors. Rewritten code may use new names; a comment names what it
+  replaces.
+- Before deleting code that looks dead or odd, check whether it mirrors the
+  reference. In code that still mirrors it, keep it with
+  `// deno-lint-ignore <rule>` and a "mirrors the C" comment. Unused parameters
+  often exist only to keep the C signature.
 - The server runs NetQuake physics (`sv_phys.js`, `sv_user.js`) and must stay
   NQ-faithful. The client predicts with QW `pmove` (`pmove.js`, `cl_pred.js`).
   Fix prediction mismatches on the client side.
-- Entity updates use QuakeWorld-style delta packet entities (`protocol.js`).
-  Client and server ship together, so a message-format change must update both
-  sides in the same PR.
+- Protocols: NetQuake 15, FitzQuake 666 and RMQ 999 are compatibility targets,
+  since demos exist in all three. The messages QuakeC writes itself are NetQuake
+  ones, which read the same under every protocol. Icaro's own netplay protocol
+  (`PROTOCOL_ICARO` in `protocol.js`, with QuakeWorld-style delta packet
+  entities) is the base of a future Icaro-native standard. Only Icaro clients
+  and servers talk to each other: joining a native engine's server is not a
+  goal. Client and server ship together, so a message-format change must update
+  both sides in the same PR.
+- Anything a link, a host or a mod can feed the client is untrusted: URL
+  parameters, `stuffcmd` from a server (a browser-hosted room's host is a
+  player), and downloaded files. URL parameters may set only an explicit
+  allowlist of safe settings, never commands that bind keys, define aliases, run
+  other commands or scripts, connect somewhere or write files.
+- A remote host's `stuffcmd` text must pass an allowlist, and nothing it sets is
+  saved; only your own local server is trusted fully (not yet enforced; see
+  `docs/audit/README.md`, decision 2).
 
 ## Code style
 
@@ -203,6 +254,10 @@ process per room. It was forked from mrdoob's three-quake.
 - **Golden Rule #2**: use explicit null checks (`x !== null`), not falsy checks.
 - **Golden Rule #4**: don't allocate in per-frame or per-call hot paths.
   Pre-allocate module-level scratch buffers (`Float32Array(3)` vectors, etc.).
+- Use an established, maintained library where one fits (zip reading, for
+  example) rather than writing a new one. Pin it (`deno.lock`, or a versioned
+  import-map URL for the browser), check that its licence is compatible with
+  GPL-2.0, and list it in `THIRD_PARTY.md`.
 - Imports are relative and include the `.js`/`.ts` extension.
 - Tests use `Deno.test` and throw `Error` by hand (no assert library). Tests
   that change a cvar must restore it in `finally`. Browser globals are stubbed
@@ -227,6 +282,13 @@ process per room. It was forked from mrdoob's three-quake.
   server flags), not by importers.
 
 ## Game data
+
+[LibreQuake](https://github.com/lavenderdotpet/LibreQuake) is to become the
+project's standard content: use it for new features, tests, demos and
+screenshots where it can serve. Players get it as a pinned release downloaded on
+first run, behind an introductory page so crawlers and bots never fetch pak
+data; it isn't committed. Retail and rerelease data are for compatibility
+testing only.
 
 `static/pak0.pak` is the shareware Episode 1 pak and is committed. Registered or
 commercial data (`static/pak1.pak`, and the mission packs in `static/hipnotic/`

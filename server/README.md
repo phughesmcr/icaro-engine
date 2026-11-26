@@ -489,9 +489,10 @@ deno run '--allow-net=0.0.0.0:8080' --allow-read=static server/game_server.js -n
 - `agent_mcp.ts` — MCP server (stdio, on the official MCP TypeScript SDK,
   `@modelcontextprotocol/server`) for agents: plays headless through
   `headless_host.js` and exposes `../src/agent.js` as tools (`start`, `step`,
-  `goto`, `observe`, `cmd`, `key`, `menu`); `start` takes a `seed` for
-  reproducible runs. `deno task agent-mcp` from the repository root; the header
-  gives the `claude mcp add` line
+  `goto`, `turn_to`, `attack`, `observe`, `rl_spec`, `rl_step`, `cmd`, `key`,
+  `menu`, and `screenshot`, which always errors here: no renderer); `start`
+  takes a `seed` for reproducible runs. `deno task agent-mcp` from the
+  repository root; the header gives the `claude mcp add` line
 - `sys_server.ts` — Deno system utilities and production log filtering
   (`__ICARO_QUIET_LOGS`)
 - `deno.json` — Maps `"three"` to `browser_shim.js`, and the MCP SDK and zod for
@@ -519,7 +520,11 @@ deno run '--allow-net=0.0.0.0:8080' --allow-read=static server/game_server.js -n
   log replayed to the same state hash
 - `../tests/agent_goto_test.js` — the `goto` tool and the walk graph built at
   map load, on e1m1: blocked by the bridge (naming its button), arriving,
-  picking up an item, timeout, no path, damage, bad targets
+  picking up an item, timeout, no path, damage, a new enemy coming into sight,
+  bad targets
+- `../tests/agent_rl_test.js` — the `rl` tier (`rl_spec`, `rl_observe`,
+  `rl_step`) on e1m1: the spec against the vector, replay by seed, `truth`, the
+  rewards and episode ends, and the Gymnasium env's call sequence over MCP
 - `../tests/lobby_rtc_test.js` — `lobby_rtc.js`: hosting, listing, joining, who
   may signal whom, limits, pruning and restoring after hibernation
 - `../tests/cloudflare_lobby_test.js` — The Cloudflare lobby's Durable Object
