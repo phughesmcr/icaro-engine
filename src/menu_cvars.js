@@ -13,9 +13,9 @@ Each row names a cvar and how it changes:
   and wrapping, so a tap on the row reaches every value.
 - toggle: neither; 0 and 1.
 */
-const SCALES = [ 0, 1, 2, 3, 4, 5, 6 ];
-const SCALE_NAMES = [ 'auto', '1', '2', '3', '4', '5', '6' ];
-const OFF_ON_SMOOTH = [ 'off', 'on', 'smooth' ];
+const SCALES = [0, 1, 2, 3, 4, 5, 6];
+const SCALE_NAMES = ["auto", "1", "2", "3", "4", "5", "6"];
+const OFF_ON_SMOOTH = ["off", "on", "smooth"];
 
 // A table kept in rows: deno fmt would split each menu row
 // deno-fmt-ignore
@@ -248,35 +248,29 @@ Some pages and rows apply only in some games, named by their `when`:
   cl.maxclients > 1), so it is hidden then.
 ================
 */
-export const ADV_WHEN = [ 'local', 'single' ];
+export const ADV_WHEN = ["local", "single"];
 
-export function M_CvarWhen_Applies( when, remote, multiplayer ) {
-
-	if ( when === 'local' )
-		return remote === false;
-	if ( when === 'single' )
-		return multiplayer === false;
-	return true;
-
+export function M_CvarWhen_Applies(when, remote, multiplayer) {
+  if (when === "local") {
+    return remote === false;
+  }
+  if (when === "single") {
+    return multiplayer === false;
+  }
+  return true;
 }
 
-export function M_CvarItem_IsSlider( item ) {
-
-	return item.min !== undefined;
-
+export function M_CvarItem_IsSlider(item) {
+  return item.min !== undefined;
 }
 
-export function M_CvarItem_IsChoice( item ) {
-
-	return item.values !== undefined;
-
+export function M_CvarItem_IsChoice(item) {
+  return item.values !== undefined;
 }
 
 // Drops float noise from step arithmetic (0.1 * 3 = 0.30000000000000004)
-function M_CvarRound( v ) {
-
-	return Math.round( v * 1e6 ) / 1e6;
-
+function M_CvarRound(v) {
+  return Math.round(v * 1e6) / 1e6;
 }
 
 /*
@@ -287,31 +281,28 @@ A slider value clamped to the range and snapped to the step grid from min,
 so console values off the grid or out of range land on a reachable step.
 ================
 */
-export function M_CvarItem_Snap( item, v ) {
+export function M_CvarItem_Snap(item, v) {
+  if (!(v >= item.min)) { // also catches NaN
+    return item.min;
+  }
+  if (v >= item.max) {
+    return item.max;
+  }
 
-	if ( ! ( v >= item.min ) ) // also catches NaN
-		return item.min;
-	if ( v >= item.max )
-		return item.max;
-
-	const n = Math.round( ( v - item.min ) / item.step );
-	return Math.min( M_CvarRound( item.min + n * item.step ), item.max );
-
+  const n = Math.round((v - item.min) / item.step);
+  return Math.min(M_CvarRound(item.min + n * item.step), item.max);
 }
 
 // Index of the choice nearest v (the first, on a tie)
-function M_CvarItem_ChoiceIndex( item, v ) {
+function M_CvarItem_ChoiceIndex(item, v) {
+  let best = 0;
+  for (let i = 1; i < item.values.length; i++) {
+    if (Math.abs(item.values[i] - v) < Math.abs(item.values[best] - v)) {
+      best = i;
+    }
+  }
 
-	let best = 0;
-	for ( let i = 1; i < item.values.length; i ++ ) {
-
-		if ( Math.abs( item.values[ i ] - v ) < Math.abs( item.values[ best ] - v ) )
-			best = i;
-
-	}
-
-	return best;
-
+  return best;
 }
 
 /*
@@ -323,36 +314,29 @@ ends; choices and toggles wrap, so a tap (which only steps up) reaches every
 value.
 ================
 */
-export function M_CvarItem_Step( item, v, dir ) {
+export function M_CvarItem_Step(item, v, dir) {
+  if (M_CvarItem_IsSlider(item)) {
+    return M_CvarItem_Snap(item, v + dir * item.step);
+  }
 
-	if ( M_CvarItem_IsSlider( item ) )
-		return M_CvarItem_Snap( item, v + dir * item.step );
+  if (M_CvarItem_IsChoice(item)) {
+    const count = item.values.length;
+    const i = M_CvarItem_ChoiceIndex(item, v);
+    return item.values[(i + dir + count) % count];
+  }
 
-	if ( M_CvarItem_IsChoice( item ) ) {
-
-		const count = item.values.length;
-		const i = M_CvarItem_ChoiceIndex( item, v );
-		return item.values[ ( i + dir + count ) % count ];
-
-	}
-
-	return v !== 0 ? 0 : 1;
-
+  return v !== 0 ? 0 : 1;
 }
 
 // Slider position of v, 0 to 1
-export function M_CvarItem_Fraction( item, v ) {
-
-	return ( M_CvarItem_Snap( item, v ) - item.min ) / ( item.max - item.min );
-
+export function M_CvarItem_Fraction(item, v) {
+  return (M_CvarItem_Snap(item, v) - item.min) / (item.max - item.min);
 }
 
 // Slider value at fraction r of the track, snapped to a step
-export function M_CvarItem_FromFraction( item, r ) {
-
-	r = r < 0 ? 0 : ( r > 1 ? 1 : r );
-	return M_CvarItem_Snap( item, item.min + r * ( item.max - item.min ) );
-
+export function M_CvarItem_FromFraction(item, r) {
+  r = r < 0 ? 0 : (r > 1 ? 1 : r);
+  return M_CvarItem_Snap(item, item.min + r * (item.max - item.min));
 }
 
 /*
@@ -363,23 +347,22 @@ The text shown for value v: on/off for toggles, the choice's name, or the
 number (to 4 decimals, so cl_bob's 0.005 steps show).
 ================
 */
-export function M_CvarItem_Format( item, v ) {
+export function M_CvarItem_Format(item, v) {
+  if (M_CvarItem_IsChoice(item)) {
+    const i = M_CvarItem_ChoiceIndex(item, v);
+    if (item.values[i] === v && item.names !== undefined) {
+      return item.names[i];
+    }
+    return String(M_CvarRound(v));
+  }
 
-	if ( M_CvarItem_IsChoice( item ) ) {
+  if (!M_CvarItem_IsSlider(item)) {
+    return v !== 0 ? "on" : "off";
+  }
 
-		const i = M_CvarItem_ChoiceIndex( item, v );
-		if ( item.values[ i ] === v && item.names !== undefined )
-			return item.names[ i ];
-		return String( M_CvarRound( v ) );
+  if (v === 0 && item.zero !== undefined) {
+    return item.zero;
+  }
 
-	}
-
-	if ( ! M_CvarItem_IsSlider( item ) )
-		return v !== 0 ? 'on' : 'off';
-
-	if ( v === 0 && item.zero !== undefined )
-		return item.zero;
-
-	return String( Math.round( v * 1e4 ) / 1e4 );
-
+  return String(Math.round(v * 1e4) / 1e4);
 }

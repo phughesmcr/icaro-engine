@@ -32,11 +32,9 @@ CLR_BackoffMs
 Delay before attempt number n (0-based): 1 s, 2 s, 4 s, then 8 s.
 ===============
 */
-export function CLR_BackoffMs( n ) {
-
-	if ( n < 0 ) n = 0;
-	return Math.min( CLR_BACKOFF_BASE_MS * Math.pow( 2, n ), CLR_BACKOFF_MAX_MS );
-
+export function CLR_BackoffMs(n) {
+  if (n < 0) n = 0;
+  return Math.min(CLR_BACKOFF_BASE_MS * Math.pow(2, n), CLR_BACKOFF_MAX_MS);
 }
 
 /*
@@ -47,13 +45,11 @@ True for an address a plain connect can be repeated for: a remote WebTransport
 or WebSocket address, not the loopback "local", not a WebRTC room.
 ===============
 */
-export function CLR_IsReconnectable( host ) {
-
-	if ( typeof host !== 'string' || host.length === 0 ) return false;
-	if ( host.toLowerCase() === 'local' ) return false;
-	if ( /^rtc:/i.test( host ) ) return false;
-	return true;
-
+export function CLR_IsReconnectable(host) {
+  if (typeof host !== "string" || host.length === 0) return false;
+  if (host.toLowerCase() === "local") return false;
+  if (/^rtc:/i.test(host)) return false;
+  return true;
 }
 
 // Dependencies, set by CLR_Init (cl_main.js; tests pass fakes):
@@ -68,16 +64,22 @@ export function CLR_IsReconnectable( host ) {
 let deps = null;
 
 let session = null; // { host } while a remote connection is worth restoring
-let phase = 'idle'; // 'idle', 'waiting' (a retry is scheduled), 'connecting'
+let phase = "idle"; // 'idle', 'waiting' (a retry is scheduled), 'connecting'
 let attempts = 0;
 let timer = null;
 let epoch = 0; // bumped by cancel, so a stale connect result is ignored
 let connectedAt = 0;
 let listeners_installed = false;
 
-export function CLR_Phase() { return phase; }
-export function CLR_Attempts() { return attempts; }
-export function CLR_HasSession() { return session !== null; }
+export function CLR_Phase() {
+  return phase;
+}
+export function CLR_Attempts() {
+  return attempts;
+}
+export function CLR_HasSession() {
+  return session !== null;
+}
 
 /*
 ===============
@@ -87,31 +89,26 @@ Install the dependencies and, in a browser, the wake-up listeners. Safe to
 call again: the listeners are installed once, the state is reset each time.
 ===============
 */
-export function CLR_Init( d ) {
+export function CLR_Init(d) {
+  CLR_Cancel();
+  deps = d;
 
-	CLR_Cancel();
-	deps = d;
-
-	if ( listeners_installed === false && typeof window !== 'undefined' && typeof document !== 'undefined' ) {
-
-		listeners_installed = true;
-		document.addEventListener( 'visibilitychange', () => {
-
-			if ( document.visibilityState === 'visible' ) CLR_OnWake();
-
-		} );
-		window.addEventListener( 'pageshow', CLR_OnWake );
-		window.addEventListener( 'online', CLR_OnWake );
-
-	}
-
+  if (
+    listeners_installed === false && typeof window !== "undefined" &&
+    typeof document !== "undefined"
+  ) {
+    listeners_installed = true;
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") CLR_OnWake();
+    });
+    window.addEventListener("pageshow", CLR_OnWake);
+    window.addEventListener("online", CLR_OnWake);
+  }
 }
 
 function _clearTimer() {
-
-	if ( timer !== null && deps !== null ) deps.clearTimer( timer );
-	timer = null;
-
+  if (timer !== null && deps !== null) deps.clearTimer(timer);
+  timer = null;
 }
 
 /*
@@ -121,21 +118,17 @@ CLR_Connected
 A connect to host succeeded.
 ===============
 */
-export function CLR_Connected( host ) {
+export function CLR_Connected(host) {
+  _clearTimer();
+  phase = "idle";
+  if (CLR_IsReconnectable(host) === false) {
+    session = null;
+    attempts = 0;
+    return;
+  }
 
-	_clearTimer();
-	phase = 'idle';
-	if ( CLR_IsReconnectable( host ) === false ) {
-
-		session = null;
-		attempts = 0;
-		return;
-
-	}
-
-	session = { host };
-	connectedAt = deps !== null ? deps.now() : 0;
-
+  session = { host };
+  connectedAt = deps !== null ? deps.now() : 0;
 }
 
 /*
@@ -147,13 +140,11 @@ forget the session and drop any retry in flight.
 ===============
 */
 export function CLR_Cancel() {
-
-	_clearTimer();
-	epoch ++;
-	session = null;
-	phase = 'idle';
-	attempts = 0;
-
+  _clearTimer();
+  epoch++;
+  session = null;
+  phase = "idle";
+  attempts = 0;
 }
 
 /*
@@ -164,17 +155,13 @@ True when a lost connection should be restored rather than treated as fatal.
 ===============
 */
 export function CLR_CanReconnect() {
-
-	return deps !== null && session !== null && deps.canReconnect() === true;
-
+  return deps !== null && session !== null && deps.canReconnect() === true;
 }
 
-function _schedule( ms ) {
-
-	_clearTimer();
-	phase = 'waiting';
-	timer = deps.setTimer( _attempt, ms );
-
+function _schedule(ms) {
+  _clearTimer();
+  phase = "waiting";
+  timer = deps.setTimer(_attempt, ms);
 }
 
 /*
@@ -185,94 +172,77 @@ The connection died (CL_Disconnect saw it). Start the retries.
 ===============
 */
 export function CLR_ConnectionLost() {
+  if (CLR_CanReconnect() === false) {
+    CLR_Cancel();
+    return false;
+  }
 
-	if ( CLR_CanReconnect() === false ) {
+  if (phase !== "idle") return true;
 
-		CLR_Cancel();
-		return false;
+  if (deps.now() - connectedAt >= CLR_STABLE_MS) attempts = 0;
+  if (attempts >= CLR_MAX_ATTEMPTS) {
+    // A server that keeps accepting and dropping us: stop
+    CLR_Cancel();
+    deps.giveUp("Lost connection to the server and could not reconnect");
+    return false;
+  }
 
-	}
-
-	if ( phase !== 'idle' ) return true;
-
-	if ( deps.now() - connectedAt >= CLR_STABLE_MS ) attempts = 0;
-	if ( attempts >= CLR_MAX_ATTEMPTS ) {
-
-		// A server that keeps accepting and dropping us: stop
-		CLR_Cancel();
-		deps.giveUp( 'Lost connection to the server and could not reconnect' );
-		return false;
-
-	}
-
-	deps.print( 'Connection to ' + session.host + ' lost\n' );
-	deps.notify( 'Reconnecting...' );
-	_schedule( CLR_BackoffMs( attempts ) );
-	return true;
-
+  deps.print("Connection to " + session.host + " lost\n");
+  deps.notify("Reconnecting...");
+  _schedule(CLR_BackoffMs(attempts));
+  return true;
 }
 
 async function _attempt() {
+  timer = null;
+  if (session === null) return;
 
-	timer = null;
-	if ( session === null ) return;
+  if (deps.canReconnect() === false) {
+    CLR_Cancel();
+    return;
+  }
 
-	if ( deps.canReconnect() === false ) {
+  // Retry when the page returns: a hidden page's network is unreliable and
+  // its timers may be frozen.
+  if (deps.isHidden() === true) {
+    phase = "waiting";
+    return;
+  }
 
-		CLR_Cancel();
-		return;
+  const myEpoch = epoch;
+  const host = session.host;
+  attempts++;
+  phase = "connecting";
+  deps.print(
+    "Reconnecting to " + host + " (" + attempts + "/" + CLR_MAX_ATTEMPTS +
+      ")...\n",
+  );
+  deps.notify("Reconnecting... (" + attempts + "/" + CLR_MAX_ATTEMPTS + ")");
 
-	}
+  let ok = false;
+  try {
+    ok = await deps.connect(host);
+  } catch {
+    ok = false;
+  }
 
-	// Retry when the page returns: a hidden page's network is unreliable and
-	// its timers may be frozen.
-	if ( deps.isHidden() === true ) {
+  if (myEpoch !== epoch) return; // cancelled while connecting
 
-		phase = 'waiting';
-		return;
+  if (ok === true) {
+    CLR_Connected(host);
+    deps.print("Reconnected\n");
+    deps.notify("");
+    return;
+  }
 
-	}
+  if (attempts >= CLR_MAX_ATTEMPTS) {
+    CLR_Cancel();
+    deps.notify("");
+    deps.giveUp("Lost connection to the server and could not reconnect");
+    return;
+  }
 
-	const myEpoch = epoch;
-	const host = session.host;
-	attempts ++;
-	phase = 'connecting';
-	deps.print( 'Reconnecting to ' + host + ' (' + attempts + '/' + CLR_MAX_ATTEMPTS + ')...\n' );
-	deps.notify( 'Reconnecting... (' + attempts + '/' + CLR_MAX_ATTEMPTS + ')' );
-
-	let ok = false;
-	try {
-
-		ok = await deps.connect( host );
-
-	} catch {
-
-		ok = false;
-
-	}
-
-	if ( myEpoch !== epoch ) return; // cancelled while connecting
-
-	if ( ok === true ) {
-
-		CLR_Connected( host );
-		deps.print( 'Reconnected\n' );
-		deps.notify( '' );
-		return;
-
-	}
-
-	if ( attempts >= CLR_MAX_ATTEMPTS ) {
-
-		CLR_Cancel();
-		deps.notify( '' );
-		deps.giveUp( 'Lost connection to the server and could not reconnect' );
-		return;
-
-	}
-
-	_schedule( CLR_BackoffMs( attempts ) );
-
+  _schedule(CLR_BackoffMs(attempts));
 }
 
 /*
@@ -284,9 +254,7 @@ if a retry is waiting, run it now.
 ===============
 */
 export function CLR_OnWake() {
-
-	if ( deps === null || session === null || phase !== 'waiting' ) return;
-	_clearTimer();
-	_attempt();
-
+  if (deps === null || session === null || phase !== "waiting") return;
+  _clearTimer();
+  _attempt();
 }

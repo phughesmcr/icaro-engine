@@ -1,9 +1,9 @@
 // WebXR support for Icaro Engine
 // Provides VR rendering via Three.js WebXR integration
 
-import * as THREE from 'three';
-import { renderer } from './vid.js';
-import { Draw_GetOverlayCanvas } from './gl_draw.js';
+import * as THREE from "three";
+import { renderer } from "./vid.js";
+import { Draw_GetOverlayCanvas } from "./gl_draw.js";
 
 //============================================================================
 // Constants
@@ -41,7 +41,7 @@ const XR_HUD_UPLOAD_SLACK = 0.002;
 
 const _controllerWorldQuat = new THREE.Quaternion();
 const _aimForward = new THREE.Vector3();
-const _eyeWorld = new Float32Array( 16 ); // XR_SetupFrusta: eye → world (meters)
+const _eyeWorld = new Float32Array(16); // XR_SetupFrusta: eye → world (meters)
 
 //============================================================================
 // State
@@ -52,17 +52,15 @@ let _overlayCanvasOverride = null;
 let _nowOverride = null; // test clock, in seconds
 let T = THREE; // THREE, or a test stub
 function R() {
-
-	return _rendererOverride != null ? _rendererOverride : renderer;
-
+  return _rendererOverride != null ? _rendererOverride : renderer;
 }
 
 let xrSessionActive = false;
-const xrHeadOrigin = new Float32Array( 3 ); // head (mean of the eyes) in Quake units, from the last posed frame
+const xrHeadOrigin = new Float32Array(3); // head (mean of the eyes) in Quake units, from the last posed frame
 let xrHeadValid = false; // xrHeadOrigin is from this session
 let xrRig = null; // THREE.Group — NOT in scene, positioned at vieworg/XR_SCALE each frame
 let xrOffset = null; // child of xrRig holding camera and controllers (floor offset)
-const controllers = [ null, null ]; // targetRay (pointer) spaces for input slots 0 and 1
+const controllers = [null, null]; // targetRay (pointer) spaces for input slots 0 and 1
 let aimController = null; // controller used for aiming: the right hand if present
 let _scene = null; // scene reference for scale toggling
 let _onSessionEnd = null; // in_web.js releases held XR buttons
@@ -76,24 +74,24 @@ let hudTexture = null;
 let hudCanvasWidth = 0;
 let hudCanvasHeight = 0;
 let hudOffset = null; // THREE.Matrix4: head space → quad
-let hudUploadTime = - Infinity; // seconds; -Infinity forces the next upload
+let hudUploadTime = -Infinity; // seconds; -Infinity forces the next upload
 let blendMesh = null; // R_PolyBlend's v_blend quad, drawn before the HUD quad
 let blendOffset = null; // THREE.Matrix4: head space → blend quad
 
 // Input state — polled each frame by XR_PollInput(), consumed by in_web.js
 export const xrInput = {
-	moveX: 0,       // left thumbstick X (-1 to 1)
-	moveY: 0,       // left thumbstick Y (-1 to 1, negative = forward)
-	lookX: 0,       // right thumbstick X (-1 to 1)
-	lookY: 0,       // right thumbstick Y (-1 to 1)
-	leftTrigger: 0, // left trigger (0 to 1)
-	rightTrigger: 0, // right trigger (0 to 1)
-	leftSqueeze: false,
-	rightSqueeze: false,
-	buttonA: false, // right controller lower face button
-	buttonB: false, // right controller upper face button
-	buttonX: false, // left controller lower face button
-	buttonY: false  // left controller upper face button
+  moveX: 0, // left thumbstick X (-1 to 1)
+  moveY: 0, // left thumbstick Y (-1 to 1, negative = forward)
+  lookX: 0, // right thumbstick X (-1 to 1)
+  lookY: 0, // right thumbstick Y (-1 to 1)
+  leftTrigger: 0, // left trigger (0 to 1)
+  rightTrigger: 0, // right trigger (0 to 1)
+  leftSqueeze: false,
+  rightSqueeze: false,
+  buttonA: false, // right controller lower face button
+  buttonB: false, // right controller upper face button
+  buttonX: false, // left controller lower face button
+  buttonY: false, // left controller upper face button
 };
 
 //============================================================================
@@ -101,49 +99,46 @@ export const xrInput = {
 //============================================================================
 
 export function isXRActive() {
-
-	return xrSessionActive;
-
+  return xrSessionActive;
 }
 
 export function getXRRig() {
-
-	return xrRig;
-
+  return xrRig;
 }
 
 // Test seam: lets tests supply a fake renderer, THREE, overlay canvas and
 // clock (browser_shim.js has no PlaneGeometry, and its WebGLRenderer is a
 // no-op stub). Call with no argument to restore.
-export function XR_SetTestOverrides( overrides ) {
+export function XR_SetTestOverrides(overrides) {
+  _rendererOverride = overrides != null && overrides.renderer != null ?
+    overrides.renderer :
+    null;
+  T = overrides != null && overrides.THREE != null ? overrides.THREE : THREE;
+  _overlayCanvasOverride =
+    overrides != null && overrides.overlayCanvas != null ?
+      overrides.overlayCanvas :
+      null;
+  _nowOverride = overrides != null && overrides.now != null ?
+    overrides.now :
+    null;
 
-	_rendererOverride = overrides != null && overrides.renderer != null ? overrides.renderer : null;
-	T = overrides != null && overrides.THREE != null ? overrides.THREE : THREE;
-	_overlayCanvasOverride = overrides != null && overrides.overlayCanvas != null ? overrides.overlayCanvas : null;
-	_nowOverride = overrides != null && overrides.now != null ? overrides.now : null;
-
-	// The HUD objects belong to the THREE they were made with
-	hudScene = null;
-	hudMesh = null;
-	hudTexture = null;
-	hudCanvasWidth = 0;
-	hudCanvasHeight = 0;
-	blendMesh = null;
-	blendOffset = null;
-
+  // The HUD objects belong to the THREE they were made with
+  hudScene = null;
+  hudMesh = null;
+  hudTexture = null;
+  hudCanvasWidth = 0;
+  hudCanvasHeight = 0;
+  blendMesh = null;
+  blendOffset = null;
 }
 
 function _now() {
-
-	return _nowOverride != null ? _nowOverride() : performance.now() / 1000;
-
+  return _nowOverride != null ? _nowOverride() : performance.now() / 1000;
 }
 
 // Called with no arguments when the XR session ends
-export function XR_SetSessionEndCallback( callback ) {
-
-	_onSessionEnd = callback;
-
+export function XR_SetSessionEndCallback(callback) {
+  _onSessionEnd = callback;
 }
 
 //============================================================================
@@ -158,86 +153,76 @@ export function XR_SetSessionEndCallback( callback ) {
 // This way the XR camera and scene content are in the same units.
 //============================================================================
 
-export function XR_Init( scene ) {
+export function XR_Init(scene) {
+  if (R() == null) return;
 
-	if ( R() == null ) return;
+  _scene = scene;
 
-	_scene = scene;
+  // Enable XR on the renderer. The reference space type is chosen per
+  // session in _onSessionStarted ('local-floor', falling back to 'local').
+  R().xr.enabled = true;
+  R().xr.setReferenceSpaceType("local");
 
-	// Enable XR on the renderer. The reference space type is chosen per
-	// session in _onSessionStarted ('local-floor', falling back to 'local').
-	R().xr.enabled = true;
-	R().xr.setReferenceSpaceType( 'local' );
+  // Create camera rig — NOT a child of scene.
+  // Positioned at vieworg / XR_SCALE (meters) each frame.
+  // Three.js XR composes: rig.matrixWorld × offset × camera.matrix (headset pose).
+  xrRig = new T.Group();
+  xrOffset = new T.Group();
+  xrRig.add(xrOffset);
 
-	// Create camera rig — NOT a child of scene.
-	// Positioned at vieworg / XR_SCALE (meters) each frame.
-	// Three.js XR composes: rig.matrixWorld × offset × camera.matrix (headset pose).
-	xrRig = new T.Group();
-	xrOffset = new T.Group();
-	xrRig.add( xrOffset );
+  // Controller targetRay (pointer) spaces. Slot order is not handedness
+  // order, so record each slot's hand when it connects.
+  for (let i = 0; i < 2; i++) {
+    const controller = R().xr.getController(i);
+    controller.userData.handedness = "";
 
-	// Controller targetRay (pointer) spaces. Slot order is not handedness
-	// order, so record each slot's hand when it connects.
-	for ( let i = 0; i < 2; i ++ ) {
+    controller.addEventListener("connected", function (event) {
+      controller.userData.handedness = event.data != null ?
+        event.data.handedness :
+        "none";
+      _pickAimController();
+    });
 
-		const controller = R().xr.getController( i );
-		controller.userData.handedness = '';
+    controller.addEventListener("disconnected", function () {
+      controller.userData.handedness = "";
+      _pickAimController();
+    });
 
-		controller.addEventListener( 'connected', function ( event ) {
+    controllers[i] = controller;
+    xrOffset.add(controller);
+  }
 
-			controller.userData.handedness = event.data != null ? event.data.handedness : 'none';
-			_pickAimController();
+  // Session lifecycle
+  R().xr.addEventListener("sessionstart", function () {
+    xrSessionActive = true;
+    xrHeadValid = false;
 
-		} );
+    // Scale scene to meters so it matches XR coordinate space
+    if (_scene != null) _scene.scale.setScalar(1 / XR_SCALE);
 
-		controller.addEventListener( 'disconnected', function () {
+    _showHUD();
+    if (_enterButton != null) _enterButton.style.display = "none";
+  });
 
-			controller.userData.handedness = '';
-			_pickAimController();
+  R().xr.addEventListener("sessionend", function () {
+    xrSessionActive = false;
+    xrHeadValid = false;
 
-		} );
+    // Restore scene scale for non-XR rendering
+    if (_scene != null) _scene.scale.setScalar(1);
 
-		controllers[ i ] = controller;
-		xrOffset.add( controller );
+    _hideHUD();
 
-	}
+    // Release triggers and buttons held when the session ended
+    if (_onSessionEnd != null) _onSessionEnd();
 
-	// Session lifecycle
-	R().xr.addEventListener( 'sessionstart', function () {
+    _resetInput();
 
-		xrSessionActive = true;
-		xrHeadValid = false;
+    if (_enterButton != null) _enterButton.style.display = "";
+    _offerSession();
+  });
 
-		// Scale scene to meters so it matches XR coordinate space
-		if ( _scene != null ) _scene.scale.setScalar( 1 / XR_SCALE );
-
-		_showHUD();
-		if ( _enterButton != null ) _enterButton.style.display = 'none';
-
-	} );
-
-	R().xr.addEventListener( 'sessionend', function () {
-
-		xrSessionActive = false;
-		xrHeadValid = false;
-
-		// Restore scene scale for non-XR rendering
-		if ( _scene != null ) _scene.scale.setScalar( 1 );
-
-		_hideHUD();
-
-		// Release triggers and buttons held when the session ended
-		if ( _onSessionEnd != null ) _onSessionEnd();
-
-		_resetInput();
-
-		if ( _enterButton != null ) _enterButton.style.display = '';
-		_offerSession();
-
-	} );
-
-	_offerSession();
-
+  _offerSession();
 }
 
 //============================================================================
@@ -249,14 +234,10 @@ export function XR_Init( scene ) {
 // In XR mode, Three.js composes: rig.matrixWorld × camera.matrix (headset pose).
 //============================================================================
 
-export function XR_SetCamera( camera ) {
-
-	if ( xrOffset != null && camera != null && camera.parent !== xrOffset ) {
-
-		xrOffset.add( camera );
-
-	}
-
+export function XR_SetCamera(camera) {
+  if (xrOffset != null && camera != null && camera.parent !== xrOffset) {
+    xrOffset.add(camera);
+  }
 }
 
 //============================================================================
@@ -278,19 +259,13 @@ export function XR_SetCamera( camera ) {
 //============================================================================
 
 // out = a × b, column-major 4×4
-function _mul4( a, b, out ) {
-
-	for ( let c = 0; c < 4; c ++ ) {
-
-		for ( let r = 0; r < 4; r ++ ) {
-
-			out[ c * 4 + r ] = a[ r ] * b[ c * 4 ] + a[ 4 + r ] * b[ c * 4 + 1 ] +
-				a[ 8 + r ] * b[ c * 4 + 2 ] + a[ 12 + r ] * b[ c * 4 + 3 ];
-
-		}
-
-	}
-
+function _mul4(a, b, out) {
+  for (let c = 0; c < 4; c++) {
+    for (let r = 0; r < 4; r++) {
+      out[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] +
+        a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
+    }
+  }
 }
 
 // Fills planes[ 0..3 ] (objects with a Float32Array(3) normal and a dist)
@@ -302,96 +277,86 @@ function _mul4( a, b, out ) {
 // world scene is scaled by 1 / XR_SCALE). In eye space each plane is row 3
 // of the projection plus or minus row 0 (left, right) or row 1 (bottom,
 // top), inside where n · v + d >= 0.
-export function XR_FrustumFromView( proj, world, planes ) {
+export function XR_FrustumFromView(proj, world, planes) {
+  for (let i = 0; i < 4; i++) {
+    const row = i >> 1;
+    const s = (i & 1) === 0 ? 1 : -1;
+    const x = proj[3] + s * proj[row];
+    const y = proj[7] + s * proj[4 + row];
+    const z = proj[11] + s * proj[8 + row];
+    const d = proj[15] + s * proj[12 + row];
 
-	for ( let i = 0; i < 4; i ++ ) {
+    // Rotate the normal into the world. The pose is rigid, so its length
+    // is unchanged and normalizing it scales d by the same amount.
+    const nx = world[0] * x + world[4] * y + world[8] * z;
+    const ny = world[1] * x + world[5] * y + world[9] * z;
+    const nz = world[2] * x + world[6] * y + world[10] * z;
+    const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
 
-		const row = i >> 1;
-		const s = ( i & 1 ) === 0 ? 1 : - 1;
-		const x = proj[ 3 ] + s * proj[ row ];
-		const y = proj[ 7 ] + s * proj[ 4 + row ];
-		const z = proj[ 11 ] + s * proj[ 8 + row ];
-		const d = proj[ 15 ] + s * proj[ 12 + row ];
+    const p = planes[i];
+    p.normal[0] = nx / len;
+    p.normal[1] = ny / len;
+    p.normal[2] = nz / len;
 
-		// Rotate the normal into the world. The pose is rigid, so its length
-		// is unchanged and normalizing it scales d by the same amount.
-		const nx = world[ 0 ] * x + world[ 4 ] * y + world[ 8 ] * z;
-		const ny = world[ 1 ] * x + world[ 5 ] * y + world[ 9 ] * z;
-		const nz = world[ 2 ] * x + world[ 6 ] * y + world[ 10 ] * z;
-		const len = Math.sqrt( nx * nx + ny * ny + nz * nz );
-
-		const p = planes[ i ];
-		p.normal[ 0 ] = nx / len;
-		p.normal[ 1 ] = ny / len;
-		p.normal[ 2 ] = nz / len;
-
-		// v = Rᵀ( w - t ), so n · v + d >= 0 is R n · w >= R n · t - d
-		p.dist = ( p.normal[ 0 ] * world[ 12 ] + p.normal[ 1 ] * world[ 13 ] +
-			p.normal[ 2 ] * world[ 14 ] - d / len ) * XR_SCALE;
-
-	}
-
+    // v = Rᵀ( w - t ), so n · v + d >= 0 is R n · w >= R n · t - d
+    p.dist = (p.normal[0] * world[12] + p.normal[1] * world[13] +
+      p.normal[2] * world[14] - d / len) * XR_SCALE;
+  }
 }
 
 // Fills views[ i ] (each an array of four planes, see XR_FrustumFromView)
 // for each XR view of this frame, and returns how many it filled: 0 outside
 // a session or before the first pose. Call after R_SetupGL has posed the rig.
-export function XR_SetupFrusta( views ) {
+export function XR_SetupFrusta(views) {
+  if (xrSessionActive === false || xrOffset == null) return 0;
 
-	if ( xrSessionActive === false || xrOffset == null ) return 0;
+  const cameras = R().xr.getCamera().cameras;
+  if (cameras == null) return 0;
 
-	const cameras = R().xr.getCamera().cameras;
-	if ( cameras == null ) return 0;
+  const n = Math.min(cameras.length, views.length);
+  const parent = xrOffset.matrixWorld.elements;
+  let hx = 0, hy = 0, hz = 0;
 
-	const n = Math.min( cameras.length, views.length );
-	const parent = xrOffset.matrixWorld.elements;
-	let hx = 0, hy = 0, hz = 0;
+  for (let i = 0; i < n; i++) {
+    _mul4(parent, cameras[i].matrix.elements, _eyeWorld);
+    XR_FrustumFromView(
+      cameras[i].projectionMatrix.elements,
+      _eyeWorld,
+      views[i],
+    );
+    hx += _eyeWorld[12];
+    hy += _eyeWorld[13];
+    hz += _eyeWorld[14];
+  }
 
-	for ( let i = 0; i < n; i ++ ) {
+  // Remember the head (the eyes' mean, meters to Quake units) for the next
+  // frame's R_SetupFrame: the pose is only known here, after R_SetupGL.
+  if (n > 0) {
+    xrHeadOrigin[0] = hx / n * XR_SCALE;
+    xrHeadOrigin[1] = hy / n * XR_SCALE;
+    xrHeadOrigin[2] = hz / n * XR_SCALE;
+    xrHeadValid = true;
+  }
 
-		_mul4( parent, cameras[ i ].matrix.elements, _eyeWorld );
-		XR_FrustumFromView( cameras[ i ].projectionMatrix.elements, _eyeWorld, views[ i ] );
-		hx += _eyeWorld[ 12 ];
-		hy += _eyeWorld[ 13 ];
-		hz += _eyeWorld[ 14 ];
-
-	}
-
-	// Remember the head (the eyes' mean, meters to Quake units) for the next
-	// frame's R_SetupFrame: the pose is only known here, after R_SetupGL.
-	if ( n > 0 ) {
-
-		xrHeadOrigin[ 0 ] = hx / n * XR_SCALE;
-		xrHeadOrigin[ 1 ] = hy / n * XR_SCALE;
-		xrHeadOrigin[ 2 ] = hz / n * XR_SCALE;
-		xrHeadValid = true;
-
-	}
-
-	return n;
-
+  return n;
 }
 
 // Forget the recorded head so R_SetupFrame falls back to the body until the
 // next posed frame: called on a new map and when the view origin jumps.
 export function XR_ResetHeadOrigin() {
-
-	xrHeadValid = false;
-
+  xrHeadValid = false;
 }
 
 // Web-only deviation. Copies the head's world position in Quake units, as of
 // the previous posed frame, into out and returns true; false outside a
 // presenting session or before the first pose. R_SetupFrame uses it where C
 // uses the camera (gl_rmain.c R_SetupFrame: r_origin = r_refdef.vieworg).
-export function XR_GetHeadOrigin( out ) {
-
-	if ( xrSessionActive === false || xrHeadValid === false ) return false;
-	out[ 0 ] = xrHeadOrigin[ 0 ];
-	out[ 1 ] = xrHeadOrigin[ 1 ];
-	out[ 2 ] = xrHeadOrigin[ 2 ];
-	return true;
-
+export function XR_GetHeadOrigin(out) {
+  if (xrSessionActive === false || xrHeadValid === false) return false;
+  out[0] = xrHeadOrigin[0];
+  out[1] = xrHeadOrigin[1];
+  out[2] = xrHeadOrigin[2];
+  return true;
 }
 
 //============================================================================
@@ -404,90 +369,72 @@ export function XR_GetHeadOrigin( out ) {
 //============================================================================
 
 function _resetInput() {
-
-	xrInput.moveX = 0;
-	xrInput.moveY = 0;
-	xrInput.lookX = 0;
-	xrInput.lookY = 0;
-	xrInput.leftTrigger = 0;
-	xrInput.rightTrigger = 0;
-	xrInput.leftSqueeze = false;
-	xrInput.rightSqueeze = false;
-	xrInput.buttonA = false;
-	xrInput.buttonB = false;
-	xrInput.buttonX = false;
-	xrInput.buttonY = false;
-
+  xrInput.moveX = 0;
+  xrInput.moveY = 0;
+  xrInput.lookX = 0;
+  xrInput.lookY = 0;
+  xrInput.leftTrigger = 0;
+  xrInput.rightTrigger = 0;
+  xrInput.leftSqueeze = false;
+  xrInput.rightSqueeze = false;
+  xrInput.buttonA = false;
+  xrInput.buttonB = false;
+  xrInput.buttonX = false;
+  xrInput.buttonY = false;
 }
 
-function _buttonValue( gp, index ) {
-
-	const b = gp.buttons[ index ];
-	return b != null ? b.value : 0;
-
+function _buttonValue(gp, index) {
+  const b = gp.buttons[index];
+  return b != null ? b.value : 0;
 }
 
-function _buttonPressed( gp, index ) {
-
-	const b = gp.buttons[ index ];
-	return b != null && b.pressed === true;
-
+function _buttonPressed(gp, index) {
+  const b = gp.buttons[index];
+  return b != null && b.pressed === true;
 }
 
 export function XR_PollInput() {
+  _resetInput();
 
-	_resetInput();
+  if (xrSessionActive === false) return;
 
-	if ( xrSessionActive === false ) return;
+  const session = R().xr.getSession();
+  if (session == null) return;
 
-	const session = R().xr.getSession();
-	if ( session == null ) return;
+  for (const source of session.inputSources) {
+    if (source.gamepad == null) continue;
 
-	for ( const source of session.inputSources ) {
+    const gp = source.gamepad;
 
-		if ( source.gamepad == null ) continue;
+    // Thumbstick axes (xr-standard: axes[2]=X, axes[3]=Y)
+    // Some controllers use axes[0]/[1] instead
+    let sx = 0;
+    let sy = 0;
 
-		const gp = source.gamepad;
+    if (gp.axes.length >= 4) {
+      sx = gp.axes[2];
+      sy = gp.axes[3];
+    } else if (gp.axes.length >= 2) {
+      sx = gp.axes[0];
+      sy = gp.axes[1];
+    }
 
-		// Thumbstick axes (xr-standard: axes[2]=X, axes[3]=Y)
-		// Some controllers use axes[0]/[1] instead
-		let sx = 0;
-		let sy = 0;
-
-		if ( gp.axes.length >= 4 ) {
-
-			sx = gp.axes[ 2 ];
-			sy = gp.axes[ 3 ];
-
-		} else if ( gp.axes.length >= 2 ) {
-
-			sx = gp.axes[ 0 ];
-			sy = gp.axes[ 1 ];
-
-		}
-
-		if ( source.handedness === 'left' ) {
-
-			xrInput.moveX = sx;
-			xrInput.moveY = sy;
-			xrInput.leftTrigger = _buttonValue( gp, 0 );
-			xrInput.leftSqueeze = _buttonPressed( gp, 1 );
-			xrInput.buttonX = _buttonPressed( gp, 4 );
-			xrInput.buttonY = _buttonPressed( gp, 5 );
-
-		} else if ( source.handedness === 'right' ) {
-
-			xrInput.lookX = sx;
-			xrInput.lookY = sy;
-			xrInput.rightTrigger = _buttonValue( gp, 0 );
-			xrInput.rightSqueeze = _buttonPressed( gp, 1 );
-			xrInput.buttonA = _buttonPressed( gp, 4 );
-			xrInput.buttonB = _buttonPressed( gp, 5 );
-
-		}
-
-	}
-
+    if (source.handedness === "left") {
+      xrInput.moveX = sx;
+      xrInput.moveY = sy;
+      xrInput.leftTrigger = _buttonValue(gp, 0);
+      xrInput.leftSqueeze = _buttonPressed(gp, 1);
+      xrInput.buttonX = _buttonPressed(gp, 4);
+      xrInput.buttonY = _buttonPressed(gp, 5);
+    } else if (source.handedness === "right") {
+      xrInput.lookX = sx;
+      xrInput.lookY = sy;
+      xrInput.rightTrigger = _buttonValue(gp, 0);
+      xrInput.rightSqueeze = _buttonPressed(gp, 1);
+      xrInput.buttonA = _buttonPressed(gp, 4);
+      xrInput.buttonB = _buttonPressed(gp, 5);
+    }
+  }
 }
 
 //============================================================================
@@ -499,49 +446,51 @@ export function XR_PollInput() {
 //============================================================================
 
 export function XR_UpdateHUD() {
+  if (xrSessionActive === false || hudMesh == null) return;
 
-	if ( xrSessionActive === false || hudMesh == null ) return;
+  const canvas = _overlayCanvasOverride != null ?
+    _overlayCanvasOverride :
+    Draw_GetOverlayCanvas();
+  if (canvas == null || canvas.width === 0 || canvas.height === 0) return;
 
-	const canvas = _overlayCanvasOverride != null ? _overlayCanvasOverride : Draw_GetOverlayCanvas();
-	if ( canvas == null || canvas.width === 0 || canvas.height === 0 ) return;
+  // A resized canvas needs a new GPU texture
+  if (
+    hudTexture == null || canvas !== hudTexture.image ||
+    canvas.width !== hudCanvasWidth || canvas.height !== hudCanvasHeight
+  ) {
+    if (hudTexture != null) hudTexture.dispose();
 
-	// A resized canvas needs a new GPU texture
-	if ( hudTexture == null || canvas !== hudTexture.image ||
-		canvas.width !== hudCanvasWidth || canvas.height !== hudCanvasHeight ) {
+    hudTexture = new T.CanvasTexture(canvas);
+    hudTexture.colorSpace = T.SRGBColorSpace;
+    hudTexture.minFilter = T.LinearFilter;
+    hudTexture.generateMipmaps = false;
 
-		if ( hudTexture != null ) hudTexture.dispose();
+    // Only going from no map to a map changes the shader program. Swapping
+    // one map for another needs no recompile.
+    if (hudMesh.material.map == null) hudMesh.material.needsUpdate = true;
+    hudMesh.material.map = hudTexture;
+    hudUploadTime = -Infinity;
 
-		hudTexture = new T.CanvasTexture( canvas );
-		hudTexture.colorSpace = T.SRGBColorSpace;
-		hudTexture.minFilter = T.LinearFilter;
-		hudTexture.generateMipmaps = false;
+    hudCanvasWidth = canvas.width;
+    hudCanvasHeight = canvas.height;
 
-		// Only going from no map to a map changes the shader program. Swapping
-		// one map for another needs no recompile.
-		if ( hudMesh.material.map == null ) hudMesh.material.needsUpdate = true;
-		hudMesh.material.map = hudTexture;
-		hudUploadTime = - Infinity;
+    const height = XR_HUD_WIDTH * canvas.height / canvas.width;
+    hudOffset.makeScale(XR_HUD_WIDTH, height, 1).setPosition(
+      0,
+      0,
+      -XR_HUD_DISTANCE,
+    );
+  }
 
-		hudCanvasWidth = canvas.width;
-		hudCanvasHeight = canvas.height;
+  // The canvas is redrawn every frame, but upload it at a capped rate
+  const now = _now();
+  if (now - hudUploadTime >= XR_HUD_UPLOAD_INTERVAL - XR_HUD_UPLOAD_SLACK) {
+    hudUploadTime = now;
+    hudTexture.needsUpdate = true;
+    R().initTexture(hudTexture);
+  }
 
-		const height = XR_HUD_WIDTH * canvas.height / canvas.width;
-		hudOffset.makeScale( XR_HUD_WIDTH, height, 1 ).setPosition( 0, 0, - XR_HUD_DISTANCE );
-
-	}
-
-	// The canvas is redrawn every frame, but upload it at a capped rate
-	const now = _now();
-	if ( now - hudUploadTime >= XR_HUD_UPLOAD_INTERVAL - XR_HUD_UPLOAD_SLACK ) {
-
-		hudUploadTime = now;
-		hudTexture.needsUpdate = true;
-		R().initTexture( hudTexture );
-
-	}
-
-	hudMesh.visible = true;
-
+  hudMesh.visible = true;
 }
 
 //============================================================================
@@ -563,17 +512,15 @@ export function XR_UpdateHUD() {
 // draws first (sortObjects is false). XR_PolyBlend shows it for one frame.
 //============================================================================
 
-export function XR_RenderHUD( camera ) {
+export function XR_RenderHUD(camera) {
+  if (xrSessionActive === false || hudMesh == null) return;
 
-	if ( xrSessionActive === false || hudMesh == null ) return;
+  if (hudMesh.visible === false && blendMesh.visible === false) return;
 
-	if ( hudMesh.visible === false && blendMesh.visible === false ) return;
+  R().render(hudScene, camera);
 
-	R().render( hudScene, camera );
-
-	// R_PolyBlend calls XR_PolyBlend again each frame there is a blend
-	blendMesh.visible = false;
-
+  // R_PolyBlend calls XR_PolyBlend again each frame there is a blend
+  blendMesh.visible = false;
 }
 
 //============================================================================
@@ -591,99 +538,97 @@ export function XR_RenderHUD( camera ) {
 const XR_BLEND_DISTANCE = 10 / XR_SCALE;
 const XR_BLEND_SIZE = 200 / XR_SCALE;
 
-export function XR_PolyBlend( blend ) {
+export function XR_PolyBlend(blend) {
+  if (xrSessionActive === false || blendMesh == null) return;
 
-	if ( xrSessionActive === false || blendMesh == null ) return;
-
-	// As R_PolyBlend: Quake's sRGB palette colour, drawn as is (toneMapped false)
-	blendMesh.material.color.setRGB( blend[ 0 ], blend[ 1 ], blend[ 2 ], T.SRGBColorSpace );
-	blendMesh.material.opacity = blend[ 3 ];
-	blendMesh.visible = true;
-
+  // As R_PolyBlend: Quake's sRGB palette colour, drawn as is (toneMapped false)
+  blendMesh.material.color.setRGB(
+    blend[0],
+    blend[1],
+    blend[2],
+    T.SRGBColorSpace,
+  );
+  blendMesh.material.opacity = blend[3];
+  blendMesh.visible = true;
 }
 
 // Head-locked: pose the quad from this frame's XR camera, just before it
 // is drawn. matrixWorld is set directly, in meters like the XR camera (the
 // HUD scene is not scaled by 1/XR_SCALE as the world scene is).
 function _poseHUD() {
-
-	const xrCamera = R().xr.getCamera();
-	hudMesh.matrixWorld.multiplyMatrices( xrCamera.matrixWorld, hudOffset );
-
+  const xrCamera = R().xr.getCamera();
+  hudMesh.matrixWorld.multiplyMatrices(xrCamera.matrixWorld, hudOffset);
 }
 
 function _poseBlend() {
-
-	const xrCamera = R().xr.getCamera();
-	blendMesh.matrixWorld.multiplyMatrices( xrCamera.matrixWorld, blendOffset );
-
+  const xrCamera = R().xr.getCamera();
+  blendMesh.matrixWorld.multiplyMatrices(xrCamera.matrixWorld, blendOffset);
 }
 
 function _showHUD() {
+  if (_scene == null) return;
 
-	if ( _scene == null ) return;
+  if (hudMesh == null) {
+    hudScene = new T.Scene();
+    hudOffset = new T.Matrix4();
 
-	if ( hudMesh == null ) {
+    const material = new T.MeshBasicMaterial({
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false,
+    });
 
-		hudScene = new T.Scene();
-		hudOffset = new T.Matrix4();
+    hudMesh = new T.Mesh(new T.PlaneGeometry(1, 1), material);
+    hudMesh.frustumCulled = false;
+    hudMesh.matrixAutoUpdate = false;
+    hudMesh.matrixWorldAutoUpdate = false;
+    hudMesh.onBeforeRender = _poseHUD;
 
-		const material = new T.MeshBasicMaterial( {
-			transparent: true,
-			depthTest: false,
-			depthWrite: false,
-			toneMapped: false
-		} );
+    // R_PolyBlend's quad (see XR_PolyBlend)
+    blendOffset = new T.Matrix4();
+    blendOffset.makeScale(XR_BLEND_SIZE, XR_BLEND_SIZE, 1).setPosition(
+      0,
+      0,
+      -XR_BLEND_DISTANCE,
+    );
 
-		hudMesh = new T.Mesh( new T.PlaneGeometry( 1, 1 ), material );
-		hudMesh.frustumCulled = false;
-		hudMesh.matrixAutoUpdate = false;
-		hudMesh.matrixWorldAutoUpdate = false;
-		hudMesh.onBeforeRender = _poseHUD;
+    blendMesh = new T.Mesh(
+      new T.PlaneGeometry(1, 1),
+      new T.MeshBasicMaterial({
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+        toneMapped: false,
+      }),
+    );
+    blendMesh.frustumCulled = false;
+    blendMesh.matrixAutoUpdate = false;
+    blendMesh.matrixWorldAutoUpdate = false;
+    blendMesh.onBeforeRender = _poseBlend;
+  }
 
-		// R_PolyBlend's quad (see XR_PolyBlend)
-		blendOffset = new T.Matrix4();
-		blendOffset.makeScale( XR_BLEND_SIZE, XR_BLEND_SIZE, 1 ).setPosition( 0, 0, - XR_BLEND_DISTANCE );
+  // Hidden until the first upload, which happens at once
+  hudMesh.visible = false;
+  hudUploadTime = -Infinity;
+  blendMesh.visible = false;
 
-		blendMesh = new T.Mesh( new T.PlaneGeometry( 1, 1 ), new T.MeshBasicMaterial( {
-			transparent: true,
-			depthTest: false,
-			depthWrite: false,
-			toneMapped: false
-		} ) );
-		blendMesh.frustumCulled = false;
-		blendMesh.matrixAutoUpdate = false;
-		blendMesh.matrixWorldAutoUpdate = false;
-		blendMesh.onBeforeRender = _poseBlend;
-
-	}
-
-	// Hidden until the first upload, which happens at once
-	hudMesh.visible = false;
-	hudUploadTime = - Infinity;
-	blendMesh.visible = false;
-
-	// Draw order is child order: the blend, then the HUD over it
-	hudScene.add( blendMesh );
-	hudScene.add( hudMesh );
-
+  // Draw order is child order: the blend, then the HUD over it
+  hudScene.add(blendMesh);
+  hudScene.add(hudMesh);
 }
 
 function _hideHUD() {
+  if (hudMesh == null) return;
 
-	if ( hudMesh == null ) return;
+  if (hudMesh.parent != null) hudMesh.parent.remove(hudMesh);
+  if (blendMesh.parent != null) blendMesh.parent.remove(blendMesh);
 
-	if ( hudMesh.parent != null ) hudMesh.parent.remove( hudMesh );
-	if ( blendMesh.parent != null ) blendMesh.parent.remove( blendMesh );
-
-	if ( hudTexture != null ) {
-
-		hudTexture.dispose();
-		hudTexture = null;
-		hudMesh.material.map = null;
-
-	}
-
+  if (hudTexture != null) {
+    hudTexture.dispose();
+    hudTexture = null;
+    hudMesh.material.map = null;
+  }
 }
 
 //============================================================================
@@ -691,32 +636,22 @@ function _hideHUD() {
 //============================================================================
 
 function _pickAimController() {
+  aimController = null;
 
-	aimController = null;
+  // Prefer the right hand; otherwise any connected controller
+  for (const controller of controllers) {
+    if (controller != null && controller.userData.handedness === "right") {
+      aimController = controller;
+      return;
+    }
+  }
 
-	// Prefer the right hand; otherwise any connected controller
-	for ( const controller of controllers ) {
-
-		if ( controller != null && controller.userData.handedness === 'right' ) {
-
-			aimController = controller;
-			return;
-
-		}
-
-	}
-
-	for ( const controller of controllers ) {
-
-		if ( controller != null && controller.userData.handedness !== '' ) {
-
-			aimController = controller;
-			return;
-
-		}
-
-	}
-
+  for (const controller of controllers) {
+    if (controller != null && controller.userData.handedness !== "") {
+      aimController = controller;
+      return;
+    }
+  }
 }
 
 //============================================================================
@@ -729,18 +664,16 @@ function _pickAimController() {
 // Returns false if controller or XR is not available.
 //============================================================================
 
-export function XR_GetControllerWorldPose( outPos, outQuat ) {
+export function XR_GetControllerWorldPose(outPos, outQuat) {
+  if (xrSessionActive === false) return false;
+  if (aimController == null) return false;
+  if (xrRig == null) return false;
 
-	if ( xrSessionActive === false ) return false;
-	if ( aimController == null ) return false;
-	if ( xrRig == null ) return false;
+  // getWorldPosition/getWorldQuaternion call updateWorldMatrix internally
+  aimController.getWorldPosition(outPos);
+  aimController.getWorldQuaternion(outQuat);
 
-	// getWorldPosition/getWorldQuaternion call updateWorldMatrix internally
-	aimController.getWorldPosition( outPos );
-	aimController.getWorldQuaternion( outQuat );
-
-	return true;
-
+  return true;
 }
 
 //============================================================================
@@ -757,32 +690,30 @@ export function XR_GetControllerWorldPose( outPos, outQuat ) {
 // Returns false if XR is not active.
 //============================================================================
 
-export function XR_GetAimAngles( outAngles ) {
+export function XR_GetAimAngles(outAngles) {
+  if (xrSessionActive === false) return false;
+  if (aimController == null) return false;
+  if (xrRig == null) return false;
 
-	if ( xrSessionActive === false ) return false;
-	if ( aimController == null ) return false;
-	if ( xrRig == null ) return false;
+  // Get controller world quaternion (includes rig rotation = Quake space)
+  aimController.getWorldQuaternion(_controllerWorldQuat);
 
-	// Get controller world quaternion (includes rig rotation = Quake space)
-	aimController.getWorldQuaternion( _controllerWorldQuat );
+  // Forward direction = quaternion applied to targetRay forward [0, 0, -1]
+  _aimForward.set(0, 0, -1).applyQuaternion(_controllerWorldQuat);
 
-	// Forward direction = quaternion applied to targetRay forward [0, 0, -1]
-	_aimForward.set( 0, 0, - 1 ).applyQuaternion( _controllerWorldQuat );
+  const fx = _aimForward.x;
+  const fy = _aimForward.y;
+  const fz = _aimForward.z;
 
-	const fx = _aimForward.x;
-	const fy = _aimForward.y;
-	const fz = _aimForward.z;
+  // Reverse of AngleVectors:
+  //   forward[0] = cos(pitch) * cos(yaw)
+  //   forward[1] = cos(pitch) * sin(yaw)
+  //   forward[2] = -sin(pitch)
+  outAngles[1] = Math.atan2(fy, fx) * 180 / Math.PI; // YAW
+  outAngles[0] = Math.atan2(-fz, Math.sqrt(fx * fx + fy * fy)) * 180 / Math.PI; // PITCH
+  outAngles[2] = 0; // ROLL
 
-	// Reverse of AngleVectors:
-	//   forward[0] = cos(pitch) * cos(yaw)
-	//   forward[1] = cos(pitch) * sin(yaw)
-	//   forward[2] = -sin(pitch)
-	outAngles[ 1 ] = Math.atan2( fy, fx ) * 180 / Math.PI; // YAW
-	outAngles[ 0 ] = Math.atan2( - fz, Math.sqrt( fx * fx + fy * fy ) ) * 180 / Math.PI; // PITCH
-	outAngles[ 2 ] = 0; // ROLL
-
-	return true;
-
+  return true;
 }
 
 //============================================================================
@@ -796,58 +727,51 @@ export function XR_GetAimAngles( outAngles ) {
 //============================================================================
 
 const _sessionInit = {
-	requiredFeatures: [ 'local' ],
-	optionalFeatures: [ 'local-floor' ]
+  requiredFeatures: ["local"],
+  optionalFeatures: ["local-floor"],
 };
 
 let _sessionStarting = false; // _onSessionStarted is setting up a session
 
 function _offerSession() {
+  if (
+    typeof navigator === "undefined" || !("xr" in navigator) ||
+    navigator.xr == null
+  ) return;
 
-	if ( typeof navigator === 'undefined' || ! ( 'xr' in navigator ) || navigator.xr == null ) return;
+  _createEnterButton();
 
-	_createEnterButton();
+  if (navigator.xr.offerSession == null) return;
 
-	if ( navigator.xr.offerSession == null ) return;
-
-	navigator.xr.offerSession( 'immersive-vr', _sessionInit )
-		.then( _onSessionStarted )
-		.catch( function ( err ) {
-
-			// Rejected when the user dismisses the offer or another session is active
-			console.log( 'WebXR offerSession failed:', err && err.message );
-
-		} );
-
+  navigator.xr.offerSession("immersive-vr", _sessionInit)
+    .then(_onSessionStarted)
+    .catch(function (err) {
+      // Rejected when the user dismisses the offer or another session is active
+      console.log("WebXR offerSession failed:", err && err.message);
+    });
 }
 
 function _onEnterButtonClick() {
+  if (xrSessionActive || _sessionStarting) return;
 
-	if ( xrSessionActive || _sessionStarting ) return;
-
-	navigator.xr.requestSession( 'immersive-vr', _sessionInit )
-		.then( _onSessionStarted )
-		.catch( function ( err ) {
-
-			console.log( 'WebXR requestSession failed:', err && err.message );
-
-		} );
-
+  navigator.xr.requestSession("immersive-vr", _sessionInit)
+    .then(_onSessionStarted)
+    .catch(function (err) {
+      console.log("WebXR requestSession failed:", err && err.message);
+    });
 }
 
 function _createEnterButton() {
+  if (_enterButton != null || typeof document === "undefined") return;
+  if (navigator.xr.isSessionSupported == null) return;
 
-	if ( _enterButton != null || typeof document === 'undefined' ) return;
-	if ( navigator.xr.isSessionSupported == null ) return;
+  navigator.xr.isSessionSupported("immersive-vr").then(function (supported) {
+    if (!supported || _enterButton != null) return;
 
-	navigator.xr.isSessionSupported( 'immersive-vr' ).then( function ( supported ) {
-
-		if ( ! supported || _enterButton != null ) return;
-
-		// Large enough to hit with a controller's laser pointer
-		_enterButton = document.createElement( 'button' );
-		_enterButton.textContent = 'ENTER VR';
-		_enterButton.style.cssText = `
+    // Large enough to hit with a controller's laser pointer
+    _enterButton = document.createElement("button");
+    _enterButton.textContent = "ENTER VR";
+    _enterButton.style.cssText = `
 			position: fixed;
 			left: 20px;
 			bottom: 20px;
@@ -862,58 +786,42 @@ function _createEnterButton() {
 			border-radius: 6px;
 			cursor: pointer;
 		`;
-		if ( xrSessionActive ) _enterButton.style.display = 'none';
+    if (xrSessionActive) _enterButton.style.display = "none";
 
-		_enterButton.addEventListener( 'click', _onEnterButtonClick );
+    _enterButton.addEventListener("click", _onEnterButtonClick);
 
-		document.body.appendChild( _enterButton );
-
-	} ).catch( function () {} );
-
+    document.body.appendChild(_enterButton);
+  }).catch(function () {});
 }
 
-async function _onSessionStarted( session ) {
+async function _onSessionStarted(session) {
+  // The offer and the button can both produce a session: keep the first
+  if (xrSessionActive || _sessionStarting) {
+    session.end().catch(function () {});
+    return;
+  }
 
-	// The offer and the button can both produce a session: keep the first
-	if ( xrSessionActive || _sessionStarting ) {
+  _sessionStarting = true;
 
-		session.end().catch( function () {} );
-		return;
+  // Prefer a floor-level origin so the real floor matches the Quake floor
+  let floor = false;
 
-	}
+  try {
+    await session.requestReferenceSpace("local-floor");
+    floor = true;
+  } catch {
+    // 'local-floor' not granted: use 'local' (origin at the starting head position)
+  }
 
-	_sessionStarting = true;
-
-	// Prefer a floor-level origin so the real floor matches the Quake floor
-	let floor = false;
-
-	try {
-
-		await session.requestReferenceSpace( 'local-floor' );
-		floor = true;
-
-	} catch {
-
-		// 'local-floor' not granted: use 'local' (origin at the starting head position)
-
-	}
-
-	try {
-
-		R().xr.setReferenceSpaceType( floor ? 'local-floor' : 'local' );
-		xrOffset.position.set( 0, floor ? - XR_FLOOR_TO_EYE / XR_SCALE : 0, 0 );
-		await R().xr.setSession( session );
-
-	} catch ( err ) {
-
-		console.log( 'WebXR session setup failed:', err && err.message );
-		session.end().catch( function () {} );
-		if ( ! xrSessionActive ) _offerSession();
-
-	} finally {
-
-		_sessionStarting = false;
-
-	}
-
+  try {
+    R().xr.setReferenceSpaceType(floor ? "local-floor" : "local");
+    xrOffset.position.set(0, floor ? -XR_FLOOR_TO_EYE / XR_SCALE : 0, 0);
+    await R().xr.setSession(session);
+  } catch (err) {
+    console.log("WebXR session setup failed:", err && err.message);
+    session.end().catch(function () {});
+    if (!xrSessionActive) _offerSession();
+  } finally {
+    _sessionStarting = false;
+  }
 }

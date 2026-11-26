@@ -41,37 +41,37 @@
 // The host's own tab-close handling and the listen-server rules are not here
 // (design, "Listen-server rules").
 
-import { Con_Printf, Con_DPrintf, SZ_Clear, SZ_Write } from './common.js';
-import { NET_NewQSocket, NET_FreeQSocket } from './net_main.js';
+import { Con_DPrintf, Con_Printf, SZ_Clear, SZ_Write } from "./common.js";
+import { NET_FreeQSocket, NET_NewQSocket } from "./net_main.js";
 import {
-	net_message,
-	NET_MAXMESSAGE,
-	WT_PACKET_MAGIC,
-	WT_PACKET_HEADER_BYTES,
-	WT_MAX_FRAME_PAYLOAD,
-	WT_PROTOCOL_VERSION,
-	WT_HANDSHAKE_ACCEPT,
-	WT_HANDSHAKE_REJECT,
-	WT_BuildHelloFrame,
-	WT_ParseHello,
-	WT_BuildHandshakeReplyFrame,
-	WT_ParseHandshakeReply
-} from './net.js';
-import { clc_disconnect } from './protocol.js';
-import { M_ClearReturnOnError, M_ConnectionError } from './menu.js';
-import { set_key_dest, key_menu } from './keys.js';
+  NET_MAXMESSAGE,
+  net_message,
+  WT_BuildHandshakeReplyFrame,
+  WT_BuildHelloFrame,
+  WT_HANDSHAKE_ACCEPT,
+  WT_HANDSHAKE_REJECT,
+  WT_MAX_FRAME_PAYLOAD,
+  WT_PACKET_HEADER_BYTES,
+  WT_PACKET_MAGIC,
+  WT_ParseHandshakeReply,
+  WT_ParseHello,
+  WT_PROTOCOL_VERSION,
+} from "./net.js";
+import { clc_disconnect } from "./protocol.js";
+import { M_ClearReturnOnError, M_ConnectionError } from "./menu.js";
+import { key_menu, set_key_dest } from "./keys.js";
 
 let rtc_initialized = false;
 let rtc_listening = false;
 
 // This driver's index in net_drivers, set by NET_Init. A hello arrives in an
 // event callback, when net_driverlevel is whatever the last driver loop left.
-let rtc_driverlevel = - 1;
+let rtc_driverlevel = -1;
 
 let rtc_signaller = null;
 
-export const RTC_CHANNEL_RELIABLE = 'reliable';
-export const RTC_CHANNEL_UNRELIABLE = 'unreliable';
+export const RTC_CHANNEL_RELIABLE = "reliable";
+export const RTC_CHANNEL_UNRELIABLE = "unreliable";
 
 // Timeouts, as in the WebSocket drivers. The connect deadline is shorter than
 // CL_Connect's 30 s so a connect never completes after its caller gave up.
@@ -139,63 +139,57 @@ let rtc_nextPeer = 1;
 
 // Outgoing packet scratch: [header:9][payload]. RTCDataChannel.send copies an
 // ArrayBufferView's bytes before it returns, so one buffer serves every send.
-const rtc_sendbuf = new Uint8Array( WT_PACKET_HEADER_BYTES + NET_MAXMESSAGE );
-const rtc_sendview = new DataView( rtc_sendbuf.buffer );
+const rtc_sendbuf = new Uint8Array(WT_PACKET_HEADER_BYTES + NET_MAXMESSAGE);
+const rtc_sendview = new DataView(rtc_sendbuf.buffer);
 
 class RTCConnection {
+  constructor(role, remoteId, address) {
+    this.role = role; // 'host' or 'client'
+    this.remoteId = remoteId; // signalling id of the other end
+    this.address = address;
+    this.pc = null;
+    this.reliable = null;
+    this.unreliable = null;
 
-	constructor( role, remoteId, address ) {
+    // Signalling
+    this.remoteDescriptionSet = false;
+    this.earlyCandidates = [];
+    this.candidateCount = 0;
 
-		this.role = role; // 'host' or 'client'
-		this.remoteId = remoteId; // signalling id of the other end
-		this.address = address;
-		this.pc = null;
-		this.reliable = null;
-		this.unreliable = null;
+    // Handshake
+    this.accepted = false; // hello and reply done
+    this.answerWaiter = null; // client: waiting for the host's answer
+    this.openWaiter = null; // client: waiting for the reliable channel
+    this.replyResolve = null; // client: waiting for the handshake reply
 
-		// Signalling
-		this.remoteDescriptionSet = false;
-		this.earlyCandidates = [];
-		this.candidateCount = 0;
+    this.connected = false;
+    this.error = null;
+    this.sock = null;
+    this.pendingMessages = []; // { reliable: boolean, data: Uint8Array }
 
-		// Handshake
-		this.accepted = false; // hello and reply done
-		this.answerWaiter = null; // client: waiting for the host's answer
-		this.openWaiter = null; // client: waiting for the reliable channel
-		this.replyResolve = null; // client: waiting for the handshake reply
+    // Close
+    this.closing = false;
+    this.closeFinished = false;
+    this.dead = false; // the transport is gone
+    this.closeDeadline = 0;
+    this.closeTimer = null;
+    this.handshakeTimer = null;
+    this.pendingAcceptTimer = null;
 
-		this.connected = false;
-		this.error = null;
-		this.sock = null;
-		this.pendingMessages = []; // { reliable: boolean, data: Uint8Array }
+    // Sequencing state, as in net_websocket.js
+    this.peerSequenced = false;
+    this.reliableSequenceValid = false;
+    this.unreliableSequenceValid = false;
+    this.hasReceivedSequence = false;
+    this.highestReceivedSequence = -1;
 
-		// Close
-		this.closing = false;
-		this.closeFinished = false;
-		this.dead = false; // the transport is gone
-		this.closeDeadline = 0;
-		this.closeTimer = null;
-		this.handshakeTimer = null;
-		this.pendingAcceptTimer = null;
-
-		// Sequencing state, as in net_websocket.js
-		this.peerSequenced = false;
-		this.reliableSequenceValid = false;
-		this.unreliableSequenceValid = false;
-		this.hasReceivedSequence = false;
-		this.highestReceivedSequence = - 1;
-
-		this.oversizedLogged = false;
-		this.oversizedSendLogged = false;
-
-	}
-
+    this.oversizedLogged = false;
+    this.oversizedSendLogged = false;
+  }
 }
 
-function _isNewerSequence( sequence, current ) {
-
-	return ( ( sequence - current ) | 0 ) > 0;
-
+function _isNewerSequence(sequence, current) {
+  return ((sequence - current) | 0) > 0;
 }
 
 /*
@@ -203,25 +197,23 @@ function _isNewerSequence( sequence, current ) {
 Configuration
 =============
 */
-export function RTC_SetTimeouts( { connectMs, handshakeMs, pendingAcceptMs, closeFlushMs } = {} ) {
-
-	if ( connectMs > 0 ) RTC_CONNECT_TIMEOUT_MS = connectMs;
-	if ( handshakeMs > 0 ) RTC_HANDSHAKE_TIMEOUT_MS = handshakeMs;
-	if ( pendingAcceptMs > 0 ) RTC_PENDING_ACCEPT_TIMEOUT_MS = pendingAcceptMs;
-	if ( closeFlushMs > 0 ) RTC_CLOSE_FLUSH_MS = closeFlushMs;
-
+export function RTC_SetTimeouts(
+  { connectMs, handshakeMs, pendingAcceptMs, closeFlushMs } = {},
+) {
+  if (connectMs > 0) RTC_CONNECT_TIMEOUT_MS = connectMs;
+  if (handshakeMs > 0) RTC_HANDSHAKE_TIMEOUT_MS = handshakeMs;
+  if (pendingAcceptMs > 0) RTC_PENDING_ACCEPT_TIMEOUT_MS = pendingAcceptMs;
+  if (closeFlushMs > 0) RTC_CLOSE_FLUSH_MS = closeFlushMs;
 }
 
-export function RTC_SetDriverLevel( level ) {
-
-	rtc_driverlevel = level;
-
+export function RTC_SetDriverLevel(level) {
+  rtc_driverlevel = level;
 }
 
-export function RTC_SetSignaller( signaller ) {
-
-	rtc_signaller = signaller !== null && signaller !== undefined ? signaller : null;
-
+export function RTC_SetSignaller(signaller) {
+  rtc_signaller = signaller !== null && signaller !== undefined ?
+    signaller :
+    null;
 }
 
 /*
@@ -231,10 +223,9 @@ RTC_IsRoomAddress
 True for an rtc:<code> address, which NET_Connect hands to this driver.
 =============
 */
-export function RTC_IsRoomAddress( host ) {
-
-	return typeof host === 'string' && host.length > 4 && host.slice( 0, 4 ).toLowerCase() === 'rtc:';
-
+export function RTC_IsRoomAddress(host) {
+  return typeof host === "string" && host.length > 4 &&
+    host.slice(0, 4).toLowerCase() === "rtc:";
 }
 
 /*
@@ -243,52 +234,41 @@ RTC_Init
 =============
 */
 export function RTC_Init() {
+  if (typeof RTCPeerConnection === "undefined") {
+    Con_Printf("WebRTC not available in this browser\n");
+    return -1;
+  }
 
-	if ( typeof RTCPeerConnection === 'undefined' ) {
+  if (rtc_initialized === false && typeof window !== "undefined") {
+    // Send a clean disconnect when the page unloads (browser only)
+    window.addEventListener("pagehide", _onPageHide);
+    window.addEventListener("beforeunload", _onPageHide);
+  }
 
-		Con_Printf( 'WebRTC not available in this browser\n' );
-		return - 1;
+  rtc_initialized = true;
+  Con_Printf("WebRTC driver initialized\n");
 
-	}
-
-	if ( rtc_initialized === false && typeof window !== 'undefined' ) {
-
-		// Send a clean disconnect when the page unloads (browser only)
-		window.addEventListener( 'pagehide', _onPageHide );
-		window.addEventListener( 'beforeunload', _onPageHide );
-
-	}
-
-	rtc_initialized = true;
-	Con_Printf( 'WebRTC driver initialized\n' );
-
-	return 0;
-
+  return 0;
 }
 
 // Reused for the page-hide clc_disconnect
-const _pageHideMessage = { data: new Uint8Array( [ clc_disconnect ] ), cursize: 1 };
+const _pageHideMessage = { data: new Uint8Array([clc_disconnect]), cursize: 1 };
 
 // The client's connection only: closing the host's peers when its tab goes
 // is part of the listen-server rules.
 function _onPageHide() {
+  const conn = rtc_client;
+  if (conn === null) return;
 
-	const conn = rtc_client;
-	if ( conn === null ) return;
+  try {
+    if (conn.connected === true && conn.sock !== null) {
+      RTC_QSendMessage(conn.sock, _pageHideMessage);
+    }
 
-	try {
-
-		if ( conn.connected === true && conn.sock !== null )
-			RTC_QSendMessage( conn.sock, _pageHideMessage );
-
-		_RTC_FinishClose( conn );
-
-	} catch {
-
-		// Ignore errors during shutdown
-
-	}
-
+    _RTC_FinishClose(conn);
+  } catch {
+    // Ignore errors during shutdown
+  }
 }
 
 /*
@@ -297,28 +277,25 @@ RTC_Shutdown
 =============
 */
 export function RTC_Shutdown() {
+  if (rtc_attempt !== null) {
+    rtc_attempt.abort(new Error("WebRTC shut down"));
+  }
 
-	if ( rtc_attempt !== null )
-		rtc_attempt.abort( new Error( 'WebRTC shut down' ) );
+  for (const conn of rtc_peers.values()) _RTC_FinishClose(conn);
+  for (const conn of rtc_connections.values()) _RTC_FinishClose(conn);
+  if (rtc_client !== null) _RTC_FinishClose(rtc_client);
 
-	for ( const conn of rtc_peers.values() ) _RTC_FinishClose( conn );
-	for ( const conn of rtc_connections.values() ) _RTC_FinishClose( conn );
-	if ( rtc_client !== null ) _RTC_FinishClose( rtc_client );
+  for (const sock of rtc_pending) {
+    sock.driverdata = null;
+    NET_FreeQSocket(sock);
+  }
 
-	for ( const sock of rtc_pending ) {
-
-		sock.driverdata = null;
-		NET_FreeQSocket( sock );
-
-	}
-
-	rtc_pending.length = 0;
-	rtc_peers.clear();
-	rtc_connections.clear();
-	rtc_client = null;
-	rtc_listening = false;
-	rtc_initialized = false;
-
+  rtc_pending.length = 0;
+  rtc_peers.clear();
+  rtc_connections.clear();
+  rtc_client = null;
+  rtc_listening = false;
+  rtc_initialized = false;
 }
 
 /*
@@ -329,18 +306,15 @@ Host: accept offers while listening. Stopping drops the peers that have not
 been handed to the server yet; connected players stay.
 =============
 */
-export function RTC_Listen( state ) {
+export function RTC_Listen(state) {
+  rtc_listening = state === true;
+  if (rtc_listening === true) return;
 
-	rtc_listening = state === true;
-	if ( rtc_listening === true ) return;
-
-	for ( const conn of [ ...rtc_peers.values() ] ) {
-
-		if ( conn.sock === null || rtc_pending.includes( conn.sock ) === true )
-			_RTC_DropUnaccepted( conn );
-
-	}
-
+  for (const conn of [...rtc_peers.values()]) {
+    if (conn.sock === null || rtc_pending.includes(conn.sock) === true) {
+      _RTC_DropUnaccepted(conn);
+    }
+  }
 }
 
 /*
@@ -350,8 +324,7 @@ RTC_SearchForHosts
 No broadcast discovery: rooms are listed by the lobby
 =============
 */
-export function RTC_SearchForHosts( _xmit ) {
-
+export function RTC_SearchForHosts(_xmit) {
 }
 
 /*
@@ -360,23 +333,19 @@ RTC_GetStatsForTest
 =============
 */
 export function RTC_GetStatsForTest() {
+  let handshaking = 0;
+  for (const conn of rtc_peers.values()) {
+    if (conn.accepted === false) handshaking++;
+  }
 
-	let handshaking = 0;
-	for ( const conn of rtc_peers.values() ) {
-
-		if ( conn.accepted === false ) handshaking ++;
-
-	}
-
-	return {
-		peers: rtc_peers.size,
-		handshaking,
-		pending: rtc_pending.length,
-		connections: rtc_connections.size,
-		closing: rtc_closing.size,
-		client: rtc_client !== null
-	};
-
+  return {
+    peers: rtc_peers.size,
+    handshaking,
+    pending: rtc_pending.length,
+    connections: rtc_connections.size,
+    closing: rtc_closing.size,
+    client: rtc_client !== null,
+  };
 }
 
 /*
@@ -384,70 +353,60 @@ export function RTC_GetStatsForTest() {
 Signalling
 =============
 */
-function _RTC_Signal( to, kind, data ) {
+function _RTC_Signal(to, kind, data) {
+  if (rtc_signaller === null) return;
 
-	if ( rtc_signaller === null ) return;
-
-	try {
-
-		rtc_signaller.send( to, kind, data );
-
-	} catch ( error ) {
-
-		Con_DPrintf( 'WebRTC: signal to ' + to + ' failed: ' + error.message + '\n' );
-
-	}
-
+  try {
+    rtc_signaller.send(to, kind, data);
+  } catch (error) {
+    Con_DPrintf("WebRTC: signal to " + to + " failed: " + error.message + "\n");
+  }
 }
 
 async function _RTC_IceServers() {
+  if (
+    rtc_signaller === null || typeof rtc_signaller.iceServers !== "function"
+  ) {
+    return [];
+  }
 
-	if ( rtc_signaller === null || typeof rtc_signaller.iceServers !== 'function' )
-		return [];
-
-	try {
-
-		const servers = await rtc_signaller.iceServers();
-		return Array.isArray( servers ) ? servers : [];
-
-	} catch {
-
-		return [];
-
-	}
-
+  try {
+    const servers = await rtc_signaller.iceServers();
+    return Array.isArray(servers) ? servers : [];
+  } catch {
+    return [];
+  }
 }
 
-function _RTC_ValidDescription( data, type ) {
-
-	return data !== null && typeof data === 'object' && data.type === type &&
-		typeof data.sdp === 'string' && data.sdp.length <= RTC_MAX_SDP_BYTES;
-
+function _RTC_ValidDescription(data, type) {
+  return data !== null && typeof data === "object" && data.type === type &&
+    typeof data.sdp === "string" && data.sdp.length <= RTC_MAX_SDP_BYTES;
 }
 
 // A copy holding only the RTCIceCandidateInit fields, or null if malformed
-function _RTC_ValidCandidate( data ) {
+function _RTC_ValidCandidate(data) {
+  if (data === null || typeof data !== "object") return null;
+  if (
+    typeof data.candidate !== "string" ||
+    data.candidate.length > RTC_MAX_CANDIDATE_BYTES
+  ) return null;
 
-	if ( data === null || typeof data !== 'object' ) return null;
-	if ( typeof data.candidate !== 'string' || data.candidate.length > RTC_MAX_CANDIDATE_BYTES ) return null;
+  const sdpMid = typeof data.sdpMid === "string" ? data.sdpMid : null;
+  const sdpMLineIndex = Number.isInteger(data.sdpMLineIndex) ?
+    data.sdpMLineIndex :
+    null;
+  if (sdpMid === null && sdpMLineIndex === null) return null;
 
-	const sdpMid = typeof data.sdpMid === 'string' ? data.sdpMid : null;
-	const sdpMLineIndex = Number.isInteger( data.sdpMLineIndex ) ? data.sdpMLineIndex : null;
-	if ( sdpMid === null && sdpMLineIndex === null ) return null;
-
-	return { candidate: data.candidate, sdpMid, sdpMLineIndex };
-
+  return { candidate: data.candidate, sdpMid, sdpMLineIndex };
 }
 
-function _RTC_CandidateInit( candidate ) {
-
-	if ( typeof candidate.toJSON === 'function' ) return candidate.toJSON();
-	return {
-		candidate: candidate.candidate,
-		sdpMid: candidate.sdpMid,
-		sdpMLineIndex: candidate.sdpMLineIndex
-	};
-
+function _RTC_CandidateInit(candidate) {
+  if (typeof candidate.toJSON === "function") return candidate.toJSON();
+  return {
+    candidate: candidate.candidate,
+    sdpMid: candidate.sdpMid,
+    sdpMLineIndex: candidate.sdpMLineIndex,
+  };
 }
 
 /*
@@ -458,73 +417,60 @@ Every signal the lobby relays to this tab. Offers are for the host role;
 answers, and candidates from the room code, are for the client's connection.
 =============
 */
-export function RTC_HandleSignal( from, kind, data ) {
+export function RTC_HandleSignal(from, kind, data) {
+  if (rtc_initialized === false || typeof from !== "string") return;
 
-	if ( rtc_initialized === false || typeof from !== 'string' ) return;
+  if (kind === "offer") {
+    _RTC_OnOffer(from, data);
+    return;
+  }
 
-	if ( kind === 'offer' ) {
+  const client = rtc_client;
 
-		_RTC_OnOffer( from, data );
-		return;
+  if (kind === "answer") {
+    if (client !== null && client.remoteId === from) {
+      _RTC_OnAnswer(client, data);
+    }
+    return;
+  }
 
-	}
+  if (kind === "candidate") {
+    const peer = rtc_peers.get(from);
+    if (peer !== undefined) {
+      _RTC_AddCandidate(peer, data);
+      return;
+    }
 
-	const client = rtc_client;
-
-	if ( kind === 'answer' ) {
-
-		if ( client !== null && client.remoteId === from )
-			_RTC_OnAnswer( client, data );
-		return;
-
-	}
-
-	if ( kind === 'candidate' ) {
-
-		const peer = rtc_peers.get( from );
-		if ( peer !== undefined ) {
-
-			_RTC_AddCandidate( peer, data );
-			return;
-
-		}
-
-		if ( client !== null && client.remoteId === from )
-			_RTC_AddCandidate( client, data );
-
-	}
-
+    if (client !== null && client.remoteId === from) {
+      _RTC_AddCandidate(client, data);
+    }
+  }
 }
 
-function _RTC_AddCandidate( conn, data ) {
+function _RTC_AddCandidate(conn, data) {
+  if (conn.closing === true || conn.dead === true) return;
 
-	if ( conn.closing === true || conn.dead === true ) return;
+  const candidate = _RTC_ValidCandidate(data);
+  if (candidate === null) return;
+  if (conn.candidateCount >= RTC_MAX_CANDIDATES) return;
+  conn.candidateCount++;
 
-	const candidate = _RTC_ValidCandidate( data );
-	if ( candidate === null ) return;
-	if ( conn.candidateCount >= RTC_MAX_CANDIDATES ) return;
-	conn.candidateCount ++;
+  if (conn.remoteDescriptionSet !== true) {
+    // addIceCandidate before setRemoteDescription is an error
+    conn.earlyCandidates.push(candidate);
+    return;
+  }
 
-	if ( conn.remoteDescriptionSet !== true ) {
-
-		// addIceCandidate before setRemoteDescription is an error
-		conn.earlyCandidates.push( candidate );
-		return;
-
-	}
-
-	conn.pc.addIceCandidate( candidate ).catch( () => {} );
-
+  conn.pc.addIceCandidate(candidate).catch(() => {});
 }
 
-function _RTC_FlushCandidates( conn ) {
-
-	conn.remoteDescriptionSet = true;
-	const candidates = conn.earlyCandidates;
-	conn.earlyCandidates = [];
-	for ( const candidate of candidates )
-		conn.pc.addIceCandidate( candidate ).catch( () => {} );
-
+function _RTC_FlushCandidates(conn) {
+  conn.remoteDescriptionSet = true;
+  const candidates = conn.earlyCandidates;
+  conn.earlyCandidates = [];
+  for (const candidate of candidates) {
+    conn.pc.addIceCandidate(candidate).catch(() => {});
+  }
 }
 
 /*
@@ -532,65 +478,55 @@ function _RTC_FlushCandidates( conn ) {
 Peer connection wiring, both roles
 =============
 */
-function _RTC_CreatePeerConnection( conn, iceServers ) {
+function _RTC_CreatePeerConnection(conn, iceServers) {
+  const pc = new RTCPeerConnection({ iceServers });
+  conn.pc = pc;
 
-	const pc = new RTCPeerConnection( { iceServers } );
-	conn.pc = pc;
+  pc.onicecandidate = (event) => {
+    if (
+      event.candidate === null || event.candidate === undefined ||
+      conn.closing === true
+    ) return;
+    _RTC_Signal(
+      conn.remoteId,
+      "candidate",
+      _RTC_CandidateInit(event.candidate),
+    );
+  };
 
-	pc.onicecandidate = ( event ) => {
+  // 'disconnected' can recover by itself; only 'failed' and 'closed' end it
+  pc.onconnectionstatechange = () => {
+    const state = pc.connectionState;
+    if (state === "failed" || state === "closed") {
+      _RTC_OnTransportClosed(conn);
+    }
+  };
 
-		if ( event.candidate === null || event.candidate === undefined || conn.closing === true ) return;
-		_RTC_Signal( conn.remoteId, 'candidate', _RTC_CandidateInit( event.candidate ) );
-
-	};
-
-	// 'disconnected' can recover by itself; only 'failed' and 'closed' end it
-	pc.onconnectionstatechange = () => {
-
-		const state = pc.connectionState;
-		if ( state === 'failed' || state === 'closed' )
-			_RTC_OnTransportClosed( conn );
-
-	};
-
-	return pc;
-
+  return pc;
 }
 
-function _RTC_AttachChannel( conn, channel ) {
+function _RTC_AttachChannel(conn, channel) {
+  channel.binaryType = "arraybuffer";
 
-	channel.binaryType = 'arraybuffer';
+  if (channel.label === RTC_CHANNEL_RELIABLE) {
+    conn.reliable = channel;
+    channel.onmessage = (event) => _RTC_OnReliable(conn, event.data);
+  } else {
+    conn.unreliable = channel;
+    channel.onmessage = (event) => {
+      if (conn.accepted === true) _RTC_OnMessage(conn, event.data, false);
+    };
+  }
 
-	if ( channel.label === RTC_CHANNEL_RELIABLE ) {
-
-		conn.reliable = channel;
-		channel.onmessage = ( event ) => _RTC_OnReliable( conn, event.data );
-
-	} else {
-
-		conn.unreliable = channel;
-		channel.onmessage = ( event ) => {
-
-			if ( conn.accepted === true ) _RTC_OnMessage( conn, event.data, false );
-
-		};
-
-	}
-
-	// Either channel closing ends the connection. A closed unreliable channel
-	// can't be reopened, and the reliable one carries everything else.
-	channel.onclose = () => _RTC_OnTransportClosed( conn );
-	channel.onerror = () => {
-
-		if ( conn.closing !== true && conn.connected === true ) {
-
-			Con_Printf( 'WebRTC connection error\n' );
-			conn.error = new Error( 'WebRTC data channel error' );
-
-		}
-
-	};
-
+  // Either channel closing ends the connection. A closed unreliable channel
+  // can't be reopened, and the reliable one carries everything else.
+  channel.onclose = () => _RTC_OnTransportClosed(conn);
+  channel.onerror = () => {
+    if (conn.closing !== true && conn.connected === true) {
+      Con_Printf("WebRTC connection error\n");
+      conn.error = new Error("WebRTC data channel error");
+    }
+  };
 }
 
 /*
@@ -601,95 +537,88 @@ Host: a joiner offers a peer connection. It gets RTC_HANDSHAKE_TIMEOUT_MS from
 now to open the reliable channel and send a valid hello.
 =============
 */
-function _RTC_OnOffer( from, data ) {
+function _RTC_OnOffer(from, data) {
+  if (rtc_listening !== true) return;
+  if (_RTC_ValidDescription(data, "offer") === false) return;
 
-	if ( rtc_listening !== true ) return;
-	if ( _RTC_ValidDescription( data, 'offer' ) === false ) return;
+  // A new offer from a lobby id we already have is that joiner starting
+  // over (its old connection may not have failed here yet): the new one
+  // replaces it. A socket the server holds reports the loss through
+  // RTC_QGetMessage, as any other dropped connection.
+  const old = rtc_peers.get(from);
+  if (old !== undefined) {
+    rtc_peers.delete(from);
+    if (old.sock !== null) {
+      _RTC_ProtocolError(old, "replaced by a new connection");
+    } else _RTC_FinishClose(old);
+  }
 
-	// A new offer from a lobby id we already have is that joiner starting
-	// over (its old connection may not have failed here yet): the new one
-	// replaces it. A socket the server holds reports the loss through
-	// RTC_QGetMessage, as any other dropped connection.
-	const old = rtc_peers.get( from );
-	if ( old !== undefined ) {
+  let handshaking = 0;
+  for (const peer of rtc_peers.values()) {
+    if (peer.accepted === false) handshaking++;
+  }
 
-		rtc_peers.delete( from );
-		if ( old.sock !== null ) _RTC_ProtocolError( old, 'replaced by a new connection' );
-		else _RTC_FinishClose( old );
+  if (handshaking >= RTC_MAX_HANDSHAKING) {
+    Con_DPrintf("WebRTC: too many joiners handshaking, ignoring an offer\n");
+    return;
+  }
 
-	}
+  const conn = new RTCConnection("host", from, "rtc:peer" + (rtc_nextPeer++));
+  rtc_peers.set(from, conn);
 
-	let handshaking = 0;
-	for ( const peer of rtc_peers.values() ) {
+  conn.handshakeTimer = setTimeout(() => {
+    conn.handshakeTimer = null;
+    if (conn.accepted === true || conn.closing === true) return;
+    Con_Printf("WebRTC %s: handshake timed out\n", conn.address);
+    _RTC_FinishClose(conn);
+  }, RTC_HANDSHAKE_TIMEOUT_MS);
 
-		if ( peer.accepted === false ) handshaking ++;
-
-	}
-
-	if ( handshaking >= RTC_MAX_HANDSHAKING ) {
-
-		Con_DPrintf( 'WebRTC: too many joiners handshaking, ignoring an offer\n' );
-		return;
-
-	}
-
-	const conn = new RTCConnection( 'host', from, 'rtc:peer' + ( rtc_nextPeer ++ ) );
-	rtc_peers.set( from, conn );
-
-	conn.handshakeTimer = setTimeout( () => {
-
-		conn.handshakeTimer = null;
-		if ( conn.accepted === true || conn.closing === true ) return;
-		Con_Printf( 'WebRTC %s: handshake timed out\n', conn.address );
-		_RTC_FinishClose( conn );
-
-	}, RTC_HANDSHAKE_TIMEOUT_MS );
-
-	_RTC_AnswerOffer( conn, data ).catch( ( error ) => {
-
-		if ( conn.closing === true ) return;
-		Con_Printf( 'WebRTC %s: could not answer: %s\n', conn.address, error.message );
-		_RTC_FinishClose( conn );
-
-	} );
-
+  _RTC_AnswerOffer(conn, data).catch((error) => {
+    if (conn.closing === true) return;
+    Con_Printf(
+      "WebRTC %s: could not answer: %s\n",
+      conn.address,
+      error.message,
+    );
+    _RTC_FinishClose(conn);
+  });
 }
 
-async function _RTC_AnswerOffer( conn, offer ) {
+async function _RTC_AnswerOffer(conn, offer) {
+  const iceServers = await _RTC_IceServers();
+  if (conn.closing === true) return;
 
-	const iceServers = await _RTC_IceServers();
-	if ( conn.closing === true ) return;
+  const pc = _RTC_CreatePeerConnection(conn, iceServers);
+  pc.ondatachannel = (event) => {
+    const channel = event.channel;
+    const label = channel.label;
+    const taken = label === RTC_CHANNEL_RELIABLE ?
+      conn.reliable :
+      label === RTC_CHANNEL_UNRELIABLE ?
+      conn.unreliable :
+      undefined;
+    if (taken !== null) {
+      // Unknown label, or a second channel with the same one
+      try {
+        channel.close();
+      } catch { /* ignore */ }
+      _RTC_ProtocolError(conn, "unexpected data channel");
+      return;
+    }
 
-	const pc = _RTC_CreatePeerConnection( conn, iceServers );
-	pc.ondatachannel = ( event ) => {
+    _RTC_AttachChannel(conn, channel);
+  };
 
-		const channel = event.channel;
-		const label = channel.label;
-		const taken = label === RTC_CHANNEL_RELIABLE ? conn.reliable : label === RTC_CHANNEL_UNRELIABLE ? conn.unreliable : undefined;
-		if ( taken !== null ) {
+  await pc.setRemoteDescription({ type: offer.type, sdp: offer.sdp });
+  if (conn.closing === true) return;
+  _RTC_FlushCandidates(conn);
 
-			// Unknown label, or a second channel with the same one
-			try { channel.close(); } catch { /* ignore */ }
-			_RTC_ProtocolError( conn, 'unexpected data channel' );
-			return;
+  const answer = await pc.createAnswer();
+  if (conn.closing === true) return;
+  await pc.setLocalDescription(answer);
+  if (conn.closing === true) return;
 
-		}
-
-		_RTC_AttachChannel( conn, channel );
-
-	};
-
-	await pc.setRemoteDescription( { type: offer.type, sdp: offer.sdp } );
-	if ( conn.closing === true ) return;
-	_RTC_FlushCandidates( conn );
-
-	const answer = await pc.createAnswer();
-	if ( conn.closing === true ) return;
-	await pc.setLocalDescription( answer );
-	if ( conn.closing === true ) return;
-
-	_RTC_Signal( conn.remoteId, 'answer', { type: answer.type, sdp: answer.sdp } );
-
+  _RTC_Signal(conn.remoteId, "answer", { type: answer.type, sdp: answer.sdp });
 }
 
 /*
@@ -700,44 +629,32 @@ The first reliable message is the handshake: the hello on the host, the reply
 on the client. Every later one is a game packet.
 =============
 */
-function _RTC_OnReliable( conn, raw ) {
+function _RTC_OnReliable(conn, raw) {
+  if (conn.accepted === true) {
+    _RTC_OnMessage(conn, raw, true);
+    return;
+  }
 
-	if ( conn.accepted === true ) {
+  if (conn.role === "host") {
+    _RTC_OnHello(conn, raw);
+    return;
+  }
 
-		_RTC_OnMessage( conn, raw, true );
-		return;
-
-	}
-
-	if ( conn.role === 'host' ) {
-
-		_RTC_OnHello( conn, raw );
-		return;
-
-	}
-
-	// Client: the reply. Mark the handshake done at once, so packets the host
-	// sends straight after it queue before RTC_Connect resumes.
-	const resolve = conn.replyResolve;
-	if ( resolve === null ) return;
-	conn.replyResolve = null;
-	conn.accepted = true;
-	resolve( raw instanceof ArrayBuffer ? new Uint8Array( raw ) : new Uint8Array( 0 ) );
-
+  // Client: the reply. Mark the handshake done at once, so packets the host
+  // sends straight after it queue before RTC_Connect resumes.
+  const resolve = conn.replyResolve;
+  if (resolve === null) return;
+  conn.replyResolve = null;
+  conn.accepted = true;
+  resolve(raw instanceof ArrayBuffer ? new Uint8Array(raw) : new Uint8Array(0));
 }
 
-function _RTC_SendHandshakeReply( conn, status, reason ) {
-
-	try {
-
-		conn.reliable.send( WT_BuildHandshakeReplyFrame( status, reason ).subarray( 2 ) );
-
-	} catch {
-
-		// The channel's close event reports a dead connection
-
-	}
-
+function _RTC_SendHandshakeReply(conn, status, reason) {
+  try {
+    conn.reliable.send(WT_BuildHandshakeReplyFrame(status, reason).subarray(2));
+  } catch {
+    // The channel's close event reports a dead connection
+  }
 }
 
 /*
@@ -749,77 +666,77 @@ or with a reject and close. Ported from _onHello in
 server/net_websocket_server.ts.
 =============
 */
-function _RTC_OnHello( conn, raw ) {
+function _RTC_OnHello(conn, raw) {
+  if (conn.closing === true) return;
 
-	if ( conn.closing === true ) return;
+  if (conn.handshakeTimer !== null) {
+    clearTimeout(conn.handshakeTimer);
+    conn.handshakeTimer = null;
+  }
 
-	if ( conn.handshakeTimer !== null ) {
+  const version = raw instanceof ArrayBuffer ?
+    WT_ParseHello(new Uint8Array(raw)) :
+    -1;
+  if (version !== WT_PROTOCOL_VERSION) {
+    Con_Printf(
+      "Rejecting %s: %s\n",
+      conn.address,
+      version < 0 ? "no handshake" : "protocol version " + version,
+    );
+    _RTC_Reject(
+      conn,
+      version < 0 ?
+        "Protocol mismatch: update your client" :
+        "Protocol version " + version + " not supported (server uses " +
+        WT_PROTOCOL_VERSION + ")",
+    );
+    return;
+  }
 
-		clearTimeout( conn.handshakeTimer );
-		conn.handshakeTimer = null;
+  // Count the sockets still waiting to be accepted, so offers in one frame
+  // can't claim more sockets than there are free client slots
+  const sock = NET_NewQSocket(rtc_pending.length);
+  if (sock === null) {
+    Con_Printf("No free client slots for %s\n", conn.address);
+    _RTC_Reject(conn, "Server is full");
+    return;
+  }
 
-	}
+  conn.accepted = true;
+  conn.connected = true;
 
-	const version = raw instanceof ArrayBuffer ? WT_ParseHello( new Uint8Array( raw ) ) : - 1;
-	if ( version !== WT_PROTOCOL_VERSION ) {
+  const now = performance.now() / 1000;
+  sock.driver = rtc_driverlevel;
+  sock.address = conn.address;
+  sock.driverdata = conn;
+  sock.connecttime = now;
+  sock.lastMessageTime = now;
+  sock.sendSequence = 0;
+  sock.receiveSequence = -1;
+  sock.unreliableReceiveSequence = -1;
+  sock.ackSequence = -1;
+  sock.hasAck = false;
+  sock.maxdatagram = RTC_HOST_MAXDATAGRAM;
+  conn.sock = sock;
 
-		Con_Printf( 'Rejecting %s: %s\n', conn.address, version < 0 ? 'no handshake' : 'protocol version ' + version );
-		_RTC_Reject( conn, version < 0
-			? 'Protocol mismatch: update your client'
-			: 'Protocol version ' + version + ' not supported (server uses ' + WT_PROTOCOL_VERSION + ')' );
-		return;
+  _RTC_SendHandshakeReply(conn, WT_HANDSHAKE_ACCEPT, "");
 
-	}
+  rtc_pending.push(sock);
+  conn.pendingAcceptTimer = setTimeout(() => {
+    conn.pendingAcceptTimer = null;
+    if (rtc_pending.includes(sock) === false || sock.driverdata !== conn) {
+      return;
+    }
+    Con_Printf("Connection %s was never accepted, closing\n", conn.address);
+    _RTC_DropUnaccepted(conn);
+  }, RTC_PENDING_ACCEPT_TIMEOUT_MS);
 
-	// Count the sockets still waiting to be accepted, so offers in one frame
-	// can't claim more sockets than there are free client slots
-	const sock = NET_NewQSocket( rtc_pending.length );
-	if ( sock === null ) {
-
-		Con_Printf( 'No free client slots for %s\n', conn.address );
-		_RTC_Reject( conn, 'Server is full' );
-		return;
-
-	}
-
-	conn.accepted = true;
-	conn.connected = true;
-
-	const now = performance.now() / 1000;
-	sock.driver = rtc_driverlevel;
-	sock.address = conn.address;
-	sock.driverdata = conn;
-	sock.connecttime = now;
-	sock.lastMessageTime = now;
-	sock.sendSequence = 0;
-	sock.receiveSequence = - 1;
-	sock.unreliableReceiveSequence = - 1;
-	sock.ackSequence = - 1;
-	sock.hasAck = false;
-	sock.maxdatagram = RTC_HOST_MAXDATAGRAM;
-	conn.sock = sock;
-
-	_RTC_SendHandshakeReply( conn, WT_HANDSHAKE_ACCEPT, '' );
-
-	rtc_pending.push( sock );
-	conn.pendingAcceptTimer = setTimeout( () => {
-
-		conn.pendingAcceptTimer = null;
-		if ( rtc_pending.includes( sock ) === false || sock.driverdata !== conn ) return;
-		Con_Printf( 'Connection %s was never accepted, closing\n', conn.address );
-		_RTC_DropUnaccepted( conn );
-
-	}, RTC_PENDING_ACCEPT_TIMEOUT_MS );
-
-	Con_Printf( 'Connection from %s\n', conn.address );
-
+  Con_Printf("Connection from %s\n", conn.address);
 }
 
-function _RTC_Reject( conn, reason ) {
-
-	_RTC_SendHandshakeReply( conn, WT_HANDSHAKE_REJECT, reason );
-	_RTC_CloseConnection( conn );
-
+function _RTC_Reject(conn, reason) {
+  _RTC_SendHandshakeReply(conn, WT_HANDSHAKE_REJECT, reason);
+  _RTC_CloseConnection(conn);
 }
 
 /*
@@ -829,21 +746,17 @@ _RTC_DropUnaccepted
 Host: close a peer the server never took, freeing its socket if it has one.
 =============
 */
-function _RTC_DropUnaccepted( conn ) {
+function _RTC_DropUnaccepted(conn) {
+  const sock = conn.sock;
+  if (sock !== null) {
+    const idx = rtc_pending.indexOf(sock);
+    if (idx !== -1) rtc_pending.splice(idx, 1);
+    sock.driverdata = null;
+    conn.sock = null;
+    NET_FreeQSocket(sock);
+  }
 
-	const sock = conn.sock;
-	if ( sock !== null ) {
-
-		const idx = rtc_pending.indexOf( sock );
-		if ( idx !== - 1 ) rtc_pending.splice( idx, 1 );
-		sock.driverdata = null;
-		conn.sock = null;
-		NET_FreeQSocket( sock );
-
-	}
-
-	_RTC_CloseConnection( conn );
-
+  _RTC_CloseConnection(conn);
 }
 
 /*
@@ -852,43 +765,33 @@ RTC_CheckNewConnections
 =============
 */
 export function RTC_CheckNewConnections() {
+  while (rtc_pending.length > 0) {
+    const sock = rtc_pending.shift();
+    const conn = sock.driverdata;
+    if (sock.disconnected === true) continue;
 
-	while ( rtc_pending.length > 0 ) {
+    if (conn === null || conn.connected !== true) {
+      Con_Printf("Skipped disconnected socket in pending queue\n");
+      sock.driverdata = null;
+      if (conn !== null) {
+        conn.sock = null;
+        _RTC_CloseConnection(conn);
+      }
 
-		const sock = rtc_pending.shift();
-		const conn = sock.driverdata;
-		if ( sock.disconnected === true ) continue;
+      NET_FreeQSocket(sock);
+      continue;
+    }
 
-		if ( conn === null || conn.connected !== true ) {
+    if (conn.pendingAcceptTimer !== null) {
+      clearTimeout(conn.pendingAcceptTimer);
+      conn.pendingAcceptTimer = null;
+    }
 
-			Con_Printf( 'Skipped disconnected socket in pending queue\n' );
-			sock.driverdata = null;
-			if ( conn !== null ) {
+    rtc_connections.set(sock, conn);
+    return sock;
+  }
 
-				conn.sock = null;
-				_RTC_CloseConnection( conn );
-
-			}
-
-			NET_FreeQSocket( sock );
-			continue;
-
-		}
-
-		if ( conn.pendingAcceptTimer !== null ) {
-
-			clearTimeout( conn.pendingAcceptTimer );
-			conn.pendingAcceptTimer = null;
-
-		}
-
-		rtc_connections.set( sock, conn );
-		return sock;
-
-	}
-
-	return null;
-
+  return null;
 }
 
 /*
@@ -900,99 +803,75 @@ whatever the connect is waiting on, as WSConnectAttempt does.
 =============
 */
 class RTCConnectAttempt {
+  constructor(timeoutMs) {
+    this.aborted = false;
+    this.conn = null;
+    this.lobbyJoin = null; // the signaller's join( code ), if it has one
+    this._reject = null;
+    this.abortPromise = new Promise((_, reject) => {
+      this._reject = reject;
+    });
+    this.abortPromise.catch(() => {});
+    this._timer = setTimeout(() => {
+      this._timer = null;
+      this.abort(new Error("Connection timed out"));
+    }, timeoutMs);
+  }
 
-	constructor( timeoutMs ) {
+  abort(error) {
+    if (this.aborted === true) return;
+    this.aborted = true;
+    this._reject(error);
+  }
 
-		this.aborted = false;
-		this.conn = null;
-		this.lobbyJoin = null; // the signaller's join( code ), if it has one
-		this._reject = null;
-		this.abortPromise = new Promise( ( _, reject ) => {
+  wait(promise) {
+    if (
+      promise !== null && promise !== undefined &&
+      typeof promise.catch === "function"
+    ) {
+      promise.catch(() => {});
+    }
 
-			this._reject = reject;
+    return Promise.race([promise, this.abortPromise]);
+  }
 
-		} );
-		this.abortPromise.catch( () => {} );
-		this._timer = setTimeout( () => {
-
-			this._timer = null;
-			this.abort( new Error( 'Connection timed out' ) );
-
-		}, timeoutMs );
-
-	}
-
-	abort( error ) {
-
-		if ( this.aborted === true ) return;
-		this.aborted = true;
-		this._reject( error );
-
-	}
-
-	wait( promise ) {
-
-		if ( promise !== null && promise !== undefined && typeof promise.catch === 'function' )
-			promise.catch( () => {} );
-
-		return Promise.race( [ promise, this.abortPromise ] );
-
-	}
-
-	finish() {
-
-		if ( this._timer !== null ) {
-
-			clearTimeout( this._timer );
-			this._timer = null;
-
-		}
-
-	}
-
+  finish() {
+    if (this._timer !== null) {
+      clearTimeout(this._timer);
+      this._timer = null;
+    }
+  }
 }
 
-function _RTC_WithTimeout( promise, timeoutMs, timeoutValue ) {
+function _RTC_WithTimeout(promise, timeoutMs, timeoutValue) {
+  let timer = null;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(timeoutValue), timeoutMs);
+  });
 
-	let timer = null;
-	const timeout = new Promise( ( resolve ) => {
-
-		timer = setTimeout( () => resolve( timeoutValue ), timeoutMs );
-
-	} );
-
-	promise.catch( () => {} );
-	return Promise.race( [ promise, timeout ] ).finally( () => clearTimeout( timer ) );
-
+  promise.catch(() => {});
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 // Client: resolves when the reliable channel opens; _RTC_FinishClose rejects
-function _RTC_WaitOpen( conn ) {
+function _RTC_WaitOpen(conn) {
+  const channel = conn.reliable;
+  if (channel.readyState === "open") return Promise.resolve();
 
-	const channel = conn.reliable;
-	if ( channel.readyState === 'open' ) return Promise.resolve();
-
-	return new Promise( ( resolve, reject ) => {
-
-		conn.openWaiter = { resolve, reject };
-		channel.onopen = () => {
-
-			channel.onopen = null;
-			conn.openWaiter = null;
-			resolve();
-
-		};
-
-	} );
-
+  return new Promise((resolve, reject) => {
+    conn.openWaiter = { resolve, reject };
+    channel.onopen = () => {
+      channel.onopen = null;
+      conn.openWaiter = null;
+      resolve();
+    };
+  });
 }
 
-function _RTC_FailConnect( reason ) {
-
-	set_key_dest( key_menu );
-	M_ConnectionError( reason );
-	return null;
-
+function _RTC_FailConnect(reason) {
+  set_key_dest(key_menu);
+  M_ConnectionError(reason);
+  return null;
 }
 
 /*
@@ -1002,222 +881,212 @@ RTC_Connect
 Join a browser-hosted room: host is "rtc:<ROOMCODE>".
 =============
 */
-export async function RTC_Connect( host ) {
+export async function RTC_Connect(host) {
+  if (rtc_initialized === false) {
+    Con_Printf("WebRTC not initialized\n");
+    return null;
+  }
 
-	if ( rtc_initialized === false ) {
+  const code = RTC_IsRoomAddress(host) ? host.slice(4) : "";
+  if (RTC_ROOM_CODE.test(code) === false) {
+    Con_Printf("WebRTC: bad room address " + host + "\n");
+    return _RTC_FailConnect("Bad room address");
+  }
 
-		Con_Printf( 'WebRTC not initialized\n' );
-		return null;
+  if (rtc_signaller === null) {
+    Con_Printf("WebRTC: no lobby to reach room " + code + "\n");
+    return _RTC_FailConnect("Not connected to the lobby");
+  }
 
-	}
+  // CL_EstablishConnection has just closed the previous connection.
+  await _RTC_WaitForClosingConnections();
 
-	const code = RTC_IsRoomAddress( host ) ? host.slice( 4 ) : '';
-	if ( RTC_ROOM_CODE.test( code ) === false ) {
+  if (rtc_attempt !== null) {
+    rtc_attempt.abort(new Error("superseded by a new connect"));
+  }
 
-		Con_Printf( 'WebRTC: bad room address ' + host + '\n' );
-		return _RTC_FailConnect( 'Bad room address' );
+  Con_Printf("WebRTC connecting to room " + code + "\n");
 
-	}
+  const attempt = new RTCConnectAttempt(RTC_CONNECT_TIMEOUT_MS);
+  rtc_attempt = attempt;
 
-	if ( rtc_signaller === null ) {
-
-		Con_Printf( 'WebRTC: no lobby to reach room ' + code + '\n' );
-		return _RTC_FailConnect( 'Not connected to the lobby' );
-
-	}
-
-	// CL_EstablishConnection has just closed the previous connection.
-	await _RTC_WaitForClosingConnections();
-
-	if ( rtc_attempt !== null ) rtc_attempt.abort( new Error( 'superseded by a new connect' ) );
-
-	Con_Printf( 'WebRTC connecting to room ' + code + '\n' );
-
-	const attempt = new RTCConnectAttempt( RTC_CONNECT_TIMEOUT_MS );
-	rtc_attempt = attempt;
-
-	try {
-
-		return await _RTC_ConnectAttempt( attempt, code, host );
-
-	} finally {
-
-		attempt.finish();
-		if ( rtc_attempt === attempt ) rtc_attempt = null;
-		_RTC_LobbyLeave( attempt );
-
-	}
-
+  try {
+    return await _RTC_ConnectAttempt(attempt, code, host);
+  } finally {
+    attempt.finish();
+    if (rtc_attempt === attempt) rtc_attempt = null;
+    _RTC_LobbyLeave(attempt);
+  }
 }
 
 // The signaller's optional join( code ): find the room through the lobby
 // before the offer. It may refuse with an Error whose `lobby` is true and
 // whose message the player sees ("Room is full").
-function _RTC_LobbyJoin( attempt, code ) {
-
-	if ( rtc_signaller === null || typeof rtc_signaller.join !== 'function' ) return Promise.resolve( null );
-	attempt.lobbyJoin = Promise.resolve().then( () => rtc_signaller.join( code ) );
-	return attempt.lobbyJoin;
-
+function _RTC_LobbyJoin(attempt, code) {
+  if (rtc_signaller === null || typeof rtc_signaller.join !== "function") {
+    return Promise.resolve(null);
+  }
+  attempt.lobbyJoin = Promise.resolve().then(() => rtc_signaller.join(code));
+  return attempt.lobbyJoin;
 }
 
 // The signaller's optional leave( session ): the connect is over, accepted or
 // not, so the joiner's lobby session can go. A join still in flight (the
 // attempt timed out or was superseded) is left when it resolves.
-function _RTC_LobbyLeave( attempt ) {
-
-	if ( attempt.lobbyJoin === null ) return;
-	const signaller = rtc_signaller;
-	attempt.lobbyJoin.then( ( session ) => {
-
-		if ( signaller !== null && typeof signaller.leave === 'function' ) signaller.leave( session );
-
-	}, () => {} );
-
+function _RTC_LobbyLeave(attempt) {
+  if (attempt.lobbyJoin === null) return;
+  const signaller = rtc_signaller;
+  attempt.lobbyJoin.then((session) => {
+    if (signaller !== null && typeof signaller.leave === "function") {
+      signaller.leave(session);
+    }
+  }, () => {});
 }
 
-async function _RTC_ConnectAttempt( attempt, code, host ) {
+async function _RTC_ConnectAttempt(attempt, code, host) {
+  const conn = new RTCConnection("client", code, host);
+  attempt.conn = conn;
 
-	const conn = new RTCConnection( 'client', code, host );
-	attempt.conn = conn;
+  try {
+    await attempt.wait(_RTC_LobbyJoin(attempt, code));
+    const iceServers = await attempt.wait(_RTC_IceServers());
 
-	try {
+    if (rtc_client !== null) _RTC_FinishClose(rtc_client);
+    rtc_client = conn;
 
-		await attempt.wait( _RTC_LobbyJoin( attempt, code ) );
-		const iceServers = await attempt.wait( _RTC_IceServers() );
+    const pc = _RTC_CreatePeerConnection(conn, iceServers);
+    _RTC_AttachChannel(
+      conn,
+      pc.createDataChannel(RTC_CHANNEL_RELIABLE, { ordered: true }),
+    );
+    _RTC_AttachChannel(
+      conn,
+      pc.createDataChannel(RTC_CHANNEL_UNRELIABLE, {
+        ordered: false,
+        maxRetransmits: 0,
+      }),
+    );
 
-		if ( rtc_client !== null ) _RTC_FinishClose( rtc_client );
-		rtc_client = conn;
+    const offer = await attempt.wait(pc.createOffer());
+    await attempt.wait(pc.setLocalDescription(offer));
+    const answered = new Promise((resolve, reject) => {
+      conn.answerWaiter = { resolve, reject, received: false };
+    });
+    _RTC_Signal(code, "offer", { type: offer.type, sdp: offer.sdp });
 
-		const pc = _RTC_CreatePeerConnection( conn, iceServers );
-		_RTC_AttachChannel( conn, pc.createDataChannel( RTC_CHANNEL_RELIABLE, { ordered: true } ) );
-		_RTC_AttachChannel( conn, pc.createDataChannel( RTC_CHANNEL_UNRELIABLE, { ordered: false, maxRetransmits: 0 } ) );
+    await attempt.wait(answered);
+    await attempt.wait(_RTC_WaitOpen(conn));
 
-		const offer = await attempt.wait( pc.createOffer() );
-		await attempt.wait( pc.setLocalDescription( offer ) );
-		const answered = new Promise( ( resolve, reject ) => {
+    Con_Printf("WebRTC connection established\n");
 
-			conn.answerWaiter = { resolve, reject, received: false };
+    // Connect handshake: the host assigns a client slot or says why not
+    const replyPromise = new Promise((resolve) => {
+      conn.replyResolve = resolve;
+    });
+    conn.reliable.send(WT_BuildHelloFrame().subarray(2));
+    const payload = await attempt.wait(
+      _RTC_WithTimeout(replyPromise, RTC_HANDSHAKE_TIMEOUT_MS, null),
+    );
 
-		} );
-		_RTC_Signal( code, 'offer', { type: offer.type, sdp: offer.sdp } );
+    if (payload === null) {
+      throw new Error("no handshake reply from host");
+    }
 
-		await attempt.wait( answered );
-		await attempt.wait( _RTC_WaitOpen( conn ) );
+    const reply = WT_ParseHandshakeReply(payload);
+    if (reply === null) {
+      throw new Error("invalid handshake reply");
+    }
 
-		Con_Printf( 'WebRTC connection established\n' );
+    if (reply.version !== WT_PROTOCOL_VERSION) {
+      Con_DPrintf(
+        "Host protocol version " + reply.version + ", client " +
+          WT_PROTOCOL_VERSION + "\n",
+      );
+    }
 
-		// Connect handshake: the host assigns a client slot or says why not
-		const replyPromise = new Promise( ( resolve ) => {
+    if (reply.status === WT_HANDSHAKE_REJECT) {
+      const reason = reply.reason.length > 0 ?
+        reply.reason :
+        "Connection refused";
+      Con_Printf("Host refused connection: " + reason + "\n");
+      _RTC_FinishClose(conn);
+      return _RTC_FailConnect(reason);
+    }
 
-			conn.replyResolve = resolve;
+    if (attempt.aborted === true || conn.dead === true) {
+      throw new Error("connection lost during the handshake");
+    }
 
-		} );
-		conn.reliable.send( WT_BuildHelloFrame().subarray( 2 ) );
-		const payload = await attempt.wait( _RTC_WithTimeout( replyPromise, RTC_HANDSHAKE_TIMEOUT_MS, null ) );
+    // No await from here on: the socket is either handed to the caller or
+    // never allocated, so a failed connect cannot leak it.
+    const sock = NET_NewQSocket();
+    if (sock === null) {
+      throw new Error("no free sockets");
+    }
 
-		if ( payload === null )
-			throw new Error( 'no handshake reply from host' );
+    sock.address = host;
+    sock.driver = rtc_driverlevel;
+    sock.sendSequence = 0;
+    sock.receiveSequence = -1;
+    sock.unreliableReceiveSequence = -1;
+    sock.ackSequence = -1;
+    sock.hasAck = false;
 
-		const reply = WT_ParseHandshakeReply( payload );
-		if ( reply === null )
-			throw new Error( 'invalid handshake reply' );
+    conn.accepted = true;
+    conn.connected = true;
+    conn.sock = sock;
+    sock.driverdata = conn;
+    rtc_connections.set(sock, conn);
 
-		if ( reply.version !== WT_PROTOCOL_VERSION )
-			Con_DPrintf( 'Host protocol version ' + reply.version + ', client ' + WT_PROTOCOL_VERSION + '\n' );
+    // Connected: a later failure no longer returns to the Join menu
+    M_ClearReturnOnError();
+    return sock;
+  } catch (error) {
+    _RTC_FinishClose(conn);
 
-		if ( reply.status === WT_HANDSHAKE_REJECT ) {
+    // A newer RTC_Connect took over: skip this driver's own error message.
+    // CL_EstablishConnection may still show its generic one for this
+    // caller; the newer connect's result replaces it.
+    if (rtc_attempt !== attempt && attempt.aborted === true) {
+      Con_DPrintf("WebRTC connect to " + code + " superseded\n");
+      return null;
+    }
 
-			const reason = reply.reason.length > 0 ? reply.reason : 'Connection refused';
-			Con_Printf( 'Host refused connection: ' + reason + '\n' );
-			_RTC_FinishClose( conn );
-			return _RTC_FailConnect( reason );
+    if (error !== null && typeof error === "object" && error.lobby === true) {
+      Con_Printf("WebRTC: " + error.message + "\n");
+      return _RTC_FailConnect(error.message);
+    }
 
-		}
+    if (attempt.aborted === true && error.message === "Connection timed out") {
+      Con_Printf(
+        "WebRTC connect timed out after %d seconds\n",
+        RTC_CONNECT_TIMEOUT_MS / 1000,
+      );
+      return _RTC_FailConnect("Connection timed out - the host may have left");
+    }
 
-		if ( attempt.aborted === true || conn.dead === true )
-			throw new Error( 'connection lost during the handshake' );
-
-		// No await from here on: the socket is either handed to the caller or
-		// never allocated, so a failed connect cannot leak it.
-		const sock = NET_NewQSocket();
-		if ( sock === null )
-			throw new Error( 'no free sockets' );
-
-		sock.address = host;
-		sock.driver = rtc_driverlevel;
-		sock.sendSequence = 0;
-		sock.receiveSequence = - 1;
-		sock.unreliableReceiveSequence = - 1;
-		sock.ackSequence = - 1;
-		sock.hasAck = false;
-
-		conn.accepted = true;
-		conn.connected = true;
-		conn.sock = sock;
-		sock.driverdata = conn;
-		rtc_connections.set( sock, conn );
-
-		// Connected: a later failure no longer returns to the Join menu
-		M_ClearReturnOnError();
-		return sock;
-
-	} catch ( error ) {
-
-		_RTC_FinishClose( conn );
-
-		// A newer RTC_Connect took over: skip this driver's own error message.
-		// CL_EstablishConnection may still show its generic one for this
-		// caller; the newer connect's result replaces it.
-		if ( rtc_attempt !== attempt && attempt.aborted === true ) {
-
-			Con_DPrintf( 'WebRTC connect to ' + code + ' superseded\n' );
-			return null;
-
-		}
-
-		if ( error !== null && typeof error === 'object' && error.lobby === true ) {
-
-			Con_Printf( 'WebRTC: ' + error.message + '\n' );
-			return _RTC_FailConnect( error.message );
-
-		}
-
-		if ( attempt.aborted === true && error.message === 'Connection timed out' ) {
-
-			Con_Printf( 'WebRTC connect timed out after %d seconds\n', RTC_CONNECT_TIMEOUT_MS / 1000 );
-			return _RTC_FailConnect( 'Connection timed out - the host may have left' );
-
-		}
-
-		Con_Printf( 'WebRTC connect failed: ' + error.message + '\n' );
-		return _RTC_FailConnect( 'Could not connect to the room' );
-
-	}
-
+    Con_Printf("WebRTC connect failed: " + error.message + "\n");
+    return _RTC_FailConnect("Could not connect to the room");
+  }
 }
 
-function _RTC_OnAnswer( conn, data ) {
+function _RTC_OnAnswer(conn, data) {
+  const waiter = conn.answerWaiter;
+  if (waiter === null || waiter.received === true || conn.closing === true) {
+    return;
+  }
+  if (_RTC_ValidDescription(data, "answer") === false) return;
+  waiter.received = true;
 
-	const waiter = conn.answerWaiter;
-	if ( waiter === null || waiter.received === true || conn.closing === true ) return;
-	if ( _RTC_ValidDescription( data, 'answer' ) === false ) return;
-	waiter.received = true;
-
-	conn.pc.setRemoteDescription( { type: data.type, sdp: data.sdp } ).then( () => {
-
-		if ( conn.closing === true ) return;
-		conn.answerWaiter = null;
-		_RTC_FlushCandidates( conn );
-		waiter.resolve();
-
-	}, ( error ) => {
-
-		Con_Printf( 'WebRTC: bad answer from host: ' + error.message + '\n' );
-		_RTC_OnTransportClosed( conn );
-
-	} );
-
+  conn.pc.setRemoteDescription({ type: data.type, sdp: data.sdp }).then(() => {
+    if (conn.closing === true) return;
+    conn.answerWaiter = null;
+    _RTC_FlushCandidates(conn);
+    waiter.resolve();
+  }, (error) => {
+    Con_Printf("WebRTC: bad answer from host: " + error.message + "\n");
+    _RTC_OnTransportClosed(conn);
+  });
 }
 
 /*
@@ -1227,71 +1096,69 @@ _RTC_OnMessage
 Queue one received game packet for RTC_QGetMessage.
 =============
 */
-function _RTC_OnMessage( conn, raw, reliable ) {
+function _RTC_OnMessage(conn, raw, reliable) {
+  if (conn.connected !== true && conn.accepted !== true) return;
+  if (conn.closing === true || conn.dead === true || conn.error !== null) {
+    return;
+  }
 
-	if ( conn.connected !== true && conn.accepted !== true ) return;
-	if ( conn.closing === true || conn.dead === true || conn.error !== null ) return;
+  if (!(raw instanceof ArrayBuffer) || raw.byteLength < 1) {
+    _RTC_ProtocolError(conn, "malformed message");
+    return;
+  }
 
-	if ( ! ( raw instanceof ArrayBuffer ) || raw.byteLength < 1 ) {
+  if (raw.byteLength > WT_MAX_FRAME_PAYLOAD) {
+    if (reliable === false) {
+      if (conn.oversizedLogged !== true) {
+        conn.oversizedLogged = true;
+        Con_Printf(
+          "Dropping oversized message from %s (%d bytes)\n",
+          conn.address,
+          raw.byteLength,
+        );
+      }
+      return;
+    }
 
-		_RTC_ProtocolError( conn, 'malformed message' );
-		return;
+    _RTC_ProtocolError(
+      conn,
+      "oversized reliable message (" + raw.byteLength + " bytes)",
+    );
+    return;
+  }
 
-	}
+  const queue = conn.pendingMessages;
+  const data = new Uint8Array(raw);
 
-	if ( raw.byteLength > WT_MAX_FRAME_PAYLOAD ) {
+  // Only the newest of consecutive unreliable messages is ever delivered
+  // (see RTC_QGetMessage), so replace instead of growing the queue.
+  if (
+    reliable === false && queue.length > 0 &&
+    queue[queue.length - 1].reliable === false
+  ) {
+    queue[queue.length - 1].data = data;
+    return;
+  }
 
-		if ( reliable === false ) {
+  const limit = conn.role === "host" ?
+    RTC_MAX_PENDING_MESSAGES_HOST :
+    RTC_MAX_PENDING_MESSAGES_CLIENT;
+  if (queue.length >= limit) {
+    _RTC_ProtocolError(conn, "receive queue overflow");
+    return;
+  }
 
-			if ( conn.oversizedLogged !== true ) {
-
-				conn.oversizedLogged = true;
-				Con_Printf( 'Dropping oversized message from %s (%d bytes)\n', conn.address, raw.byteLength );
-
-			}
-			return;
-
-		}
-
-		_RTC_ProtocolError( conn, 'oversized reliable message (' + raw.byteLength + ' bytes)' );
-		return;
-
-	}
-
-	const queue = conn.pendingMessages;
-	const data = new Uint8Array( raw );
-
-	// Only the newest of consecutive unreliable messages is ever delivered
-	// (see RTC_QGetMessage), so replace instead of growing the queue.
-	if ( reliable === false && queue.length > 0 && queue[ queue.length - 1 ].reliable === false ) {
-
-		queue[ queue.length - 1 ].data = data;
-		return;
-
-	}
-
-	const limit = conn.role === 'host' ? RTC_MAX_PENDING_MESSAGES_HOST : RTC_MAX_PENDING_MESSAGES_CLIENT;
-	if ( queue.length >= limit ) {
-
-		_RTC_ProtocolError( conn, 'receive queue overflow' );
-		return;
-
-	}
-
-	queue.push( { reliable, data } );
-
+  queue.push({ reliable, data });
 }
 
-function _RTC_ProtocolError( conn, reason ) {
+function _RTC_ProtocolError(conn, reason) {
+  Con_Printf("WebRTC %s: %s, disconnecting\n", conn.address, reason);
+  conn.connected = false;
+  conn.error = new Error(reason);
+  conn.pendingMessages.length = 0;
 
-	Con_Printf( 'WebRTC %s: %s, disconnecting\n', conn.address, reason );
-	conn.connected = false;
-	conn.error = new Error( reason );
-	conn.pendingMessages.length = 0;
-
-	// A peer that never got a socket has nothing to report to
-	if ( conn.sock === null ) _RTC_FinishClose( conn );
-
+  // A peer that never got a socket has nothing to report to
+  if (conn.sock === null) _RTC_FinishClose(conn);
 }
 
 /*
@@ -1304,34 +1171,29 @@ queued, then -1 (leading to SV_DropClient or Host_Error, then NET_Close). A
 host socket still pending is freed here.
 =============
 */
-function _RTC_OnTransportClosed( conn ) {
+function _RTC_OnTransportClosed(conn) {
+  if (conn.dead === true) return;
+  conn.dead = true;
 
-	if ( conn.dead === true ) return;
-	conn.dead = true;
+  if (conn.closing !== true && conn.connected === true) {
+    Con_Printf("WebRTC connection %s closed\n", conn.address);
+  }
+  conn.connected = false;
 
-	if ( conn.closing !== true && conn.connected === true )
-		Con_Printf( 'WebRTC connection %s closed\n', conn.address );
-	conn.connected = false;
+  // Client: wake a connect still waiting for the reply
+  if (conn.replyResolve !== null) {
+    const resolve = conn.replyResolve;
+    conn.replyResolve = null;
+    resolve(null);
+  }
 
-	// Client: wake a connect still waiting for the reply
-	if ( conn.replyResolve !== null ) {
+  const sock = conn.sock;
+  if (sock !== null && rtc_pending.includes(sock) === true) {
+    _RTC_DropUnaccepted(conn);
+    return;
+  }
 
-		const resolve = conn.replyResolve;
-		conn.replyResolve = null;
-		resolve( null );
-
-	}
-
-	const sock = conn.sock;
-	if ( sock !== null && rtc_pending.includes( sock ) === true ) {
-
-		_RTC_DropUnaccepted( conn );
-		return;
-
-	}
-
-	_RTC_FinishClose( conn );
-
+  _RTC_FinishClose(conn);
 }
 
 /*
@@ -1341,73 +1203,74 @@ RTC_QGetMessage
 Returns 0 = no message, 1 = reliable, 2 = unreliable, -1 = error
 =============
 */
-export function RTC_QGetMessage( sock ) {
+export function RTC_QGetMessage(sock) {
+  const conn = sock.driverdata;
+  if (conn === null) return -1;
 
-	const conn = sock.driverdata;
-	if ( conn === null ) return - 1;
+  if (conn.connected !== true && conn.pendingMessages.length === 0) {
+    return -1;
+  }
 
-	if ( conn.connected !== true && conn.pendingMessages.length === 0 )
-		return - 1;
+  while (conn.pendingMessages.length > 0) {
+    let msg = conn.pendingMessages.shift();
 
-	while ( conn.pendingMessages.length > 0 ) {
+    // For unreliable messages, skip to the most recent one before the
+    // next reliable message: in original Quake, unreliable messages are
+    // overwritten by newer ones.
+    if (msg.reliable === false) {
+      while (conn.pendingMessages.length > 0) {
+        const next = conn.pendingMessages[0];
+        if (next.reliable === true) break;
+        conn.pendingMessages.shift();
+        msg = next;
+      }
+    }
 
-		let msg = conn.pendingMessages.shift();
+    const payload = _RTC_ParseSequencedPacket(
+      sock,
+      conn,
+      msg.data,
+      msg.reliable,
+    );
+    if (payload === null) {
+      continue;
+    }
 
-		// For unreliable messages, skip to the most recent one before the
-		// next reliable message: in original Quake, unreliable messages are
-		// overwritten by newer ones.
-		if ( msg.reliable === false ) {
+    // Never let a peer-sized payload overflow net_message (SZ_Write
+    // would call Sys_Error and kill the tab)
+    if (payload.length > net_message.maxsize) {
+      if (msg.reliable === false) {
+        if (conn.oversizedLogged !== true) {
+          conn.oversizedLogged = true;
+          Con_Printf(
+            "Dropping oversized message from %s (%d bytes)\n",
+            conn.address,
+            payload.length,
+          );
+        }
+        continue;
+      }
 
-			while ( conn.pendingMessages.length > 0 ) {
+      _RTC_ProtocolError(
+        conn,
+        "oversized reliable message (" + payload.length + " bytes)",
+      );
+      return -1;
+    }
 
-				const next = conn.pendingMessages[ 0 ];
-				if ( next.reliable === true ) break;
-				conn.pendingMessages.shift();
-				msg = next;
+    SZ_Clear(net_message);
+    SZ_Write(net_message, payload, payload.length);
 
-			}
+    sock.lastMessageTime = performance.now() / 1000;
 
-		}
+    return msg.reliable === true ? 1 : 2;
+  }
 
-		const payload = _RTC_ParseSequencedPacket( sock, conn, msg.data, msg.reliable );
-		if ( payload === null )
-			continue;
+  if (conn.connected === true) {
+    return 0;
+  }
 
-		// Never let a peer-sized payload overflow net_message (SZ_Write
-		// would call Sys_Error and kill the tab)
-		if ( payload.length > net_message.maxsize ) {
-
-			if ( msg.reliable === false ) {
-
-				if ( conn.oversizedLogged !== true ) {
-
-					conn.oversizedLogged = true;
-					Con_Printf( 'Dropping oversized message from %s (%d bytes)\n', conn.address, payload.length );
-
-				}
-				continue;
-
-			}
-
-			_RTC_ProtocolError( conn, 'oversized reliable message (' + payload.length + ' bytes)' );
-			return - 1;
-
-		}
-
-		SZ_Clear( net_message );
-		SZ_Write( net_message, payload, payload.length );
-
-		sock.lastMessageTime = performance.now() / 1000;
-
-		return msg.reliable === true ? 1 : 2;
-
-	}
-
-	if ( conn.connected === true )
-		return 0;
-
-	return - 1;
-
+  return -1;
 }
 
 /*
@@ -1419,55 +1282,66 @@ as _WS_ParseSequencedPacket does. Returns null for a stale or reordered
 packet.
 =============
 */
-function _RTC_ParseSequencedPacket( sock, conn, packet, reliable ) {
+function _RTC_ParseSequencedPacket(sock, conn, packet, reliable) {
+  if (packet.length < WT_PACKET_HEADER_BYTES || packet[0] !== WT_PACKET_MAGIC) {
+    return packet;
+  }
 
-	if ( packet.length < WT_PACKET_HEADER_BYTES || packet[ 0 ] !== WT_PACKET_MAGIC )
-		return packet;
+  const view = new DataView(
+    packet.buffer,
+    packet.byteOffset,
+    packet.byteLength,
+  );
+  const sequence = view.getUint32(1, true) | 0;
+  const acknowledged = view.getUint32(5, true) | 0;
 
-	const view = new DataView( packet.buffer, packet.byteOffset, packet.byteLength );
-	const sequence = view.getUint32( 1, true ) | 0;
-	const acknowledged = view.getUint32( 5, true ) | 0;
+  if (
+    conn.peerSequenced !== true ||
+    _isNewerSequence(acknowledged, sock.ackSequence | 0)
+  ) {
+    sock.ackSequence = acknowledged;
+  }
+  sock.hasAck = true;
+  conn.peerSequenced = true;
 
-	if ( conn.peerSequenced !== true || _isNewerSequence( acknowledged, sock.ackSequence | 0 ) )
-		sock.ackSequence = acknowledged;
-	sock.hasAck = true;
-	conn.peerSequenced = true;
+  if (reliable === true) {
+    if (
+      conn.reliableSequenceValid === true &&
+      _isNewerSequence(sequence, sock.receiveSequence | 0) === false
+    ) {
+      return null;
+    }
+    sock.receiveSequence = sequence;
+    conn.reliableSequenceValid = true;
+  } else {
+    if (
+      conn.unreliableSequenceValid === true &&
+      _isNewerSequence(sequence, sock.unreliableReceiveSequence | 0) === false
+    ) {
+      return null;
+    }
+    sock.unreliableReceiveSequence = sequence;
+    conn.unreliableSequenceValid = true;
+  }
 
-	if ( reliable === true ) {
+  if (
+    conn.hasReceivedSequence !== true ||
+    _isNewerSequence(sequence, conn.highestReceivedSequence | 0)
+  ) {
+    conn.highestReceivedSequence = sequence;
+  }
+  conn.hasReceivedSequence = true;
 
-		if ( conn.reliableSequenceValid === true && _isNewerSequence( sequence, sock.receiveSequence | 0 ) === false )
-			return null;
-		sock.receiveSequence = sequence;
-		conn.reliableSequenceValid = true;
-
-	} else {
-
-		if ( conn.unreliableSequenceValid === true && _isNewerSequence( sequence, sock.unreliableReceiveSequence | 0 ) === false )
-			return null;
-		sock.unreliableReceiveSequence = sequence;
-		conn.unreliableSequenceValid = true;
-
-	}
-
-	if ( conn.hasReceivedSequence !== true || _isNewerSequence( sequence, conn.highestReceivedSequence | 0 ) )
-		conn.highestReceivedSequence = sequence;
-	conn.hasReceivedSequence = true;
-
-	return packet.subarray( WT_PACKET_HEADER_BYTES );
-
+  return packet.subarray(WT_PACKET_HEADER_BYTES);
 }
 
-function _RTC_Buffered( channel ) {
-
-	const amount = channel.bufferedAmount;
-	return typeof amount === 'number' ? amount : 0;
-
+function _RTC_Buffered(channel) {
+  const amount = channel.bufferedAmount;
+  return typeof amount === "number" ? amount : 0;
 }
 
-function _RTC_ChannelOpen( channel ) {
-
-	return channel !== null && channel.readyState === 'open';
-
+function _RTC_ChannelOpen(channel) {
+  return channel !== null && channel.readyState === "open";
 }
 
 /*
@@ -1479,51 +1353,43 @@ highest sequence received on either channel, so a joiner's moves are
 acknowledged whichever channel they came on.
 =============
 */
-function _RTC_SendPacket( sock, conn, channel, data ) {
+function _RTC_SendPacket(sock, conn, channel, data) {
+  const length = data.cursize;
+  const sequence = sock.sendSequence | 0;
+  const acknowledged = conn.hasReceivedSequence === true ?
+    conn.highestReceivedSequence | 0 :
+    sock.receiveSequence | 0;
 
-	const length = data.cursize;
-	const sequence = sock.sendSequence | 0;
-	const acknowledged = conn.hasReceivedSequence === true ? conn.highestReceivedSequence | 0 : sock.receiveSequence | 0;
+  rtc_sendbuf[0] = WT_PACKET_MAGIC;
+  rtc_sendview.setUint32(1, sequence >>> 0, true);
+  rtc_sendview.setUint32(5, acknowledged >>> 0, true);
+  rtc_sendbuf.set(data.data.subarray(0, length), WT_PACKET_HEADER_BYTES);
 
-	rtc_sendbuf[ 0 ] = WT_PACKET_MAGIC;
-	rtc_sendview.setUint32( 1, sequence >>> 0, true );
-	rtc_sendview.setUint32( 5, acknowledged >>> 0, true );
-	rtc_sendbuf.set( data.data.subarray( 0, length ), WT_PACKET_HEADER_BYTES );
+  sock.sendSequence = (sequence + 1) | 0;
 
-	sock.sendSequence = ( sequence + 1 ) | 0;
-
-	channel.send( rtc_sendbuf.subarray( 0, WT_PACKET_HEADER_BYTES + length ) );
-
+  channel.send(rtc_sendbuf.subarray(0, WT_PACKET_HEADER_BYTES + length));
 }
 
 // Common checks before a send; returns false if the connection can't send.
-function _RTC_CheckSendable( conn ) {
+function _RTC_CheckSendable(conn) {
+  if (conn.error !== null || conn.connected !== true) {
+    conn.connected = false;
+    return false;
+  }
 
-	if ( conn.error !== null || conn.connected !== true ) {
+  if (_RTC_ChannelOpen(conn.reliable) === false) {
+    conn.connected = false;
+    return false;
+  }
 
-		conn.connected = false;
-		return false;
+  if (_RTC_Buffered(conn.reliable) >= RTC_HARD_BUFFERED) {
+    Con_Printf("WebRTC %s: send buffer stalled, disconnecting\n", conn.address);
+    conn.connected = false;
+    conn.error = new Error("send buffer stalled");
+    return false;
+  }
 
-	}
-
-	if ( _RTC_ChannelOpen( conn.reliable ) === false ) {
-
-		conn.connected = false;
-		return false;
-
-	}
-
-	if ( _RTC_Buffered( conn.reliable ) >= RTC_HARD_BUFFERED ) {
-
-		Con_Printf( 'WebRTC %s: send buffer stalled, disconnecting\n', conn.address );
-		conn.connected = false;
-		conn.error = new Error( 'send buffer stalled' );
-		return false;
-
-	}
-
-	return true;
-
+  return true;
 }
 
 /*
@@ -1533,45 +1399,39 @@ RTC_QSendMessage
 Send a reliable message. SCTP handles ordering and retransmission.
 =============
 */
-export function RTC_QSendMessage( sock, data ) {
+export function RTC_QSendMessage(sock, data) {
+  const conn = sock.driverdata;
+  if (conn === null || conn.connected !== true) return -1;
+  if (_RTC_CheckSendable(conn) === false) return -1;
 
-	const conn = sock.driverdata;
-	if ( conn === null || conn.connected !== true ) return - 1;
-	if ( _RTC_CheckSendable( conn ) === false ) return - 1;
+  if (data.cursize > NET_MAXMESSAGE) {
+    Con_Printf(
+      "RTC_QSendMessage: message too large (%d bytes)\n",
+      data.cursize,
+    );
+    return -1;
+  }
 
-	if ( data.cursize > NET_MAXMESSAGE ) {
+  try {
+    _RTC_SendPacket(sock, conn, conn.reliable, data);
+  } catch (error) {
+    Con_Printf("RTC_QSendMessage error: " + error.message + "\n");
+    conn.connected = false;
+    conn.error = error;
+    return -1;
+  }
 
-		Con_Printf( 'RTC_QSendMessage: message too large (%d bytes)\n', data.cursize );
-		return - 1;
-
-	}
-
-	try {
-
-		_RTC_SendPacket( sock, conn, conn.reliable, data );
-
-	} catch ( error ) {
-
-		Con_Printf( 'RTC_QSendMessage error: ' + error.message + '\n' );
-		conn.connected = false;
-		conn.error = error;
-		return - 1;
-
-	}
-
-	return 1;
-
+  return 1;
 }
 
 // A dropped unreliable message. The client still uses up a sequence number,
 // so commands stored for prediction keep distinct sequences (as
 // net_websocket.js); the host uses none (as server/net_websocket_server.ts).
-function _RTC_DropUnreliable( sock, conn ) {
-
-	if ( conn.role === 'client' )
-		sock.sendSequence = ( sock.sendSequence + 1 ) | 0;
-	return 1;
-
+function _RTC_DropUnreliable(sock, conn) {
+  if (conn.role === "client") {
+    sock.sendSequence = (sock.sendSequence + 1) | 0;
+  }
+  return 1;
 }
 
 /*
@@ -1583,53 +1443,50 @@ packet goes on the reliable channel instead; one that can't go out now
 (channel not open yet, or backed up) is dropped.
 =============
 */
-export function RTC_SendUnreliableMessage( sock, data ) {
+export function RTC_SendUnreliableMessage(sock, data) {
+  const conn = sock.driverdata;
+  if (conn === null || conn.connected !== true) {
+    Con_DPrintf("RTC_SendUnreliableMessage: no connection\n");
+    return -1;
+  }
 
-	const conn = sock.driverdata;
-	if ( conn === null || conn.connected !== true ) {
+  if (_RTC_CheckSendable(conn) === false) return -1;
 
-		Con_DPrintf( 'RTC_SendUnreliableMessage: no connection\n' );
-		return - 1;
+  if (data.cursize > NET_MAXMESSAGE) return _RTC_DropUnreliable(sock, conn);
 
-	}
+  if (WT_PACKET_HEADER_BYTES + data.cursize > RTC_MAX_UNRELIABLE_BYTES) {
+    if (conn.oversizedSendLogged !== true) {
+      conn.oversizedSendLogged = true;
+      Con_Printf(
+        "RTC_SendUnreliableMessage: %d-byte message to %s exceeds %d; using the reliable channel\n",
+        WT_PACKET_HEADER_BYTES + data.cursize,
+        conn.address,
+        RTC_MAX_UNRELIABLE_BYTES,
+      );
+    }
 
-	if ( _RTC_CheckSendable( conn ) === false ) return - 1;
+    if (_RTC_Buffered(conn.reliable) >= RTC_MAX_RELIABLE_BUFFERED) {
+      return _RTC_DropUnreliable(sock, conn);
+    }
+    return RTC_QSendMessage(sock, data);
+  }
 
-	if ( data.cursize > NET_MAXMESSAGE ) return _RTC_DropUnreliable( sock, conn );
+  const channel = conn.unreliable;
+  if (
+    _RTC_ChannelOpen(channel) === false ||
+    _RTC_Buffered(channel) >= RTC_MAX_UNRELIABLE_BUFFERED
+  ) {
+    return _RTC_DropUnreliable(sock, conn);
+  }
 
-	if ( WT_PACKET_HEADER_BYTES + data.cursize > RTC_MAX_UNRELIABLE_BYTES ) {
+  try {
+    _RTC_SendPacket(sock, conn, channel, data);
+  } catch {
+    // Unreliable: a failed send is a dropped message; the next reliable
+    // send or the close event reports a dead connection.
+  }
 
-		if ( conn.oversizedSendLogged !== true ) {
-
-			conn.oversizedSendLogged = true;
-			Con_Printf( 'RTC_SendUnreliableMessage: %d-byte message to %s exceeds %d; using the reliable channel\n',
-				WT_PACKET_HEADER_BYTES + data.cursize, conn.address, RTC_MAX_UNRELIABLE_BYTES );
-
-		}
-
-		if ( _RTC_Buffered( conn.reliable ) >= RTC_MAX_RELIABLE_BUFFERED )
-			return _RTC_DropUnreliable( sock, conn );
-		return RTC_QSendMessage( sock, data );
-
-	}
-
-	const channel = conn.unreliable;
-	if ( _RTC_ChannelOpen( channel ) === false || _RTC_Buffered( channel ) >= RTC_MAX_UNRELIABLE_BUFFERED )
-		return _RTC_DropUnreliable( sock, conn );
-
-	try {
-
-		_RTC_SendPacket( sock, conn, channel, data );
-
-	} catch {
-
-		// Unreliable: a failed send is a dropped message; the next reliable
-		// send or the close event reports a dead connection.
-
-	}
-
-	return 1;
-
+  return 1;
 }
 
 /*
@@ -1637,14 +1494,12 @@ export function RTC_SendUnreliableMessage( sock, data ) {
 RTC_CanSendMessage
 =============
 */
-export function RTC_CanSendMessage( sock ) {
+export function RTC_CanSendMessage(sock) {
+  const conn = sock.driverdata;
+  if (conn === null) return false;
 
-	const conn = sock.driverdata;
-	if ( conn === null ) return false;
-
-	return conn.connected === true && _RTC_ChannelOpen( conn.reliable ) &&
-		_RTC_Buffered( conn.reliable ) < RTC_MAX_RELIABLE_BUFFERED;
-
+  return conn.connected === true && _RTC_ChannelOpen(conn.reliable) &&
+    _RTC_Buffered(conn.reliable) < RTC_MAX_RELIABLE_BUFFERED;
 }
 
 /*
@@ -1657,16 +1512,17 @@ the unreliable channel can't take a message, so SV_SendClientDatagram skips
 building it (QW-style gating, as the server drivers do).
 =============
 */
-export function RTC_CanSendUnreliableMessage( sock ) {
+export function RTC_CanSendUnreliableMessage(sock) {
+  const conn = sock.driverdata;
+  if (conn === null) return false;
 
-	const conn = sock.driverdata;
-	if ( conn === null ) return false;
+  if (conn.connected !== true || _RTC_ChannelOpen(conn.reliable) === false) {
+    return false;
+  }
+  if (conn.role === "client") return true;
 
-	if ( conn.connected !== true || _RTC_ChannelOpen( conn.reliable ) === false ) return false;
-	if ( conn.role === 'client' ) return true;
-
-	return _RTC_ChannelOpen( conn.unreliable ) && _RTC_Buffered( conn.unreliable ) < RTC_MAX_UNRELIABLE_BUFFERED;
-
+  return _RTC_ChannelOpen(conn.unreliable) &&
+    _RTC_Buffered(conn.unreliable) < RTC_MAX_UNRELIABLE_BUFFERED;
 }
 
 /*
@@ -1679,73 +1535,62 @@ then close the channel, which SCTP does after the data already sent. The
 peer connection closes once the channel has, or after RTC_CLOSE_FLUSH_MS.
 =============
 */
-function _RTC_CloseConnection( conn ) {
+function _RTC_CloseConnection(conn) {
+  if (conn.closing === true) return;
+  conn.closing = true;
+  conn.connected = false;
+  _RTC_ClearTimers(conn);
+  if (conn.role === "client" && conn.closeFinished !== true) {
+    rtc_closing.add(conn);
+  }
 
-	if ( conn.closing === true ) return;
-	conn.closing = true;
-	conn.connected = false;
-	_RTC_ClearTimers( conn );
-	if ( conn.role === 'client' && conn.closeFinished !== true ) rtc_closing.add( conn );
+  if (conn.dead === true || _RTC_ChannelOpen(conn.reliable) === false) {
+    _RTC_FinishClose(conn);
+    return;
+  }
 
-	if ( conn.dead === true || _RTC_ChannelOpen( conn.reliable ) === false ) {
-
-		_RTC_FinishClose( conn );
-		return;
-
-	}
-
-	conn.closeDeadline = performance.now() + RTC_CLOSE_FLUSH_MS;
-	_RTC_PollClose( conn );
-
+  conn.closeDeadline = performance.now() + RTC_CLOSE_FLUSH_MS;
+  _RTC_PollClose(conn);
 }
 
-function _RTC_PollClose( conn ) {
+function _RTC_PollClose(conn) {
+  conn.closeTimer = null;
+  if (conn.closeFinished === true) return;
 
-	conn.closeTimer = null;
-	if ( conn.closeFinished === true ) return;
+  if (conn.dead === true || performance.now() >= conn.closeDeadline) {
+    _RTC_FinishClose(conn);
+    return;
+  }
 
-	if ( conn.dead === true || performance.now() >= conn.closeDeadline ) {
+  const channel = conn.reliable;
+  if (channel.readyState === "open" && _RTC_Buffered(channel) === 0) {
+    // The channel's close event (_RTC_OnTransportClosed) finishes
+    try {
+      channel.close();
+    } catch {
+      _RTC_FinishClose(conn);
+      return;
+    }
+  }
 
-		_RTC_FinishClose( conn );
-		return;
-
-	}
-
-	const channel = conn.reliable;
-	if ( channel.readyState === 'open' && _RTC_Buffered( channel ) === 0 ) {
-
-		// The channel's close event (_RTC_OnTransportClosed) finishes
-		try { channel.close(); } catch { _RTC_FinishClose( conn ); return; }
-
-	}
-
-	conn.closeTimer = setTimeout( () => _RTC_PollClose( conn ), RTC_CLOSE_POLL_MS );
-
+  conn.closeTimer = setTimeout(() => _RTC_PollClose(conn), RTC_CLOSE_POLL_MS);
 }
 
-function _RTC_ClearTimers( conn ) {
+function _RTC_ClearTimers(conn) {
+  if (conn.handshakeTimer !== null) {
+    clearTimeout(conn.handshakeTimer);
+    conn.handshakeTimer = null;
+  }
 
-	if ( conn.handshakeTimer !== null ) {
+  if (conn.pendingAcceptTimer !== null) {
+    clearTimeout(conn.pendingAcceptTimer);
+    conn.pendingAcceptTimer = null;
+  }
 
-		clearTimeout( conn.handshakeTimer );
-		conn.handshakeTimer = null;
-
-	}
-
-	if ( conn.pendingAcceptTimer !== null ) {
-
-		clearTimeout( conn.pendingAcceptTimer );
-		conn.pendingAcceptTimer = null;
-
-	}
-
-	if ( conn.closeTimer !== null ) {
-
-		clearTimeout( conn.closeTimer );
-		conn.closeTimer = null;
-
-	}
-
+  if (conn.closeTimer !== null) {
+    clearTimeout(conn.closeTimer);
+    conn.closeTimer = null;
+  }
 }
 
 /*
@@ -1756,73 +1601,63 @@ Release the peer connection. Messages already queued stay for
 RTC_QGetMessage while a socket still points here.
 =============
 */
-function _RTC_FinishClose( conn ) {
+function _RTC_FinishClose(conn) {
+  if (conn.closeFinished === true) return;
+  conn.closeFinished = true;
+  conn.closing = true;
+  conn.connected = false;
+  conn.dead = true;
+  _RTC_ClearTimers(conn);
 
-	if ( conn.closeFinished === true ) return;
-	conn.closeFinished = true;
-	conn.closing = true;
-	conn.connected = false;
-	conn.dead = true;
-	_RTC_ClearTimers( conn );
+  if (conn.replyResolve !== null) {
+    const resolve = conn.replyResolve;
+    conn.replyResolve = null;
+    resolve(null);
+  }
 
-	if ( conn.replyResolve !== null ) {
+  if (conn.openWaiter !== null) {
+    const waiter = conn.openWaiter;
+    conn.openWaiter = null;
+    waiter.reject(new Error("data channel closed"));
+  }
 
-		const resolve = conn.replyResolve;
-		conn.replyResolve = null;
-		resolve( null );
+  if (conn.answerWaiter !== null) {
+    const waiter = conn.answerWaiter;
+    conn.answerWaiter = null;
+    waiter.reject(
+      new Error("peer connection closed before the answer applied"),
+    );
+  }
 
-	}
+  for (const channel of [conn.reliable, conn.unreliable]) {
+    if (channel === null) continue;
+    channel.onopen = null;
+    channel.onmessage = null;
+    channel.onclose = null;
+    channel.onerror = null;
+    try {
+      channel.close();
+    } catch { /* ignore */ }
+  }
 
-	if ( conn.openWaiter !== null ) {
+  const pc = conn.pc;
+  if (pc !== null) {
+    pc.onicecandidate = null;
+    pc.onconnectionstatechange = null;
+    pc.ondatachannel = null;
+    try {
+      pc.close();
+    } catch { /* ignore */ }
+  }
 
-		const waiter = conn.openWaiter;
-		conn.openWaiter = null;
-		waiter.reject( new Error( 'data channel closed' ) );
+  if (conn.role === "host") {
+    if (rtc_peers.get(conn.remoteId) === conn) rtc_peers.delete(conn.remoteId);
+    Con_DPrintf("Connection closed: " + conn.address + "\n");
+  } else if (rtc_client === conn && conn.sock === null) {
+    rtc_client = null;
+  }
 
-	}
-
-	if ( conn.answerWaiter !== null ) {
-
-		const waiter = conn.answerWaiter;
-		conn.answerWaiter = null;
-		waiter.reject( new Error( 'peer connection closed before the answer applied' ) );
-
-	}
-
-	for ( const channel of [ conn.reliable, conn.unreliable ] ) {
-
-		if ( channel === null ) continue;
-		channel.onopen = null;
-		channel.onmessage = null;
-		channel.onclose = null;
-		channel.onerror = null;
-		try { channel.close(); } catch { /* ignore */ }
-
-	}
-
-	const pc = conn.pc;
-	if ( pc !== null ) {
-
-		pc.onicecandidate = null;
-		pc.onconnectionstatechange = null;
-		pc.ondatachannel = null;
-		try { pc.close(); } catch { /* ignore */ }
-
-	}
-
-	if ( conn.role === 'host' ) {
-
-		if ( rtc_peers.get( conn.remoteId ) === conn ) rtc_peers.delete( conn.remoteId );
-		Con_DPrintf( 'Connection closed: ' + conn.address + '\n' );
-
-	} else if ( rtc_client === conn && conn.sock === null ) {
-
-		rtc_client = null;
-
-	}
-
-	if ( rtc_closing.delete( conn ) === true ) _RTC_WakeCloseWaiters();
-
+  if (rtc_closing.delete(conn) === true) _RTC_WakeCloseWaiters();
 }
 
 /*
@@ -1835,23 +1670,17 @@ _WS_WaitForClosingConnections).
 =============
 */
 function _RTC_WaitForClosingConnections() {
-
-	if ( rtc_closing.size === 0 ) return Promise.resolve();
-	return new Promise( ( resolve ) => {
-
-		rtc_closeWaiters.push( resolve );
-
-	} );
-
+  if (rtc_closing.size === 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    rtc_closeWaiters.push(resolve);
+  });
 }
 
 function _RTC_WakeCloseWaiters() {
-
-	if ( rtc_closing.size !== 0 ) return;
-	const waiters = rtc_closeWaiters;
-	rtc_closeWaiters = [];
-	for ( const resolve of waiters ) resolve();
-
+  if (rtc_closing.size !== 0) return;
+  const waiters = rtc_closeWaiters;
+  rtc_closeWaiters = [];
+  for (const resolve of waiters) resolve();
 }
 
 /*
@@ -1862,20 +1691,18 @@ Close a connection. The socket is detached at once (NET_Close frees it
 straight after); the close finishes in the background.
 =============
 */
-export function RTC_Close( sock ) {
+export function RTC_Close(sock) {
+  const conn = sock.driverdata;
+  if (conn === null) return;
 
-	const conn = sock.driverdata;
-	if ( conn === null ) return;
+  rtc_connections.delete(sock);
+  const idx = rtc_pending.indexOf(sock);
+  if (idx !== -1) rtc_pending.splice(idx, 1);
 
-	rtc_connections.delete( sock );
-	const idx = rtc_pending.indexOf( sock );
-	if ( idx !== - 1 ) rtc_pending.splice( idx, 1 );
+  conn.sock = null;
+  sock.driverdata = null;
+  conn.pendingMessages.length = 0;
+  if (rtc_client === conn) rtc_client = null;
 
-	conn.sock = null;
-	sock.driverdata = null;
-	conn.pendingMessages.length = 0;
-	if ( rtc_client === conn ) rtc_client = null;
-
-	_RTC_CloseConnection( conn );
-
+  _RTC_CloseConnection(conn);
 }

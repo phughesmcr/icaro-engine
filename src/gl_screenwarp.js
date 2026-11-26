@@ -12,13 +12,13 @@
 // (r_waterwarp 2) needs R_SetupFrame and R_SetupGL in gl_rmain.js and is not
 // ported: values above 1 draw no warp.
 
-import * as THREE from 'three';
-import { Cvar_FindVar, Cvar_RegisterVariable } from './cvar.js';
-import { renderer } from './vid.js';
-import { r_framecount, r_waterwarp } from './glquake.js';
-import { r_viewleaf } from './gl_rmain.js';
-import { isXRActive } from './webxr.js';
-import { CONTENTS_WATER, CONTENTS_SLIME, CONTENTS_LAVA } from './bspfile.js';
+import * as THREE from "three";
+import { Cvar_FindVar, Cvar_RegisterVariable } from "./cvar.js";
+import { renderer } from "./vid.js";
+import { r_framecount, r_waterwarp } from "./glquake.js";
+import { r_viewleaf } from "./gl_rmain.js";
+import { isXRActive } from "./webxr.js";
+import { CONTENTS_LAVA, CONTENTS_SLIME, CONTENTS_WATER } from "./bspfile.js";
 
 // Ironwail draws the warp with amplitude 1/256 of the view
 const WARP_AMP = 1 / 256;
@@ -30,7 +30,7 @@ let warpCamera = null;
 let warpMaterial = null;
 let warpTexture = null;
 
-let warp_lastframe = - 1;
+let warp_lastframe = -1;
 let _viewport = null; // THREE.Vector4
 let _position = null; // THREE.Vector2
 let _bufferSize = null; // THREE.Vector2
@@ -68,10 +68,9 @@ Registers r_waterwarp (Ironwail gl_rmisc.c R_Init)
 =============
 */
 export function R_WaterWarp_Init() {
-
-	if ( Cvar_FindVar( r_waterwarp.name ) === null )
-		Cvar_RegisterVariable( r_waterwarp );
-
+  if (Cvar_FindVar(r_waterwarp.name) === null) {
+    Cvar_RegisterVariable(r_waterwarp);
+  }
 }
 
 /*
@@ -82,42 +81,40 @@ Ironwail R_SetupView: the screen warp is on when r_waterwarp is nonzero and
 not above 1 (above 1 is the FOV warp), and the eye is in a liquid
 =============
 */
-export function R_WaterWarpActive( value, contents ) {
+export function R_WaterWarpActive(value, contents) {
+  if (value === 0 || value > 1) {
+    return false;
+  }
 
-	if ( value === 0 || value > 1 )
-		return false;
-
-	return contents === CONTENTS_WATER || contents === CONTENTS_SLIME || contents === CONTENTS_LAVA;
-
+  return contents === CONTENTS_WATER || contents === CONTENTS_SLIME ||
+    contents === CONTENTS_LAVA;
 }
 
 function R_WarpCreate() {
+  warpScene = new THREE.Scene();
+  warpCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-	warpScene = new THREE.Scene();
-	warpCamera = new THREE.OrthographicCamera( - 1, 1, 1, - 1, 0, 1 );
+  warpMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      Tex: { value: null },
+      WarpAmp: { value: WARP_AMP },
+      Time: { value: 0 },
+      Aspect: { value: 1 },
+    },
+    vertexShader: WARP_VERTEX_SHADER,
+    fragmentShader: WARP_FRAGMENT_SHADER,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
 
-	warpMaterial = new THREE.ShaderMaterial( {
-		uniforms: {
-			Tex: { value: null },
-			WarpAmp: { value: WARP_AMP },
-			Time: { value: 0 },
-			Aspect: { value: 1 }
-		},
-		vertexShader: WARP_VERTEX_SHADER,
-		fragmentShader: WARP_FRAGMENT_SHADER,
-		depthTest: false,
-		depthWrite: false,
-		toneMapped: false
-	} );
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), warpMaterial);
+  mesh.frustumCulled = false;
+  warpScene.add(mesh);
 
-	const mesh = new THREE.Mesh( new THREE.PlaneGeometry( 2, 2 ), warpMaterial );
-	mesh.frustumCulled = false;
-	warpScene.add( mesh );
-
-	_viewport = new THREE.Vector4();
-	_position = new THREE.Vector2();
-	_bufferSize = new THREE.Vector2();
-
+  _viewport = new THREE.Vector4();
+  _position = new THREE.Vector2();
+  _bufferSize = new THREE.Vector2();
 }
 
 /*
@@ -130,11 +127,9 @@ water. The material and scene stay: they hold no GPU objects of their own.
 =============
 */
 export function R_WarpContextRestored() {
-
-	if ( warpTexture !== null ) warpTexture.dispose();
-	warpTexture = null;
-	if ( warpMaterial !== null ) warpMaterial.uniforms.Tex.value = null;
-
+  if (warpTexture !== null) warpTexture.dispose();
+  warpTexture = null;
+  if (warpMaterial !== null) warpMaterial.uniforms.Tex.value = null;
 }
 
 /*
@@ -146,53 +141,58 @@ rendered this frame when R_WaterWarpActive says so. time is cl.time, as in
 Ironwail R_WarpScaleView.
 =============
 */
-export function R_WarpScreen( time ) {
+export function R_WarpScreen(time) {
+  if (renderer === null || r_viewleaf === null) {
+    return;
+  }
 
-	if ( renderer === null || r_viewleaf === null )
-		return;
+  // Only right after a 3D frame: the view leaf and viewport are this frame's
+  if (r_framecount === warp_lastframe) {
+    return;
+  }
+  warp_lastframe = r_framecount;
 
-	// Only right after a 3D frame: the view leaf and viewport are this frame's
-	if ( r_framecount === warp_lastframe )
-		return;
-	warp_lastframe = r_framecount;
+  if (R_WaterWarpActive(r_waterwarp.value, r_viewleaf.contents) === false) {
+    return;
+  }
 
-	if ( R_WaterWarpActive( r_waterwarp.value, r_viewleaf.contents ) === false )
-		return;
+  // The stereo XR view has no single viewport to copy
+  if (isXRActive()) {
+    return;
+  }
 
-	// The stereo XR view has no single viewport to copy
-	if ( isXRActive() )
-		return;
+  if (warpScene === null) {
+    R_WarpCreate();
+  }
 
-	if ( warpScene === null )
-		R_WarpCreate();
+  // R_SetupGL's viewport, in drawing buffer pixels, clamped to the buffer
+  renderer.getCurrentViewport(_viewport);
+  renderer.getDrawingBufferSize(_bufferSize);
+  const x = Math.max(0, _viewport.x);
+  const y = Math.max(0, _viewport.y);
+  const w = Math.min(_bufferSize.x, _viewport.x + _viewport.z) - x;
+  const h = Math.min(_bufferSize.y, _viewport.y + _viewport.w) - y;
+  if (w <= 0 || h <= 0) {
+    return;
+  }
 
-	// R_SetupGL's viewport, in drawing buffer pixels, clamped to the buffer
-	renderer.getCurrentViewport( _viewport );
-	renderer.getDrawingBufferSize( _bufferSize );
-	const x = Math.max( 0, _viewport.x );
-	const y = Math.max( 0, _viewport.y );
-	const w = Math.min( _bufferSize.x, _viewport.x + _viewport.z ) - x;
-	const h = Math.min( _bufferSize.y, _viewport.y + _viewport.w ) - y;
-	if ( w <= 0 || h <= 0 )
-		return;
+  if (
+    warpTexture === null || warpTexture.image.width !== w ||
+    warpTexture.image.height !== h
+  ) {
+    if (warpTexture !== null) warpTexture.dispose();
+    warpTexture = new THREE.FramebufferTexture(w, h);
+    warpMaterial.uniforms.Tex.value = warpTexture;
+  }
 
-	if ( warpTexture === null || warpTexture.image.width !== w || warpTexture.image.height !== h ) {
+  _position.set(x, y);
+  renderer.copyFramebufferToTexture(warpTexture, _position);
 
-		if ( warpTexture !== null ) warpTexture.dispose();
-		warpTexture = new THREE.FramebufferTexture( w, h );
-		warpMaterial.uniforms.Tex.value = warpTexture;
+  warpMaterial.uniforms.Time.value = time;
+  warpMaterial.uniforms.Aspect.value = w / h;
 
-	}
-
-	_position.set( x, y );
-	renderer.copyFramebufferToTexture( warpTexture, _position );
-
-	warpMaterial.uniforms.Time.value = time;
-	warpMaterial.uniforms.Aspect.value = w / h;
-
-	const autoClear = renderer.autoClear;
-	renderer.autoClear = false;
-	renderer.render( warpScene, warpCamera );
-	renderer.autoClear = autoClear;
-
+  const autoClear = renderer.autoClear;
+  renderer.autoClear = false;
+  renderer.render(warpScene, warpCamera);
+  renderer.autoClear = autoClear;
 }

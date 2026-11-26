@@ -3,7 +3,7 @@
 export const VERSION = 1.09;
 export const GLQUAKE_VERSION = 1.00;
 
-export const GAMENAME = 'id1'; // directory to look in by default
+export const GAMENAME = "id1"; // directory to look in by default
 
 //
 // angles
@@ -99,10 +99,10 @@ export const IT_INVISIBILITY = 524288;
 export const IT_INVULNERABILITY = 1048576;
 export const IT_SUIT = 2097152;
 export const IT_QUAD = 4194304;
-export const IT_SIGIL1 = ( 1 << 28 );
-export const IT_SIGIL2 = ( 1 << 29 );
-export const IT_SIGIL3 = ( 1 << 30 );
-export const IT_SIGIL4 = ( 1 << 31 );
+export const IT_SIGIL1 = 1 << 28;
+export const IT_SIGIL2 = 1 << 29;
+export const IT_SIGIL3 = 1 << 30;
+export const IT_SIGIL4 = 1 << 31;
 
 //===========================================
 //rogue changed and added defines
@@ -133,11 +133,11 @@ export const RIT_SUPERHEALTH = 2147483648;
 export const HIT_PROXIMITY_GUN_BIT = 16;
 export const HIT_MJOLNIR_BIT = 7;
 export const HIT_LASER_CANNON_BIT = 23;
-export const HIT_PROXIMITY_GUN = ( 1 << HIT_PROXIMITY_GUN_BIT );
-export const HIT_MJOLNIR = ( 1 << HIT_MJOLNIR_BIT );
-export const HIT_LASER_CANNON = ( 1 << HIT_LASER_CANNON_BIT );
-export const HIT_WETSUIT = ( 1 << ( 23 + 2 ) );
-export const HIT_EMPATHY_SHIELDS = ( 1 << ( 23 + 3 ) );
+export const HIT_PROXIMITY_GUN = 1 << HIT_PROXIMITY_GUN_BIT;
+export const HIT_MJOLNIR = 1 << HIT_MJOLNIR_BIT;
+export const HIT_LASER_CANNON = 1 << HIT_LASER_CANNON_BIT;
+export const HIT_WETSUIT = 1 << (23 + 2);
+export const HIT_EMPATHY_SHIELDS = 1 << (23 + 3);
 
 //===========================================
 
@@ -148,51 +148,45 @@ export const SOUND_CHANNELS = 8;
 
 // entity_state_t - baseline state for entity
 export class entity_state_t {
+  constructor() {
+    this.number = 0; // entity number (QW delta compression)
+    this.flags = 0; // PE_* delta bits (QW delta compression); PE_SOLID is carried by solid
+    this.origin = new Float32Array(3);
+    this.angles = new Float32Array(3);
+    this.modelindex = 0;
+    this.frame = 0;
+    this.colormap = 0;
+    this.skin = 0;
+    this.effects = 0;
+    this.solid = 0; // PS_* bits, sent with PE_SOLID
+    this.mins = new Float32Array(3); // box for PS_BOX
+    this.maxs = new Float32Array(3);
+    this.alpha = 0; // ENTALPHA_* byte (Ironwail entity_state_t), sent with PE_ALPHA
+  }
 
-	constructor() {
-
-		this.number = 0; // entity number (QW delta compression)
-		this.flags = 0; // PE_* delta bits (QW delta compression); PE_SOLID is carried by solid
-		this.origin = new Float32Array( 3 );
-		this.angles = new Float32Array( 3 );
-		this.modelindex = 0;
-		this.frame = 0;
-		this.colormap = 0;
-		this.skin = 0;
-		this.effects = 0;
-		this.solid = 0; // PS_* bits, sent with PE_SOLID
-		this.mins = new Float32Array( 3 ); // box for PS_BOX
-		this.maxs = new Float32Array( 3 );
-		this.alpha = 0; // ENTALPHA_* byte (Ironwail entity_state_t), sent with PE_ALPHA
-
-	}
-
-	copyFrom( other ) {
-
-		this.number = other.number;
-		this.flags = other.flags;
-		this.origin[ 0 ] = other.origin[ 0 ];
-		this.origin[ 1 ] = other.origin[ 1 ];
-		this.origin[ 2 ] = other.origin[ 2 ];
-		this.angles[ 0 ] = other.angles[ 0 ];
-		this.angles[ 1 ] = other.angles[ 1 ];
-		this.angles[ 2 ] = other.angles[ 2 ];
-		this.modelindex = other.modelindex;
-		this.frame = other.frame;
-		this.colormap = other.colormap;
-		this.skin = other.skin;
-		this.effects = other.effects;
-		this.solid = other.solid;
-		this.mins[ 0 ] = other.mins[ 0 ];
-		this.mins[ 1 ] = other.mins[ 1 ];
-		this.mins[ 2 ] = other.mins[ 2 ];
-		this.maxs[ 0 ] = other.maxs[ 0 ];
-		this.maxs[ 1 ] = other.maxs[ 1 ];
-		this.maxs[ 2 ] = other.maxs[ 2 ];
-		this.alpha = other.alpha;
-
-	}
-
+  copyFrom(other) {
+    this.number = other.number;
+    this.flags = other.flags;
+    this.origin[0] = other.origin[0];
+    this.origin[1] = other.origin[1];
+    this.origin[2] = other.origin[2];
+    this.angles[0] = other.angles[0];
+    this.angles[1] = other.angles[1];
+    this.angles[2] = other.angles[2];
+    this.modelindex = other.modelindex;
+    this.frame = other.frame;
+    this.colormap = other.colormap;
+    this.skin = other.skin;
+    this.effects = other.effects;
+    this.solid = other.solid;
+    this.mins[0] = other.mins[0];
+    this.mins[1] = other.mins[1];
+    this.mins[2] = other.mins[2];
+    this.maxs[0] = other.maxs[0];
+    this.maxs[1] = other.maxs[1];
+    this.maxs[2] = other.maxs[2];
+    this.alpha = other.alpha;
+  }
 }
 
 //
@@ -202,24 +196,19 @@ export class entity_state_t {
 // client keeps PE_UPDATE_BACKUP of these on the server.
 //
 export class packet_entities_t {
+  constructor() {
+    this.num_entities = 0;
+    this.entities = [];
+  }
 
-	constructor() {
-
-		this.num_entities = 0;
-		this.entities = [];
-
-	}
-
-	// entities[ i ], allocating the states up to it on first use
-	state( i ) {
-
-		const entities = this.entities;
-		while ( entities.length <= i )
-			entities.push( new entity_state_t() );
-		return entities[ i ];
-
-	}
-
+  // entities[ i ], allocating the states up to it on first use
+  state(i) {
+    const entities = this.entities;
+    while (entities.length <= i) {
+      entities.push(new entity_state_t());
+    }
+    return entities[i];
+  }
 }
 
 //=============================================================================
@@ -229,14 +218,10 @@ export class packet_entities_t {
 // available for the program to use
 
 export class quakeparms_t {
-
-	constructor() {
-
-		this.basedir = '';
-		this.cachedir = '';
-		this.argc = 0;
-		this.argv = [];
-
-	}
-
+  constructor() {
+    this.basedir = "";
+    this.cachedir = "";
+    this.argc = 0;
+    this.argv = [];
+  }
 }

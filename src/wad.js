@@ -1,6 +1,6 @@
 // Ported from: WinQuake/wad.c + wad.h -- WAD file loading
 
-import { Sys_Error } from './sys.js';
+import { Sys_Error } from "./sys.js";
 
 //===============
 //   TYPES
@@ -34,23 +34,20 @@ Space padding is so names can be printed nicely in tables.
 Can safely be performed in place.
 ==================
 */
-export function W_CleanupName( inStr ) {
+export function W_CleanupName(inStr) {
+  let out = "";
+  for (let i = 0; i < 16; i++) {
+    if (i >= inStr.length) break;
+    let c = inStr.charCodeAt(i);
+    if (c === 0) break;
 
-	let out = '';
-	for ( let i = 0; i < 16; i ++ ) {
+    if (c >= 65 && c <= 90) { // 'A' to 'Z'
+      c += 32; // to lowercase
+    }
+    out += String.fromCharCode(c);
+  }
 
-		if ( i >= inStr.length ) break;
-		let c = inStr.charCodeAt( i );
-		if ( c === 0 ) break;
-
-		if ( c >= 65 && c <= 90 ) // 'A' to 'Z'
-			c += 32; // to lowercase
-		out += String.fromCharCode( c );
-
-	}
-
-	return out;
-
+  return out;
 }
 
 /*
@@ -58,62 +55,55 @@ export function W_CleanupName( inStr ) {
 W_LoadWadFile
 ====================
 */
-export function W_LoadWadFile( data ) {
+export function W_LoadWadFile(data) {
+  // data is an ArrayBuffer
+  wad_base = new Uint8Array(data);
+  const view = new DataView(data);
 
-	// data is an ArrayBuffer
-	wad_base = new Uint8Array( data );
-	const view = new DataView( data );
+  // check identification
+  const id0 = wad_base[0];
+  const id1 = wad_base[1];
+  const id2 = wad_base[2];
+  const id3 = wad_base[3];
 
-	// check identification
-	const id0 = wad_base[ 0 ];
-	const id1 = wad_base[ 1 ];
-	const id2 = wad_base[ 2 ];
-	const id3 = wad_base[ 3 ];
+  if (id0 !== 0x57 || id1 !== 0x41 || id2 !== 0x44 || id3 !== 0x32) { // 'WAD2'
+    Sys_Error("W_LoadWadFile: not a WAD2 file");
+  }
 
-	if ( id0 !== 0x57 || id1 !== 0x41 || id2 !== 0x44 || id3 !== 0x32 ) // 'WAD2'
-		Sys_Error( 'W_LoadWadFile: not a WAD2 file' );
+  wad_numlumps = view.getInt32(4, true);
+  const infotableofs = view.getInt32(8, true);
 
-	wad_numlumps = view.getInt32( 4, true );
-	const infotableofs = view.getInt32( 8, true );
+  // parse lump info table
+  wad_lumps = [];
+  for (let i = 0; i < wad_numlumps; i++) {
+    const offset = infotableofs + i * 32; // sizeof(lumpinfo_t) = 32
+    const lump = {
+      filepos: view.getInt32(offset, true),
+      disksize: view.getInt32(offset + 4, true),
+      size: view.getInt32(offset + 8, true),
+      type: wad_base[offset + 12],
+      compression: wad_base[offset + 13],
+      name: "",
+    };
 
-	// parse lump info table
-	wad_lumps = [];
-	for ( let i = 0; i < wad_numlumps; i ++ ) {
+    // read name (16 bytes at offset + 16)
+    let name = "";
+    for (let j = 0; j < 16; j++) {
+      const c = wad_base[offset + 16 + j];
+      if (c === 0) break;
+      name += String.fromCharCode(c);
+    }
 
-		const offset = infotableofs + i * 32; // sizeof(lumpinfo_t) = 32
-		const lump = {
-			filepos: view.getInt32( offset, true ),
-			disksize: view.getInt32( offset + 4, true ),
-			size: view.getInt32( offset + 8, true ),
-			type: wad_base[ offset + 12 ],
-			compression: wad_base[ offset + 13 ],
-			name: ''
-		};
+    lump.name = W_CleanupName(name);
 
-		// read name (16 bytes at offset + 16)
-		let name = '';
-		for ( let j = 0; j < 16; j ++ ) {
+    // swap qpic if needed
+    if (lump.type === TYP_QPIC) {
+      // SwapPic - width and height are already little-endian on browser
+      // (DataView handles byte order)
+    }
 
-			const c = wad_base[ offset + 16 + j ];
-			if ( c === 0 ) break;
-			name += String.fromCharCode( c );
-
-		}
-
-		lump.name = W_CleanupName( name );
-
-		// swap qpic if needed
-		if ( lump.type === TYP_QPIC ) {
-
-			// SwapPic - width and height are already little-endian on browser
-			// (DataView handles byte order)
-
-		}
-
-		wad_lumps.push( lump );
-
-	}
-
+    wad_lumps.push(lump);
+  }
 }
 
 /*
@@ -121,20 +111,17 @@ export function W_LoadWadFile( data ) {
 W_GetLumpinfo
 =============
 */
-export function W_GetLumpinfo( name ) {
+export function W_GetLumpinfo(name) {
+  const clean = W_CleanupName(name);
 
-	const clean = W_CleanupName( name );
+  for (let i = 0; i < wad_numlumps; i++) {
+    if (wad_lumps[i].name === clean) {
+      return wad_lumps[i];
+    }
+  }
 
-	for ( let i = 0; i < wad_numlumps; i ++ ) {
-
-		if ( wad_lumps[ i ].name === clean )
-			return wad_lumps[ i ];
-
-	}
-
-	Sys_Error( 'W_GetLumpinfo: ' + name + ' not found' );
-	return null;
-
+  Sys_Error("W_GetLumpinfo: " + name + " not found");
+  return null;
 }
 
 /*
@@ -144,15 +131,13 @@ W_GetLumpName
 Returns a DataView into the wad data at the lump's position
 =============
 */
-export function W_GetLumpName( name ) {
-
-	const lump = W_GetLumpinfo( name );
-	return {
-		data: wad_base,
-		offset: lump.filepos,
-		size: lump.size
-	};
-
+export function W_GetLumpName(name) {
+  const lump = W_GetLumpinfo(name);
+  return {
+    data: wad_base,
+    offset: lump.filepos,
+    size: lump.size,
+  };
 }
 
 /*
@@ -160,18 +145,17 @@ export function W_GetLumpName( name ) {
 W_GetLumpNum
 =============
 */
-export function W_GetLumpNum( num ) {
+export function W_GetLumpNum(num) {
+  if (num < 0 || num >= wad_numlumps) {
+    Sys_Error("W_GetLumpNum: bad number: " + num);
+  }
 
-	if ( num < 0 || num >= wad_numlumps )
-		Sys_Error( 'W_GetLumpNum: bad number: ' + num );
-
-	const lump = wad_lumps[ num ];
-	return {
-		data: wad_base,
-		offset: lump.filepos,
-		size: lump.size
-	};
-
+  const lump = wad_lumps[num];
+  return {
+    data: wad_base,
+    offset: lump.filepos,
+    size: lump.size,
+  };
 }
 
 /*
@@ -179,16 +163,14 @@ export function W_GetLumpNum( num ) {
 SwapPic
 =============
 */
-export function SwapPic( data, offset ) {
-
-	// In the original C, this byte-swaps width/height from little-endian.
-	// JavaScript DataView handles this, so this is a no-op on little-endian systems.
-	// We keep it for API compatibility.
-	const view = new DataView( data.buffer, offset );
-	return {
-		width: view.getInt32( 0, true ),
-		height: view.getInt32( 4, true ),
-		data: data.subarray( offset + 8 )
-	};
-
+export function SwapPic(data, offset) {
+  // In the original C, this byte-swaps width/height from little-endian.
+  // JavaScript DataView handles this, so this is a no-op on little-endian systems.
+  // We keep it for API compatibility.
+  const view = new DataView(data.buffer, offset);
+  return {
+    width: view.getInt32(0, true),
+    height: view.getInt32(4, true),
+    data: data.subarray(offset + 8),
+  };
 }

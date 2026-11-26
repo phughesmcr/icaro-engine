@@ -1,6 +1,6 @@
 // Ported from: WinQuake/glquake.h -- GL definitions and state variables
 
-import * as THREE from 'three';
+import * as THREE from "three";
 
 /*
 ===============================================================================
@@ -10,14 +10,14 @@ GL DEFINITIONS AND STATE
 ===============================================================================
 */
 
-export const ALIAS_BASE_SIZE_RATIO = ( 1.0 / 11.0 );
+export const ALIAS_BASE_SIZE_RATIO = 1.0 / 11.0;
 export const MAX_LBM_HEIGHT = 480;
 
 export const TILE_SIZE = 128;
 
 export const SKYSHIFT = 7;
-export const SKYSIZE = ( 1 << SKYSHIFT );
-export const SKYMASK = ( SKYSIZE - 1 );
+export const SKYSIZE = 1 << SKYSHIFT;
+export const SKYMASK = SKYSIZE - 1;
 
 export const BACKFACE_EPSILON = 0.01;
 
@@ -50,19 +50,15 @@ TEXTURE MANAGEMENT
 export const MAX_GLTEXTURES = 1024;
 
 export class gltexture_t {
-
-	constructor() {
-
-		this.identifier = '';
-		this.texnum = 0;
-		this.width = 0;
-		this.height = 0;
-		this.mipmap = false;
-		// Three.js texture reference
-		this.texture = null;
-
-	}
-
+  constructor() {
+    this.identifier = "";
+    this.texnum = 0;
+    this.width = 0;
+    this.height = 0;
+    this.mipmap = false;
+    // Three.js texture reference
+    this.texture = null;
+  }
 }
 
 export let texture_extension_number = 1;
@@ -71,24 +67,20 @@ export const texture_mode = 0; // GL_LINEAR_MIPMAP_NEAREST equivalent
 export const gldepthmin = 0;
 export const gldepthmax = 0;
 
-export let currenttexture = - 1;
-export const cnttextures = [ - 1, - 1 ];
+export let currenttexture = -1;
+export const cnttextures = [-1, -1];
 export const particletexture = 0;
 export const playertextures = 0;
 
 export const gltextures = [];
 export const numgltextures = 0;
 
-export function setTextureExtensionNumber( n ) {
-
-	texture_extension_number = n;
-
+export function setTextureExtensionNumber(n) {
+  texture_extension_number = n;
 }
 
 export function getTextureExtensionNumber() {
-
-	return texture_extension_number ++;
-
+  return texture_extension_number++;
 }
 
 /*
@@ -100,17 +92,13 @@ POLYGON STRUCTURE
 */
 
 export class glpoly_t {
-
-	constructor() {
-
-		this.next = null;
-		this.chain = null;
-		this.numverts = 0;
-		this.flags = 0;
-		this.verts = []; // array of arrays, each [x,y,z,s,t,ls,lt]
-
-	}
-
+  constructor() {
+    this.next = null;
+    this.chain = null;
+    this.numverts = 0;
+    this.flags = 0;
+    this.verts = []; // array of arrays, each [x,y,z,s,t,ls,lt]
+  }
 }
 
 /*
@@ -122,20 +110,16 @@ GL VERTEX TYPE
 */
 
 export class glvert_t {
-
-	constructor() {
-
-		this.x = 0;
-		this.y = 0;
-		this.z = 0;
-		this.s = 0;
-		this.t = 0;
-		this.r = 0;
-		this.g = 0;
-		this.b = 0;
-
-	}
-
+  constructor() {
+    this.x = 0;
+    this.y = 0;
+    this.z = 0;
+    this.s = 0;
+    this.t = 0;
+    this.r = 0;
+    this.g = 0;
+    this.b = 0;
+  }
 }
 
 export const glv = new glvert_t();
@@ -163,21 +147,17 @@ export const pt_blob = 6;
 export const pt_blob2 = 7;
 
 export class particle_t {
-
-	constructor() {
-
-		// driver-usable fields
-		this.org = new Float32Array( 3 );
-		this.color = 0;
-		// drivers never touch the following fields
-		this.next = null;
-		this.vel = new Float32Array( 3 );
-		this.ramp = 0;
-		this.die = 0;
-		this.type = pt_static;
-
-	}
-
+  constructor() {
+    // driver-usable fields
+    this.org = new Float32Array(3);
+    this.color = 0;
+    // drivers never touch the following fields
+    this.next = null;
+    this.vel = new Float32Array(3);
+    this.ramp = 0;
+    this.die = 0;
+    this.type = pt_static;
+  }
 }
 
 /*
@@ -190,38 +170,43 @@ RENDER STATE VARIABLES
 
 export const r_worldentity = null; // entity_t
 export const r_cache_thrash = false;
-export const modelorg = new Float32Array( 3 );
-export const r_entorigin = new Float32Array( 3 );
+export const modelorg = new Float32Array(3);
+export const r_entorigin = new Float32Array(3);
 export const currententity = null;
 export const r_visframecount = 0;
 export let r_framecount = 0;
-export function set_r_framecount( value ) { r_framecount = value; }
-export function inc_r_framecount() { return ++ r_framecount; }
+export function set_r_framecount(value) {
+  r_framecount = value;
+}
+export function inc_r_framecount() {
+  return ++r_framecount;
+}
 export const frustum = []; // mplane_t[4]
 export const c_brush_polys = 0;
 export const c_alias_polys = 0;
 
 // view origin
-export const vup = new Float32Array( 3 );
-export const vpn = new Float32Array( 3 );
-export const vright = new Float32Array( 3 );
-export const r_origin = new Float32Array( 3 );
+export const vup = new Float32Array(3);
+export const vpn = new Float32Array(3);
+export const vright = new Float32Array(3);
+export const r_origin = new Float32Array(3);
 
 // screen size info
 export const r_refdef = null; // refdef_t
 export const r_viewleaf = null;
 export const r_oldviewleaf = null;
 export const r_notexture_mip = null;
-export const d_lightstylevalue = new Int32Array( 256 );
+export const d_lightstylevalue = new Int32Array(256);
 
-
-export const skytexturenum = - 1;
-export let mirrortexturenum = - 1;
-export function set_mirrortexturenum( value ) { mirrortexturenum = value; }
+export const skytexturenum = -1;
+export let mirrortexturenum = -1;
+export function set_mirrortexturenum(value) {
+  mirrortexturenum = value;
+}
 export const mirror = false;
 export const mirror_plane = null;
 
-export const r_world_matrix = new Float32Array( 16 );
+export const r_world_matrix = new Float32Array(16);
 
 // GL format constants (mapped to WebGL equivalents conceptually)
 export const gl_lightmap_format = 4; // GL_RGBA
@@ -238,43 +223,73 @@ CVARS (placeholder objects matching cvar_t structure)
 ===============================================================================
 */
 
-export const r_norefresh = { name: 'r_norefresh', string: '0', value: 0 };
-export const r_drawentities = { name: 'r_drawentities', string: '1', value: 1 };
-export const r_drawworld = { name: 'r_drawworld', string: '1', value: 1 };
-export const r_drawviewmodel = { name: 'r_drawviewmodel', string: '1', value: 1 };
-export const r_speeds = { name: 'r_speeds', string: '0', value: 0 };
+export const r_norefresh = { name: "r_norefresh", string: "0", value: 0 };
+export const r_drawentities = { name: "r_drawentities", string: "1", value: 1 };
+export const r_drawworld = { name: "r_drawworld", string: "1", value: 1 };
+export const r_drawviewmodel = {
+  name: "r_drawviewmodel",
+  string: "1",
+  value: 1,
+};
+export const r_speeds = { name: "r_speeds", string: "0", value: 0 };
 // Registered by gl_screenwarp.js (GLQuake never registered it). Fitz, QS and
 // Ironwail default to 1 and archive it; 0 keeps GLQuake's unwarped view.
-export const r_waterwarp = { name: 'r_waterwarp', string: '0', value: 0, archive: true };
-export const r_fullbright = { name: 'r_fullbright', string: '0', value: 0 };
-export const r_lightmap = { name: 'r_lightmap', string: '0', value: 0 };
-export const r_shadows = { name: 'r_shadows', string: '0', value: 0 };
-export const r_mirroralpha = { name: 'r_mirroralpha', string: '1', value: 1 };
-export const r_wateralpha = { name: 'r_wateralpha', string: '1', value: 1 };
-export const r_dynamic = { name: 'r_dynamic', string: '1', value: 1 };
-export const r_novis = { name: 'r_novis', string: '0', value: 0 };
+export const r_waterwarp = {
+  name: "r_waterwarp",
+  string: "0",
+  value: 0,
+  archive: true,
+};
+export const r_fullbright = { name: "r_fullbright", string: "0", value: 0 };
+export const r_lightmap = { name: "r_lightmap", string: "0", value: 0 };
+export const r_shadows = { name: "r_shadows", string: "0", value: 0 };
+export const r_mirroralpha = { name: "r_mirroralpha", string: "1", value: 1 };
+export const r_wateralpha = { name: "r_wateralpha", string: "1", value: 1 };
+export const r_dynamic = { name: "r_dynamic", string: "1", value: 1 };
+export const r_novis = { name: "r_novis", string: "0", value: 0 };
 
-export const gl_clear = { name: 'gl_clear', string: '0', value: 0 };
-export const gl_cull = { name: 'gl_cull', string: '1', value: 1 };
-export const gl_texsort = { name: 'gl_texsort', string: '1', value: 1 };
-export const gl_smoothmodels = { name: 'gl_smoothmodels', string: '1', value: 1 };
-export const gl_affinemodels = { name: 'gl_affinemodels', string: '0', value: 0 };
-export const gl_polyblend = { name: 'gl_polyblend', string: '1', value: 1 };
-export const gl_keeptjunctions = { name: 'gl_keeptjunctions', string: '0', value: 0 };
-export const gl_reporttjunctions = { name: 'gl_reporttjunctions', string: '0', value: 0 };
-export const gl_flashblend = { name: 'gl_flashblend', string: '1', value: 1 };
-export const gl_nocolors = { name: 'gl_nocolors', string: '0', value: 0 };
-export const gl_doubleeyes = { name: 'gl_doubleeys', string: '1', value: 1 };
-export const gl_max_size = { name: 'gl_max_size', string: '1024', value: 1024 };
-export const gl_picmip = { name: 'gl_picmip', string: '0', value: 0 };
-export const gl_playermip = { name: 'gl_playermip', string: '0', value: 0 };
-export const gl_finish = { name: 'gl_finish', string: '0', value: 0 };
+export const gl_clear = { name: "gl_clear", string: "0", value: 0 };
+export const gl_cull = { name: "gl_cull", string: "1", value: 1 };
+export const gl_texsort = { name: "gl_texsort", string: "1", value: 1 };
+export const gl_smoothmodels = {
+  name: "gl_smoothmodels",
+  string: "1",
+  value: 1,
+};
+export const gl_affinemodels = {
+  name: "gl_affinemodels",
+  string: "0",
+  value: 0,
+};
+export const gl_polyblend = { name: "gl_polyblend", string: "1", value: 1 };
+export const gl_keeptjunctions = {
+  name: "gl_keeptjunctions",
+  string: "0",
+  value: 0,
+};
+export const gl_reporttjunctions = {
+  name: "gl_reporttjunctions",
+  string: "0",
+  value: 0,
+};
+export const gl_flashblend = { name: "gl_flashblend", string: "1", value: 1 };
+export const gl_nocolors = { name: "gl_nocolors", string: "0", value: 0 };
+export const gl_doubleeyes = { name: "gl_doubleeys", string: "1", value: 1 };
+export const gl_max_size = { name: "gl_max_size", string: "1024", value: 1024 };
+export const gl_picmip = { name: "gl_picmip", string: "0", value: 0 };
+export const gl_playermip = { name: "gl_playermip", string: "0", value: 0 };
+export const gl_finish = { name: "gl_finish", string: "0", value: 0 };
 // gl_vidnt.c registers gl_ztrick in VID_Init. It alternates the depth range
 // each frame to skip glClear(GL_DEPTH_BUFFER_BIT) on 1990s cards. Obsolete
 // under WebGL/Three.js: the renderer clears depth itself. Kept registered for
 // config compatibility.
-export const gl_ztrick = { name: 'gl_ztrick', string: '1', value: 1 };
-export const gl_subdivide_size = { name: 'gl_subdivide_size', string: '128', value: 128, archive: true };
+export const gl_ztrick = { name: "gl_ztrick", string: "1", value: 1 };
+export const gl_subdivide_size = {
+  name: "gl_subdivide_size",
+  string: "128",
+  value: 128,
+  archive: true,
+};
 
 // gl_draw.c gl_filter_min / gl_filter_max (extern in glquake.h). The
 // gl_texturemode command (Draw_TextureMode_f in gl_draw.js) sets them.
@@ -288,54 +303,50 @@ export const GL_LINEAR_MIPMAP_LINEAR = 0x2703;
 export let gl_filter_min = GL_LINEAR_MIPMAP_NEAREST;
 export let gl_filter_max = GL_LINEAR;
 
-export function set_gl_filter( min, max ) {
-
-	gl_filter_min = min;
-	gl_filter_max = max;
-
+export function set_gl_filter(min, max) {
+  gl_filter_min = min;
+  gl_filter_max = max;
 }
 
 // The GL filter enum as the matching Three.js filter constant. Only the
 // modes[] values reach here (Draw_TextureMode_f rejects any other name).
-export function GL_ThreeFilter( filter ) {
+export function GL_ThreeFilter(filter) {
+  switch (filter) {
+    case GL_NEAREST:
+      return THREE.NearestFilter;
+    case GL_LINEAR:
+      return THREE.LinearFilter;
+    case GL_NEAREST_MIPMAP_NEAREST:
+      return THREE.NearestMipmapNearestFilter;
+    case GL_LINEAR_MIPMAP_NEAREST:
+      return THREE.LinearMipmapNearestFilter;
+    case GL_NEAREST_MIPMAP_LINEAR:
+      return THREE.NearestMipmapLinearFilter;
+    case GL_LINEAR_MIPMAP_LINEAR:
+      return THREE.LinearMipmapLinearFilter;
+  }
 
-	switch ( filter ) {
-
-		case GL_NEAREST: return THREE.NearestFilter;
-		case GL_LINEAR: return THREE.LinearFilter;
-		case GL_NEAREST_MIPMAP_NEAREST: return THREE.NearestMipmapNearestFilter;
-		case GL_LINEAR_MIPMAP_NEAREST: return THREE.LinearMipmapNearestFilter;
-		case GL_NEAREST_MIPMAP_LINEAR: return THREE.NearestMipmapLinearFilter;
-		case GL_LINEAR_MIPMAP_LINEAR: return THREE.LinearMipmapLinearFilter;
-
-	}
-
-	throw new Error( 'GL_ThreeFilter: unknown GL filter 0x' + Number( filter ).toString( 16 ) );
-
+  throw new Error(
+    "GL_ThreeFilter: unknown GL filter 0x" + Number(filter).toString(16),
+  );
 }
 
 /*
 gl_draw.c GL_Upload32: a mipmapped texture gets gl_filter_min / gl_filter_max,
 any other texture gets gl_filter_max both ways.
 */
-export function GL_SetTextureFilter( texture, mipmap ) {
-
-	texture.minFilter = GL_ThreeFilter( mipmap ? gl_filter_min : gl_filter_max );
-	texture.magFilter = GL_ThreeFilter( gl_filter_max );
-
+export function GL_SetTextureFilter(texture, mipmap) {
+  texture.minFilter = GL_ThreeFilter(mipmap ? gl_filter_min : gl_filter_max);
+  texture.magFilter = GL_ThreeFilter(gl_filter_max);
 }
 
 // Track all game textures for filter updates
 export const _allGameTextures = [];
 
-export function GL_RegisterTexture( texture ) {
-
-	if ( texture != null && _allGameTextures.includes( texture ) === false ) {
-
-		_allGameTextures.push( texture );
-
-	}
-
+export function GL_RegisterTexture(texture) {
+  if (texture != null && _allGameTextures.includes(texture) === false) {
+    _allGameTextures.push(texture);
+  }
 }
 
 /*
@@ -351,22 +362,22 @@ Returns the shared _scaledSize scratch object.
 */
 const _scaledSize = { width: 0, height: 0 };
 
-export function GL_ScaledTextureSize( width, height, mip = gl_picmip.value ) {
+export function GL_ScaledTextureSize(width, height, mip = gl_picmip.value) {
+  // JS shifts wrap at 32; past 30 every size floors to 1 anyway.
+  const shift = Math.min(30, Math.max(0, mip | 0));
+  let scaled_width = width >> shift;
+  let scaled_height = height >> shift;
 
-	// JS shifts wrap at 32; past 30 every size floors to 1 anyway.
-	const shift = Math.min( 30, Math.max( 0, mip | 0 ) );
-	let scaled_width = width >> shift;
-	let scaled_height = height >> shift;
+  if (scaled_width > gl_max_size.value) {
+    scaled_width = gl_max_size.value | 0;
+  }
+  if (scaled_height > gl_max_size.value) {
+    scaled_height = gl_max_size.value | 0;
+  }
 
-	if ( scaled_width > gl_max_size.value )
-		scaled_width = gl_max_size.value | 0;
-	if ( scaled_height > gl_max_size.value )
-		scaled_height = gl_max_size.value | 0;
-
-	_scaledSize.width = Math.max( 1, scaled_width );
-	_scaledSize.height = Math.max( 1, scaled_height );
-	return _scaledSize;
-
+  _scaledSize.width = Math.max(1, scaled_width);
+  _scaledSize.height = Math.max(1, scaled_height);
+  return _scaledSize;
 }
 
 /*
@@ -378,27 +389,27 @@ GL_ResampleTexture (gl_draw.c) point-samples 32-bit texels; doing the same on
 textures split from the result keep matching sizes.
 ================
 */
-export function GL_ResampleTexture8( data, inwidth, inheight, outwidth, outheight ) {
+export function GL_ResampleTexture8(
+  data,
+  inwidth,
+  inheight,
+  outwidth,
+  outheight,
+) {
+  const out = new Uint8Array(outwidth * outheight);
+  const fracstep = (inwidth * 0x10000 / outwidth) | 0;
 
-	const out = new Uint8Array( outwidth * outheight );
-	const fracstep = ( inwidth * 0x10000 / outwidth ) | 0;
+  for (let i = 0; i < outheight; i++) {
+    const inrow = inwidth * ((i * inheight / outheight) | 0);
+    let frac = fracstep >> 1;
 
-	for ( let i = 0; i < outheight; i ++ ) {
+    for (let j = 0; j < outwidth; j++) {
+      out[i * outwidth + j] = data[inrow + (frac >> 16)];
+      frac += fracstep;
+    }
+  }
 
-		const inrow = inwidth * ( ( i * inheight / outheight ) | 0 );
-		let frac = fracstep >> 1;
-
-		for ( let j = 0; j < outwidth; j ++ ) {
-
-			out[ i * outwidth + j ] = data[ inrow + ( frac >> 16 ) ];
-			frac += fracstep;
-
-		}
-
-	}
-
-	return out;
-
+  return out;
 }
 
 /*
@@ -422,75 +433,57 @@ let _cullValue = 1;
 let _cullPruneAt = 256;
 
 function _pruneCullMaterials() {
+  for (const ref of _cullMaterials) {
+    if (ref.deref() === undefined) _cullMaterials.delete(ref);
+  }
 
-	for ( const ref of _cullMaterials ) {
-
-		if ( ref.deref() === undefined ) _cullMaterials.delete( ref );
-
-	}
-
-	_cullPruneAt = Math.max( 256, _cullMaterials.size * 2 );
-
+  _cullPruneAt = Math.max(256, _cullMaterials.size * 2);
 }
 
-function _onCullMaterialDispose( event ) {
-
-	const ref = _cullMaterialRefs.get( event.target );
-	if ( ref !== undefined ) _cullMaterials.delete( ref );
-	_cullMaterialRefs.delete( event.target );
-	event.target.removeEventListener( 'dispose', _onCullMaterialDispose );
-
+function _onCullMaterialDispose(event) {
+  const ref = _cullMaterialRefs.get(event.target);
+  if (ref !== undefined) _cullMaterials.delete(ref);
+  _cullMaterialRefs.delete(event.target);
+  event.target.removeEventListener("dispose", _onCullMaterialDispose);
 }
 
 export function GL_CullSide() {
-
-	return gl_cull.value !== 0 ? THREE.FrontSide : THREE.DoubleSide;
-
+  return gl_cull.value !== 0 ? THREE.FrontSide : THREE.DoubleSide;
 }
 
-export function GL_RegisterCullMaterial( material ) {
-
-	if ( material == null || _cullMaterialRefs.has( material ) ) return material;
-	material.side = GL_CullSide();
-	const ref = new WeakRef( material );
-	_cullMaterialRefs.set( material, ref );
-	_cullMaterials.add( ref );
-	material.addEventListener( 'dispose', _onCullMaterialDispose );
-	if ( _cullMaterials.size >= _cullPruneAt ) _pruneCullMaterials();
-	return material;
-
+export function GL_RegisterCullMaterial(material) {
+  if (material == null || _cullMaterialRefs.has(material)) return material;
+  material.side = GL_CullSide();
+  const ref = new WeakRef(material);
+  _cullMaterialRefs.set(material, ref);
+  _cullMaterials.add(ref);
+  material.addEventListener("dispose", _onCullMaterialDispose);
+  if (_cullMaterials.size >= _cullPruneAt) _pruneCullMaterials();
+  return material;
 }
 
 // Called once per frame from R_SetupGL; only walks the set when gl_cull changes.
 export function GL_UpdateCull() {
+  if (gl_cull.value === _cullValue) return;
+  _cullValue = gl_cull.value;
 
-	if ( gl_cull.value === _cullValue ) return;
-	_cullValue = gl_cull.value;
+  const side = GL_CullSide();
+  for (const ref of _cullMaterials) {
+    const material = ref.deref();
+    if (material === undefined) {
+      _cullMaterials.delete(ref);
+      continue;
+    }
 
-	const side = GL_CullSide();
-	for ( const ref of _cullMaterials ) {
-
-		const material = ref.deref();
-		if ( material === undefined ) {
-
-			_cullMaterials.delete( ref );
-			continue;
-
-		}
-
-		material.side = side;
-		material.needsUpdate = true;
-
-	}
-
+    material.side = side;
+    material.needsUpdate = true;
+  }
 }
 
-export function GL_UnregisterTexture( texture ) {
-
-	if ( texture == null ) return;
-	const index = _allGameTextures.indexOf( texture );
-	if ( index !== - 1 ) _allGameTextures.splice( index, 1 );
-
+export function GL_UnregisterTexture(texture) {
+  if (texture == null) return;
+  const index = _allGameTextures.indexOf(texture);
+  if (index !== -1) _allGameTextures.splice(index, 1);
 }
 
 /*
@@ -499,18 +492,12 @@ mipmap texture objects". As in C, textures without mipmaps keep the filter
 they were loaded with.
 */
 export function GL_UpdateTextureFiltering() {
-
-	for ( const texture of _allGameTextures ) {
-
-		if ( texture != null && texture.generateMipmaps === true ) {
-
-			GL_SetTextureFilter( texture, true );
-			texture.needsUpdate = true;
-
-		}
-
-	}
-
+  for (const texture of _allGameTextures) {
+    if (texture != null && texture.generateMipmaps === true) {
+      GL_SetTextureFilter(texture, true);
+      texture.needsUpdate = true;
+    }
+  }
 }
 
 /*
@@ -522,36 +509,26 @@ THREE.JS HELPER FUNCTIONS
 ===============================================================================
 */
 
-export function GL_Bind( texnum ) {
-
-	currenttexture = texnum;
-
+export function GL_Bind(texnum) {
+  currenttexture = texnum;
 }
 
 export function GL_DisableMultitexture() {
-
-	// no-op in Three.js
-
+  // no-op in Three.js
 }
 
 export function GL_EnableMultitexture() {
-
-	// no-op in Three.js
-
+  // no-op in Three.js
 }
 
-export function GL_BeginRendering( _x, _y, _width, _height ) {
-
-	// In Three.js, rendering is handled by the renderer
-	// These values are set by the video initialization
-
+export function GL_BeginRendering(_x, _y, _width, _height) {
+  // In Three.js, rendering is handled by the renderer
+  // These values are set by the video initialization
 }
 
 export function GL_EndRendering() {
-
-	// no-op in Three.js
-
+  // no-op in Three.js
 }
 
 // v_blend for dynamic light blend effects
-export const v_blend = new Float32Array( 4 );
+export const v_blend = new Float32Array(4);

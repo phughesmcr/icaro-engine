@@ -26,54 +26,54 @@ export const PROTOCOL_VERSION = 15;
 export const PROTOCOL_ICARO = 1015;
 
 // if the high bit of the servercmd is set, the low bits are fast update flags:
-export const U_MOREBITS = ( 1 << 0 );
-export const U_ORIGIN1 = ( 1 << 1 );
-export const U_ORIGIN2 = ( 1 << 2 );
-export const U_ORIGIN3 = ( 1 << 3 );
-export const U_ANGLE2 = ( 1 << 4 );
-export const U_NOLERP = ( 1 << 5 ); // don't interpolate movement
-export const U_FRAME = ( 1 << 6 );
-export const U_SIGNAL = ( 1 << 7 ); // just differentiates from other updates
+export const U_MOREBITS = 1 << 0;
+export const U_ORIGIN1 = 1 << 1;
+export const U_ORIGIN2 = 1 << 2;
+export const U_ORIGIN3 = 1 << 3;
+export const U_ANGLE2 = 1 << 4;
+export const U_NOLERP = 1 << 5; // don't interpolate movement
+export const U_FRAME = 1 << 6;
+export const U_SIGNAL = 1 << 7; // just differentiates from other updates
 
 // svc_update can pass all of the fast update bits, plus more
-export const U_ANGLE1 = ( 1 << 8 );
-export const U_ANGLE3 = ( 1 << 9 );
-export const U_MODEL = ( 1 << 10 );
-export const U_COLORMAP = ( 1 << 11 );
-export const U_SKIN = ( 1 << 12 );
-export const U_EFFECTS = ( 1 << 13 );
-export const U_LONGENTITY = ( 1 << 14 );
+export const U_ANGLE1 = 1 << 8;
+export const U_ANGLE3 = 1 << 9;
+export const U_MODEL = 1 << 10;
+export const U_COLORMAP = 1 << 11;
+export const U_SKIN = 1 << 12;
+export const U_EFFECTS = 1 << 13;
+export const U_LONGENTITY = 1 << 14;
 
-export const SU_VIEWHEIGHT = ( 1 << 0 );
-export const SU_IDEALPITCH = ( 1 << 1 );
-export const SU_PUNCH1 = ( 1 << 2 );
-export const SU_PUNCH2 = ( 1 << 3 );
-export const SU_PUNCH3 = ( 1 << 4 );
-export const SU_VELOCITY1 = ( 1 << 5 );
-export const SU_VELOCITY2 = ( 1 << 6 );
-export const SU_VELOCITY3 = ( 1 << 7 );
+export const SU_VIEWHEIGHT = 1 << 0;
+export const SU_IDEALPITCH = 1 << 1;
+export const SU_PUNCH1 = 1 << 2;
+export const SU_PUNCH2 = 1 << 3;
+export const SU_PUNCH3 = 1 << 4;
+export const SU_VELOCITY1 = 1 << 5;
+export const SU_VELOCITY2 = 1 << 6;
+export const SU_VELOCITY3 = 1 << 7;
 // SU_AIMENT (1<<8) AVAILABLE BIT
-export const SU_ITEMS = ( 1 << 9 );
-export const SU_ONGROUND = ( 1 << 10 ); // no data follows, the bit is it
-export const SU_INWATER = ( 1 << 11 ); // no data follows, the bit is it
-export const SU_WEAPONFRAME = ( 1 << 12 );
-export const SU_ARMOR = ( 1 << 13 );
-export const SU_WEAPON = ( 1 << 14 );
+export const SU_ITEMS = 1 << 9;
+export const SU_ONGROUND = 1 << 10; // no data follows, the bit is it
+export const SU_INWATER = 1 << 11; // no data follows, the bit is it
+export const SU_WEAPONFRAME = 1 << 12;
+export const SU_ARMOR = 1 << 13;
+export const SU_WEAPON = 1 << 14;
 // Ironwail (FitzQuake) protocol.h. Icaro sends only these extended bits:
 // its weapon model is already a short (no SU_WEAPON2), and armor and ammo
 // stay bytes (SU_ARMOR2 to SU_CELLS2, bits 16 to 22, are not sent).
-export const SU_EXTEND1 = ( 1 << 15 ); // another byte to follow
-export const SU_EXTEND2 = ( 1 << 23 ); // another byte to follow
-export const SU_WEAPONFRAME2 = ( 1 << 24 ); // 1 byte, this is .weaponframe & 0xFF00 (second byte)
-export const SU_WEAPONALPHA = ( 1 << 25 ); // 1 byte, this is alpha for weaponmodel, uses ENTALPHA_ENCODE, not sent if ENTALPHA_DEFAULT
+export const SU_EXTEND1 = 1 << 15; // another byte to follow
+export const SU_EXTEND2 = 1 << 23; // another byte to follow
+export const SU_WEAPONFRAME2 = 1 << 24; // 1 byte, this is .weaponframe & 0xFF00 (second byte)
+export const SU_WEAPONALPHA = 1 << 25; // 1 byte, this is alpha for weaponmodel, uses ENTALPHA_ENCODE, not sent if ENTALPHA_DEFAULT
 
 // a sound with no channel is a local only sound
-export const SND_VOLUME = ( 1 << 0 ); // a byte
-export const SND_ATTENUATION = ( 1 << 1 ); // a byte
-export const SND_LOOPING = ( 1 << 2 ); // a long
+export const SND_VOLUME = 1 << 0; // a byte
+export const SND_ATTENUATION = 1 << 1; // a byte
+export const SND_LOOPING = 1 << 2; // a long
 // Ironwail (FitzQuake) protocol.h
-export const SND_LARGEENTITY = ( 1 << 3 ); // a short + byte (instead of just a short)
-export const SND_LARGESOUND = ( 1 << 4 ); // a short soundindex (instead of a byte)
+export const SND_LARGEENTITY = 1 << 3; // a short + byte (instead of just a short)
+export const SND_LARGESOUND = 1 << 4; // a short soundindex (instead of a byte)
 
 // defaults for clientinfo messages
 export const DEFAULT_VIEWHEIGHT = 22;
@@ -174,36 +174,36 @@ export const svc_playerinfo = 42;
 // playerinfo flags from server
 // playerinfo always sends: playernum, flags, origin[] and frame (a short
 // here, QW: a byte; PF_WEAPONFRAME is a short too)
-export const PF_MSEC = ( 1 << 0 );
-export const PF_COMMAND = ( 1 << 1 );
-export const PF_VELOCITY1 = ( 1 << 2 );
-export const PF_VELOCITY2 = ( 1 << 3 );
-export const PF_VELOCITY3 = ( 1 << 4 );
-export const PF_MODEL = ( 1 << 5 );
-export const PF_SKINNUM = ( 1 << 6 );
-export const PF_EFFECTS = ( 1 << 7 );
-export const PF_WEAPONFRAME = ( 1 << 8 ); // only sent for view player
-export const PF_DEAD = ( 1 << 9 ); // don't block movement any more
-export const PF_GIB = ( 1 << 10 ); // offset the view height differently
+export const PF_MSEC = 1 << 0;
+export const PF_COMMAND = 1 << 1;
+export const PF_VELOCITY1 = 1 << 2;
+export const PF_VELOCITY2 = 1 << 3;
+export const PF_VELOCITY3 = 1 << 4;
+export const PF_MODEL = 1 << 5;
+export const PF_SKINNUM = 1 << 6;
+export const PF_EFFECTS = 1 << 7;
+export const PF_WEAPONFRAME = 1 << 8; // only sent for view player
+export const PF_DEAD = 1 << 9; // don't block movement any more
+export const PF_GIB = 1 << 10; // offset the view height differently
 // Not in QW: the view player's NQ movetype, for prediction (view player only)
-export const PF_FLY = ( 1 << 11 ); // MOVETYPE_FLY
-export const PF_NOCLIP = ( 1 << 12 ); // MOVETYPE_NOCLIP
+export const PF_FLY = 1 << 11; // MOVETYPE_FLY
+export const PF_NOCLIP = 1 << 12; // MOVETYPE_NOCLIP
 // Not in QW: [byte] ent->v.teleport_time - sv.time in 10 ms units (view player
 // only), for the teleporter back-move lock and waterjump in prediction
-export const PF_TELEPORT = ( 1 << 13 );
+export const PF_TELEPORT = 1 << 13;
 // Not in QW: [byte] the player's alpha (ENTALPHA_ENCODE), not sent if
 // ENTALPHA_DEFAULT. Ironwail sends player entities with U_ALPHA.
-export const PF_ALPHA = ( 1 << 14 );
+export const PF_ALPHA = 1 << 14;
 
 // command move bits (for delta compression of usercmd_t)
-export const CM_ANGLE1 = ( 1 << 0 );
-export const CM_ANGLE3 = ( 1 << 1 );
-export const CM_FORWARD = ( 1 << 2 );
-export const CM_SIDE = ( 1 << 3 );
-export const CM_UP = ( 1 << 4 );
-export const CM_BUTTONS = ( 1 << 5 );
-export const CM_IMPULSE = ( 1 << 6 );
-export const CM_ANGLE2 = ( 1 << 7 );
+export const CM_ANGLE1 = 1 << 0;
+export const CM_ANGLE3 = 1 << 1;
+export const CM_FORWARD = 1 << 2;
+export const CM_SIDE = 1 << 3;
+export const CM_UP = 1 << 4;
+export const CM_BUTTONS = 1 << 5;
+export const CM_IMPULSE = 1 << 6;
+export const CM_ANGLE2 = 1 << 7;
 
 //==============================================
 // QW-style delta compression for packet entities
@@ -225,40 +225,40 @@ export const clc_delta = 5; // [byte] sequence number, requests delta compressio
 
 // Entity number: the low 15 bits of the first short
 export const PE_ENT_BITS = 15;
-export const PE_ENT_MASK = ( 1 << PE_ENT_BITS ) - 1; // 0x7FFF
-export const PE_REMOVE = ( 1 << 15 ); // REMOVE this entity, don't add it
+export const PE_ENT_MASK = (1 << PE_ENT_BITS) - 1; // 0x7FFF
+export const PE_REMOVE = 1 << 15; // REMOVE this entity, don't add it
 
 // The first byte of bits
-export const PE_ORIGIN1 = ( 1 << 0 );
-export const PE_ORIGIN2 = ( 1 << 1 );
-export const PE_ORIGIN3 = ( 1 << 2 );
-export const PE_ANGLE1 = ( 1 << 3 );
-export const PE_ANGLE2 = ( 1 << 4 );
-export const PE_ANGLE3 = ( 1 << 5 );
-export const PE_FRAME = ( 1 << 6 );
-export const PE_MOREBITS = ( 1 << 7 );
+export const PE_ORIGIN1 = 1 << 0;
+export const PE_ORIGIN2 = 1 << 1;
+export const PE_ORIGIN3 = 1 << 2;
+export const PE_ANGLE1 = 1 << 3;
+export const PE_ANGLE2 = 1 << 4;
+export const PE_ANGLE3 = 1 << 5;
+export const PE_FRAME = 1 << 6;
+export const PE_MOREBITS = 1 << 7;
 
 // The second byte, read when PE_MOREBITS is set
-export const PE_MODEL = ( 1 << 8 ); // [short] modelindex
-export const PE_COLORMAP = ( 1 << 9 );
-export const PE_SKIN = ( 1 << 10 );
-export const PE_EFFECTS = ( 1 << 11 );
+export const PE_MODEL = 1 << 8; // [short] modelindex
+export const PE_COLORMAP = 1 << 9;
+export const PE_SKIN = 1 << 10;
+export const PE_EFFECTS = 1 << 11;
 // PE_SOLID: the entity's prediction info changed. QW sends it, without a
 // payload, on every update of a solid entity. Here it is delta'd like the
 // other fields: it is set only when the PS_* byte or the box differs from
 // the state being delta'd from, and it is followed, after the angles, by
 // the PS_* byte and, if PS_BOX is set, the box as 6 coords (mins, maxs).
-export const PE_SOLID = ( 1 << 12 );
+export const PE_SOLID = 1 << 12;
 // [byte] entity alpha, ENTALPHA_ENCODE (Ironwail's U_ALPHA), sent last
-export const PE_ALPHA = ( 1 << 13 );
+export const PE_ALPHA = 1 << 13;
 // [byte] frame & 0xFF00 (Ironwail's U_FRAME2), sent after PE_ALPHA. Only
 // with PE_FRAME, which carries the low byte.
-export const PE_FRAME2 = ( 1 << 14 );
+export const PE_FRAME2 = 1 << 14;
 
 // PS_* bits: the byte that follows PE_SOLID (entity_state_t.solid)
-export const PS_BSP = ( 1 << 0 ); // collide with the entity's brush model hull
-export const PS_BOX = ( 1 << 1 ); // collide with the box that follows
-export const PS_NOLERP = ( 1 << 2 ); // MOVETYPE_STEP: don't interpolate (NQ U_NOLERP)
+export const PS_BSP = 1 << 0; // collide with the entity's brush model hull
+export const PS_BOX = 1 << 1; // collide with the box that follows
+export const PS_NOLERP = 1 << 2; // MOVETYPE_STEP: don't interpolate (NQ U_NOLERP)
 
 // Packet entities constants
 // NetQuake has no entity count cap, only the datagram size, so the cap is
@@ -279,24 +279,20 @@ export const ENTALPHA_ZERO = 1; // entity is invisible (lowest possible alpha)
 export const ENTALPHA_ONE = 255; // entity is fully opaque (highest possible alpha)
 
 // server convert to byte to send to client
-export function ENTALPHA_ENCODE( a ) {
-
-	if ( a === 0 ) return ENTALPHA_DEFAULT;
-	const x = Math.min( 255, Math.max( 1, a * 254 + 1 ) );
-	return ( x > 0 ? x + 0.5 : x - 0.5 ) | 0; // Q_rint
-
+export function ENTALPHA_ENCODE(a) {
+  if (a === 0) return ENTALPHA_DEFAULT;
+  const x = Math.min(255, Math.max(1, a * 254 + 1));
+  return (x > 0 ? x + 0.5 : x - 0.5) | 0; // Q_rint
 }
 
 // client convert to float for rendering
-export function ENTALPHA_DECODE( a ) {
-
-	return a === ENTALPHA_DEFAULT ? 1.0 : ( a - 1 ) / 254;
-
+export function ENTALPHA_DECODE(a) {
+  return a === ENTALPHA_DEFAULT ? 1.0 : (a - 1) / 254;
 }
 
 // server convert to float for savegame
-export function ENTALPHA_TOSAVE( a ) {
-
-	return a === ENTALPHA_DEFAULT ? 0.0 : ( a === ENTALPHA_ZERO ? - 1.0 : ( a - 1 ) / 254 );
-
+export function ENTALPHA_TOSAVE(a) {
+  return a === ENTALPHA_DEFAULT ?
+    0.0 :
+    (a === ENTALPHA_ZERO ? -1.0 : (a - 1) / 254);
 }

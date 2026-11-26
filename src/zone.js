@@ -4,9 +4,9 @@
 // memory management from C is simplified. We keep the API surface for
 // compatibility with the rest of the port but let JS handle actual allocation.
 
-import { Sys_Error } from './sys.js';
-import { Con_Printf, Con_DPrintf } from './common.js';
-import { Cmd_AddCommand } from './cmd.js';
+import { Sys_Error } from "./sys.js";
+import { Con_DPrintf, Con_Printf } from "./common.js";
+import { Cmd_AddCommand } from "./cmd.js";
 
 /*
 Memory layout in original Quake (for reference):
@@ -29,13 +29,9 @@ In JS, we simplify:
 
 // cache_user_t equivalent
 export class cache_user_t {
-
-	constructor() {
-
-		this.data = null;
-
-	}
-
+  constructor() {
+    this.data = null;
+  }
 }
 
 // Track hunk marks for level transitions
@@ -57,10 +53,8 @@ Memory_Init
 ========================
 */
 export function Memory_Init() {
-
-	Cache_Init();
-	Con_Printf( 'Memory initialized (JavaScript GC mode)\\n' );
-
+  Cache_Init();
+  Con_Printf("Memory initialized (JavaScript GC mode)\\n");
 }
 
 /*
@@ -79,11 +73,9 @@ Z_Malloc
 Returns zero-filled memory. In JS, returns an ArrayBuffer or object.
 ========================
 */
-export function Z_Malloc( size ) {
-
-	zone_allocated += size;
-	return new ArrayBuffer( size );
-
+export function Z_Malloc(size) {
+  zone_allocated += size;
+  return new ArrayBuffer(size);
 }
 
 /*
@@ -91,11 +83,9 @@ export function Z_Malloc( size ) {
 Z_Free
 ========================
 */
-export function Z_Free( _ptr ) {
-
-	// In JS, just let GC handle it
-	// We could track and subtract from zone_allocated but it's not critical
-
+export function Z_Free(_ptr) {
+  // In JS, just let GC handle it
+  // We could track and subtract from zone_allocated but it's not critical
 }
 
 /*
@@ -104,9 +94,7 @@ Z_FreeMemory
 ========================
 */
 export function Z_FreeMemory() {
-
-	return 0x100000 - zone_allocated; // approximate
-
+  return 0x100000 - zone_allocated; // approximate
 }
 
 /*
@@ -124,13 +112,11 @@ level transitions can conceptually "free" old data.
 Hunk_AllocName
 ===================
 */
-export function Hunk_AllocName( size, _name ) {
-
-	// In JS, just allocate. The name is for debugging.
-	const buf = new ArrayBuffer( size );
-	hunk_low_mark += size;
-	return buf;
-
+export function Hunk_AllocName(size, _name) {
+  // In JS, just allocate. The name is for debugging.
+  const buf = new ArrayBuffer(size);
+  hunk_low_mark += size;
+  return buf;
 }
 
 /*
@@ -138,49 +124,35 @@ export function Hunk_AllocName( size, _name ) {
 Hunk_Alloc
 ===================
 */
-export function Hunk_Alloc( size ) {
-
-	return Hunk_AllocName( size, 'unknown' );
-
+export function Hunk_Alloc(size) {
+  return Hunk_AllocName(size, "unknown");
 }
 
 export function Hunk_LowMark() {
-
-	return hunk_low_mark;
-
+  return hunk_low_mark;
 }
 
-export function Hunk_FreeToLowMark( mark ) {
-
-	hunk_low_mark = mark;
-	// In JS, actual memory freed by GC when references dropped
-
+export function Hunk_FreeToLowMark(mark) {
+  hunk_low_mark = mark;
+  // In JS, actual memory freed by GC when references dropped
 }
 
 export function Hunk_HighMark() {
+  if (hunk_temp_active) {
+    hunk_temp_active = false;
+    Hunk_FreeToHighMark(hunk_temp_mark);
+  }
 
-	if ( hunk_temp_active ) {
-
-		hunk_temp_active = false;
-		Hunk_FreeToHighMark( hunk_temp_mark );
-
-	}
-
-	return hunk_high_mark;
-
+  return hunk_high_mark;
 }
 
-export function Hunk_FreeToHighMark( mark ) {
+export function Hunk_FreeToHighMark(mark) {
+  if (hunk_temp_active) {
+    hunk_temp_active = false;
+    Hunk_FreeToHighMark(hunk_temp_mark);
+  }
 
-	if ( hunk_temp_active ) {
-
-		hunk_temp_active = false;
-		Hunk_FreeToHighMark( hunk_temp_mark );
-
-	}
-
-	hunk_high_mark = mark;
-
+  hunk_high_mark = mark;
 }
 
 /*
@@ -188,18 +160,14 @@ export function Hunk_FreeToHighMark( mark ) {
 Hunk_HighAllocName
 ===================
 */
-export function Hunk_HighAllocName( size, _name ) {
+export function Hunk_HighAllocName(size, _name) {
+  if (hunk_temp_active) {
+    Hunk_FreeToHighMark(hunk_temp_mark);
+    hunk_temp_active = false;
+  }
 
-	if ( hunk_temp_active ) {
-
-		Hunk_FreeToHighMark( hunk_temp_mark );
-		hunk_temp_active = false;
-
-	}
-
-	hunk_high_mark += size;
-	return new ArrayBuffer( size );
-
+  hunk_high_mark += size;
+  return new ArrayBuffer(size);
 }
 
 /*
@@ -209,27 +177,21 @@ Hunk_TempAlloc
 Return space from the top of the hunk
 =================
 */
-export function Hunk_TempAlloc( size ) {
+export function Hunk_TempAlloc(size) {
+  if (hunk_temp_active) {
+    Hunk_FreeToHighMark(hunk_temp_mark);
+    hunk_temp_active = false;
+  }
 
-	if ( hunk_temp_active ) {
+  hunk_temp_mark = Hunk_HighMark();
+  const buf = Hunk_HighAllocName(size, "temp");
+  hunk_temp_active = true;
 
-		Hunk_FreeToHighMark( hunk_temp_mark );
-		hunk_temp_active = false;
-
-	}
-
-	hunk_temp_mark = Hunk_HighMark();
-	const buf = Hunk_HighAllocName( size, 'temp' );
-	hunk_temp_active = true;
-
-	return buf;
-
+  return buf;
 }
 
 export function Hunk_Check() {
-
-	// No-op in JS
-
+  // No-op in JS
 }
 
 /*
@@ -247,16 +209,14 @@ Cache_Init
 ============
 */
 function Cache_Init() {
+  cache_entries.clear();
+  cache_lru.length = 0;
 
-	cache_entries.clear();
-	cache_lru.length = 0;
-
-	// zone.c registers "flush" here. Nothing in the port allocates from this
-	// cache (models and sounds are kept as GC objects), so Cache_Flush has
-	// nothing to free; the command exists so configs and players get the C
-	// command rather than "Unknown command".
-	Cmd_AddCommand( 'flush', Cache_Flush );
-
+  // zone.c registers "flush" here. Nothing in the port allocates from this
+  // cache (models and sounds are kept as GC objects), so Cache_Flush has
+  // nothing to free; the command exists so configs and players get the C
+  // command rather than "Unknown command".
+  Cmd_AddCommand("flush", Cache_Flush);
 }
 
 /*
@@ -267,20 +227,14 @@ Throw everything out, so new data will be demand cached
 ============
 */
 export function Cache_Flush() {
+  for (const entry of cache_entries.values()) {
+    if (entry.user) {
+      entry.user.data = null;
+    }
+  }
 
-	for ( const entry of cache_entries.values() ) {
-
-		if ( entry.user ) {
-
-			entry.user.data = null;
-
-		}
-
-	}
-
-	cache_entries.clear();
-	cache_lru.length = 0;
-
+  cache_entries.clear();
+  cache_lru.length = 0;
 }
 
 /*
@@ -290,27 +244,22 @@ Cache_Free
 Frees the memory and removes it from the LRU list
 ==============
 */
-export function Cache_Free( c ) {
+export function Cache_Free(c) {
+  if (!c.data) {
+    Sys_Error("Cache_Free: not allocated");
+  }
 
-	if ( ! c.data )
-		Sys_Error( 'Cache_Free: not allocated' );
+  // Find and remove from cache
+  for (const [name, entry] of cache_entries) {
+    if (entry.user === c) {
+      cache_entries.delete(name);
+      const idx = cache_lru.indexOf(name);
+      if (idx !== -1) cache_lru.splice(idx, 1);
+      break;
+    }
+  }
 
-	// Find and remove from cache
-	for ( const [ name, entry ] of cache_entries ) {
-
-		if ( entry.user === c ) {
-
-			cache_entries.delete( name );
-			const idx = cache_lru.indexOf( name );
-			if ( idx !== - 1 ) cache_lru.splice( idx, 1 );
-			break;
-
-		}
-
-	}
-
-	c.data = null;
-
+  c.data = null;
 }
 
 /*
@@ -321,32 +270,25 @@ Returns the cached data, and moves to the head of the LRU list
 if present, otherwise returns null
 ==============
 */
-export function Cache_Check( c ) {
+export function Cache_Check(c) {
+  if (!c.data) {
+    return null;
+  }
 
-	if ( ! c.data )
-		return null;
+  // Move to front of LRU
+  for (const [name, entry] of cache_entries) {
+    if (entry.user === c) {
+      const idx = cache_lru.indexOf(name);
+      if (idx !== -1) {
+        cache_lru.splice(idx, 1);
+        cache_lru.unshift(name);
+      }
 
-	// Move to front of LRU
-	for ( const [ name, entry ] of cache_entries ) {
+      break;
+    }
+  }
 
-		if ( entry.user === c ) {
-
-			const idx = cache_lru.indexOf( name );
-			if ( idx !== - 1 ) {
-
-				cache_lru.splice( idx, 1 );
-				cache_lru.unshift( name );
-
-			}
-
-			break;
-
-		}
-
-	}
-
-	return c.data;
-
+  return c.data;
 }
 
 /*
@@ -354,22 +296,22 @@ export function Cache_Check( c ) {
 Cache_Alloc
 ==============
 */
-export function Cache_Alloc( c, size, name ) {
+export function Cache_Alloc(c, size, name) {
+  if (c.data) {
+    Sys_Error("Cache_Alloc: already allocated");
+  }
 
-	if ( c.data )
-		Sys_Error( 'Cache_Alloc: already allocated' );
+  if (size <= 0) {
+    Sys_Error("Cache_Alloc: size " + size);
+  }
 
-	if ( size <= 0 )
-		Sys_Error( 'Cache_Alloc: size ' + size );
+  const data = new ArrayBuffer(size);
+  c.data = data;
 
-	const data = new ArrayBuffer( size );
-	c.data = data;
+  cache_entries.set(name, { data: data, user: c, size: size });
+  cache_lru.unshift(name);
 
-	cache_entries.set( name, { data: data, user: c, size: size } );
-	cache_lru.unshift( name );
-
-	return data;
-
+  return data;
 }
 
 /*
@@ -378,14 +320,10 @@ Cache_Report
 ============
 */
 export function Cache_Report() {
+  let total = 0;
+  for (const entry of cache_entries.values()) {
+    total += entry.size;
+  }
 
-	let total = 0;
-	for ( const entry of cache_entries.values() ) {
-
-		total += entry.size;
-
-	}
-
-	Con_DPrintf( ( total / ( 1024 * 1024 ) ).toFixed( 1 ) + ' megabyte data cache\\n' );
-
+  Con_DPrintf((total / (1024 * 1024)).toFixed(1) + " megabyte data cache\\n");
 }

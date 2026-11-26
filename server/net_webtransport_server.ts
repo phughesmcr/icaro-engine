@@ -226,7 +226,11 @@ function _buildSequencedPacket(
   }
 
   const packet = new Uint8Array(WT_PACKET_HEADER_BYTES + dataLength);
-  const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+  const view = new DataView(
+    packet.buffer,
+    packet.byteOffset,
+    packet.byteLength,
+  );
 
   const sequence = sock.sendSequence | 0;
   const acknowledged = _ackSequence(sock, conn);
@@ -251,7 +255,11 @@ function _parseSequencedPacket(
   }
 
   const conn = sock.driverdata as ClientConnection;
-  const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+  const view = new DataView(
+    packet.buffer,
+    packet.byteOffset,
+    packet.byteLength,
+  );
   const sequence = view.getUint32(1, true) | 0;
   const acknowledged = view.getUint32(5, true) | 0;
 
@@ -729,10 +737,10 @@ async function _handleWebTransportSession(
     );
     _rejectConnection(
       conn,
-      version < 0
-        ? "Protocol mismatch: update your client"
-        : "Protocol version " + version + " not supported (server uses " +
-          WT_PROTOCOL_VERSION + ")",
+      version < 0 ?
+        "Protocol mismatch: update your client" :
+        "Protocol version " + version + " not supported (server uses " +
+        WT_PROTOCOL_VERSION + ")",
     );
     return;
   }
@@ -1662,9 +1670,9 @@ function _refreshMaxDatagramSize(conn: ClientConnection): void {
     conn.maxDatagramSize = size;
   }
   if (conn.sock !== null) {
-    conn.sock.maxdatagram = conn.maxDatagramSize > WT_PACKET_HEADER_BYTES
-      ? conn.maxDatagramSize - WT_PACKET_HEADER_BYTES
-      : 0;
+    conn.sock.maxdatagram = conn.maxDatagramSize > WT_PACKET_HEADER_BYTES ?
+      conn.maxDatagramSize - WT_PACKET_HEADER_BYTES :
+      0;
   }
 }
 

@@ -1,8 +1,16 @@
 // Ported from: WinQuake/server.h -- server structures and constants
 
-import { MAX_MODELS, MAX_SOUNDS, MAX_LIGHTSTYLES, MAX_DATAGRAM, MAX_DATAGRAM_ID, MAX_MSGLEN, packet_entities_t } from './quakedef.js';
-import { sizebuf_t } from './common.js';
-import { PE_UPDATE_BACKUP } from './protocol.js';
+import {
+  MAX_DATAGRAM,
+  MAX_DATAGRAM_ID,
+  MAX_LIGHTSTYLES,
+  MAX_MODELS,
+  MAX_MSGLEN,
+  MAX_SOUNDS,
+  packet_entities_t,
+} from "./quakedef.js";
+import { sizebuf_t } from "./common.js";
+import { PE_UPDATE_BACKUP } from "./protocol.js";
 
 //============================================================================
 // Server state enum
@@ -25,21 +33,17 @@ export const PRESPAWN_SIGNONMSG = 3;
 //============================================================================
 
 export class server_static_t {
-
-	constructor() {
-
-		this.maxclients = 0;
-		this.maxclientslimit = 0;
-		this.clients = null; // Array of client_t [maxclients]
-		this.serverflags = 0; // episode completion information
-		this.changelevel_issued = false; // cleared when at SV_SpawnServer
-		// QW/server/server.h: servers spawned since start. NetQuake has no
-		// such count; src/net_rtclobby.js uses it to tell its room's map
-		// from a server that was already running.
-		this.spawncount = 0;
-
-	}
-
+  constructor() {
+    this.maxclients = 0;
+    this.maxclientslimit = 0;
+    this.clients = null; // Array of client_t [maxclients]
+    this.serverflags = 0; // episode completion information
+    this.changelevel_issued = false; // cleared when at SV_SpawnServer
+    // QW/server/server.h: servers spawned since start. NetQuake has no
+    // such count; src/net_rtclobby.js uses it to tell its room's map
+    // from a server that was already running.
+    this.spawncount = 0;
+  }
 }
 
 //============================================================================
@@ -47,47 +51,43 @@ export class server_static_t {
 //============================================================================
 
 export class server_t {
+  constructor() {
+    this.active = false; // false if only a net client
 
-	constructor() {
+    this.paused = false;
+    this.loadgame = false; // handle connections specially
+    this.nomonsters = false; // server started with 'nomonsters' cvar active (Ironwail)
 
-		this.active = false; // false if only a net client
+    this.time = 0;
 
-		this.paused = false;
-		this.loadgame = false; // handle connections specially
-		this.nomonsters = false; // server started with 'nomonsters' cvar active (Ironwail)
+    this.lastcheck = 0; // used by PF_checkclient
+    this.lastchecktime = 0;
 
-		this.time = 0;
+    this.name = ""; // map name (max 64)
+    this.modelname = ""; // maps/<name>.bsp, for model_precache[0]
+    this.worldmodel = null; // struct model_s *
+    this.model_precache = new Array(MAX_MODELS).fill(null); // NULL terminated
+    this.models = new Array(MAX_MODELS).fill(null);
+    this.sound_precache = new Array(MAX_SOUNDS).fill(null); // NULL terminated
+    this.lightstyles = new Array(MAX_LIGHTSTYLES).fill(null);
+    this.num_edicts = 0;
+    this.max_edicts = 0;
+    this.edicts = null; // edict_t * -- can NOT be array indexed (variable sized)
+    this.state = ss_loading; // some actions are only valid during load
 
-		this.lastcheck = 0; // used by PF_checkclient
-		this.lastchecktime = 0;
+    this.datagram = new sizebuf_t();
+    this.datagram_buf = new Uint8Array(MAX_DATAGRAM);
 
-		this.name = ''; // map name (max 64)
-		this.modelname = ''; // maps/<name>.bsp, for model_precache[0]
-		this.worldmodel = null; // struct model_s *
-		this.model_precache = new Array( MAX_MODELS ).fill( null ); // NULL terminated
-		this.models = new Array( MAX_MODELS ).fill( null );
-		this.sound_precache = new Array( MAX_SOUNDS ).fill( null ); // NULL terminated
-		this.lightstyles = new Array( MAX_LIGHTSTYLES ).fill( null );
-		this.num_edicts = 0;
-		this.max_edicts = 0;
-		this.edicts = null; // edict_t * -- can NOT be array indexed (variable sized)
-		this.state = ss_loading; // some actions are only valid during load
+    this.reliable_datagram = new sizebuf_t(); // copied to all clients at end of frame
+    this.reliable_datagram_buf = new Uint8Array(MAX_DATAGRAM_ID); // id's size (quakedef.js)
 
-		this.datagram = new sizebuf_t();
-		this.datagram_buf = new Uint8Array( MAX_DATAGRAM );
-
-		this.reliable_datagram = new sizebuf_t(); // copied to all clients at end of frame
-		this.reliable_datagram_buf = new Uint8Array( MAX_DATAGRAM_ID ); // id's size (quakedef.js)
-
-		// johnfitz/Ironwail: the signon is a list of buffers, filled by
-		// SV_ReserveSignonSpace and sent one per frame (SV_SendClientMessages).
-		// SV_SpawnServer adds the first one.
-		this.signon = null; // sizebuf_t * -- the buffer being filled
-		this.num_signon_buffers = 0;
-		this.signon_buffers = []; // sizebuf_t *[MAX_SIGNON_BUFFERS]
-
-	}
-
+    // johnfitz/Ironwail: the signon is a list of buffers, filled by
+    // SV_ReserveSignonSpace and sent one per frame (SV_SendClientMessages).
+    // SV_SpawnServer adds the first one.
+    this.signon = null; // sizebuf_t * -- the buffer being filled
+    this.num_signon_buffers = 0;
+    this.signon_buffers = []; // sizebuf_t *[MAX_SIGNON_BUFFERS]
+  }
 }
 
 //============================================================================
@@ -96,14 +96,10 @@ export class server_t {
 //============================================================================
 
 export class client_frame_t {
-
-	constructor() {
-
-		this.senttime = 0;
-		this.entities = new packet_entities_t();
-
-	}
-
+  constructor() {
+    this.senttime = 0;
+    this.entities = new packet_entities_t();
+  }
 }
 
 //============================================================================
@@ -114,53 +110,47 @@ export const NUM_PING_TIMES = 16;
 export const NUM_SPAWN_PARMS = 16;
 
 export class client_t {
+  constructor() {
+    this.active = false; // false = client is free
+    this.spawned = false; // false = don't send datagrams
+    this.dropasap = false; // has been told to go to another level
+    this.privileged = false; // can execute any host command
+    this.sendsignon = PRESPAWN_DONE; // only valid before spawned
+    this.signonidx = 0; // next sv.signon_buffers entry to send
 
-	constructor() {
+    this.last_message = 0; // reliable messages must be sent periodically
 
-		this.active = false; // false = client is free
-		this.spawned = false; // false = don't send datagrams
-		this.dropasap = false; // has been told to go to another level
-		this.privileged = false; // can execute any host command
-		this.sendsignon = PRESPAWN_DONE; // only valid before spawned
-		this.signonidx = 0; // next sv.signon_buffers entry to send
+    this.netconnection = null; // struct qsocket_s * -- communications handle
 
-		this.last_message = 0; // reliable messages must be sent periodically
+    this.cmd = null; // usercmd_t -- movement
+    this.wishdir = new Float32Array(3); // intended motion calced from cmd
 
-		this.netconnection = null; // struct qsocket_s * -- communications handle
+    this.message = new sizebuf_t(); // can be added to at any time, copied and clear once per frame
+    this.msgbuf = new Uint8Array(MAX_MSGLEN);
+    this.edict = null; // edict_t * -- EDICT_NUM(clientnum+1)
+    this.name = ""; // for printing to other people (max 32)
+    this.colors = 0;
 
-		this.cmd = null; // usercmd_t -- movement
-		this.wishdir = new Float32Array( 3 ); // intended motion calced from cmd
+    this.ping_times = new Float32Array(NUM_PING_TIMES);
+    this.num_pings = 0; // ping_times[num_pings%NUM_PING_TIMES]
+    this.localtime = 0; // server time of last message (for PF_MSEC)
 
-		this.message = new sizebuf_t(); // can be added to at any time, copied and clear once per frame
-		this.msgbuf = new Uint8Array( MAX_MSGLEN );
-		this.edict = null; // edict_t * -- EDICT_NUM(clientnum+1)
-		this.name = ''; // for printing to other people (max 32)
-		this.colors = 0;
+    // spawn parms are carried from level to level
+    this.spawn_parms = new Float32Array(NUM_SPAWN_PARMS);
 
-		this.ping_times = new Float32Array( NUM_PING_TIMES );
-		this.num_pings = 0; // ping_times[num_pings%NUM_PING_TIMES]
-		this.localtime = 0; // server time of last message (for PF_MSEC)
+    // client known data for deltas
+    this.old_frags = 0;
+    this.old_ping = 0;
 
-		// spawn parms are carried from level to level
-		this.spawn_parms = new Float32Array( NUM_SPAWN_PARMS );
-
-		// client known data for deltas
-		this.old_frags = 0;
-		this.old_ping = 0;
-
-		// QW-style delta compression
-		this.delta_sequence = - 1; // -1 = no compression
-		this.outgoing_sequence = 0; // incremented each frame we send to this client
-		this.pe_cursor = 0; // entity number the next packetentities starts at after an overflow
-		this.frames = [];
-		for ( let i = 0; i < PE_UPDATE_BACKUP; i ++ ) {
-
-			this.frames.push( new client_frame_t() );
-
-		}
-
-	}
-
+    // QW-style delta compression
+    this.delta_sequence = -1; // -1 = no compression
+    this.outgoing_sequence = 0; // incremented each frame we send to this client
+    this.pe_cursor = 0; // entity number the next packetentities starts at after an overflow
+    this.frames = [];
+    for (let i = 0; i < PE_UPDATE_BACKUP; i++) {
+      this.frames.push(new client_frame_t());
+    }
+  }
 }
 
 //============================================================================
@@ -246,7 +236,14 @@ export const SPAWNFLAG_NOT_DEATHMATCH = 2048;
 
 // Note: These are re-exported from host.js where they are defined and registered.
 // This matches original Quake where cvars were defined in host.c and extern'd in server.h.
-export { skill, deathmatch, coop, teamplay, fraglimit, timelimit } from './host.js';
+export {
+  coop,
+  deathmatch,
+  fraglimit,
+  skill,
+  teamplay,
+  timelimit,
+} from "./host.js";
 
 //============================================================================
 // Global server state
@@ -256,10 +253,16 @@ export const svs = new server_static_t(); // persistant server info
 export const sv = new server_t(); // local server
 
 export let host_client = null; // current client being processed
-export function set_host_client( v ) { host_client = v; }
+export function set_host_client(v) {
+  host_client = v;
+}
 
 export let host_time = 0;
-export function set_host_time( v ) { host_time = v; }
+export function set_host_time(v) {
+  host_time = v;
+}
 
 export let sv_player = null;
-export function set_sv_player( v ) { sv_player = v; }
+export function set_sv_player(v) {
+  sv_player = v;
+}

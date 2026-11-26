@@ -330,7 +330,12 @@ export function WS_HandleRequest(
   }
 
   Sys_Printf("Connection from " + address + "\n");
-  _acceptSocket(upgraded.socket as unknown as WebSocketLike, address, ip, release);
+  _acceptSocket(
+    upgraded.socket as unknown as WebSocketLike,
+    address,
+    ip,
+    release,
+  );
   return upgraded.response;
 }
 
@@ -470,9 +475,9 @@ function _onHello(
     conn.handshakeTimer = null;
   }
 
-  const version = raw instanceof ArrayBuffer
-    ? WT_ParseHello(new Uint8Array(raw))
-    : -1;
+  const version = raw instanceof ArrayBuffer ?
+    WT_ParseHello(new Uint8Array(raw)) :
+    -1;
   if (version !== WT_PROTOCOL_VERSION) {
     Sys_Printf(
       "Rejecting %s: %s\n",
@@ -481,19 +486,19 @@ function _onHello(
     );
     _rejectConnection(
       conn,
-      version < 0
-        ? "Protocol mismatch: update your client"
-        : "Protocol version " + version + " not supported (server uses " +
-          WT_PROTOCOL_VERSION + ")",
+      version < 0 ?
+        "Protocol mismatch: update your client" :
+        "Protocol version " + version + " not supported (server uses " +
+        WT_PROTOCOL_VERSION + ")",
     );
     return;
   }
 
   // The allocator counts sockets still waiting to be accepted, so it never
   // hands out more sockets than there are free client slots (NET-1).
-  const sock = _NET_NewQSocket !== null
-    ? _NET_NewQSocket(pendingConnections.length)
-    : null;
+  const sock = _NET_NewQSocket !== null ?
+    _NET_NewQSocket(pendingConnections.length) :
+    null;
   if (sock === null) {
     Sys_Printf("No free client slots for %s\n", conn.address);
     _rejectConnection(conn, "Server is full");
@@ -571,7 +576,10 @@ function _onMessage(conn: ClientConnection, raw: unknown): void {
       }
       return;
     }
-    _protocolError(conn, "oversized reliable message (" + bytes.length + " bytes)");
+    _protocolError(
+      conn,
+      "oversized reliable message (" + bytes.length + " bytes)",
+    );
     return;
   }
 
@@ -751,7 +759,11 @@ function _parseSequencedPacket(
     return packet;
   }
 
-  const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+  const view = new DataView(
+    packet.buffer,
+    packet.byteOffset,
+    packet.byteLength,
+  );
   const sequence = view.getUint32(1, true) | 0;
   const acknowledged = view.getUint32(5, true) | 0;
 
@@ -881,9 +893,9 @@ function _sendPacket(
   const sequence = sock.sendSequence | 0;
   // Highest sequence received on either channel acknowledges client moves
   // whichever channel they came on (PRED-2)
-  const acknowledged = conn.hasReceivedSequence
-    ? conn.highestReceivedSequence | 0
-    : sock.receiveSequence | 0;
+  const acknowledged = conn.hasReceivedSequence ?
+    conn.highestReceivedSequence | 0 :
+    sock.receiveSequence | 0;
 
   ws_sendbuf[0] = channel;
   ws_sendbuf[1] = WT_PACKET_MAGIC;

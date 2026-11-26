@@ -1,57 +1,152 @@
 // Ported from: WinQuake/host.c -- coordinates spawning and killing of local servers
 
-import { Sys_Printf, Sys_Error, Sys_FloatTime } from './sys.js';
-import { Con_Printf, Con_DPrintf, Con_SetPrintFunctions, SZ_Clear,
-	MSG_WriteByte, MSG_WriteString, COM_SetHostError } from './common.js';
-import { svc_print, svc_disconnect } from './protocol.js';
-import { MAX_SCOREBOARD } from './quakedef.js';
-import { cvar_t, Cvar_RegisterVariable, Cvar_SetServerBroadcast, Cvar_WriteVariables, Cvar_SetValue } from './cvar.js';
-import { Cmd_Init, Cbuf_Init, Cbuf_Execute, Cbuf_AddText, Cbuf_InsertText, Cmd_SetClientCallbacks } from './cmd.js';
-import { Memory_Init } from './zone.js';
-import { V_Init } from './view.js';
-import { Chase_Init } from './chase.js';
-import { W_LoadWadFile } from './wad.js';
-import { COM_LoadFile } from './pak.js';
-import { COM_Init, COM_CheckParm, com_argc, com_argv, Q_atoi, Q_atof, rogue, hipnotic, LOC_Init, LOC_Shutdown } from './common.js';
-import { Key_Init, Key_WriteBindings } from './keys.js';
-import { Con_Init, Con_SetExternals, Con_Printf as RealConPrintf, Con_DPrintf as RealConDPrintf } from './console.js';
-import { M_Init, M_SetExternals } from './menu.js';
-import { PR_Init } from './pr_edict.js';
-import { Mod_Init, Mod_ClearAll, R_InitTextures } from './gl_model.js';
-import { NET_Init, NET_Poll, NET_Shutdown, NET_SendMessage, NET_CanSendMessage,
-	NET_GetMessage, NET_SendToAll, NET_QueryRooms, NET_CreateRoom, NET_LobbyServer,
-	NET_LobbyJoinURL, NET_RoomURL, NET_MultiplayerAvailable, NET_CanHostInBrowser, NET_HostRoom } from './net_main.js';
-import { SV_Init, SV_CheckForNewClients, SV_ClearDatagram,
-	SV_SendClientMessages, SV_DropClient } from './sv_main.js';
-import { SV_RunClients } from './sv_user.js';
-import { SV_Physics, SV_SetFrametime, sv_gravity } from './sv_phys.js';
-import { sv, svs, client_t,
-	host_client, set_host_client } from './server.js';
-import { R_Init, D_FlushCaches } from './gl_rmisc.js';
-import { R_CheckQuality } from './gl_rmain.js';
-import { VID_Init, VID_Shutdown } from './vid.js';
-import { Draw_Init, Draw_Character, Draw_String, Draw_ConsoleBackground, Draw_SetExternals, Draw_PicFromWad, Draw_CachePic, Draw_Pic, Draw_SubPic, Draw_TransPic, Draw_TransPicTranslate, Draw_Fill, Draw_FadeScreen } from './gl_draw.js';
-import { SCR_Init, SCR_UpdateScreen, SCR_SetExternals, SCR_EndLoadingPlaque, SCR_BeginLoadingPlaque, SCR_CenterPrint } from './gl_screen.js';
-import { S_Init, S_Update, S_Shutdown, S_StopAllSounds, S_SetCallbacks } from './snd_dma.js';
-import { CDAudio_Init, CDAudio_Update, CDAudio_Shutdown } from './cd_audio.js';
-import { Sbar_Init, Sbar_SetExternals } from './sbar.js';
-import { CL_Init, CL_SendCmd, CL_ReadFromServer, CL_DecayLights, CL_Disconnect, CL_NextDemo, cl_name } from './cl_main.js';
-import { CL_AccumulateCmd } from './cl_input.js';
-import { RTCLobby_ServerShutdown } from './net_rtclobby.js';
-import { isXRActive } from './webxr.js';
-import { IN_Init, IN_Commands, IN_Shutdown, IN_UpdateTouch, IN_RequestPointerLock } from './in_web.js';
-import { cls, cl, SIGNONS, ca_connected } from './client.js';
-import { key_dest, key_game, Key_SetExternals, set_key_dest } from './keys.js';
-import { r_origin, vpn, vright, vup } from './render.js';
-import { vec3_origin } from './mathlib.js';
-import { pr_global_struct } from './progs.js';
-import { vid, d_8to24table, renderer } from './vid.js';
-import { V_RenderView, V_UpdatePalette } from './view.js';
-import { S_LocalSound } from './snd_dma.js';
-import { M_Menu_Main_f } from './menu.js';
-import { R_Efrag_SetExternals } from './gl_refrag.js';
-import { Host_InitCommands, Host_MaybeOfferContinue } from './host_cmd.js';
-import { R_SetParticleExternals } from './r_part.js';
+import { Sys_Error, Sys_FloatTime, Sys_Printf } from "./sys.js";
+import {
+  COM_SetHostError,
+  Con_DPrintf,
+  Con_Printf,
+  Con_SetPrintFunctions,
+  MSG_WriteByte,
+  MSG_WriteString,
+  SZ_Clear,
+} from "./common.js";
+import { svc_disconnect, svc_print } from "./protocol.js";
+import { MAX_SCOREBOARD } from "./quakedef.js";
+import {
+  Cvar_RegisterVariable,
+  Cvar_SetServerBroadcast,
+  Cvar_SetValue,
+  cvar_t,
+  Cvar_WriteVariables,
+} from "./cvar.js";
+import {
+  Cbuf_AddText,
+  Cbuf_Execute,
+  Cbuf_Init,
+  Cbuf_InsertText,
+  Cmd_Init,
+  Cmd_SetClientCallbacks,
+} from "./cmd.js";
+import { Memory_Init } from "./zone.js";
+import { V_Init } from "./view.js";
+import { Chase_Init } from "./chase.js";
+import { W_LoadWadFile } from "./wad.js";
+import { COM_LoadFile } from "./pak.js";
+import {
+  com_argc,
+  com_argv,
+  COM_CheckParm,
+  COM_Init,
+  hipnotic,
+  LOC_Init,
+  LOC_Shutdown,
+  Q_atof,
+  Q_atoi,
+  rogue,
+} from "./common.js";
+import { Key_Init, Key_WriteBindings } from "./keys.js";
+import {
+  Con_DPrintf as RealConDPrintf,
+  Con_Init,
+  Con_Printf as RealConPrintf,
+  Con_SetExternals,
+} from "./console.js";
+import { M_Init, M_SetExternals } from "./menu.js";
+import { PR_Init } from "./pr_edict.js";
+import { Mod_ClearAll, Mod_Init, R_InitTextures } from "./gl_model.js";
+import {
+  NET_CanHostInBrowser,
+  NET_CanSendMessage,
+  NET_CreateRoom,
+  NET_GetMessage,
+  NET_HostRoom,
+  NET_Init,
+  NET_LobbyJoinURL,
+  NET_LobbyServer,
+  NET_MultiplayerAvailable,
+  NET_Poll,
+  NET_QueryRooms,
+  NET_RoomURL,
+  NET_SendMessage,
+  NET_SendToAll,
+  NET_Shutdown,
+} from "./net_main.js";
+import {
+  SV_CheckForNewClients,
+  SV_ClearDatagram,
+  SV_DropClient,
+  SV_Init,
+  SV_SendClientMessages,
+} from "./sv_main.js";
+import { SV_RunClients } from "./sv_user.js";
+import { sv_gravity, SV_Physics, SV_SetFrametime } from "./sv_phys.js";
+import { client_t, host_client, set_host_client, sv, svs } from "./server.js";
+import { D_FlushCaches, R_Init } from "./gl_rmisc.js";
+import { R_CheckQuality } from "./gl_rmain.js";
+import { VID_Init, VID_Shutdown } from "./vid.js";
+import {
+  Draw_CachePic,
+  Draw_Character,
+  Draw_ConsoleBackground,
+  Draw_FadeScreen,
+  Draw_Fill,
+  Draw_Init,
+  Draw_Pic,
+  Draw_PicFromWad,
+  Draw_SetExternals,
+  Draw_String,
+  Draw_SubPic,
+  Draw_TransPic,
+  Draw_TransPicTranslate,
+} from "./gl_draw.js";
+import {
+  SCR_BeginLoadingPlaque,
+  SCR_CenterPrint,
+  SCR_EndLoadingPlaque,
+  SCR_Init,
+  SCR_SetExternals,
+  SCR_UpdateScreen,
+} from "./gl_screen.js";
+import {
+  S_Init,
+  S_SetCallbacks,
+  S_Shutdown,
+  S_StopAllSounds,
+  S_Update,
+} from "./snd_dma.js";
+import { CDAudio_Init, CDAudio_Shutdown, CDAudio_Update } from "./cd_audio.js";
+import { Sbar_Init, Sbar_SetExternals } from "./sbar.js";
+import {
+  CL_DecayLights,
+  CL_Disconnect,
+  CL_Init,
+  cl_name,
+  CL_NextDemo,
+  CL_ReadFromServer,
+  CL_SendCmd,
+} from "./cl_main.js";
+import { CL_AccumulateCmd } from "./cl_input.js";
+import { RTCLobby_ServerShutdown } from "./net_rtclobby.js";
+import { isXRActive } from "./webxr.js";
+import {
+  IN_Commands,
+  IN_Init,
+  IN_RequestPointerLock,
+  IN_Shutdown,
+  IN_UpdateTouch,
+} from "./in_web.js";
+import { ca_connected, cl, cls, SIGNONS } from "./client.js";
+import { key_dest, key_game, Key_SetExternals, set_key_dest } from "./keys.js";
+import { r_origin, vpn, vright, vup } from "./render.js";
+import { vec3_origin } from "./mathlib.js";
+import { pr_global_struct } from "./progs.js";
+import { d_8to24table, renderer, vid } from "./vid.js";
+import { V_RenderView, V_UpdatePalette } from "./view.js";
+import { S_LocalSound } from "./snd_dma.js";
+import { M_Menu_Main_f } from "./menu.js";
+import { R_Efrag_SetExternals } from "./gl_refrag.js";
+import { Host_InitCommands, Host_MaybeOfferContinue } from "./host_cmd.js";
+import { R_SetParticleExternals } from "./r_part.js";
 
 /*
 
@@ -79,48 +174,46 @@ export let host_framecount = 0;
 export let host_basepal = null;
 export let host_colormap = null;
 
-const host_framerate = new cvar_t( 'host_framerate', '0' ); // set for slow motion
+const host_framerate = new cvar_t("host_framerate", "0"); // set for slow motion
 // johnfitz: scales game time (0.5 = half speed); 0 is off
-export const host_timescale = new cvar_t( 'host_timescale', '0' );
+export const host_timescale = new cvar_t("host_timescale", "0");
 // QuakeSpasm/Ironwail: render frame cap. Values above 72, or 0 (uncapped),
 // turn on renderer/network isolation (see _Host_FilterTime). Ironwail's
 // default is 250; 72 keeps WinQuake's single 72 Hz loop.
-export const host_maxfps = new cvar_t( 'host_maxfps', '72', true );
-export const host_speeds = new cvar_t( 'host_speeds', '0' ); // set for running times
+export const host_maxfps = new cvar_t("host_maxfps", "72", true);
+export const host_speeds = new cvar_t("host_speeds", "0"); // set for running times
 
-export const sys_ticrate = new cvar_t( 'sys_ticrate', '0.05' );
-export const serverprofile = new cvar_t( 'serverprofile', '0' );
+export const sys_ticrate = new cvar_t("sys_ticrate", "0.05");
+export const serverprofile = new cvar_t("serverprofile", "0");
 
-export const fraglimit = new cvar_t( 'fraglimit', '0', false, true );
-export const timelimit = new cvar_t( 'timelimit', '0', false, true );
-export const teamplay = new cvar_t( 'teamplay', '0', false, true );
+export const fraglimit = new cvar_t("fraglimit", "0", false, true);
+export const timelimit = new cvar_t("timelimit", "0", false, true);
+export const teamplay = new cvar_t("teamplay", "0", false, true);
 
-export const samelevel = new cvar_t( 'samelevel', '0' );
-export const noexit = new cvar_t( 'noexit', '0', false, true );
+export const samelevel = new cvar_t("samelevel", "0");
+export const noexit = new cvar_t("noexit", "0", false, true);
 
-const developer = new cvar_t( 'developer', '0' );
+const developer = new cvar_t("developer", "0");
 
-export const skill = new cvar_t( 'skill', '1' ); // 0 - 3
-export const deathmatch = new cvar_t( 'deathmatch', '0' ); // 0, 1, or 2
-export const coop = new cvar_t( 'coop', '0' ); // 0 or 1
+export const skill = new cvar_t("skill", "1"); // 0 - 3
+export const deathmatch = new cvar_t("deathmatch", "0"); // 0, 1, or 2
+export const coop = new cvar_t("coop", "0"); // 0 or 1
 
-const pausable = new cvar_t( 'pausable', '1' );
+const pausable = new cvar_t("pausable", "1");
 
-const temp1 = new cvar_t( 'temp1', '0' );
+const temp1 = new cvar_t("temp1", "0");
 
 // for the 2021 re-release (Ironwail host.c): its StartFrame writes campaign
 // every frame, mg1 reads horde, and every progs reads sv_cheats
-export const campaign = new cvar_t( 'campaign', '0' );
-export const horde = new cvar_t( 'horde', '0' );
-export const sv_cheats = new cvar_t( 'sv_cheats', '0' );
+export const campaign = new cvar_t("campaign", "0");
+export const horde = new cvar_t("horde", "0");
+export const sv_cheats = new cvar_t("sv_cheats", "0");
 
 // In C host_frametime is one global shared with sv_phys.c; sv_phys.js keeps
 // its own copy, so keep both in step (SV_SpawnServer's settle frames need 0.1).
-export function set_host_frametime( v ) {
-
-	host_frametime = v;
-	SV_SetFrametime( v );
-
+export function set_host_frametime(v) {
+  host_frametime = v;
+  SV_SetFrametime(v);
 }
 
 /*
@@ -144,22 +237,18 @@ let host_rawframetime = 0;
 let host_lookframetime = 0;
 
 // For tests: the isolation state cl_pred.js reads
-export function set_host_netinterval( v ) {
-
-	host_netinterval = v;
-
+export function set_host_netinterval(v) {
+  host_netinterval = v;
 }
 
-export function set_host_netaccum( v ) {
-
-	host_netaccum = v;
-
+export function set_host_netaccum(v) {
+  host_netaccum = v;
 }
 
 // set_host_client is imported and re-exported from server.js
-export { set_host_client } from './server.js';
+export { set_host_client } from "./server.js";
 // sv is the server state, re-exported for client-side prediction
-export { sv } from './server.js';
+export { sv } from "./server.js";
 
 /*
 ====================
@@ -174,19 +263,13 @@ browser composites on the next frame automatically.
 ====================
 */
 function _GL_BeginRendering() {
-
-	if ( renderer ) {
-
-		renderer.clear( true, false, false );
-
-	}
-
+  if (renderer) {
+    renderer.clear(true, false, false);
+  }
 }
 
 function _GL_EndRendering() {
-
-	// Three.js presents automatically at end of rAF callback
-
+  // Three.js presents automatically at end of rAF callback
 }
 
 /*
@@ -198,19 +281,17 @@ not reinitialize anything.
 ================
 */
 export function Host_ClearMemory() {
+  Con_DPrintf("Clearing memory\n");
+  D_FlushCaches();
+  Mod_ClearAll();
 
-	Con_DPrintf( 'Clearing memory\n' );
-	D_FlushCaches();
-	Mod_ClearAll();
+  // JS doesn't have hunk memory to free (GC handles it)
 
-	// JS doesn't have hunk memory to free (GC handles it)
+  cls.signon = 0;
 
-	cls.signon = 0;
-
-	// Clear sv and cl structures - in JS we reset key fields
-	// sv is reset in SV_SpawnServer via Object.assign
-	// cl is reset in CL_ClearState
-
+  // Clear sv and cl structures - in JS we reset key fields
+  // sv is reset in SV_SpawnServer via Object.assign
+  // cl is reset in CL_ClearState
 }
 
 /*
@@ -219,41 +300,39 @@ Host_InitLocal
 =======================
 */
 function Host_InitLocal() {
+  Host_InitCommands();
 
-	Host_InitCommands();
+  Cvar_RegisterVariable(host_framerate);
+  Cvar_RegisterVariable(host_timescale); // johnfitz
+  Cvar_RegisterVariable(host_maxfps);
+  Cvar_RegisterVariable(host_speeds);
+  Cvar_RegisterVariable(sys_ticrate);
+  Cvar_RegisterVariable(serverprofile);
 
-	Cvar_RegisterVariable( host_framerate );
-	Cvar_RegisterVariable( host_timescale ); // johnfitz
-	Cvar_RegisterVariable( host_maxfps );
-	Cvar_RegisterVariable( host_speeds );
-	Cvar_RegisterVariable( sys_ticrate );
-	Cvar_RegisterVariable( serverprofile );
+  Cvar_RegisterVariable(fraglimit);
+  Cvar_RegisterVariable(timelimit);
+  Cvar_RegisterVariable(teamplay);
 
-	Cvar_RegisterVariable( fraglimit );
-	Cvar_RegisterVariable( timelimit );
-	Cvar_RegisterVariable( teamplay );
+  Cvar_RegisterVariable(samelevel);
+  Cvar_RegisterVariable(noexit);
 
-	Cvar_RegisterVariable( samelevel );
-	Cvar_RegisterVariable( noexit );
+  Cvar_RegisterVariable(developer);
 
-	Cvar_RegisterVariable( developer );
+  Cvar_RegisterVariable(skill);
+  Cvar_RegisterVariable(deathmatch);
+  Cvar_RegisterVariable(coop);
 
-	Cvar_RegisterVariable( skill );
-	Cvar_RegisterVariable( deathmatch );
-	Cvar_RegisterVariable( coop );
+  Cvar_RegisterVariable(pausable);
 
-	Cvar_RegisterVariable( pausable );
+  Cvar_RegisterVariable(temp1);
 
-	Cvar_RegisterVariable( temp1 );
+  Cvar_RegisterVariable(campaign);
+  Cvar_RegisterVariable(horde);
+  Cvar_RegisterVariable(sv_cheats);
 
-	Cvar_RegisterVariable( campaign );
-	Cvar_RegisterVariable( horde );
-	Cvar_RegisterVariable( sv_cheats );
+  Host_FindMaxClients();
 
-	Host_FindMaxClients();
-
-	host_time = 1.0; // so a think at time 0 won't get called
-
+  host_time = 1.0; // so a think at time 0 won't get called
 }
 
 /*
@@ -266,43 +345,41 @@ browser, main.js passes -listen from ?listen=N.
 ======================
 */
 export function Host_FindMaxClients() {
+  svs.maxclients = 1;
 
-	svs.maxclients = 1;
+  const i = COM_CheckParm("-listen");
+  if (i !== 0) {
+    if (i !== com_argc - 1) {
+      svs.maxclients = Q_atoi(com_argv[i + 1]);
+    } else {
+      svs.maxclients = 8;
+    }
+  }
 
-	const i = COM_CheckParm( '-listen' );
-	if ( i !== 0 ) {
+  if (svs.maxclients < 1) {
+    svs.maxclients = 8;
+  } else if (svs.maxclients > MAX_SCOREBOARD) {
+    svs.maxclients = MAX_SCOREBOARD;
+  }
 
-		if ( i !== com_argc - 1 )
-			svs.maxclients = Q_atoi( com_argv[ i + 1 ] );
-		else
-			svs.maxclients = 8;
+  svs.maxclientslimit = svs.maxclients;
+  if (svs.maxclientslimit < 4) {
+    svs.maxclientslimit = 4;
+  }
 
-	}
+  // Allocate client slots
+  svs.clients = [];
+  for (let i = 0; i < svs.maxclientslimit; i++) {
+    svs.clients[i] = new client_t();
+  }
 
-	if ( svs.maxclients < 1 )
-		svs.maxclients = 8;
-	else if ( svs.maxclients > MAX_SCOREBOARD )
-		svs.maxclients = MAX_SCOREBOARD;
+  cls.state = 1; // ca_disconnected
 
-	svs.maxclientslimit = svs.maxclients;
-	if ( svs.maxclientslimit < 4 )
-		svs.maxclientslimit = 4;
-
-	// Allocate client slots
-	svs.clients = [];
-	for ( let i = 0; i < svs.maxclientslimit; i ++ ) {
-
-		svs.clients[ i ] = new client_t();
-
-	}
-
-	cls.state = 1; // ca_disconnected
-
-	if ( svs.maxclients > 1 )
-		Cvar_SetValue( 'deathmatch', 1.0 );
-	else
-		Cvar_SetValue( 'deathmatch', 0.0 );
-
+  if (svs.maxclients > 1) {
+    Cvar_SetValue("deathmatch", 1.0);
+  } else {
+    Cvar_SetValue("deathmatch", 0.0);
+  }
 }
 
 /*
@@ -312,248 +389,221 @@ Host_Init
 */
 // Kept async: main.js awaits Host_Init.
 // deno-lint-ignore require-await
-export async function Host_Init( parms ) {
+export async function Host_Init(parms) {
+  host_parms = parms;
 
-	host_parms = parms;
+  Memory_Init();
+  Cbuf_Init();
+  Cmd_Init();
+  V_Init();
+  Chase_Init();
+  COM_Init(); // registers "registered" and runs COM_CheckRegistered
+  Host_InitLocal();
 
-	Memory_Init();
-	Cbuf_Init();
-	Cmd_Init();
-	V_Init();
-	Chase_Init();
-	COM_Init(); // registers "registered" and runs COM_CheckRegistered
-	Host_InitLocal();
+  Con_Printf("Icaro Engine Version 1.09\n");
+  Con_Printf("Exe: icaro-engine (JavaScript/Three.js)\n");
 
-	Con_Printf( 'Icaro Engine Version 1.09\n' );
-	Con_Printf( 'Exe: icaro-engine (JavaScript/Three.js)\n' );
+  // W_LoadWadFile("gfx.wad") - load from pak
+  const wadData = COM_LoadFile("gfx.wad");
+  if (wadData) {
+    W_LoadWadFile(wadData);
+    Con_Printf("Loaded gfx.wad\n");
+  } else {
+    Con_Printf("Warning: gfx.wad not found in pak\n");
+  }
 
-	// W_LoadWadFile("gfx.wad") - load from pak
-	const wadData = COM_LoadFile( 'gfx.wad' );
-	if ( wadData ) {
+  Key_Init();
+  Con_Init();
 
-		W_LoadWadFile( wadData );
-		Con_Printf( 'Loaded gfx.wad\n' );
+  // Wire up the real console print functions so all modules use the actual console
+  Con_SetPrintFunctions(RealConPrintf, RealConDPrintf);
 
-	} else {
+  M_Init();
+  PR_Init();
+  Mod_Init();
+  NET_Init();
+  SV_Init();
+  R_SetParticleExternals({ sv_gravity: sv_gravity });
 
-		Con_Printf( 'Warning: gfx.wad not found in pak\n' );
+  // Wire up cvar server broadcast callback
+  Cvar_SetServerBroadcast(function (msg) {
+    if (sv.active) {
+      SV_BroadcastPrintf("%s", msg);
+    }
+  });
 
-	}
+  R_InitTextures(); // needed even for dedicated servers
 
-	Key_Init();
-	Con_Init();
+  // Load palette and colormap from pak
+  const paletteData = COM_LoadFile("gfx/palette.lmp");
+  if (paletteData) {
+    host_basepal = new Uint8Array(paletteData);
+  } else {
+    Con_Printf("Warning: gfx/palette.lmp not found\n");
+  }
 
-	// Wire up the real console print functions so all modules use the actual console
-	Con_SetPrintFunctions( RealConPrintf, RealConDPrintf );
+  const colormapData = COM_LoadFile("gfx/colormap.lmp");
+  if (colormapData) {
+    host_colormap = new Uint8Array(colormapData);
+  } else {
+    Con_Printf("Warning: gfx/colormap.lmp not found\n");
+  }
 
-	M_Init();
-	PR_Init();
-	Mod_Init();
-	NET_Init();
-	SV_Init();
-	R_SetParticleExternals( { sv_gravity: sv_gravity } );
+  // gl_vidnt.c Check_Gamma reads -gamma itself; vid.js takes it as an argument.
+  // A missing or non-positive value would turn the palette white (pow(x, 0)
+  // is 1; C has the same flaw), so fall back to the default instead.
+  const gammaparm = COM_CheckParm("-gamma");
+  const gammaval = gammaparm !== 0 ? Q_atof(com_argv[gammaparm + 1] || "") : 0;
+  VID_Init(host_basepal, gammaval > 0 ? gammaval : null);
 
-	// Wire up cvar server broadcast callback
-	Cvar_SetServerBroadcast( function ( msg ) {
+  // Wire Draw externals before Draw_Init so overlay canvas gets correct size
+  Draw_SetExternals({
+    vid: vid,
+    host_basepal: host_basepal,
+    d_8to24table: d_8to24table,
+  });
 
-		if ( sv.active ) {
+  Draw_Init();
 
-			SV_BroadcastPrintf( '%s', msg );
+  M_SetExternals({
+    key_dest_set: set_key_dest,
+    key_dest_get: () => key_dest,
+    cls: cls,
+    sv: sv,
+    svs: svs,
+    cl: cl,
+    vid: vid,
+    Draw_CachePic: Draw_CachePic,
+    Draw_TransPic: Draw_TransPic,
+    Draw_Pic: Draw_Pic,
+    Draw_Character: Draw_Character,
+    Draw_Fill: Draw_Fill,
+    Draw_FadeScreen: Draw_FadeScreen,
+    Draw_ConsoleBackground: Draw_ConsoleBackground,
+    Draw_String: Draw_String,
+    S_LocalSound: S_LocalSound,
+    SCR_BeginLoadingPlaque: SCR_BeginLoadingPlaque,
+    IN_RequestPointerLock: IN_RequestPointerLock,
+    host_time_get: () => host_time,
+    realtime_get: () => realtime,
+    CL_NextDemo: CL_NextDemo,
+    NET_QueryRooms: NET_QueryRooms,
+    NET_CreateRoom: NET_CreateRoom,
+    NET_LobbyServer: NET_LobbyServer,
+    NET_LobbyJoinURL: NET_LobbyJoinURL,
+    NET_RoomURL: NET_RoomURL,
+    NET_MultiplayerAvailable: NET_MultiplayerAvailable,
+    NET_CanHostInBrowser: NET_CanHostInBrowser,
+    NET_HostRoom: NET_HostRoom,
+    SCR_CenterPrint: SCR_CenterPrint,
+    cl_name: cl_name,
+    Draw_TransPicTranslate: Draw_TransPicTranslate,
+    Draw_SubPic: Draw_SubPic,
+  });
 
-		}
+  SCR_Init();
+  R_Init();
+  S_Init();
+  S_SetCallbacks({
+    getHostFrametime: () => host_frametime,
+  });
+  CDAudio_Init();
+  Sbar_SetExternals({
+    cl: cl,
+    vid: vid,
+    Draw_Pic: Draw_Pic,
+    Draw_TransPic: Draw_TransPic,
+    Draw_Character: Draw_Character,
+    Draw_String: Draw_String,
+    Draw_Fill: Draw_Fill,
+    Draw_PicFromWad: Draw_PicFromWad,
+    Draw_CachePic: Draw_CachePic,
+    hipnotic: hipnotic,
+    rogue: rogue,
+  });
+  Sbar_Init();
+  CL_Init();
+  IN_Init();
 
-	} );
+  // Wire cmd.js to client state for Cmd_ForwardToServer
+  Cmd_SetClientCallbacks({
+    getClientState: () => ({ cls: cls, ca_connected: ca_connected }),
+  });
 
-	R_InitTextures(); // needed even for dedicated servers
+  // Wire cross-module externals
+  Con_SetExternals({
+    cls: cls,
+    vid: vid,
+    Draw_Character: Draw_Character,
+    Draw_String: Draw_String,
+    Draw_ConsoleBackground: Draw_ConsoleBackground,
+    SCR_UpdateScreen: SCR_UpdateScreen,
+    SCR_EndLoadingPlaque: SCR_EndLoadingPlaque,
+    M_Menu_Main_f: M_Menu_Main_f,
+    S_LocalSound: S_LocalSound,
+    getRealtime: () => realtime,
+    developer: developer,
+  });
 
-	// Load palette and colormap from pak
-	const paletteData = COM_LoadFile( 'gfx/palette.lmp' );
-	if ( paletteData ) {
+  SCR_SetExternals({
+    vid: vid,
+    cls: cls,
+    cl: cl,
+    V_RenderView: V_RenderView,
+    V_UpdatePalette: V_UpdatePalette,
+    GL_BeginRendering: _GL_BeginRendering,
+    GL_EndRendering: _GL_EndRendering,
+    S_StopAllSounds: S_StopAllSounds,
+  });
 
-		host_basepal = new Uint8Array( paletteData );
+  Key_SetExternals({
+    cls: cls,
+    vid: vid,
+  });
 
-	} else {
+  R_Efrag_SetExternals({
+    cl: cl,
+  });
 
-		Con_Printf( 'Warning: gfx/palette.lmp not found\n' );
+  Cbuf_InsertText("exec quake.rc\n");
 
-	}
+  // Default WASD bindings for the web port (after quake.rc so user config can override)
+  Cbuf_AddText("bind w +forward\n");
+  Cbuf_AddText("bind s +back\n");
+  Cbuf_AddText("bind a +moveleft\n");
+  Cbuf_AddText("bind d +moveright\n");
+  Cbuf_AddText("bind SPACE +jump\n");
+  Cbuf_AddText("bind MOUSE1 +attack\n");
 
-	const colormapData = COM_LoadFile( 'gfx/colormap.lmp' );
-	if ( colormapData ) {
+  // Always run by default for the web port
+  Cbuf_AddText("cl_forwardspeed 400\n");
+  Cbuf_AddText("cl_backspeed 400\n");
 
-		host_colormap = new Uint8Array( colormapData );
+  // Load saved config from localStorage (overrides defaults above)
+  try {
+    const savedConfig = localStorage.getItem(CONFIG_STORAGE_KEY);
+    if (savedConfig !== null) {
+      Cbuf_AddText(savedConfig);
+      Con_Printf("Loaded saved config from localStorage\n");
+    }
+  } catch {
+    // localStorage may be unavailable
+  }
 
-	} else {
+  // Save config on page unload
+  if (typeof window !== "undefined") {
+    window.addEventListener("beforeunload", function () {
+      Host_WriteConfiguration();
+    });
 
-		Con_Printf( 'Warning: gfx/colormap.lmp not found\n' );
+    window.addEventListener("pagehide", Host_PageHide);
+  }
 
-	}
+  LOC_Init(); // for 2021 rerelease support (Ironwail host.c)
 
-	// gl_vidnt.c Check_Gamma reads -gamma itself; vid.js takes it as an argument.
-	// A missing or non-positive value would turn the palette white (pow(x, 0)
-	// is 1; C has the same flaw), so fall back to the default instead.
-	const gammaparm = COM_CheckParm( '-gamma' );
-	const gammaval = gammaparm !== 0 ? Q_atof( com_argv[ gammaparm + 1 ] || '' ) : 0;
-	VID_Init( host_basepal, gammaval > 0 ? gammaval : null );
+  host_initialized = true;
 
-	// Wire Draw externals before Draw_Init so overlay canvas gets correct size
-	Draw_SetExternals( {
-		vid: vid,
-		host_basepal: host_basepal,
-		d_8to24table: d_8to24table
-	} );
-
-	Draw_Init();
-
-	M_SetExternals( {
-		key_dest_set: set_key_dest,
-		key_dest_get: () => key_dest,
-		cls: cls,
-		sv: sv,
-		svs: svs,
-		cl: cl,
-		vid: vid,
-		Draw_CachePic: Draw_CachePic,
-		Draw_TransPic: Draw_TransPic,
-		Draw_Pic: Draw_Pic,
-		Draw_Character: Draw_Character,
-		Draw_Fill: Draw_Fill,
-		Draw_FadeScreen: Draw_FadeScreen,
-		Draw_ConsoleBackground: Draw_ConsoleBackground,
-		Draw_String: Draw_String,
-		S_LocalSound: S_LocalSound,
-		SCR_BeginLoadingPlaque: SCR_BeginLoadingPlaque,
-		IN_RequestPointerLock: IN_RequestPointerLock,
-		host_time_get: () => host_time,
-		realtime_get: () => realtime,
-		CL_NextDemo: CL_NextDemo,
-		NET_QueryRooms: NET_QueryRooms,
-		NET_CreateRoom: NET_CreateRoom,
-		NET_LobbyServer: NET_LobbyServer,
-		NET_LobbyJoinURL: NET_LobbyJoinURL,
-		NET_RoomURL: NET_RoomURL,
-		NET_MultiplayerAvailable: NET_MultiplayerAvailable,
-		NET_CanHostInBrowser: NET_CanHostInBrowser,
-		NET_HostRoom: NET_HostRoom,
-		SCR_CenterPrint: SCR_CenterPrint,
-		cl_name: cl_name,
-		Draw_TransPicTranslate: Draw_TransPicTranslate,
-		Draw_SubPic: Draw_SubPic
-	} );
-
-	SCR_Init();
-	R_Init();
-	S_Init();
-	S_SetCallbacks( {
-		getHostFrametime: () => host_frametime
-	} );
-	CDAudio_Init();
-	Sbar_SetExternals( {
-		cl: cl,
-		vid: vid,
-		Draw_Pic: Draw_Pic,
-		Draw_TransPic: Draw_TransPic,
-		Draw_Character: Draw_Character,
-		Draw_String: Draw_String,
-		Draw_Fill: Draw_Fill,
-		Draw_PicFromWad: Draw_PicFromWad,
-		Draw_CachePic: Draw_CachePic,
-		hipnotic: hipnotic,
-		rogue: rogue
-	} );
-	Sbar_Init();
-	CL_Init();
-	IN_Init();
-
-	// Wire cmd.js to client state for Cmd_ForwardToServer
-	Cmd_SetClientCallbacks( {
-		getClientState: () => ( { cls: cls, ca_connected: ca_connected } )
-	} );
-
-	// Wire cross-module externals
-	Con_SetExternals( {
-		cls: cls,
-		vid: vid,
-		Draw_Character: Draw_Character,
-		Draw_String: Draw_String,
-		Draw_ConsoleBackground: Draw_ConsoleBackground,
-		SCR_UpdateScreen: SCR_UpdateScreen,
-		SCR_EndLoadingPlaque: SCR_EndLoadingPlaque,
-		M_Menu_Main_f: M_Menu_Main_f,
-		S_LocalSound: S_LocalSound,
-		getRealtime: () => realtime,
-		developer: developer
-	} );
-
-	SCR_SetExternals( {
-		vid: vid,
-		cls: cls,
-		cl: cl,
-		V_RenderView: V_RenderView,
-		V_UpdatePalette: V_UpdatePalette,
-		GL_BeginRendering: _GL_BeginRendering,
-		GL_EndRendering: _GL_EndRendering,
-		S_StopAllSounds: S_StopAllSounds
-	} );
-
-	Key_SetExternals( {
-		cls: cls,
-		vid: vid
-	} );
-
-	R_Efrag_SetExternals( {
-		cl: cl
-	} );
-
-	Cbuf_InsertText( 'exec quake.rc\n' );
-
-	// Default WASD bindings for the web port (after quake.rc so user config can override)
-	Cbuf_AddText( 'bind w +forward\n' );
-	Cbuf_AddText( 'bind s +back\n' );
-	Cbuf_AddText( 'bind a +moveleft\n' );
-	Cbuf_AddText( 'bind d +moveright\n' );
-	Cbuf_AddText( 'bind SPACE +jump\n' );
-	Cbuf_AddText( 'bind MOUSE1 +attack\n' );
-
-	// Always run by default for the web port
-	Cbuf_AddText( 'cl_forwardspeed 400\n' );
-	Cbuf_AddText( 'cl_backspeed 400\n' );
-
-	// Load saved config from localStorage (overrides defaults above)
-	try {
-
-		const savedConfig = localStorage.getItem( CONFIG_STORAGE_KEY );
-		if ( savedConfig !== null ) {
-
-			Cbuf_AddText( savedConfig );
-			Con_Printf( 'Loaded saved config from localStorage\n' );
-
-		}
-
-	} catch {
-
-		// localStorage may be unavailable
-	}
-
-	// Save config on page unload
-	if ( typeof window !== 'undefined' ) {
-
-		window.addEventListener( 'beforeunload', function () {
-
-			Host_WriteConfiguration();
-
-		} );
-
-		window.addEventListener( 'pagehide', Host_PageHide );
-
-	}
-
-	LOC_Init(); // for 2021 rerelease support (Ironwail host.c)
-
-	host_initialized = true;
-
-	Sys_Printf( 'Host_Init complete\n' );
-
+  Sys_Printf("Host_Init complete\n");
 }
 
 /*
@@ -564,34 +614,31 @@ Runs server simulation for the current frame
 ==================
 */
 export function Host_ServerFrame() {
+  // sync frametime to physics module
+  SV_SetFrametime(host_frametime);
 
-	// sync frametime to physics module
-	SV_SetFrametime( host_frametime );
+  // run the world state
+  if (pr_global_struct) {
+    pr_global_struct.frametime = host_frametime;
+  }
 
-	// run the world state
-	if ( pr_global_struct ) {
+  // set the time and clear the general datagram
+  SV_ClearDatagram();
 
-		pr_global_struct.frametime = host_frametime;
+  // check for new clients
+  SV_CheckForNewClients();
 
-	}
+  // read client messages
+  SV_RunClients();
 
-	// set the time and clear the general datagram
-	SV_ClearDatagram();
+  // move things around and think
+  // always pause in single player if in console or menus
+  if (!sv.paused && (svs.maxclients > 1 || key_dest === key_game)) {
+    SV_Physics();
+  }
 
-	// check for new clients
-	SV_CheckForNewClients();
-
-	// read client messages
-	SV_RunClients();
-
-	// move things around and think
-	// always pause in single player if in console or menus
-	if ( ! sv.paused && ( svs.maxclients > 1 || key_dest === key_game ) )
-		SV_Physics();
-
-	// send all messages to the clients
-	SV_SendClientMessages();
-
+  // send all messages to the clients
+  SV_SendClientMessages();
 }
 
 /*
@@ -605,68 +652,54 @@ Runs all active servers
 let serverprofile_timetotal = 0;
 let serverprofile_timecount = 0;
 
-export function Host_Frame( time ) {
+export function Host_Frame(time) {
+  if (serverprofile.value === 0) {
+    _Host_Frame(time);
+    return;
+  }
 
-	if ( serverprofile.value === 0 ) {
+  const time1 = Sys_FloatTime();
+  _Host_Frame(time);
+  const time2 = Sys_FloatTime();
 
-		_Host_Frame( time );
-		return;
+  serverprofile_timetotal += time2 - time1;
+  serverprofile_timecount++;
 
-	}
+  if (serverprofile_timecount < 1000) {
+    return;
+  }
 
-	const time1 = Sys_FloatTime();
-	_Host_Frame( time );
-	const time2 = Sys_FloatTime();
+  const m = Math.trunc(
+    serverprofile_timetotal * 1000 / serverprofile_timecount,
+  );
+  serverprofile_timecount = 0;
+  serverprofile_timetotal = 0;
+  let c = 0;
+  for (let i = 0; i < svs.maxclients; i++) {
+    if (svs.clients[i].active) {
+      c++;
+    }
+  }
 
-	serverprofile_timetotal += time2 - time1;
-	serverprofile_timecount ++;
-
-	if ( serverprofile_timecount < 1000 )
-		return;
-
-	const m = Math.trunc( serverprofile_timetotal * 1000 / serverprofile_timecount );
-	serverprofile_timecount = 0;
-	serverprofile_timetotal = 0;
-	let c = 0;
-	for ( let i = 0; i < svs.maxclients; i ++ ) {
-
-		if ( svs.clients[ i ].active )
-			c ++;
-
-	}
-
-	Con_Printf( 'serverprofile: %2i clients %2i msec\n', c, m );
-
+  Con_Printf("serverprofile: %2i clients %2i msec\n", c, m);
 }
 
 // host.c _Host_Frame; the try/catch stands in for its setjmp(host_abortserver)
-function _Host_Frame( time ) {
-
-	try {
-
-		_Host_Frame_Internal( time );
-
-	} catch ( e ) {
-
-		// Host_Error and Host_EndGame throw to recover (like C's longjmp).
-		// Catch and continue to next frame.
-		if ( e.message && e.message.startsWith( 'Host_Error:' ) ) {
-
-			Con_Printf( '%s\n', e.message );
-
-		} else if ( e.message && e.message.startsWith( 'Host_EndGame:' ) ) {
-
-			// Normal game end (demo finished, disconnect, etc.) - no need to log
-
-		} else {
-
-			// Unexpected error - re-throw
-			throw e;
-
-		}
-
-	}
-
+function _Host_Frame(time) {
+  try {
+    _Host_Frame_Internal(time);
+  } catch (e) {
+    // Host_Error and Host_EndGame throw to recover (like C's longjmp).
+    // Catch and continue to next frame.
+    if (e.message && e.message.startsWith("Host_Error:")) {
+      Con_Printf("%s\n", e.message);
+    } else if (e.message && e.message.startsWith("Host_EndGame:")) {
+      // Normal game end (demo finished, disconnect, etc.) - no need to log
+    } else {
+      // Unexpected error - re-throw
+      throw e;
+    }
+  }
 }
 
 // host.c _Host_Frame statics for host_speeds
@@ -676,112 +709,110 @@ let host_speeds_time3 = 0;
 
 let autosave_offer_done = false;
 
-function _Host_Frame_Internal( time ) {
+function _Host_Frame_Internal(time) {
+  // keep the random time dependent
+  // Math.random() is already random in JS
 
-	// keep the random time dependent
-	// Math.random() is already random in JS
+  // decide the simulation time
+  if (!_Host_FilterTime(time)) {
+    return; // don't run too fast, or packets will flood out
+  }
 
-	// decide the simulation time
-	if ( ! _Host_FilterTime( time ) )
-		return; // don't run too fast, or packets will flood out
+  // allow mice or other external controllers to add commands
+  IN_Commands();
 
-	// allow mice or other external controllers to add commands
-	IN_Commands();
+  // update touch controls state based on key_dest
+  IN_UpdateTouch();
 
-	// update touch controls state based on key_dest
-	IN_UpdateTouch();
+  // process console commands
+  Cbuf_Execute();
 
-	// process console commands
-	Cbuf_Execute();
+  // Web-only: offer to continue the autosave once per page load (autosave.js)
+  if (autosave_offer_done === false) {
+    autosave_offer_done = Host_MaybeOfferContinue();
+  }
 
-	// Web-only: offer to continue the autosave once per page load (autosave.js)
-	if ( autosave_offer_done === false )
-		autosave_offer_done = Host_MaybeOfferContinue();
+  NET_Poll();
 
-	NET_Poll();
+  if (host_netinterval === 0) {
+    host_netframetime = host_frametime;
 
-	if ( host_netinterval === 0 ) {
+    // if running the server locally, make intentions now
+    if (sv.active) {
+      CL_SendCmd();
+    }
 
-		host_netframetime = host_frametime;
+    //-------------------
+    //
+    // server operations
+    //
+    //-------------------
 
-		// if running the server locally, make intentions now
-		if ( sv.active )
-			CL_SendCmd();
+    if (sv.active) {
+      Host_ServerFrame();
+    }
 
-		//-------------------
-		//
-		// server operations
-		//
-		//-------------------
+    //-------------------
+    //
+    // client operations
+    //
+    //-------------------
 
-		if ( sv.active )
-			Host_ServerFrame();
+    // if running the server remotely, send intentions now after
+    // the incoming messages have been read
+    if (!sv.active) {
+      CL_SendCmd();
+    }
+  } else {
+    _Host_NetFrame();
+  }
 
-		//-------------------
-		//
-		// client operations
-		//
-		//-------------------
+  host_time += host_frametime;
 
-		// if running the server remotely, send intentions now after
-		// the incoming messages have been read
-		if ( ! sv.active )
-			CL_SendCmd();
+  // fetch results from server
+  if (cls.state === ca_connected) {
+    CL_ReadFromServer();
+  }
 
-	} else {
+  // update video
+  if (host_speeds.value !== 0) {
+    host_speeds_time1 = Sys_FloatTime();
+  }
 
-		_Host_NetFrame();
+  // Web-only: vid_quality presets; every frame, also with no map drawn
+  R_CheckQuality();
 
-	}
+  SCR_UpdateScreen();
 
-	host_time += host_frametime;
+  if (host_speeds.value !== 0) {
+    host_speeds_time2 = Sys_FloatTime();
+  }
 
-	// fetch results from server
-	if ( cls.state === ca_connected ) {
+  // update audio
+  if (cls.signon === SIGNONS) {
+    S_Update(r_origin, vpn, vright, vup);
+    CL_DecayLights();
+  } else {
+    S_Update(vec3_origin, vec3_origin, vec3_origin, vec3_origin);
+  }
 
-		CL_ReadFromServer();
+  CDAudio_Update();
 
-	}
+  if (host_speeds.value !== 0) {
+    const pass1 = Math.trunc((host_speeds_time1 - host_speeds_time3) * 1000);
+    host_speeds_time3 = Sys_FloatTime();
+    const pass2 = Math.trunc((host_speeds_time2 - host_speeds_time1) * 1000);
+    const pass3 = Math.trunc((host_speeds_time3 - host_speeds_time2) * 1000);
+    Con_Printf(
+      "%3i tot %3i server %3i gfx %3i snd\n",
+      pass1 + pass2 + pass3,
+      pass1,
+      pass2,
+      pass3,
+    );
+  }
 
-	// update video
-	if ( host_speeds.value !== 0 )
-		host_speeds_time1 = Sys_FloatTime();
-
-	// Web-only: vid_quality presets; every frame, also with no map drawn
-	R_CheckQuality();
-
-	SCR_UpdateScreen();
-
-	if ( host_speeds.value !== 0 )
-		host_speeds_time2 = Sys_FloatTime();
-
-	// update audio
-	if ( cls.signon === SIGNONS ) {
-
-		S_Update( r_origin, vpn, vright, vup );
-		CL_DecayLights();
-
-	} else {
-
-		S_Update( vec3_origin, vec3_origin, vec3_origin, vec3_origin );
-
-	}
-
-	CDAudio_Update();
-
-	if ( host_speeds.value !== 0 ) {
-
-		const pass1 = Math.trunc( ( host_speeds_time1 - host_speeds_time3 ) * 1000 );
-		host_speeds_time3 = Sys_FloatTime();
-		const pass2 = Math.trunc( ( host_speeds_time2 - host_speeds_time1 ) * 1000 );
-		const pass3 = Math.trunc( ( host_speeds_time3 - host_speeds_time2 ) * 1000 );
-		Con_Printf( '%3i tot %3i server %3i gfx %3i snd\n',
-			pass1 + pass2 + pass3, pass1, pass2, pass3 );
-
-	}
-
-	host_framecount ++;
-
+  host_framecount++;
 }
 
 /*
@@ -806,13 +837,12 @@ interval. The total of all ticks plus accum is always the total frame time.
 */
 export const HOST_NETTICK_SLACK = 0.001;
 
-export function Host_NetTickTime( accum, interval ) {
+export function Host_NetTickTime(accum, interval) {
+  if (accum < interval - HOST_NETTICK_SLACK) {
+    return 0;
+  }
 
-	if ( accum < interval - HOST_NETTICK_SLACK )
-		return 0;
-
-	return Math.max( interval, accum - interval );
-
+  return Math.max(interval, accum - interval);
 }
 
 /*
@@ -826,25 +856,26 @@ the single loop, so it runs as fast as WinQuake's.
 ==================
 */
 function Host_UpdateNetInterval() {
+  const maxfps = host_maxfps.value;
+  let interval = 0;
+  if (cls.timedemo !== true && (maxfps > 72 || maxfps <= 0 || isXRActive())) {
+    interval = HOST_NETINTERVAL;
+  }
 
-	const maxfps = host_maxfps.value;
-	let interval = 0;
-	if ( cls.timedemo !== true && ( maxfps > 72 || maxfps <= 0 || isXRActive() ) )
-		interval = HOST_NETINTERVAL;
+  if (interval === host_netinterval) {
+    return;
+  }
 
-	if ( interval === host_netinterval )
-		return;
+  if (interval !== 0) {
+    Con_Printf("Using renderer/network isolation.\n");
+  } else {
+    Con_Printf("Disabling renderer/network isolation.\n");
+  }
 
-	if ( interval !== 0 )
-		Con_Printf( 'Using renderer/network isolation.\n' );
-	else
-		Con_Printf( 'Disabling renderer/network isolation.\n' );
-
-	host_netinterval = interval;
-	host_netaccum = 0;
-	host_renderaccum = 0;
-	host_lookframetime = 0;
-
+  host_netinterval = interval;
+  host_netaccum = 0;
+  host_renderaccum = 0;
+  host_lookframetime = 0;
 }
 
 /*
@@ -855,62 +886,58 @@ Returns false if the time is too short to run a frame
 (exported for tests)
 ==================
 */
-export function _Host_FilterTime( time ) {
+export function _Host_FilterTime(time) {
+  realtime += time;
 
-	realtime += time;
+  Host_UpdateNetInterval();
 
-	Host_UpdateNetInterval();
+  if (host_netinterval === 0) {
+    // Don't run too fast - cap at 72 FPS (host_maxfps, 72 or below;
+    // QuakeSpasm clamps it to 10 or more)
+    // This prevents packets from flooding out and keeps physics consistent
+    if (
+      cls.timedemo !== true &&
+      realtime - oldrealtime < 1.0 / Math.max(10, host_maxfps.value)
+    ) {
+      return false; // framerate is too high
+    }
+  } else {
+    // QuakeSpasm/Ironwail Host_GetFrameInterval: cap render frames at
+    // host_maxfps (0 = uncapped). A WebXR session draws every XR frame.
+    const maxfps = host_maxfps.value;
+    if (maxfps > 0 && isXRActive() !== true) {
+      host_renderaccum += time;
+      const step = Host_NetTickTime(
+        host_renderaccum,
+        1.0 / Math.min(maxfps, 1000),
+      );
+      if (step === 0) {
+        return false; // framerate is too high
+      }
+      host_renderaccum -= step;
+    }
+  }
 
-	if ( host_netinterval === 0 ) {
+  host_frametime = host_rawframetime = realtime - oldrealtime;
+  oldrealtime = realtime;
 
-		// Don't run too fast - cap at 72 FPS (host_maxfps, 72 or below;
-		// QuakeSpasm clamps it to 10 or more)
-		// This prevents packets from flooding out and keeps physics consistent
-		if ( cls.timedemo !== true && realtime - oldrealtime < 1.0 / Math.max( 10, host_maxfps.value ) )
-			return false; // framerate is too high
+  // johnfitz -- host_timescale is more intuitive than host_framerate.
+  // As in Ironwail, a scaled frame skips the long/short frame clamp.
+  if (host_timescale.value > 0) {
+    host_frametime *= host_timescale.value;
+  } else if (host_framerate.value > 0) {
+    host_frametime = host_framerate.value;
+  } else {
+    // don't allow really long or short frames
+    if (host_frametime > 0.1) {
+      host_frametime = 0.1;
+    }
+    if (host_frametime < 0.001) {
+      host_frametime = 0.001;
+    }
+  }
 
-	} else {
-
-		// QuakeSpasm/Ironwail Host_GetFrameInterval: cap render frames at
-		// host_maxfps (0 = uncapped). A WebXR session draws every XR frame.
-		const maxfps = host_maxfps.value;
-		if ( maxfps > 0 && isXRActive() !== true ) {
-
-			host_renderaccum += time;
-			const step = Host_NetTickTime( host_renderaccum, 1.0 / Math.min( maxfps, 1000 ) );
-			if ( step === 0 )
-				return false; // framerate is too high
-			host_renderaccum -= step;
-
-		}
-
-	}
-
-	host_frametime = host_rawframetime = realtime - oldrealtime;
-	oldrealtime = realtime;
-
-	// johnfitz -- host_timescale is more intuitive than host_framerate.
-	// As in Ironwail, a scaled frame skips the long/short frame clamp.
-	if ( host_timescale.value > 0 ) {
-
-		host_frametime *= host_timescale.value;
-
-	} else if ( host_framerate.value > 0 ) {
-
-		host_frametime = host_framerate.value;
-
-	} else {
-
-		// don't allow really long or short frames
-		if ( host_frametime > 0.1 )
-			host_frametime = 0.1;
-		if ( host_frametime < 0.001 )
-			host_frametime = 0.001;
-
-	}
-
-	return true;
-
+  return true;
 }
 
 /*
@@ -931,90 +958,72 @@ to the tick's length.
 ==================
 */
 export function _Host_NetFrame() {
+  let dt = host_rawframetime;
+  if (dt < 0) dt = 0;
+  if (dt > 0.2) dt = 0.2; // Ironwail's CLAMP( 0.0, time, 0.2 )
+  host_netaccum += dt;
 
-	let dt = host_rawframetime;
-	if ( dt < 0 ) dt = 0;
-	if ( dt > 0.2 ) dt = 0.2; // Ironwail's CLAMP( 0.0, time, 0.2 )
-	host_netaccum += dt;
+  const tick = Host_NetTickTime(host_netaccum, host_netinterval);
+  if (tick === 0) {
+    if (CL_AccumulateCmd()) {
+      host_lookframetime = 0;
+    } else {
+      host_lookframetime += host_frametime;
+    }
+    return;
+  }
 
-	const tick = Host_NetTickTime( host_netaccum, host_netinterval );
-	if ( tick === 0 ) {
+  host_netaccum -= tick;
 
-		if ( CL_AccumulateCmd() )
-			host_lookframetime = 0;
-		else
-			host_lookframetime += host_frametime;
-		return;
+  // Ironwail scales the tick, so ticks keep their real-time rate and
+  // each one covers more or less game time
+  if (host_timescale.value > 0) {
+    host_netframetime = tick * host_timescale.value;
+  } else if (host_framerate.value > 0) {
+    host_netframetime = host_framerate.value;
+  } else {
+    // don't allow really long ticks, as WinQuake's _Host_FilterTime
+    // (Ironwail allows up to 0.2)
+    host_netframetime = tick > 0.1 ? 0.1 : tick;
+  }
 
-	}
+  let lookframetime = host_lookframetime + host_frametime;
+  if (lookframetime > 0.1) {
+    lookframetime = 0.1;
+  }
+  host_lookframetime = 0;
 
-	host_netaccum -= tick;
+  // if running the server locally, make intentions now
+  if (sv.active) {
+    _Host_SendCmd(lookframetime);
+  }
 
-	// Ironwail scales the tick, so ticks keep their real-time rate and
-	// each one covers more or less game time
-	if ( host_timescale.value > 0 ) {
+  if (sv.active) {
+    const renderframetime = host_frametime;
+    set_host_frametime(host_netframetime);
+    try {
+      Host_ServerFrame();
+    } finally {
+      set_host_frametime(renderframetime);
+    }
+  }
 
-		host_netframetime = tick * host_timescale.value;
-
-	} else if ( host_framerate.value > 0 ) {
-
-		host_netframetime = host_framerate.value;
-
-	} else {
-
-		// don't allow really long ticks, as WinQuake's _Host_FilterTime
-		// (Ironwail allows up to 0.2)
-		host_netframetime = tick > 0.1 ? 0.1 : tick;
-
-	}
-
-	let lookframetime = host_lookframetime + host_frametime;
-	if ( lookframetime > 0.1 )
-		lookframetime = 0.1;
-	host_lookframetime = 0;
-
-	// if running the server locally, make intentions now
-	if ( sv.active )
-		_Host_SendCmd( lookframetime );
-
-	if ( sv.active ) {
-
-		const renderframetime = host_frametime;
-		set_host_frametime( host_netframetime );
-		try {
-
-			Host_ServerFrame();
-
-		} finally {
-
-			set_host_frametime( renderframetime );
-
-		}
-
-	}
-
-	// if running the server remotely, send intentions now after
-	// the incoming messages have been read
-	if ( ! sv.active )
-		_Host_SendCmd( lookframetime );
-
+  // if running the server remotely, send intentions now after
+  // the incoming messages have been read
+  if (!sv.active) {
+    _Host_SendCmd(lookframetime);
+  }
 }
 
 // CL_SendCmd with host_frametime set to lookframetime
-function _Host_SendCmd( lookframetime ) {
-
-	const renderframetime = host_frametime;
-	host_frametime = lookframetime;
-	try {
-
-		CL_SendCmd();
-
-	} finally {
-
-		host_frametime = renderframetime;
-
-	}
-
+function _Host_SendCmd(lookframetime) {
+  const renderframetime = host_frametime;
+  host_frametime = lookframetime;
+  try {
+    CL_SendCmd();
+  } finally {
+    host_frametime = renderframetime;
+  }
 }
 
 /*
@@ -1026,35 +1035,35 @@ This shuts down both the client and server
 */
 let host_error_reentrancy = false;
 
-export function Host_Error( error ) {
+export function Host_Error(error) {
+  if (host_error_reentrancy) {
+    Sys_Error("Host_Error: recursively entered - " + error);
+  }
 
-	if ( host_error_reentrancy )
-		Sys_Error( 'Host_Error: recursively entered - ' + error );
+  host_error_reentrancy = true;
 
-	host_error_reentrancy = true;
+  SCR_EndLoadingPlaque(); // reenable screen updates
 
-	SCR_EndLoadingPlaque(); // reenable screen updates
+  Con_Printf("Host_Error: " + error + "\n");
 
-	Con_Printf( 'Host_Error: ' + error + '\n' );
+  if (sv.active) {
+    Host_ShutdownServer(false);
+  }
 
-	if ( sv.active )
-		Host_ShutdownServer( false );
+  CL_Disconnect();
+  cls.demonum = -1;
+  cl.intermission = 0; // johnfitz (QuakeSpasm/Ironwail) -- for errors during intermissions (changelevel with no map found, etc.)
 
-	CL_Disconnect();
-	cls.demonum = - 1;
-	cl.intermission = 0; // johnfitz (QuakeSpasm/Ironwail) -- for errors during intermissions (changelevel with no map found, etc.)
+  host_error_reentrancy = false;
 
-	host_error_reentrancy = false;
-
-	// Throw to unwind the call stack back to Host_Frame (like C's longjmp)
-	throw new Error( 'Host_Error: ' + error );
-
+  // Throw to unwind the call stack back to Host_Frame (like C's longjmp)
+  throw new Error("Host_Error: " + error);
 }
 
 // common.js can't import this module, so SZ_GetSpace reaches Host_Error
 // through this hook. Installed at load so the room server, which doesn't run
 // Host_Init, has it too.
-COM_SetHostError( Host_Error );
+COM_SetHostError(Host_Error);
 
 /*
 ================
@@ -1063,26 +1072,21 @@ Host_EndGame
 End the current game
 ================
 */
-export function Host_EndGame( message ) {
+export function Host_EndGame(message) {
+  Con_DPrintf("Host_EndGame: %s\n", message);
 
-	Con_DPrintf( 'Host_EndGame: %s\n', message );
+  if (sv.active) {
+    Host_ShutdownServer(false);
+  }
 
-	if ( sv.active )
-		Host_ShutdownServer( false );
+  if (cls.demonum !== -1) {
+    CL_NextDemo();
+  } else {
+    CL_Disconnect();
+  }
 
-	if ( cls.demonum !== - 1 ) {
-
-		CL_NextDemo();
-
-	} else {
-
-		CL_Disconnect();
-
-	}
-
-	// Throw to unwind the call stack back to Host_Frame (like C's longjmp)
-	throw new Error( 'Host_EndGame: ' + message );
-
+  // Throw to unwind the call stack back to Host_Frame (like C's longjmp)
+  throw new Error("Host_EndGame: " + message);
 }
 
 /*
@@ -1093,82 +1097,78 @@ This only happens at the end of a game, not between levels
 ================
 */
 // Cached buffer for Host_ShutdownServer disconnect message (avoid per-call allocations)
-const _shutdownBuf = new Uint8Array( 4 );
-const _shutdownMsg = { allowoverflow: false, overflowed: false, data: _shutdownBuf, maxsize: 4, cursize: 0 };
+const _shutdownBuf = new Uint8Array(4);
+const _shutdownMsg = {
+  allowoverflow: false,
+  overflowed: false,
+  data: _shutdownBuf,
+  maxsize: 4,
+  cursize: 0,
+};
 
 // Web addition: set by Host_PageHide. A closing tab can't wait up to 3 s for
 // a backed-up connection to drain and 5 s more in NET_SendToAll, so it tries
 // each send once.
 let host_shutdown_nowait = false;
 
-export function Host_ShutdownServer( crash ) {
+export function Host_ShutdownServer(crash) {
+  if (sv.active === false) {
+    return;
+  }
 
-	if ( sv.active === false )
-		return;
+  sv.active = false;
 
-	sv.active = false;
+  // stop all client sounds immediately
+  if (cls.state === ca_connected) {
+    CL_Disconnect();
+  }
 
-	// stop all client sounds immediately
-	if ( cls.state === ca_connected )
-		CL_Disconnect();
+  // flush any pending messages - like the score!!!
+  const start = Sys_FloatTime();
+  let count;
+  do {
+    count = 0;
+    for (let i = 0; i < svs.maxclients; i++) {
+      set_host_client(svs.clients[i]);
+      if (host_client.active && host_client.message.cursize > 0) {
+        if (NET_CanSendMessage(host_client.netconnection)) {
+          NET_SendMessage(host_client.netconnection, host_client.message);
+          SZ_Clear(host_client.message);
+        } else {
+          NET_GetMessage(host_client.netconnection);
+          count++;
+        }
+      }
+    }
 
-	// flush any pending messages - like the score!!!
-	const start = Sys_FloatTime();
-	let count;
-	do {
+    if ((Sys_FloatTime() - start) > (host_shutdown_nowait === true ? 0 : 3.0)) {
+      break;
+    }
+  } while (count > 0);
 
-		count = 0;
-		for ( let i = 0; i < svs.maxclients; i ++ ) {
+  // make sure all the clients know we're disconnecting
+  _shutdownMsg.cursize = 0;
+  MSG_WriteByte(_shutdownMsg, svc_disconnect);
+  count = NET_SendToAll(_shutdownMsg, host_shutdown_nowait === true ? 0 : 5);
+  if (count > 0) {
+    Con_Printf(
+      "Host_ShutdownServer: NET_SendToAll failed for " + count + " clients\n",
+    );
+  }
 
-			set_host_client( svs.clients[ i ] );
-			if ( host_client.active && host_client.message.cursize > 0 ) {
+  // drop all active clients
+  for (let i = 0; i < svs.maxclients; i++) {
+    if (svs.clients[i] != null && svs.clients[i].active) {
+      set_host_client(svs.clients[i]);
+      SV_DropClient(crash);
+    }
+  }
 
-				if ( NET_CanSendMessage( host_client.netconnection ) ) {
+  // clear structures
+  Object.assign(sv, new (sv.constructor)());
 
-					NET_SendMessage( host_client.netconnection, host_client.message );
-					SZ_Clear( host_client.message );
-
-				} else {
-
-					NET_GetMessage( host_client.netconnection );
-					count ++;
-
-				}
-
-			}
-
-		}
-
-		if ( ( Sys_FloatTime() - start ) > ( host_shutdown_nowait === true ? 0 : 3.0 ) )
-			break;
-
-	} while ( count > 0 );
-
-	// make sure all the clients know we're disconnecting
-	_shutdownMsg.cursize = 0;
-	MSG_WriteByte( _shutdownMsg, svc_disconnect );
-	count = NET_SendToAll( _shutdownMsg, host_shutdown_nowait === true ? 0 : 5 );
-	if ( count > 0 )
-		Con_Printf( 'Host_ShutdownServer: NET_SendToAll failed for ' + count + ' clients\n' );
-
-	// drop all active clients
-	for ( let i = 0; i < svs.maxclients; i ++ ) {
-
-		if ( svs.clients[ i ] != null && svs.clients[ i ].active ) {
-
-			set_host_client( svs.clients[ i ] );
-			SV_DropClient( crash );
-
-		}
-
-	}
-
-	// clear structures
-	Object.assign( sv, new ( sv.constructor )() );
-
-	// Web addition: a room hosted in this browser ends with its server
-	RTCLobby_ServerShutdown();
-
+  // Web addition: a room hosted in this browser ends with its server
+  RTCLobby_ServerShutdown();
 }
 
 /*
@@ -1186,22 +1186,14 @@ deliberate, since a frozen page can't serve its players.
 ==================
 */
 export function Host_PageHide() {
-
-	if ( sv.active === true && svs.maxclients > 1 ) {
-
-		host_shutdown_nowait = true;
-		try {
-
-			Host_ShutdownServer( false );
-
-		} finally {
-
-			host_shutdown_nowait = false;
-
-		}
-
-	}
-
+  if (sv.active === true && svs.maxclients > 1) {
+    host_shutdown_nowait = true;
+    try {
+      Host_ShutdownServer(false);
+    } finally {
+      host_shutdown_nowait = false;
+    }
+  }
 }
 
 /*
@@ -1211,25 +1203,20 @@ Host_WriteConfiguration
 Writes key bindings and archived cvars to localStorage
 ===============
 */
-const CONFIG_STORAGE_KEY = 'quake_config';
+const CONFIG_STORAGE_KEY = "quake_config";
 
 export function Host_WriteConfiguration() {
+  if (host_initialized !== true) {
+    return;
+  }
 
-	if ( host_initialized !== true )
-		return;
+  const config = Key_WriteBindings() + Cvar_WriteVariables();
 
-	const config = Key_WriteBindings() + Cvar_WriteVariables();
-
-	try {
-
-		localStorage.setItem( CONFIG_STORAGE_KEY, config );
-
-	} catch {
-
-		Con_Printf( 'Couldn\'t save config.\n' );
-
-	}
-
+  try {
+    localStorage.setItem(CONFIG_STORAGE_KEY, config);
+  } catch {
+    Con_Printf("Couldn't save config.\n");
+  }
 }
 
 /*
@@ -1240,24 +1227,23 @@ Cleanly shut down everything
 ================
 */
 export function Host_Shutdown() {
+  if (!host_initialized) {
+    return;
+  }
 
-	if ( ! host_initialized )
-		return;
+  Host_WriteConfiguration();
 
-	Host_WriteConfiguration();
+  host_initialized = false;
 
-	host_initialized = false;
+  // Shutdown subsystems in reverse order
+  CDAudio_Shutdown();
+  S_Shutdown();
+  IN_Shutdown();
+  NET_Shutdown();
+  VID_Shutdown();
+  LOC_Shutdown(); // Ironwail host.c
 
-	// Shutdown subsystems in reverse order
-	CDAudio_Shutdown();
-	S_Shutdown();
-	IN_Shutdown();
-	NET_Shutdown();
-	VID_Shutdown();
-	LOC_Shutdown(); // Ironwail host.c
-
-	Con_Printf( 'Host_Shutdown complete\n' );
-
+  Con_Printf("Host_Shutdown complete\n");
 }
 
 /*
@@ -1267,24 +1253,18 @@ SV_ClientPrintf
 Sends text across to be displayed
 ================
 */
-export function SV_ClientPrintf( fmt, ...args ) {
+export function SV_ClientPrintf(fmt, ...args) {
+  // Format the string
+  let msg = fmt;
+  if (args.length > 0) {
+    msg = fmt.replace(/%s/g, () => args.shift() || "");
+  }
 
-	// Format the string
-	let msg = fmt;
-	if ( args.length > 0 ) {
-
-		msg = fmt.replace( /%s/g, () => args.shift() || '' );
-
-	}
-
-	// Write to host_client's message buffer
-	if ( host_client && host_client.message ) {
-
-		MSG_WriteByte( host_client.message, svc_print );
-		MSG_WriteString( host_client.message, msg );
-
-	}
-
+  // Write to host_client's message buffer
+  if (host_client && host_client.message) {
+    MSG_WriteByte(host_client.message, svc_print);
+    MSG_WriteString(host_client.message, msg);
+  }
 }
 
 /*
@@ -1294,26 +1274,20 @@ SV_BroadcastPrintf
 Sends text to all active clients
 ================
 */
-export function SV_BroadcastPrintf( fmt, ...args ) {
+export function SV_BroadcastPrintf(fmt, ...args) {
+  // Format the string
+  let msg = fmt;
+  if (args.length > 0) {
+    msg = fmt.replace(/%s/g, () => args.shift() || "");
+  }
 
-	// Format the string
-	let msg = fmt;
-	if ( args.length > 0 ) {
-
-		msg = fmt.replace( /%s/g, () => args.shift() || '' );
-
-	}
-
-	// C writes only to spawned clients; a listen server's own player gets the
-	// line through its client connection, so there is no local echo here.
-	// Write to all active clients
-	for ( let i = 0; i < svs.maxclients; i ++ ) {
-
-		const client = svs.clients[ i ];
-		if ( client == null || ! client.active || ! client.spawned ) continue;
-		MSG_WriteByte( client.message, svc_print );
-		MSG_WriteString( client.message, msg );
-
-	}
-
+  // C writes only to spawned clients; a listen server's own player gets the
+  // line through its client connection, so there is no local echo here.
+  // Write to all active clients
+  for (let i = 0; i < svs.maxclients; i++) {
+    const client = svs.clients[i];
+    if (client == null || !client.active || !client.spawned) continue;
+    MSG_WriteByte(client.message, svc_print);
+    MSG_WriteString(client.message, msg);
+  }
 }

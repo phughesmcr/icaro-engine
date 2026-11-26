@@ -1,13 +1,25 @@
 // Ported from: WinQuake/keys.c, WinQuake/keys.h -- keyboard input handling
 
-import { Cbuf_AddText } from './cmd.js';
-import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from './cmd.js';
-import { Con_Printf, con_forcedup, Con_SetBackscroll, con_totallines, con_vislines,
-	Con_Scroll, Con_TabComplete, Con_ResetTabComplete } from './console.js';
-import { M_Keydown, M_KeyRepeats, M_ToggleMenu_f } from './menu.js';
-import { SCR_UpdateScreen, scr_conscale } from './gl_screen.js';
-import { Sys_Error } from './sys.js';
-import { Draw_GetVirtualWidth, Draw_GetVirtualHeight, Draw_SetCanvasScale } from './gl_draw.js';
+import { Cbuf_AddText } from "./cmd.js";
+import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from "./cmd.js";
+import {
+  con_forcedup,
+  Con_Printf,
+  Con_ResetTabComplete,
+  Con_Scroll,
+  Con_SetBackscroll,
+  Con_TabComplete,
+  con_totallines,
+  con_vislines,
+} from "./console.js";
+import { M_Keydown, M_KeyRepeats, M_ToggleMenu_f } from "./menu.js";
+import { scr_conscale, SCR_UpdateScreen } from "./gl_screen.js";
+import { Sys_Error } from "./sys.js";
+import {
+  Draw_GetVirtualHeight,
+  Draw_GetVirtualWidth,
+  Draw_SetCanvasScale,
+} from "./gl_draw.js";
 
 /*
 ==============================================================================
@@ -130,10 +142,8 @@ const CMDLINES = 32;
 
 // key_lines[CMDLINES][MAXCMDLINE]
 export const key_lines = [];
-for ( let i = 0; i < CMDLINES; i ++ ) {
-
-	key_lines[ i ] = new Array( MAXCMDLINE ).fill( 0 );
-
+for (let i = 0; i < CMDLINES; i++) {
+  key_lines[i] = new Array(MAXCMDLINE).fill(0);
 }
 
 export let key_linepos = 1;
@@ -145,9 +155,15 @@ export let edit_line = 0;
 export let history_line = 0;
 
 export let key_dest = key_game;
-export function set_key_dest( v ) { key_dest = v; }
-export function set_key_linepos( v ) { key_linepos = v; }
-export function set_history_line( v ) { history_line = v; }
+export function set_key_dest(v) {
+  key_dest = v;
+}
+export function set_key_linepos(v) {
+  key_linepos = v;
+}
+export function set_history_line(v) {
+  history_line = v;
+}
 
 export let key_count = 0; // incremented every key event
 
@@ -163,46 +179,36 @@ let key_modal_callback = null;
 // that opened the dialog can't confirm it.
 let key_modal_yes = false;
 
-export function Key_BeginModal( callback ) {
-
-	key_modal_callback = callback;
-	key_modal_yes = false;
-	key_count = - 1; // wait for a key down and up
-
+export function Key_BeginModal(callback) {
+  key_modal_callback = callback;
+  key_modal_yes = false;
+  key_count = -1; // wait for a key down and up
 }
 
 export function Key_ModalActive() {
-
-	return key_modal_callback !== null;
-
+  return key_modal_callback !== null;
 }
 
 export function Key_ModalYes() {
-
-	return key_modal_yes;
-
+  return key_modal_yes;
 }
 
-export function Key_SetModalYes( yes ) {
-
-	key_modal_yes = yes;
-
+export function Key_SetModalYes(yes) {
+  key_modal_yes = yes;
 }
 
-function Key_EndModal( yes ) {
-
-	const callback = key_modal_callback;
-	key_modal_callback = null;
-	callback( yes );
-
+function Key_EndModal(yes) {
+  const callback = key_modal_callback;
+  key_modal_callback = null;
+  callback(yes);
 }
 
-export const keybindings = new Array( 256 ).fill( null );
-const consolekeys = new Array( 256 ).fill( false );
-const menubound = new Array( 256 ).fill( false );
-const keyshift = new Array( 256 ).fill( 0 );
-export const key_repeats = new Array( 256 ).fill( 0 );
-const keydown = new Array( 256 ).fill( false );
+export const keybindings = new Array(256).fill(null);
+const consolekeys = new Array(256).fill(false);
+const menubound = new Array(256).fill(false);
+const keyshift = new Array(256).fill(0);
+export const key_repeats = new Array(256).fill(0);
+const keydown = new Array(256).fill(false);
 
 /*
 ==============================================================================
@@ -213,88 +219,88 @@ const keydown = new Array( 256 ).fill( false );
 */
 
 const keynames = [
-	{ name: 'TAB', keynum: K_TAB },
-	{ name: 'ENTER', keynum: K_ENTER },
-	{ name: 'ESCAPE', keynum: K_ESCAPE },
-	{ name: 'SPACE', keynum: K_SPACE },
-	{ name: 'BACKSPACE', keynum: K_BACKSPACE },
-	{ name: 'UPARROW', keynum: K_UPARROW },
-	{ name: 'DOWNARROW', keynum: K_DOWNARROW },
-	{ name: 'LEFTARROW', keynum: K_LEFTARROW },
-	{ name: 'RIGHTARROW', keynum: K_RIGHTARROW },
+  { name: "TAB", keynum: K_TAB },
+  { name: "ENTER", keynum: K_ENTER },
+  { name: "ESCAPE", keynum: K_ESCAPE },
+  { name: "SPACE", keynum: K_SPACE },
+  { name: "BACKSPACE", keynum: K_BACKSPACE },
+  { name: "UPARROW", keynum: K_UPARROW },
+  { name: "DOWNARROW", keynum: K_DOWNARROW },
+  { name: "LEFTARROW", keynum: K_LEFTARROW },
+  { name: "RIGHTARROW", keynum: K_RIGHTARROW },
 
-	{ name: 'ALT', keynum: K_ALT },
-	{ name: 'CTRL', keynum: K_CTRL },
-	{ name: 'SHIFT', keynum: K_SHIFT },
+  { name: "ALT", keynum: K_ALT },
+  { name: "CTRL", keynum: K_CTRL },
+  { name: "SHIFT", keynum: K_SHIFT },
 
-	{ name: 'F1', keynum: K_F1 },
-	{ name: 'F2', keynum: K_F2 },
-	{ name: 'F3', keynum: K_F3 },
-	{ name: 'F4', keynum: K_F4 },
-	{ name: 'F5', keynum: K_F5 },
-	{ name: 'F6', keynum: K_F6 },
-	{ name: 'F7', keynum: K_F7 },
-	{ name: 'F8', keynum: K_F8 },
-	{ name: 'F9', keynum: K_F9 },
-	{ name: 'F10', keynum: K_F10 },
-	{ name: 'F11', keynum: K_F11 },
-	{ name: 'F12', keynum: K_F12 },
+  { name: "F1", keynum: K_F1 },
+  { name: "F2", keynum: K_F2 },
+  { name: "F3", keynum: K_F3 },
+  { name: "F4", keynum: K_F4 },
+  { name: "F5", keynum: K_F5 },
+  { name: "F6", keynum: K_F6 },
+  { name: "F7", keynum: K_F7 },
+  { name: "F8", keynum: K_F8 },
+  { name: "F9", keynum: K_F9 },
+  { name: "F10", keynum: K_F10 },
+  { name: "F11", keynum: K_F11 },
+  { name: "F12", keynum: K_F12 },
 
-	{ name: 'INS', keynum: K_INS },
-	{ name: 'DEL', keynum: K_DEL },
-	{ name: 'PGDN', keynum: K_PGDN },
-	{ name: 'PGUP', keynum: K_PGUP },
-	{ name: 'HOME', keynum: K_HOME },
-	{ name: 'END', keynum: K_END },
+  { name: "INS", keynum: K_INS },
+  { name: "DEL", keynum: K_DEL },
+  { name: "PGDN", keynum: K_PGDN },
+  { name: "PGUP", keynum: K_PGUP },
+  { name: "HOME", keynum: K_HOME },
+  { name: "END", keynum: K_END },
 
-	{ name: 'MOUSE1', keynum: K_MOUSE1 },
-	{ name: 'MOUSE2', keynum: K_MOUSE2 },
-	{ name: 'MOUSE3', keynum: K_MOUSE3 },
+  { name: "MOUSE1", keynum: K_MOUSE1 },
+  { name: "MOUSE2", keynum: K_MOUSE2 },
+  { name: "MOUSE3", keynum: K_MOUSE3 },
 
-	{ name: 'JOY1', keynum: K_JOY1 },
-	{ name: 'JOY2', keynum: K_JOY2 },
-	{ name: 'JOY3', keynum: K_JOY3 },
-	{ name: 'JOY4', keynum: K_JOY4 },
+  { name: "JOY1", keynum: K_JOY1 },
+  { name: "JOY2", keynum: K_JOY2 },
+  { name: "JOY3", keynum: K_JOY3 },
+  { name: "JOY4", keynum: K_JOY4 },
 
-	{ name: 'AUX1', keynum: K_AUX1 },
-	{ name: 'AUX2', keynum: K_AUX2 },
-	{ name: 'AUX3', keynum: K_AUX3 },
-	{ name: 'AUX4', keynum: K_AUX4 },
-	{ name: 'AUX5', keynum: K_AUX5 },
-	{ name: 'AUX6', keynum: K_AUX6 },
-	{ name: 'AUX7', keynum: K_AUX7 },
-	{ name: 'AUX8', keynum: K_AUX8 },
-	{ name: 'AUX9', keynum: K_AUX9 },
-	{ name: 'AUX10', keynum: K_AUX10 },
-	{ name: 'AUX11', keynum: K_AUX11 },
-	{ name: 'AUX12', keynum: K_AUX12 },
-	{ name: 'AUX13', keynum: K_AUX13 },
-	{ name: 'AUX14', keynum: K_AUX14 },
-	{ name: 'AUX15', keynum: K_AUX15 },
-	{ name: 'AUX16', keynum: K_AUX16 },
-	{ name: 'AUX17', keynum: K_AUX17 },
-	{ name: 'AUX18', keynum: K_AUX18 },
-	{ name: 'AUX19', keynum: K_AUX19 },
-	{ name: 'AUX20', keynum: K_AUX20 },
-	{ name: 'AUX21', keynum: K_AUX21 },
-	{ name: 'AUX22', keynum: K_AUX22 },
-	{ name: 'AUX23', keynum: K_AUX23 },
-	{ name: 'AUX24', keynum: K_AUX24 },
-	{ name: 'AUX25', keynum: K_AUX25 },
-	{ name: 'AUX26', keynum: K_AUX26 },
-	{ name: 'AUX27', keynum: K_AUX27 },
-	{ name: 'AUX28', keynum: K_AUX28 },
-	{ name: 'AUX29', keynum: K_AUX29 },
-	{ name: 'AUX30', keynum: K_AUX30 },
-	{ name: 'AUX31', keynum: K_AUX31 },
-	{ name: 'AUX32', keynum: K_AUX32 },
+  { name: "AUX1", keynum: K_AUX1 },
+  { name: "AUX2", keynum: K_AUX2 },
+  { name: "AUX3", keynum: K_AUX3 },
+  { name: "AUX4", keynum: K_AUX4 },
+  { name: "AUX5", keynum: K_AUX5 },
+  { name: "AUX6", keynum: K_AUX6 },
+  { name: "AUX7", keynum: K_AUX7 },
+  { name: "AUX8", keynum: K_AUX8 },
+  { name: "AUX9", keynum: K_AUX9 },
+  { name: "AUX10", keynum: K_AUX10 },
+  { name: "AUX11", keynum: K_AUX11 },
+  { name: "AUX12", keynum: K_AUX12 },
+  { name: "AUX13", keynum: K_AUX13 },
+  { name: "AUX14", keynum: K_AUX14 },
+  { name: "AUX15", keynum: K_AUX15 },
+  { name: "AUX16", keynum: K_AUX16 },
+  { name: "AUX17", keynum: K_AUX17 },
+  { name: "AUX18", keynum: K_AUX18 },
+  { name: "AUX19", keynum: K_AUX19 },
+  { name: "AUX20", keynum: K_AUX20 },
+  { name: "AUX21", keynum: K_AUX21 },
+  { name: "AUX22", keynum: K_AUX22 },
+  { name: "AUX23", keynum: K_AUX23 },
+  { name: "AUX24", keynum: K_AUX24 },
+  { name: "AUX25", keynum: K_AUX25 },
+  { name: "AUX26", keynum: K_AUX26 },
+  { name: "AUX27", keynum: K_AUX27 },
+  { name: "AUX28", keynum: K_AUX28 },
+  { name: "AUX29", keynum: K_AUX29 },
+  { name: "AUX30", keynum: K_AUX30 },
+  { name: "AUX31", keynum: K_AUX31 },
+  { name: "AUX32", keynum: K_AUX32 },
 
-	{ name: 'PAUSE', keynum: K_PAUSE },
+  { name: "PAUSE", keynum: K_PAUSE },
 
-	{ name: 'MWHEELUP', keynum: K_MWHEELUP },
-	{ name: 'MWHEELDOWN', keynum: K_MWHEELDOWN },
+  { name: "MWHEELUP", keynum: K_MWHEELUP },
+  { name: "MWHEELDOWN", keynum: K_MWHEELDOWN },
 
-	{ name: 'SEMICOLON', keynum: 59 }, // ';' - because a raw semicolon separates commands
+  { name: "SEMICOLON", keynum: 59 }, // ';' - because a raw semicolon separates commands
 ];
 
 /*
@@ -310,21 +316,25 @@ const keynames = [
 let _cls = { state: 0, demoplayback: false, signon: 0 };
 let _realVid = { height: 480, width: 640 };
 const _vid = {
-	get width() { return Draw_GetVirtualWidth(); },
-	get height() { return Draw_GetVirtualHeight(); }
+  get width() {
+    return Draw_GetVirtualWidth();
+  },
+  get height() {
+    return Draw_GetVirtualHeight();
+  },
 };
 
-export function Key_SetExternals( externals ) {
-
-	if ( externals.cls ) _cls = externals.cls;
-	if ( externals.vid ) _realVid = externals.vid;
-
+export function Key_SetExternals(externals) {
+  if (externals.cls) _cls = externals.cls;
+  if (externals.vid) _realVid = externals.vid;
 }
 
 // Chat buffer
-export let chat_buffer = '';
+export let chat_buffer = "";
 export let team_message = false;
-export function set_team_message( v ) { team_message = v; }
+export function set_team_message(v) {
+  team_message = v;
+}
 
 /*
 ==============================================================================
@@ -338,53 +348,47 @@ insert mode, word jumps, history that survives a reload, and clipboard paste.
 */
 
 // strlen() of a key_lines entry
-function Key_LineLength( line ) {
-
-	let len = 0;
-	while ( len < MAXCMDLINE && line[ len ] !== 0 )
-		len ++;
-	return len;
-
+function Key_LineLength(line) {
+  let len = 0;
+  while (len < MAXCMDLINE && line[len] !== 0) {
+    len++;
+  }
+  return len;
 }
 
 // The characters of line from start up to its terminator
-export function Key_LineString( line, start ) {
-
-	let s = '';
-	for ( let i = start; i < MAXCMDLINE && line[ i ] !== 0; i ++ )
-		s += String.fromCharCode( line[ i ] );
-	return s;
-
+export function Key_LineString(line, start) {
+  let s = "";
+  for (let i = start; i < MAXCMDLINE && line[i] !== 0; i++) {
+    s += String.fromCharCode(line[i]);
+  }
+  return s;
 }
 
 // strcpy() between key_lines entries; returns the length copied
-function Key_CopyLine( dst, src ) {
-
-	const len = Key_LineLength( src );
-	for ( let i = 0; i < len; i ++ )
-		dst[ i ] = src[ i ];
-	if ( len < MAXCMDLINE )
-		dst[ len ] = 0;
-	return len;
-
+function Key_CopyLine(dst, src) {
+  const len = Key_LineLength(src);
+  for (let i = 0; i < len; i++) {
+    dst[i] = src[i];
+  }
+  if (len < MAXCMDLINE) {
+    dst[len] = 0;
+  }
+  return len;
 }
 
-function Key_LinesEqual( a, b ) {
+function Key_LinesEqual(a, b) {
+  for (let i = 0; i < MAXCMDLINE; i++) {
+    if (a[i] !== b[i]) return false;
+    if (a[i] === 0) return true;
+  }
 
-	for ( let i = 0; i < MAXCMDLINE; i ++ ) {
-
-		if ( a[ i ] !== b[ i ] ) return false;
-		if ( a[ i ] === 0 ) return true;
-
-	}
-
-	return true;
-
+  return true;
 }
 
 // QuakeSpasm's static "current" in Key_Console: the line being typed before
 // Up recalled history, restored by Down
-const key_current = new Array( MAXCMDLINE ).fill( 0 );
+const key_current = new Array(MAXCMDLINE).fill(0);
 
 /*
 ====================
@@ -393,36 +397,32 @@ Key_IsWordSeparator, Key_FindWordBoundary
 QuakeSpasm: Ctrl+Left/Right and Ctrl+Backspace/Delete jump over words
 ====================
 */
-function Key_IsWordSeparator( c ) {
-
-	return c === 32 || c === 95 || c === 9 || c === 59; // ' ', '_', '\t', ';'
-
+function Key_IsWordSeparator(c) {
+  return c === 32 || c === 95 || c === 9 || c === 59; // ' ', '_', '\t', ';'
 }
 
-function Key_FindWordBoundary( dir ) {
+function Key_FindWordBoundary(dir) {
+  const workline = key_lines[edit_line];
+  const len = Key_LineLength(workline);
+  let pos = key_linepos;
 
-	const workline = key_lines[ edit_line ];
-	const len = Key_LineLength( workline );
-	let pos = key_linepos;
+  if (dir < 0) {
+    while (pos > 1 && Key_IsWordSeparator(workline[pos - 1])) {
+      pos--;
+    }
+    while (pos > 1 && !Key_IsWordSeparator(workline[pos - 1])) {
+      pos--;
+    }
+  } else {
+    while (pos < len && !Key_IsWordSeparator(workline[pos])) {
+      pos++;
+    }
+    while (pos < len && Key_IsWordSeparator(workline[pos])) {
+      pos++;
+    }
+  }
 
-	if ( dir < 0 ) {
-
-		while ( pos > 1 && Key_IsWordSeparator( workline[ pos - 1 ] ) )
-			pos --;
-		while ( pos > 1 && ! Key_IsWordSeparator( workline[ pos - 1 ] ) )
-			pos --;
-
-	} else {
-
-		while ( pos < len && ! Key_IsWordSeparator( workline[ pos ] ) )
-			pos ++;
-		while ( pos < len && Key_IsWordSeparator( workline[ pos ] ) )
-			pos ++;
-
-	}
-
-	return pos;
-
+  return pos;
 }
 
 /*
@@ -434,126 +434,110 @@ localStorage. QS writes the file at shutdown, which a page never gets
 reliably, so it is saved after every command instead.
 ====================
 */
-const HISTORY_STORAGE_KEY = 'quake_history';
+const HISTORY_STORAGE_KEY = "quake_history";
 
 // undefined means the default store
 let key_history_storage = undefined;
 
 // Tests pass a fake store; null turns persistence off, undefined restores the default
-export function Key_SetHistoryStorage( storage ) {
-
-	key_history_storage = storage;
-
+export function Key_SetHistoryStorage(storage) {
+  key_history_storage = storage;
 }
 
 function Key_GetHistoryStorage() {
+  if (key_history_storage !== undefined) {
+    return key_history_storage;
+  }
 
-	if ( key_history_storage !== undefined )
-		return key_history_storage;
+  // Deno has a localStorage too: the server and the tests must not keep a
+  // history on disk
+  if (typeof Deno !== "undefined") {
+    return null;
+  }
 
-	// Deno has a localStorage too: the server and the tests must not keep a
-	// history on disk
-	if ( typeof Deno !== 'undefined' )
-		return null;
-
-	try {
-
-		return typeof localStorage !== 'undefined' ? localStorage : null;
-
-	} catch {
-
-		return null; // storage blocked by the browser's privacy settings
-
-	}
-
+  try {
+    return typeof localStorage !== "undefined" ? localStorage : null;
+  } catch {
+    return null; // storage blocked by the browser's privacy settings
+  }
 }
 
 export function History_Init() {
+  for (let i = 0; i < CMDLINES; i++) {
+    key_lines[i][0] = 93; // ']'
+    key_lines[i][1] = 0;
+  }
 
-	for ( let i = 0; i < CMDLINES; i ++ ) {
+  key_linepos = 1;
+  edit_line = 0;
+  history_line = 0;
+  key_current[0] = 93;
+  key_current[1] = 0;
 
-		key_lines[ i ][ 0 ] = 93; // ']'
-		key_lines[ i ][ 1 ] = 0;
+  const storage = Key_GetHistoryStorage();
+  if (storage === null) {
+    return;
+  }
 
-	}
+  let text = null;
+  try {
+    text = storage.getItem(HISTORY_STORAGE_KEY);
+  } catch {
+    return;
+  }
 
-	key_linepos = 1;
-	edit_line = 0;
-	history_line = 0;
-	key_current[ 0 ] = 93;
-	key_current[ 1 ] = 0;
+  if (typeof text !== "string") {
+    return;
+  }
 
-	const storage = Key_GetHistoryStorage();
-	if ( storage === null )
-		return;
+  // one command per line; the last slot is left for the edit line
+  const lines = text.split(/[\r\n]+/);
+  for (let l = 0; l < lines.length && edit_line < CMDLINES - 1; l++) {
+    const src = lines[l];
+    const line = key_lines[edit_line];
+    let i = 1;
+    for (let j = 0; j < src.length && i < MAXCMDLINE - 1; j++) {
+      const c = src.charCodeAt(j);
+      if (c >= 32 && c <= 126) {
+        line[i++] = c;
+      }
+    }
 
-	let text = null;
-	try {
+    line[i] = 0;
+    if (i > 1) {
+      edit_line++;
+    }
+  }
 
-		text = storage.getItem( HISTORY_STORAGE_KEY );
-
-	} catch {
-
-		return;
-
-	}
-
-	if ( typeof text !== 'string' )
-		return;
-
-	// one command per line; the last slot is left for the edit line
-	const lines = text.split( /[\r\n]+/ );
-	for ( let l = 0; l < lines.length && edit_line < CMDLINES - 1; l ++ ) {
-
-		const src = lines[ l ];
-		const line = key_lines[ edit_line ];
-		let i = 1;
-		for ( let j = 0; j < src.length && i < MAXCMDLINE - 1; j ++ ) {
-
-			const c = src.charCodeAt( j );
-			if ( c >= 32 && c <= 126 )
-				line[ i ++ ] = c;
-
-		}
-
-		line[ i ] = 0;
-		if ( i > 1 )
-			edit_line ++;
-
-	}
-
-	history_line = edit_line;
-	key_lines[ edit_line ][ 0 ] = 93; // ']'
-	key_lines[ edit_line ][ 1 ] = 0;
-
+  history_line = edit_line;
+  key_lines[edit_line][0] = 93; // ']'
+  key_lines[edit_line][1] = 0;
 }
 
 // QuakeSpasm History_Shutdown. QS stops at the first empty line, which drops
 // every command typed after an empty Enter; this skips empty lines instead.
 function History_Save() {
+  const storage = Key_GetHistoryStorage();
+  if (storage === null) {
+    return;
+  }
 
-	const storage = Key_GetHistoryStorage();
-	if ( storage === null )
-		return;
+  let text = "";
+  for (
+    let i = (edit_line + 1) & (CMDLINES - 1);
+    i !== edit_line;
+    i = (i + 1) & (CMDLINES - 1)
+  ) {
+    if (key_lines[i][1] !== 0) {
+      text += Key_LineString(key_lines[i], 1) + "\n";
+    }
+  }
 
-	let text = '';
-	for ( let i = ( edit_line + 1 ) & ( CMDLINES - 1 ); i !== edit_line; i = ( i + 1 ) & ( CMDLINES - 1 ) ) {
-
-		if ( key_lines[ i ][ 1 ] !== 0 )
-			text += Key_LineString( key_lines[ i ], 1 ) + '\n';
-
-	}
-
-	try {
-
-		storage.setItem( HISTORY_STORAGE_KEY, text );
-
-	} catch {
-
-		// storage full or blocked: the history just isn't kept
-
-	}
-
+  try {
+    storage.setItem(HISTORY_STORAGE_KEY, text);
+  } catch {
+    // storage full or blocked: the history just isn't kept
+  }
 }
 
 /*
@@ -566,52 +550,54 @@ glyph for (other control characters, non-ASCII) are dropped, where QS copies
 the clipboard bytes as they are.
 ====================
 */
-export function PasteToConsole( text ) {
+export function PasteToConsole(text) {
+  if (key_linepos === MAXCMDLINE - 1) {
+    return;
+  }
 
-	if ( key_linepos === MAXCMDLINE - 1 )
-		return;
+  if (typeof text !== "string") {
+    return;
+  }
 
-	if ( typeof text !== 'string' )
-		return;
+  let cbd = "";
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 10 || c === 13 || c === 8) { // '\n', '\r', '\b'
+      break;
+    }
+    if (c === 9) {
+      cbd += " ";
+    } else if (c >= 32 && c <= 126) {
+      cbd += text.charAt(i);
+    }
+  }
 
-	let cbd = '';
-	for ( let i = 0; i < text.length; i ++ ) {
+  let inslen = cbd.length;
+  if (inslen + key_linepos > MAXCMDLINE - 1) {
+    inslen = MAXCMDLINE - 1 - key_linepos;
+  }
+  if (inslen <= 0) {
+    return;
+  }
 
-		const c = text.charCodeAt( i );
-		if ( c === 10 || c === 13 || c === 8 ) // '\n', '\r', '\b'
-			break;
-		if ( c === 9 )
-			cbd += ' ';
-		else if ( c >= 32 && c <= 126 )
-			cbd += text.charAt( i );
+  const workline = key_lines[edit_line];
+  let mvlen = Key_LineLength(workline) - key_linepos;
+  if (mvlen + inslen + key_linepos > MAXCMDLINE - 1) {
+    mvlen = MAXCMDLINE - 1 - key_linepos - inslen;
+    if (mvlen < 0) mvlen = 0;
+  }
 
-	}
+  // insert the string
+  if (mvlen !== 0) {
+    workline.copyWithin(key_linepos + inslen, key_linepos, key_linepos + mvlen);
+  }
+  for (let i = 0; i < inslen; i++) {
+    workline[key_linepos + i] = cbd.charCodeAt(i);
+  }
+  workline[key_linepos + inslen + mvlen] = 0;
+  key_linepos += inslen;
 
-	let inslen = cbd.length;
-	if ( inslen + key_linepos > MAXCMDLINE - 1 )
-		inslen = MAXCMDLINE - 1 - key_linepos;
-	if ( inslen <= 0 )
-		return;
-
-	const workline = key_lines[ edit_line ];
-	let mvlen = Key_LineLength( workline ) - key_linepos;
-	if ( mvlen + inslen + key_linepos > MAXCMDLINE - 1 ) {
-
-		mvlen = MAXCMDLINE - 1 - key_linepos - inslen;
-		if ( mvlen < 0 ) mvlen = 0;
-
-	}
-
-	// insert the string
-	if ( mvlen !== 0 )
-		workline.copyWithin( key_linepos + inslen, key_linepos, key_linepos + mvlen );
-	for ( let i = 0; i < inslen; i ++ )
-		workline[ key_linepos + i ] = cbd.charCodeAt( i );
-	workline[ key_linepos + inslen + mvlen ] = 0;
-	key_linepos += inslen;
-
-	Con_ResetTabComplete();
-
+  Con_ResetTabComplete();
 }
 
 /*
@@ -633,80 +619,82 @@ let key_paste_events = 0;
 let key_paste_document = null;
 
 function Key_ConsoleActive() {
-
-	return key_dest === key_console || ( key_dest === key_game && con_forcedup );
-
+  return key_dest === key_console || (key_dest === key_game && con_forcedup);
 }
 
-function Key_PasteEvent( event ) {
+function Key_PasteEvent(event) {
+  if (!Key_ConsoleActive()) {
+    return;
+  }
 
-	if ( ! Key_ConsoleActive() )
-		return;
+  // text fields (the touch keyboard's input) take their own pastes
+  const target = event.target;
+  if (
+    target !== null && target !== undefined &&
+    (target.isContentEditable === true || target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA")
+  ) {
+    return;
+  }
 
-	// text fields (the touch keyboard's input) take their own pastes
-	const target = event.target;
-	if ( target !== null && target !== undefined &&
-		( target.isContentEditable === true || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' ) )
-		return;
+  const data = event.clipboardData;
+  if (data === null || data === undefined) {
+    return;
+  }
 
-	const data = event.clipboardData;
-	if ( data === null || data === undefined )
-		return;
-
-	key_paste_events ++;
-	event.preventDefault();
-	PasteToConsole( data.getData( 'text/plain' ) );
-
+  key_paste_events++;
+  event.preventDefault();
+  PasteToConsole(data.getData("text/plain"));
 }
 
 function Key_InitPaste() {
+  if (
+    typeof document === "undefined" || document === null ||
+    typeof document.addEventListener !== "function"
+  ) {
+    return;
+  }
+  if (key_paste_document === document) {
+    return;
+  }
 
-	if ( typeof document === 'undefined' || document === null || typeof document.addEventListener !== 'function' )
-		return;
-	if ( key_paste_document === document )
-		return;
-
-	key_paste_document = document;
-	document.addEventListener( 'paste', Key_PasteEvent );
-
+  key_paste_document = document;
+  document.addEventListener("paste", Key_PasteEvent);
 }
 
 function Key_PasteFromClipboard() {
+  const events = key_paste_events;
 
-	const events = key_paste_events;
+  setTimeout(() => {
+    if (key_paste_events !== events) {
+      return; // the paste event brought it
+    }
 
-	setTimeout( () => {
+    if (typeof navigator === "undefined" || navigator === null) {
+      return;
+    }
+    const clipboard = navigator.clipboard;
+    if (
+      clipboard === null || clipboard === undefined ||
+      typeof clipboard.readText !== "function"
+    ) {
+      return;
+    }
 
-		if ( key_paste_events !== events )
-			return; // the paste event brought it
+    let request = null;
+    try {
+      request = clipboard.readText();
+    } catch {
+      return;
+    }
 
-		if ( typeof navigator === 'undefined' || navigator === null )
-			return;
-		const clipboard = navigator.clipboard;
-		if ( clipboard === null || clipboard === undefined || typeof clipboard.readText !== 'function' )
-			return;
-
-		let request = null;
-		try {
-
-			request = clipboard.readText();
-
-		} catch {
-
-			return;
-
-		}
-
-		Promise.resolve( request ).then( ( text ) => {
-
-			if ( key_paste_events !== events || ! Key_ConsoleActive() )
-				return;
-			PasteToConsole( text );
-
-		}, () => {} ); // permission denied: paste nothing
-
-	}, 0 );
-
+    Promise.resolve(request).then((text) => {
+      if (key_paste_events !== events || !Key_ConsoleActive()) {
+        return;
+      }
+      PasteToConsole(text);
+    }, () => {}); // permission denied: paste nothing
+  }, 0);
 }
 
 /*
@@ -719,22 +707,17 @@ canvas here (scr_conscale), as SCR_UpdateScreen lays the console out, not
 the automatic UI scale's virtual screen.
 ====================
 */
-function Key_ScrollConsole( lines, top ) {
-
-	Draw_SetCanvasScale( scr_conscale.value );
-	try {
-
-		if ( top )
-			Con_SetBackscroll( Math.max( 0, con_totallines - ( _vid.height >> 3 ) - 1 ) );
-		else
-			Con_Scroll( lines );
-
-	} finally {
-
-		Draw_SetCanvasScale( 0 );
-
-	}
-
+function Key_ScrollConsole(lines, top) {
+  Draw_SetCanvasScale(scr_conscale.value);
+  try {
+    if (top) {
+      Con_SetBackscroll(Math.max(0, con_totallines - (_vid.height >> 3) - 1));
+    } else {
+      Con_Scroll(lines);
+    }
+  } finally {
+    Draw_SetCanvasScale(0);
+  }
 }
 
 /*
@@ -746,224 +729,209 @@ moved Home/End to the cursor: Ctrl+Home/End now scroll the console to the
 top and bottom, where vanilla used plain Home/End.
 ====================
 */
-function Key_Console( key ) {
+function Key_Console(key) {
+  const workline = key_lines[edit_line];
+  const ctrl = keydown[K_CTRL];
 
-	const workline = key_lines[ edit_line ];
-	const ctrl = keydown[ K_CTRL ];
+  switch (key) {
+    case K_ENTER: {
+      Con_ResetTabComplete();
+      Cbuf_AddText(Key_LineString(workline, 1)); // skip the prompt
+      Cbuf_AddText("\n");
+      Con_Printf(Key_LineString(workline, 0) + "\n");
 
-	switch ( key ) {
+      // If the last two lines are identical, skip storing this line in history
+      // by not incrementing edit_line
+      if (
+        !Key_LinesEqual(workline, key_lines[(edit_line - 1) & (CMDLINES - 1)])
+      ) {
+        edit_line = (edit_line + 1) & (CMDLINES - 1);
+      }
 
-		case K_ENTER: {
+      history_line = edit_line;
+      key_lines[edit_line][0] = 93; // ']'
+      key_lines[edit_line][1] = 0; // johnfitz -- otherwise old history items show up in the new edit line
+      key_linepos = 1;
+      History_Save();
 
-			Con_ResetTabComplete();
-			Cbuf_AddText( Key_LineString( workline, 1 ) ); // skip the prompt
-			Cbuf_AddText( '\n' );
-			Con_Printf( Key_LineString( workline, 0 ) + '\n' );
+      // force an update, because the command may take some time
+      if (_cls.state === 0) { // ca_disconnected
+        SCR_UpdateScreen();
+      }
+      return;
+    }
 
-			// If the last two lines are identical, skip storing this line in history
-			// by not incrementing edit_line
-			if ( ! Key_LinesEqual( workline, key_lines[ ( edit_line - 1 ) & ( CMDLINES - 1 ) ] ) )
-				edit_line = ( edit_line + 1 ) & ( CMDLINES - 1 );
+    case K_TAB:
+      Con_TabComplete();
+      return;
 
-			history_line = edit_line;
-			key_lines[ edit_line ][ 0 ] = 93; // ']'
-			key_lines[ edit_line ][ 1 ] = 0; // johnfitz -- otherwise old history items show up in the new edit line
-			key_linepos = 1;
-			History_Save();
+    case K_BACKSPACE:
+      Con_ResetTabComplete();
+      if (key_linepos > 1) {
+        const numchars = ctrl ? key_linepos - Key_FindWordBoundary(-1) : 1;
+        const len = Key_LineLength(workline);
+        workline.copyWithin(key_linepos - numchars, key_linepos, len + 1);
+        key_linepos -= numchars;
+      }
 
-			// force an update, because the command may take some time
-			if ( _cls.state === 0 ) // ca_disconnected
-				SCR_UpdateScreen();
-			return;
+      return;
 
-		}
+    case K_DEL:
+      Con_ResetTabComplete();
+      if (workline[key_linepos] !== 0) {
+        const numchars = ctrl ? Key_FindWordBoundary(1) - key_linepos : 1;
+        const len = Key_LineLength(workline);
+        workline.copyWithin(key_linepos, key_linepos + numchars, len + 1);
+      }
 
-		case K_TAB:
-			Con_TabComplete();
-			return;
+      return;
 
-		case K_BACKSPACE:
-			Con_ResetTabComplete();
-			if ( key_linepos > 1 ) {
+    case K_HOME:
+      if (ctrl) {
+        Key_ScrollConsole(0, true);
+      } else {
+        key_linepos = 1;
+      }
+      Con_ResetTabComplete();
+      return;
 
-				const numchars = ctrl ? key_linepos - Key_FindWordBoundary( - 1 ) : 1;
-				const len = Key_LineLength( workline );
-				workline.copyWithin( key_linepos - numchars, key_linepos, len + 1 );
-				key_linepos -= numchars;
+    case K_END:
+      if (ctrl) {
+        Con_SetBackscroll(0);
+      } else {
+        key_linepos = Key_LineLength(workline);
+      }
+      Con_ResetTabComplete();
+      return;
 
-			}
+    case K_PGUP:
+    case K_MWHEELUP:
+      Key_ScrollConsole(ctrl ? (con_vislines >> 3) - 4 : 2, false);
+      return;
 
-			return;
+    case K_PGDN:
+    case K_MWHEELDOWN:
+      Key_ScrollConsole(ctrl ? -((con_vislines >> 3) - 4) : -2, false);
+      return;
 
-		case K_DEL:
-			Con_ResetTabComplete();
-			if ( workline[ key_linepos ] !== 0 ) {
+    case K_LEFTARROW:
+      if (key_linepos > 1) {
+        if (ctrl) {
+          key_linepos = Key_FindWordBoundary(-1);
+        } else {
+          key_linepos--;
+        }
+        Con_ResetTabComplete();
+      }
 
-				const numchars = ctrl ? Key_FindWordBoundary( 1 ) - key_linepos : 1;
-				const len = Key_LineLength( workline );
-				workline.copyWithin( key_linepos, key_linepos + numchars, len + 1 );
+      return;
 
-			}
+    case K_RIGHTARROW: {
+      const len = Key_LineLength(workline);
+      if (len === key_linepos) {
+        // at the end, take the next character of the previous command
+        const prev = key_lines[(edit_line + (CMDLINES - 1)) & (CMDLINES - 1)];
+        if (Key_LineLength(prev) <= key_linepos) {
+          return; // no character to get
+        }
+        workline[key_linepos] = prev[key_linepos];
+        workline[key_linepos + 1] = 0;
+        key_linepos++;
+      } else {
+        if (ctrl) {
+          key_linepos = Key_FindWordBoundary(1);
+        } else {
+          key_linepos++;
+        }
+      }
 
-			return;
+      Con_ResetTabComplete();
+      return;
+    }
 
-		case K_HOME:
-			if ( ctrl )
-				Key_ScrollConsole( 0, true );
-			else
-				key_linepos = 1;
-			Con_ResetTabComplete();
-			return;
+    case K_UPARROW: {
+      if (history_line === edit_line) {
+        Key_CopyLine(key_current, workline);
+      }
 
-		case K_END:
-			if ( ctrl )
-				Con_SetBackscroll( 0 );
-			else
-				key_linepos = Key_LineLength( workline );
-			Con_ResetTabComplete();
-			return;
+      const history_line_last = history_line;
+      do {
+        history_line = (history_line - 1) & (CMDLINES - 1);
+      } while (history_line !== edit_line && key_lines[history_line][1] === 0);
 
-		case K_PGUP:
-		case K_MWHEELUP:
-			Key_ScrollConsole( ctrl ? ( con_vislines >> 3 ) - 4 : 2, false );
-			return;
+      if (history_line === edit_line) {
+        history_line = history_line_last;
+        return;
+      }
 
-		case K_PGDN:
-		case K_MWHEELDOWN:
-			Key_ScrollConsole( ctrl ? - ( ( con_vislines >> 3 ) - 4 ) : - 2, false );
-			return;
+      Con_ResetTabComplete();
+      key_linepos = Key_CopyLine(workline, key_lines[history_line]);
+      return;
+    }
 
-		case K_LEFTARROW:
-			if ( key_linepos > 1 ) {
+    case K_DOWNARROW:
+      if (history_line === edit_line) {
+        return;
+      }
 
-				if ( ctrl )
-					key_linepos = Key_FindWordBoundary( - 1 );
-				else
-					key_linepos --;
-				Con_ResetTabComplete();
+      Con_ResetTabComplete();
 
-			}
+      do {
+        history_line = (history_line + 1) & (CMDLINES - 1);
+      } while (history_line !== edit_line && key_lines[history_line][1] === 0);
 
-			return;
+      // vanilla only reset the prompt here and left the recalled
+      // command in the buffer; QS brings back what was being typed
+      if (history_line === edit_line) {
+        key_linepos = Key_CopyLine(workline, key_current);
+      } else {
+        key_linepos = Key_CopyLine(workline, key_lines[history_line]);
+      }
+      return;
 
-		case K_RIGHTARROW: {
+    case K_INS:
+      if (keydown[K_SHIFT]) { // Shift+Ins paste
+        Key_PasteFromClipboard();
+      } else if (!ctrl) { // Ctrl+Ins copies a mouse selection in Ironwail; there is none here
+        key_insert ^= 1;
+      }
+      Con_ResetTabComplete();
+      return;
 
-			const len = Key_LineLength( workline );
-			if ( len === key_linepos ) {
+    case 118: // 'v'
+    case 86: // 'V'
+      if (ctrl) { // Ctrl+V paste
+        Key_PasteFromClipboard();
+        return;
+      }
 
-				// at the end, take the next character of the previous command
-				const prev = key_lines[ ( edit_line + ( CMDLINES - 1 ) ) & ( CMDLINES - 1 ) ];
-				if ( Key_LineLength( prev ) <= key_linepos )
-					return; // no character to get
-				workline[ key_linepos ] = prev[ key_linepos ];
-				workline[ key_linepos + 1 ] = 0;
-				key_linepos ++;
+      break;
 
-			} else {
+    case 99: // 'c'
+    case 67: // 'C'
+      if (ctrl) { // Ctrl+C: abort the line -- S.A
+        Con_Printf(Key_LineString(workline, 0) + "\n");
+        workline[0] = 93; // ']'
+        workline[1] = 0;
+        key_linepos = 1;
+        history_line = edit_line;
+        Con_ResetTabComplete();
+        return;
+      }
 
-				if ( ctrl )
-					key_linepos = Key_FindWordBoundary( 1 );
-				else
-					key_linepos ++;
+      break;
+  }
 
-			}
+  // QuakeSpasm types from text input events, which Ctrl chords don't send
+  if (ctrl) {
+    return;
+  }
 
-			Con_ResetTabComplete();
-			return;
+  if (key < 32 || key > 126) {
+    return; // non printable
+  }
 
-		}
-
-		case K_UPARROW: {
-
-			if ( history_line === edit_line )
-				Key_CopyLine( key_current, workline );
-
-			const history_line_last = history_line;
-			do {
-
-				history_line = ( history_line - 1 ) & ( CMDLINES - 1 );
-
-			} while ( history_line !== edit_line && key_lines[ history_line ][ 1 ] === 0 );
-
-			if ( history_line === edit_line ) {
-
-				history_line = history_line_last;
-				return;
-
-			}
-
-			Con_ResetTabComplete();
-			key_linepos = Key_CopyLine( workline, key_lines[ history_line ] );
-			return;
-
-		}
-
-		case K_DOWNARROW:
-			if ( history_line === edit_line )
-				return;
-
-			Con_ResetTabComplete();
-
-			do {
-
-				history_line = ( history_line + 1 ) & ( CMDLINES - 1 );
-
-			} while ( history_line !== edit_line && key_lines[ history_line ][ 1 ] === 0 );
-
-			// vanilla only reset the prompt here and left the recalled
-			// command in the buffer; QS brings back what was being typed
-			if ( history_line === edit_line )
-				key_linepos = Key_CopyLine( workline, key_current );
-			else
-				key_linepos = Key_CopyLine( workline, key_lines[ history_line ] );
-			return;
-
-		case K_INS:
-			if ( keydown[ K_SHIFT ] ) // Shift+Ins paste
-				Key_PasteFromClipboard();
-			else if ( ! ctrl ) // Ctrl+Ins copies a mouse selection in Ironwail; there is none here
-				key_insert ^= 1;
-			Con_ResetTabComplete();
-			return;
-
-		case 118: // 'v'
-		case 86: // 'V'
-			if ( ctrl ) { // Ctrl+V paste
-
-				Key_PasteFromClipboard();
-				return;
-
-			}
-
-			break;
-
-		case 99: // 'c'
-		case 67: // 'C'
-			if ( ctrl ) { // Ctrl+C: abort the line -- S.A
-
-				Con_Printf( Key_LineString( workline, 0 ) + '\n' );
-				workline[ 0 ] = 93; // ']'
-				workline[ 1 ] = 0;
-				key_linepos = 1;
-				history_line = edit_line;
-				Con_ResetTabComplete();
-				return;
-
-			}
-
-			break;
-
-	}
-
-	// QuakeSpasm types from text input events, which Ctrl chords don't send
-	if ( ctrl )
-		return;
-
-	if ( key < 32 || key > 126 )
-		return; // non printable
-
-	Char_Console( key );
-
+  Char_Console(key);
 }
 
 /*
@@ -974,35 +942,31 @@ QuakeSpasm: types a character at the cursor, pushing the rest of the line
 right in insert mode or replacing the character under the cursor otherwise
 ====================
 */
-function Char_Console( key ) {
+function Char_Console(key) {
+  if (key_linepos >= MAXCMDLINE - 1) {
+    return;
+  }
 
-	if ( key_linepos >= MAXCMDLINE - 1 )
-		return;
+  const workline = key_lines[edit_line];
+  const endpos = workline[key_linepos] === 0;
 
-	const workline = key_lines[ edit_line ];
-	const endpos = workline[ key_linepos ] === 0;
+  Con_ResetTabComplete(); // johnfitz
 
-	Con_ResetTabComplete(); // johnfitz
+  if (key_insert && !endpos) {
+    // if inserting, move the text to the right
+    workline[MAXCMDLINE - 2] = 0;
+    const len = Key_LineLength(workline);
+    workline.copyWithin(key_linepos + 1, key_linepos, len + 1);
+    workline[key_linepos] = key;
+  } else {
+    workline[key_linepos] = key;
+    // null terminate if at the end
+    if (endpos) {
+      workline[key_linepos + 1] = 0;
+    }
+  }
 
-	if ( key_insert && ! endpos ) {
-
-		// if inserting, move the text to the right
-		workline[ MAXCMDLINE - 2 ] = 0;
-		const len = Key_LineLength( workline );
-		workline.copyWithin( key_linepos + 1, key_linepos, len + 1 );
-		workline[ key_linepos ] = key;
-
-	} else {
-
-		workline[ key_linepos ] = key;
-		// null terminate if at the end
-		if ( endpos )
-			workline[ key_linepos + 1 ] = 0;
-
-	}
-
-	key_linepos ++;
-
+  key_linepos++;
 }
 
 /*
@@ -1010,52 +974,45 @@ function Char_Console( key ) {
 Key_Message
 ====================
 */
-function Key_Message( key ) {
+function Key_Message(key) {
+  if (key === K_ENTER) {
+    if (team_message) {
+      Cbuf_AddText('say_team "');
+    } else {
+      Cbuf_AddText('say "');
+    }
 
-	if ( key === K_ENTER ) {
+    Cbuf_AddText(chat_buffer);
+    Cbuf_AddText('"\n');
 
-		if ( team_message )
-			Cbuf_AddText( 'say_team "' );
-		else
-			Cbuf_AddText( 'say "' );
+    key_dest = key_game;
+    chat_buffer = "";
+    return;
+  }
 
-		Cbuf_AddText( chat_buffer );
-		Cbuf_AddText( '"\n' );
+  if (key === K_ESCAPE) {
+    key_dest = key_game;
+    chat_buffer = "";
+    return;
+  }
 
-		key_dest = key_game;
-		chat_buffer = '';
-		return;
+  if (key < 32 || key > 127) {
+    return; // non printable
+  }
 
-	}
+  if (key === K_BACKSPACE) {
+    if (chat_buffer.length) {
+      chat_buffer = chat_buffer.substring(0, chat_buffer.length - 1);
+    }
 
-	if ( key === K_ESCAPE ) {
+    return;
+  }
 
-		key_dest = key_game;
-		chat_buffer = '';
-		return;
+  if (chat_buffer.length === 31) {
+    return; // all full
+  }
 
-	}
-
-	if ( key < 32 || key > 127 )
-		return; // non printable
-
-	if ( key === K_BACKSPACE ) {
-
-		if ( chat_buffer.length ) {
-
-			chat_buffer = chat_buffer.substring( 0, chat_buffer.length - 1 );
-
-		}
-
-		return;
-
-	}
-
-	if ( chat_buffer.length === 31 )
-		return; // all full
-
-	chat_buffer += String.fromCharCode( key );
-
+  chat_buffer += String.fromCharCode(key);
 }
 
 /*
@@ -1067,23 +1024,22 @@ the given string. Single ascii characters return themselves, while
 the K_* names are matched up.
 ===================
 */
-export function Key_StringToKeynum( str ) {
+export function Key_StringToKeynum(str) {
+  if (!str || str.length === 0) {
+    return -1;
+  }
 
-	if ( ! str || str.length === 0 )
-		return - 1;
+  if (str.length === 1) {
+    return str.charCodeAt(0);
+  }
 
-	if ( str.length === 1 )
-		return str.charCodeAt( 0 );
+  for (let i = 0; i < keynames.length; i++) {
+    if (str.toLowerCase() === keynames[i].name.toLowerCase()) {
+      return keynames[i].keynum;
+    }
+  }
 
-	for ( let i = 0; i < keynames.length; i ++ ) {
-
-		if ( str.toLowerCase() === keynames[ i ].name.toLowerCase() )
-			return keynames[ i ].keynum;
-
-	}
-
-	return - 1;
-
+  return -1;
 }
 
 /*
@@ -1094,23 +1050,22 @@ Returns a string (either a single ascii char, or a K_* name) for the
 given keynum.
 ===================
 */
-export function Key_KeynumToString( keynum ) {
+export function Key_KeynumToString(keynum) {
+  if (keynum === -1) {
+    return "<KEY NOT FOUND>";
+  }
 
-	if ( keynum === - 1 )
-		return '<KEY NOT FOUND>';
+  if (keynum > 32 && keynum < 127) {
+    return String.fromCharCode(keynum);
+  }
 
-	if ( keynum > 32 && keynum < 127 )
-		return String.fromCharCode( keynum );
+  for (let i = 0; i < keynames.length; i++) {
+    if (keynum === keynames[i].keynum) {
+      return keynames[i].name;
+    }
+  }
 
-	for ( let i = 0; i < keynames.length; i ++ ) {
-
-		if ( keynum === keynames[ i ].keynum )
-			return keynames[ i ].name;
-
-	}
-
-	return '<UNKNOWN KEYNUM>';
-
+  return "<UNKNOWN KEYNUM>";
 }
 
 /*
@@ -1118,13 +1073,12 @@ export function Key_KeynumToString( keynum ) {
 Key_SetBinding
 ===================
 */
-export function Key_SetBinding( keynum, binding ) {
+export function Key_SetBinding(keynum, binding) {
+  if (keynum === -1) {
+    return;
+  }
 
-	if ( keynum === - 1 )
-		return;
-
-	keybindings[ keynum ] = binding;
-
+  keybindings[keynum] = binding;
 }
 
 /*
@@ -1133,32 +1087,26 @@ Key_Unbind_f
 ===================
 */
 function Key_Unbind_f() {
+  if (Cmd_Argc() !== 2) {
+    Con_Printf("unbind <key> : remove commands from a key\n");
+    return;
+  }
 
-	if ( Cmd_Argc() !== 2 ) {
+  const b = Key_StringToKeynum(Cmd_Argv(1));
+  if (b === -1) {
+    Con_Printf('"' + Cmd_Argv(1) + "\" isn't a valid key\n");
+    return;
+  }
 
-		Con_Printf( 'unbind <key> : remove commands from a key\n' );
-		return;
-
-	}
-
-	const b = Key_StringToKeynum( Cmd_Argv( 1 ) );
-	if ( b === - 1 ) {
-
-		Con_Printf( '"' + Cmd_Argv( 1 ) + '" isn\'t a valid key\n' );
-		return;
-
-	}
-
-	Key_SetBinding( b, '' );
-
+  Key_SetBinding(b, "");
 }
 
 function Key_Unbindall_f() {
-
-	for ( let i = 0; i < 256; i ++ )
-		if ( keybindings[ i ] )
-			Key_SetBinding( i, '' );
-
+  for (let i = 0; i < 256; i++) {
+    if (keybindings[i]) {
+      Key_SetBinding(i, "");
+    }
+  }
 }
 
 /*
@@ -1167,46 +1115,38 @@ Key_Bind_f
 ===================
 */
 function Key_Bind_f() {
+  const c = Cmd_Argc();
 
-	const c = Cmd_Argc();
+  if (c !== 2 && c !== 3) {
+    Con_Printf("bind <key> [command] : attach a command to a key\n");
+    return;
+  }
 
-	if ( c !== 2 && c !== 3 ) {
+  const b = Key_StringToKeynum(Cmd_Argv(1));
+  if (b === -1) {
+    Con_Printf('"' + Cmd_Argv(1) + "\" isn't a valid key\n");
+    return;
+  }
 
-		Con_Printf( 'bind <key> [command] : attach a command to a key\n' );
-		return;
+  if (c === 2) {
+    if (keybindings[b]) {
+      Con_Printf('"' + Cmd_Argv(1) + '" = "' + keybindings[b] + '"\n');
+    } else {
+      Con_Printf('"' + Cmd_Argv(1) + '" is not bound\n');
+    }
+    return;
+  }
 
-	}
+  // copy the rest of the command line
+  let cmd = "";
+  for (let i = 2; i < c; i++) {
+    if (i > 2) {
+      cmd += " ";
+    }
+    cmd += Cmd_Argv(i);
+  }
 
-	const b = Key_StringToKeynum( Cmd_Argv( 1 ) );
-	if ( b === - 1 ) {
-
-		Con_Printf( '"' + Cmd_Argv( 1 ) + '" isn\'t a valid key\n' );
-		return;
-
-	}
-
-	if ( c === 2 ) {
-
-		if ( keybindings[ b ] )
-			Con_Printf( '"' + Cmd_Argv( 1 ) + '" = "' + keybindings[ b ] + '"\n' );
-		else
-			Con_Printf( '"' + Cmd_Argv( 1 ) + '" is not bound\n' );
-		return;
-
-	}
-
-	// copy the rest of the command line
-	let cmd = '';
-	for ( let i = 2; i < c; i ++ ) {
-
-		if ( i > 2 )
-			cmd += ' ';
-		cmd += Cmd_Argv( i );
-
-	}
-
-	Key_SetBinding( b, cmd );
-
+  Key_SetBinding(b, cmd);
 }
 
 /*
@@ -1217,20 +1157,15 @@ Writes lines containing "bind key value"
 ============
 */
 export function Key_WriteBindings() {
+  let result = "";
+  for (let i = 0; i < 256; i++) {
+    if (keybindings[i] && keybindings[i].length > 0) {
+      result += 'bind "' + Key_KeynumToString(i) + '" "' + keybindings[i] +
+        '"\n';
+    }
+  }
 
-	let result = '';
-	for ( let i = 0; i < 256; i ++ ) {
-
-		if ( keybindings[ i ] && keybindings[ i ].length > 0 ) {
-
-			result += 'bind "' + Key_KeynumToString( i ) + '" "' + keybindings[ i ] + '"\n';
-
-		}
-
-	}
-
-	return result;
-
+  return result;
 }
 
 /*
@@ -1239,75 +1174,77 @@ Key_Init
 ===================
 */
 export function Key_Init() {
+  History_Init();
+  Key_InitPaste();
 
-	History_Init();
-	Key_InitPaste();
+  //
+  // init ascii characters in console mode
+  //
+  for (let i = 32; i < 128; i++) {
+    consolekeys[i] = true;
+  }
 
-	//
-	// init ascii characters in console mode
-	//
-	for ( let i = 32; i < 128; i ++ )
-		consolekeys[ i ] = true;
+  consolekeys[K_ENTER] = true;
+  consolekeys[K_TAB] = true;
+  consolekeys[K_LEFTARROW] = true;
+  consolekeys[K_RIGHTARROW] = true;
+  consolekeys[K_UPARROW] = true;
+  consolekeys[K_DOWNARROW] = true;
+  consolekeys[K_BACKSPACE] = true;
+  consolekeys[K_CTRL] = true; // QuakeSpasm: Ctrl, Ins, Del, Home and End edit the line
+  consolekeys[K_INS] = true;
+  consolekeys[K_DEL] = true;
+  consolekeys[K_HOME] = true;
+  consolekeys[K_END] = true;
+  consolekeys[K_PGUP] = true;
+  consolekeys[K_PGDN] = true;
+  consolekeys[K_SHIFT] = true;
+  consolekeys[K_MWHEELUP] = true;
+  consolekeys[K_MWHEELDOWN] = true;
+  consolekeys[96] = false; // '`'
+  consolekeys[126] = false; // '~'
 
-	consolekeys[ K_ENTER ] = true;
-	consolekeys[ K_TAB ] = true;
-	consolekeys[ K_LEFTARROW ] = true;
-	consolekeys[ K_RIGHTARROW ] = true;
-	consolekeys[ K_UPARROW ] = true;
-	consolekeys[ K_DOWNARROW ] = true;
-	consolekeys[ K_BACKSPACE ] = true;
-	consolekeys[ K_CTRL ] = true; // QuakeSpasm: Ctrl, Ins, Del, Home and End edit the line
-	consolekeys[ K_INS ] = true;
-	consolekeys[ K_DEL ] = true;
-	consolekeys[ K_HOME ] = true;
-	consolekeys[ K_END ] = true;
-	consolekeys[ K_PGUP ] = true;
-	consolekeys[ K_PGDN ] = true;
-	consolekeys[ K_SHIFT ] = true;
-	consolekeys[ K_MWHEELUP ] = true;
-	consolekeys[ K_MWHEELDOWN ] = true;
-	consolekeys[ 96 ] = false; // '`'
-	consolekeys[ 126 ] = false; // '~'
+  for (let i = 0; i < 256; i++) {
+    keyshift[i] = i;
+  }
 
-	for ( let i = 0; i < 256; i ++ )
-		keyshift[ i ] = i;
+  for (let i = 97; i <= 122; i++) { // 'a' to 'z'
+    keyshift[i] = i - 32; // to uppercase
+  }
 
-	for ( let i = 97; i <= 122; i ++ ) // 'a' to 'z'
-		keyshift[ i ] = i - 32; // to uppercase
+  keyshift[49] = 33; // '1' -> '!'
+  keyshift[50] = 64; // '2' -> '@'
+  keyshift[51] = 35; // '3' -> '#'
+  keyshift[52] = 36; // '4' -> '$'
+  keyshift[53] = 37; // '5' -> '%'
+  keyshift[54] = 94; // '6' -> '^'
+  keyshift[55] = 38; // '7' -> '&'
+  keyshift[56] = 42; // '8' -> '*'
+  keyshift[57] = 40; // '9' -> '('
+  keyshift[48] = 41; // '0' -> ')'
+  keyshift[45] = 95; // '-' -> '_'
+  keyshift[61] = 43; // '=' -> '+'
+  keyshift[44] = 60; // ',' -> '<'
+  keyshift[46] = 62; // '.' -> '>'
+  keyshift[47] = 63; // '/' -> '?'
+  keyshift[59] = 58; // ';' -> ':'
+  keyshift[39] = 34; // '\'' -> '"'
+  keyshift[91] = 123; // '[' -> '{'
+  keyshift[93] = 125; // ']' -> '}'
+  keyshift[96] = 126; // '`' -> '~'
+  keyshift[92] = 124; // '\\' -> '|'
 
-	keyshift[ 49 ] = 33; // '1' -> '!'
-	keyshift[ 50 ] = 64; // '2' -> '@'
-	keyshift[ 51 ] = 35; // '3' -> '#'
-	keyshift[ 52 ] = 36; // '4' -> '$'
-	keyshift[ 53 ] = 37; // '5' -> '%'
-	keyshift[ 54 ] = 94; // '6' -> '^'
-	keyshift[ 55 ] = 38; // '7' -> '&'
-	keyshift[ 56 ] = 42; // '8' -> '*'
-	keyshift[ 57 ] = 40; // '9' -> '('
-	keyshift[ 48 ] = 41; // '0' -> ')'
-	keyshift[ 45 ] = 95; // '-' -> '_'
-	keyshift[ 61 ] = 43; // '=' -> '+'
-	keyshift[ 44 ] = 60; // ',' -> '<'
-	keyshift[ 46 ] = 62; // '.' -> '>'
-	keyshift[ 47 ] = 63; // '/' -> '?'
-	keyshift[ 59 ] = 58; // ';' -> ':'
-	keyshift[ 39 ] = 34; // '\'' -> '"'
-	keyshift[ 91 ] = 123; // '[' -> '{'
-	keyshift[ 93 ] = 125; // ']' -> '}'
-	keyshift[ 96 ] = 126; // '`' -> '~'
-	keyshift[ 92 ] = 124; // '\\' -> '|'
+  menubound[K_ESCAPE] = true;
+  for (let i = 0; i < 12; i++) {
+    menubound[K_F1 + i] = true;
+  }
 
-	menubound[ K_ESCAPE ] = true;
-	for ( let i = 0; i < 12; i ++ )
-		menubound[ K_F1 + i ] = true;
-
-	//
-	// register our functions
-	//
-	Cmd_AddCommand( 'bind', Key_Bind_f );
-	Cmd_AddCommand( 'unbind', Key_Unbind_f );
-	Cmd_AddCommand( 'unbindall', Key_Unbindall_f );
-
+  //
+  // register our functions
+  //
+  Cmd_AddCommand("bind", Key_Bind_f);
+  Cmd_AddCommand("unbind", Key_Unbind_f);
+  Cmd_AddCommand("unbindall", Key_Unbindall_f);
 }
 
 /*
@@ -1318,208 +1255,180 @@ Called by the system between frames for both key up and key down events
 Should NOT be called during an interrupt!
 ===================
 */
-export function Key_Event( key, down ) {
-
-	// Ironwail Key_EventWithKeycode: ignore stray key up events. Browsers
-	// send key-ups for keys pressed before the page had focus (alt-tab back,
-	// a click into the page), and IN_ClearAllStates sends one for every key.
-	// Dropping them here keeps them from counting as the SCR_ModalMessage
-	// keypress or sending "-command" for a button that was never pressed.
-	if ( ! down && ! keydown[ key ] )
-		return;
-
-	const wasdown = keydown[ key ];
-	keydown[ key ] = down;
-
-	if ( ! down )
-		key_repeats[ key ] = 0;
-
-	key_lastpress = key;
-	key_count ++;
-
-	if ( key_count <= 0 ) {
-
-		// SCR_ModalMessage's wait loop
-		if ( key_modal_callback !== null ) {
-
-			// Only a fresh press moves or takes the choice: not a key-up,
-			// not an autorepeat
-			const press = down && wasdown === false;
-
-			if ( key_lastpress === 121 || key_lastpress === 110 || key_lastpress === K_ESCAPE ) { // 'y', 'n'
-
-				Key_EndModal( key_lastpress === 121 );
-
-			} else if ( press && key === K_ENTER ) {
-
-				Key_EndModal( key_modal_yes );
-
-			} else if ( press && ( key === K_LEFTARROW || key === K_RIGHTARROW
-				|| key === K_UPARROW || key === K_DOWNARROW ) ) {
-
-				key_modal_yes = ! key_modal_yes;
-				key_count = - 1;
-
-			} else {
-
-				key_count = - 1;
-
-			}
-
-		}
-
-		return; // just catching keys for Con_NotifyBox
-
-	}
-
-	// update auto-repeat status
-	if ( down ) {
-
-		key_repeats[ key ] ++;
-		if ( key !== K_BACKSPACE && key !== K_PAUSE && key_repeats[ key ] > 1 ) {
-
-			// QuakeSpasm lets keys repeat outside the game; here only the
-			// console's own keys do, so held arrows and Delete repeat.
-			// Menus let the arrow keys repeat, for scrolling through lists
-			// (Ironwail M_Keydown; id ignored all repeats in menus)
-			if ( ! ( consolekeys[ key ] && Key_ConsoleActive() )
-				&& ! ( key_dest === key_menu && M_KeyRepeats( key ) ) )
-				return; // ignore most autorepeats
-
-		}
-
-		if ( key >= 200 && ! keybindings[ key ] )
-			Con_Printf( Key_KeynumToString( key ) + ' is unbound, hit F4 to set.\n' );
-
-	}
-
-	if ( key === K_SHIFT )
-		shift_down = down;
-
-	//
-	// handle escape specially, so the user can never unbind it
-	//
-	if ( key === K_ESCAPE ) {
-
-		if ( ! down )
-			return;
-
-		switch ( key_dest ) {
-
-			case key_message:
-				Key_Message( key );
-				break;
-			case key_menu:
-				M_Keydown( key );
-				break;
-			case key_game:
-			case key_console:
-				M_ToggleMenu_f();
-				break;
-			default:
-				Sys_Error( 'Bad key_dest' );
-
-		}
-
-		return;
-
-	}
-
-	//
-	// key up events only generate commands if the game key binding is
-	// a button command (leading + sign). These will occur even in console mode,
-	// to keep the character from continuing an action started before a console
-	// switch. Button commands include the keynum as a parameter, so multiple
-	// downs can be matched with ups
-	//
-	if ( ! down ) {
-
-		const kb = keybindings[ key ];
-		if ( kb && kb.charAt( 0 ) === '+' ) {
-
-			Cbuf_AddText( '-' + kb.substring( 1 ) + ' ' + key + '\n' );
-
-		}
-
-		if ( keyshift[ key ] !== key ) {
-
-			const kb2 = keybindings[ keyshift[ key ] ];
-			if ( kb2 && kb2.charAt( 0 ) === '+' ) {
-
-				Cbuf_AddText( '-' + kb2.substring( 1 ) + ' ' + key + '\n' );
-
-			}
-
-		}
-
-		return;
-
-	}
-
-	//
-	// during demo playback, most keys bring up the main menu
-	//
-	if ( _cls.demoplayback && down && consolekeys[ key ] && key_dest === key_game ) {
-
-		M_ToggleMenu_f();
-		return;
-
-	}
-
-	//
-	// if not a consolekey, send to the interpreter no matter what mode is
-	//
-	if ( ( key_dest === key_menu && menubound[ key ] )
-	|| ( key_dest === key_console && ! consolekeys[ key ] )
-	|| ( key_dest === key_game && ( ! con_forcedup || ! consolekeys[ key ] ) ) ) {
-
-		const kb = keybindings[ key ];
-		if ( kb ) {
-
-			if ( kb.charAt( 0 ) === '+' ) {
-
-				// button commands add keynum as a parm
-				Cbuf_AddText( kb + ' ' + key + '\n' );
-
-			} else {
-
-				Cbuf_AddText( kb );
-				Cbuf_AddText( '\n' );
-
-			}
-
-		}
-
-		return;
-
-	}
-
-	if ( ! down )
-		return; // other systems only care about key down events
-
-	if ( shift_down ) {
-
-		key = keyshift[ key ];
-
-	}
-
-	switch ( key_dest ) {
-
-		case key_message:
-			Key_Message( key );
-			break;
-		case key_menu:
-			M_Keydown( key );
-			break;
-		case key_game:
-		case key_console:
-			Key_Console( key );
-			break;
-		default:
-			Sys_Error( 'Bad key_dest' );
-
-	}
-
+export function Key_Event(key, down) {
+  // Ironwail Key_EventWithKeycode: ignore stray key up events. Browsers
+  // send key-ups for keys pressed before the page had focus (alt-tab back,
+  // a click into the page), and IN_ClearAllStates sends one for every key.
+  // Dropping them here keeps them from counting as the SCR_ModalMessage
+  // keypress or sending "-command" for a button that was never pressed.
+  if (!down && !keydown[key]) {
+    return;
+  }
+
+  const wasdown = keydown[key];
+  keydown[key] = down;
+
+  if (!down) {
+    key_repeats[key] = 0;
+  }
+
+  key_lastpress = key;
+  key_count++;
+
+  if (key_count <= 0) {
+    // SCR_ModalMessage's wait loop
+    if (key_modal_callback !== null) {
+      // Only a fresh press moves or takes the choice: not a key-up,
+      // not an autorepeat
+      const press = down && wasdown === false;
+
+      if (
+        key_lastpress === 121 || key_lastpress === 110 ||
+        key_lastpress === K_ESCAPE
+      ) { // 'y', 'n'
+        Key_EndModal(key_lastpress === 121);
+      } else if (press && key === K_ENTER) {
+        Key_EndModal(key_modal_yes);
+      } else if (
+        press && (key === K_LEFTARROW || key === K_RIGHTARROW ||
+          key === K_UPARROW || key === K_DOWNARROW)
+      ) {
+        key_modal_yes = !key_modal_yes;
+        key_count = -1;
+      } else {
+        key_count = -1;
+      }
+    }
+
+    return; // just catching keys for Con_NotifyBox
+  }
+
+  // update auto-repeat status
+  if (down) {
+    key_repeats[key]++;
+    if (key !== K_BACKSPACE && key !== K_PAUSE && key_repeats[key] > 1) {
+      // QuakeSpasm lets keys repeat outside the game; here only the
+      // console's own keys do, so held arrows and Delete repeat.
+      // Menus let the arrow keys repeat, for scrolling through lists
+      // (Ironwail M_Keydown; id ignored all repeats in menus)
+      if (
+        !(consolekeys[key] && Key_ConsoleActive()) &&
+        !(key_dest === key_menu && M_KeyRepeats(key))
+      ) {
+        return; // ignore most autorepeats
+      }
+    }
+
+    if (key >= 200 && !keybindings[key]) {
+      Con_Printf(Key_KeynumToString(key) + " is unbound, hit F4 to set.\n");
+    }
+  }
+
+  if (key === K_SHIFT) {
+    shift_down = down;
+  }
+
+  //
+  // handle escape specially, so the user can never unbind it
+  //
+  if (key === K_ESCAPE) {
+    if (!down) {
+      return;
+    }
+
+    switch (key_dest) {
+      case key_message:
+        Key_Message(key);
+        break;
+      case key_menu:
+        M_Keydown(key);
+        break;
+      case key_game:
+      case key_console:
+        M_ToggleMenu_f();
+        break;
+      default:
+        Sys_Error("Bad key_dest");
+    }
+
+    return;
+  }
+
+  //
+  // key up events only generate commands if the game key binding is
+  // a button command (leading + sign). These will occur even in console mode,
+  // to keep the character from continuing an action started before a console
+  // switch. Button commands include the keynum as a parameter, so multiple
+  // downs can be matched with ups
+  //
+  if (!down) {
+    const kb = keybindings[key];
+    if (kb && kb.charAt(0) === "+") {
+      Cbuf_AddText("-" + kb.substring(1) + " " + key + "\n");
+    }
+
+    if (keyshift[key] !== key) {
+      const kb2 = keybindings[keyshift[key]];
+      if (kb2 && kb2.charAt(0) === "+") {
+        Cbuf_AddText("-" + kb2.substring(1) + " " + key + "\n");
+      }
+    }
+
+    return;
+  }
+
+  //
+  // during demo playback, most keys bring up the main menu
+  //
+  if (_cls.demoplayback && down && consolekeys[key] && key_dest === key_game) {
+    M_ToggleMenu_f();
+    return;
+  }
+
+  //
+  // if not a consolekey, send to the interpreter no matter what mode is
+  //
+  if (
+    (key_dest === key_menu && menubound[key]) ||
+    (key_dest === key_console && !consolekeys[key]) ||
+    (key_dest === key_game && (!con_forcedup || !consolekeys[key]))
+  ) {
+    const kb = keybindings[key];
+    if (kb) {
+      if (kb.charAt(0) === "+") {
+        // button commands add keynum as a parm
+        Cbuf_AddText(kb + " " + key + "\n");
+      } else {
+        Cbuf_AddText(kb);
+        Cbuf_AddText("\n");
+      }
+    }
+
+    return;
+  }
+
+  if (!down) {
+    return; // other systems only care about key down events
+  }
+
+  if (shift_down) {
+    key = keyshift[key];
+  }
+
+  switch (key_dest) {
+    case key_message:
+      Key_Message(key);
+      break;
+    case key_menu:
+      M_Keydown(key);
+      break;
+    case key_game:
+    case key_console:
+      Key_Console(key);
+      break;
+    default:
+      Sys_Error("Bad key_dest");
+  }
 }
 
 /*
@@ -1528,12 +1437,8 @@ Key_ClearStates
 ===================
 */
 export function Key_ClearStates() {
-
-	for ( let i = 0; i < 256; i ++ ) {
-
-		keydown[ i ] = false;
-		key_repeats[ i ] = 0;
-
-	}
-
+  for (let i = 0; i < 256; i++) {
+    keydown[i] = false;
+    key_repeats[i] = 0;
+  }
 }

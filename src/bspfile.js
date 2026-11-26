@@ -75,21 +75,21 @@ export const PLANE_ANYY = 4;
 export const PLANE_ANYZ = 5;
 
 // Contents
-export const CONTENTS_EMPTY = - 1;
-export const CONTENTS_SOLID = - 2;
-export const CONTENTS_WATER = - 3;
-export const CONTENTS_SLIME = - 4;
-export const CONTENTS_LAVA = - 5;
-export const CONTENTS_SKY = - 6;
-export const CONTENTS_ORIGIN = - 7; // removed at csg time
-export const CONTENTS_CLIP = - 8; // changed to contents_solid
+export const CONTENTS_EMPTY = -1;
+export const CONTENTS_SOLID = -2;
+export const CONTENTS_WATER = -3;
+export const CONTENTS_SLIME = -4;
+export const CONTENTS_LAVA = -5;
+export const CONTENTS_SKY = -6;
+export const CONTENTS_ORIGIN = -7; // removed at csg time
+export const CONTENTS_CLIP = -8; // changed to contents_solid
 
-export const CONTENTS_CURRENT_0 = - 9;
-export const CONTENTS_CURRENT_90 = - 10;
-export const CONTENTS_CURRENT_180 = - 11;
-export const CONTENTS_CURRENT_270 = - 12;
-export const CONTENTS_CURRENT_UP = - 13;
-export const CONTENTS_CURRENT_DOWN = - 14;
+export const CONTENTS_CURRENT_0 = -9;
+export const CONTENTS_CURRENT_90 = -10;
+export const CONTENTS_CURRENT_180 = -11;
+export const CONTENTS_CURRENT_270 = -12;
+export const CONTENTS_CURRENT_UP = -13;
+export const CONTENTS_CURRENT_DOWN = -14;
 
 // Texture flags
 export const TEX_SPECIAL = 1; // sky or slime, no lightmap or 256 subdivision
@@ -104,5 +104,5 @@ export const AMBIENT_SLIME = 2;
 export const AMBIENT_LAVA = 3;
 export const NUM_AMBIENTS = 4;
 
-export const ANGLE_UP = - 1;
-export const ANGLE_DOWN = - 2;
+export const ANGLE_UP = -1;
+export const ANGLE_DOWN = -2;

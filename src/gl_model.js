@@ -4,36 +4,75 @@
 // models are the only shared resource between a client and server running
 // on the same machine.
 
-import * as THREE from 'three';
-import { Sys_Error } from './sys.js';
-import { Host_Error } from './host.js';
-import { Con_Printf, Con_DPrintf, COM_StripExtension } from './common.js';
-import { d_8to24table, vid, renderer } from './vid.js';
-import { COM_LoadFile, COM_FindFile, COM_FileExists, COM_EnsureFile } from './pak.js';
-import { VectorCopy, Length } from './mathlib.js';
-import { Cvar_RegisterVariable, Cvar_SetValue } from './cvar.js';
-import { r_nolerp_list } from './render.js';
-import { MAX_DLIGHTS, cls, ca_dedicated } from './client.js';
-import { R_InitSky as R_InitSky_warp, GL_SubdivideSurface as GL_SubdivideSurface_warp, GL_Warp_SetLoadmodel } from './gl_warp.js';
-import { GL_MakeAliasModelDisplayLists as GL_MakeAliasModelDisplayLists_mesh, cl_gun_fovscale } from './gl_mesh.js';
-import { Mod_LoadMD5MeshModel } from './gl_md5.js';
+import * as THREE from "three";
+import { Sys_Error } from "./sys.js";
+import { Host_Error } from "./host.js";
+import { COM_StripExtension, Con_DPrintf, Con_Printf } from "./common.js";
+import { d_8to24table, renderer, vid } from "./vid.js";
+import {
+  COM_EnsureFile,
+  COM_FileExists,
+  COM_FindFile,
+  COM_LoadFile,
+} from "./pak.js";
+import { Length, VectorCopy } from "./mathlib.js";
+import { Cvar_RegisterVariable, Cvar_SetValue } from "./cvar.js";
+import { r_nolerp_list } from "./render.js";
+import { ca_dedicated, cls, MAX_DLIGHTS } from "./client.js";
+import {
+  GL_SubdivideSurface as GL_SubdivideSurface_warp,
+  GL_Warp_SetLoadmodel,
+  R_InitSky as R_InitSky_warp,
+} from "./gl_warp.js";
+import {
+  cl_gun_fovscale,
+  GL_MakeAliasModelDisplayLists as GL_MakeAliasModelDisplayLists_mesh,
+} from "./gl_mesh.js";
+import { Mod_LoadMD5MeshModel } from "./gl_md5.js";
 
 // Sky textures (set by R_InitSky during level load)
 export let solidskytexture = null;
 export let alphaskytexture = null;
 import {
-	BSPVERSION, BSP2VERSION_BSP2,
-	LUMP_ENTITIES, LUMP_PLANES, LUMP_TEXTURES, LUMP_VERTEXES,
-	LUMP_VISIBILITY, LUMP_NODES, LUMP_TEXINFO, LUMP_FACES,
-	LUMP_LIGHTING, LUMP_CLIPNODES, LUMP_LEAFS, LUMP_MARKSURFACES,
-	LUMP_EDGES, LUMP_SURFEDGES, LUMP_MODELS, HEADER_LUMPS,
-	MAX_MAP_HULLS, MAX_MAP_LEAFS,
-	CONTENTS_EMPTY, CONTENTS_WATER, CONTENTS_SLIME, CONTENTS_LAVA,
-	MIPLEVELS, MAXLIGHTMAPS, NUM_AMBIENTS,
-	TEX_SPECIAL
-} from './bspfile.js';
-import { gl_subdivide_size, r_novis, GL_SetTextureFilter, GL_RegisterTexture, GL_UnregisterTexture,
-	GL_ScaledTextureSize, GL_ResampleTexture8, _allGameTextures } from './glquake.js';
+  BSP2VERSION_BSP2,
+  BSPVERSION,
+  CONTENTS_EMPTY,
+  CONTENTS_LAVA,
+  CONTENTS_SLIME,
+  CONTENTS_WATER,
+  HEADER_LUMPS,
+  LUMP_CLIPNODES,
+  LUMP_EDGES,
+  LUMP_ENTITIES,
+  LUMP_FACES,
+  LUMP_LEAFS,
+  LUMP_LIGHTING,
+  LUMP_MARKSURFACES,
+  LUMP_MODELS,
+  LUMP_NODES,
+  LUMP_PLANES,
+  LUMP_SURFEDGES,
+  LUMP_TEXINFO,
+  LUMP_TEXTURES,
+  LUMP_VERTEXES,
+  LUMP_VISIBILITY,
+  MAX_MAP_HULLS,
+  MAX_MAP_LEAFS,
+  MAXLIGHTMAPS,
+  MIPLEVELS,
+  NUM_AMBIENTS,
+  TEX_SPECIAL,
+} from "./bspfile.js";
+import {
+  _allGameTextures,
+  GL_RegisterTexture,
+  GL_ResampleTexture8,
+  GL_ScaledTextureSize,
+  GL_SetTextureFilter,
+  gl_subdivide_size,
+  GL_UnregisterTexture,
+  r_novis,
+} from "./glquake.js";
 
 // ============================================================================
 // modelgen.h constants
@@ -57,9 +96,10 @@ export const ALIAS_SKIN_GROUP = 1;
 export const DT_FACES_FRONT = 0x0010;
 
 // little-endian "IDPO"
-export const IDPOLYHEADER = ( 'O'.charCodeAt( 0 ) << 24 ) + ( 'P'.charCodeAt( 0 ) << 16 ) + ( 'D'.charCodeAt( 0 ) << 8 ) + 'I'.charCodeAt( 0 );
+export const IDPOLYHEADER = ("O".charCodeAt(0) << 24) +
+  ("P".charCodeAt(0) << 16) + ("D".charCodeAt(0) << 8) + "I".charCodeAt(0);
 
-export const ALIAS_BASE_SIZE_RATIO = ( 1.0 / 11.0 );
+export const ALIAS_BASE_SIZE_RATIO = 1.0 / 11.0;
 export const MAX_LBM_HEIGHT = 480;
 
 // ============================================================================
@@ -79,7 +119,8 @@ export const SPR_SINGLE = 0;
 export const SPR_GROUP = 1;
 
 // little-endian "IDSP"
-export const IDSPRITEHEADER = ( 'P'.charCodeAt( 0 ) << 24 ) + ( 'S'.charCodeAt( 0 ) << 16 ) + ( 'D'.charCodeAt( 0 ) << 8 ) + 'I'.charCodeAt( 0 );
+export const IDSPRITEHEADER = ("P".charCodeAt(0) << 24) +
+  ("S".charCodeAt(0) << 16) + ("D".charCodeAt(0) << 8) + "I".charCodeAt(0);
 
 // ============================================================================
 // gl_model.h -- entity effects
@@ -112,9 +153,9 @@ export const SURF_DRAWWATER = 0x2000;
 // Deliberate deviation, from QuakeSpasm (gl_rmain.c): per-liquid alpha.
 // 0 means "use r_wateralpha", so the defaults keep GLQuake's look. QS
 // registers them in R_Init (gl_rmisc.c); here Mod_Init does.
-export const r_lavaalpha = { name: 'r_lavaalpha', string: '0', value: 0 };
-export const r_slimealpha = { name: 'r_slimealpha', string: '0', value: 0 };
-export const r_telealpha = { name: 'r_telealpha', string: '0', value: 0 };
+export const r_lavaalpha = { name: "r_lavaalpha", string: "0", value: 0 };
+export const r_slimealpha = { name: "r_slimealpha", string: "0", value: 0 };
+export const r_telealpha = { name: "r_telealpha", string: "0", value: 0 };
 
 // ============================================================================
 // Plane sides
@@ -142,18 +183,18 @@ export const mod_alias = 2;
 // Entity effect flags (model flags from MDL header)
 // ============================================================================
 
-export const EF_ROCKET = 1;		// leave a trail
-export const EF_GRENADE = 2;		// leave a trail
-export const EF_GIB = 4;			// leave a trail
-export const EF_ROTATE = 8;		// rotate (bonus items)
-export const EF_TRACER = 16;		// green split trail
-export const EF_ZOMGIB = 32;		// small blood trail
-export const EF_TRACER2 = 64;		// orange split trail + rotate
-export const EF_TRACER3 = 128;		// purple trail
+export const EF_ROCKET = 1; // leave a trail
+export const EF_GRENADE = 2; // leave a trail
+export const EF_GIB = 4; // leave a trail
+export const EF_ROTATE = 8; // rotate (bonus items)
+export const EF_TRACER = 16; // green split trail
+export const EF_ZOMGIB = 32; // small blood trail
+export const EF_TRACER2 = 64; // orange split trail + rotate
+export const EF_TRACER3 = 128; // purple trail
 
 // Deliberate deviation, from FitzQuake/QuakeSpasm (gl_model.h): flags that
 // aren't in the mdl, set by Mod_SetExtraFlags.
-export const MOD_NOLERP = 256;		// don't lerp when animating
+export const MOD_NOLERP = 256; // don't lerp when animating
 
 // Deliberate deviation, from MarkV/QSS via QuakeSpasm and Ironwail
 // (gl_model.h): a model flag that makes palette index 255 transparent in
@@ -184,91 +225,73 @@ export const MAX_SURFACE_EXTENTS = 2000;
 // thousands of structs), and each backing store adds GC work. A struct built
 // without a slab allocates its own, as before. Slab offsets are 4-aligned.
 export class mvertex_t {
-
-	constructor( buffer = null, byteOffset = 0 ) {
-
-		this.position = buffer !== null ? new Float32Array( buffer, byteOffset, 3 ) : new Float32Array( 3 );
-
-	}
-
+  constructor(buffer = null, byteOffset = 0) {
+    this.position = buffer !== null ?
+      new Float32Array(buffer, byteOffset, 3) :
+      new Float32Array(3);
+  }
 }
 
 export class mplane_t {
-
-	constructor( buffer = null, byteOffset = 0 ) {
-
-		this.normal = buffer !== null ? new Float32Array( buffer, byteOffset, 3 ) : new Float32Array( 3 );
-		this.dist = 0;
-		this.type = 0;		// for texture axis selection and fast side tests
-		this.signbits = 0;	// signx + signy<<1 + signz<<2
-
-	}
-
+  constructor(buffer = null, byteOffset = 0) {
+    this.normal = buffer !== null ?
+      new Float32Array(buffer, byteOffset, 3) :
+      new Float32Array(3);
+    this.dist = 0;
+    this.type = 0; // for texture axis selection and fast side tests
+    this.signbits = 0; // signx + signy<<1 + signz<<2
+  }
 }
 
 export class texture_t {
-
-	constructor() {
-
-		this.name = '';
-		this.width = 0;
-		this.height = 0;
-		this.gl_texturenum = 0;
-		this.texturechain = null;	// for gl_texsort drawing
-		this.anim_total = 0;		// total tenths in sequence ( 0 = no)
-		this.anim_min = 0;
-		this.anim_max = 0;
-		this.anim_next = null;		// in the animation sequence
-		this.alternate_anims = null;	// bmodels in frame 1 use these
-		this.offsets = new Uint32Array( MIPLEVELS );	// four mip maps stored
-		this.pixels = null;			// Uint8Array of raw pixel data
-
-	}
-
+  constructor() {
+    this.name = "";
+    this.width = 0;
+    this.height = 0;
+    this.gl_texturenum = 0;
+    this.texturechain = null; // for gl_texsort drawing
+    this.anim_total = 0; // total tenths in sequence ( 0 = no)
+    this.anim_min = 0;
+    this.anim_max = 0;
+    this.anim_next = null; // in the animation sequence
+    this.alternate_anims = null; // bmodels in frame 1 use these
+    this.offsets = new Uint32Array(MIPLEVELS); // four mip maps stored
+    this.pixels = null; // Uint8Array of raw pixel data
+  }
 }
 
 export class medge_t {
-
-	constructor( buffer = null, byteOffset = 0 ) {
-
-		// Deliberate deviation (Ironwail medge_t): unsigned int vertex
-		// numbers, so BSP2 maps with more than 65535 vertexes load. The C
-		// holds unsigned shorts.
-		this.v = buffer !== null ? new Uint32Array( buffer, byteOffset, 2 ) : new Uint32Array( 2 );
-		this.cachededgeoffset = 0;
-
-	}
-
+  constructor(buffer = null, byteOffset = 0) {
+    // Deliberate deviation (Ironwail medge_t): unsigned int vertex
+    // numbers, so BSP2 maps with more than 65535 vertexes load. The C
+    // holds unsigned shorts.
+    this.v = buffer !== null ?
+      new Uint32Array(buffer, byteOffset, 2) :
+      new Uint32Array(2);
+    this.cachededgeoffset = 0;
+  }
 }
 
 export class mtexinfo_t {
-
-	constructor() {
-
-		this.vecs = [
-			new Float32Array( 4 ),
-			new Float32Array( 4 )
-		];
-		this.mipadjust = 0;
-		this.texture = null;
-		this.flags = 0;
-
-	}
-
+  constructor() {
+    this.vecs = [
+      new Float32Array(4),
+      new Float32Array(4),
+    ];
+    this.mipadjust = 0;
+    this.texture = null;
+    this.flags = 0;
+  }
 }
 
 export class glpoly_t {
-
-	constructor() {
-
-		this.next = null;
-		this.chain = null;
-		this.numverts = 0;
-		this.flags = 0;			// for SURF_UNDERWATER
-		this.verts = [];		// array of Float32Array(VERTEXSIZE) -- variable sized (xyz s1t1 s2t2)
-
-	}
-
+  constructor() {
+    this.next = null;
+    this.chain = null;
+    this.numverts = 0;
+    this.flags = 0; // for SURF_UNDERWATER
+    this.verts = []; // array of Float32Array(VERTEXSIZE) -- variable sized (xyz s1t1 s2t2)
+  }
 }
 
 // Bytes of typed-array storage per msurface_t slab slot, in the order
@@ -276,155 +299,148 @@ export class glpoly_t {
 // (Uint32 words), extents (Int16 x2), styles (Uint8 x MAXLIGHTMAPS)
 // (a function: MAX_DLIGHTS comes from client.js, which is in an import cycle)
 export function MSURFACE_SLAB_BYTES() {
-
-	return 8 + MAXLIGHTMAPS * 4 + ( ( MAX_DLIGHTS + 31 ) >> 5 ) * 4 + 4 + ( ( MAXLIGHTMAPS + 3 ) & ~ 3 );
-
+  return 8 + MAXLIGHTMAPS * 4 + ((MAX_DLIGHTS + 31) >> 5) * 4 + 4 +
+    ((MAXLIGHTMAPS + 3) & ~3);
 }
 
 export class msurface_t {
+  constructor(buffer = null, byteOffset = 0) {
+    this.visframe = 0; // should be drawn when node is crossed
 
-	constructor( buffer = null, byteOffset = 0 ) {
+    this.plane = null;
+    this.flags = 0;
 
-		this.visframe = 0;		// should be drawn when node is crossed
+    this.firstedge = 0; // look up in model->surfedges[], negative numbers
+    this.numedges = 0; // are backwards edges
 
-		this.plane = null;
-		this.flags = 0;
+    // Deliberate deviation (Ironwail, gl_model.h): texturemins is
+    // `int`, not id's `short`. Large BSP2 maps (the rerelease's mg3
+    // map7) have texture-space minimums beyond +-32768, which wrap in
+    // 16 bits and move the lightmap origin. Values that fit in a short
+    // (all of id's maps) are unchanged. extents stays `short`, as in
+    // Ironwail: lightmapped faces are capped at MAX_SURFACE_EXTENTS.
+    const dlightwords = (MAX_DLIGHTS + 31) >> 5;
+    if (buffer !== null) {
+      this.texturemins = new Int32Array(buffer, byteOffset, 2);
+      this.cached_light = new Int32Array(buffer, byteOffset + 8, MAXLIGHTMAPS); // values currently used in lightmap
+      this.dlightbits = new Uint32Array(
+        buffer,
+        byteOffset + 8 + MAXLIGHTMAPS * 4,
+        dlightwords,
+      );
+      this.extents = new Int16Array(
+        buffer,
+        byteOffset + 8 + MAXLIGHTMAPS * 4 + dlightwords * 4,
+        2,
+      );
+      this.styles = new Uint8Array(
+        buffer,
+        byteOffset + 12 + MAXLIGHTMAPS * 4 + dlightwords * 4,
+        MAXLIGHTMAPS,
+      );
+    } else {
+      this.texturemins = new Int32Array(2);
+      this.cached_light = new Int32Array(MAXLIGHTMAPS);
+      this.dlightbits = new Uint32Array(dlightwords);
+      this.extents = new Int16Array(2);
+      this.styles = new Uint8Array(MAXLIGHTMAPS);
+    }
 
-		this.firstedge = 0;		// look up in model->surfedges[], negative numbers
-		this.numedges = 0;		// are backwards edges
+    this.light_s = 0;
+    this.light_t = 0; // gl lightmap coordinates
 
-		// Deliberate deviation (Ironwail, gl_model.h): texturemins is
-		// `int`, not id's `short`. Large BSP2 maps (the rerelease's mg3
-		// map7) have texture-space minimums beyond +-32768, which wrap in
-		// 16 bits and move the lightmap origin. Values that fit in a short
-		// (all of id's maps) are unchanged. extents stays `short`, as in
-		// Ironwail: lightmapped faces are capped at MAX_SURFACE_EXTENTS.
-		const dlightwords = ( MAX_DLIGHTS + 31 ) >> 5;
-		if ( buffer !== null ) {
+    this.polys = null; // multiple if warped
+    this.texturechain = null;
 
-			this.texturemins = new Int32Array( buffer, byteOffset, 2 );
-			this.cached_light = new Int32Array( buffer, byteOffset + 8, MAXLIGHTMAPS );	// values currently used in lightmap
-			this.dlightbits = new Uint32Array( buffer, byteOffset + 8 + MAXLIGHTMAPS * 4, dlightwords );
-			this.extents = new Int16Array( buffer, byteOffset + 8 + MAXLIGHTMAPS * 4 + dlightwords * 4, 2 );
-			this.styles = new Uint8Array( buffer, byteOffset + 12 + MAXLIGHTMAPS * 4 + dlightwords * 4, MAXLIGHTMAPS );
+    this.texinfo = null;
 
-		} else {
+    // lighting info
+    this.dlightframe = 0;
+    // QuakeSpasm: one bit per dynamic light, in 32-bit words (dlightbits, above)
 
-			this.texturemins = new Int32Array( 2 );
-			this.cached_light = new Int32Array( MAXLIGHTMAPS );
-			this.dlightbits = new Uint32Array( dlightwords );
-			this.extents = new Int16Array( 2 );
-			this.styles = new Uint8Array( MAXLIGHTMAPS );
-
-		}
-
-		this.light_s = 0;
-		this.light_t = 0;		// gl lightmap coordinates
-
-		this.polys = null;				// multiple if warped
-		this.texturechain = null;
-
-		this.texinfo = null;
-
-		// lighting info
-		this.dlightframe = 0;
-		// QuakeSpasm: one bit per dynamic light, in 32-bit words (dlightbits, above)
-
-		this.lightmaptexturenum = 0;
-		this.cached_dlight = false;							// true if dynamic light in cache
-		this.samples = null;		// Uint8Array -- [numstyles*surfsize]
-		this.sampleOffset = 0;		// offset into lightdata
-		// Not in C: samples are RGB triplets from a .lit (see Mod_LoadLighting)
-		this.rgbsamples = false;
-
-	}
-
+    this.lightmaptexturenum = 0;
+    this.cached_dlight = false; // true if dynamic light in cache
+    this.samples = null; // Uint8Array -- [numstyles*surfsize]
+    this.sampleOffset = 0; // offset into lightdata
+    // Not in C: samples are RGB triplets from a .lit (see Mod_LoadLighting)
+    this.rgbsamples = false;
+  }
 }
 
 export class mnode_t {
+  constructor(buffer = null, byteOffset = 0) {
+    // common with leaf
+    this.contents = 0; // 0, to differentiate from leafs
+    this.visframe = 0; // node needs to be traversed if current
 
-	constructor( buffer = null, byteOffset = 0 ) {
+    this.minmaxs = buffer !== null ?
+      new Float32Array(buffer, byteOffset, 6) :
+      new Float32Array(6); // for bounding box culling
 
-		// common with leaf
-		this.contents = 0;		// 0, to differentiate from leafs
-		this.visframe = 0;		// node needs to be traversed if current
+    this.parent = null;
 
-		this.minmaxs = buffer !== null ? new Float32Array( buffer, byteOffset, 6 ) : new Float32Array( 6 );	// for bounding box culling
+    // node specific
+    this.plane = null;
+    this.children = [null, null];
 
-		this.parent = null;
-
-		// node specific
-		this.plane = null;
-		this.children = [ null, null ];
-
-		this.firstsurface = 0;
-		this.numsurfaces = 0;
-
-	}
-
+    this.firstsurface = 0;
+    this.numsurfaces = 0;
+  }
 }
 
 // minmaxs (Float32 x6) then ambient_sound_level (Uint8 x NUM_AMBIENTS)
 export function MLEAF_SLAB_BYTES() {
-
-	return 24 + ( ( NUM_AMBIENTS + 3 ) & ~ 3 );
-
+  return 24 + ((NUM_AMBIENTS + 3) & ~3);
 }
 
 export class mleaf_t {
+  constructor(buffer = null, byteOffset = 0) {
+    // common with node
+    this.contents = 0; // will be a negative contents number
+    this.visframe = 0; // node needs to be traversed if current
 
-	constructor( buffer = null, byteOffset = 0 ) {
+    this.minmaxs = buffer !== null ?
+      new Float32Array(buffer, byteOffset, 6) :
+      new Float32Array(6); // for bounding box culling
 
-		// common with node
-		this.contents = 0;		// will be a negative contents number
-		this.visframe = 0;		// node needs to be traversed if current
+    this.parent = null;
+    this._leafIndex = 0; // set by Mod_LoadLeafs; declared here so the shape doesn't change
 
-		this.minmaxs = buffer !== null ? new Float32Array( buffer, byteOffset, 6 ) : new Float32Array( 6 );	// for bounding box culling
+    // leaf specific
+    this.compressed_vis = null; // Uint8Array slice
+    this.compressed_vis_offset = 0;
+    this.efrags = null;
 
-		this.parent = null;
-		this._leafIndex = 0;			// set by Mod_LoadLeafs; declared here so the shape doesn't change
-
-		// leaf specific
-		this.compressed_vis = null;		// Uint8Array slice
-		this.compressed_vis_offset = 0;
-		this.efrags = null;
-
-		this.firstmarksurface = 0;		// index into marksurfaces array
-		this.nummarksurfaces = 0;
-		this.key = 0;					// BSP sequence number for leaf's contents
-		this.ambient_sound_level = buffer !== null ? new Uint8Array( buffer, byteOffset + 24, NUM_AMBIENTS ) : new Uint8Array( NUM_AMBIENTS );
-
-	}
-
+    this.firstmarksurface = 0; // index into marksurfaces array
+    this.nummarksurfaces = 0;
+    this.key = 0; // BSP sequence number for leaf's contents
+    this.ambient_sound_level = buffer !== null ?
+      new Uint8Array(buffer, byteOffset + 24, NUM_AMBIENTS) :
+      new Uint8Array(NUM_AMBIENTS);
+  }
 }
 
 export class dclipnode_t {
-
-	constructor( buffer = null, byteOffset = 0 ) {
-
-		this.planenum = 0;
-		// Deliberate deviation (QuakeSpasm mclipnode_t): int children, so
-		// clipnode and hull 0 node indices past 32767 don't wrap. dclipnode_t
-		// holds short children.
-		this.children = buffer !== null ? new Int32Array( buffer, byteOffset, 2 ) : new Int32Array( 2 );
-
-	}
-
+  constructor(buffer = null, byteOffset = 0) {
+    this.planenum = 0;
+    // Deliberate deviation (QuakeSpasm mclipnode_t): int children, so
+    // clipnode and hull 0 node indices past 32767 don't wrap. dclipnode_t
+    // holds short children.
+    this.children = buffer !== null ?
+      new Int32Array(buffer, byteOffset, 2) :
+      new Int32Array(2);
+  }
 }
 
 export class hull_t {
-
-	constructor() {
-
-		this.clipnodes = null;	// array of dclipnode_t
-		this.planes = null;		// array of mplane_t
-		this.firstclipnode = 0;
-		this.lastclipnode = 0;
-		this.clip_mins = new Float32Array( 3 );
-		this.clip_maxs = new Float32Array( 3 );
-
-	}
-
+  constructor() {
+    this.clipnodes = null; // array of dclipnode_t
+    this.planes = null; // array of mplane_t
+    this.firstclipnode = 0;
+    this.lastclipnode = 0;
+    this.clip_mins = new Float32Array(3);
+    this.clip_maxs = new Float32Array(3);
+  }
 }
 
 // ============================================================================
@@ -432,58 +448,42 @@ export class hull_t {
 // ============================================================================
 
 export class mspriteframe_t {
-
-	constructor() {
-
-		this.width = 0;
-		this.height = 0;
-		this.up = 0;
-		this.down = 0;
-		this.left = 0;
-		this.right = 0;
-		this.gl_texturenum = 0;
-
-	}
-
+  constructor() {
+    this.width = 0;
+    this.height = 0;
+    this.up = 0;
+    this.down = 0;
+    this.left = 0;
+    this.right = 0;
+    this.gl_texturenum = 0;
+  }
 }
 
 export class mspritegroup_t {
-
-	constructor() {
-
-		this.numframes = 0;
-		this.intervals = null;	// Float32Array
-		this.frames = [];		// array of mspriteframe_t
-
-	}
-
+  constructor() {
+    this.numframes = 0;
+    this.intervals = null; // Float32Array
+    this.frames = []; // array of mspriteframe_t
+  }
 }
 
 export class mspriteframedesc_t {
-
-	constructor() {
-
-		this.type = 0;			// spriteframetype_t
-		this.frameptr = null;	// mspriteframe_t or mspritegroup_t
-
-	}
-
+  constructor() {
+    this.type = 0; // spriteframetype_t
+    this.frameptr = null; // mspriteframe_t or mspritegroup_t
+  }
 }
 
 export class msprite_t {
-
-	constructor() {
-
-		this.type = 0;
-		this.maxwidth = 0;
-		this.maxheight = 0;
-		this.numframes = 0;
-		this.beamlength = 0;
-		this.cachespot = null;
-		this.frames = [];		// array of mspriteframedesc_t
-
-	}
-
+  constructor() {
+    this.type = 0;
+    this.maxwidth = 0;
+    this.maxheight = 0;
+    this.numframes = 0;
+    this.beamlength = 0;
+    this.cachespot = null;
+    this.frames = []; // array of mspriteframedesc_t
+  }
 }
 
 // ============================================================================
@@ -491,104 +491,78 @@ export class msprite_t {
 // ============================================================================
 
 export class trivertx_t {
-
-	constructor() {
-
-		this.v = new Uint8Array( 3 );
-		this.lightnormalindex = 0;
-
-	}
-
+  constructor() {
+    this.v = new Uint8Array(3);
+    this.lightnormalindex = 0;
+  }
 }
 
 export class stvert_t {
-
-	constructor() {
-
-		this.onseam = 0;
-		this.s = 0;
-		this.t = 0;
-
-	}
-
+  constructor() {
+    this.onseam = 0;
+    this.s = 0;
+    this.t = 0;
+  }
 }
 
 export class dtriangle_t {
-
-	constructor() {
-
-		this.facesfront = 0;
-		this.vertindex = new Int32Array( 3 );
-
-	}
-
+  constructor() {
+    this.facesfront = 0;
+    this.vertindex = new Int32Array(3);
+  }
 }
 
 export class mtriangle_t {
-
-	constructor() {
-
-		this.facesfront = 0;
-		this.vertindex = new Int32Array( 3 );
-
-	}
-
+  constructor() {
+    this.facesfront = 0;
+    this.vertindex = new Int32Array(3);
+  }
 }
 
 export class maliasframedesc_t {
-
-	constructor() {
-
-		this.firstpose = 0;
-		this.numposes = 0;
-		this.interval = 0;
-		this.bboxmin = new trivertx_t();
-		this.bboxmax = new trivertx_t();
-		this.frame = 0;
-		this.name = '';
-
-	}
-
+  constructor() {
+    this.firstpose = 0;
+    this.numposes = 0;
+    this.interval = 0;
+    this.bboxmin = new trivertx_t();
+    this.bboxmax = new trivertx_t();
+    this.frame = 0;
+    this.name = "";
+  }
 }
 
 export class aliashdr_t {
+  constructor() {
+    this.ident = 0;
+    this.version = 0;
+    this.scale = new Float32Array(3);
+    this.scale_origin = new Float32Array(3);
+    this.boundingradius = 0;
+    this.eyeposition = new Float32Array(3);
+    this.numskins = 0;
+    this.skinwidth = 0;
+    this.skinheight = 0;
+    this.numverts = 0;
+    this.numtris = 0;
+    this.numframes = 0;
+    this.synctype = 0;
+    this.flags = 0;
+    this.size = 0;
 
-	constructor() {
+    this.numposes = 0;
+    this.poseverts = 0;
+    this.posedata = null; // array of trivertx_t arrays
+    this.commands = null; // gl command list with embedded s/t
+    this.gl_texturenum = []; // [MAX_SKINS][4]
+    this.texels = []; // [MAX_SKINS] - only for player skins
+    this.frames = []; // array of maliasframedesc_t
 
-		this.ident = 0;
-		this.version = 0;
-		this.scale = new Float32Array( 3 );
-		this.scale_origin = new Float32Array( 3 );
-		this.boundingradius = 0;
-		this.eyeposition = new Float32Array( 3 );
-		this.numskins = 0;
-		this.skinwidth = 0;
-		this.skinheight = 0;
-		this.numverts = 0;
-		this.numtris = 0;
-		this.numframes = 0;
-		this.synctype = 0;
-		this.flags = 0;
-		this.size = 0;
-
-		this.numposes = 0;
-		this.poseverts = 0;
-		this.posedata = null;		// array of trivertx_t arrays
-		this.commands = null;		// gl command list with embedded s/t
-		this.gl_texturenum = [];	// [MAX_SKINS][4]
-		this.texels = [];			// [MAX_SKINS] - only for player skins
-		this.frames = [];			// array of maliasframedesc_t
-
-		// Initialize gl_texturenum as 2D array
-		for ( let i = 0; i < MAX_SKINS; i ++ ) {
-
-			this.gl_texturenum[ i ] = [ 0, 0, 0, 0 ];
-			this.texels[ i ] = 0;
-
-		}
-
-	}
-
+    // Initialize gl_texturenum as 2D array
+    for (let i = 0; i < MAX_SKINS; i++) {
+      this.gl_texturenum[i] = [0, 0, 0, 0];
+      this.texels[i] = 0;
+    }
+  }
 }
 
 // ============================================================================
@@ -596,19 +570,15 @@ export class aliashdr_t {
 // ============================================================================
 
 export class dmodel_t {
-
-	constructor() {
-
-		this.mins = new Float32Array( 3 );
-		this.maxs = new Float32Array( 3 );
-		this.origin = new Float32Array( 3 );
-		this.headnode = new Int32Array( MAX_MAP_HULLS );
-		this.visleafs = 0;
-		this.firstface = 0;
-		this.numfaces = 0;
-
-	}
-
+  constructor() {
+    this.mins = new Float32Array(3);
+    this.maxs = new Float32Array(3);
+    this.origin = new Float32Array(3);
+    this.headnode = new Int32Array(MAX_MAP_HULLS);
+    this.visleafs = 0;
+    this.firstface = 0;
+    this.numfaces = 0;
+  }
 }
 
 // ============================================================================
@@ -616,90 +586,87 @@ export class dmodel_t {
 // ============================================================================
 
 export class model_t {
+  constructor() {
+    this.name = "";
+    this.needload = false; // bmodels and sprites don't cache normally
 
-	constructor() {
+    this.type = 0; // modtype_t
+    this.numframes = 0;
+    this.synctype = 0;
 
-		this.name = '';
-		this.needload = false;		// bmodels and sprites don't cache normally
+    this.flags = 0;
+    this.extraflags_list = null; // r_nolerp_list the MOD_ flags were built from (Mod_SetExtraFlags)
 
-		this.type = 0;				// modtype_t
-		this.numframes = 0;
-		this.synctype = 0;
+    // alias model: the .md5mesh replacement (Mod_LoadMD5Replacement)
+    this.md5state = 0; // MD5_UNTRIED, MD5_PENDING or MD5_DONE
+    this.md5hdr = null; // its aliashdr_t, or null when there is none
 
-		this.flags = 0;
-		this.extraflags_list = null;	// r_nolerp_list the MOD_ flags were built from (Mod_SetExtraFlags)
+    // volume occupied by the model graphics
+    this.mins = new Float32Array(3);
+    this.maxs = new Float32Array(3);
+    this.radius = 0;
 
-		// alias model: the .md5mesh replacement (Mod_LoadMD5Replacement)
-		this.md5state = 0;			// MD5_UNTRIED, MD5_PENDING or MD5_DONE
-		this.md5hdr = null;			// its aliashdr_t, or null when there is none
+    // solid volume for clipping
+    this.clipbox = false;
+    this.clipmins = new Float32Array(3);
+    this.clipmaxs = new Float32Array(3);
 
-		// volume occupied by the model graphics
-		this.mins = new Float32Array( 3 );
-		this.maxs = new Float32Array( 3 );
-		this.radius = 0;
+    // brush model
+    this.firstmodelsurface = 0;
+    this.nummodelsurfaces = 0;
 
-		// solid volume for clipping
-		this.clipbox = false;
-		this.clipmins = new Float32Array( 3 );
-		this.clipmaxs = new Float32Array( 3 );
+    this.numsubmodels = 0;
+    this.submodels = null; // array of dmodel_t
 
-		// brush model
-		this.firstmodelsurface = 0;
-		this.nummodelsurfaces = 0;
+    this.numplanes = 0;
+    this.planes = null; // array of mplane_t
 
-		this.numsubmodels = 0;
-		this.submodels = null;		// array of dmodel_t
+    this.numleafs = 0; // number of visible leafs, not counting 0
+    this.leafs = null; // array of mleaf_t
 
-		this.numplanes = 0;
-		this.planes = null;			// array of mplane_t
+    this.numvertexes = 0;
+    this.vertexes = null; // array of mvertex_t
 
-		this.numleafs = 0;			// number of visible leafs, not counting 0
-		this.leafs = null;			// array of mleaf_t
+    this.numedges = 0;
+    this.edges = null; // array of medge_t
 
-		this.numvertexes = 0;
-		this.vertexes = null;		// array of mvertex_t
+    this.numnodes = 0;
+    this.nodes = null; // array of mnode_t
 
-		this.numedges = 0;
-		this.edges = null;			// array of medge_t
+    this.numtexinfo = 0;
+    this.texinfo = null; // array of mtexinfo_t
 
-		this.numnodes = 0;
-		this.nodes = null;			// array of mnode_t
+    this.numsurfaces = 0;
+    this.surfaces = null; // array of msurface_t
 
-		this.numtexinfo = 0;
-		this.texinfo = null;		// array of mtexinfo_t
+    this.numsurfedges = 0;
+    this.surfedges = null; // Int32Array
 
-		this.numsurfaces = 0;
-		this.surfaces = null;		// array of msurface_t
+    this.numclipnodes = 0;
+    this.clipnodes = null; // array of dclipnode_t
 
-		this.numsurfedges = 0;
-		this.surfedges = null;		// Int32Array
+    this.nummarksurfaces = 0;
+    this.marksurfaces = null; // array of indices into surfaces
 
-		this.numclipnodes = 0;
-		this.clipnodes = null;		// array of dclipnode_t
+    this.hulls = [];
+    for (let i = 0; i < MAX_MAP_HULLS; i++) {
+      this.hulls[i] = new hull_t();
+    }
 
-		this.nummarksurfaces = 0;
-		this.marksurfaces = null;	// array of indices into surfaces
+    this.numtextures = 0;
+    this.textures = null; // array of texture_t
 
-		this.hulls = [];
-		for ( let i = 0; i < MAX_MAP_HULLS; i ++ )
-			this.hulls[ i ] = new hull_t();
+    this.visdata = null; // Uint8Array
+    this.viswarn = false; // QuakeSpasm: Mod_DecompressVis warned once
+    this.lightdata = null; // Uint8Array
+    this.litfile = false; // Ironwail: lightdata is RGB from a .lit
+    this.entities = null; // string
+    this.contentstransparent = 0; // SURF_DRAW* liquids the vis sees through (Mod_CheckWaterVis)
 
-		this.numtextures = 0;
-		this.textures = null;		// array of texture_t
-
-		this.visdata = null;		// Uint8Array
-		this.viswarn = false;		// QuakeSpasm: Mod_DecompressVis warned once
-		this.lightdata = null;		// Uint8Array
-		this.litfile = false;		// Ironwail: lightdata is RGB from a .lit
-		this.entities = null;		// string
-		this.contentstransparent = 0;	// SURF_DRAW* liquids the vis sees through (Mod_CheckWaterVis)
-
-		// additional model data
-		this.cache = { data: null };	// cache_user_t equivalent
-		this._threeTextures = new Set();
-
-	}
-
+    // additional model data
+    this.cache = { data: null }; // cache_user_t equivalent
+    this._threeTextures = new Set();
+  }
 }
 
 // ============================================================================
@@ -711,7 +678,7 @@ let loadmodel = null;
 // Deliberate deviation (QuakeSpasm Mod_NoVisPVS / Mod_DecompressVis): the C
 // sizes both PVS rows at MAX_MAP_LEAFS/8. Here they grow to fit the loaded
 // model's leaf count in Mod_LoadLeafs (Mod_AllocVisBuffers), never per frame.
-let mod_novis = new Uint8Array( 0 );
+let mod_novis = new Uint8Array(0);
 
 // Deliberate deviation: 2048 (id: 512; Ironwail's is 4096). mg3/secret2 alone has
 // 525 brush submodels. Only the first 512 are allocated up front; Mod_FindName
@@ -721,8 +688,9 @@ const mod_known = [];
 let mod_numknown = 0;
 
 // Initialize mod_known array
-for ( let i = 0; i < 512; i ++ )
-	mod_known[ i ] = new model_t();
+for (let i = 0; i < 512; i++) {
+  mod_known[i] = new model_t();
+}
 
 // Alias model globals
 export let pheader = null;
@@ -732,10 +700,12 @@ export const poseverts = [];
 let posenum = 0;
 
 // Initialize alias arrays
-for ( let i = 0; i < MAXALIASVERTS; i ++ )
-	stverts[ i ] = new stvert_t();
-for ( let i = 0; i < MAXALIASTRIS; i ++ )
-	triangles[ i ] = new mtriangle_t();
+for (let i = 0; i < MAXALIASVERTS; i++) {
+  stverts[i] = new stvert_t();
+}
+for (let i = 0; i < MAXALIASTRIS; i++) {
+  triangles[i] = new mtriangle_t();
+}
 
 // GL texture placeholder
 let r_notexture_mip = null;
@@ -744,7 +714,7 @@ let r_notexture_mip = null;
 let mod_base = null;
 
 // Decompressed visibility buffer (reused; sized by Mod_AllocVisBuffers)
-let decompressed = new Uint8Array( 0 );
+let decompressed = new Uint8Array(0);
 
 // ============================================================================
 // GL_LoadTexture: 8-bit paletted pixels -> THREE.DataTexture. Unlike GLQuake it
@@ -760,183 +730,180 @@ let decompressed = new Uint8Array( 0 );
 // drawn with the fullbright texture as an emissive map).
 // ============================================================================
 
-export function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbright, keepBase = false ) {
+export function GL_LoadTexture(
+  name,
+  width,
+  height,
+  data,
+  mipmap,
+  alpha,
+  splitFullbright,
+  keepBase = false,
+) {
+  // Not in the C: a dedicated server never uploads or draws, so it keeps
+  // the texture object (models still own and dispose one per texture) but
+  // skips the resample, the 8-bit to RGBA conversion and the filter-update
+  // registry (glquake.js scans it linearly per texture)
+  if (cls.state === ca_dedicated) {
+    const texture = new THREE.DataTexture(
+      null,
+      width,
+      height,
+      THREE.RGBAFormat,
+    );
+    texture.name = name;
+    if (loadmodel != null) loadmodel._threeTextures.add(texture);
+    return texture;
+  }
 
-	// Not in the C: a dedicated server never uploads or draws, so it keeps
-	// the texture object (models still own and dispose one per texture) but
-	// skips the resample, the 8-bit to RGBA conversion and the filter-update
-	// registry (glquake.js scans it linearly per texture)
-	if ( cls.state === ca_dedicated ) {
+  const scaled = GL_ScaledTextureSize(width, height);
+  if (scaled.width !== width || scaled.height !== height) {
+    data = GL_ResampleTexture8(
+      data,
+      width,
+      height,
+      scaled.width,
+      scaled.height,
+    );
+    width = scaled.width;
+    height = scaled.height;
+  }
 
-		const texture = new THREE.DataTexture( null, width, height, THREE.RGBAFormat );
-		texture.name = name;
-		if ( loadmodel != null ) loadmodel._threeTextures.add( texture );
-		return texture;
+  // Convert 8-bit palette-indexed pixels to RGBA and create a THREE.DataTexture
+  const rgba = new Uint8Array(width * height * 4);
+  const fullbrightStart = vid.fullbright; // palette index 224+
+  let hasFullbright = false;
+  let fullbrightTexture = null;
 
-	}
+  for (let i = 0; i < width * height; i++) {
+    const palIdx = data[i];
 
-	const scaled = GL_ScaledTextureSize( width, height );
-	if ( scaled.width !== width || scaled.height !== height ) {
+    // gl_draw.c GL_Upload8 copies d_8to24table[ p ] for every texel; the
+    // table's entry 255 has alpha 0 (VID_SetPalette), so a transparent
+    // texel ('{' textures, MF_HOLEY skins) keeps the palette RGB for the
+    // filter and mipmaps to blend, not black.
+    const color = d_8to24table[palIdx];
+    rgba[i * 4] = color & 0xff;
+    rgba[i * 4 + 1] = (color >> 8) & 0xff;
+    rgba[i * 4 + 2] = (color >> 16) & 0xff;
 
-		data = GL_ResampleTexture8( data, width, height, scaled.width, scaled.height );
-		width = scaled.width;
-		height = scaled.height;
+    if (alpha && palIdx === 255) {
+      rgba[i * 4 + 3] = 0;
+    } else {
+      rgba[i * 4 + 3] = 255;
+      if (palIdx >= fullbrightStart) hasFullbright = true;
+    }
+  }
 
-	}
+  // If texture has fullbright pixels (palette 224-255), create a separate
+  // fullbright texture for use as emissiveMap. Fullbright pixels should render
+  // at full intensity regardless of lighting (e.g. glowing buttons, lava).
+  // Set fullbright pixels to BLACK in the base texture so they don't get
+  // darkened by the lightmap, and put them in the fullbright texture instead.
+  if (hasFullbright === true && splitFullbright === true) {
+    const fbRgba = new Uint8Array(width * height * 4);
 
-	// Convert 8-bit palette-indexed pixels to RGBA and create a THREE.DataTexture
-	const rgba = new Uint8Array( width * height * 4 );
-	const fullbrightStart = vid.fullbright; // palette index 224+
-	let hasFullbright = false;
-	let fullbrightTexture = null;
+    for (let i = 0; i < width * height; i++) {
+      const palIdx = data[i];
 
-	for ( let i = 0; i < width * height; i ++ ) {
+      if (palIdx >= fullbrightStart && !(alpha && palIdx === 255)) {
+        // Copy to fullbright texture
+        fbRgba[i * 4] = rgba[i * 4];
+        fbRgba[i * 4 + 1] = rgba[i * 4 + 1];
+        fbRgba[i * 4 + 2] = rgba[i * 4 + 2];
+        fbRgba[i * 4 + 3] = 255;
 
-		const palIdx = data[ i ];
+        // Black out in base texture
+        if (keepBase === false) {
+          rgba[i * 4] = 0;
+          rgba[i * 4 + 1] = 0;
+          rgba[i * 4 + 2] = 0;
+        }
+      }
+    }
 
-		// gl_draw.c GL_Upload8 copies d_8to24table[ p ] for every texel; the
-		// table's entry 255 has alpha 0 (VID_SetPalette), so a transparent
-		// texel ('{' textures, MF_HOLEY skins) keeps the palette RGB for the
-		// filter and mipmaps to blend, not black.
-		const color = d_8to24table[ palIdx ];
-		rgba[ i * 4 ] = color & 0xff;
-		rgba[ i * 4 + 1 ] = ( color >> 8 ) & 0xff;
-		rgba[ i * 4 + 2 ] = ( color >> 16 ) & 0xff;
+    fullbrightTexture = new THREE.DataTexture(
+      fbRgba,
+      width,
+      height,
+      THREE.RGBAFormat,
+    );
+    fullbrightTexture.name = name + ":fullbright";
+    GL_SetTextureFilter(fullbrightTexture, mipmap);
+    fullbrightTexture.wrapS = THREE.RepeatWrapping;
+    fullbrightTexture.wrapT = THREE.RepeatWrapping;
+    fullbrightTexture.generateMipmaps = mipmap;
+    if (mipmap) fullbrightTexture.anisotropy = GL_TextureAnisotropy();
+    fullbrightTexture.colorSpace = THREE.SRGBColorSpace;
+    fullbrightTexture.needsUpdate = true;
+    GL_RegisterTexture(fullbrightTexture);
+    if (loadmodel != null) loadmodel._threeTextures.add(fullbrightTexture);
+  }
 
-		if ( alpha && palIdx === 255 ) {
+  const texture = new THREE.DataTexture(rgba, width, height, THREE.RGBAFormat);
+  texture.name = name;
+  // gl_draw.c GL_Upload32: filters from gl_texturemode
+  GL_SetTextureFilter(texture, mipmap);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.generateMipmaps = mipmap;
+  if (mipmap) texture.anisotropy = GL_TextureAnisotropy();
+  texture.colorSpace = THREE.SRGBColorSpace;
+  // Note: flipY defaults to false for DataTexture, which is correct for Quake
+  // Quake's UV T=0 at top + texture row 0 at V=0 means no flip is needed
+  texture.needsUpdate = true;
 
-			rgba[ i * 4 + 3 ] = 0;
+  // Attach fullbright texture if one was created
+  if (fullbrightTexture != null) {
+    texture._fullbright = fullbrightTexture;
+  }
 
-		} else {
+  // Register for filter updates when setting changes
+  GL_RegisterTexture(texture);
+  if (loadmodel != null) loadmodel._threeTextures.add(texture);
 
-			rgba[ i * 4 + 3 ] = 255;
-			if ( palIdx >= fullbrightStart ) hasFullbright = true;
-
-		}
-
-	}
-
-	// If texture has fullbright pixels (palette 224-255), create a separate
-	// fullbright texture for use as emissiveMap. Fullbright pixels should render
-	// at full intensity regardless of lighting (e.g. glowing buttons, lava).
-	// Set fullbright pixels to BLACK in the base texture so they don't get
-	// darkened by the lightmap, and put them in the fullbright texture instead.
-	if ( hasFullbright === true && splitFullbright === true ) {
-
-		const fbRgba = new Uint8Array( width * height * 4 );
-
-		for ( let i = 0; i < width * height; i ++ ) {
-
-			const palIdx = data[ i ];
-
-			if ( palIdx >= fullbrightStart && ! ( alpha && palIdx === 255 ) ) {
-
-				// Copy to fullbright texture
-				fbRgba[ i * 4 ] = rgba[ i * 4 ];
-				fbRgba[ i * 4 + 1 ] = rgba[ i * 4 + 1 ];
-				fbRgba[ i * 4 + 2 ] = rgba[ i * 4 + 2 ];
-				fbRgba[ i * 4 + 3 ] = 255;
-
-				// Black out in base texture
-				if ( keepBase === false ) {
-
-					rgba[ i * 4 ] = 0;
-					rgba[ i * 4 + 1 ] = 0;
-					rgba[ i * 4 + 2 ] = 0;
-
-				}
-
-			}
-
-		}
-
-		fullbrightTexture = new THREE.DataTexture( fbRgba, width, height, THREE.RGBAFormat );
-		fullbrightTexture.name = name + ':fullbright';
-		GL_SetTextureFilter( fullbrightTexture, mipmap );
-		fullbrightTexture.wrapS = THREE.RepeatWrapping;
-		fullbrightTexture.wrapT = THREE.RepeatWrapping;
-		fullbrightTexture.generateMipmaps = mipmap;
-		if ( mipmap ) fullbrightTexture.anisotropy = GL_TextureAnisotropy();
-		fullbrightTexture.colorSpace = THREE.SRGBColorSpace;
-		fullbrightTexture.needsUpdate = true;
-		GL_RegisterTexture( fullbrightTexture );
-		if ( loadmodel != null ) loadmodel._threeTextures.add( fullbrightTexture );
-
-	}
-
-	const texture = new THREE.DataTexture( rgba, width, height, THREE.RGBAFormat );
-	texture.name = name;
-	// gl_draw.c GL_Upload32: filters from gl_texturemode
-	GL_SetTextureFilter( texture, mipmap );
-	texture.wrapS = THREE.RepeatWrapping;
-	texture.wrapT = THREE.RepeatWrapping;
-	texture.generateMipmaps = mipmap;
-	if ( mipmap ) texture.anisotropy = GL_TextureAnisotropy();
-	texture.colorSpace = THREE.SRGBColorSpace;
-	// Note: flipY defaults to false for DataTexture, which is correct for Quake
-	// Quake's UV T=0 at top + texture row 0 at V=0 means no flip is needed
-	texture.needsUpdate = true;
-
-	// Attach fullbright texture if one was created
-	if ( fullbrightTexture != null ) {
-
-		texture._fullbright = fullbrightTexture;
-
-	}
-
-	// Register for filter updates when setting changes
-	GL_RegisterTexture( texture );
-	if ( loadmodel != null ) loadmodel._threeTextures.add( texture );
-
-	return texture;
-
+  return texture;
 }
 
-function GL_SubdivideSurface( s ) {
+function GL_SubdivideSurface(s) {
+  // Not in the C: the warp polygons are drawing data a dedicated server
+  // never reads
+  if (cls.state === ca_dedicated) {
+    return;
+  }
 
-	// Not in the C: the warp polygons are drawing data a dedicated server
-	// never reads
-	if ( cls.state === ca_dedicated )
-		return;
-
-	GL_Warp_SetLoadmodel( loadmodel );
-	GL_SubdivideSurface_warp( s );
-
+  GL_Warp_SetLoadmodel(loadmodel);
+  GL_SubdivideSurface_warp(s);
 }
 
-function GL_MakeAliasModelDisplayLists( mod, hdr ) {
-
-	GL_MakeAliasModelDisplayLists_mesh( mod, hdr );
-
+function GL_MakeAliasModelDisplayLists(mod, hdr) {
+  GL_MakeAliasModelDisplayLists_mesh(mod, hdr);
 }
 
-function R_InitSky( tx ) {
+function R_InitSky(tx) {
+  // QuakeSpasm Sky_LoadTexture: the solid layer is the right half and the
+  // alpha layer the left half, at whatever size the texture is (id assumed
+  // 256x128). gl_warp.js R_InitSky warns for other sizes and returns null
+  // when the texture is too small to split (width < 2 or height < 1).
+  // tx.pixels starts at the mip level 0 data, so the offset is 0.
+  const mt = {
+    data: tx.pixels,
+    offsets: [0],
+    width: tx.width,
+    height: tx.height,
+    name: tx.name,
+  };
+  const result = R_InitSky_warp(mt, d_8to24table);
+  if (result === null) {
+    return; // as QuakeSpasm: no sky (Mod_ClearAll already cleared the last map's)
+  }
 
-	// QuakeSpasm Sky_LoadTexture: the solid layer is the right half and the
-	// alpha layer the left half, at whatever size the texture is (id assumed
-	// 256x128). gl_warp.js R_InitSky warns for other sizes and returns null
-	// when the texture is too small to split (width < 2 or height < 1).
-	// tx.pixels starts at the mip level 0 data, so the offset is 0.
-	const mt = {
-		data: tx.pixels,
-		offsets: [ 0 ],
-		width: tx.width,
-		height: tx.height,
-		name: tx.name
-	};
-	const result = R_InitSky_warp( mt, d_8to24table );
-	if ( result === null )
-		return; // as QuakeSpasm: no sky (Mod_ClearAll already cleared the last map's)
-
-	if ( loadmodel != null ) {
-
-		loadmodel._threeTextures.add( result.solidTexture );
-		loadmodel._threeTextures.add( result.alphaTexture );
-
-	}
-	solidskytexture = result.solidTexture;
-	alphaskytexture = result.alphaTexture;
-
+  if (loadmodel != null) {
+    loadmodel._threeTextures.add(result.solidTexture);
+    loadmodel._threeTextures.add(result.alphaTexture);
+  }
+  solidskytexture = result.solidTexture;
+  alphaskytexture = result.alphaTexture;
 }
 
 // ============================================================================
@@ -952,51 +919,48 @@ function R_InitSky( tx ) {
 // GL_NEAREST, so it shows only with such a gl_texturemode.
 // ============================================================================
 
-export const gl_texture_anisotropy = { name: 'gl_texture_anisotropy', string: '1', value: 1, archive: true };
+export const gl_texture_anisotropy = {
+  name: "gl_texture_anisotropy",
+  string: "1",
+  value: 1,
+  archive: true,
+};
 let _appliedAnisotropy = 1;
 
 function GL_MaxAnisotropy() {
-
-	// Three returns 0 without EXT_texture_filter_anisotropic; QS's floor is 1.
-	return renderer !== null ? Math.max( renderer.capabilities.getMaxAnisotropy(), 1 ) : 1;
-
+  // Three returns 0 without EXT_texture_filter_anisotropic; QS's floor is 1.
+  return renderer !== null ?
+    Math.max(renderer.capabilities.getMaxAnisotropy(), 1) :
+    1;
 }
 
-function GL_TextureAnisotropy( maxAnisotropy = GL_MaxAnisotropy() ) {
-
-	return Math.min( Math.max( gl_texture_anisotropy.value, 1 ), maxAnisotropy );
-
+function GL_TextureAnisotropy(maxAnisotropy = GL_MaxAnisotropy()) {
+  return Math.min(Math.max(gl_texture_anisotropy.value, 1), maxAnisotropy);
 }
 
 // TexMgr_Anisotropy_f. maxAnisotropy is the driver limit; tests pass it in.
-export function GL_CheckAnisotropy( maxAnisotropy = GL_MaxAnisotropy() ) {
+export function GL_CheckAnisotropy(maxAnisotropy = GL_MaxAnisotropy()) {
+  if (gl_texture_anisotropy.value === _appliedAnisotropy) {
+    return;
+  }
 
-	if ( gl_texture_anisotropy.value === _appliedAnisotropy )
-		return;
+  if (gl_texture_anisotropy.value < 1) {
+    Cvar_SetValue("gl_texture_anisotropy", 1);
+  } else if (gl_texture_anisotropy.value > maxAnisotropy) {
+    Cvar_SetValue("gl_texture_anisotropy", maxAnisotropy);
+  }
 
-	if ( gl_texture_anisotropy.value < 1 ) {
-
-		Cvar_SetValue( 'gl_texture_anisotropy', 1 );
-
-	} else if ( gl_texture_anisotropy.value > maxAnisotropy ) {
-
-		Cvar_SetValue( 'gl_texture_anisotropy', maxAnisotropy );
-
-	}
-
-	_appliedAnisotropy = gl_texture_anisotropy.value;
-	const anisotropy = GL_TextureAnisotropy( maxAnisotropy );
-	for ( const texture of _allGameTextures ) {
-
-		if ( texture !== null && texture.generateMipmaps === true && texture.anisotropy !== anisotropy ) {
-
-			texture.anisotropy = anisotropy;
-			texture.needsUpdate = true;
-
-		}
-
-	}
-
+  _appliedAnisotropy = gl_texture_anisotropy.value;
+  const anisotropy = GL_TextureAnisotropy(maxAnisotropy);
+  for (const texture of _allGameTextures) {
+    if (
+      texture !== null && texture.generateMipmaps === true &&
+      texture.anisotropy !== anisotropy
+    ) {
+      texture.anisotropy = anisotropy;
+      texture.needsUpdate = true;
+    }
+  }
 }
 
 // ============================================================================
@@ -1004,16 +968,14 @@ export function GL_CheckAnisotropy( maxAnisotropy = GL_MaxAnisotropy() ) {
 // ============================================================================
 
 export function Mod_Init() {
-
-	Cvar_RegisterVariable( gl_subdivide_size );
-	Cvar_RegisterVariable( cl_gun_fovscale ); // Ironwail: SCR_Init
-	Cvar_RegisterVariable( gl_texture_anisotropy );
-	Cvar_RegisterVariable( r_lavaalpha );
-	Cvar_RegisterVariable( r_slimealpha );
-	Cvar_RegisterVariable( r_telealpha );
-	Cvar_RegisterVariable( r_enhancedmodels );
-	mod_novis.fill( 0xff );
-
+  Cvar_RegisterVariable(gl_subdivide_size);
+  Cvar_RegisterVariable(cl_gun_fovscale); // Ironwail: SCR_Init
+  Cvar_RegisterVariable(gl_texture_anisotropy);
+  Cvar_RegisterVariable(r_lavaalpha);
+  Cvar_RegisterVariable(r_slimealpha);
+  Cvar_RegisterVariable(r_telealpha);
+  Cvar_RegisterVariable(r_enhancedmodels);
+  mod_novis.fill(0xff);
 }
 
 // ============================================================================
@@ -1024,18 +986,15 @@ export function Mod_Init() {
 // in length. Called at load time from Mod_LoadLeafs.
 // ============================================================================
 
-export function Mod_AllocVisBuffers( numleafs ) {
-
-	const row = ( numleafs + 7 ) >> 3;
-	if ( row > decompressed.length )
-		decompressed = new Uint8Array( row );
-	if ( row > mod_novis.length ) {
-
-		mod_novis = new Uint8Array( row );
-		mod_novis.fill( 0xff );
-
-	}
-
+export function Mod_AllocVisBuffers(numleafs) {
+  const row = (numleafs + 7) >> 3;
+  if (row > decompressed.length) {
+    decompressed = new Uint8Array(row);
+  }
+  if (row > mod_novis.length) {
+    mod_novis = new Uint8Array(row);
+    mod_novis.fill(0xff);
+  }
 }
 
 // ============================================================================
@@ -1043,67 +1002,56 @@ export function Mod_AllocVisBuffers( numleafs ) {
 // ============================================================================
 
 export function R_InitTextures() {
+  if (r_notexture_mip != null && r_notexture_mip.gl_texture != null) {
+    return r_notexture_mip;
+  }
 
-	if ( r_notexture_mip != null && r_notexture_mip.gl_texture != null )
-		return r_notexture_mip;
+  const fallback = new texture_t();
+  fallback.name = "notexture";
+  fallback.width = 16;
+  fallback.height = 16;
 
-	const fallback = new texture_t();
-	fallback.name = 'notexture';
-	fallback.width = 16;
-	fallback.height = 16;
+  const totalSize = 16 * 16 + 8 * 8 + 4 * 4 + 2 * 2;
+  fallback.pixels = new Uint8Array(totalSize);
+  fallback.offsets[0] = 0;
+  fallback.offsets[1] = 16 * 16;
+  fallback.offsets[2] = fallback.offsets[1] + 8 * 8;
+  fallback.offsets[3] = fallback.offsets[2] + 4 * 4;
 
-	const totalSize = 16 * 16 + 8 * 8 + 4 * 4 + 2 * 2;
-	fallback.pixels = new Uint8Array( totalSize );
-	fallback.offsets[ 0 ] = 0;
-	fallback.offsets[ 1 ] = 16 * 16;
-	fallback.offsets[ 2 ] = fallback.offsets[ 1 ] + 8 * 8;
-	fallback.offsets[ 3 ] = fallback.offsets[ 2 ] + 4 * 4;
+  for (let m = 0; m < MIPLEVELS; m++) {
+    const size = 16 >> m;
+    const half = 8 >> m;
+    let offset = fallback.offsets[m];
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const alternate = (y < half) !== (x < half);
+        fallback.pixels[offset++] = alternate === true ? 0 : 0xff;
+      }
+    }
+  }
 
-	for ( let m = 0; m < MIPLEVELS; m ++ ) {
+  const rgba = new Uint8Array(16 * 16 * 4);
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < 16; x++) {
+      const index = (y * 16 + x) * 4;
+      const alternate = (y < 8) !== (x < 8);
+      rgba[index] = alternate === true ? 255 : 0;
+      rgba[index + 1] = 0;
+      rgba[index + 2] = alternate === true ? 255 : 0;
+      rgba[index + 3] = 255;
+    }
+  }
 
-		const size = 16 >> m;
-		const half = 8 >> m;
-		let offset = fallback.offsets[ m ];
-		for ( let y = 0; y < size; y ++ ) {
+  const texture = new THREE.DataTexture(rgba, 16, 16, THREE.RGBAFormat);
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.needsUpdate = true;
+  fallback.gl_texture = texture;
 
-			for ( let x = 0; x < size; x ++ ) {
-
-				const alternate = ( y < half ) !== ( x < half );
-				fallback.pixels[ offset ++ ] = alternate === true ? 0 : 0xff;
-
-			}
-
-		}
-
-	}
-
-	const rgba = new Uint8Array( 16 * 16 * 4 );
-	for ( let y = 0; y < 16; y ++ ) {
-
-		for ( let x = 0; x < 16; x ++ ) {
-
-			const index = ( y * 16 + x ) * 4;
-			const alternate = ( y < 8 ) !== ( x < 8 );
-			rgba[ index ] = alternate === true ? 255 : 0;
-			rgba[ index + 1 ] = 0;
-			rgba[ index + 2 ] = alternate === true ? 255 : 0;
-			rgba[ index + 3 ] = 255;
-
-		}
-
-	}
-
-	const texture = new THREE.DataTexture( rgba, 16, 16, THREE.RGBAFormat );
-	texture.magFilter = THREE.NearestFilter;
-	texture.minFilter = THREE.NearestFilter;
-	texture.wrapS = THREE.RepeatWrapping;
-	texture.wrapT = THREE.RepeatWrapping;
-	texture.needsUpdate = true;
-	fallback.gl_texture = texture;
-
-	r_notexture_mip = fallback;
-	return r_notexture_mip;
-
+  r_notexture_mip = fallback;
+  return r_notexture_mip;
 }
 
 // ============================================================================
@@ -1112,53 +1060,49 @@ export function R_InitTextures() {
 // Caches the data if needed
 // ============================================================================
 
-export function Mod_Extradata( mod ) {
+export function Mod_Extradata(mod) {
+  const r = mod.cache.data;
+  if (r) {
+    return r;
+  }
 
-	const r = mod.cache.data;
-	if ( r )
-		return r;
+  Mod_LoadModel(mod, true);
 
-	Mod_LoadModel( mod, true );
-
-	if ( ! mod.cache.data )
-		Sys_Error( 'Mod_Extradata: caching failed' );
-	return mod.cache.data;
-
+  if (!mod.cache.data) {
+    Sys_Error("Mod_Extradata: caching failed");
+  }
+  return mod.cache.data;
 }
 
 // ============================================================================
 // Mod_PointInLeaf
 // ============================================================================
 
-export function Mod_PointInLeaf( p, model ) {
+export function Mod_PointInLeaf(p, model) {
+  if (!model || !model.nodes) {
+    Sys_Error("Mod_PointInLeaf: bad model");
+  }
 
-	if ( ! model || ! model.nodes )
-		Sys_Error( 'Mod_PointInLeaf: bad model' );
+  let node = model.nodes[0];
 
-	let node = model.nodes[ 0 ];
+  while (true) {
+    if (node.contents < 0) {
+      // This is actually a leaf
+      // In C: return (mleaf_t *)node
+      // In JS: nodes and leafs are separate arrays, so leafs
+      // are pointed to via children as negative indices
+      return node;
+    }
 
-	while ( true ) {
-
-		if ( node.contents < 0 ) {
-
-			// This is actually a leaf
-			// In C: return (mleaf_t *)node
-			// In JS: nodes and leafs are separate arrays, so leafs
-			// are pointed to via children as negative indices
-			return node;
-
-		}
-
-		const plane = node.plane;
-		const n = plane.normal;
-		const d = p[ 0 ] * n[ 0 ] + p[ 1 ] * n[ 1 ] + p[ 2 ] * n[ 2 ] - plane.dist;
-		if ( d > 0 )
-			node = node.children[ 0 ];
-		else
-			node = node.children[ 1 ];
-
-	}
-
+    const plane = node.plane;
+    const n = plane.normal;
+    const d = p[0] * n[0] + p[1] * n[1] + p[2] * n[2] - plane.dist;
+    if (d > 0) {
+      node = node.children[0];
+    } else {
+      node = node.children[1];
+    }
+  }
 }
 
 // ============================================================================
@@ -1168,104 +1112,98 @@ export function Mod_PointInLeaf( p, model ) {
 // Mod_CheckWaterVis passes the visleafs count (see there).
 // ============================================================================
 
-export function Mod_DecompressVis( _in, inOffset, model, numleafs = model.numleafs ) {
+export function Mod_DecompressVis(
+  _in,
+  inOffset,
+  model,
+  numleafs = model.numleafs,
+) {
+  const row = (numleafs + 7) >> 3;
+  let outIdx = 0;
 
-	const row = ( numleafs + 7 ) >> 3;
-	let outIdx = 0;
+  if (row > decompressed.length) {
+    Mod_AllocVisBuffers(numleafs); // model built without Mod_LoadLeafs
+  }
 
-	if ( row > decompressed.length )
-		Mod_AllocVisBuffers( numleafs );	// model built without Mod_LoadLeafs
+  if (_in === null) {
+    // no vis info, so make all visible
+    for (let i = 0; i < row; i++) {
+      decompressed[i] = 0xff;
+    }
+    return decompressed;
+  }
 
-	if ( _in === null ) {
+  let pos = inOffset;
+  const inend = _in.length;
 
-		// no vis info, so make all visible
-		for ( let i = 0; i < row; i ++ )
-			decompressed[ i ] = 0xff;
-		return decompressed;
+  while (outIdx < row) {
+    // Deliberate deviation: C reads on past the end of the vis lump. A
+    // typed array returns undefined there and this loop never advanced,
+    // so truncated vis data hung the client and server. Stop at the end
+    // of the data and leave the rest of the row not visible.
+    if (pos >= inend) {
+      if (model.viswarn !== true) {
+        model.viswarn = true;
+        Con_Printf(
+          'Mod_DecompressVis: input underrun on model "' + model.name + '"\n',
+        );
+      }
 
-	}
+      decompressed.fill(0, outIdx, row);
+      break;
+    }
 
-	let pos = inOffset;
-	const inend = _in.length;
+    if (_in[pos]) {
+      decompressed[outIdx] = _in[pos];
+      outIdx++;
+      pos++;
+      continue;
+    }
 
-	while ( outIdx < row ) {
+    // a zero run past the end of the data counts as an empty run
+    let c = pos + 1 < inend ? _in[pos + 1] : 0;
+    pos += 2;
 
-		// Deliberate deviation: C reads on past the end of the vis lump. A
-		// typed array returns undefined there and this loop never advanced,
-		// so truncated vis data hung the client and server. Stop at the end
-		// of the data and leave the rest of the row not visible.
-		if ( pos >= inend ) {
+    // QuakeSpasm clamps a run past the end of the row so it can't write
+    // past the buffer. Deliberate deviation: QuakeSpasm and Ironwail
+    // clamp silently (their overrun warning can't be reached after the
+    // clamp); the port warns once, as the vis data is bad.
+    if (c > row - outIdx) {
+      if (model.viswarn !== true) {
+        model.viswarn = true;
+        Con_Printf(
+          'Mod_DecompressVis: output overrun on model "' + model.name + '"\n',
+        );
+      }
 
-			if ( model.viswarn !== true ) {
+      c = row - outIdx;
+    }
 
-				model.viswarn = true;
-				Con_Printf( 'Mod_DecompressVis: input underrun on model "' + model.name + '"\n' );
+    for (let j = 0; j < c; j++) {
+      decompressed[outIdx] = 0;
+      outIdx++;
+    }
+  }
 
-			}
-
-			decompressed.fill( 0, outIdx, row );
-			break;
-
-		}
-
-		if ( _in[ pos ] ) {
-
-			decompressed[ outIdx ] = _in[ pos ];
-			outIdx ++;
-			pos ++;
-			continue;
-
-		}
-
-		// a zero run past the end of the data counts as an empty run
-		let c = pos + 1 < inend ? _in[ pos + 1 ] : 0;
-		pos += 2;
-
-		// QuakeSpasm clamps a run past the end of the row so it can't write
-		// past the buffer. Deliberate deviation: QuakeSpasm and Ironwail
-		// clamp silently (their overrun warning can't be reached after the
-		// clamp); the port warns once, as the vis data is bad.
-		if ( c > row - outIdx ) {
-
-			if ( model.viswarn !== true ) {
-
-				model.viswarn = true;
-				Con_Printf( 'Mod_DecompressVis: output overrun on model "' + model.name + '"\n' );
-
-			}
-
-			c = row - outIdx;
-
-		}
-
-		for ( let j = 0; j < c; j ++ ) {
-
-			decompressed[ outIdx ] = 0;
-			outIdx ++;
-
-		}
-
-	}
-
-	return decompressed;
-
+  return decompressed;
 }
 
 // ============================================================================
 // Mod_LeafPVS
 // ============================================================================
 
-export function Mod_LeafPVS( leaf, model ) {
-
-	if ( leaf === model.leafs[ 0 ] ) {
-
-		if ( ( ( model.numleafs + 7 ) >> 3 ) > mod_novis.length )
-			Mod_AllocVisBuffers( model.numleafs );	// model built without Mod_LoadLeafs
-		return mod_novis;
-
-	}
-	return Mod_DecompressVis( leaf.compressed_vis, leaf.compressed_vis_offset, model );
-
+export function Mod_LeafPVS(leaf, model) {
+  if (leaf === model.leafs[0]) {
+    if (((model.numleafs + 7) >> 3) > mod_novis.length) {
+      Mod_AllocVisBuffers(model.numleafs); // model built without Mod_LoadLeafs
+    }
+    return mod_novis;
+  }
+  return Mod_DecompressVis(
+    leaf.compressed_vis,
+    leaf.compressed_vis_offset,
+    model,
+  );
 }
 
 // ============================================================================
@@ -1273,105 +1211,83 @@ export function Mod_LeafPVS( leaf, model ) {
 // ============================================================================
 
 export function Mod_ClearAll() {
+  const disposedTextures = new Set();
+  for (let i = 0; i < mod_numknown; i++) {
+    const mod = mod_known[i];
+    if (mod.type === mod_alias) continue;
 
-	const disposedTextures = new Set();
-	for ( let i = 0; i < mod_numknown; i ++ ) {
+    for (const texture of mod._threeTextures) {
+      GL_UnregisterTexture(texture);
+      if (disposedTextures.has(texture) === false) {
+        disposedTextures.add(texture);
+        texture.dispose();
+      }
+    }
+    mod._threeTextures.clear();
 
-		const mod = mod_known[ i ];
-		if ( mod.type === mod_alias ) continue;
+    if (mod.type === mod_brush && mod.textures != null) {
+      for (let j = 0; j < mod.textures.length; j++) {
+        const modelTexture = mod.textures[j];
+        if (modelTexture == null || modelTexture.gl_texture == null) continue;
+        modelTexture.gl_texture._fullbright = null;
+        modelTexture.gl_texture = null;
+      }
+    } else if (mod.type === mod_sprite) {
+      mod.cache.data = null;
+    }
 
-		for ( const texture of mod._threeTextures ) {
+    mod.needload = true;
+  }
 
-			GL_UnregisterTexture( texture );
-			if ( disposedTextures.has( texture ) === false ) {
-
-				disposedTextures.add( texture );
-				texture.dispose();
-
-			}
-
-		}
-		mod._threeTextures.clear();
-
-		if ( mod.type === mod_brush && mod.textures != null ) {
-
-			for ( let j = 0; j < mod.textures.length; j ++ ) {
-
-				const modelTexture = mod.textures[ j ];
-				if ( modelTexture == null || modelTexture.gl_texture == null ) continue;
-				modelTexture.gl_texture._fullbright = null;
-				modelTexture.gl_texture = null;
-
-			}
-
-		} else if ( mod.type === mod_sprite ) {
-
-			mod.cache.data = null;
-
-		}
-
-		mod.needload = true;
-
-	}
-
-	solidskytexture = null;
-	alphaskytexture = null;
-
+  solidskytexture = null;
+  alphaskytexture = null;
 }
 
 // ============================================================================
 // Mod_FindName
 // ============================================================================
 
-export function Mod_FindName( name ) {
+export function Mod_FindName(name) {
+  if (!name || name.length === 0) {
+    Sys_Error("Mod_ForName: NULL name");
+  }
 
-	if ( ! name || name.length === 0 )
-		Sys_Error( 'Mod_ForName: NULL name' );
+  // search the currently loaded models
+  let i;
+  for (i = 0; i < mod_numknown; i++) {
+    if (mod_known[i].name === name) {
+      break;
+    }
+  }
 
-	// search the currently loaded models
-	let i;
-	for ( i = 0; i < mod_numknown; i ++ ) {
+  if (i === mod_numknown) {
+    if (mod_numknown === MAX_MOD_KNOWN) {
+      Sys_Error("mod_numknown == MAX_MOD_KNOWN");
+    }
+    if (i === mod_known.length) {
+      mod_known.push(new model_t());
+    }
+    mod_known[i].name = name;
+    mod_known[i].needload = true;
+    mod_numknown++;
+  }
 
-		if ( mod_known[ i ].name === name )
-			break;
-
-	}
-
-	if ( i === mod_numknown ) {
-
-		if ( mod_numknown === MAX_MOD_KNOWN )
-			Sys_Error( 'mod_numknown == MAX_MOD_KNOWN' );
-		if ( i === mod_known.length )
-			mod_known.push( new model_t() );
-		mod_known[ i ].name = name;
-		mod_known[ i ].needload = true;
-		mod_numknown ++;
-
-	}
-
-	return mod_known[ i ];
-
+  return mod_known[i];
 }
 
 // ============================================================================
 // Mod_TouchModel
 // ============================================================================
 
-export function Mod_TouchModel( name ) {
+export function Mod_TouchModel(name) {
+  const mod = Mod_FindName(name);
 
-	const mod = Mod_FindName( name );
-
-	if ( ! mod.needload ) {
-
-		if ( mod.type === mod_alias ) {
-
-			// Cache_Check equivalent - just check if data exists
-			// (JS has GC, so we just check the reference)
-
-		}
-
-	}
-
+  if (!mod.needload) {
+    if (mod.type === mod_alias) {
+      // Cache_Check equivalent - just check if data exists
+      // (JS has GC, so we just check the reference)
+    }
+  }
 }
 
 // ============================================================================
@@ -1380,66 +1296,52 @@ export function Mod_TouchModel( name ) {
 // Loads a model into the cache
 // ============================================================================
 
-export function Mod_LoadModel( mod, crash ) {
+export function Mod_LoadModel(mod, crash) {
+  if (!mod.needload) {
+    if (mod.type === mod_alias) {
+      const d = mod.cache.data;
+      if (d) {
+        return mod;
+      }
+    } else {
+      return mod; // not cached at all
+    }
+  }
 
-	if ( ! mod.needload ) {
+  // load the file
+  const buf = COM_LoadFile(mod.name);
+  if (!buf) {
+    // Deliberate deviation (QuakeSpasm/Ironwail): Host_Error, not
+    // Sys_Error, so a missing model (QuakeC precache_model, a bolt
+    // model absent from the pak) drops to the console instead of
+    // wiping the page or killing the room's game server.
+    if (crash) {
+      Host_Error("Mod_LoadModel: " + mod.name + " not found");
+    }
+    return null;
+  }
 
-		if ( mod.type === mod_alias ) {
+  // allocate a new model
 
-			const d = mod.cache.data;
-			if ( d )
-				return mod;
+  loadmodel = mod;
 
-		} else {
+  // fill it in
 
-			return mod;		// not cached at all
+  // call the appropriate loader
+  mod.needload = false;
 
-		}
+  const view = new DataView(buf);
+  const magic = view.getInt32(0, true);
 
-	}
+  if (magic === IDPOLYHEADER) {
+    Mod_LoadAliasModel(mod, buf);
+  } else if (magic === IDSPRITEHEADER) {
+    Mod_LoadSpriteModel(mod, buf);
+  } else {
+    Mod_LoadBrushModel(mod, buf);
+  }
 
-	// load the file
-	const buf = COM_LoadFile( mod.name );
-	if ( ! buf ) {
-
-		// Deliberate deviation (QuakeSpasm/Ironwail): Host_Error, not
-		// Sys_Error, so a missing model (QuakeC precache_model, a bolt
-		// model absent from the pak) drops to the console instead of
-		// wiping the page or killing the room's game server.
-		if ( crash )
-			Host_Error( 'Mod_LoadModel: ' + mod.name + ' not found' );
-		return null;
-
-	}
-
-	// allocate a new model
-
-	loadmodel = mod;
-
-	// fill it in
-
-	// call the appropriate loader
-	mod.needload = false;
-
-	const view = new DataView( buf );
-	const magic = view.getInt32( 0, true );
-
-	if ( magic === IDPOLYHEADER ) {
-
-		Mod_LoadAliasModel( mod, buf );
-
-	} else if ( magic === IDSPRITEHEADER ) {
-
-		Mod_LoadSpriteModel( mod, buf );
-
-	} else {
-
-		Mod_LoadBrushModel( mod, buf );
-
-	}
-
-	return mod;
-
+  return mod;
 }
 
 // ============================================================================
@@ -1448,12 +1350,10 @@ export function Mod_LoadModel( mod, crash ) {
 // Loads in a model for the given name
 // ============================================================================
 
-export function Mod_ForName( name, crash ) {
+export function Mod_ForName(name, crash) {
+  const mod = Mod_FindName(name);
 
-	const mod = Mod_FindName( name );
-
-	return Mod_LoadModel( mod, crash );
-
+  return Mod_LoadModel(mod, crash);
 }
 
 // ============================================================================
@@ -1463,265 +1363,268 @@ export function Mod_ForName( name, crash ) {
 // ============================================================================
 
 // On-disk structure sizes (must match the BSP file layout)
-const SIZEOF_DVERTEX = 12;			// 3 floats
-const SIZEOF_DEDGE = 4;			// 2 unsigned shorts
-const SIZEOF_DFACE = 20;			// short planenum, short side, int firstedge, short numedges, short texinfo, byte styles[4], int lightofs
-const SIZEOF_DNODE = 24;			// int planenum, short children[2], short mins[3], short maxs[3], unsigned short firstface, unsigned short numfaces
-const SIZEOF_DLEAF = 28;			// int contents, int visofs, short mins[3], short maxs[3], unsigned short firstmarksurface, unsigned short nummarksurfaces, byte ambient_level[4]
-const SIZEOF_DCLIPNODE = 8;		// int planenum, short children[2]
+const SIZEOF_DVERTEX = 12; // 3 floats
+const SIZEOF_DEDGE = 4; // 2 unsigned shorts
+const SIZEOF_DFACE = 20; // short planenum, short side, int firstedge, short numedges, short texinfo, byte styles[4], int lightofs
+const SIZEOF_DNODE = 24; // int planenum, short children[2], short mins[3], short maxs[3], unsigned short firstface, unsigned short numfaces
+const SIZEOF_DLEAF = 28; // int contents, int visofs, short mins[3], short maxs[3], unsigned short firstmarksurface, unsigned short nummarksurfaces, byte ambient_level[4]
+const SIZEOF_DCLIPNODE = 8; // int planenum, short children[2]
 // BSP2 (Ironwail bspfile.h dledge_t, dlface_t, dl2node_t, dl2leaf_t, dlclipnode_t)
-const SIZEOF_DLEDGE = 8;			// 2 unsigned ints
-const SIZEOF_DLFACE = 28;			// int planenum, int side, int firstedge, int numedges, int texinfo, byte styles[4], int lightofs
-const SIZEOF_DL2NODE = 44;			// int planenum, int children[2], float mins[3], float maxs[3], unsigned int firstface, unsigned int numfaces
-const SIZEOF_DL2LEAF = 44;			// int contents, int visofs, float mins[3], float maxs[3], unsigned int firstmarksurface, unsigned int nummarksurfaces, byte ambient_level[4]
-const SIZEOF_DLCLIPNODE = 12;		// int planenum, int children[2]
-const SIZEOF_TEXINFO = 40;			// float vecs[2][4], int miptex, int flags
-const SIZEOF_DPLANE = 20;			// float normal[3], float dist, int type
-const SIZEOF_DMODEL = 64;			// float mins[3], maxs[3], origin[3], int headnode[4], int visleafs, int firstface, int numfaces
+const SIZEOF_DLEDGE = 8; // 2 unsigned ints
+const SIZEOF_DLFACE = 28; // int planenum, int side, int firstedge, int numedges, int texinfo, byte styles[4], int lightofs
+const SIZEOF_DL2NODE = 44; // int planenum, int children[2], float mins[3], float maxs[3], unsigned int firstface, unsigned int numfaces
+const SIZEOF_DL2LEAF = 44; // int contents, int visofs, float mins[3], float maxs[3], unsigned int firstmarksurface, unsigned int nummarksurfaces, byte ambient_level[4]
+const SIZEOF_DLCLIPNODE = 12; // int planenum, int children[2]
+const SIZEOF_TEXINFO = 40; // float vecs[2][4], int miptex, int flags
+const SIZEOF_DPLANE = 20; // float normal[3], float dist, int type
+const SIZEOF_DMODEL = 64; // float mins[3], maxs[3], origin[3], int headnode[4], int visleafs, int firstface, int numfaces
 
 // ============================================================================
 // Helper: read a null-terminated string from Uint8Array
 // ============================================================================
 
-function readString( bytes, offset, maxLen ) {
+function readString(bytes, offset, maxLen) {
+  let s = "";
+  for (let i = 0; i < maxLen; i++) {
+    const c = bytes[offset + i];
+    if (c === 0) break;
+    s += String.fromCharCode(c);
+  }
 
-	let s = '';
-	for ( let i = 0; i < maxLen; i ++ ) {
-
-		const c = bytes[ offset + i ];
-		if ( c === 0 ) break;
-		s += String.fromCharCode( c );
-
-	}
-
-	return s;
-
+  return s;
 }
 
 // ============================================================================
 // Mod_LoadTextures
 // ============================================================================
 
-function Mod_LoadTextures( fileofs, filelen ) {
-
-	if ( filelen === 0 ) {
-
-		loadmodel.textures = null;
-		return;
-
-	}
-
-	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
-
-	// miptex header size is 16 (name) + 4 (width) + 4 (height) + 4*4 (offsets) = 40
-	const SIZEOF_MIPTEX = 40;
-
-	// Deliberate deviation: the C trusts the counts and offsets in the lump
-	// and reads past it on a bad map. A typed array throws a RangeError or
-	// reads undefined instead, so reject a lump too short for its own
-	// directory and drop miptexes whose header lies outside the lump.
-	if ( filelen < 4 )
-		Sys_Error( 'Mod_LoadTextures: funny lump size in ' + loadmodel.name );
-	const nummiptex = view.getInt32( 0, true );
-	if ( nummiptex < 0 || 4 + nummiptex * 4 > filelen )
-		Sys_Error( 'Mod_LoadTextures: bad miptex count ' + nummiptex + ' in ' + loadmodel.name );
-
-	loadmodel.numtextures = nummiptex;
-	loadmodel.textures = new Array( nummiptex );
-
-	for ( let i = 0; i < nummiptex; i ++ ) {
-
-		const dataofs = view.getInt32( 4 + i * 4, true );
-		if ( dataofs === - 1 ) {
-
-			loadmodel.textures[ i ] = null;
-			continue;
-
-		}
-
-		if ( dataofs < 0 || dataofs + SIZEOF_MIPTEX > filelen ) {
-
-			Con_Printf( 'Mod_LoadTextures: miptex ' + i + ' offset ' + dataofs + ' outside lump in ' + loadmodel.name + '\n' );
-			loadmodel.textures[ i ] = null;	// drawn as r_notexture_mip
-			continue;
-
-		}
-
-		// miptex_t at mod_base + fileofs + dataofs
-		const mtOfs = fileofs + dataofs;
-		const mtView = new DataView( mod_base.buffer, mod_base.byteOffset + mtOfs, SIZEOF_MIPTEX );
-
-		const name = readString( mod_base, mtOfs, 16 );
-		const width = mtView.getUint32( 16, true );
-		const height = mtView.getUint32( 20, true );
-		const offsets = [];
-		for ( let j = 0; j < MIPLEVELS; j ++ )
-			offsets[ j ] = mtView.getUint32( 24 + j * 4, true );
-
-		// Deliberate deviation (QuakeSpasm): a warning, not Sys_Error. Nothing
-		// here depends on the alignment; the mip offsets come from the file.
-		if ( ( width & 15 ) || ( height & 15 ) )
-			Con_Printf( 'Texture ' + name + ' (' + width + ' x ' + height + ') is not 16 aligned\n' );
-
-		// Deliberate deviation (QuakeSpasm): a zero sized texture is skipped
-		// with a warning.
-		if ( width === 0 || height === 0 ) {
-
-			Con_Printf( 'Zero sized texture ' + name + ' in ' + loadmodel.name + '!\n' );
-			loadmodel.textures[ i ] = null;	// drawn as r_notexture_mip
-			continue;
-
-		}
-
-		const pixels = ( width * height / 64 ) * 85;
-
-		const tx = new texture_t();
-		loadmodel.textures[ i ] = tx;
-
-		tx.name = name;
-		tx.width = width;
-		tx.height = height;
-		for ( let j = 0; j < MIPLEVELS; j ++ )
-			tx.offsets[ j ] = offsets[ j ];
-
-		// Copy the pixel data (follows the miptex header in the file)
-		tx.pixels = new Uint8Array( pixels );
-
-		// Deliberate deviation (QuakeSpasm, ericw): pixels running past the
-		// end of the lump are copied up to the lump's end; the rest stay 0.
-		let copy = pixels;
-		if ( dataofs + SIZEOF_MIPTEX + pixels > filelen ) {
-
-			Con_DPrintf( 'Texture ' + name + ' extends past end of lump\n' );
-			copy = Math.max( 0, filelen - ( dataofs + SIZEOF_MIPTEX ) );
-
-		}
-
-		for ( let j = 0; j < copy; j ++ )
-			tx.pixels[ j ] = mod_base[ mtOfs + SIZEOF_MIPTEX + j ];
-
-		if ( name.substring( 0, 3 ) === 'sky' ) {
-
-			R_InitSky( tx );
-
-		} else {
-
-			// Turbulent ('*') textures are drawn unlit with no emissive map, so
-			// splitting out fullbright pixels would black them out (*lava1 is
-			// entirely fullbright).
-			const splitFullbright = name[ 0 ] !== '*';
-			tx.gl_texture = GL_LoadTexture( name, tx.width, tx.height, tx.pixels, true, false, splitFullbright );
-
-		}
-
-	}
-
-	//
-	// sequence the animations
-	//
-	const ANIM_CYCLE = 2;
-
-	for ( let i = 0; i < nummiptex; i ++ ) {
-
-		const tx = loadmodel.textures[ i ];
-		if ( ! tx || tx.name.charAt( 0 ) !== '+' )
-			continue;
-		if ( tx.anim_next )
-			continue;	// already sequenced
-
-		// find the number of frames in the animation
-		const anims = new Array( 10 ).fill( null );
-		const altanims = new Array( 10 ).fill( null );
-
-		let max = tx.name.charCodeAt( 1 );
-		let altmax = 0;
-
-		if ( max >= 'a'.charCodeAt( 0 ) && max <= 'z'.charCodeAt( 0 ) )
-			max -= 'a'.charCodeAt( 0 ) - 'A'.charCodeAt( 0 );
-		if ( max >= '0'.charCodeAt( 0 ) && max <= '9'.charCodeAt( 0 ) ) {
-
-			max -= '0'.charCodeAt( 0 );
-			altmax = 0;
-			anims[ max ] = tx;
-			max ++;
-
-		} else if ( max >= 'A'.charCodeAt( 0 ) && max <= 'J'.charCodeAt( 0 ) ) {
-
-			altmax = max - 'A'.charCodeAt( 0 );
-			max = 0;
-			altanims[ altmax ] = tx;
-			altmax ++;
-
-		} else {
-
-			Sys_Error( 'Bad animating texture ' + tx.name );
-
-		}
-
-		for ( let j = i + 1; j < nummiptex; j ++ ) {
-
-			const tx2 = loadmodel.textures[ j ];
-			if ( ! tx2 || tx2.name.charAt( 0 ) !== '+' )
-				continue;
-			if ( tx2.name.substring( 2 ) !== tx.name.substring( 2 ) )
-				continue;
-
-			let num = tx2.name.charCodeAt( 1 );
-			if ( num >= 'a'.charCodeAt( 0 ) && num <= 'z'.charCodeAt( 0 ) )
-				num -= 'a'.charCodeAt( 0 ) - 'A'.charCodeAt( 0 );
-			if ( num >= '0'.charCodeAt( 0 ) && num <= '9'.charCodeAt( 0 ) ) {
-
-				num -= '0'.charCodeAt( 0 );
-				anims[ num ] = tx2;
-				if ( num + 1 > max )
-					max = num + 1;
-
-			} else if ( num >= 'A'.charCodeAt( 0 ) && num <= 'J'.charCodeAt( 0 ) ) {
-
-				num = num - 'A'.charCodeAt( 0 );
-				altanims[ num ] = tx2;
-				if ( num + 1 > altmax )
-					altmax = num + 1;
-
-			} else {
-
-				Sys_Error( 'Bad animating texture ' + tx.name );
-
-			}
-
-		}
-
-		// link them all together
-		for ( let j = 0; j < max; j ++ ) {
-
-			const tx2 = anims[ j ];
-			if ( ! tx2 )
-				Sys_Error( 'Missing frame ' + j + ' of ' + tx.name );
-			tx2.anim_total = max * ANIM_CYCLE;
-			tx2.anim_min = j * ANIM_CYCLE;
-			tx2.anim_max = ( j + 1 ) * ANIM_CYCLE;
-			tx2.anim_next = anims[ ( j + 1 ) % max ];
-			if ( altmax )
-				tx2.alternate_anims = altanims[ 0 ];
-
-		}
-
-		for ( let j = 0; j < altmax; j ++ ) {
-
-			const tx2 = altanims[ j ];
-			if ( ! tx2 )
-				Sys_Error( 'Missing frame ' + j + ' of ' + tx.name );
-			tx2.anim_total = altmax * ANIM_CYCLE;
-			tx2.anim_min = j * ANIM_CYCLE;
-			tx2.anim_max = ( j + 1 ) * ANIM_CYCLE;
-			tx2.anim_next = altanims[ ( j + 1 ) % altmax ];
-			if ( max )
-				tx2.alternate_anims = anims[ 0 ];
-
-		}
-
-	}
-
+function Mod_LoadTextures(fileofs, filelen) {
+  if (filelen === 0) {
+    loadmodel.textures = null;
+    return;
+  }
+
+  const view = new DataView(
+    mod_base.buffer,
+    mod_base.byteOffset + fileofs,
+    filelen,
+  );
+
+  // miptex header size is 16 (name) + 4 (width) + 4 (height) + 4*4 (offsets) = 40
+  const SIZEOF_MIPTEX = 40;
+
+  // Deliberate deviation: the C trusts the counts and offsets in the lump
+  // and reads past it on a bad map. A typed array throws a RangeError or
+  // reads undefined instead, so reject a lump too short for its own
+  // directory and drop miptexes whose header lies outside the lump.
+  if (filelen < 4) {
+    Sys_Error("Mod_LoadTextures: funny lump size in " + loadmodel.name);
+  }
+  const nummiptex = view.getInt32(0, true);
+  if (nummiptex < 0 || 4 + nummiptex * 4 > filelen) {
+    Sys_Error(
+      "Mod_LoadTextures: bad miptex count " + nummiptex + " in " +
+        loadmodel.name,
+    );
+  }
+
+  loadmodel.numtextures = nummiptex;
+  loadmodel.textures = new Array(nummiptex);
+
+  for (let i = 0; i < nummiptex; i++) {
+    const dataofs = view.getInt32(4 + i * 4, true);
+    if (dataofs === -1) {
+      loadmodel.textures[i] = null;
+      continue;
+    }
+
+    if (dataofs < 0 || dataofs + SIZEOF_MIPTEX > filelen) {
+      Con_Printf(
+        "Mod_LoadTextures: miptex " + i + " offset " + dataofs +
+          " outside lump in " + loadmodel.name + "\n",
+      );
+      loadmodel.textures[i] = null; // drawn as r_notexture_mip
+      continue;
+    }
+
+    // miptex_t at mod_base + fileofs + dataofs
+    const mtOfs = fileofs + dataofs;
+    const mtView = new DataView(
+      mod_base.buffer,
+      mod_base.byteOffset + mtOfs,
+      SIZEOF_MIPTEX,
+    );
+
+    const name = readString(mod_base, mtOfs, 16);
+    const width = mtView.getUint32(16, true);
+    const height = mtView.getUint32(20, true);
+    const offsets = [];
+    for (let j = 0; j < MIPLEVELS; j++) {
+      offsets[j] = mtView.getUint32(24 + j * 4, true);
+    }
+
+    // Deliberate deviation (QuakeSpasm): a warning, not Sys_Error. Nothing
+    // here depends on the alignment; the mip offsets come from the file.
+    if ((width & 15) || (height & 15)) {
+      Con_Printf(
+        "Texture " + name + " (" + width + " x " + height +
+          ") is not 16 aligned\n",
+      );
+    }
+
+    // Deliberate deviation (QuakeSpasm): a zero sized texture is skipped
+    // with a warning.
+    if (width === 0 || height === 0) {
+      Con_Printf(
+        "Zero sized texture " + name + " in " + loadmodel.name + "!\n",
+      );
+      loadmodel.textures[i] = null; // drawn as r_notexture_mip
+      continue;
+    }
+
+    const pixels = (width * height / 64) * 85;
+
+    const tx = new texture_t();
+    loadmodel.textures[i] = tx;
+
+    tx.name = name;
+    tx.width = width;
+    tx.height = height;
+    for (let j = 0; j < MIPLEVELS; j++) {
+      tx.offsets[j] = offsets[j];
+    }
+
+    // Copy the pixel data (follows the miptex header in the file)
+    tx.pixels = new Uint8Array(pixels);
+
+    // Deliberate deviation (QuakeSpasm, ericw): pixels running past the
+    // end of the lump are copied up to the lump's end; the rest stay 0.
+    let copy = pixels;
+    if (dataofs + SIZEOF_MIPTEX + pixels > filelen) {
+      Con_DPrintf("Texture " + name + " extends past end of lump\n");
+      copy = Math.max(0, filelen - (dataofs + SIZEOF_MIPTEX));
+    }
+
+    for (let j = 0; j < copy; j++) {
+      tx.pixels[j] = mod_base[mtOfs + SIZEOF_MIPTEX + j];
+    }
+
+    if (name.substring(0, 3) === "sky") {
+      R_InitSky(tx);
+    } else {
+      // Turbulent ('*') textures are drawn unlit with no emissive map, so
+      // splitting out fullbright pixels would black them out (*lava1 is
+      // entirely fullbright).
+      const splitFullbright = name[0] !== "*";
+      tx.gl_texture = GL_LoadTexture(
+        name,
+        tx.width,
+        tx.height,
+        tx.pixels,
+        true,
+        false,
+        splitFullbright,
+      );
+    }
+  }
+
+  //
+  // sequence the animations
+  //
+  const ANIM_CYCLE = 2;
+
+  for (let i = 0; i < nummiptex; i++) {
+    const tx = loadmodel.textures[i];
+    if (!tx || tx.name.charAt(0) !== "+") {
+      continue;
+    }
+    if (tx.anim_next) {
+      continue; // already sequenced
+    }
+
+    // find the number of frames in the animation
+    const anims = new Array(10).fill(null);
+    const altanims = new Array(10).fill(null);
+
+    let max = tx.name.charCodeAt(1);
+    let altmax = 0;
+
+    if (max >= "a".charCodeAt(0) && max <= "z".charCodeAt(0)) {
+      max -= "a".charCodeAt(0) - "A".charCodeAt(0);
+    }
+    if (max >= "0".charCodeAt(0) && max <= "9".charCodeAt(0)) {
+      max -= "0".charCodeAt(0);
+      altmax = 0;
+      anims[max] = tx;
+      max++;
+    } else if (max >= "A".charCodeAt(0) && max <= "J".charCodeAt(0)) {
+      altmax = max - "A".charCodeAt(0);
+      max = 0;
+      altanims[altmax] = tx;
+      altmax++;
+    } else {
+      Sys_Error("Bad animating texture " + tx.name);
+    }
+
+    for (let j = i + 1; j < nummiptex; j++) {
+      const tx2 = loadmodel.textures[j];
+      if (!tx2 || tx2.name.charAt(0) !== "+") {
+        continue;
+      }
+      if (tx2.name.substring(2) !== tx.name.substring(2)) {
+        continue;
+      }
+
+      let num = tx2.name.charCodeAt(1);
+      if (num >= "a".charCodeAt(0) && num <= "z".charCodeAt(0)) {
+        num -= "a".charCodeAt(0) - "A".charCodeAt(0);
+      }
+      if (num >= "0".charCodeAt(0) && num <= "9".charCodeAt(0)) {
+        num -= "0".charCodeAt(0);
+        anims[num] = tx2;
+        if (num + 1 > max) {
+          max = num + 1;
+        }
+      } else if (num >= "A".charCodeAt(0) && num <= "J".charCodeAt(0)) {
+        num = num - "A".charCodeAt(0);
+        altanims[num] = tx2;
+        if (num + 1 > altmax) {
+          altmax = num + 1;
+        }
+      } else {
+        Sys_Error("Bad animating texture " + tx.name);
+      }
+    }
+
+    // link them all together
+    for (let j = 0; j < max; j++) {
+      const tx2 = anims[j];
+      if (!tx2) {
+        Sys_Error("Missing frame " + j + " of " + tx.name);
+      }
+      tx2.anim_total = max * ANIM_CYCLE;
+      tx2.anim_min = j * ANIM_CYCLE;
+      tx2.anim_max = (j + 1) * ANIM_CYCLE;
+      tx2.anim_next = anims[(j + 1) % max];
+      if (altmax) {
+        tx2.alternate_anims = altanims[0];
+      }
+    }
+
+    for (let j = 0; j < altmax; j++) {
+      const tx2 = altanims[j];
+      if (!tx2) {
+        Sys_Error("Missing frame " + j + " of " + tx.name);
+      }
+      tx2.anim_total = altmax * ANIM_CYCLE;
+      tx2.anim_min = j * ANIM_CYCLE;
+      tx2.anim_max = (j + 1) * ANIM_CYCLE;
+      tx2.anim_next = altanims[(j + 1) % altmax];
+      if (max) {
+        tx2.alternate_anims = anims[0];
+      }
+    }
+  }
 }
 
 // ============================================================================
@@ -1735,136 +1638,123 @@ function Mod_LoadTextures( fileofs, filelen ) {
 // renderer which it is, so maps without a .lit cost nothing extra. A
 // dedicated server, which never draws, does not read the .lit.
 // COM_EnsureFile fetches the .lit with its map (pak.js COM_EnsureLitFile).
-function Mod_LoadLighting( fileofs, filelen ) {
+function Mod_LoadLighting(fileofs, filelen) {
+  loadmodel.lightdata = null;
+  loadmodel.litfile = false;
 
-	loadmodel.lightdata = null;
-	loadmodel.litfile = false;
+  // LordHavoc: check for a .lit file
+  const litfilename = COM_StripExtension(loadmodel.name) + ".lit";
+  const lit = cls.state !== ca_dedicated ? COM_FindFile(litfilename) : null;
+  if (lit !== null) {
+    // use lit file only from the same gamedir as the map
+    // itself or from a searchpath with higher priority.
+    const map = COM_FindFile(loadmodel.name);
+    const data = lit.data;
+    if (map !== null && lit.path_id < map.path_id) {
+      Con_DPrintf(
+        "ignored %s from a gamedir with lower priority\n",
+        litfilename,
+      );
+    } else if (
+      lit.size >= 8 && data[0] === 0x51 && data[1] === 0x4c &&
+      data[2] === 0x49 && data[3] === 0x54
+    ) { // "QLIT"
+      const i = data[4] | (data[5] << 8) | (data[6] << 16) | (data[7] << 24);
+      if (i === 1) {
+        if (8 + filelen * 3 === lit.size) {
+          Con_DPrintf("%s loaded\n", litfilename);
+          // a view of the pak data: nothing writes lightdata
+          loadmodel.lightdata = data.subarray(8, lit.size);
+          loadmodel.litfile = true;
+          return;
+        }
 
-	// LordHavoc: check for a .lit file
-	const litfilename = COM_StripExtension( loadmodel.name ) + '.lit';
-	const lit = cls.state !== ca_dedicated ? COM_FindFile( litfilename ) : null;
-	if ( lit !== null ) {
+        Con_Printf(
+          "Outdated .lit file (%s should be %d bytes, not %d)\n",
+          litfilename,
+          8 + filelen * 3,
+          lit.size,
+        );
+      } else {
+        Con_Printf("Unknown .lit file version (%d)\n", i);
+      }
+    } else {
+      Con_Printf("Corrupt .lit file (old version?), ignoring\n");
+    }
+  }
 
-		// use lit file only from the same gamedir as the map
-		// itself or from a searchpath with higher priority.
-		const map = COM_FindFile( loadmodel.name );
-		const data = lit.data;
-		if ( map !== null && lit.path_id < map.path_id ) {
+  if (filelen === 0) {
+    return;
+  }
 
-			Con_DPrintf( 'ignored %s from a gamedir with lower priority\n', litfilename );
-
-		} else if ( lit.size >= 8 && data[ 0 ] === 0x51 && data[ 1 ] === 0x4c && data[ 2 ] === 0x49 && data[ 3 ] === 0x54 ) { // "QLIT"
-
-			const i = data[ 4 ] | ( data[ 5 ] << 8 ) | ( data[ 6 ] << 16 ) | ( data[ 7 ] << 24 );
-			if ( i === 1 ) {
-
-				if ( 8 + filelen * 3 === lit.size ) {
-
-					Con_DPrintf( '%s loaded\n', litfilename );
-					// a view of the pak data: nothing writes lightdata
-					loadmodel.lightdata = data.subarray( 8, lit.size );
-					loadmodel.litfile = true;
-					return;
-
-				}
-
-				Con_Printf( 'Outdated .lit file (%s should be %d bytes, not %d)\n', litfilename, 8 + filelen * 3, lit.size );
-
-			} else {
-
-				Con_Printf( 'Unknown .lit file version (%d)\n', i );
-
-			}
-
-		} else {
-
-			Con_Printf( 'Corrupt .lit file (old version?), ignoring\n' );
-
-		}
-
-	}
-
-	if ( filelen === 0 )
-		return;
-
-	loadmodel.lightdata = new Uint8Array( filelen );
-	loadmodel.lightdata.set( mod_base.subarray( fileofs, fileofs + filelen ) );
-
+  loadmodel.lightdata = new Uint8Array(filelen);
+  loadmodel.lightdata.set(mod_base.subarray(fileofs, fileofs + filelen));
 }
 
 // ============================================================================
 // Mod_LoadVisibility
 // ============================================================================
 
-function Mod_LoadVisibility( fileofs, filelen ) {
+function Mod_LoadVisibility(fileofs, filelen) {
+  if (filelen === 0) {
+    loadmodel.visdata = null;
+    return;
+  }
 
-	if ( filelen === 0 ) {
-
-		loadmodel.visdata = null;
-		return;
-
-	}
-
-	loadmodel.visdata = new Uint8Array( filelen );
-	loadmodel.visdata.set( mod_base.subarray( fileofs, fileofs + filelen ) );
-
+  loadmodel.visdata = new Uint8Array(filelen);
+  loadmodel.visdata.set(mod_base.subarray(fileofs, fileofs + filelen));
 }
 
 // ============================================================================
 // Mod_LoadEntities
 // ============================================================================
 
-function Mod_LoadEntities( fileofs, filelen ) {
+function Mod_LoadEntities(fileofs, filelen) {
+  if (filelen === 0) {
+    loadmodel.entities = null;
+    return;
+  }
 
-	if ( filelen === 0 ) {
+  // Read as string
+  let s = "";
+  for (let i = 0; i < filelen; i++) {
+    const c = mod_base[fileofs + i];
+    if (c === 0) break;
+    s += String.fromCharCode(c);
+  }
 
-		loadmodel.entities = null;
-		return;
-
-	}
-
-	// Read as string
-	let s = '';
-	for ( let i = 0; i < filelen; i ++ ) {
-
-		const c = mod_base[ fileofs + i ];
-		if ( c === 0 ) break;
-		s += String.fromCharCode( c );
-
-	}
-
-	loadmodel.entities = s;
-
+  loadmodel.entities = s;
 }
 
 // ============================================================================
 // Mod_LoadVertexes
 // ============================================================================
 
-function Mod_LoadVertexes( fileofs, filelen ) {
+function Mod_LoadVertexes(fileofs, filelen) {
+  if (filelen % SIZEOF_DVERTEX) {
+    Sys_Error("MOD_LoadBmodel: funny lump size in " + loadmodel.name);
+  }
 
-	if ( filelen % SIZEOF_DVERTEX )
-		Sys_Error( 'MOD_LoadBmodel: funny lump size in ' + loadmodel.name );
+  const count = filelen / SIZEOF_DVERTEX;
+  const view = new DataView(
+    mod_base.buffer,
+    mod_base.byteOffset + fileofs,
+    filelen,
+  );
+  const out = new Array(count);
 
-	const count = filelen / SIZEOF_DVERTEX;
-	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
-	const out = new Array( count );
+  loadmodel.vertexes = out;
+  loadmodel.numvertexes = count;
 
-	loadmodel.vertexes = out;
-	loadmodel.numvertexes = count;
-
-	const slab = new ArrayBuffer( count * SIZEOF_DVERTEX );
-	for ( let i = 0; i < count; i ++ ) {
-
-		const v = new mvertex_t( slab, i * SIZEOF_DVERTEX );
-		const base = i * SIZEOF_DVERTEX;
-		v.position[ 0 ] = view.getFloat32( base, true );
-		v.position[ 1 ] = view.getFloat32( base + 4, true );
-		v.position[ 2 ] = view.getFloat32( base + 8, true );
-		out[ i ] = v;
-
-	}
-
+  const slab = new ArrayBuffer(count * SIZEOF_DVERTEX);
+  for (let i = 0; i < count; i++) {
+    const v = new mvertex_t(slab, i * SIZEOF_DVERTEX);
+    const base = i * SIZEOF_DVERTEX;
+    v.position[0] = view.getFloat32(base, true);
+    v.position[1] = view.getFloat32(base + 4, true);
+    v.position[2] = view.getFloat32(base + 8, true);
+    out[i] = v;
+  }
 }
 
 // ============================================================================
@@ -1873,177 +1763,178 @@ function Mod_LoadVertexes( fileofs, filelen ) {
 
 // bsp2 (Ironwail): read dledge_t, with unsigned int vertex numbers
 
-function Mod_LoadEdges( fileofs, filelen, bsp2 = false ) {
+function Mod_LoadEdges(fileofs, filelen, bsp2 = false) {
+  const size = bsp2 ? SIZEOF_DLEDGE : SIZEOF_DEDGE;
+  if (filelen % size) {
+    Sys_Error("MOD_LoadBmodel: funny lump size in " + loadmodel.name);
+  }
 
-	const size = bsp2 ? SIZEOF_DLEDGE : SIZEOF_DEDGE;
-	if ( filelen % size )
-		Sys_Error( 'MOD_LoadBmodel: funny lump size in ' + loadmodel.name );
+  const count = filelen / size;
+  const view = new DataView(
+    mod_base.buffer,
+    mod_base.byteOffset + fileofs,
+    filelen,
+  );
+  const out = new Array(count + 1);
 
-	const count = filelen / size;
-	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
-	const out = new Array( count + 1 );
+  loadmodel.edges = out;
+  loadmodel.numedges = count;
 
-	loadmodel.edges = out;
-	loadmodel.numedges = count;
+  const slab = new ArrayBuffer((count + 1) * 8);
+  for (let i = 0; i < count; i++) {
+    const e = new medge_t(slab, i * 8);
+    const base = i * size;
+    if (bsp2) {
+      e.v[0] = view.getUint32(base, true);
+      e.v[1] = view.getUint32(base + 4, true);
+    } else {
+      e.v[0] = view.getUint16(base, true);
+      e.v[1] = view.getUint16(base + 2, true);
+    }
 
-	const slab = new ArrayBuffer( ( count + 1 ) * 8 );
-	for ( let i = 0; i < count; i ++ ) {
+    out[i] = e;
+  }
 
-		const e = new medge_t( slab, i * 8 );
-		const base = i * size;
-		if ( bsp2 ) {
-
-			e.v[ 0 ] = view.getUint32( base, true );
-			e.v[ 1 ] = view.getUint32( base + 4, true );
-
-		} else {
-
-			e.v[ 0 ] = view.getUint16( base, true );
-			e.v[ 1 ] = view.getUint16( base + 2, true );
-
-		}
-
-		out[ i ] = e;
-
-	}
-
-	// +1 slot (matches C allocation)
-	out[ count ] = new medge_t( slab, count * 8 );
-
+  // +1 slot (matches C allocation)
+  out[count] = new medge_t(slab, count * 8);
 }
 
 // ============================================================================
 // Mod_LoadSurfedges
 // ============================================================================
 
-function Mod_LoadSurfedges( fileofs, filelen ) {
+function Mod_LoadSurfedges(fileofs, filelen) {
+  if (filelen % 4) {
+    Sys_Error("MOD_LoadBmodel: funny lump size in " + loadmodel.name);
+  }
 
-	if ( filelen % 4 )
-		Sys_Error( 'MOD_LoadBmodel: funny lump size in ' + loadmodel.name );
+  const count = filelen / 4;
+  const view = new DataView(
+    mod_base.buffer,
+    mod_base.byteOffset + fileofs,
+    filelen,
+  );
+  const out = new Int32Array(count);
 
-	const count = filelen / 4;
-	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
-	const out = new Int32Array( count );
+  loadmodel.surfedges = out;
+  loadmodel.numsurfedges = count;
 
-	loadmodel.surfedges = out;
-	loadmodel.numsurfedges = count;
-
-	for ( let i = 0; i < count; i ++ )
-		out[ i ] = view.getInt32( i * 4, true );
-
+  for (let i = 0; i < count; i++) {
+    out[i] = view.getInt32(i * 4, true);
+  }
 }
 
 // ============================================================================
 // Mod_LoadPlanes
 // ============================================================================
 
-function Mod_LoadPlanes( fileofs, filelen ) {
+function Mod_LoadPlanes(fileofs, filelen) {
+  if (filelen % SIZEOF_DPLANE) {
+    Sys_Error("MOD_LoadBmodel: funny lump size in " + loadmodel.name);
+  }
 
-	if ( filelen % SIZEOF_DPLANE )
-		Sys_Error( 'MOD_LoadBmodel: funny lump size in ' + loadmodel.name );
+  const count = filelen / SIZEOF_DPLANE;
+  const view = new DataView(
+    mod_base.buffer,
+    mod_base.byteOffset + fileofs,
+    filelen,
+  );
+  const out = new Array(count * 2); // allocate 2x like C code
 
-	const count = filelen / SIZEOF_DPLANE;
-	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
-	const out = new Array( count * 2 ); // allocate 2x like C code
+  loadmodel.planes = out;
+  loadmodel.numplanes = count;
 
-	loadmodel.planes = out;
-	loadmodel.numplanes = count;
+  const slab = new ArrayBuffer(count * 2 * 12);
+  for (let i = 0; i < count; i++) {
+    const p = new mplane_t(slab, i * 12);
+    const base = i * SIZEOF_DPLANE;
+    let bits = 0;
 
-	const slab = new ArrayBuffer( count * 2 * 12 );
-	for ( let i = 0; i < count; i ++ ) {
+    for (let j = 0; j < 3; j++) {
+      p.normal[j] = view.getFloat32(base + j * 4, true);
+      if (p.normal[j] < 0) {
+        bits |= 1 << j;
+      }
+    }
 
-		const p = new mplane_t( slab, i * 12 );
-		const base = i * SIZEOF_DPLANE;
-		let bits = 0;
+    p.dist = view.getFloat32(base + 12, true);
+    p.type = view.getInt32(base + 16, true);
+    p.signbits = bits;
 
-		for ( let j = 0; j < 3; j ++ ) {
+    out[i] = p;
+  }
 
-			p.normal[ j ] = view.getFloat32( base + j * 4, true );
-			if ( p.normal[ j ] < 0 )
-				bits |= 1 << j;
-
-		}
-
-		p.dist = view.getFloat32( base + 12, true );
-		p.type = view.getInt32( base + 16, true );
-		p.signbits = bits;
-
-		out[ i ] = p;
-
-	}
-
-	// Fill remaining slots (C allocates count*2)
-	for ( let i = count; i < count * 2; i ++ )
-		out[ i ] = new mplane_t( slab, i * 12 );
-
+  // Fill remaining slots (C allocates count*2)
+  for (let i = count; i < count * 2; i++) {
+    out[i] = new mplane_t(slab, i * 12);
+  }
 }
 
 // ============================================================================
 // Mod_LoadTexinfo
 // ============================================================================
 
-function Mod_LoadTexinfo( fileofs, filelen ) {
+function Mod_LoadTexinfo(fileofs, filelen) {
+  if (filelen % SIZEOF_TEXINFO) {
+    Sys_Error("MOD_LoadBmodel: funny lump size in " + loadmodel.name);
+  }
 
-	if ( filelen % SIZEOF_TEXINFO )
-		Sys_Error( 'MOD_LoadBmodel: funny lump size in ' + loadmodel.name );
+  const count = filelen / SIZEOF_TEXINFO;
+  const view = new DataView(
+    mod_base.buffer,
+    mod_base.byteOffset + fileofs,
+    filelen,
+  );
+  const out = new Array(count);
 
-	const count = filelen / SIZEOF_TEXINFO;
-	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
-	const out = new Array( count );
+  loadmodel.texinfo = out;
+  loadmodel.numtexinfo = count;
 
-	loadmodel.texinfo = out;
-	loadmodel.numtexinfo = count;
+  for (let i = 0; i < count; i++) {
+    const ti = new mtexinfo_t();
+    const base = i * SIZEOF_TEXINFO;
 
-	for ( let i = 0; i < count; i ++ ) {
+    // Read vecs[2][4] = 8 floats
+    for (let j = 0; j < 4; j++) {
+      ti.vecs[0][j] = view.getFloat32(base + j * 4, true);
+    }
+    for (let j = 0; j < 4; j++) {
+      ti.vecs[1][j] = view.getFloat32(base + 16 + j * 4, true);
+    }
 
-		const ti = new mtexinfo_t();
-		const base = i * SIZEOF_TEXINFO;
+    // Compute mipadjust from vector lengths
+    const len1 = Length(ti.vecs[0]); // only first 3 components matter but Length uses all 3
+    const len2 = Length(ti.vecs[1]);
+    const lenAvg = (len1 + len2) / 2;
+    if (lenAvg < 0.32) {
+      ti.mipadjust = 4;
+    } else if (lenAvg < 0.49) {
+      ti.mipadjust = 3;
+    } else if (lenAvg < 0.99) {
+      ti.mipadjust = 2;
+    } else {
+      ti.mipadjust = 1;
+    }
 
-		// Read vecs[2][4] = 8 floats
-		for ( let j = 0; j < 4; j ++ )
-			ti.vecs[ 0 ][ j ] = view.getFloat32( base + j * 4, true );
-		for ( let j = 0; j < 4; j ++ )
-			ti.vecs[ 1 ][ j ] = view.getFloat32( base + 16 + j * 4, true );
+    const miptex = view.getInt32(base + 32, true);
+    ti.flags = view.getInt32(base + 36, true);
 
-		// Compute mipadjust from vector lengths
-		const len1 = Length( ti.vecs[ 0 ] ); // only first 3 components matter but Length uses all 3
-		const len2 = Length( ti.vecs[ 1 ] );
-		const lenAvg = ( len1 + len2 ) / 2;
-		if ( lenAvg < 0.32 )
-			ti.mipadjust = 4;
-		else if ( lenAvg < 0.49 )
-			ti.mipadjust = 3;
-		else if ( lenAvg < 0.99 )
-			ti.mipadjust = 2;
-		else
-			ti.mipadjust = 1;
+    if (!loadmodel.textures) {
+      ti.texture = r_notexture_mip; // checkerboard texture
+      ti.flags = 0;
+    } else {
+      if (miptex >= loadmodel.numtextures) {
+        Sys_Error("miptex >= loadmodel->numtextures");
+      }
+      ti.texture = loadmodel.textures[miptex];
+      if (!ti.texture) {
+        ti.texture = r_notexture_mip; // texture not found
+        ti.flags = 0;
+      }
+    }
 
-		const miptex = view.getInt32( base + 32, true );
-		ti.flags = view.getInt32( base + 36, true );
-
-		if ( ! loadmodel.textures ) {
-
-			ti.texture = r_notexture_mip;	// checkerboard texture
-			ti.flags = 0;
-
-		} else {
-
-			if ( miptex >= loadmodel.numtextures )
-				Sys_Error( 'miptex >= loadmodel->numtextures' );
-			ti.texture = loadmodel.textures[ miptex ];
-			if ( ! ti.texture ) {
-
-				ti.texture = r_notexture_mip;	// texture not found
-				ti.flags = 0;
-
-			}
-
-		}
-
-		out[ i ] = ti;
-
-	}
-
+    out[i] = ti;
+  }
 }
 
 // ============================================================================
@@ -2054,53 +1945,51 @@ function Mod_LoadTexinfo( fileofs, filelen ) {
 
 const FLT_MAX = 3.4028234663852886e+38;
 
-function CalcSurfaceExtents( s ) {
+function CalcSurfaceExtents(s) {
+  // id seeds 999999 / -99999. Ironwail (gl_model.c CalcSurfaceExtents) uses
+  // +/-FLT_MAX. Both give the same result for any face inside the old seeds
+  // (any BSP29 map id could build, and every shipped map); only a face
+  // entirely beyond them (possible in BSP2) differs, where id's is wrong.
+  let mins0 = FLT_MAX, mins1 = FLT_MAX;
+  let maxs0 = -FLT_MAX, maxs1 = -FLT_MAX;
 
-	// id seeds 999999 / -99999. Ironwail (gl_model.c CalcSurfaceExtents) uses
-	// +/-FLT_MAX. Both give the same result for any face inside the old seeds
-	// (any BSP29 map id could build, and every shipped map); only a face
-	// entirely beyond them (possible in BSP2) differs, where id's is wrong.
-	let mins0 = FLT_MAX, mins1 = FLT_MAX;
-	let maxs0 = - FLT_MAX, maxs1 = - FLT_MAX;
+  const tex = s.texinfo;
+  const vec0 = tex.vecs[0], vec1 = tex.vecs[1];
+  const surfedges = loadmodel.surfedges,
+    edges = loadmodel.edges,
+    vertexes = loadmodel.vertexes;
 
-	const tex = s.texinfo;
-	const vec0 = tex.vecs[ 0 ], vec1 = tex.vecs[ 1 ];
-	const surfedges = loadmodel.surfedges, edges = loadmodel.edges, vertexes = loadmodel.vertexes;
+  for (let i = 0; i < s.numedges; i++) {
+    const e = surfedges[s.firstedge + i];
+    let v;
+    if (e >= 0) {
+      v = vertexes[edges[e].v[0]];
+    } else {
+      v = vertexes[edges[-e].v[1]];
+    }
 
-	for ( let i = 0; i < s.numedges; i ++ ) {
+    const p = v.position;
+    const val0 = p[0] * vec0[0] + p[1] * vec0[1] + p[2] * vec0[2] + vec0[3];
+    const val1 = p[0] * vec1[0] + p[1] * vec1[1] + p[2] * vec1[2] + vec1[3];
+    if (val0 < mins0) mins0 = val0;
+    if (val0 > maxs0) maxs0 = val0;
+    if (val1 < mins1) mins1 = val1;
+    if (val1 > maxs1) maxs1 = val1;
+  }
 
-		const e = surfedges[ s.firstedge + i ];
-		let v;
-		if ( e >= 0 )
-			v = vertexes[ edges[ e ].v[ 0 ] ];
-		else
-			v = vertexes[ edges[ - e ].v[ 1 ] ];
+  for (let i = 0; i < 2; i++) {
+    const bmins = Math.floor((i === 0 ? mins0 : mins1) / 16);
+    const bmaxs = Math.ceil((i === 0 ? maxs0 : maxs1) / 16);
 
-		const p = v.position;
-		const val0 = p[ 0 ] * vec0[ 0 ] + p[ 1 ] * vec0[ 1 ] + p[ 2 ] * vec0[ 2 ] + vec0[ 3 ];
-		const val1 = p[ 0 ] * vec1[ 0 ] + p[ 1 ] * vec1[ 1 ] + p[ 2 ] * vec1[ 2 ] + vec1[ 3 ];
-		if ( val0 < mins0 ) mins0 = val0;
-		if ( val0 > maxs0 ) maxs0 = val0;
-		if ( val1 < mins1 ) mins1 = val1;
-		if ( val1 > maxs1 ) maxs1 = val1;
-
-	}
-
-	for ( let i = 0; i < 2; i ++ ) {
-
-		const bmins = Math.floor( ( i === 0 ? mins0 : mins1 ) / 16 );
-		const bmaxs = Math.ceil( ( i === 0 ? maxs0 : maxs1 ) / 16 );
-
-		s.texturemins[ i ] = bmins * 16;
-		s.extents[ i ] = ( bmaxs - bmins ) * 16;
-		// Deliberate deviation (QuakeSpasm/Ironwail): was 512 in GLQuake.
-		// 2000 gives at most 126 luxels a side, which still fits one
-		// BLOCK_WIDTH x BLOCK_HEIGHT lightmap and blocklights (gl_rsurf.js).
-		if ( ! ( tex.flags & TEX_SPECIAL ) && s.extents[ i ] > MAX_SURFACE_EXTENTS )
-			Sys_Error( 'Bad surface extents' );
-
-	}
-
+    s.texturemins[i] = bmins * 16;
+    s.extents[i] = (bmaxs - bmins) * 16;
+    // Deliberate deviation (QuakeSpasm/Ironwail): was 512 in GLQuake.
+    // 2000 gives at most 126 luxels a side, which still fits one
+    // BLOCK_WIDTH x BLOCK_HEIGHT lightmap and blocklights (gl_rsurf.js).
+    if (!(tex.flags & TEX_SPECIAL) && s.extents[i] > MAX_SURFACE_EXTENTS) {
+      Sys_Error("Bad surface extents");
+    }
+  }
 }
 
 // ============================================================================
@@ -2110,13 +1999,11 @@ function CalcSurfaceExtents( s ) {
 // liquids only): which SURF_DRAW* liquid flag a '*' texture gets.
 // ============================================================================
 
-export function Mod_LiquidFlagFromName( texname ) {
-
-	if ( texname.startsWith( 'lava', 1 ) ) return SURF_DRAWLAVA;
-	if ( texname.startsWith( 'slime', 1 ) ) return SURF_DRAWSLIME;
-	if ( texname.startsWith( 'tele', 1 ) ) return SURF_DRAWTELE;
-	return SURF_DRAWWATER;
-
+export function Mod_LiquidFlagFromName(texname) {
+  if (texname.startsWith("lava", 1)) return SURF_DRAWLAVA;
+  if (texname.startsWith("slime", 1)) return SURF_DRAWSLIME;
+  if (texname.startsWith("tele", 1)) return SURF_DRAWTELE;
+  return SURF_DRAWWATER;
 }
 
 // ============================================================================
@@ -2129,108 +2016,101 @@ export function Mod_LiquidFlagFromName( texname ) {
 // see-through, so submodel liquids work.
 // ============================================================================
 
-const SURF_DRAWLIQUIDS = SURF_DRAWWATER | SURF_DRAWTELE | SURF_DRAWSLIME | SURF_DRAWLAVA;
+const SURF_DRAWLIQUIDS = SURF_DRAWWATER | SURF_DRAWTELE | SURF_DRAWSLIME |
+  SURF_DRAWLAVA;
 
 function Mod_CheckWaterVis() {
+  // clamped to the loaded leafs, so a bad visleafs count can't read past them
+  const numclusters = loadmodel.numsubmodels > 0 ?
+    Math.min(loadmodel.submodels[0].visleafs, loadmodel.numleafs - 1) :
+    0;
+  let contentfound = 0;
+  let contenttransparent = 0;
+  let hascontents = 0;
 
-	// clamped to the loaded leafs, so a bad visleafs count can't read past them
-	const numclusters = loadmodel.numsubmodels > 0
-		? Math.min( loadmodel.submodels[ 0 ].visleafs, loadmodel.numleafs - 1 ) : 0;
-	let contentfound = 0;
-	let contenttransparent = 0;
-	let hascontents = 0;
+  if (r_novis.value) {
+    // all can be
+    loadmodel.contentstransparent = SURF_DRAWLIQUIDS;
+    return;
+  }
 
-	if ( r_novis.value ) {
+  // pvs is 1-based. leaf 0 sees all (the solid leaf).
+  // leaf 0 has no pvs, and does not appear in other leafs either.
+  for (let i = 0; i < numclusters; i++) {
+    const leaf = loadmodel.leafs[i + 1];
+    let contenttype = 0;
+    if (leaf.contents < 0) {
+      hascontents |= 1 << -leaf.contents;
+    }
+    if (leaf.contents === CONTENTS_WATER) {
+      if (
+        (contenttransparent & (SURF_DRAWWATER | SURF_DRAWTELE)) ===
+          (SURF_DRAWWATER | SURF_DRAWTELE)
+      ) {
+        continue;
+      }
+      for (let j = 0; j < leaf.nummarksurfaces; j++) {
+        const surf = leaf.firstmarksurface[j];
+        if (surf.flags & (SURF_DRAWWATER | SURF_DRAWTELE)) {
+          contenttype = surf.flags & (SURF_DRAWWATER | SURF_DRAWTELE);
+          break;
+        }
+      }
 
-		// all can be
-		loadmodel.contentstransparent = SURF_DRAWLIQUIDS;
-		return;
+      // it's possible that this leaf has no surfaces in it, turb or otherwise
+      if (contenttype === 0) {
+        continue;
+      }
+    } else if (leaf.contents === CONTENTS_SLIME) {
+      contenttype = SURF_DRAWSLIME;
+    } else if (leaf.contents === CONTENTS_LAVA) {
+      contenttype = SURF_DRAWLAVA;
+    } else {
+      continue;
+    }
 
-	}
+    if (contenttransparent & contenttype) {
+      continue; // found one of this type already
+    }
 
-	// pvs is 1-based. leaf 0 sees all (the solid leaf).
-	// leaf 0 has no pvs, and does not appear in other leafs either.
-	for ( let i = 0; i < numclusters; i ++ ) {
+    contentfound |= contenttype;
+    // Deliberate deviation: Ironwail runs this before the submodel loop
+    // sets numleafs to visleafs, so its rows are sized from every leaf
+    // and decoding runs on into the next leaf's data, clamped silently.
+    // Size the row from the vis clusters, as Mod_LeafPVS later does. The
+    // bytes read below are the same either way.
+    const vis = Mod_DecompressVis(
+      leaf.compressed_vis,
+      leaf.compressed_vis_offset,
+      loadmodel,
+      numclusters,
+    );
+    search: for (let j = 0; j < (numclusters + 7) >> 3; j++) {
+      if (vis[j] === 0) continue;
+      for (let k = 0; k < 8; k++) {
+        if ((vis[j] & (1 << k)) === 0) continue;
+        const other = loadmodel.leafs[(j << 3) + k + 1];
+        if (other !== undefined && leaf.contents !== other.contents) {
+          contenttransparent |= contenttype;
+          break search;
+        }
+      }
+    }
+  }
 
-		const leaf = loadmodel.leafs[ i + 1 ];
-		let contenttype = 0;
-		if ( leaf.contents < 0 )
-			hascontents |= 1 << - leaf.contents;
-		if ( leaf.contents === CONTENTS_WATER ) {
+  if (contenttransparent === 0) {
+    // no liquid leaf saw a non-liquid leaf; only say so if there is liquid
+    if (
+      hascontents &
+      ((1 << -CONTENTS_WATER) | (1 << -CONTENTS_SLIME) | (1 << -CONTENTS_LAVA))
+    ) {
+      Con_DPrintf(loadmodel.name + " is not watervised\n");
+    }
+  }
 
-			if ( ( contenttransparent & ( SURF_DRAWWATER | SURF_DRAWTELE ) ) === ( SURF_DRAWWATER | SURF_DRAWTELE ) )
-				continue;
-			for ( let j = 0; j < leaf.nummarksurfaces; j ++ ) {
-
-				const surf = leaf.firstmarksurface[ j ];
-				if ( surf.flags & ( SURF_DRAWWATER | SURF_DRAWTELE ) ) {
-
-					contenttype = surf.flags & ( SURF_DRAWWATER | SURF_DRAWTELE );
-					break;
-
-				}
-
-			}
-
-			// it's possible that this leaf has no surfaces in it, turb or otherwise
-			if ( contenttype === 0 )
-				continue;
-
-		} else if ( leaf.contents === CONTENTS_SLIME ) {
-
-			contenttype = SURF_DRAWSLIME;
-
-		} else if ( leaf.contents === CONTENTS_LAVA ) {
-
-			contenttype = SURF_DRAWLAVA;
-
-		} else {
-
-			continue;
-
-		}
-
-		if ( contenttransparent & contenttype )
-			continue; // found one of this type already
-
-		contentfound |= contenttype;
-		// Deliberate deviation: Ironwail runs this before the submodel loop
-		// sets numleafs to visleafs, so its rows are sized from every leaf
-		// and decoding runs on into the next leaf's data, clamped silently.
-		// Size the row from the vis clusters, as Mod_LeafPVS later does. The
-		// bytes read below are the same either way.
-		const vis = Mod_DecompressVis( leaf.compressed_vis, leaf.compressed_vis_offset, loadmodel, numclusters );
-		search: for ( let j = 0; j < ( numclusters + 7 ) >> 3; j ++ ) {
-
-			if ( vis[ j ] === 0 ) continue;
-			for ( let k = 0; k < 8; k ++ ) {
-
-				if ( ( vis[ j ] & ( 1 << k ) ) === 0 ) continue;
-				const other = loadmodel.leafs[ ( j << 3 ) + k + 1 ];
-				if ( other !== undefined && leaf.contents !== other.contents ) {
-
-					contenttransparent |= contenttype;
-					break search;
-
-				}
-
-			}
-
-		}
-
-	}
-
-	if ( contenttransparent === 0 ) {
-
-		// no liquid leaf saw a non-liquid leaf; only say so if there is liquid
-		if ( hascontents & ( ( 1 << - CONTENTS_WATER ) | ( 1 << - CONTENTS_SLIME ) | ( 1 << - CONTENTS_LAVA ) ) )
-			Con_DPrintf( loadmodel.name + ' is not watervised\n' );
-
-	}
-
-	// any types that we didn't find are assumed to be transparent
-	loadmodel.contentstransparent = contenttransparent | ( ~ contentfound & SURF_DRAWLIQUIDS );
-
+  // any types that we didn't find are assumed to be transparent
+  loadmodel.contentstransparent = contenttransparent |
+    (~contentfound & SURF_DRAWLIQUIDS);
 }
 
 // ============================================================================
@@ -2239,122 +2119,110 @@ function Mod_CheckWaterVis() {
 
 // bsp2 (Ironwail): read dlface_t, with int fields where dface_t has shorts
 
-function Mod_LoadFaces( fileofs, filelen, bsp2 = false ) {
+function Mod_LoadFaces(fileofs, filelen, bsp2 = false) {
+  const size = bsp2 ? SIZEOF_DLFACE : SIZEOF_DFACE;
+  if (filelen % size) {
+    Sys_Error("MOD_LoadBmodel: funny lump size in " + loadmodel.name);
+  }
 
-	const size = bsp2 ? SIZEOF_DLFACE : SIZEOF_DFACE;
-	if ( filelen % size )
-		Sys_Error( 'MOD_LoadBmodel: funny lump size in ' + loadmodel.name );
+  const count = filelen / size;
+  const view = new DataView(
+    mod_base.buffer,
+    mod_base.byteOffset + fileofs,
+    filelen,
+  );
+  const out = new Array(count);
 
-	const count = filelen / size;
-	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
-	const out = new Array( count );
+  loadmodel.surfaces = out;
+  loadmodel.numsurfaces = count;
 
-	loadmodel.surfaces = out;
-	loadmodel.numsurfaces = count;
+  const slabBytes = MSURFACE_SLAB_BYTES();
+  const slab = new ArrayBuffer(count * slabBytes);
+  for (let surfnum = 0; surfnum < count; surfnum++) {
+    const s = new msurface_t(slab, surfnum * slabBytes);
+    const base = surfnum * size;
 
-	const slabBytes = MSURFACE_SLAB_BYTES();
-	const slab = new ArrayBuffer( count * slabBytes );
-	for ( let surfnum = 0; surfnum < count; surfnum ++ ) {
+    let planenum, side, texinfon, stylesofs, lightofs;
+    if (bsp2) {
+      s.firstedge = view.getInt32(base + 8, true);
+      s.numedges = view.getInt32(base + 12, true);
+      planenum = view.getInt32(base, true);
+      side = view.getInt32(base + 4, true);
+      texinfon = view.getInt32(base + 16, true);
+      stylesofs = 20;
+      lightofs = view.getInt32(base + 24, true);
+    } else {
+      s.firstedge = view.getInt32(base + 4, true);
+      s.numedges = view.getInt16(base + 8, true);
+      planenum = view.getInt16(base, true); // dface_t planenum is a short
+      side = view.getInt16(base + 2, true);
+      texinfon = view.getInt16(base + 10, true);
+      stylesofs = 12;
+      lightofs = view.getInt32(base + 16, true);
+    }
 
-		const s = new msurface_t( slab, surfnum * slabBytes );
-		const base = surfnum * size;
+    s.flags = 0;
 
-		let planenum, side, texinfon, stylesofs, lightofs;
-		if ( bsp2 ) {
+    if (side) {
+      s.flags |= SURF_PLANEBACK;
+    }
 
-			s.firstedge = view.getInt32( base + 8, true );
-			s.numedges = view.getInt32( base + 12, true );
-			planenum = view.getInt32( base, true );
-			side = view.getInt32( base + 4, true );
-			texinfon = view.getInt32( base + 16, true );
-			stylesofs = 20;
-			lightofs = view.getInt32( base + 24, true );
+    s.plane = loadmodel.planes[planenum];
 
-		} else {
+    s.texinfo = loadmodel.texinfo[texinfon];
 
-			s.firstedge = view.getInt32( base + 4, true );
-			s.numedges = view.getInt16( base + 8, true );
-			planenum = view.getInt16( base, true ); // dface_t planenum is a short
-			side = view.getInt16( base + 2, true );
-			texinfon = view.getInt16( base + 10, true );
-			stylesofs = 12;
-			lightofs = view.getInt32( base + 16, true );
+    CalcSurfaceExtents(s);
 
-		}
+    // lighting info
+    for (let i = 0; i < MAXLIGHTMAPS; i++) {
+      s.styles[i] = mod_base[fileofs + base + stylesofs + i];
+    }
 
-		s.flags = 0;
+    if (lightofs === -1) {
+      s.samples = null;
+    } else {
+      // Ironwail: lightofs * 3 into RGB data from a .lit
+      s.samples = loadmodel.lightdata;
+      s.sampleOffset = loadmodel.litfile ? lightofs * 3 : lightofs;
+      s.rgbsamples = loadmodel.litfile;
+    }
 
-		if ( side )
-			s.flags |= SURF_PLANEBACK;
+    // set the drawing flags
+    if (s.texinfo.texture && s.texinfo.texture.name.substring(0, 3) === "sky") {
+      s.flags |= SURF_DRAWSKY | SURF_DRAWTILED;
+      GL_SubdivideSurface(s);
+      out[surfnum] = s;
+      continue;
+    }
 
-		s.plane = loadmodel.planes[ planenum ];
+    if (s.texinfo.texture && s.texinfo.texture.name.charAt(0) === "*") {
+      s.flags |= SURF_DRAWTURB | SURF_DRAWTILED;
+      s.flags |= Mod_LiquidFlagFromName(s.texinfo.texture.name);
+      for (let i = 0; i < 2; i++) {
+        s.extents[i] = 16384;
+        s.texturemins[i] = -8192;
+      }
 
-		s.texinfo = loadmodel.texinfo[ texinfon ];
+      GL_SubdivideSurface(s);
+      out[surfnum] = s;
+      continue;
+    }
 
-		CalcSurfaceExtents( s );
-
-		// lighting info
-		for ( let i = 0; i < MAXLIGHTMAPS; i ++ )
-			s.styles[ i ] = mod_base[ fileofs + base + stylesofs + i ];
-
-		if ( lightofs === - 1 ) {
-
-			s.samples = null;
-
-		} else {
-
-			// Ironwail: lightofs * 3 into RGB data from a .lit
-			s.samples = loadmodel.lightdata;
-			s.sampleOffset = loadmodel.litfile ? lightofs * 3 : lightofs;
-			s.rgbsamples = loadmodel.litfile;
-
-		}
-
-		// set the drawing flags
-		if ( s.texinfo.texture && s.texinfo.texture.name.substring( 0, 3 ) === 'sky' ) {
-
-			s.flags |= ( SURF_DRAWSKY | SURF_DRAWTILED );
-			GL_SubdivideSurface( s );
-			out[ surfnum ] = s;
-			continue;
-
-		}
-
-		if ( s.texinfo.texture && s.texinfo.texture.name.charAt( 0 ) === '*' ) {
-
-			s.flags |= ( SURF_DRAWTURB | SURF_DRAWTILED );
-			s.flags |= Mod_LiquidFlagFromName( s.texinfo.texture.name );
-			for ( let i = 0; i < 2; i ++ ) {
-
-				s.extents[ i ] = 16384;
-				s.texturemins[ i ] = - 8192;
-
-			}
-
-			GL_SubdivideSurface( s );
-			out[ surfnum ] = s;
-			continue;
-
-		}
-
-		out[ surfnum ] = s;
-
-	}
-
+    out[surfnum] = s;
+  }
 }
 
 // ============================================================================
 // Mod_SetParent
 // ============================================================================
 
-function Mod_SetParent( node, parent ) {
-
-	node.parent = parent;
-	if ( node.contents < 0 )
-		return;
-	Mod_SetParent( node.children[ 0 ], node );
-	Mod_SetParent( node.children[ 1 ], node );
-
+function Mod_SetParent(node, parent) {
+  node.parent = parent;
+  if (node.contents < 0) {
+    return;
+  }
+  Mod_SetParent(node.children[0], node);
+  Mod_SetParent(node.children[1], node);
 }
 
 // ============================================================================
@@ -2365,132 +2233,118 @@ function Mod_SetParent( node, parent ) {
 // bounds and unsigned int face numbers. Ironwail splits the two layouts into
 // Mod_LoadNodes_S and Mod_LoadNodes_L2; one function with a branch here.
 
-function Mod_LoadNodes( fileofs, filelen, bsp2 = false ) {
+function Mod_LoadNodes(fileofs, filelen, bsp2 = false) {
+  const size = bsp2 ? SIZEOF_DL2NODE : SIZEOF_DNODE;
+  if (filelen % size) {
+    Sys_Error(
+      (bsp2 ? "Mod_LoadNodes" : "MOD_LoadBmodel") + ": funny lump size in " +
+        loadmodel.name,
+    );
+  }
 
-	const size = bsp2 ? SIZEOF_DL2NODE : SIZEOF_DNODE;
-	if ( filelen % size )
-		Sys_Error( ( bsp2 ? 'Mod_LoadNodes' : 'MOD_LoadBmodel' ) + ': funny lump size in ' + loadmodel.name );
+  const count = filelen / size;
+  const view = new DataView(
+    mod_base.buffer,
+    mod_base.byteOffset + fileofs,
+    filelen,
+  );
+  const out = new Array(count);
 
-	const count = filelen / size;
-	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
-	const out = new Array( count );
+  loadmodel.nodes = out;
+  loadmodel.numnodes = count;
 
-	loadmodel.nodes = out;
-	loadmodel.numnodes = count;
+  // Child numbers, resolved once every node and leaf exists: nodeChild[ 2 * i + j ]
+  // is the node index, or -1 for a leaf, whose index is in leafChild[ 2 * i + j ].
+  // (A property added then deleted per node would put every node in slow
+  // dictionary mode, which the BSP walks in physics and rendering pay for.)
+  const nodeChild = new Int32Array(count * 2);
+  const leafChild = new Int32Array(count * 2);
+  const slab = new ArrayBuffer(count * 24);
 
-	// Child numbers, resolved once every node and leaf exists: nodeChild[ 2 * i + j ]
-	// is the node index, or -1 for a leaf, whose index is in leafChild[ 2 * i + j ].
-	// (A property added then deleted per node would put every node in slow
-	// dictionary mode, which the BSP walks in physics and rendering pay for.)
-	const nodeChild = new Int32Array( count * 2 );
-	const leafChild = new Int32Array( count * 2 );
-	const slab = new ArrayBuffer( count * 24 );
+  for (let i = 0; i < count; i++) {
+    const node = new mnode_t(slab, i * 24);
+    const base = i * size;
 
-	for ( let i = 0; i < count; i ++ ) {
+    const p = view.getInt32(base, true);
+    node.plane = loadmodel.planes[p];
 
-		const node = new mnode_t( slab, i * 24 );
-		const base = i * size;
+    if (bsp2) {
+      for (let j = 0; j < 3; j++) {
+        node.minmaxs[j] = view.getFloat32(base + 12 + j * 4, true);
+        node.minmaxs[3 + j] = view.getFloat32(base + 24 + j * 4, true);
+      }
 
-		const p = view.getInt32( base, true );
-		node.plane = loadmodel.planes[ p ];
+      node.firstsurface = view.getUint32(base + 36, true);
+      node.numsurfaces = view.getUint32(base + 40, true);
 
-		if ( bsp2 ) {
+      for (let j = 0; j < 2; j++) {
+        let c = view.getInt32(base + 4 + j * 4, true);
+        if (c > 0 && c < count) {
+          nodeChild[i * 2 + j] = c;
+        } else {
+          c = -1 - c; // C: 0xffffffff - p; -1 is leaf 0
+          if (c < 0 || c >= loadmodel.numleafs) {
+            Con_Printf(
+              "Mod_LoadNodes: invalid leaf index " + c + " (file has only " +
+                loadmodel.numleafs + " leafs)\n",
+            );
+            c = 0; // map it to the solid leaf
+          }
 
-			for ( let j = 0; j < 3; j ++ ) {
+          nodeChild[i * 2 + j] = -1;
+          leafChild[i * 2 + j] = c;
+        }
+      }
 
-				node.minmaxs[ j ] = view.getFloat32( base + 12 + j * 4, true );
-				node.minmaxs[ 3 + j ] = view.getFloat32( base + 24 + j * 4, true );
+      out[i] = node;
+      continue;
+    }
 
-			}
+    for (let j = 0; j < 3; j++) {
+      node.minmaxs[j] = view.getInt16(base + 8 + j * 2, true);
+      node.minmaxs[3 + j] = view.getInt16(base + 14 + j * 2, true);
+    }
 
-			node.firstsurface = view.getUint32( base + 36, true );
-			node.numsurfaces = view.getUint32( base + 40, true );
+    node.firstsurface = view.getUint16(base + 20, true);
+    node.numsurfaces = view.getUint16(base + 22, true);
 
-			for ( let j = 0; j < 2; j ++ ) {
+    for (let j = 0; j < 2; j++) {
+      // Deliberate deviation (QuakeSpasm Mod_LoadNodes_S): read the child
+      // unsigned so maps with more than 32767 nodes, or leafs past
+      // 32767, load. The C reads a signed short.
+      let p = view.getUint16(base + 4 + j * 2, true);
+      if (p < count) {
+        nodeChild[i * 2 + j] = p; // children[ j ] is resolved after all nodes are created
+      } else {
+        p = 65535 - p; // note this uses 65535 intentionally, -1 is leaf 0
+        if (p >= loadmodel.numleafs) {
+          Con_Printf(
+            "Mod_LoadNodes: invalid leaf index " + p + " (file has only " +
+              loadmodel.numleafs + " leafs)\n",
+          );
+          p = 0; // map it to the solid leaf
+        }
 
-				let c = view.getInt32( base + 4 + j * 4, true );
-				if ( c > 0 && c < count ) {
+        nodeChild[i * 2 + j] = -1;
+        leafChild[i * 2 + j] = p;
+      }
+    }
 
-					nodeChild[ i * 2 + j ] = c;
+    out[i] = node;
+  }
 
-				} else {
+  // Resolve children references now that all nodes and leafs exist
+  for (let i = 0; i < count; i++) {
+    const node = out[i];
+    for (let j = 0; j < 2; j++) {
+      const ci = nodeChild[i * 2 + j];
+      node.children[j] = ci >= 0 ?
+        out[ci] :
+        loadmodel.leafs[leafChild[i * 2 + j]];
+    }
+  }
 
-					c = - 1 - c; // C: 0xffffffff - p; -1 is leaf 0
-					if ( c < 0 || c >= loadmodel.numleafs ) {
-
-						Con_Printf( 'Mod_LoadNodes: invalid leaf index ' + c + ' (file has only ' + loadmodel.numleafs + ' leafs)\n' );
-						c = 0; // map it to the solid leaf
-
-					}
-
-					nodeChild[ i * 2 + j ] = - 1;
-					leafChild[ i * 2 + j ] = c;
-
-				}
-
-			}
-
-			out[ i ] = node;
-			continue;
-
-		}
-
-		for ( let j = 0; j < 3; j ++ ) {
-
-			node.minmaxs[ j ] = view.getInt16( base + 8 + j * 2, true );
-			node.minmaxs[ 3 + j ] = view.getInt16( base + 14 + j * 2, true );
-
-		}
-
-		node.firstsurface = view.getUint16( base + 20, true );
-		node.numsurfaces = view.getUint16( base + 22, true );
-
-		for ( let j = 0; j < 2; j ++ ) {
-
-			// Deliberate deviation (QuakeSpasm Mod_LoadNodes_S): read the child
-			// unsigned so maps with more than 32767 nodes, or leafs past
-			// 32767, load. The C reads a signed short.
-			let p = view.getUint16( base + 4 + j * 2, true );
-			if ( p < count ) {
-
-				nodeChild[ i * 2 + j ] = p; // children[ j ] is resolved after all nodes are created
-
-			} else {
-
-				p = 65535 - p; // note this uses 65535 intentionally, -1 is leaf 0
-				if ( p >= loadmodel.numleafs ) {
-
-					Con_Printf( 'Mod_LoadNodes: invalid leaf index ' + p + ' (file has only ' + loadmodel.numleafs + ' leafs)\n' );
-					p = 0; // map it to the solid leaf
-
-				}
-
-				nodeChild[ i * 2 + j ] = - 1;
-				leafChild[ i * 2 + j ] = p;
-
-			}
-
-		}
-
-		out[ i ] = node;
-
-	}
-
-	// Resolve children references now that all nodes and leafs exist
-	for ( let i = 0; i < count; i ++ ) {
-
-		const node = out[ i ];
-		for ( let j = 0; j < 2; j ++ ) {
-
-			const ci = nodeChild[ i * 2 + j ];
-			node.children[ j ] = ci >= 0 ? out[ ci ] : loadmodel.leafs[ leafChild[ i * 2 + j ] ];
-
-		}
-
-	}
-
-	Mod_SetParent( loadmodel.nodes[ 0 ], null );
-
+  Mod_SetParent(loadmodel.nodes[0], null);
 }
 
 // ============================================================================
@@ -2500,106 +2354,100 @@ function Mod_LoadNodes( fileofs, filelen, bsp2 = false ) {
 // bsp2 (Ironwail Mod_ProcessLeafs_L2): read dl2leaf_t, with float bounds and
 // unsigned int marksurface numbers, and no leaf limit
 
-function Mod_LoadLeafs( fileofs, filelen, bsp2 = false ) {
+function Mod_LoadLeafs(fileofs, filelen, bsp2 = false) {
+  const size = bsp2 ? SIZEOF_DL2LEAF : SIZEOF_DLEAF;
+  if (filelen % size) {
+    Sys_Error(
+      (bsp2 ? "Mod_ProcessLeafs" : "MOD_LoadBmodel") + ": funny lump size in " +
+        loadmodel.name,
+    );
+  }
 
-	const size = bsp2 ? SIZEOF_DL2LEAF : SIZEOF_DLEAF;
-	if ( filelen % size )
-		Sys_Error( ( bsp2 ? 'Mod_ProcessLeafs' : 'MOD_LoadBmodel' ) + ': funny lump size in ' + loadmodel.name );
+  const count = filelen / size;
+  const view = new DataView(
+    mod_base.buffer,
+    mod_base.byteOffset + fileofs,
+    filelen,
+  );
+  const out = new Array(count);
 
-	const count = filelen / size;
-	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
-	const out = new Array( count );
+  // Deliberate deviation: QuakeSpasm's BSP29 limit check (the C has none),
+  // raised with Host_Error as Ironwail does so a bad map isn't fatal.
+  // BSP2 leafs have none, as in Ironwail.
+  if (!bsp2 && count > MAX_MAP_LEAFS) {
+    Host_Error(
+      "Mod_LoadLeafs: " + count + " leafs exceeds limit of " + MAX_MAP_LEAFS +
+        ".",
+    );
+  }
 
-	// Deliberate deviation: QuakeSpasm's BSP29 limit check (the C has none),
-	// raised with Host_Error as Ironwail does so a bad map isn't fatal.
-	// BSP2 leafs have none, as in Ironwail.
-	if ( ! bsp2 && count > MAX_MAP_LEAFS )
-		Host_Error( 'Mod_LoadLeafs: ' + count + ' leafs exceeds limit of ' + MAX_MAP_LEAFS + '.' );
+  loadmodel.leafs = out;
+  loadmodel.numleafs = count;
 
-	loadmodel.leafs = out;
-	loadmodel.numleafs = count;
+  // size the PVS rows now so Mod_LeafPVS never allocates per frame
+  Mod_AllocVisBuffers(count);
 
-	// size the PVS rows now so Mod_LeafPVS never allocates per frame
-	Mod_AllocVisBuffers( count );
+  const slabBytes = MLEAF_SLAB_BYTES();
+  const slab = new ArrayBuffer(count * slabBytes);
+  for (let i = 0; i < count; i++) {
+    const leaf = new mleaf_t(slab, i * slabBytes);
+    leaf._leafIndex = i; // store index for PVS checks (C uses pointer arithmetic: leaf - sv.worldmodel->leafs)
+    const base = i * size;
 
-	const slabBytes = MLEAF_SLAB_BYTES();
-	const slab = new ArrayBuffer( count * slabBytes );
-	for ( let i = 0; i < count; i ++ ) {
+    let firstmarksurfaceIdx, ambientofs;
+    if (bsp2) {
+      for (let j = 0; j < 3; j++) {
+        leaf.minmaxs[j] = view.getFloat32(base + 8 + j * 4, true);
+        leaf.minmaxs[3 + j] = view.getFloat32(base + 20 + j * 4, true);
+      }
 
-		const leaf = new mleaf_t( slab, i * slabBytes );
-		leaf._leafIndex = i; // store index for PVS checks (C uses pointer arithmetic: leaf - sv.worldmodel->leafs)
-		const base = i * size;
+      firstmarksurfaceIdx = view.getUint32(base + 32, true);
+      leaf.nummarksurfaces = view.getUint32(base + 36, true);
+      ambientofs = 40;
+    } else {
+      for (let j = 0; j < 3; j++) {
+        leaf.minmaxs[j] = view.getInt16(base + 8 + j * 2, true);
+        leaf.minmaxs[3 + j] = view.getInt16(base + 14 + j * 2, true);
+      }
 
-		let firstmarksurfaceIdx, ambientofs;
-		if ( bsp2 ) {
+      firstmarksurfaceIdx = view.getUint16(base + 20, true);
+      leaf.nummarksurfaces = view.getUint16(base + 22, true);
+      ambientofs = 24;
+    }
 
-			for ( let j = 0; j < 3; j ++ ) {
+    leaf.contents = view.getInt32(base, true);
 
-				leaf.minmaxs[ j ] = view.getFloat32( base + 8 + j * 4, true );
-				leaf.minmaxs[ 3 + j ] = view.getFloat32( base + 20 + j * 4, true );
+    // In C: leaf->firstmarksurface = loadmodel->marksurfaces + firstmarksurface;
+    // This is a pointer into the marksurfaces array (which is an array of msurface_t*)
+    // In JS we store the sub-array so leaf.firstmarksurface[j] works like C
+    leaf.firstmarksurface = loadmodel.marksurfaces.slice(
+      firstmarksurfaceIdx,
+      firstmarksurfaceIdx + leaf.nummarksurfaces,
+    );
 
-			}
+    const visofs = view.getInt32(base + 4, true);
+    if (visofs === -1) {
+      leaf.compressed_vis = null;
+    } else {
+      leaf.compressed_vis = loadmodel.visdata;
+      leaf.compressed_vis_offset = visofs;
+    }
 
-			firstmarksurfaceIdx = view.getUint32( base + 32, true );
-			leaf.nummarksurfaces = view.getUint32( base + 36, true );
-			ambientofs = 40;
+    leaf.efrags = null;
 
-		} else {
+    for (let j = 0; j < 4; j++) {
+      leaf.ambient_sound_level[j] = mod_base[fileofs + base + ambientofs + j];
+    }
 
-			for ( let j = 0; j < 3; j ++ ) {
+    // gl underwater warp
+    if (leaf.contents !== CONTENTS_EMPTY) {
+      for (let j = 0; j < leaf.nummarksurfaces; j++) {
+        leaf.firstmarksurface[j].flags |= SURF_UNDERWATER;
+      }
+    }
 
-				leaf.minmaxs[ j ] = view.getInt16( base + 8 + j * 2, true );
-				leaf.minmaxs[ 3 + j ] = view.getInt16( base + 14 + j * 2, true );
-
-			}
-
-			firstmarksurfaceIdx = view.getUint16( base + 20, true );
-			leaf.nummarksurfaces = view.getUint16( base + 22, true );
-			ambientofs = 24;
-
-		}
-
-		leaf.contents = view.getInt32( base, true );
-
-		// In C: leaf->firstmarksurface = loadmodel->marksurfaces + firstmarksurface;
-		// This is a pointer into the marksurfaces array (which is an array of msurface_t*)
-		// In JS we store the sub-array so leaf.firstmarksurface[j] works like C
-		leaf.firstmarksurface = loadmodel.marksurfaces.slice(
-			firstmarksurfaceIdx, firstmarksurfaceIdx + leaf.nummarksurfaces
-		);
-
-		const visofs = view.getInt32( base + 4, true );
-		if ( visofs === - 1 ) {
-
-			leaf.compressed_vis = null;
-
-		} else {
-
-			leaf.compressed_vis = loadmodel.visdata;
-			leaf.compressed_vis_offset = visofs;
-
-		}
-
-		leaf.efrags = null;
-
-		for ( let j = 0; j < 4; j ++ )
-			leaf.ambient_sound_level[ j ] = mod_base[ fileofs + base + ambientofs + j ];
-
-		// gl underwater warp
-		if ( leaf.contents !== CONTENTS_EMPTY ) {
-
-			for ( let j = 0; j < leaf.nummarksurfaces; j ++ ) {
-
-				leaf.firstmarksurface[ j ].flags |= SURF_UNDERWATER;
-
-			}
-
-		}
-
-		out[ i ] = leaf;
-
-	}
-
+    out[i] = leaf;
+  }
 }
 
 // ============================================================================
@@ -2608,82 +2456,87 @@ function Mod_LoadLeafs( fileofs, filelen, bsp2 = false ) {
 
 // bsp2 (Ironwail Mod_LoadClipnodes): read dlclipnode_t, with int children
 
-function Mod_LoadClipnodes( fileofs, filelen, bsp2 = false ) {
+function Mod_LoadClipnodes(fileofs, filelen, bsp2 = false) {
+  const size = bsp2 ? SIZEOF_DLCLIPNODE : SIZEOF_DCLIPNODE;
+  if (filelen % size) {
+    Sys_Error(
+      (bsp2 ? "Mod_LoadClipnodes" : "MOD_LoadBmodel") +
+        ": funny lump size in " + loadmodel.name,
+    );
+  }
 
-	const size = bsp2 ? SIZEOF_DLCLIPNODE : SIZEOF_DCLIPNODE;
-	if ( filelen % size )
-		Sys_Error( ( bsp2 ? 'Mod_LoadClipnodes' : 'MOD_LoadBmodel' ) + ': funny lump size in ' + loadmodel.name );
+  const count = filelen / size;
+  const view = new DataView(
+    mod_base.buffer,
+    mod_base.byteOffset + fileofs,
+    filelen,
+  );
+  const out = new Array(count);
 
-	const count = filelen / size;
-	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
-	const out = new Array( count );
+  loadmodel.clipnodes = out;
+  loadmodel.numclipnodes = count;
 
-	loadmodel.clipnodes = out;
-	loadmodel.numclipnodes = count;
+  // hull 1 - player standing
+  const hull1 = loadmodel.hulls[1];
+  hull1.clipnodes = out;
+  hull1.firstclipnode = 0;
+  hull1.lastclipnode = count - 1;
+  hull1.planes = loadmodel.planes;
+  hull1.clip_mins[0] = -16;
+  hull1.clip_mins[1] = -16;
+  hull1.clip_mins[2] = -24;
+  hull1.clip_maxs[0] = 16;
+  hull1.clip_maxs[1] = 16;
+  hull1.clip_maxs[2] = 32;
 
-	// hull 1 - player standing
-	const hull1 = loadmodel.hulls[ 1 ];
-	hull1.clipnodes = out;
-	hull1.firstclipnode = 0;
-	hull1.lastclipnode = count - 1;
-	hull1.planes = loadmodel.planes;
-	hull1.clip_mins[ 0 ] = - 16;
-	hull1.clip_mins[ 1 ] = - 16;
-	hull1.clip_mins[ 2 ] = - 24;
-	hull1.clip_maxs[ 0 ] = 16;
-	hull1.clip_maxs[ 1 ] = 16;
-	hull1.clip_maxs[ 2 ] = 32;
+  // hull 2 - shambler
+  const hull2 = loadmodel.hulls[2];
+  hull2.clipnodes = out;
+  hull2.firstclipnode = 0;
+  hull2.lastclipnode = count - 1;
+  hull2.planes = loadmodel.planes;
+  hull2.clip_mins[0] = -32;
+  hull2.clip_mins[1] = -32;
+  hull2.clip_mins[2] = -24;
+  hull2.clip_maxs[0] = 32;
+  hull2.clip_maxs[1] = 32;
+  hull2.clip_maxs[2] = 64;
 
-	// hull 2 - shambler
-	const hull2 = loadmodel.hulls[ 2 ];
-	hull2.clipnodes = out;
-	hull2.firstclipnode = 0;
-	hull2.lastclipnode = count - 1;
-	hull2.planes = loadmodel.planes;
-	hull2.clip_mins[ 0 ] = - 32;
-	hull2.clip_mins[ 1 ] = - 32;
-	hull2.clip_mins[ 2 ] = - 24;
-	hull2.clip_maxs[ 0 ] = 32;
-	hull2.clip_maxs[ 1 ] = 32;
-	hull2.clip_maxs[ 2 ] = 64;
+  const slab = new ArrayBuffer(count * 8);
+  for (let i = 0; i < count; i++) {
+    const cn = new dclipnode_t(slab, i * 8);
+    const base = i * size;
 
-	const slab = new ArrayBuffer( count * 8 );
-	for ( let i = 0; i < count; i ++ ) {
+    cn.planenum = view.getInt32(base, true);
 
-		const cn = new dclipnode_t( slab, i * 8 );
-		const base = i * size;
+    // Deliberate deviation (QuakeSpasm Mod_LoadClipnodes): bounds check,
+    // with Host_Error as Ironwail has it
+    if (cn.planenum < 0 || cn.planenum >= loadmodel.numplanes) {
+      Host_Error("Mod_LoadClipnodes: planenum out of bounds");
+    }
 
-		cn.planenum = view.getInt32( base, true );
+    if (bsp2) {
+      // Ironwail has no bounds check here either ("Spike: FIXME")
+      cn.children[0] = view.getInt32(base + 4, true);
+      cn.children[1] = view.getInt32(base + 8, true);
+      out[i] = cn;
+      continue;
+    }
 
-		// Deliberate deviation (QuakeSpasm Mod_LoadClipnodes): bounds check,
-		// with Host_Error as Ironwail has it
-		if ( cn.planenum < 0 || cn.planenum >= loadmodel.numplanes )
-			Host_Error( 'Mod_LoadClipnodes: planenum out of bounds' );
+    // Deliberate deviation (QuakeSpasm): read the children unsigned so
+    // maps with more than 32767 clipnodes load; values at or past count
+    // are contents (-1 to -15) once 65536 is taken off.
+    cn.children[0] = view.getUint16(base + 4, true);
+    cn.children[1] = view.getUint16(base + 6, true);
+    if (cn.children[0] >= count) {
+      cn.children[0] -= 65536;
+    }
+    if (cn.children[1] >= count) {
+      cn.children[1] -= 65536;
+    }
 
-		if ( bsp2 ) {
-
-			// Ironwail has no bounds check here either ("Spike: FIXME")
-			cn.children[ 0 ] = view.getInt32( base + 4, true );
-			cn.children[ 1 ] = view.getInt32( base + 8, true );
-			out[ i ] = cn;
-			continue;
-
-		}
-
-		// Deliberate deviation (QuakeSpasm): read the children unsigned so
-		// maps with more than 32767 clipnodes load; values at or past count
-		// are contents (-1 to -15) once 65536 is taken off.
-		cn.children[ 0 ] = view.getUint16( base + 4, true );
-		cn.children[ 1 ] = view.getUint16( base + 6, true );
-		if ( cn.children[ 0 ] >= count )
-			cn.children[ 0 ] -= 65536;
-		if ( cn.children[ 1 ] >= count )
-			cn.children[ 1 ] -= 65536;
-
-		out[ i ] = cn;
-
-	}
-
+    out[i] = cn;
+  }
 }
 
 // ============================================================================
@@ -2693,57 +2546,49 @@ function Mod_LoadClipnodes( fileofs, filelen, bsp2 = false ) {
 // ============================================================================
 
 function Mod_MakeHull0() {
+  const hull = loadmodel.hulls[0];
 
-	const hull = loadmodel.hulls[ 0 ];
+  const _in = loadmodel.nodes;
+  const count = loadmodel.numnodes;
+  const out = new Array(count);
 
-	const _in = loadmodel.nodes;
-	const count = loadmodel.numnodes;
-	const out = new Array( count );
+  hull.clipnodes = out;
+  hull.firstclipnode = 0;
+  hull.lastclipnode = count - 1;
+  hull.planes = loadmodel.planes;
 
-	hull.clipnodes = out;
-	hull.firstclipnode = 0;
-	hull.lastclipnode = count - 1;
-	hull.planes = loadmodel.planes;
+  // C gets these indices by pointer subtraction (in->plane - planes,
+  // child - nodes). indexOf per node is quadratic, which a map near the
+  // raised limits makes slow, so look them up from maps built once.
+  const planenums = new Map();
+  for (let i = 0; i < loadmodel.planes.length; i++) {
+    planenums.set(loadmodel.planes[i], i);
+  }
+  const nodenums = new Map();
+  for (let i = 0; i < count; i++) {
+    nodenums.set(_in[i], i);
+  }
 
-	// C gets these indices by pointer subtraction (in->plane - planes,
-	// child - nodes). indexOf per node is quadratic, which a map near the
-	// raised limits makes slow, so look them up from maps built once.
-	const planenums = new Map();
-	for ( let i = 0; i < loadmodel.planes.length; i ++ )
-		planenums.set( loadmodel.planes[ i ], i );
-	const nodenums = new Map();
-	for ( let i = 0; i < count; i ++ )
-		nodenums.set( _in[ i ], i );
+  const slab = new ArrayBuffer(count * 8);
+  for (let i = 0; i < count; i++) {
+    const cn = new dclipnode_t(slab, i * 8);
+    const node = _in[i];
 
-	const slab = new ArrayBuffer( count * 8 );
-	for ( let i = 0; i < count; i ++ ) {
+    const planenum = planenums.get(node.plane);
+    cn.planenum = planenum !== undefined ? planenum : -1;
 
-		const cn = new dclipnode_t( slab, i * 8 );
-		const node = _in[ i ];
+    for (let j = 0; j < 2; j++) {
+      const child = node.children[j];
+      if (child.contents < 0) {
+        cn.children[j] = child.contents;
+      } else {
+        const nodenum = nodenums.get(child);
+        cn.children[j] = nodenum !== undefined ? nodenum : -1;
+      }
+    }
 
-		const planenum = planenums.get( node.plane );
-		cn.planenum = planenum !== undefined ? planenum : - 1;
-
-		for ( let j = 0; j < 2; j ++ ) {
-
-			const child = node.children[ j ];
-			if ( child.contents < 0 ) {
-
-				cn.children[ j ] = child.contents;
-
-			} else {
-
-				const nodenum = nodenums.get( child );
-				cn.children[ j ] = nodenum !== undefined ? nodenum : - 1;
-
-			}
-
-		}
-
-		out[ i ] = cn;
-
-	}
-
+    out[i] = cn;
+  }
 }
 
 // ============================================================================
@@ -2752,245 +2597,254 @@ function Mod_MakeHull0() {
 
 // bsp2 (Ironwail): unsigned int surface numbers
 
-function Mod_LoadMarksurfaces( fileofs, filelen, bsp2 = false ) {
+function Mod_LoadMarksurfaces(fileofs, filelen, bsp2 = false) {
+  const size = bsp2 ? 4 : 2;
 
-	const size = bsp2 ? 4 : 2;
+  // Deliberate deviation (Ironwail Mod_LoadMarksurfaces): Host_Error, not
+  // Sys_Error, for both checks
+  if (filelen % size) {
+    Host_Error("MOD_LoadBmodel: funny lump size in " + loadmodel.name);
+  }
 
-	// Deliberate deviation (Ironwail Mod_LoadMarksurfaces): Host_Error, not
-	// Sys_Error, for both checks
-	if ( filelen % size )
-		Host_Error( 'MOD_LoadBmodel: funny lump size in ' + loadmodel.name );
+  const count = filelen / size;
+  const view = new DataView(
+    mod_base.buffer,
+    mod_base.byteOffset + fileofs,
+    filelen,
+  );
+  const out = new Array(count);
 
-	const count = filelen / size;
-	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
-	const out = new Array( count );
+  loadmodel.marksurfaces = out;
+  loadmodel.nummarksurfaces = count;
 
-	loadmodel.marksurfaces = out;
-	loadmodel.nummarksurfaces = count;
-
-	for ( let i = 0; i < count; i ++ ) {
-
-		const j = bsp2 ? view.getUint32( i * 4, true ) : view.getUint16( i * 2, true );
-		if ( j >= loadmodel.numsurfaces )
-			Host_Error( 'Mod_ParseMarksurfaces: bad surface number' );
-		out[ i ] = loadmodel.surfaces[ j ];
-
-	}
-
+  for (let i = 0; i < count; i++) {
+    const j = bsp2 ? view.getUint32(i * 4, true) : view.getUint16(i * 2, true);
+    if (j >= loadmodel.numsurfaces) {
+      Host_Error("Mod_ParseMarksurfaces: bad surface number");
+    }
+    out[i] = loadmodel.surfaces[j];
+  }
 }
 
 // ============================================================================
 // Mod_LoadSubmodels
 // ============================================================================
 
-function Mod_LoadSubmodels( fileofs, filelen ) {
+function Mod_LoadSubmodels(fileofs, filelen) {
+  if (filelen % SIZEOF_DMODEL) {
+    Sys_Error("MOD_LoadBmodel: funny lump size in " + loadmodel.name);
+  }
 
-	if ( filelen % SIZEOF_DMODEL )
-		Sys_Error( 'MOD_LoadBmodel: funny lump size in ' + loadmodel.name );
+  const count = filelen / SIZEOF_DMODEL;
+  const view = new DataView(
+    mod_base.buffer,
+    mod_base.byteOffset + fileofs,
+    filelen,
+  );
+  const out = new Array(count);
 
-	const count = filelen / SIZEOF_DMODEL;
-	const view = new DataView( mod_base.buffer, mod_base.byteOffset + fileofs, filelen );
-	const out = new Array( count );
+  loadmodel.submodels = out;
+  loadmodel.numsubmodels = count;
 
-	loadmodel.submodels = out;
-	loadmodel.numsubmodels = count;
+  for (let i = 0; i < count; i++) {
+    const sm = new dmodel_t();
+    const base = i * SIZEOF_DMODEL;
 
-	for ( let i = 0; i < count; i ++ ) {
+    for (let j = 0; j < 3; j++) {
+      // spread the mins / maxs by a pixel
+      sm.mins[j] = view.getFloat32(base + j * 4, true) - 1;
+      sm.maxs[j] = view.getFloat32(base + 12 + j * 4, true) + 1;
+      sm.origin[j] = view.getFloat32(base + 24 + j * 4, true);
+    }
 
-		const sm = new dmodel_t();
-		const base = i * SIZEOF_DMODEL;
+    for (let j = 0; j < MAX_MAP_HULLS; j++) {
+      sm.headnode[j] = view.getInt32(base + 36 + j * 4, true);
+    }
 
-		for ( let j = 0; j < 3; j ++ ) {
+    sm.visleafs = view.getInt32(base + 52, true);
+    sm.firstface = view.getInt32(base + 56, true);
+    sm.numfaces = view.getInt32(base + 60, true);
 
-			// spread the mins / maxs by a pixel
-			sm.mins[ j ] = view.getFloat32( base + j * 4, true ) - 1;
-			sm.maxs[ j ] = view.getFloat32( base + 12 + j * 4, true ) + 1;
-			sm.origin[ j ] = view.getFloat32( base + 24 + j * 4, true );
-
-		}
-
-		for ( let j = 0; j < MAX_MAP_HULLS; j ++ )
-			sm.headnode[ j ] = view.getInt32( base + 36 + j * 4, true );
-
-		sm.visleafs = view.getInt32( base + 52, true );
-		sm.firstface = view.getInt32( base + 56, true );
-		sm.numfaces = view.getInt32( base + 60, true );
-
-		out[ i ] = sm;
-
-	}
-
+    out[i] = sm;
+  }
 }
 
 // ============================================================================
 // RadiusFromBounds
 // ============================================================================
 
-export function RadiusFromBounds( mins, maxs ) {
+export function RadiusFromBounds(mins, maxs) {
+  const corner = new Float32Array(3);
 
-	const corner = new Float32Array( 3 );
+  for (let i = 0; i < 3; i++) {
+    corner[i] = Math.abs(mins[i]) > Math.abs(maxs[i]) ?
+      Math.abs(mins[i]) :
+      Math.abs(maxs[i]);
+  }
 
-	for ( let i = 0; i < 3; i ++ )
-		corner[ i ] = Math.abs( mins[ i ] ) > Math.abs( maxs[ i ] ) ? Math.abs( mins[ i ] ) : Math.abs( maxs[ i ] );
-
-	return Length( corner );
-
+  return Length(corner);
 }
 
 // ============================================================================
 // Mod_LoadBrushModel
 // ============================================================================
 
-function Mod_LoadBrushModel( mod, buffer ) {
+function Mod_LoadBrushModel(mod, buffer) {
+  loadmodel.type = mod_brush;
+  loadmodel.viswarn = false;
 
-	loadmodel.type = mod_brush;
-	loadmodel.viswarn = false;
+  const bytes = new Uint8Array(buffer);
+  const view = new DataView(buffer);
 
-	const bytes = new Uint8Array( buffer );
-	const view = new DataView( buffer );
+  // Deliberate deviation (Ironwail Mod_LoadBrushModel): BSP2 loads as well
+  // as BSP29 (see BSP2VERSION_BSP2 in bspfile.js)
+  const version = view.getInt32(0, true);
+  let bsp2;
+  if (version === BSPVERSION) {
+    bsp2 = false;
+  } else if (version === BSP2VERSION_BSP2) {
+    bsp2 = true;
+  } else {
+    Sys_Error(
+      "Mod_LoadBrushModel: " + mod.name + " has unsupported version number (" +
+        version + ")",
+    );
+  }
 
-	// Deliberate deviation (Ironwail Mod_LoadBrushModel): BSP2 loads as well
-	// as BSP29 (see BSP2VERSION_BSP2 in bspfile.js)
-	const version = view.getInt32( 0, true );
-	let bsp2;
-	if ( version === BSPVERSION )
-		bsp2 = false;
-	else if ( version === BSP2VERSION_BSP2 )
-		bsp2 = true;
-	else
-		Sys_Error( 'Mod_LoadBrushModel: ' + mod.name + ' has unsupported version number (' + version + ')' );
+  // swap all the lumps
+  mod_base = bytes;
 
-	// swap all the lumps
-	mod_base = bytes;
+  // Read lump directory: version (4 bytes) + HEADER_LUMPS * 2 ints (fileofs, filelen)
+  const lumps = [];
+  for (let i = 0; i < HEADER_LUMPS; i++) {
+    lumps[i] = {
+      fileofs: view.getInt32(4 + i * 8, true),
+      filelen: view.getInt32(4 + i * 8 + 4, true),
+    };
+  }
 
-	// Read lump directory: version (4 bytes) + HEADER_LUMPS * 2 ints (fileofs, filelen)
-	const lumps = [];
-	for ( let i = 0; i < HEADER_LUMPS; i ++ ) {
+  // load into heap (order matters! same as original C code)
+  Mod_LoadVertexes(lumps[LUMP_VERTEXES].fileofs, lumps[LUMP_VERTEXES].filelen);
+  Mod_LoadEdges(lumps[LUMP_EDGES].fileofs, lumps[LUMP_EDGES].filelen, bsp2);
+  Mod_LoadSurfedges(
+    lumps[LUMP_SURFEDGES].fileofs,
+    lumps[LUMP_SURFEDGES].filelen,
+  );
+  Mod_LoadTextures(lumps[LUMP_TEXTURES].fileofs, lumps[LUMP_TEXTURES].filelen);
+  Mod_LoadLighting(lumps[LUMP_LIGHTING].fileofs, lumps[LUMP_LIGHTING].filelen);
+  Mod_LoadPlanes(lumps[LUMP_PLANES].fileofs, lumps[LUMP_PLANES].filelen);
+  Mod_LoadTexinfo(lumps[LUMP_TEXINFO].fileofs, lumps[LUMP_TEXINFO].filelen);
+  Mod_LoadFaces(lumps[LUMP_FACES].fileofs, lumps[LUMP_FACES].filelen, bsp2);
+  Mod_LoadMarksurfaces(
+    lumps[LUMP_MARKSURFACES].fileofs,
+    lumps[LUMP_MARKSURFACES].filelen,
+    bsp2,
+  );
+  Mod_LoadVisibility(
+    lumps[LUMP_VISIBILITY].fileofs,
+    lumps[LUMP_VISIBILITY].filelen,
+  );
+  Mod_LoadLeafs(lumps[LUMP_LEAFS].fileofs, lumps[LUMP_LEAFS].filelen, bsp2);
+  Mod_LoadNodes(lumps[LUMP_NODES].fileofs, lumps[LUMP_NODES].filelen, bsp2);
+  Mod_LoadClipnodes(
+    lumps[LUMP_CLIPNODES].fileofs,
+    lumps[LUMP_CLIPNODES].filelen,
+    bsp2,
+  );
+  Mod_LoadEntities(lumps[LUMP_ENTITIES].fileofs, lumps[LUMP_ENTITIES].filelen);
+  Mod_LoadSubmodels(lumps[LUMP_MODELS].fileofs, lumps[LUMP_MODELS].filelen);
 
-		lumps[ i ] = {
-			fileofs: view.getInt32( 4 + i * 8, true ),
-			filelen: view.getInt32( 4 + i * 8 + 4, true )
-		};
+  Mod_MakeHull0();
 
-	}
+  mod.numframes = 2; // regular and alternate animation
 
-	// load into heap (order matters! same as original C code)
-	Mod_LoadVertexes( lumps[ LUMP_VERTEXES ].fileofs, lumps[ LUMP_VERTEXES ].filelen );
-	Mod_LoadEdges( lumps[ LUMP_EDGES ].fileofs, lumps[ LUMP_EDGES ].filelen, bsp2 );
-	Mod_LoadSurfedges( lumps[ LUMP_SURFEDGES ].fileofs, lumps[ LUMP_SURFEDGES ].filelen );
-	Mod_LoadTextures( lumps[ LUMP_TEXTURES ].fileofs, lumps[ LUMP_TEXTURES ].filelen );
-	Mod_LoadLighting( lumps[ LUMP_LIGHTING ].fileofs, lumps[ LUMP_LIGHTING ].filelen );
-	Mod_LoadPlanes( lumps[ LUMP_PLANES ].fileofs, lumps[ LUMP_PLANES ].filelen );
-	Mod_LoadTexinfo( lumps[ LUMP_TEXINFO ].fileofs, lumps[ LUMP_TEXINFO ].filelen );
-	Mod_LoadFaces( lumps[ LUMP_FACES ].fileofs, lumps[ LUMP_FACES ].filelen, bsp2 );
-	Mod_LoadMarksurfaces( lumps[ LUMP_MARKSURFACES ].fileofs, lumps[ LUMP_MARKSURFACES ].filelen, bsp2 );
-	Mod_LoadVisibility( lumps[ LUMP_VISIBILITY ].fileofs, lumps[ LUMP_VISIBILITY ].filelen );
-	Mod_LoadLeafs( lumps[ LUMP_LEAFS ].fileofs, lumps[ LUMP_LEAFS ].filelen, bsp2 );
-	Mod_LoadNodes( lumps[ LUMP_NODES ].fileofs, lumps[ LUMP_NODES ].filelen, bsp2 );
-	Mod_LoadClipnodes( lumps[ LUMP_CLIPNODES ].fileofs, lumps[ LUMP_CLIPNODES ].filelen, bsp2 );
-	Mod_LoadEntities( lumps[ LUMP_ENTITIES ].fileofs, lumps[ LUMP_ENTITIES ].filelen );
-	Mod_LoadSubmodels( lumps[ LUMP_MODELS ].fileofs, lumps[ LUMP_MODELS ].filelen );
+  Mod_CheckWaterVis();
 
-	Mod_MakeHull0();
+  //
+  // set up the submodels (FIXME: this is confusing)
+  //
+  for (let i = 0; i < mod.numsubmodels; i++) {
+    const bm = mod.submodels[i];
 
-	mod.numframes = 2;		// regular and alternate animation
+    mod.hulls[0].firstclipnode = bm.headnode[0];
+    for (let j = 1; j < MAX_MAP_HULLS; j++) {
+      mod.hulls[j].firstclipnode = bm.headnode[j];
+      mod.hulls[j].lastclipnode = mod.numclipnodes - 1;
+    }
 
-	Mod_CheckWaterVis();
+    mod.firstmodelsurface = bm.firstface;
+    mod.nummodelsurfaces = bm.numfaces;
 
-	//
-	// set up the submodels (FIXME: this is confusing)
-	//
-	for ( let i = 0; i < mod.numsubmodels; i ++ ) {
+    VectorCopy(bm.maxs, mod.maxs);
+    VectorCopy(bm.mins, mod.mins);
 
-		const bm = mod.submodels[ i ];
+    mod.radius = RadiusFromBounds(mod.mins, mod.maxs);
 
-		mod.hulls[ 0 ].firstclipnode = bm.headnode[ 0 ];
-		for ( let j = 1; j < MAX_MAP_HULLS; j ++ ) {
+    mod.numleafs = bm.visleafs;
 
-			mod.hulls[ j ].firstclipnode = bm.headnode[ j ];
-			mod.hulls[ j ].lastclipnode = mod.numclipnodes - 1;
+    if (i < mod.numsubmodels - 1) {
+      // duplicate the basic information
+      const name = "*" + (i + 1);
+      const nextmodel = Mod_FindName(name);
 
-		}
+      // Copy all properties
+      nextmodel.type = mod.type;
+      nextmodel.contentstransparent = mod.contentstransparent; // C copies the whole struct
+      nextmodel.numframes = mod.numframes;
+      nextmodel.synctype = mod.synctype;
+      nextmodel.flags = mod.flags;
+      VectorCopy(mod.mins, nextmodel.mins);
+      VectorCopy(mod.maxs, nextmodel.maxs);
+      nextmodel.radius = mod.radius;
+      nextmodel.clipbox = mod.clipbox;
+      VectorCopy(mod.clipmins, nextmodel.clipmins);
+      VectorCopy(mod.clipmaxs, nextmodel.clipmaxs);
+      nextmodel.firstmodelsurface = mod.firstmodelsurface;
+      nextmodel.nummodelsurfaces = mod.nummodelsurfaces;
+      nextmodel.numsubmodels = mod.numsubmodels;
+      nextmodel.submodels = mod.submodels;
+      nextmodel.numplanes = mod.numplanes;
+      nextmodel.planes = mod.planes;
+      nextmodel.numleafs = mod.numleafs;
+      nextmodel.leafs = mod.leafs;
+      nextmodel.numvertexes = mod.numvertexes;
+      nextmodel.vertexes = mod.vertexes;
+      nextmodel.numedges = mod.numedges;
+      nextmodel.edges = mod.edges;
+      nextmodel.numnodes = mod.numnodes;
+      nextmodel.nodes = mod.nodes;
+      nextmodel.numtexinfo = mod.numtexinfo;
+      nextmodel.texinfo = mod.texinfo;
+      nextmodel.numsurfaces = mod.numsurfaces;
+      nextmodel.surfaces = mod.surfaces;
+      nextmodel.numsurfedges = mod.numsurfedges;
+      nextmodel.surfedges = mod.surfedges;
+      nextmodel.numclipnodes = mod.numclipnodes;
+      nextmodel.clipnodes = mod.clipnodes;
+      nextmodel.nummarksurfaces = mod.nummarksurfaces;
+      nextmodel.marksurfaces = mod.marksurfaces;
+      for (let h = 0; h < MAX_MAP_HULLS; h++) {
+        nextmodel.hulls[h].clipnodes = mod.hulls[h].clipnodes;
+        nextmodel.hulls[h].planes = mod.hulls[h].planes;
+        nextmodel.hulls[h].firstclipnode = mod.hulls[h].firstclipnode;
+        nextmodel.hulls[h].lastclipnode = mod.hulls[h].lastclipnode;
+        VectorCopy(mod.hulls[h].clip_mins, nextmodel.hulls[h].clip_mins);
+        VectorCopy(mod.hulls[h].clip_maxs, nextmodel.hulls[h].clip_maxs);
+      }
 
-		mod.firstmodelsurface = bm.firstface;
-		mod.nummodelsurfaces = bm.numfaces;
+      nextmodel.numtextures = mod.numtextures;
+      nextmodel.textures = mod.textures;
+      nextmodel.visdata = mod.visdata;
+      nextmodel.lightdata = mod.lightdata;
+      nextmodel.litfile = mod.litfile;
+      nextmodel.entities = mod.entities;
+      nextmodel.needload = false;
 
-		VectorCopy( bm.maxs, mod.maxs );
-		VectorCopy( bm.mins, mod.mins );
-
-		mod.radius = RadiusFromBounds( mod.mins, mod.maxs );
-
-		mod.numleafs = bm.visleafs;
-
-		if ( i < mod.numsubmodels - 1 ) {
-
-			// duplicate the basic information
-			const name = '*' + ( i + 1 );
-			const nextmodel = Mod_FindName( name );
-
-			// Copy all properties
-			nextmodel.type = mod.type;
-			nextmodel.contentstransparent = mod.contentstransparent;	// C copies the whole struct
-			nextmodel.numframes = mod.numframes;
-			nextmodel.synctype = mod.synctype;
-			nextmodel.flags = mod.flags;
-			VectorCopy( mod.mins, nextmodel.mins );
-			VectorCopy( mod.maxs, nextmodel.maxs );
-			nextmodel.radius = mod.radius;
-			nextmodel.clipbox = mod.clipbox;
-			VectorCopy( mod.clipmins, nextmodel.clipmins );
-			VectorCopy( mod.clipmaxs, nextmodel.clipmaxs );
-			nextmodel.firstmodelsurface = mod.firstmodelsurface;
-			nextmodel.nummodelsurfaces = mod.nummodelsurfaces;
-			nextmodel.numsubmodels = mod.numsubmodels;
-			nextmodel.submodels = mod.submodels;
-			nextmodel.numplanes = mod.numplanes;
-			nextmodel.planes = mod.planes;
-			nextmodel.numleafs = mod.numleafs;
-			nextmodel.leafs = mod.leafs;
-			nextmodel.numvertexes = mod.numvertexes;
-			nextmodel.vertexes = mod.vertexes;
-			nextmodel.numedges = mod.numedges;
-			nextmodel.edges = mod.edges;
-			nextmodel.numnodes = mod.numnodes;
-			nextmodel.nodes = mod.nodes;
-			nextmodel.numtexinfo = mod.numtexinfo;
-			nextmodel.texinfo = mod.texinfo;
-			nextmodel.numsurfaces = mod.numsurfaces;
-			nextmodel.surfaces = mod.surfaces;
-			nextmodel.numsurfedges = mod.numsurfedges;
-			nextmodel.surfedges = mod.surfedges;
-			nextmodel.numclipnodes = mod.numclipnodes;
-			nextmodel.clipnodes = mod.clipnodes;
-			nextmodel.nummarksurfaces = mod.nummarksurfaces;
-			nextmodel.marksurfaces = mod.marksurfaces;
-			for ( let h = 0; h < MAX_MAP_HULLS; h ++ ) {
-
-				nextmodel.hulls[ h ].clipnodes = mod.hulls[ h ].clipnodes;
-				nextmodel.hulls[ h ].planes = mod.hulls[ h ].planes;
-				nextmodel.hulls[ h ].firstclipnode = mod.hulls[ h ].firstclipnode;
-				nextmodel.hulls[ h ].lastclipnode = mod.hulls[ h ].lastclipnode;
-				VectorCopy( mod.hulls[ h ].clip_mins, nextmodel.hulls[ h ].clip_mins );
-				VectorCopy( mod.hulls[ h ].clip_maxs, nextmodel.hulls[ h ].clip_maxs );
-
-			}
-
-			nextmodel.numtextures = mod.numtextures;
-			nextmodel.textures = mod.textures;
-			nextmodel.visdata = mod.visdata;
-			nextmodel.lightdata = mod.lightdata;
-			nextmodel.litfile = mod.litfile;
-			nextmodel.entities = mod.entities;
-			nextmodel.needload = false;
-
-			nextmodel.name = name;
-			loadmodel = nextmodel;
-			mod = nextmodel;
-
-		}
-
-	}
-
+      nextmodel.name = name;
+      loadmodel = nextmodel;
+      mod = nextmodel;
+    }
+  }
 }
 
 // ============================================================================
@@ -3003,88 +2857,84 @@ function Mod_LoadBrushModel( mod, buffer ) {
 // Mod_LoadAliasFrame
 // ============================================================================
 
-function Mod_LoadAliasFrame( buf, offset, frame ) {
+function Mod_LoadAliasFrame(buf, offset, frame) {
+  // daliasframe_t: bboxmin (4 bytes), bboxmax (4 bytes), name (16 bytes) = 24 bytes
+  const bytes = new Uint8Array(buf, offset);
+  frame.bboxmin.v[0] = bytes[0];
+  frame.bboxmin.v[1] = bytes[1];
+  frame.bboxmin.v[2] = bytes[2];
+  frame.bboxmax.v[0] = bytes[4];
+  frame.bboxmax.v[1] = bytes[5];
+  frame.bboxmax.v[2] = bytes[6];
 
-	// daliasframe_t: bboxmin (4 bytes), bboxmax (4 bytes), name (16 bytes) = 24 bytes
-	const bytes = new Uint8Array( buf, offset );
-	frame.bboxmin.v[ 0 ] = bytes[ 0 ];
-	frame.bboxmin.v[ 1 ] = bytes[ 1 ];
-	frame.bboxmin.v[ 2 ] = bytes[ 2 ];
-	frame.bboxmax.v[ 0 ] = bytes[ 4 ];
-	frame.bboxmax.v[ 1 ] = bytes[ 5 ];
-	frame.bboxmax.v[ 2 ] = bytes[ 6 ];
+  frame.name = readString(new Uint8Array(buf), offset + 8, 16);
 
-	frame.name = readString( new Uint8Array( buf ), offset + 8, 16 );
+  frame.firstpose = posenum;
+  frame.numposes = 1;
 
-	frame.firstpose = posenum;
-	frame.numposes = 1;
+  // Deliberate deviation (QuakeSpasm): the C has no check
+  if (posenum >= MAXALIASFRAMES) {
+    Sys_Error("posenum >= MAXALIASFRAMES");
+  }
 
-	// Deliberate deviation (QuakeSpasm): the C has no check
-	if ( posenum >= MAXALIASFRAMES )
-		Sys_Error( 'posenum >= MAXALIASFRAMES' );
+  // trivertx_t data follows the header
+  const SIZEOF_DALIASFRAME = 24; // bboxmin(4) + bboxmax(4) + name(16)
+  const pinframe = offset + SIZEOF_DALIASFRAME;
 
-	// trivertx_t data follows the header
-	const SIZEOF_DALIASFRAME = 24; // bboxmin(4) + bboxmax(4) + name(16)
-	const pinframe = offset + SIZEOF_DALIASFRAME;
+  poseverts[posenum] = { buffer: buf, offset: pinframe };
+  posenum++;
 
-	poseverts[ posenum ] = { buffer: buf, offset: pinframe };
-	posenum ++;
-
-	const SIZEOF_TRIVERTX = 4;		// v[3] + lightnormalindex
-	return pinframe + pheader.numverts * SIZEOF_TRIVERTX;
-
+  const SIZEOF_TRIVERTX = 4; // v[3] + lightnormalindex
+  return pinframe + pheader.numverts * SIZEOF_TRIVERTX;
 }
 
 // ============================================================================
 // Mod_LoadAliasGroup
 // ============================================================================
 
-function Mod_LoadAliasGroup( buf, offset, frame ) {
+function Mod_LoadAliasGroup(buf, offset, frame) {
+  const view = new DataView(buf, offset);
 
-	const view = new DataView( buf, offset );
+  // daliasgroup_t: int numframes, trivertx_t bboxmin, trivertx_t bboxmax = 12 bytes
+  const numframes = view.getInt32(0, true);
 
-	// daliasgroup_t: int numframes, trivertx_t bboxmin, trivertx_t bboxmax = 12 bytes
-	const numframes = view.getInt32( 0, true );
+  frame.firstpose = posenum;
+  frame.numposes = numframes;
 
-	frame.firstpose = posenum;
-	frame.numposes = numframes;
+  const bytes = new Uint8Array(buf, offset);
+  frame.bboxmin.v[0] = bytes[4];
+  frame.bboxmin.v[1] = bytes[5];
+  frame.bboxmin.v[2] = bytes[6];
+  frame.bboxmax.v[0] = bytes[8];
+  frame.bboxmax.v[1] = bytes[9];
+  frame.bboxmax.v[2] = bytes[10];
 
-	const bytes = new Uint8Array( buf, offset );
-	frame.bboxmin.v[ 0 ] = bytes[ 4 ];
-	frame.bboxmin.v[ 1 ] = bytes[ 5 ];
-	frame.bboxmin.v[ 2 ] = bytes[ 6 ];
-	frame.bboxmax.v[ 0 ] = bytes[ 8 ];
-	frame.bboxmax.v[ 1 ] = bytes[ 9 ];
-	frame.bboxmax.v[ 2 ] = bytes[ 10 ];
+  const SIZEOF_DALIASGROUP = 12;
+  const SIZEOF_DALIASINTERVAL = 4; // float interval
 
-	const SIZEOF_DALIASGROUP = 12;
-	const SIZEOF_DALIASINTERVAL = 4;		// float interval
+  // Read interval from first interval
+  const intervalView = new DataView(buf, offset + SIZEOF_DALIASGROUP);
+  frame.interval = intervalView.getFloat32(0, true);
 
-	// Read interval from first interval
-	const intervalView = new DataView( buf, offset + SIZEOF_DALIASGROUP );
-	frame.interval = intervalView.getFloat32( 0, true );
+  // Skip past all intervals
+  let ptemp = offset + SIZEOF_DALIASGROUP + numframes * SIZEOF_DALIASINTERVAL;
 
-	// Skip past all intervals
-	let ptemp = offset + SIZEOF_DALIASGROUP + numframes * SIZEOF_DALIASINTERVAL;
+  const SIZEOF_DALIASFRAME = 24;
+  const SIZEOF_TRIVERTX = 4;
 
-	const SIZEOF_DALIASFRAME = 24;
-	const SIZEOF_TRIVERTX = 4;
+  for (let i = 0; i < numframes; i++) {
+    // Deliberate deviation (QuakeSpasm): the C has no check
+    if (posenum >= MAXALIASFRAMES) {
+      Sys_Error("posenum >= MAXALIASFRAMES");
+    }
 
-	for ( let i = 0; i < numframes; i ++ ) {
+    poseverts[posenum] = { buffer: buf, offset: ptemp + SIZEOF_DALIASFRAME };
+    posenum++;
 
-		// Deliberate deviation (QuakeSpasm): the C has no check
-		if ( posenum >= MAXALIASFRAMES )
-			Sys_Error( 'posenum >= MAXALIASFRAMES' );
+    ptemp = ptemp + SIZEOF_DALIASFRAME + pheader.numverts * SIZEOF_TRIVERTX;
+  }
 
-		poseverts[ posenum ] = { buffer: buf, offset: ptemp + SIZEOF_DALIASFRAME };
-		posenum ++;
-
-		ptemp = ptemp + SIZEOF_DALIASFRAME + pheader.numverts * SIZEOF_TRIVERTX;
-
-	}
-
-	return ptemp;
-
+  return ptemp;
 }
 
 // ============================================================================
@@ -3093,109 +2943,82 @@ function Mod_LoadAliasGroup( buf, offset, frame ) {
 // Fill background pixels so mipmapping doesn't have haloes - Ed
 // ============================================================================
 
-function Mod_FloodFillSkin( skin, skinwidth, skinheight ) {
+function Mod_FloodFillSkin(skin, skinwidth, skinheight) {
+  const fillcolor = skin[0];
+  const FLOODFILL_FIFO_SIZE = 0x1000;
+  const FLOODFILL_FIFO_MASK = FLOODFILL_FIFO_SIZE - 1;
 
-	const fillcolor = skin[ 0 ];
-	const FLOODFILL_FIFO_SIZE = 0x1000;
-	const FLOODFILL_FIFO_MASK = FLOODFILL_FIFO_SIZE - 1;
+  const fifo_x = new Int16Array(FLOODFILL_FIFO_SIZE);
+  const fifo_y = new Int16Array(FLOODFILL_FIFO_SIZE);
+  let inpt = 0, outpt = 0;
 
-	const fifo_x = new Int16Array( FLOODFILL_FIFO_SIZE );
-	const fifo_y = new Int16Array( FLOODFILL_FIFO_SIZE );
-	let inpt = 0, outpt = 0;
+  const filledcolor = 0;
+  // attempt to find opaque black (simplified; Quake uses d_8to24table)
+  // For now just use 0
 
-	const filledcolor = 0;
-	// attempt to find opaque black (simplified; Quake uses d_8to24table)
-	// For now just use 0
+  if (fillcolor === filledcolor || fillcolor === 255) {
+    return;
+  }
 
-	if ( fillcolor === filledcolor || fillcolor === 255 )
-		return;
+  fifo_x[inpt] = 0;
+  fifo_y[inpt] = 0;
+  inpt = (inpt + 1) & FLOODFILL_FIFO_MASK;
 
-	fifo_x[ inpt ] = 0;
-	fifo_y[ inpt ] = 0;
-	inpt = ( inpt + 1 ) & FLOODFILL_FIFO_MASK;
+  while (outpt !== inpt) {
+    const x = fifo_x[outpt];
+    const y = fifo_y[outpt];
+    let fdc = filledcolor;
+    const posOfs = x + skinwidth * y;
 
-	while ( outpt !== inpt ) {
+    outpt = (outpt + 1) & FLOODFILL_FIFO_MASK;
 
-		const x = fifo_x[ outpt ];
-		const y = fifo_y[ outpt ];
-		let fdc = filledcolor;
-		const posOfs = x + skinwidth * y;
+    // FLOODFILL_STEP macro equivalent for each direction
+    if (x > 0) {
+      if (skin[posOfs - 1] === fillcolor) {
+        skin[posOfs - 1] = 255;
+        fifo_x[inpt] = x - 1;
+        fifo_y[inpt] = y;
+        inpt = (inpt + 1) & FLOODFILL_FIFO_MASK;
+      } else if (skin[posOfs - 1] !== 255) {
+        fdc = skin[posOfs - 1];
+      }
+    }
 
-		outpt = ( outpt + 1 ) & FLOODFILL_FIFO_MASK;
+    if (x < skinwidth - 1) {
+      if (skin[posOfs + 1] === fillcolor) {
+        skin[posOfs + 1] = 255;
+        fifo_x[inpt] = x + 1;
+        fifo_y[inpt] = y;
+        inpt = (inpt + 1) & FLOODFILL_FIFO_MASK;
+      } else if (skin[posOfs + 1] !== 255) {
+        fdc = skin[posOfs + 1];
+      }
+    }
 
-		// FLOODFILL_STEP macro equivalent for each direction
-		if ( x > 0 ) {
+    if (y > 0) {
+      if (skin[posOfs - skinwidth] === fillcolor) {
+        skin[posOfs - skinwidth] = 255;
+        fifo_x[inpt] = x;
+        fifo_y[inpt] = y - 1;
+        inpt = (inpt + 1) & FLOODFILL_FIFO_MASK;
+      } else if (skin[posOfs - skinwidth] !== 255) {
+        fdc = skin[posOfs - skinwidth];
+      }
+    }
 
-			if ( skin[ posOfs - 1 ] === fillcolor ) {
+    if (y < skinheight - 1) {
+      if (skin[posOfs + skinwidth] === fillcolor) {
+        skin[posOfs + skinwidth] = 255;
+        fifo_x[inpt] = x;
+        fifo_y[inpt] = y + 1;
+        inpt = (inpt + 1) & FLOODFILL_FIFO_MASK;
+      } else if (skin[posOfs + skinwidth] !== 255) {
+        fdc = skin[posOfs + skinwidth];
+      }
+    }
 
-				skin[ posOfs - 1 ] = 255;
-				fifo_x[ inpt ] = x - 1;
-				fifo_y[ inpt ] = y;
-				inpt = ( inpt + 1 ) & FLOODFILL_FIFO_MASK;
-
-			} else if ( skin[ posOfs - 1 ] !== 255 ) {
-
-				fdc = skin[ posOfs - 1 ];
-
-			}
-
-		}
-
-		if ( x < skinwidth - 1 ) {
-
-			if ( skin[ posOfs + 1 ] === fillcolor ) {
-
-				skin[ posOfs + 1 ] = 255;
-				fifo_x[ inpt ] = x + 1;
-				fifo_y[ inpt ] = y;
-				inpt = ( inpt + 1 ) & FLOODFILL_FIFO_MASK;
-
-			} else if ( skin[ posOfs + 1 ] !== 255 ) {
-
-				fdc = skin[ posOfs + 1 ];
-
-			}
-
-		}
-
-		if ( y > 0 ) {
-
-			if ( skin[ posOfs - skinwidth ] === fillcolor ) {
-
-				skin[ posOfs - skinwidth ] = 255;
-				fifo_x[ inpt ] = x;
-				fifo_y[ inpt ] = y - 1;
-				inpt = ( inpt + 1 ) & FLOODFILL_FIFO_MASK;
-
-			} else if ( skin[ posOfs - skinwidth ] !== 255 ) {
-
-				fdc = skin[ posOfs - skinwidth ];
-
-			}
-
-		}
-
-		if ( y < skinheight - 1 ) {
-
-			if ( skin[ posOfs + skinwidth ] === fillcolor ) {
-
-				skin[ posOfs + skinwidth ] = 255;
-				fifo_x[ inpt ] = x;
-				fifo_y[ inpt ] = y + 1;
-				inpt = ( inpt + 1 ) & FLOODFILL_FIFO_MASK;
-
-			} else if ( skin[ posOfs + skinwidth ] !== 255 ) {
-
-				fdc = skin[ posOfs + skinwidth ];
-
-			}
-
-		}
-
-		skin[ x + skinwidth * y ] = fdc;
-
-	}
-
+    skin[x + skinwidth * y] = fdc;
+  }
 }
 
 // ============================================================================
@@ -3205,312 +3028,323 @@ function Mod_FloodFillSkin( skin, skinwidth, skinheight ) {
 // Deliberate deviation (QuakeSpasm, gl_fullbrights 1): GLQuake has no
 // fullbright pass on alias models, so glowing eyes and lights went dark in
 // shade. Each skin also gets a fullbright mask (gl_mesh.js AliasMaterial).
-function Mod_LoadAllSkins( buf, numskins, offset ) {
+function Mod_LoadAllSkins(buf, numskins, offset) {
+  if (numskins < 1 || numskins > MAX_SKINS) {
+    Sys_Error("Mod_LoadAliasModel: Invalid # of skins: " + numskins);
+  }
 
-	if ( numskins < 1 || numskins > MAX_SKINS )
-		Sys_Error( 'Mod_LoadAliasModel: Invalid # of skins: ' + numskins );
+  const s = pheader.skinwidth * pheader.skinheight;
+  const SIZEOF_DALIASSKINTYPE = 4; // int type
+  // no palette (the Deno server never runs VID_Init): no masks to make
+  const splitFullbright = vid.fullbright > 0;
+  // MF_HOLEY (QuakeSpasm/Ironwail TEXPREF_ALPHA): index 255 is transparent;
+  // gl_mesh.js alpha-tests these skins
+  const holey = (loadmodel.flags & MF_HOLEY) !== 0;
 
-	const s = pheader.skinwidth * pheader.skinheight;
-	const SIZEOF_DALIASSKINTYPE = 4; // int type
-	// no palette (the Deno server never runs VID_Init): no masks to make
-	const splitFullbright = vid.fullbright > 0;
-	// MF_HOLEY (QuakeSpasm/Ironwail TEXPREF_ALPHA): index 255 is transparent;
-	// gl_mesh.js alpha-tests these skins
-	const holey = ( loadmodel.flags & MF_HOLEY ) !== 0;
+  let pos = offset;
 
-	let pos = offset;
+  for (let i = 0; i < numskins; i++) {
+    const view = new DataView(buf, pos);
+    const skintype = view.getInt32(0, true);
 
-	for ( let i = 0; i < numskins; i ++ ) {
+    if (skintype === ALIAS_SKIN_SINGLE) {
+      // Skin data starts after the type int
+      const skinDataOfs = pos + SIZEOF_DALIASSKINTYPE;
+      const skin = new Uint8Array(buf, skinDataOfs, s);
 
-		const view = new DataView( buf, pos );
-		const skintype = view.getInt32( 0, true );
+      // a dedicated server never draws or remaps a skin
+      if (cls.state !== ca_dedicated) {
+        Mod_FloodFillSkin(skin, pheader.skinwidth, pheader.skinheight);
 
-		if ( skintype === ALIAS_SKIN_SINGLE ) {
+        // Save 8 bit texels for player model remapping
+        pheader.texels[i] = new Uint8Array(s);
+        pheader.texels[i].set(skin);
+      }
 
-			// Skin data starts after the type int
-			const skinDataOfs = pos + SIZEOF_DALIASSKINTYPE;
-			const skin = new Uint8Array( buf, skinDataOfs, s );
+      const name = loadmodel.name + "_" + i;
+      pheader.gl_texturenum[i][0] =
+        pheader.gl_texturenum[i][1] =
+        pheader.gl_texturenum[i][2] =
+        pheader.gl_texturenum[i][3] =
+          GL_LoadTexture(
+            name,
+            pheader.skinwidth,
+            pheader.skinheight,
+            skin,
+            true,
+            holey,
+            splitFullbright,
+            true,
+          );
 
-			// a dedicated server never draws or remaps a skin
-			if ( cls.state !== ca_dedicated ) {
+      pos = skinDataOfs + s;
+    } else {
+      // animating skin group
+      pos += SIZEOF_DALIASSKINTYPE;
+      const groupView = new DataView(buf, pos);
+      const groupskins = groupView.getInt32(0, true); // daliasskingroup_t.numskins
+      const SIZEOF_DALIASSKINGROUP = 4;
+      const SIZEOF_DALIASSKININTERVAL = 4;
 
-				Mod_FloodFillSkin( skin, pheader.skinwidth, pheader.skinheight );
+      pos += SIZEOF_DALIASSKINGROUP + groupskins * SIZEOF_DALIASSKININTERVAL;
 
-				// Save 8 bit texels for player model remapping
-				pheader.texels[ i ] = new Uint8Array( s );
-				pheader.texels[ i ].set( skin );
+      for (let j = 0; j < groupskins; j++) {
+        const skin = new Uint8Array(buf, pos, s);
+        if (cls.state !== ca_dedicated) {
+          Mod_FloodFillSkin(skin, pheader.skinwidth, pheader.skinheight);
+        }
 
-			}
+        if (j === 0 && cls.state !== ca_dedicated) {
+          pheader.texels[i] = new Uint8Array(s);
+          pheader.texels[i].set(skin);
+        }
 
-			const name = loadmodel.name + '_' + i;
-			pheader.gl_texturenum[ i ][ 0 ] =
-			pheader.gl_texturenum[ i ][ 1 ] =
-			pheader.gl_texturenum[ i ][ 2 ] =
-			pheader.gl_texturenum[ i ][ 3 ] =
-				GL_LoadTexture( name, pheader.skinwidth, pheader.skinheight, skin, true, holey, splitFullbright, true );
+        const name = loadmodel.name + "_" + i + "_" + j;
+        pheader.gl_texturenum[i][j & 3] = GL_LoadTexture(
+          name,
+          pheader.skinwidth,
+          pheader.skinheight,
+          skin,
+          true,
+          holey,
+          splitFullbright,
+          true,
+        );
 
-			pos = skinDataOfs + s;
+        pos += s;
+      }
 
-		} else {
+      // fill remaining texture slots
+      for (let j = groupskins; j < 4; j++) {
+        pheader.gl_texturenum[i][j & 3] =
+          pheader.gl_texturenum[i][j - groupskins];
+      }
+    }
+  }
 
-			// animating skin group
-			pos += SIZEOF_DALIASSKINTYPE;
-			const groupView = new DataView( buf, pos );
-			const groupskins = groupView.getInt32( 0, true ); // daliasskingroup_t.numskins
-			const SIZEOF_DALIASSKINGROUP = 4;
-			const SIZEOF_DALIASSKININTERVAL = 4;
-
-			pos += SIZEOF_DALIASSKINGROUP + groupskins * SIZEOF_DALIASSKININTERVAL;
-
-			for ( let j = 0; j < groupskins; j ++ ) {
-
-				const skin = new Uint8Array( buf, pos, s );
-				if ( cls.state !== ca_dedicated )
-					Mod_FloodFillSkin( skin, pheader.skinwidth, pheader.skinheight );
-
-				if ( j === 0 && cls.state !== ca_dedicated ) {
-
-					pheader.texels[ i ] = new Uint8Array( s );
-					pheader.texels[ i ].set( skin );
-
-				}
-
-				const name = loadmodel.name + '_' + i + '_' + j;
-				pheader.gl_texturenum[ i ][ j & 3 ] =
-					GL_LoadTexture( name, pheader.skinwidth, pheader.skinheight, skin, true, holey, splitFullbright, true );
-
-				pos += s;
-
-			}
-
-			// fill remaining texture slots
-			for ( let j = groupskins; j < 4; j ++ )
-				pheader.gl_texturenum[ i ][ j & 3 ] = pheader.gl_texturenum[ i ][ j - groupskins ];
-
-		}
-
-	}
-
-	return pos;
-
+  return pos;
 }
 
 // ============================================================================
 // Mod_LoadAliasModel
 // ============================================================================
 
-function Mod_LoadAliasModel( mod, buffer ) {
+function Mod_LoadAliasModel(mod, buffer) {
+  const view = new DataView(buffer);
 
-	const view = new DataView( buffer );
+  // mdl_t header
+  const version = view.getInt32(4, true);
+  if (version !== ALIAS_VERSION) {
+    Sys_Error(
+      mod.name + " has wrong version number (" + version + " should be " +
+        ALIAS_VERSION + ")",
+    );
+  }
 
-	// mdl_t header
-	const version = view.getInt32( 4, true );
-	if ( version !== ALIAS_VERSION )
-		Sys_Error( mod.name + ' has wrong version number (' + version + ' should be ' + ALIAS_VERSION + ')' );
+  const numframes = view.getInt32(68, true); // offset of numframes in mdl_t
 
-	const numframes = view.getInt32( 68, true ); // offset of numframes in mdl_t
+  // Allocate header
+  pheader = new aliashdr_t();
+  pheader.frames = [];
 
-	// Allocate header
-	pheader = new aliashdr_t();
-	pheader.frames = [];
+  for (let i = 0; i < numframes; i++) {
+    pheader.frames[i] = new maliasframedesc_t();
+  }
 
-	for ( let i = 0; i < numframes; i ++ )
-		pheader.frames[ i ] = new maliasframedesc_t();
+  mod.flags = view.getInt32(72, true);
 
-	mod.flags = view.getInt32( 72, true );
+  // Copy header data from mdl_t
+  // mdl_t layout: ident(4), version(4), scale(12), scale_origin(12), boundingradius(4),
+  // eyeposition(12), numskins(4), skinwidth(4), skinheight(4), numverts(4), numtris(4),
+  // numframes(4), synctype(4), flags(4), size(4) = total 84 bytes
+  pheader.boundingradius = view.getFloat32(32, true);
 
-	// Copy header data from mdl_t
-	// mdl_t layout: ident(4), version(4), scale(12), scale_origin(12), boundingradius(4),
-	// eyeposition(12), numskins(4), skinwidth(4), skinheight(4), numverts(4), numtris(4),
-	// numframes(4), synctype(4), flags(4), size(4) = total 84 bytes
-	pheader.boundingradius = view.getFloat32( 32, true );
+  // mdl_t offsets:
+  // int ident = 0
+  // int version = 4
+  // vec3_t scale = 8, 12, 16
+  // vec3_t scale_origin = 20, 24, 28
+  // float boundingradius = 32
+  // vec3_t eyeposition = 36, 40, 44
+  // int numskins = 48
+  // int skinwidth = 52
+  // int skinheight = 56
+  // int numverts = 60
+  // int numtris = 64
+  // int numframes = 68
+  // synctype_t synctype = 72
+  // int flags = 76
+  // float size = 80
+  // total = 84
 
-	// mdl_t offsets:
-	// int ident = 0
-	// int version = 4
-	// vec3_t scale = 8, 12, 16
-	// vec3_t scale_origin = 20, 24, 28
-	// float boundingradius = 32
-	// vec3_t eyeposition = 36, 40, 44
-	// int numskins = 48
-	// int skinwidth = 52
-	// int skinheight = 56
-	// int numverts = 60
-	// int numtris = 64
-	// int numframes = 68
-	// synctype_t synctype = 72
-	// int flags = 76
-	// float size = 80
-	// total = 84
+  pheader.numskins = view.getInt32(48, true);
+  pheader.skinwidth = view.getInt32(52, true);
+  pheader.skinheight = view.getInt32(56, true);
+  pheader.numverts = view.getInt32(60, true);
+  pheader.numtris = view.getInt32(64, true);
+  pheader.numframes = view.getInt32(68, true);
 
-	pheader.numskins = view.getInt32( 48, true );
-	pheader.skinwidth = view.getInt32( 52, true );
-	pheader.skinheight = view.getInt32( 56, true );
-	pheader.numverts = view.getInt32( 60, true );
-	pheader.numtris = view.getInt32( 64, true );
-	pheader.numframes = view.getInt32( 68, true );
+  // Deliberate deviation (QuakeSpasm): a developer warning, not Sys_Error.
+  // No buffer in the port is sized by MAX_LBM_HEIGHT.
+  if (pheader.skinheight > MAX_LBM_HEIGHT) {
+    Con_DPrintf(
+      "model " + mod.name + " has a skin taller than " + MAX_LBM_HEIGHT + "\n",
+    );
+  }
+  if (pheader.numverts <= 0) {
+    Sys_Error("model " + mod.name + " has no vertices");
+  }
+  if (pheader.numverts > MAXALIASVERTS) {
+    Sys_Error("model " + mod.name + " has too many vertices");
+  }
+  if (pheader.numtris <= 0) {
+    Sys_Error("model " + mod.name + " has no triangles");
+  }
+  // Deliberate deviation (QuakeSpasm): the C has no check, and the
+  // triangles array (and gl_mesh.js's BuildTris buffers) hold MAXALIASTRIS
+  if (pheader.numtris > MAXALIASTRIS) {
+    Sys_Error("model " + mod.name + " has too many triangles");
+  }
+  if (pheader.numframes < 1) {
+    Sys_Error("Mod_LoadAliasModel: Invalid # of frames: " + pheader.numframes);
+  }
 
-	// Deliberate deviation (QuakeSpasm): a developer warning, not Sys_Error.
-	// No buffer in the port is sized by MAX_LBM_HEIGHT.
-	if ( pheader.skinheight > MAX_LBM_HEIGHT )
-		Con_DPrintf( 'model ' + mod.name + ' has a skin taller than ' + MAX_LBM_HEIGHT + '\n' );
-	if ( pheader.numverts <= 0 )
-		Sys_Error( 'model ' + mod.name + ' has no vertices' );
-	if ( pheader.numverts > MAXALIASVERTS )
-		Sys_Error( 'model ' + mod.name + ' has too many vertices' );
-	if ( pheader.numtris <= 0 )
-		Sys_Error( 'model ' + mod.name + ' has no triangles' );
-	// Deliberate deviation (QuakeSpasm): the C has no check, and the
-	// triangles array (and gl_mesh.js's BuildTris buffers) hold MAXALIASTRIS
-	if ( pheader.numtris > MAXALIASTRIS )
-		Sys_Error( 'model ' + mod.name + ' has too many triangles' );
-	if ( pheader.numframes < 1 )
-		Sys_Error( 'Mod_LoadAliasModel: Invalid # of frames: ' + pheader.numframes );
+  pheader.size = view.getFloat32(80, true) * ALIAS_BASE_SIZE_RATIO;
+  mod.synctype = view.getInt32(72, true);
+  mod.numframes = pheader.numframes;
+  mod.flags = view.getInt32(76, true);
 
-	pheader.size = view.getFloat32( 80, true ) * ALIAS_BASE_SIZE_RATIO;
-	mod.synctype = view.getInt32( 72, true );
-	mod.numframes = pheader.numframes;
-	mod.flags = view.getInt32( 76, true );
+  for (let i = 0; i < 3; i++) {
+    pheader.scale[i] = view.getFloat32(8 + i * 4, true);
+    pheader.scale_origin[i] = view.getFloat32(20 + i * 4, true);
+    pheader.eyeposition[i] = view.getFloat32(36 + i * 4, true);
+  }
 
-	for ( let i = 0; i < 3; i ++ ) {
+  pheader.boundingradius = view.getFloat32(32, true);
 
-		pheader.scale[ i ] = view.getFloat32( 8 + i * 4, true );
-		pheader.scale_origin[ i ] = view.getFloat32( 20 + i * 4, true );
-		pheader.eyeposition[ i ] = view.getFloat32( 36 + i * 4, true );
+  // Initialize frames array
+  pheader.frames = [];
+  for (let i = 0; i < pheader.numframes; i++) {
+    pheader.frames[i] = new maliasframedesc_t();
+  }
 
-	}
+  //
+  // load the skins
+  //
+  const SIZEOF_MDL = 84;
+  let pos = Mod_LoadAllSkins(buffer, pheader.numskins, SIZEOF_MDL);
 
-	pheader.boundingradius = view.getFloat32( 32, true );
+  //
+  // load base s and t vertices
+  // stvert_t: int onseam, int s, int t = 12 bytes
+  //
+  const SIZEOF_STVERT = 12;
+  for (let i = 0; i < pheader.numverts; i++) {
+    const o = pos + i * SIZEOF_STVERT;
+    stverts[i].onseam = view.getInt32(o, true);
+    stverts[i].s = view.getInt32(o + 4, true);
+    stverts[i].t = view.getInt32(o + 8, true);
+  }
 
-	// Initialize frames array
-	pheader.frames = [];
-	for ( let i = 0; i < pheader.numframes; i ++ )
-		pheader.frames[ i ] = new maliasframedesc_t();
+  pos += pheader.numverts * SIZEOF_STVERT;
 
-	//
-	// load the skins
-	//
-	const SIZEOF_MDL = 84;
-	let pos = Mod_LoadAllSkins( buffer, pheader.numskins, SIZEOF_MDL );
+  //
+  // load triangle lists
+  // dtriangle_t: int facesfront, int vertindex[3] = 16 bytes
+  //
+  const SIZEOF_DTRIANGLE = 16;
+  for (let i = 0; i < pheader.numtris; i++) {
+    const o = pos + i * SIZEOF_DTRIANGLE;
+    triangles[i].facesfront = view.getInt32(o, true);
+    for (let j = 0; j < 3; j++) {
+      triangles[i].vertindex[j] = view.getInt32(o + 4 + j * 4, true);
+    }
+  }
 
-	//
-	// load base s and t vertices
-	// stvert_t: int onseam, int s, int t = 12 bytes
-	//
-	const SIZEOF_STVERT = 12;
-	for ( let i = 0; i < pheader.numverts; i ++ ) {
+  pos += pheader.numtris * SIZEOF_DTRIANGLE;
 
-		const o = pos + i * SIZEOF_STVERT;
-		stverts[ i ].onseam = view.getInt32( o, true );
-		stverts[ i ].s = view.getInt32( o + 4, true );
-		stverts[ i ].t = view.getInt32( o + 8, true );
+  //
+  // load the frames
+  //
+  posenum = 0;
+  const SIZEOF_DALIASFRAMETYPE = 4; // int type
 
-	}
+  for (let i = 0; i < pheader.numframes; i++) {
+    const ftView = new DataView(buffer, pos);
+    const frametype = ftView.getInt32(0, true);
 
-	pos += pheader.numverts * SIZEOF_STVERT;
+    if (frametype === ALIAS_SINGLE) {
+      pos = Mod_LoadAliasFrame(
+        buffer,
+        pos + SIZEOF_DALIASFRAMETYPE,
+        pheader.frames[i],
+      );
+    } else {
+      pos = Mod_LoadAliasGroup(
+        buffer,
+        pos + SIZEOF_DALIASFRAMETYPE,
+        pheader.frames[i],
+      );
+    }
+  }
 
-	//
-	// load triangle lists
-	// dtriangle_t: int facesfront, int vertindex[3] = 16 bytes
-	//
-	const SIZEOF_DTRIANGLE = 16;
-	for ( let i = 0; i < pheader.numtris; i ++ ) {
+  pheader.numposes = posenum;
 
-		const o = pos + i * SIZEOF_DTRIANGLE;
-		triangles[ i ].facesfront = view.getInt32( o, true );
-		for ( let j = 0; j < 3; j ++ )
-			triangles[ i ].vertindex[ j ] = view.getInt32( o + 4 + j * 4, true );
+  mod.type = mod_alias;
 
-	}
+  // FIXME: do this right
+  mod.mins[0] = mod.mins[1] = mod.mins[2] = -16;
+  mod.maxs[0] = mod.maxs[1] = mod.maxs[2] = 16;
 
-	pos += pheader.numtris * SIZEOF_DTRIANGLE;
+  // Not in the C: a dedicated server never draws, and nothing else reads
+  // the decoded vertices or the display lists (posedata, commands and the
+  // cull sphere are renderer data), so it skips building them
+  if (cls.state !== ca_dedicated) {
+    //
+    // Decode poseverts from raw {buffer, offset} into arrays of trivertx_t objects
+    // so that GL_MakeAliasModelDisplayLists can index them
+    //
+    const decodedPoseverts = [];
+    for (let i = 0; i < pheader.numposes; i++) {
+      const pv = poseverts[i];
+      const verts = [];
+      const data = new Uint8Array(pv.buffer);
+      for (let j = 0; j < pheader.numverts; j++) {
+        const off = pv.offset + j * 4; // trivertx_t = 4 bytes: v[3] + lightnormalindex
+        verts.push({
+          v: [data[off], data[off + 1], data[off + 2]],
+          lightnormalindex: data[off + 3],
+        });
+      }
 
-	//
-	// load the frames
-	//
-	posenum = 0;
-	const SIZEOF_DALIASFRAMETYPE = 4; // int type
+      decodedPoseverts.push(verts);
+    }
 
-	for ( let i = 0; i < pheader.numframes; i ++ ) {
+    // Wire up data needed by GL_MakeAliasModelDisplayLists
+    pheader.triangles = triangles;
+    pheader.stverts = stverts;
+    pheader.poseverts = decodedPoseverts;
 
-		const ftView = new DataView( buffer, pos );
-		const frametype = ftView.getInt32( 0, true );
+    //
+    // build the draw lists
+    //
+    GL_MakeAliasModelDisplayLists(mod, pheader);
+  }
 
-		if ( frametype === ALIAS_SINGLE ) {
+  //
+  // move the complete, relocatable alias model to the cache
+  //
+  mod.cache.data = pheader;
 
-			pos = Mod_LoadAliasFrame( buffer, pos + SIZEOF_DALIASFRAMETYPE, pheader.frames[ i ] );
+  Mod_SetExtraFlags(mod); //johnfitz
 
-		} else {
-
-			pos = Mod_LoadAliasGroup( buffer, pos + SIZEOF_DALIASFRAMETYPE, pheader.frames[ i ] );
-
-		}
-
-	}
-
-	pheader.numposes = posenum;
-
-	mod.type = mod_alias;
-
-	// FIXME: do this right
-	mod.mins[ 0 ] = mod.mins[ 1 ] = mod.mins[ 2 ] = - 16;
-	mod.maxs[ 0 ] = mod.maxs[ 1 ] = mod.maxs[ 2 ] = 16;
-
-	// Not in the C: a dedicated server never draws, and nothing else reads
-	// the decoded vertices or the display lists (posedata, commands and the
-	// cull sphere are renderer data), so it skips building them
-	if ( cls.state !== ca_dedicated ) {
-
-		//
-		// Decode poseverts from raw {buffer, offset} into arrays of trivertx_t objects
-		// so that GL_MakeAliasModelDisplayLists can index them
-		//
-		const decodedPoseverts = [];
-		for ( let i = 0; i < pheader.numposes; i ++ ) {
-
-			const pv = poseverts[ i ];
-			const verts = [];
-			const data = new Uint8Array( pv.buffer );
-			for ( let j = 0; j < pheader.numverts; j ++ ) {
-
-				const off = pv.offset + j * 4; // trivertx_t = 4 bytes: v[3] + lightnormalindex
-				verts.push( {
-					v: [ data[ off ], data[ off + 1 ], data[ off + 2 ] ],
-					lightnormalindex: data[ off + 3 ]
-				} );
-
-			}
-
-			decodedPoseverts.push( verts );
-
-		}
-
-		// Wire up data needed by GL_MakeAliasModelDisplayLists
-		pheader.triangles = triangles;
-		pheader.stverts = stverts;
-		pheader.poseverts = decodedPoseverts;
-
-		//
-		// build the draw lists
-		//
-		GL_MakeAliasModelDisplayLists( mod, pheader );
-
-	}
-
-	//
-	// move the complete, relocatable alias model to the cache
-	//
-	mod.cache.data = pheader;
-
-	Mod_SetExtraFlags( mod ); //johnfitz
-
-	// Ironwail: an .md5mesh beside the .mdl replaces it (see
-	// Mod_LoadMD5Replacement for what the .mdl still does)
-	mod.md5state = MD5_UNTRIED;
-	mod.md5hdr = null;
-	if ( r_enhancedmodels.value !== 0 )
-		Mod_LoadMD5Replacement( mod );
-
+  // Ironwail: an .md5mesh beside the .mdl replaces it (see
+  // Mod_LoadMD5Replacement for what the .mdl still does)
+  mod.md5state = MD5_UNTRIED;
+  mod.md5hdr = null;
+  if (r_enhancedmodels.value !== 0) {
+    Mod_LoadMD5Replacement(mod);
+  }
 }
 
 /*
@@ -3527,14 +3361,19 @@ r_enhancedmodels_priority picks between MD3 and MD5; the port has no MD3
 loader, so it is not ported.
 =================
 */
-export const r_enhancedmodels = { name: 'r_enhancedmodels', string: '1', value: 1, archive: true };
+export const r_enhancedmodels = {
+  name: "r_enhancedmodels",
+  string: "1",
+  value: 1,
+  archive: true,
+};
 
 // model_t.md5state
-export const MD5_UNTRIED = 0;	// not looked for yet (r_enhancedmodels was 0)
-export const MD5_PENDING = 1;	// its files are being fetched
-export const MD5_DONE = 2;		// looked for: md5hdr is the model, or null
+export const MD5_UNTRIED = 0; // not looked for yet (r_enhancedmodels was 0)
+export const MD5_PENDING = 1; // its files are being fetched
+export const MD5_DONE = 2; // looked for: md5hdr is the model, or null
 
-const md5decoder = new TextDecoder( 'latin1' );
+const md5decoder = new TextDecoder("latin1");
 
 /*
 =================
@@ -3553,67 +3392,69 @@ are fetched here with COM_EnsureFile, and the .mdl is drawn until they
 arrive. The skins (.lmp) are fetched with the pak.
 =================
 */
-export function Mod_LoadMD5Replacement( mod ) {
+export function Mod_LoadMD5Replacement(mod) {
+  if (mod.md5state !== MD5_UNTRIED) {
+    return;
+  }
+  mod.md5state = MD5_DONE;
+  mod.md5hdr = null;
+  if (cls.state === ca_dedicated) {
+    return;
+  }
 
-	if ( mod.md5state !== MD5_UNTRIED )
-		return;
-	mod.md5state = MD5_DONE;
-	mod.md5hdr = null;
-	if ( cls.state === ca_dedicated )
-		return;
+  const base = COM_StripExtension(mod.name);
+  const meshname = base + ".md5mesh";
+  const animname = base + ".md5anim";
+  const md5_path_id = COM_FileExists(meshname);
+  if (md5_path_id < 0 || md5_path_id < COM_FileExists(mod.name)) {
+    return;
+  }
 
-	const base = COM_StripExtension( mod.name );
-	const meshname = base + '.md5mesh';
-	const animname = base + '.md5anim';
-	const md5_path_id = COM_FileExists( meshname );
-	if ( md5_path_id < 0 || md5_path_id < COM_FileExists( mod.name ) )
-		return;
+  const animExists = COM_FileExists(animname) >= 0;
+  if (
+    COM_FindFile(meshname) === null ||
+    (animExists && COM_FindFile(animname) === null)
+  ) {
+    mod.md5state = MD5_PENDING;
+    Promise.all([
+      COM_EnsureFile(meshname),
+      animExists ? COM_EnsureFile(animname) : true,
+    ]).then(() => {
+      mod.md5state = MD5_DONE;
+      Mod_LoadMD5Files(mod, meshname, animname);
+    }).catch((e) => Con_Printf("Warning: %s: %s\n", meshname, e.message));
+    return;
+  }
 
-	const animExists = COM_FileExists( animname ) >= 0;
-	if ( COM_FindFile( meshname ) === null || ( animExists && COM_FindFile( animname ) === null ) ) {
-
-		mod.md5state = MD5_PENDING;
-		Promise.all( [ COM_EnsureFile( meshname ), animExists ? COM_EnsureFile( animname ) : true ] ).then( () => {
-
-			mod.md5state = MD5_DONE;
-			Mod_LoadMD5Files( mod, meshname, animname );
-
-		} ).catch( ( e ) => Con_Printf( 'Warning: %s: %s\n', meshname, e.message ) );
-		return;
-
-	}
-
-	Mod_LoadMD5Files( mod, meshname, animname );
-
+  Mod_LoadMD5Files(mod, meshname, animname);
 }
 
 // Mod_LoadMD5Replacement once the files are in the search path. A missing
 // .md5anim fails the load as in Ironwail ("has no poses").
-function Mod_LoadMD5Files( mod, meshname, animname ) {
+function Mod_LoadMD5Files(mod, meshname, animname) {
+  const mesh = COM_FindFile(meshname);
+  if (mesh === null) {
+    return;
+  }
+  const anim = COM_FindFile(animname);
 
-	const mesh = COM_FindFile( meshname );
-	if ( mesh === null )
-		return;
-	const anim = COM_FindFile( animname );
+  // GL_LoadTexture gives the skins to loadmodel, which a fetch may have
+  // left on another model
+  const oldloadmodel = loadmodel;
+  loadmodel = mod;
+  try {
+    mod.md5hdr = Mod_LoadMD5MeshModel(
+      mod,
+      md5decoder.decode(mesh.data),
+      anim !== null ? md5decoder.decode(anim.data) : null,
+    );
+  } finally {
+    loadmodel = oldloadmodel;
+  }
 
-	// GL_LoadTexture gives the skins to loadmodel, which a fetch may have
-	// left on another model
-	const oldloadmodel = loadmodel;
-	loadmodel = mod;
-	try {
-
-		mod.md5hdr = Mod_LoadMD5MeshModel( mod, md5decoder.decode( mesh.data ),
-			anim !== null ? md5decoder.decode( anim.data ) : null );
-
-	} finally {
-
-		loadmodel = oldloadmodel;
-
-	}
-
-	if ( mod.md5hdr !== null )
-		Con_DPrintf( '%s replaced by %s\n', mod.name, meshname );
-
+  if (mod.md5hdr !== null) {
+    Con_DPrintf("%s replaced by %s\n", mod.name, meshname);
+  }
 }
 
 /*
@@ -3626,15 +3467,15 @@ r_enhancedmodels on looks for replacements the first time each model is
 drawn.
 =================
 */
-export function Mod_EnhancedAliasHeader( mod ) {
-
-	const hdr = mod.cache.data;
-	if ( r_enhancedmodels.value === 0 || mod.type !== mod_alias )
-		return hdr;
-	if ( mod.md5state === MD5_UNTRIED )
-		Mod_LoadMD5Replacement( mod );
-	return mod.md5hdr != null ? mod.md5hdr : hdr;
-
+export function Mod_EnhancedAliasHeader(mod) {
+  const hdr = mod.cache.data;
+  if (r_enhancedmodels.value === 0 || mod.type !== mod_alias) {
+    return hdr;
+  }
+  if (mod.md5state === MD5_UNTRIED) {
+    Mod_LoadMD5Replacement(mod);
+  }
+  return mod.md5hdr != null ? mod.md5hdr : hdr;
 }
 
 /*
@@ -3645,27 +3486,26 @@ Ported from: QuakeSpasm gl_model.c. Is name one of the comma-separated
 entries in list?
 =================
 */
-export function nameInList( list, name ) {
+export function nameInList(list, name) {
+  let s = 0;
+  while (s < list.length) {
+    // make a copy until the next comma or end of string
+    let e = list.indexOf(",", s);
+    if (e === -1) {
+      e = list.length;
+    }
+    //compare it to the model name
+    if (e - s === name.length && list.startsWith(name, s)) {
+      return true;
+    }
+    //search forwards to the next comma or end of string
+    s = e;
+    while (s < list.length && list.charCodeAt(s) === 44) { // ','
+      s++;
+    }
+  }
 
-	let s = 0;
-	while ( s < list.length ) {
-
-		// make a copy until the next comma or end of string
-		let e = list.indexOf( ',', s );
-		if ( e === - 1 )
-			e = list.length;
-		//compare it to the model name
-		if ( e - s === name.length && list.startsWith( name, s ) )
-			return true;
-		//search forwards to the next comma or end of string
-		s = e;
-		while ( s < list.length && list.charCodeAt( s ) === 44 ) // ','
-			s ++;
-
-	}
-
-	return false;
-
+  return false;
 }
 
 /*
@@ -3679,19 +3519,19 @@ R_SetupAliasFrame reruns it when the list string differs from the one the
 flags were built from.
 =================
 */
-export function Mod_SetExtraFlags( mod ) {
+export function Mod_SetExtraFlags(mod) {
+  if (mod == null || mod.type !== mod_alias) {
+    return;
+  }
 
-	if ( mod == null || mod.type !== mod_alias )
-		return;
+  mod.flags &= ~MOD_NOLERP; // QS keeps the mdl's first byte (plus MF_HOLEY)
 
-	mod.flags &= ~ MOD_NOLERP; // QS keeps the mdl's first byte (plus MF_HOLEY)
+  // nolerp flag
+  if (nameInList(r_nolerp_list.string, mod.name)) {
+    mod.flags |= MOD_NOLERP;
+  }
 
-	// nolerp flag
-	if ( nameInList( r_nolerp_list.string, mod.name ) )
-		mod.flags |= MOD_NOLERP;
-
-	mod.extraflags_list = r_nolerp_list.string;
-
+  mod.extraflags_list = r_nolerp_list.string;
 }
 
 // ============================================================================
@@ -3704,165 +3544,170 @@ export function Mod_SetExtraFlags( mod ) {
 // Mod_LoadSpriteFrame
 // ============================================================================
 
-function Mod_LoadSpriteFrame( buf, offset, framenum ) {
+function Mod_LoadSpriteFrame(buf, offset, framenum) {
+  const view = new DataView(buf, offset);
 
-	const view = new DataView( buf, offset );
+  // dspriteframe_t: int origin[2], int width, int height = 16 bytes
+  const width = view.getInt32(8, true);
+  const height = view.getInt32(12, true);
+  const size = width * height;
 
-	// dspriteframe_t: int origin[2], int width, int height = 16 bytes
-	const width = view.getInt32( 8, true );
-	const height = view.getInt32( 12, true );
-	const size = width * height;
+  const pspriteframe = new mspriteframe_t();
 
-	const pspriteframe = new mspriteframe_t();
+  pspriteframe.width = width;
+  pspriteframe.height = height;
 
-	pspriteframe.width = width;
-	pspriteframe.height = height;
+  const origin0 = view.getInt32(0, true);
+  const origin1 = view.getInt32(4, true);
 
-	const origin0 = view.getInt32( 0, true );
-	const origin1 = view.getInt32( 4, true );
+  pspriteframe.up = origin1;
+  pspriteframe.down = origin1 - height;
+  pspriteframe.left = origin0;
+  pspriteframe.right = width + origin0;
 
-	pspriteframe.up = origin1;
-	pspriteframe.down = origin1 - height;
-	pspriteframe.left = origin0;
-	pspriteframe.right = width + origin0;
+  const SIZEOF_DSPRITEFRAME = 16;
+  const name = loadmodel.name + "_" + framenum;
+  const pixelData = new Uint8Array(buf, offset + SIZEOF_DSPRITEFRAME, size);
+  pspriteframe.gl_texturenum = GL_LoadTexture(
+    name,
+    width,
+    height,
+    pixelData,
+    true,
+    true,
+  );
 
-	const SIZEOF_DSPRITEFRAME = 16;
-	const name = loadmodel.name + '_' + framenum;
-	const pixelData = new Uint8Array( buf, offset + SIZEOF_DSPRITEFRAME, size );
-	pspriteframe.gl_texturenum = GL_LoadTexture( name, width, height, pixelData, true, true );
-
-	return {
-		frame: pspriteframe,
-		nextOffset: offset + SIZEOF_DSPRITEFRAME + size
-	};
-
+  return {
+    frame: pspriteframe,
+    nextOffset: offset + SIZEOF_DSPRITEFRAME + size,
+  };
 }
 
 // ============================================================================
 // Mod_LoadSpriteGroup
 // ============================================================================
 
-function Mod_LoadSpriteGroup( buf, offset, framenum ) {
+function Mod_LoadSpriteGroup(buf, offset, framenum) {
+  const view = new DataView(buf, offset);
 
-	const view = new DataView( buf, offset );
+  // dspritegroup_t: int numframes = 4 bytes
+  const numframes = view.getInt32(0, true);
 
-	// dspritegroup_t: int numframes = 4 bytes
-	const numframes = view.getInt32( 0, true );
+  const pspritegroup = new mspritegroup_t();
+  pspritegroup.numframes = numframes;
 
-	const pspritegroup = new mspritegroup_t();
-	pspritegroup.numframes = numframes;
+  const SIZEOF_DSPRITEGROUP = 4;
+  const SIZEOF_DSPRITEINTERVAL = 4;
 
-	const SIZEOF_DSPRITEGROUP = 4;
-	const SIZEOF_DSPRITEINTERVAL = 4;
+  // Read intervals
+  pspritegroup.intervals = new Float32Array(numframes);
+  let intervalOfs = offset + SIZEOF_DSPRITEGROUP;
 
-	// Read intervals
-	pspritegroup.intervals = new Float32Array( numframes );
-	let intervalOfs = offset + SIZEOF_DSPRITEGROUP;
+  for (let i = 0; i < numframes; i++) {
+    const iv = new DataView(buf, intervalOfs);
+    pspritegroup.intervals[i] = iv.getFloat32(0, true);
+    if (pspritegroup.intervals[i] <= 0.0) {
+      Sys_Error("Mod_LoadSpriteGroup: interval<=0");
+    }
+    intervalOfs += SIZEOF_DSPRITEINTERVAL;
+  }
 
-	for ( let i = 0; i < numframes; i ++ ) {
+  // Load frames
+  pspritegroup.frames = new Array(numframes);
+  let ptemp = intervalOfs;
 
-		const iv = new DataView( buf, intervalOfs );
-		pspritegroup.intervals[ i ] = iv.getFloat32( 0, true );
-		if ( pspritegroup.intervals[ i ] <= 0.0 )
-			Sys_Error( 'Mod_LoadSpriteGroup: interval<=0' );
-		intervalOfs += SIZEOF_DSPRITEINTERVAL;
+  for (let i = 0; i < numframes; i++) {
+    const result = Mod_LoadSpriteFrame(buf, ptemp, framenum * 100 + i);
+    pspritegroup.frames[i] = result.frame;
+    ptemp = result.nextOffset;
+  }
 
-	}
-
-	// Load frames
-	pspritegroup.frames = new Array( numframes );
-	let ptemp = intervalOfs;
-
-	for ( let i = 0; i < numframes; i ++ ) {
-
-		const result = Mod_LoadSpriteFrame( buf, ptemp, framenum * 100 + i );
-		pspritegroup.frames[ i ] = result.frame;
-		ptemp = result.nextOffset;
-
-	}
-
-	return {
-		frame: pspritegroup,
-		nextOffset: ptemp
-	};
-
+  return {
+    frame: pspritegroup,
+    nextOffset: ptemp,
+  };
 }
 
 // ============================================================================
 // Mod_LoadSpriteModel
 // ============================================================================
 
-function Mod_LoadSpriteModel( mod, buffer ) {
+function Mod_LoadSpriteModel(mod, buffer) {
+  const view = new DataView(buffer);
 
-	const view = new DataView( buffer );
+  // dsprite_t: int ident, int version, int type, float boundingradius,
+  //            int width, int height, int numframes, float beamlength, synctype_t synctype
+  //            = 36 bytes
+  const version = view.getInt32(4, true);
+  if (version !== SPRITE_VERSION) {
+    Sys_Error(
+      mod.name + " has wrong version number (" + version + " should be " +
+        SPRITE_VERSION + ")",
+    );
+  }
 
-	// dsprite_t: int ident, int version, int type, float boundingradius,
-	//            int width, int height, int numframes, float beamlength, synctype_t synctype
-	//            = 36 bytes
-	const version = view.getInt32( 4, true );
-	if ( version !== SPRITE_VERSION )
-		Sys_Error( mod.name + ' has wrong version number (' + version + ' should be ' + SPRITE_VERSION + ')' );
+  const numframes = view.getInt32(24, true);
 
-	const numframes = view.getInt32( 24, true );
+  const psprite = new msprite_t();
+  mod.cache.data = psprite;
 
-	const psprite = new msprite_t();
-	mod.cache.data = psprite;
+  psprite.type = view.getInt32(8, true);
+  psprite.maxwidth = view.getInt32(16, true);
+  psprite.maxheight = view.getInt32(20, true);
+  psprite.beamlength = view.getFloat32(28, true);
+  mod.synctype = view.getInt32(32, true);
+  psprite.numframes = numframes;
 
-	psprite.type = view.getInt32( 8, true );
-	psprite.maxwidth = view.getInt32( 16, true );
-	psprite.maxheight = view.getInt32( 20, true );
-	psprite.beamlength = view.getFloat32( 28, true );
-	mod.synctype = view.getInt32( 32, true );
-	psprite.numframes = numframes;
+  // C int division (maxwidth and maxheight are ints)
+  mod.mins[0] = mod.mins[1] = (-psprite.maxwidth / 2) | 0;
+  mod.maxs[0] = mod.maxs[1] = (psprite.maxwidth / 2) | 0;
+  mod.mins[2] = (-psprite.maxheight / 2) | 0;
+  mod.maxs[2] = (psprite.maxheight / 2) | 0;
 
-	// C int division (maxwidth and maxheight are ints)
-	mod.mins[ 0 ] = mod.mins[ 1 ] = ( - psprite.maxwidth / 2 ) | 0;
-	mod.maxs[ 0 ] = mod.maxs[ 1 ] = ( psprite.maxwidth / 2 ) | 0;
-	mod.mins[ 2 ] = ( - psprite.maxheight / 2 ) | 0;
-	mod.maxs[ 2 ] = ( psprite.maxheight / 2 ) | 0;
+  //
+  // load the frames
+  //
+  if (numframes < 1) {
+    Sys_Error("Mod_LoadSpriteModel: Invalid # of frames: " + numframes);
+  }
 
-	//
-	// load the frames
-	//
-	if ( numframes < 1 )
-		Sys_Error( 'Mod_LoadSpriteModel: Invalid # of frames: ' + numframes );
+  mod.numframes = numframes;
 
-	mod.numframes = numframes;
+  psprite.frames = new Array(numframes);
 
-	psprite.frames = new Array( numframes );
+  const SIZEOF_DSPRITE = 36;
+  const SIZEOF_DSPRITEFRAMETYPE = 4;
+  let pos = SIZEOF_DSPRITE;
 
-	const SIZEOF_DSPRITE = 36;
-	const SIZEOF_DSPRITEFRAMETYPE = 4;
-	let pos = SIZEOF_DSPRITE;
+  for (let i = 0; i < numframes; i++) {
+    const ftView = new DataView(buffer, pos);
+    const frametype = ftView.getInt32(0, true);
 
-	for ( let i = 0; i < numframes; i ++ ) {
+    const fdesc = new mspriteframedesc_t();
+    fdesc.type = frametype;
 
-		const ftView = new DataView( buffer, pos );
-		const frametype = ftView.getInt32( 0, true );
+    if (frametype === SPR_SINGLE) {
+      const result = Mod_LoadSpriteFrame(
+        buffer,
+        pos + SIZEOF_DSPRITEFRAMETYPE,
+        i,
+      );
+      fdesc.frameptr = result.frame;
+      pos = result.nextOffset;
+    } else {
+      const result = Mod_LoadSpriteGroup(
+        buffer,
+        pos + SIZEOF_DSPRITEFRAMETYPE,
+        i,
+      );
+      fdesc.frameptr = result.frame;
+      pos = result.nextOffset;
+    }
 
-		const fdesc = new mspriteframedesc_t();
-		fdesc.type = frametype;
+    psprite.frames[i] = fdesc;
+  }
 
-		if ( frametype === SPR_SINGLE ) {
-
-			const result = Mod_LoadSpriteFrame( buffer, pos + SIZEOF_DSPRITEFRAMETYPE, i );
-			fdesc.frameptr = result.frame;
-			pos = result.nextOffset;
-
-		} else {
-
-			const result = Mod_LoadSpriteGroup( buffer, pos + SIZEOF_DSPRITEFRAMETYPE, i );
-			fdesc.frameptr = result.frame;
-			pos = result.nextOffset;
-
-		}
-
-		psprite.frames[ i ] = fdesc;
-
-	}
-
-	mod.type = mod_sprite;
-
+  mod.type = mod_sprite;
 }
 
 // ============================================================================
@@ -3870,13 +3715,12 @@ function Mod_LoadSpriteModel( mod, buffer ) {
 // ============================================================================
 
 export function Mod_Print() {
-
-	Con_Printf( 'Cached models:\n' );
-	for ( let i = 0; i < mod_numknown; i ++ ) {
-
-		const mod = mod_known[ i ];
-		Con_Printf( '  ' + ( mod.cache.data ? '[cached]' : '[empty]' ) + ' : ' + mod.name + '\n' );
-
-	}
-
+  Con_Printf("Cached models:\n");
+  for (let i = 0; i < mod_numknown; i++) {
+    const mod = mod_known[i];
+    Con_Printf(
+      "  " + (mod.cache.data ? "[cached]" : "[empty]") + " : " + mod.name +
+        "\n",
+    );
+  }
 }

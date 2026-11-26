@@ -1,4 +1,7 @@
-import { type QSocket, WT_QGetMessage } from "../server/net_webtransport_server.ts";
+import {
+  type QSocket,
+  WT_QGetMessage,
+} from "../server/net_webtransport_server.ts";
 import { net_message } from "../src/net.js";
 
 function assertEqual(

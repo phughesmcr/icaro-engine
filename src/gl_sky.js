@@ -17,23 +17,23 @@
 //   only the current one, and drops it on a map that doesn't use it.
 // - r_fastsky, r_skyalpha and the skywind commands are not ported.
 
-import * as THREE from 'three';
-import { Con_Printf, COM_Parse, com_token } from './common.js';
-import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from './cmd.js';
-import { COM_EnsureFile } from './pak.js';
-import { Image_LoadImage } from './image.js';
+import * as THREE from "three";
+import { COM_Parse, com_token, Con_Printf } from "./common.js";
+import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from "./cmd.js";
+import { COM_EnsureFile } from "./pak.js";
+import { Image_LoadImage } from "./image.js";
 
-const suf = [ 'rt', 'bk', 'lf', 'ft', 'up', 'dn' ];
+const suf = ["rt", "bk", "lf", "ft", "up", "dn"];
 
 // The GL cubemap faces (+X, -X, +Y, -Y, +Z, -Z) as indices into suf:
 // ft/bk/up/dn/rt/lf. R_DrawSkyChain's shader looks the box up with
 // ( -dir.y, dir.z, dir.x ) for the Quake-space direction dir, as Ironwail's.
-export const cubemap_order = [ 3, 1, 4, 5, 0, 2 ];
+export const cubemap_order = [3, 1, 4, 5, 0, 2];
 
 // The loaded box, { name, cubemap }, or null for the scrolling sky
 let skybox = null;
 // The box asked for, loaded or still being fetched ('' for none)
-let skybox_name = '';
+let skybox_name = "";
 // Bumped by every change of skybox_name, so a fetch that completes after the
 // map or the sky changed is dropped
 let skybox_serial = 0;
@@ -45,10 +45,8 @@ let skybox_cache = null;
 Sky_SkyBoxFilename
 ==================
 */
-export function Sky_SkyBoxFilename( name, i ) {
-
-	return 'gfx/env/' + name + suf[ i ];
-
+export function Sky_SkyBoxFilename(name, i) {
+  return "gfx/env/" + name + suf[i];
 }
 
 /*
@@ -61,55 +59,47 @@ missing one, which is drawn black), or null when no face loaded or they
 aren't all square and the same size.
 ==================
 */
-export function Sky_LoadSkyBoxFaces( name ) {
+export function Sky_LoadSkyBoxFaces(name) {
+  const data = new Array(6);
+  let numloaded = 0;
+  let samesize = 0;
 
-	const data = new Array( 6 );
-	let numloaded = 0;
-	let samesize = 0;
+  for (let i = 0; i < 6; i++) {
+    const filename = Sky_SkyBoxFilename(name, i);
+    const image = Image_LoadImage(filename);
+    data[i] = image;
+    if (image !== null) {
+      numloaded++;
+      if (image.width !== image.height) {
+        samesize = -1;
+      } else if (samesize === 0) {
+        samesize = image.width;
+      } else if (samesize !== image.width) {
+        samesize = -1;
+      }
+    } else {
+      Con_Printf("Couldn't load " + filename + "\n");
+    }
+  }
 
-	for ( let i = 0; i < 6; i ++ ) {
+  if (numloaded === 0) { // go back to scrolling sky if skybox is totally missing
+    return null;
+  }
 
-		const filename = Sky_SkyBoxFilename( name, i );
-		const image = Image_LoadImage( filename );
-		data[ i ] = image;
-		if ( image !== null ) {
+  if (samesize <= 0) {
+    Con_Printf(
+      "Skybox " + name + ": the faces are not all square and the same size\n",
+    );
+    return null;
+  }
 
-			numloaded ++;
-			if ( image.width !== image.height )
-				samesize = - 1;
-			else if ( samesize === 0 )
-				samesize = image.width;
-			else if ( samesize !== image.width )
-				samesize = - 1;
+  const faces = new Array(6);
+  for (let i = 0; i < 6; i++) {
+    const image = data[cubemap_order[i]];
+    faces[i] = image !== null ? image.data : null;
+  }
 
-		} else {
-
-			Con_Printf( 'Couldn\'t load ' + filename + '\n' );
-
-		}
-
-	}
-
-	if ( numloaded === 0 ) // go back to scrolling sky if skybox is totally missing
-		return null;
-
-	if ( samesize <= 0 ) {
-
-		Con_Printf( 'Skybox ' + name + ': the faces are not all square and the same size\n' );
-		return null;
-
-	}
-
-	const faces = new Array( 6 );
-	for ( let i = 0; i < 6; i ++ ) {
-
-		const image = data[ cubemap_order[ i ] ];
-		faces[ i ] = image !== null ? image.data : null;
-
-	}
-
-	return { size: samesize, faces };
-
+  return { size: samesize, faces };
 }
 
 /*
@@ -117,26 +107,24 @@ export function Sky_LoadSkyBoxFaces( name ) {
 Sky_CreateCubemap
 ==================
 */
-function Sky_CreateCubemap( size, faces ) {
+function Sky_CreateCubemap(size, faces) {
+  const images = new Array(6);
+  for (let i = 0; i < 6; i++) {
+    const pixels = faces[i] !== null ?
+      faces[i] :
+      new Uint8Array(size * size * 4);
+    images[i] = new THREE.DataTexture(pixels, size, size, THREE.RGBAFormat);
+  }
 
-	const images = new Array( 6 );
-	for ( let i = 0; i < 6; i ++ ) {
-
-		const pixels = faces[ i ] !== null ? faces[ i ] : new Uint8Array( size * size * 4 );
-		images[ i ] = new THREE.DataTexture( pixels, size, size, THREE.RGBAFormat );
-
-	}
-
-	// flipY stays false: the rows go up top first, as Ironwail's TexMgr does
-	const cubemap = new THREE.CubeTexture( images );
-	cubemap.format = THREE.RGBAFormat;
-	cubemap.colorSpace = THREE.SRGBColorSpace;
-	cubemap.magFilter = THREE.LinearFilter;
-	cubemap.minFilter = THREE.LinearMipmapLinearFilter; // TEXPREF_MIPMAP
-	cubemap.generateMipmaps = true;
-	cubemap.needsUpdate = true;
-	return cubemap;
-
+  // flipY stays false: the rows go up top first, as Ironwail's TexMgr does
+  const cubemap = new THREE.CubeTexture(images);
+  cubemap.format = THREE.RGBAFormat;
+  cubemap.colorSpace = THREE.SRGBColorSpace;
+  cubemap.magFilter = THREE.LinearFilter;
+  cubemap.minFilter = THREE.LinearMipmapLinearFilter; // TEXPREF_MIPMAP
+  cubemap.generateMipmaps = true;
+  cubemap.needsUpdate = true;
+  return cubemap;
 }
 
 /*
@@ -144,11 +132,10 @@ function Sky_CreateCubemap( size, faces ) {
 Sky_FreeSkyBox
 ==================
 */
-function Sky_FreeSkyBox( sky ) {
-
-	if ( sky !== null )
-		sky.cubemap.dispose();
-
+function Sky_FreeSkyBox(sky) {
+  if (sky !== null) {
+    sky.cubemap.dispose();
+  }
 }
 
 /*
@@ -158,23 +145,19 @@ Sky_InstallSkyBox
 The end of Sky_LoadSkyBox, once the faces are available
 ==================
 */
-function Sky_InstallSkyBox( name ) {
+function Sky_InstallSkyBox(name) {
+  const loaded = Sky_LoadSkyBoxFaces(name);
+  if (loaded === null) {
+    skybox = null;
+    skybox_name = ""; // so asking again retries, as Ironwail does
+    return;
+  }
 
-	const loaded = Sky_LoadSkyBoxFaces( name );
-	if ( loaded === null ) {
+  // skybox is null while a fetch is pending, so the cache is not in use
+  Sky_FreeSkyBox(skybox_cache);
 
-		skybox = null;
-		skybox_name = ''; // so asking again retries, as Ironwail does
-		return;
-
-	}
-
-	// skybox is null while a fetch is pending, so the cache is not in use
-	Sky_FreeSkyBox( skybox_cache );
-
-	skybox = { name, cubemap: Sky_CreateCubemap( loaded.size, loaded.faces ) };
-	skybox_cache = skybox;
-
+  skybox = { name, cubemap: Sky_CreateCubemap(loaded.size, loaded.faces) };
+  skybox_cache = skybox;
 }
 
 /*
@@ -185,45 +168,40 @@ Returns a Promise that settles when the box is in place (or failed), for
 the tests; callers don't need to wait for it.
 ==================
 */
-export function Sky_LoadSkyBox( name ) {
+export function Sky_LoadSkyBox(name) {
+  if (skybox_name === name) {
+    return Promise.resolve(); // no change
+  }
 
-	if ( skybox_name === name )
-		return Promise.resolve(); // no change
+  skybox_serial++;
+  skybox_name = name;
 
-	skybox_serial ++;
-	skybox_name = name;
+  // turn off skybox if sky is set to ""
+  if (name === "") {
+    skybox = null;
+    return Promise.resolve();
+  }
 
-	// turn off skybox if sky is set to ""
-	if ( name === '' ) {
+  // check if already loaded
+  if (skybox_cache !== null && skybox_cache.name === name) {
+    skybox = skybox_cache;
+    return Promise.resolve();
+  }
 
-		skybox = null;
-		return Promise.resolve();
+  // the scrolling sky until the faces arrive
+  skybox = null;
 
-	}
+  const serial = skybox_serial;
+  const fetches = new Array(6);
+  for (let i = 0; i < 6; i++) {
+    fetches[i] = COM_EnsureFile(Sky_SkyBoxFilename(name, i) + ".tga");
+  }
 
-	// check if already loaded
-	if ( skybox_cache !== null && skybox_cache.name === name ) {
-
-		skybox = skybox_cache;
-		return Promise.resolve();
-
-	}
-
-	// the scrolling sky until the faces arrive
-	skybox = null;
-
-	const serial = skybox_serial;
-	const fetches = new Array( 6 );
-	for ( let i = 0; i < 6; i ++ )
-		fetches[ i ] = COM_EnsureFile( Sky_SkyBoxFilename( name, i ) + '.tga' );
-
-	return Promise.all( fetches ).then( () => {
-
-		if ( serial === skybox_serial )
-			Sky_InstallSkyBox( name );
-
-	} );
-
+  return Promise.all(fetches).then(() => {
+    if (serial === skybox_serial) {
+      Sky_InstallSkyBox(name);
+    }
+  });
 }
 
 /*
@@ -236,11 +214,9 @@ otherwise).
 =================
 */
 export function Sky_ClearAll() {
-
-	skybox_serial ++;
-	skybox = null;
-	skybox_name = '';
-
+  skybox_serial++;
+  skybox = null;
+  skybox_name = "";
 }
 
 /*
@@ -252,27 +228,22 @@ the leading '_' mappers use), and also accepts Half-Life's "skyname" and
 Quake Live's "qlsky". Returns the Promise from Sky_LoadSkyBox.
 =================
 */
-export function Sky_NewMap( entities ) {
+export function Sky_NewMap(entities) {
+  Sky_ClearAll();
 
-	Sky_ClearAll();
+  let name = "";
+  Sky_ParseWorldspawn(entities, (key, value) => {
+    if (key === "sky" || key === "skyname" || key === "qlsky") {
+      name = value;
+    }
+  });
 
-	let name = '';
-	Sky_ParseWorldspawn( entities, ( key, value ) => {
+  if (skybox_cache !== null && skybox_cache.name !== name) {
+    Sky_FreeSkyBox(skybox_cache);
+    skybox_cache = null;
+  }
 
-		if ( key === 'sky' || key === 'skyname' || key === 'qlsky' )
-			name = value;
-
-	} );
-
-	if ( skybox_cache !== null && skybox_cache.name !== name ) {
-
-		Sky_FreeSkyBox( skybox_cache );
-		skybox_cache = null;
-
-	}
-
-	return Sky_LoadSkyBox( name );
-
+  return Sky_LoadSkyBox(name);
 }
 
 /*
@@ -283,31 +254,35 @@ The worldspawn loop of Sky_NewMap: calls fn( key, value ) for each pair,
 the key without a leading '_' and trailing spaces
 =================
 */
-function Sky_ParseWorldspawn( entities, fn ) {
+function Sky_ParseWorldspawn(entities, fn) {
+  if (entities === null || entities === undefined) {
+    return;
+  }
 
-	if ( entities === null || entities === undefined )
-		return;
-
-	let data = COM_Parse( entities );
-	if ( data === null ) // should never happen
-		return; // error
-	if ( com_token.charAt( 0 ) !== '{' ) // should never happen
-		return; // error
-	while ( true ) {
-
-		data = COM_Parse( data );
-		if ( data === null )
-			return; // error
-		if ( com_token.charAt( 0 ) === '}' )
-			break; // end of worldspawn
-		const key = ( com_token.charAt( 0 ) === '_' ? com_token.substring( 1 ) : com_token ).replace( / +$/, '' );
-		data = COM_Parse( data );
-		if ( data === null )
-			return; // error
-		fn( key, com_token );
-
-	}
-
+  let data = COM_Parse(entities);
+  if (data === null) { // should never happen
+    return; // error
+  }
+  if (com_token.charAt(0) !== "{") { // should never happen
+    return; // error
+  }
+  while (true) {
+    data = COM_Parse(data);
+    if (data === null) {
+      return; // error
+    }
+    if (com_token.charAt(0) === "}") {
+      break; // end of worldspawn
+    }
+    const key =
+      (com_token.charAt(0) === "_" ? com_token.substring(1) : com_token)
+        .replace(/ +$/, "");
+    data = COM_Parse(data);
+    if (data === null) {
+      return; // error
+    }
+    fn(key, com_token);
+  }
 }
 
 /*
@@ -316,20 +291,16 @@ Sky_SkyCommand_f
 =================
 */
 export function Sky_SkyCommand_f() {
-
-	switch ( Cmd_Argc() ) {
-
-		case 1:
-			Con_Printf( '"sky" is "' + skybox_name + '"\n' );
-			break;
-		case 2:
-			Sky_LoadSkyBox( Cmd_Argv( 1 ) );
-			break;
-		default:
-			Con_Printf( 'usage: sky <skyname>\n' );
-
-	}
-
+  switch (Cmd_Argc()) {
+    case 1:
+      Con_Printf('"sky" is "' + skybox_name + '"\n');
+      break;
+    case 2:
+      Sky_LoadSkyBox(Cmd_Argv(1));
+      break;
+    default:
+      Con_Printf("usage: sky <skyname>\n");
+  }
 }
 
 /*
@@ -340,9 +311,7 @@ The skybox part: r_skyfog is registered by Fog_Init (gl_fog.js)
 =============
 */
 export function Sky_Init() {
-
-	Cmd_AddCommand( 'sky', Sky_SkyCommand_f );
-
+  Cmd_AddCommand("sky", Sky_SkyCommand_f);
 }
 
 /*
@@ -354,7 +323,5 @@ sky
 =============
 */
 export function Sky_GetSkyBox() {
-
-	return skybox;
-
+  return skybox;
 }
