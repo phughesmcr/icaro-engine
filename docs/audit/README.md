@@ -54,13 +54,16 @@ read the Quoth or Copper QuakeC.
    sends 666 or 999 gains nothing for netplay.
 2. **Trusting `stuffcmd`.** A host can run any console command on joiners
    (`src/cl_parse.js:1470` → `Cbuf_AddText`), and bindings and archived cvars
-   persist to the next session. Hosts are players now, so this is High. Shipped
-   progs stuff `bf`, `disconnect`, `menu_credits`, `restart`, `skill`,
-   `-attack`, `impulse`, `spawn`, `horde`, `clear` and `fog`, so a filter must
-   allow those. The proposal is to trust your own local server fully and filter
-   a remote host's text through an allowlist, with no persistence from it. This
-   is a design decision, not a quick patch. **read**; the list of stuffed
-   commands was **run** (a scan of the shipped `progs.dat` strings).
+   persist to the next session. Hosts are players now, so this is High. A
+   heuristic scan of the shipped `progs.dat` strings suggests they stuff `bf`,
+   `disconnect`, `menu_credits`, `restart`, `skill`, `impulse`, `spawn`,
+   `horde`, `clear`, `-attack` and (per `docs/rerelease-gaps.md`) `fog`. The
+   scan can't tell `stuffcmd` from `localcmd` or printed text, so build the real
+   allowlist from id's published rerelease QuakeC
+   (`id-Software/quake-rerelease-qc`) and the mods' sources. The proposal is to
+   trust your own local server fully and filter a remote host's text through
+   that allowlist, with nothing it sets persisted. This is a design decision,
+   not a quick patch. **read**
 3. **How LibreQuake is delivered.** Its art is BSD and its QuakeC GPL-2. Release
    zips are 56–116 MB. Recommended: pin a release asset hosted outside the
    repository, and change the pak allowlists (CI's tracked-pak check, the client
@@ -106,8 +109,11 @@ days, L a week or more.
   (checked again for this summary), **browser** to confirm.
 - **Game directories in the browser.** `?game=` accepts only a fixed list
   (`main.js`). Accept any safe directory name, add `-quoth`, multiple `-game`
-  and `lq1`. The server and headless host already take any `-game`. M, **read**.
-  Wait for #240 (players' own paks), which edits the same files.
+  and `lq1`. Only the game server takes any `-game`
+  (`server/game_server.js:166`); the headless host mounts none (section 0).
+  `compat-runtime.md` finding 3 says `?game=quoth` works in the browser, but
+  `main.js` ignores names outside its list. M, **read**. Wait for #240 (players'
+  own paks), which edits the same files.
 - **Protocol dispatch and the 666 and 999 demo readers**, after decision 1. M,
   **read**.
 - **QuakeC extensions.** `checkextension` returns 0 (`src/pr_cmds.js:1404`);
@@ -117,8 +123,9 @@ days, L a week or more.
   below 1/72 s (`src/host.js:836`), which is uneven on 90, 120 and 165 Hz
   displays. The fix must keep physics at 72 Hz, because NetQuake physics depends
   on frame rate. The QuakeSpasm-style split of render and tick
-  (`host_netinterval`, `src/host.js:216`) is already there and turns on above
-  72. S, **read**, **browser** to confirm.
+  (`host_netinterval`) is already there: `Host_UpdateNetInterval`
+  (`src/host.js:811`) turns it on when `host_maxfps` is above 72 or 0, so the
+  fix may be a default change. S, **read**, **browser** to confirm.
 - Each M: entity `scale` and lerp-finish, lit water, `gl_overbright`, 2PSB and
   BSPX, FLAC, Opus and tracker music, external texture replacement,
   `r_particles`, `vid_vsync`. **read**

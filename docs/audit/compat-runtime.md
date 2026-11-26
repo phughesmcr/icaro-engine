@@ -118,9 +118,10 @@ findings are gaps and risks, not failures of the content that was available.
 
 - Evidence: `COM_InitArgv` handles `-rogue` and `-hipnotic`
   (`src/common.js:777`) and the servers handle those plus `-game`
-  (`server/game_server.js:164-167`). `?game=quoth` becomes `-game quoth`
-  (`main.js:123`) and works as a plain game directory. QuakeSpasm and Ironwail
-  also accept `-quoth` as a shortcut.
+  (`server/game_server.js:164-167`). `-game quoth` works as a plain game
+  directory on the game server. (Correction: the browser's `?game=quoth` is
+  ignored, because `main.js` accepts only its fixed list.) QuakeSpasm and
+  Ironwail also accept `-quoth` as a shortcut.
 - Impact: only convenience and command-line parity. Quoth itself was not run (no
   data); what a test needs is under "Content not present".
 - Effort: S. Fix: map `-quoth` to `-game quoth` in `COM_InitArgv` and
