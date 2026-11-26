@@ -43,43 +43,48 @@ coordinate width. Icaro already parses them. What needs 666 and 999 is **reading
 other engines' demos**. That audit is from reading (**read**), and it didn't
 read the Quoth or Copper QuakeC.
 
-## Decisions needed
+## Decisions
 
-1. **Protocol.** The recommendation is a versioned Icaro protocol: keep 1015,
-   add a capability word to the server hello, and move Icaro's private svcs (42,
-   47–49, which collide with Fitz and KEX numbers) into a reserved range. The
-   client then dispatches per protocol and gets readers for 15, 666 and 999. The
-   alternative, 999 plus FTE's extensions as Quakespasm-Spiked does, plays QSS
-   demos too but ties Icaro's standard to FTE's and costs L–XL. A server that
-   sends 666 or 999 gains nothing for netplay.
-2. **Trusting `stuffcmd`.** A host can run any console command on joiners
-   (`src/cl_parse.js:1470` → `Cbuf_AddText`), and bindings and archived cvars
-   persist to the next session. Hosts are players now, so this is High. A
-   heuristic scan of the shipped `progs.dat` strings suggests they stuff `bf`,
-   `disconnect`, `menu_credits`, `restart`, `skill`, `impulse`, `spawn`,
-   `horde`, `clear`, `-attack` and (per `docs/rerelease-gaps.md`) `fog`. The
-   scan can't tell `stuffcmd` from `localcmd` or printed text, so build the real
-   allowlist from id's published rerelease QuakeC
-   (`id-Software/quake-rerelease-qc`) and the mods' sources. The proposal is to
-   trust your own local server fully and filter a remote host's text through
-   that allowlist, with nothing it sets persisted. This is a design decision,
-   not a quick patch. **read**
-3. **How LibreQuake is delivered.** Its art is BSD and its QuakeC GPL-2. Release
-   zips are 56–116 MB. Recommended: pin a release asset hosted outside the
-   repository, and change the pak allowlists (CI's tracked-pak check, the client
-   build, the Docker image) deliberately. Its `levelshots.pk3` needs a zip
-   reader, which Icaro lacks.
-4. **Permanent servers.** The deployed lobby only signals; rooms on Cloudflare
-   don't exist (`LOBBY_CREATE` is refused). Options: browser hosting only, or
-   add Cloudflare Containers rooms over WebSocket. The cost in
-   `docs/always-on-hosting.md` (roughly $6–10 a month) was not re-checked.
-5. **GPL-2.0.** Games built on Icaro can keep their data proprietary, but engine
-   changes and any desktop build must offer source. The shareware pak and the
-   community maps need a `THIRD_PARTY.md`.
-6. **Architecture direction.** The architecture audit proposes three layers with
-   downward imports: `games/quake/`, `core/`, `platform/`. It assumed the Quake
-   layer stays function-by-function; under the revised rules that is a choice,
-   not a requirement.
+The maintainer decided these on 26 November 2026.
+
+1. **Protocol: a versioned Icaro protocol.** Keep 1015, add a capability word to
+   the server hello, and move Icaro's private svcs (42 and 47–49, which collide
+   with Fitz and KEX numbers) into a reserved range. The client dispatches per
+   protocol and gets readers for 15, 666 and 999. Servers don't send 666 or 999.
+   The design must leave room for games that aren't Quake, Hexen II for example,
+   so it starts with a study of how FTEQW does this (its per-game protocol
+   variants and `PEXT`/`PEXT2` bits). The other option, 999 plus FTE's
+   extensions as Quakespasm-Spiked does, was not chosen.
+2. **`stuffcmd` trust: as proposed.** A host can run any console command on
+   joiners (`src/cl_parse.js:1470` → `Cbuf_AddText`), and bindings and archived
+   cvars persist to the next session. Hosts are players now, so this is High.
+   Your own local server is trusted fully. A remote host's text goes through an
+   allowlist, and nothing it sets is persisted. Build the allowlist from id's
+   published rerelease QuakeC (`id-Software/quake-rerelease-qc`) and the mods'
+   sources, not from string scans. A heuristic scan of the shipped `progs.dat`
+   suggests `bf`, `disconnect`, `menu_credits`, `restart`, `skill`, `impulse`,
+   `spawn`, `horde`, `clear`, `-attack` and (per `docs/rerelease-gaps.md`)
+   `fog`. **read**
+3. **LibreQuake: downloaded on first run.** Its art is BSD and its QuakeC GPL-2.
+   Release zips are 56–116 MB. Pin a release asset hosted outside the repository
+   and download it on first run, behind an introductory page so crawlers and
+   bots never fetch pak data. Change the pak allowlists (CI's tracked-pak check,
+   the client build, the Docker image) deliberately. Its `levelshots.pk3`, and
+   the release zip itself, need a zip reader: use an established library, not a
+   new one.
+4. **Permanent servers: not now.** The deployed lobby only signals; rooms on
+   Cloudflare don't exist (`LOBBY_CREATE` is refused). The project stays on
+   Cloudflare's Free plan, so browser-hosted rooms are the only rooms for now.
+5. **GPL-2.0: agreed.** Games built on Icaro can keep their data proprietary,
+   but engine changes and any desktop build must offer source. The shareware pak
+   and the community maps need a `THIRD_PARTY.md`.
+6. **Architecture: three layers, agreed.** `games/quake/`, `core/` and
+   `platform/`, with downward imports only. The architecture audit assumed the
+   Quake layer stays function-by-function; under the revised rules that is a
+   choice, not a requirement.
+
+Also decided: use established libraries where they fit (zip, for example) rather
+than writing new ones.
 
 ## Roadmap
 
@@ -135,7 +140,8 @@ days, L a week or more.
 
 ### 2. Multiplayer
 
-- Decision 2 (`stuffcmd` trust). High.
+- `stuffcmd` trust (decision 2): the allowlist and no persistence for a remote
+  host. High, M.
 - Guests have too much power: `kick` outside deathmatch (whether a guest can
   kick the host was **not run**), `pause`, coop cheats gated only by
   `deathmatch`, and no rate limit on chat or name changes. M, **read**.
@@ -147,7 +153,7 @@ days, L a week or more.
 - URL config: a new `src/url_config.js` with a typed allowlist (`?cfg.<cvar>=…`,
   `?bind.<key>=+action`), applied with `Cvar_Set` and never saved.
   `multiplayer-security.md` has the classification. M.
-- Decision 4 (permanent servers).
+- Permanent servers: not now (decision 4).
 
 ### 3. Performance
 
@@ -190,6 +196,9 @@ days, L a week or more.
   is cut. L.
 - CI has no build or browser step. M.
 - `src/sys.js:14` writes error text into `innerHTML`. S, **read**.
+- LibreQuake on first run (decision 3): an introductory page that gates every
+  pak fetch, the pinned download, and an established zip library. M.
+- `THIRD_PARTY.md` (decision 5). S.
 
 ## Open PRs this overlaps
 
