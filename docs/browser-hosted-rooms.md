@@ -1,10 +1,10 @@
 # Browser-hosted rooms over WebRTC (design)
 
 Design notes, 2026-11-25, against `dev` at `11e5cbd`. Status, 2026-11-26:
-the WebRTC driver, the listen-server rules and the lobby (Deno, and the
-Cloudflare Worker) are built and unit tested; nothing is deployed, the
-menus and the client's lobby signaller aren't built, and no browser has
-played a room end to end. The goal is free multiplayer that doesn't
+the WebRTC driver, the listen-server rules, the lobby (Deno, and the
+Cloudflare Worker, which the maintainer has deployed), the client's lobby
+signaller (`src/net_rtclobby.js`) and the menus are built and unit
+tested. See PR 5 below for what a browser has been checked for. The goal is free multiplayer that doesn't
 depend on the maintainer's Mac or a paid server, on desktop and mobile.
 One player's browser tab hosts the room, the way a NetQuake listen server
 does, and the other players join it directly over WebRTC.
@@ -43,8 +43,8 @@ Tags, as in [always-on-hosting.md](always-on-hosting.md):
 
 1. **Host:** chooses *Host game*. Their tab starts a listen server (`listen
    1`, `maxplayers N`, `map X`), opens a long-lived WebSocket to the lobby
-   DO, and registers the room. The lobby replies with a six-character room
-   code.
+   DO, and registers the room. The lobby replies with an eight-character
+   room code (lobby rooms keep six).
 2. **Joiner:** picks the room from the list, or types the code. Their tab
    asks the lobby for ICE servers, creates an `RTCPeerConnection` with two
    data channels, and sends its offer through the lobby. The lobby relays
@@ -240,7 +240,9 @@ driver, behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js`
   (0x84) after `LOBBY_ROOMS`, and relays signals as `LOBBY_SIGNAL_RELAY`
   (0x85, `{ from, kind, data }`). With Turnstile on, a `LOBBY_HOST` must
   carry a `turnstile` token, and one without gets `LOBBY_VERIFY` (0x86,
-  `{ sitekey, action }`) instead (see "Turnstile" in `server/README.md`). Browser-hosted rooms have 8-character
+  `{ sitekey, action }`) instead (see "Turnstile" in `server/README.md`);
+  the hosting tab then shows the widget over its running game and sends
+  `LOBBY_HOST` again, with the token, on a new socket. Browser-hosted rooms have 8-character
   codes without 0, O, 1 or I, so they never collide with the Deno lobby's
   6-character codes, and an ended one's code doesn't make the Deno lobby
   re-create it. `LOBBY_LIST` lists them only when its payload is
@@ -303,22 +305,20 @@ driver, behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js`
 ## Listen-server rules
 
 - **Player limit:** the client slots are allocated once, at start-up, by
-  `Host_FindMaxClients`. This port has dropped its `-dedicated` and
-  `-listen` handling, so the browser always has `maxclients` 1 and 4 slots
-  [code: `src/host.js:263–266`]. In the C, `-listen [n]` sets `maxclients` and
+  `Host_FindMaxClients`. In the C, `-listen [n]` sets `maxclients` and
   the slot count to `n` (8 if omitted, capped at `MAX_SCOREBOARD`) and sets
-  `deathmatch 1` [C: `WinQuake/host.c`].
-  - Restore the C's `-listen` handling, and let `main.js` pass it from a
-    `?listen=N` URL parameter, as it passes `?particles=`.
+  `deathmatch 1` [C: `WinQuake/host.c`]. The port restores that, and
+  `main.js` passes `?listen=N` as `-listen N` [code: `src/host.js:271`,
+  `main.js:133`]; without it a tab has one slot.
   - The listen flag changes start-up defaults (`maxclients` N,
     `deathmatch 1`). Single player still works, because the menu's new game
     runs `maxplayers 1`, which drops `listen` and sets `deathmatch 0` [code:
     `src/menu.js:971`, `MaxPlayers_f` in `src/net_main.js`].
-  - Since slots can't grow after start-up, *Host in this browser* reloads
-    the page with `?listen=16` when it has fewer slots than the host asked
-    for. Loading every page with `-listen 16` would avoid the reload but
-    start every player in deathmatch mode, which the C never does without
-    the flag.
+  - Slots can't grow after start-up, so Start Game's *Max players* is
+    capped at `svs.maxclientslimit` [code: `src/menu.js:1695`]. To host
+    more players, open the page with `?listen=N`. Loading every page with
+    `-listen 16` would avoid that but start every player in deathmatch
+    mode, which the C never does without the flag.
 - **Exit and game rules:**
   - `game_server.js` applies `noexit`/`samelevel` and the game options before
     spawning (`applyGameOptions`, `applyExitRules`) [code]. A deathmatch
@@ -330,10 +330,11 @@ driver, behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js`
     shared module and call them from the host path before `map`. The room
     defaults aren't marked as a deviation from the C in `game_server.js`
     today; mark them there when they move.
-- **Menu:** Start Game sends every game to `_NET_CreateRoom` today. The local
-  `listen`/`maxplayers`/`map` path runs only when no lobby exists [code:
-  `src/menu.js:1769–1893`]. Add *Host in this browser* next to it, and a
-  *Join by code* row. `_NET_MultiplayerAvailable` should count WebRTC.
+- **Menu:** Start Game sent every game to `_NET_CreateRoom`; the local
+  `listen`/`maxplayers`/`map` path ran only when no lobby existed. PR 5
+  added the *Host on* and *Listed* rows (`M_HostInBrowser` in
+  `src/menu.js`) and Join Game's *Room code* field. Still to do:
+  `_NET_MultiplayerAvailable` should count WebRTC.
 - **Ending the game:** when the host quits or hits `Host_Error`, call
   `Host_ShutdownServer( true )`, so joiners get `svc_disconnect`. Then close
   the lobby socket, which removes the room.
@@ -416,7 +417,28 @@ Paste each run's *Copy results* JSON into this section.
    The Worker's rate limits live in memory and start again when the
    Durable Object leaves memory (see `cloudflare/lobby/README.md`).
 5. **Menus:** *Host in this browser*, *Join by code*, and a room list that
-   shows both kinds of room.
+   shows both kinds of room. Built as `src/net_rtclobby.js` (the driver's
+   signaller: a joiner's lobby socket lasts only until the host accepts
+   it; a host registers once its map is up, heartbeats when its player
+   count changes and every 30 s, and its room ends with
+   `Host_ShutdownServer`) and Start Game's *Host on* and *Listed* rows and
+   Join Game's *Room code* field in `src/menu.js`. Hosting in the browser
+   needs a WebSocket lobby (`?server=wss://…`); the room's exit rules are
+   set only for it and reset when it ends. Players are capped at
+   `svs.maxclientslimit`, as for any listen server.
+   Checked on 2026-11-26 in Chromium (the Claude desktop app's browser),
+   with tabs on one machine and the Deno lobby on `ws://127.0.0.1`, so
+   STUN only [measured]: a tab hosts a private room, which isn't listed
+   and which a second tab joins by its code; a third joins from the
+   shared `?room=` link; a public room is listed and joined from the
+   list; when the host disconnects its joiners are dropped and the lobby
+   lists no rooms. A joiner without the map downloads it and reconnects
+   (`CL_ParseServerInfo`'s lazy load), so the host sees one short-lived
+   connection before the real one. Background tabs there stop the game
+   loop, so a host or joiner in a background tab stalls until it is in
+   front. Not checked: TURN, the Cloudflare lobby, Turnstile (the
+   widget before `LOBBY_HOST` is unit-tested only), other browsers, two
+   machines.
 6. **Later, depending on the spike:** B (server in a Worker), or C (a
    `deno desktop` host app).
 

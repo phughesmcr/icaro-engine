@@ -46,8 +46,9 @@ import {
 	WS_CanSendMessage, WS_CanSendUnreliableMessage, WS_Close,
 	WS_QueryRooms, WS_CreateRoom,
 	WS_IsWebSocketURL, WS_ToWebSocketURL, WS_DefaultServer, WS_ServerBase, WS_RoomURL,
-	WS_PageIsLocal
+	WS_PageIsLocal, WS_LobbyURL
 } from './net_websocket.js';
+import { RTCLobby_Init, RTCLobby_CanHost, RTCLobby_HostRoom, RTCLOBBY_ROOM_CODE } from './net_rtclobby.js';
 import {
 	RTC_Init, RTC_Shutdown, RTC_Listen,
 	RTC_SearchForHosts, RTC_Connect, RTC_CheckNewConnections,
@@ -762,6 +763,10 @@ export function NET_LobbyJoinURL( serverUrl, roomId ) {
 
 	if ( serverUrl === null ) return null;
 
+	// A room hosted in a browser: the WebRTC driver joins it through the
+	// lobby (src/net_rtclobby.js)
+	if ( RTCLOBBY_ROOM_CODE.test( String( roomId ) ) ) return 'rtc:' + roomId;
+
 	if ( _NET_ServerUsesWebSocket( serverUrl ) ) {
 
 		return _NET_WebSocketConnectURL( serverUrl, ( lobby ) => {
@@ -775,6 +780,45 @@ export function NET_LobbyJoinURL( serverUrl, roomId ) {
 	}
 
 	return Sys_ConnectURL( serverUrl, roomId, null );
+
+}
+
+/*
+===================
+NET_RtcLobbyURL
+
+Web addition: the lobby address for rooms hosted in browsers. Their
+signalling needs a lobby socket that stays open, which only the WebSocket
+lobby has, so this is null when the page reaches its lobby over
+WebTransport.
+===================
+*/
+export function NET_RtcLobbyURL() {
+
+	const server = NET_LobbyServer();
+	if ( server === null || _NET_ServerUsesWebSocket( server ) === false ) return null;
+	return WS_LobbyURL( server );
+
+}
+
+/*
+===================
+NET_CanHostInBrowser / NET_HostRoom
+
+Web addition: host a room in this browser (src/net_rtclobby.js). The caller
+starts the listen server; NET_HostRoom registers it with the lobby once its
+map is up.
+===================
+*/
+export function NET_CanHostInBrowser() {
+
+	return _NET_DriverReady( net_rtcdriverlevel ) && RTCLobby_CanHost();
+
+}
+
+export function NET_HostRoom( config, spawnCount, exitRules ) {
+
+	return RTCLobby_HostRoom( config, spawnCount, exitRules );
 
 }
 
@@ -1282,6 +1326,7 @@ export function NET_Init() {
 		net_drivers[ d ].Shutdown = RTC_Shutdown;
 		net_rtcdriverlevel = d;
 		RTC_SetDriverLevel( d );
+		RTCLobby_Init( NET_RtcLobbyURL, () => listening );
 
 	}
 

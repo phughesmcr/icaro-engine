@@ -592,7 +592,10 @@ export async function WS_QueryRooms( serverUrl ) {
 
 	try {
 
-		const reply = await _WS_LobbyRequest( serverUrl, LOBBY_LIST, new Uint8Array( 0 ), null );
+		// Ask for rooms hosted in browsers too when this browser can join them
+		// (server/lobby_rtc.js Lobby_WantsRtcRooms)
+		const request = typeof RTCPeerConnection !== 'undefined' ? new TextEncoder().encode( '{"rtc":true}' ) : new Uint8Array( 0 );
+		const reply = await _WS_LobbyRequest( serverUrl, LOBBY_LIST, request, null );
 		if ( reply.type === LOBBY_ERROR ) throw new Error( _WS_LobbyErrorText( reply.data ) );
 		if ( reply.type !== LOBBY_ROOMS ) throw new Error( 'Unexpected response type: ' + reply.type );
 

@@ -2483,6 +2483,7 @@ export function SV_SpawnServer( server ) {
 	}
 
 	sv.active = true;
+	svs.spawncount ++; // QW/server/sv_init.c SV_SpawnServer
 
 	// all setup is completed, any further precache statements are errors
 	sv.state = ss_active;

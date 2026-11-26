@@ -43,6 +43,14 @@ export function Room_ApplyGameOptions( options ) {
 
 }
 
+/** The noexit and samelevel values Room_ApplyExitRules sets. */
+export function Room_ExitRuleValues( options ) {
+
+	const coopRoom = options.coop === 1;
+	return { noexit: coopRoom ? 0 : 1, samelevel: coopRoom ? 0 : 2 };
+
+}
+
 /*
 ==================
 Room_ApplyExitRules
@@ -60,7 +68,8 @@ Host_InitLocal, so register them first.
 export function Room_ApplyExitRules( options ) {
 
 	const coopRoom = options.coop === 1;
-	for ( const [ cvar, value ] of [ [ noexit, coopRoom ? 0 : 1 ], [ samelevel, coopRoom ? 0 : 2 ] ] ) {
+	const rules = Room_ExitRuleValues( options );
+	for ( const [ cvar, value ] of [ [ noexit, rules.noexit ], [ samelevel, rules.samelevel ] ] ) {
 
 		if ( Cvar_FindVar( cvar.name ) === null ) Cvar_RegisterVariable( cvar );
 		Cvar_SetValue( cvar.name, value );

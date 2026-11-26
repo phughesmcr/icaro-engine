@@ -139,7 +139,7 @@ Both `--allow-net` grants are needed in every case: a missing grant fails startu
 ## Connecting from Browser
 
 - **Multiplayer menu (lobby mode):** Queries `lobby_server.js` on port `4433` to list, create, or join rooms, then connects directly to the assigned room's `game_server.js` port (`4434`–`4443`). A WebSocket client instead connects to the lobby's `<prefix>/room/<id>` path, which the lobby proxies to the room, so only the lobby's port needs to be reachable. Joining a valid 6-character shared room code for an expired room re-creates it, subject to the same limits as creating a room (not when [Turnstile](#turnstile) is on).
-- **Rooms hosted in browsers:** the WebSocket lobby also serves the lobby side of rooms that a player's tab hosts over WebRTC (`lobby_rtc.js`, shared with `cloudflare/lobby/`): a host registers with `LOBBY_HOST` and keeps its lobby socket open, joiners `LOBBY_JOIN` its 8-character code, and the lobby relays their signals. The lobby gives these clients STUN only; TURN credentials come from the Cloudflare lobby. The client's WebRTC driver is `src/net_webrtc.js`, but no signaller connects it to the lobby yet (see `docs/browser-hosted-rooms.md`).
+- **Rooms hosted in browsers:** the WebSocket lobby also serves the lobby side of rooms that a player's tab hosts over WebRTC (`lobby_rtc.js`, shared with `cloudflare/lobby/`): a host registers with `LOBBY_HOST` and keeps its lobby socket open, joiners `LOBBY_JOIN` its 8-character code, and the lobby relays their signals. The lobby gives these clients STUN only; TURN credentials come from the Cloudflare lobby. The client's WebRTC driver is `src/net_webrtc.js` and its lobby signaller `src/net_rtclobby.js`; Start Game's *Host on: This browser* hosts such a room and Join Game takes its code (see `docs/browser-hosted-rooms.md`).
 - **Direct console connection:** In the Icaro Engine console, connect directly to a `game_server.js` instance:
 
 ```text
@@ -340,7 +340,7 @@ When it is on:
 - A `LOBBY_CREATE` without a `turnstile` field gets `LOBBY_VERIFY` (`0x86`), `{ "sitekey": ..., "action": "create_room" }`. The client (`src/net_main.js`, `src/turnstile.js`) shows the widget over the game and sends the request again with the token in `turnstile`. The lobby redeems it at Siteverify and creates the room only if Cloudflare reports success, the action `create_room` and one of `TURNSTILE_HOSTNAMES`. Tokens are single-use, so each room needs a new one.
 - A request with a token spends its per-IP creation budget before Siteverify sees it; the global budget is spent only by verified requests.
 - `LOBBY_JOIN` for an expired 6-character room code no longer re-creates the room, since a join carries no token. The player gets "Room not found".
-- `LOBBY_HOST` (a room hosted in a browser) needs a token the same way. No client hosts that way yet.
+- `LOBBY_HOST` (a room hosted in a browser) needs a token the same way. The hosting tab (`src/net_rtclobby.js`) shows the widget over its running game, then registers again with the token.
 
 Listing and joining live rooms need no token.
 

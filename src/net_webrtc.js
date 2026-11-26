@@ -23,7 +23,10 @@
 // Signalling is injected, so this driver knows nothing of the lobby:
 //   RTC_SetSignaller( {
 //     send( to, kind, data ),   // kind: 'offer' | 'answer' | 'candidate'
-//     iceServers()              // optional: RTCIceServer[] or a Promise of one
+//     iceServers(),             // optional: RTCIceServer[] or a Promise of one
+//     join( code ),             // optional: before a joiner's offer; resolves
+//                               // to a session, or rejects (error.lobby: shown)
+//     leave( session )          // optional: the joiner's connect is over
 //   } )
 //   RTC_HandleSignal( from, kind, data )  // every signal the lobby relays here
 // A joiner addresses the host by room code, and the lobby presents the host's
@@ -902,6 +905,7 @@ class RTCConnectAttempt {
 
 		this.aborted = false;
 		this.conn = null;
+		this.lobbyJoin = null; // the signaller's join( code ), if it has one
 		this._reject = null;
 		this.abortPromise = new Promise( ( _, reject ) => {
 
@@ -1040,8 +1044,35 @@ export async function RTC_Connect( host ) {
 
 		attempt.finish();
 		if ( rtc_attempt === attempt ) rtc_attempt = null;
+		_RTC_LobbyLeave( attempt );
 
 	}
+
+}
+
+// The signaller's optional join( code ): find the room through the lobby
+// before the offer. It may refuse with an Error whose `lobby` is true and
+// whose message the player sees ("Room is full").
+function _RTC_LobbyJoin( attempt, code ) {
+
+	if ( rtc_signaller === null || typeof rtc_signaller.join !== 'function' ) return Promise.resolve( null );
+	attempt.lobbyJoin = Promise.resolve().then( () => rtc_signaller.join( code ) );
+	return attempt.lobbyJoin;
+
+}
+
+// The signaller's optional leave( session ): the connect is over, accepted or
+// not, so the joiner's lobby session can go. A join still in flight (the
+// attempt timed out or was superseded) is left when it resolves.
+function _RTC_LobbyLeave( attempt ) {
+
+	if ( attempt.lobbyJoin === null ) return;
+	const signaller = rtc_signaller;
+	attempt.lobbyJoin.then( ( session ) => {
+
+		if ( signaller !== null && typeof signaller.leave === 'function' ) signaller.leave( session );
+
+	}, () => {} );
 
 }
 
@@ -1052,6 +1083,7 @@ async function _RTC_ConnectAttempt( attempt, code, host ) {
 
 	try {
 
+		await attempt.wait( _RTC_LobbyJoin( attempt, code ) );
 		const iceServers = await attempt.wait( _RTC_IceServers() );
 
 		if ( rtc_client !== null ) _RTC_FinishClose( rtc_client );
@@ -1141,6 +1173,13 @@ async function _RTC_ConnectAttempt( attempt, code, host ) {
 
 			Con_DPrintf( 'WebRTC connect to ' + code + ' superseded\n' );
 			return null;
+
+		}
+
+		if ( error !== null && typeof error === 'object' && error.lobby === true ) {
+
+			Con_Printf( 'WebRTC: ' + error.message + '\n' );
+			return _RTC_FailConnect( error.message );
 
 		}
 

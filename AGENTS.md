@@ -13,7 +13,8 @@ process per room. It was forked from mrdoob's three-quake.
   mirror the C files (`sv_phys.js` is `sv_phys.c`). Web-only additions:
   `in_web.js`, `touch.js`, `webxr.js`, `net_webtransport.js`,
   `net_websocket.js`, `net_webrtc.js` (browser-hosted rooms; the design is
-  `docs/browser-hosted-rooms.md`), `room_rules.js` (game rules shared by
+  `docs/browser-hosted-rooms.md`), `net_rtclobby.js` (that driver's lobby
+  signaller: hosting and joining by code), `room_rules.js` (game rules shared by
   lobby rooms and browser-hosted ones), `pak.js`, `menu_cvars.js`,
   `agent.js` (the agent API,
   `window.icaro`; see `docs/agent-interface.md`), `turnstile.js` (the
@@ -65,7 +66,8 @@ process per room. It was forked from mrdoob's three-quake.
   `cloudflare-multiplayer.md`. A snapshot.
 - `docs/browser-hosted-rooms.md`: design for rooms hosted in a player's
   browser tab and joined over WebRTC, with a Durable Object lobby for
-  signalling. A design; nothing in it is built or tested yet.
+  signalling. Built through PR 5 (the menus); its status line says what
+  has been checked in a browser.
 - `docs/mobile-roadmap.md`: mobile-friendliness review (controls, rendering,
   offline, lifecycle, networking, competitive landscape) with confirmed bugs
   and a ranked roadmap. A snapshot; nothing in it was tested on a device.
