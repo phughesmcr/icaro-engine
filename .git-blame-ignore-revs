@@ -6,3 +6,6 @@
 
 # Format the code with deno fmt (tier 1)
 21dc0a34b7653f7352ce76c5f0ab281db79fd839
+
+# Collapse the C-style comment banners (tier 2)
+e7ca7ef56631a868fa0fd66bd0f17ba6ddc6f81d
