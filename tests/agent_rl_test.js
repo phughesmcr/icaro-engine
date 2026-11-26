@@ -242,6 +242,47 @@ Deno.test({
 });
 
 Deno.test({
+  name: "agent rl: random play over MCP stays inside the spec's bounds",
+  ...ENGINE_TEST,
+  fn: async () => {
+    // The call sequence a Gymnasium adapter makes (tools/gym/icaro_env.py)
+    const layout = { ents: 16, rays: 32, map: 9 };
+    const spec = JSON.parse(
+      (await call("rl_spec", layout)).split("\n")[0],
+    );
+    const step = async (action, tics) =>
+      JSON.parse(
+        (await call("rl_step", { action, tics, ...layout })).split("\n")[0],
+      );
+    let rng = 12345; // an LCG: the same actions every run
+    const pick = (n) => {
+      rng = (Math.imul(rng, 1103515245) + 12345) >>> 0;
+      return (rng >>> 16) % n;
+    };
+    const check = (r, i) => {
+      assert(r.obs.length === spec.size, "size " + r.obs.length);
+      for (let k = 0; k < spec.size; k++) {
+        const v = r.obs[k];
+        assert(
+          v >= spec.low[k] && v <= spec.high[k],
+          "step " + i + " obs[" + k + "] = " + v + " outside " +
+            spec.low[k] + ".." + spec.high[k],
+        );
+      }
+    };
+    for (let seed = 1; seed <= 3; seed++) {
+      await call("start", { map: "e1m1", skill: 2, seed });
+      let r = await step(NOOP, 0);
+      check(r, 0);
+      for (let i = 1; i <= 150 && !r.terminated; i++) {
+        r = await step(spec.action.nvec.map((n) => pick(n)), 4);
+        check(r, i);
+      }
+    }
+  },
+});
+
+Deno.test({
   name: "agent rl: truth false hides hp and server-only entities",
   ...ENGINE_TEST,
   fn: async () => {
