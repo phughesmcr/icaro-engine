@@ -63,10 +63,11 @@ FUNC_RE = re.compile( r'^(?!#)(?!typedef)[A-Za-z_][\w \t\*]*?[\s\*]([A-Za-z_]\w*
 CVAR_RE = re.compile( r'^\s*(?:static\s+)?cvar_t\s+(\w+)\s*=\s*\{\s*"([^"]+)"\s*,\s*"([^"]*)"\s*(?:,\s*(\w+))?\s*(?:,\s*(\w+))?' )
 CMD_RE = re.compile( r'Cmd_AddCommand\s*\(\s*"([^"]+)"\s*,\s*&?\s*(\w+)' )
 
-JS_CVAR_RE = re.compile( r"([A-Za-z_$][\w$]*)\s*=\s*new\s+cvar_t\(\s*'([^']+)'\s*,\s*'([^']*)'\s*(?:,\s*(\w+))?\s*(?:,\s*(\w+))?" )
-JS_CVAR_OBJ_RE = re.compile( r"([A-Za-z_$][\w$]*)\s*=\s*\{\s*name:\s*'([^']+)'\s*,\s*string:\s*'([^']*)'([^}]*)\}" )
+# The JS patterns take either quote, so they match before and after deno fmt
+JS_CVAR_RE = re.compile( r"([A-Za-z_$][\w$]*)\s*=\s*new\s+cvar_t\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]*)['\"]\s*(?:,\s*(\w+))?\s*(?:,\s*(\w+))?" )
+JS_CVAR_OBJ_RE = re.compile( r"([A-Za-z_$][\w$]*)\s*=\s*\{\s*name:\s*['\"]([^'\"]+)['\"]\s*,\s*string:\s*['\"]([^'\"]*)['\"]([^}]*)\}" )
 JS_REG_RE = re.compile( r"Cvar_RegisterVariable\(\s*([A-Za-z_$][\w$.]*)\s*\)" )
-JS_CMD_RE = re.compile( r"Cmd_AddCommand\(\s*'([^']+)'\s*,\s*([^)]*?)\s*\)" )
+JS_CMD_RE = re.compile( r"Cmd_AddCommand\(\s*['\"]([^'\"]+)['\"]\s*,\s*([^)]*?)\s*\)" )
 
 DEF_RES = [
 	re.compile( r'\bfunction\s*\*?\s*([A-Za-z_$][\w$]*)\s*\(' ),
@@ -76,7 +77,7 @@ DEF_RES = [
 	re.compile( r'\b(?:export\s+)?(?:let|var)\s+[^;]*?\b([A-Za-z_$][\w$]*)\s*[,;=]' ),
 ]
 
-STUB_BODY = re.compile( r'^\s*(?:return\s*(?:0|null|false|true|undefined|\'\'|-1)?\s*;?\s*)?$' )
+STUB_BODY = re.compile( r'^\s*(?:return\s*(?:0|null|false|true|undefined|\'\'|""|-1)?\s*;?\s*)?$' )
 
 
 def flag( v ):
@@ -256,7 +257,7 @@ class Js:
 	def reads( self, name ):
 		"""Reads of a cvar: SYM.value / SYM.string (also through `_SYM` aliases)
 		or Cvar_Variable*( 'name' )."""
-		n = len( re.findall( r"Cvar_Variable(?:Value|String)\(\s*'%s'" % re.escape( name ), self.blob ) )
+		n = len( re.findall( r"Cvar_Variable(?:Value|String)\(\s*['\"]%s['\"]" % re.escape( name ), self.blob ) )
 		for sym in self.cvar_syms.get( name, () ):
 			n += len( re.findall( r'\b_?%s\s*\.\s*(?:value|string)\b' % re.escape( sym ), self.blob ) )
 		return n
