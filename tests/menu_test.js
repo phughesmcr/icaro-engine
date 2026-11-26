@@ -144,6 +144,20 @@ Deno.test("touch menus: Touch Controls page, slider taps and Setup rows", async 
     );
     tap(100, 48 + 6 * 8 + 4);
 
+    // Look Screen-Size toggles; Look Acceleration slides
+    const screenOn = touch.touch_look_screen.value;
+    const accel = touch.touch_look_accel.value;
+    try {
+      cvar.Cvar_SetValue("touch_look_screen", 1);
+      tap(100, 48 + menu.M_TouchRow("touch_look_screen") * 8 + 4);
+      assertEqual(touch.touch_look_screen.value, 0, "Look Screen-Size toggles");
+      tap(300, 48 + menu.M_TouchRow("touch_look_accel") * 8 + 4);
+      near(touch.touch_look_accel.value, 2, "Look Acceleration maximum");
+    } finally {
+      cvar.Cvar_SetValue("touch_look_screen", screenOn);
+      cvar.Cvar_SetValue("touch_look_accel", accel);
+    }
+
     // Escape goes back to Options; a tap on the Sound Volume slider (row 8) sets it
     menu.M_Keydown(keys.K_ESCAPE);
     assertEqual(menu.m_state, menu.m_options, "back to Options");
