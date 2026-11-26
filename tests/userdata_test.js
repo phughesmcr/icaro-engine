@@ -263,15 +263,17 @@ function memoryStore(files) {
 
 Deno.test("UD_MountPaks mounts LibreQuake's loose files and music only once its manifest is stored", async () => {
   const lq = "static/librequake/id1/";
+  // not a LibreQuake map, so deno task fetch-data's copy on disk (which
+  // COM_PreloadLooseFile falls back to) doesn't answer for the store
   const files = {
-    [lq + "maps/lqdm1.bsp"]: new Blob([new Uint8Array([29, 0, 0, 0])]),
+    [lq + "maps/ud_test.bsp"]: new Blob([new Uint8Array([29, 0, 0, 0])]),
     [lq + "music/track02.ogg"]: new Blob(["OggS"]),
   };
   const track = (dirs) => CDAudio_TrackURLs(2, dirs)[0];
   try {
     await UD_MountPaks(memoryStore(files));
     assertEqual(
-      await COM_PreloadLooseFile("maps/lqdm1.bsp", lq + "maps/lqdm1.bsp"),
+      await COM_PreloadLooseFile("maps/ud_test.bsp", lq + "maps/ud_test.bsp"),
       false,
       "no manifest: not mounted",
     );
@@ -282,7 +284,7 @@ Deno.test("UD_MountPaks mounts LibreQuake's loose files and music only once its 
       "librequake/manifest.json": new Blob(['{"version":"v0.09-beta"}']),
     }));
     assertEqual(
-      await COM_PreloadLooseFile("maps/lqdm1.bsp", lq + "maps/lqdm1.bsp"),
+      await COM_PreloadLooseFile("maps/ud_test.bsp", lq + "maps/ud_test.bsp"),
       true,
       "manifest: the stored map is read",
     );
