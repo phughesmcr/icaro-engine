@@ -118,11 +118,14 @@ response (`Client_Headers`):
   `Strict-Transport-Security` for a year (this hostname only, no preload).
 
 The policy was checked in a browser against `wrangler dev` (the `client-worker`
-preview in `.claude/launch.json`): E1M1 loads and renders, the service worker
-registers and caches, and the Turnstile widget renders, with no policy
-violations. `connect-src` refuses `ws://` lobbies, so this page (deployed or
-under `wrangler dev`) can't reach a local lobby such as `ws://127.0.0.1:4433`,
-even with `?server=`. Use `deno task serve` for local multiplayer work.
+preview in `.claude/launch.json`), while the client still shipped id's shareware
+pak: E1M1 loaded and rendered, the service worker registered and cached, and the
+Turnstile widget rendered, with no policy violations. It hasn't been repeated
+with LibreQuake, whose download was checked separately
+(`docs/librequake-content.md`). `connect-src` refuses `ws://` lobbies, so this
+page (deployed or under `wrangler dev`) can't reach a local lobby such as
+`ws://127.0.0.1:4433`, even with `?server=`. Use `deno task serve` for local
+multiplayer work.
 
 Caching is Cloudflare's default: no long-lived caching (`max-age=0`,
 `must-revalidate`) and an `ETag`, so a repeat load costs a 304 per file. No

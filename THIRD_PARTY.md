@@ -30,31 +30,26 @@ that two branches adding entries rarely touch the same lines:
 
 ## Game data
 
-- **Quake shareware `pak0.pak` (v1.06).** Shipped as `static/pak0.pak` in the
-  repository, the client and the room image: Episode 1. It is 18,689,235 bytes,
-  with the SHA-256 that [build.js](cloudflare/client/build.js) checks
-  (`35a9c55e…a946af`). Copyright id Software. **Proprietary, not GPL.** Licence:
+- **Quake shareware `pak0.pak` (v1.06).** No longer shipped. It was in the
+  repository as `static/pak0.pak` (from
+  [three-quake](https://github.com/mrdoob/three-quake)), the client and the room
+  image until LibreQuake replaced it; it remains in the repository's git
+  history, which was not rewritten. Copyright id Software, **proprietary, not
+  GPL**:
   [Quake shareware Limited Use Software License Agreement](https://github.com/id-Software/Quake/blob/bf4ac424ce754894ac8f1dae6a3981954bc9852d/WinQuake/data/SLICNSE.TXT)
-  (dated June 21, 1996). Source: the Quake shareware release, by way of
-  [three-quake](https://github.com/mrdoob/three-quake). In summary (read the
-  agreement for the terms themselves):
-  - No commercial use of the software or any portion of it, screenshots included
-    (section 2).
-  - No modifying, reproducing, public display or derivative works, again
-    including any portion (section 3), and no use of id's trademarks, logos,
-    art, sounds or screenshots (section 4).
-  - Section 6 lets internet and BBS "Providers" distribute it free, only
-    electronically and compressed, with the agreement always accompanying it. It
-    lets end users distribute it free "as a whole". Section 7 also mentions
-    giving copies to others at no charge.
-  - **Not confirmed:** that these terms allow what Icaro does, which is to ship
-    `pak0.pak` extracted from the release, without the agreement. No clause
-    found grants distribution of an extracted part, and the pak holds no copy of
-    the agreement.
+  (dated June 21, 1996). A player may still add their own copy, or registered
+  Quake's paks, in Options, Game data; those stay in that player's browser.
 - **LibreQuake v0.09-beta.** Loaded: the browser's default game data, a free
   replacement for id1's. [src/librequake.js](src/librequake.js) downloads the
   pinned `full.zip` or `lite.zip` when a player asks for it and keeps the files,
-  its `docs/` licence files included, in that player's browser storage. Nothing
+  its `docs/` licence files included, in that player's browser storage.
+  **Shipped in the game-room image:** `server/Dockerfile` fetches `full.zip`
+  (SHA-256 checked) while building and keeps `id1/pak0.pak`, `id1/pak1.pak` and
+  the loose `id1/maps/`. **Not yet done:** the image doesn't carry the zip's
+  `docs/` licence files, which the BSD 3-clause licence asks a redistribution to
+  reproduce; until it does, don't publish the image. The tests, benchmarks and
+  servers use the same files, which `deno task fetch-data`
+  (`tools/fetch_data.js`) puts in the gitignored `static/librequake/`. Nothing
   of it is in this repository or the deployed client
   ([docs/librequake-content.md](docs/librequake-content.md) covers hosting).
   Licence: models, textures, sounds and maps under the BSD 3-clause licence

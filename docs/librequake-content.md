@@ -4,39 +4,47 @@ Status (2026-11-26): built. `src/intro.js` (the intro page), `src/librequake.js`
 (download, check, unpack) and the hooks in `main.js`, `src/userdata.js`,
 `src/pak.js`, `src/cd_audio.js` and `sw.js`. The release zips aren't hosted yet
 (see Hosting): until they are, the download button reports that the download
-isn't available and the shareware episode still plays.
+isn't available, and only a player's own Quake files (Options, Game data) play.
+The repository ships no pak: id's shareware `static/pak0.pak` was removed, and
+the tests, benchmarks, servers and game-room image run LibreQuake too
+(`deno task fetch-data`, `server/game_data.js`).
 
 [LibreQuake](https://github.com/lavenderdotpet/LibreQuake) is a free replacement
 for id1's data: art and maps under the BSD 3-clause licence, QuakeC under the
 GPL-2. A new player in the browser gets it by default, downloaded once and kept
-in the browser's storage. id's shareware `static/pak0.pak`, and a player's own
-registered paks (Options, Game data), still work and can be chosen instead.
+in the browser's storage. A player's own id1 paks (shareware or registered,
+added in Options, Game data) still work and can be chosen instead; the site
+serves no id pak.
 
 ## The intro page and the gate
 
 `main.js` waits on `Intro_Gate` before it loads any game data. Nothing
 pak-related is fetched until a person presses a button, so crawlers, link
 previews and other bots that load the page never download a pak or the zip.
-`sw.js` no longer fetches `static/pak0.pak` when it installs: it caches pak0 the
-first time the game fetches it.
+`sw.js` caches no pak: LibreQuake and a player's own data live in the browser's
+storage.
 
 What a launch starts (`Intro_Want`):
 
-1. `?base=` in the URL: `librequake`, `rerelease`, or `id1` for id's data in
-   `static/`.
-2. Otherwise `?game=`, `?room=` or `?map=` mean id's data: mission packs and
-   add-ons need it, lobby rooms run id1's maps, and agent links such as
-   `?map=e1m1` name id1 maps (LibreQuake's are `start` and `lq_eNmM`).
-3. Otherwise the person's last pick on the intro page or in the Game data panel
-   (`localStorage` `icaro_content`: `librequake` or `id1`).
-4. Otherwise LibreQuake.
+1. `?base=` in the URL: `librequake`, `rerelease`, or `id1` for id's data that
+   the player has stored (Options, Game data).
+2. Otherwise `?game=` means id's data: mission packs and add-ons need it.
+   `?room=` and `?map=` mean LibreQuake: lobby rooms run its maps, and agent
+   links such as `?map=lq_e1m1` name its maps.
+3. A link that asks for id's data when none is stored says so and offers
+   LibreQuake instead.
+4. Otherwise the person's last pick on the intro page or in the Game data panel
+   (`localStorage` `icaro_content`: `librequake` or `id1`). A pick of `id1` with
+   nothing stored falls back to LibreQuake.
+5. Otherwise LibreQuake.
 
 The page is skipped only when a person has pressed a button on this device
 before (`localStorage` `icaro_played`, written only by a click) and what the
 launch wants needs no download. A link that names its content gets a single Play
-button; otherwise the page offers the full download, the lite one, and id's data
-("Play the Quake shareware episode", or "Play Quake (registered)" when the
-player has stored their own `id1` pak).
+button; otherwise the page offers the full download and the lite one (or "Play
+LibreQuake" once it is installed), plus "Play Quake", or "Play Quake
+(registered)" with `pak1.pak` too, when the player has stored their own `id1`
+`pak0.pak`. There is no shareware button.
 
 ## Full or lite
 
@@ -138,9 +146,8 @@ download's 404 was reported on the page with no policy violation.
 
 ## Not covered
 
-- LibreQuake's configs use `set`, `if` and `serverinfo`, which the console
-  doesn't have yet, and bind keys it doesn't know; the messages are harmless.
-- Lobby rooms run id1's maps, so `?room=` links start id's data. Joining a room
+- LibreQuake's configs: `set`, `seta` and its key names are accepted (PR #263);
+  `if` and `serverinfo` are not, and print harmless messages.
+- Lobby rooms run LibreQuake full's maps. A player with lite who joins a room on
+  `start` gets lite's `start.bsp`, which differs from full's. Joining a room
   from the menu during a LibreQuake game is untested.
-- A page that isn't yet controlled by the service worker when Play is pressed
-  doesn't cache pak0 until the next load.
