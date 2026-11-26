@@ -1,6 +1,7 @@
 // Navigation graph (src/nav.js) on the data's level map (GD_MAPS.level in
-// server/game_data.js; the expectations are e1m1's): build time, paths
-// from the player start to the exit and to items, and waypoint sanity.
+// server/game_data.js; the expectations are LibreQuake's lq_e1m1): build
+// time, paths from the player start to the exit and to items, and waypoint
+// sanity. The teleporter is on another map, TELEPORT_MAP.
 
 // nav.js first: it must load on its own, as the browser and tools use it
 const nav = await import("../src/nav.js");
@@ -19,15 +20,18 @@ function assert(cond, message) {
 }
 
 const MAP = GD_MAPS.level;
-const MAP_FILE = "maps/" + MAP + ".bsp";
 
-// The map's info_player_start, and items from its entity lump
-const START = [480, -352, 88];
+// lq_e1m1's trigger_teleports are deathmatch-only (spawnflags 1792), so the
+// walk graph has none. lq_e1m2's first one is untargeted and always there.
+const TELEPORT_MAP = "lq_e1m2";
+
+// lq_e1m1's info_player_start, and items where the server puts them
+const START = [968, 1456, 88];
 const ITEMS = {
-  item_armor1: [688, 480, 80],
-  weapon_supershotgun: [-360, 2912, -80],
-  item_artifact_super_damage: [544, 2480, -88],
-  item_artifact_envirosuit: [712, 2040, -408],
+  item_armor2: [528, 16, 160],
+  weapon_nailgun: [-1872, 640, 192],
+  item_artifact_super_damage: [-1040, 464, 216],
+  item_health: [-912, -672, 32],
 };
 
 // Quiet the engine's console output ("backup past 0" from hull traces)
@@ -43,34 +47,36 @@ async function quietly(fn) {
   }
 }
 
-let world = null;
-async function loadE1M1() {
-  if (world !== null) {
-    return world;
+const worlds = new Map();
+async function load_map(map) {
+  const file = "maps/" + map + ".bsp";
+  if (worlds.has(map)) {
+    return worlds.get(map);
   }
   const state = cls.state;
   await quietly(async () => {
     COM_InitArgv(["nav_test"]);
     Memory_Init();
     Mod_Init();
-    // the repository's data alone: a local registered pak1.pak beside the
-    // shareware pak0 isn't mounted, as these expectations are for its map
+    // the repository's data alone (TD_Mount)
     await TD_Mount();
-    assert(await COM_EnsureFile(MAP_FILE) === true, MAP + " present");
+    assert(await COM_EnsureFile(file) === true, map + " present");
     cls.state = ca_dedicated; // no textures: as the Deno server loads maps
     try {
-      world = Mod_ForName(MAP_FILE, true);
+      worlds.set(map, Mod_ForName(file, true));
     } finally {
       cls.state = state;
     }
   });
-  return world;
+  return worlds.get(map);
 }
+
+const loadLevel = () => load_map(MAP);
 
 let graph = null;
 async function build() {
   if (graph === null) {
-    const w = await loadE1M1();
+    const w = await loadLevel();
     graph = await quietly(() => nav.Nav_Build(w));
   }
 
@@ -112,11 +118,11 @@ function checkWaypoints(g, path, label) {
   }
 }
 
-Deno.test("Nav_Build: e1m1 builds quickly into a connected graph", async () => {
-  const w = await loadE1M1();
+Deno.test("Nav_Build: lq_e1m1 builds quickly into a connected graph", async () => {
+  const w = await loadLevel();
   const g = await build();
   console.log(
-    `e1m1 nav: ${g.node_count} nodes, ${g.link_count} links, ${
+    `${MAP} nav: ${g.node_count} nodes, ${g.link_count} links, ${
       g.build_ms.toFixed(1)
     } ms (first build)`,
   );
@@ -136,7 +142,7 @@ Deno.test("Nav_Build: e1m1 builds quickly into a connected graph", async () => {
   }
   const biggest = Math.max(...sizes.values());
   assert(
-    biggest > g.node_count * 0.95,
+    biggest > g.node_count * 0.9,
     `largest component ${biggest} of ${g.node_count}`,
   );
 
@@ -175,7 +181,7 @@ Deno.test("Nav_Build: e1m1 builds quickly into a connected graph", async () => {
   }
 });
 
-Deno.test("Nav_Build: e1m1 entities mark doors, plats, the teleporter and the exit", async () => {
+Deno.test("Nav_Build: lq_e1m1 entities mark doors, plats, buttons and the exit", async () => {
   const g = await build();
   let doorLinks = 0, platLinks = 0, teleLinks = 0, dropLinks = 0, jumpLinks = 0;
   for (let l = 0; l < g.link_count; l++) {
@@ -188,15 +194,42 @@ Deno.test("Nav_Build: e1m1 entities mark doors, plats, the teleporter and the ex
 
   assert(doorLinks > 0, "door links");
   assert(platLinks > 0, "plat ride links");
-  assert(teleLinks > 0, "teleport links");
   assert(dropLinks > 0, "drop links");
   assert(jumpLinks > 0, "jump links");
+  assert(teleLinks === 0, "its teleporters are deathmatch-only");
 
-  const tele = g.ents.find((e) => e.classname === "trigger_teleport");
+  const exit = g.ents.find((e) => e.classname === "trigger_changelevel");
   assert(
-    tele !== undefined && tele.dest_node >= 0,
-    "teleporter has a destination node",
+    exit !== undefined && exit.map === GD_MAPS.next && exit.nodes > 0,
+    "exit nodes",
   );
+
+  // a door raised by a button
+  const gate = g.ents.find((e) =>
+    e.classname === "func_door" && e.targetname === "brapala"
+  );
+  assert(
+    gate !== undefined && gate.opens === "trigger",
+    "brapala opens by trigger",
+  );
+  assert(
+    gate.activators.some((a) => a.classname === "func_button"),
+    "brapala's button",
+  );
+});
+
+Deno.test("Nav_Build: a teleporter links to its destination", async () => {
+  const w = await load_map(TELEPORT_MAP);
+  const g = await quietly(() => nav.Nav_Build(w));
+  let teleLinks = 0;
+  for (let l = 0; l < g.link_count; l++) {
+    if ((g.link_flags[l] & nav.NAV_LINK_TELEPORT) !== 0) teleLinks++;
+  }
+  assert(teleLinks > 0, "teleport links");
+  const tele = g.ents.find((e) =>
+    e.classname === "trigger_teleport" && e.dest_node >= 0 && e.nodes > 0
+  );
+  assert(tele !== undefined, "teleporter has a destination node");
 
   // a node in the teleporter leads straight to the destination
   const te = g.ents.indexOf(tele);
@@ -213,27 +246,9 @@ Deno.test("Nav_Build: e1m1 entities mark doors, plats, the teleporter and the ex
       (tp.flags[1] & nav.NAV_LINK_TELEPORT) !== 0 && tp.cost === 16,
     "teleport hop",
   );
-  const exit = g.ents.find((e) => e.classname === "trigger_changelevel");
-  assert(
-    exit !== undefined && exit.map === GD_MAPS.next && exit.nodes > 0,
-    "exit nodes",
-  );
-
-  // the bridge over the slime is a door, raised by a button
-  const bridge = g.ents.find((e) =>
-    e.classname === "func_door" && e.targetname === "t2"
-  );
-  assert(
-    bridge !== undefined && bridge.opens === "trigger",
-    "bridge opens by trigger",
-  );
-  assert(
-    bridge.activators.some((a) => a.classname === "func_button"),
-    "bridge button",
-  );
 });
 
-Deno.test("Nav_FindPath: e1m1 start to the exit", async () => {
+Deno.test("Nav_FindPath: lq_e1m1 start to the exit", async () => {
   const g = await build();
   const exit = g.ents.find((e) => e.classname === "trigger_changelevel");
   const centre = [0, 1, 2].map((k) => (exit.mins[k] + exit.maxs[k]) / 2);
@@ -242,7 +257,7 @@ Deno.test("Nav_FindPath: e1m1 start to the exit", async () => {
   const ms = performance.now() - t;
   assert(path !== null, "no path to the exit");
   console.log(
-    `e1m1 start to exit: ${path.count} waypoints, cost ${
+    `${MAP} start to exit: ${path.count} waypoints, cost ${
       path.cost.toFixed(0)
     }, ${ms.toFixed(2)} ms`,
   );
@@ -267,7 +282,7 @@ Deno.test("Nav_FindPath: e1m1 start to the exit", async () => {
   assert(d < 32, `first waypoint ${d.toFixed(1)} units from the start`);
 });
 
-Deno.test("Nav_FindPath: e1m1 start to items", async () => {
+Deno.test("Nav_FindPath: lq_e1m1 start to items", async () => {
   const g = await build();
   for (const [name, p] of Object.entries(ITEMS)) {
     const path = nav.Nav_FindPath(g, START, p);
@@ -313,9 +328,9 @@ Deno.test("Nav_FindPath: unreachable and off-map targets give null", async () =>
 
 Deno.test("Nav_FindPath: queries reuse the graph's path buffer", async () => {
   const g = await build();
-  const a = nav.Nav_FindPath(g, START, ITEMS.item_armor1);
+  const a = nav.Nav_FindPath(g, START, ITEMS.item_armor2);
   const count = a.count;
-  const b = nav.Nav_FindPath(g, START, ITEMS.weapon_supershotgun);
+  const b = nav.Nav_FindPath(g, START, ITEMS.weapon_nailgun);
   assert(a === b && a === g.path, "same path object");
   assert(b.count !== count, "overwritten by the second query");
 

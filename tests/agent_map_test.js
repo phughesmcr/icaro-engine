@@ -1,6 +1,6 @@
 // src/agent.js map tier over the headless host (through server/agent_mcp.ts):
-// the egocentric ASCII grid on e1m1 from pak0. A seeded start makes each run
-// the same game.
+// the egocentric ASCII grid on LibreQuake's lq_e1m1 and lq_e1m2. A seeded
+// start makes each run the same game.
 
 import { mcp_session } from "./agent_mcp_client.js";
 import {
@@ -12,7 +12,11 @@ import {
 } from "../src/agent.js";
 import { cl, cl_entities } from "../src/client.js";
 import { Agent_NavGraph } from "../src/agent.js";
-import { NAV_NODE_EXIT, NAV_NODE_TELEPORT } from "../src/nav.js";
+import {
+  NAV_NODE_BUTTON,
+  NAV_NODE_EXIT,
+  NAV_NODE_TELEPORT,
+} from "../src/nav.js";
 import { YAW } from "../src/quakedef.js";
 import { GD_MAPS } from "../server/game_data.js";
 
@@ -51,6 +55,14 @@ function map_at(yaw, size, truth = true) {
 }
 
 const cell = (m, r, c) => m.rows[r][c] ?? " ";
+
+// lq_e1m1 starts the player in a train, behind secret doors that open from the
+// far side, so the agent can't walk it anywhere. The tests that walk to meet
+// a grunt use lq_e1m2, which starts in the open with grunts in the first hall,
+// and whose walk graph has teleporters and an exit.
+const GRUNT_MAP = "lq_e1m2";
+const HEALTH = [-480, -96, -192]; // lq_e1m2's item_health, past the grunts
+const ARMOR = [608, 1632, 64]; // lq_e1m1's item_armor1, behind a secret door
 
 Deno.test({
   name: "agent map: an n x n grid with you at the centre, off by default",
@@ -130,17 +142,17 @@ Deno.test({
   name: "agent map: a monster is drawn where the entity list says it is",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
+    await call("start", { map: GRUNT_MAP, skill: 1, seed: 1 });
     // walk until a monster is near and in view
     let monster = null;
     for (let i = 0; i < 4 && monster === null; i++) {
-      await call("goto", { pos: [688, 480, 80], ents: 0 });
+      await call("goto", { pos: HEALTH, ents: 0 });
       monster = Agent_Entities(64).find((e) =>
         e.hp !== null && e.visible === true && e.dist < 300 &&
         Math.abs(e.dz) < 100
       ) ?? null;
     }
-    assert(monster !== null, "no monster met on the way to the armour");
+    assert(monster !== null, "no monster met on the way to the health");
 
     const m = Agent_Map(21);
     const R = (m.size - 1) / 2;
@@ -164,38 +176,25 @@ Deno.test({
   },
 });
 
-Deno.test({
-  name: "agent map: truth names brush entities; without it they are walls",
-  ...ENGINE_TEST,
-  fn: async () => {
-    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
-    // the first goto toward the armour stops by the bridge's button
-    await call("goto", { pos: [688, 480, 80], ents: 0, stop_on_enemy: false });
-    const button = Agent_Entities(64).find((e) => e.kind === "button");
-    assert(button !== undefined && button.dist < 300, "a button nearby");
-    const yaw = cl.viewangles[YAW];
-    const truth = map_at(yaw, 21, true).rows.join("\n");
-    assert(truth.includes("B"), "button drawn:\n" + truth);
-    for (let a = 0; a < 360; a += 45) {
-      const m = map_at(yaw + a, MAP_MAX_SIZE, false).rows.join("\n");
-      assert(!/[EDLBT]/.test(m), "yaw " + (yaw + a) + ":\n" + m);
-    }
-  },
-});
-
-// The map as if you stood at a walk graph node with this flag, without
-// moving the game (the client's copy of your origin is put back)
-function map_at_node(flag, truth) {
+// Runs fn as if you stood at the nth walk graph node with this flag, without
+// moving the game (the client's copy of your origin is put back). The n-th
+// node, or null when there are fewer
+function at_node(flag, fn, nth = 0) {
   const g = Agent_NavGraph();
-  const k = g.node_flags.findIndex((f) => (f & flag) !== 0);
-  assert(k !== -1, "no node with flag " + flag);
+  let k = -1;
+  for (let i = 0, seen = 0; i < g.node_count && k === -1; i++) {
+    if ((g.node_flags[i] & flag) !== 0 && seen++ === nth) k = i;
+  }
+  if (k === -1) {
+    return null;
+  }
   const me = cl_entities[cl.viewentity].origin;
   const saved = [me[0], me[1], me[2]];
   try {
     me[0] = g.node_pos[k * 3];
     me[1] = g.node_pos[k * 3 + 1];
     me[2] = g.node_pos[k * 3 + 2];
-    return Agent_Map(9, truth).rows.join("\n");
+    return fn();
   } finally {
     me[0] = saved[0];
     me[1] = saved[1];
@@ -203,11 +202,48 @@ function map_at_node(flag, truth) {
   }
 }
 
+function map_at_node(flag, truth) {
+  const text = at_node(flag, () => Agent_Map(9, truth).rows.join("\n"));
+  assert(text !== null, "no node with flag " + flag);
+  return text;
+}
+
+Deno.test({
+  name: "agent map: truth names brush entities; without it they are walls",
+  ...ENGINE_TEST,
+  fn: async () => {
+    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
+    // the walk to the armour closet (stopped by its secret door) brings the
+    // level's buttons and doors into the client's view
+    await call("goto", { pos: ARMOR, ents: 0, stop_on_enemy: false });
+    // standing where a func_button is touched (the game is not moved): the
+    // first such node that has a button in view
+    let checked = false;
+    for (let n = 0; n < 200 && checked === false; n++) {
+      const done = at_node(NAV_NODE_BUTTON, () => {
+        const yaw = cl.viewangles[YAW];
+        const truth = map_at(yaw, 21, true).rows.join("\n");
+        if (!truth.includes("B")) {
+          return false;
+        }
+        for (let a = 0; a < 360; a += 45) {
+          const m = map_at(yaw + a, MAP_MAX_SIZE, false).rows.join("\n");
+          assert(!/[EDLBT]/.test(m), "yaw " + (yaw + a) + ":\n" + m);
+        }
+        return true;
+      }, n);
+      assert(done !== null, "no button drawn at any button node");
+      checked = done;
+    }
+    assert(checked, "no button drawn at the first 200 button nodes");
+  },
+});
+
 Deno.test({
   name: "agent map: exits and teleporters are drawn only with truth",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
+    await call("start", { map: GRUNT_MAP, skill: 1, seed: 1 });
     for (
       const [flag, glyph] of [[NAV_NODE_EXIT, "E"], [NAV_NODE_TELEPORT, "T"]]
     ) {
@@ -220,30 +256,20 @@ Deno.test({
 });
 
 Deno.test({
-  name: "agent map: the start room, stairs down ahead, nothing behind the wall",
+  name: "agent map: the start platform, a drop beside it, nothing behind",
   ...ENGINE_TEST,
   fn: async () => {
     await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
-    // you start facing yaw 90 at the top of the stairs down to the hall
+    // you start on a narrow platform above the hall, facing yaw 80
     const m = map_at(90, 21);
     const R = 10;
-    assert(
-      cell(m, R + 1, R) === ".",
-      "floor at your feet:\n" + m.rows.join("\n"),
-    );
-    for (let r = R - 10; r <= R - 7; r++) {
-      assert(
-        cell(m, r, R) === "-",
-        "lower floor ahead, row " + r + ":\n" + m.rows.join("\n"),
-      );
+    const rows = "\n" + m.rows.join("\n");
+    assert(cell(m, R + 1, R) === ".", "floor at your feet:" + rows);
+    for (let r = R - 5; r < R; r++) {
+      assert(cell(m, r, R) === ".", "platform ahead, row " + r + ":" + rows);
+      assert(cell(m, r, R - 1) === "-", "a drop beside it, row " + r + rows);
     }
-    // the wall behind you is drawn, and nothing past it
-    assert(m.rows[R + 3].includes("#"), "wall behind:\n" + m.rows.join("\n"));
-    for (let r = R + 4; r < 21; r++) {
-      assert(
-        m.rows[r] === "",
-        "row " + r + " past the wall:\n" + m.rows.join("\n"),
-      );
-    }
+    // the platform ends behind you, with nothing to stand on past it
+    assert(cell(m, R + 2, R) === " ", "nothing behind:" + rows);
   },
 });
