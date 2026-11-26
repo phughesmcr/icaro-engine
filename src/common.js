@@ -552,6 +552,101 @@ export function COM_DefaultExtension(path, extension) {
   return path + extension;
 }
 
+// WORD WRAP (2021 rerelease)
+//
+// Ported from Ironwail Quake/common.c: COM_WordLength, COM_AdvanceLineWrapped
+// and COM_WordWrap, used by SCR_CenterPrint when scr_usekfont is set. The C
+// advances a char pointer; here a start index goes in and the advanced index
+// comes back in com_wrap_end.
+
+let com_wrap_end = 0; // COM_AdvanceLineWrapped's advanced position (*text)
+
+/** Length of the word that starts at text[start] */
+export function COM_WordLength(text, start) {
+  let i = start;
+  while (i < text.length && !q_isspace(text.charCodeAt(i))) {
+    i++;
+  }
+  return i - start;
+}
+
+/**
+ * Advances text by as much as possible until the maxchars limit is hit,
+ * avoiding splitting words if possible. Returns the length of the consumed
+ * text, excluding a potential trailing space or newline; the position after
+ * it is left in com_wrap_end.
+ */
+export function COM_AdvanceLineWrapped(text, start, maxchars) {
+  let i = 0;
+  while (i < maxchars && start + i < text.length) {
+    const c = text.charCodeAt(start + i);
+    if (c === 0x0A) {
+      com_wrap_end = start + i + 1;
+      return i;
+    }
+
+    // new word
+    if (
+      !q_isspace(c) && (i === 0 || q_isspace(text.charCodeAt(start + i - 1)))
+    ) {
+      const len = COM_WordLength(text, start + i);
+      // split word if longer than given limit
+      if (len > maxchars) {
+        com_wrap_end = start + maxchars;
+        return maxchars;
+      }
+      // not enough space left? push word to next line
+      if (i + len > maxchars) {
+        com_wrap_end = start + i;
+        return i;
+      }
+      // word fits, continue
+      i += len;
+    } else {
+      i++;
+    }
+  }
+
+  // avoid starting next line with a space
+  com_wrap_end = start + i +
+    (start + i < text.length && q_isspace(text.charCodeAt(start + i)) ? 1 : 0);
+
+  return i;
+}
+
+/**
+ * Returns src word-wrapped at maxcols, preserving existing linefeeds, cut to
+ * dstsize - 1 characters as the C's buffer is. If maxcols <= 0 no wrapping is
+ * performed (plain string copy).
+ */
+export function COM_WordWrap(src, dstsize, maxcols) {
+  if (maxcols <= 0) {
+    return src.substring(0, Math.max(0, dstsize - 1)); // q_strlcpy
+  }
+
+  if (dstsize <= 0) {
+    return "";
+  }
+  // reserve space for terminating NUL
+  dstsize--;
+
+  let dst = "";
+  let pos = 0;
+  while (pos < src.length) {
+    const start = pos;
+    let len = COM_AdvanceLineWrapped(src, pos, maxcols);
+    pos = com_wrap_end;
+    const remaining = dstsize - dst.length;
+    len = Math.min(len, remaining);
+    dst += src.substring(start, start + len);
+    if (dst.length + 1 < dstsize && pos < src.length) {
+      dst += "\n";
+    }
+  }
+
+  return dst;
+}
+
 // COM_Parse
 //
 // Parse a token out of a string
@@ -838,6 +933,8 @@ export function Con_DPrintf(fmt, ...args) {
 //   shareware game (which has none) boots without a new console line.
 // - "auto" reads navigator.languages instead of SDL_GetPreferredLocales.
 // - LOC_Load doesn't retry loc_english.txt when that was the file that failed.
+// - LOC_Load also reads localization/loc_<language>_mod.txt, as the KEX engine
+//   does and Ironwail doesn't; LOC_LoadModFile says how it merges.
 // - PF_VarString and LOC_Format have no 1024-byte output buffer, so no
 //   overflow warnings (the port's PF_VarString never had a limit).
 // - Not ported: LOC_Init's "Language initialization" banner, the developer 2
@@ -1203,6 +1300,28 @@ export function LOC_LoadFile(file) {
   // clear existing data
   loc_entries.clear();
 
+  return LOC_ParseFile(file, loc_entries);
+}
+
+/**
+ * KEX (2021 rerelease), not in Ironwail: adds the strings of a mod's
+ * localization/loc_<language>_mod.txt to those already loaded, without
+ * clearing them. The mod's string wins when both files have a key; the
+ * rerelease's own behaviour for that case is unverified.
+ */
+export function LOC_LoadModFile(file) {
+  const entries = new Map();
+  if (!LOC_ParseFile(file, entries)) {
+    return false;
+  }
+  for (const [key, value] of entries) {
+    loc_entries.set(key, value);
+  }
+  return true;
+}
+
+/** The body of Ironwail's LOC_LoadFile: parses file into entries */
+function LOC_ParseFile(file, entries) {
   if (file === null || file === "") {
     return false;
   }
@@ -1321,8 +1440,8 @@ export function LOC_LoadFile(file) {
       }
 
       numentries++;
-      if (!loc_entries.has(key)) {
-        loc_entries.set(key, UTF8_ToQuake(out));
+      if (!entries.has(key)) {
+        entries.set(key, UTF8_ToQuake(out));
       }
     }
 
@@ -1340,13 +1459,20 @@ export function LOC_LoadFile(file) {
 }
 
 export function LOC_Load() {
+  let lang = userlang;
   // Ironwail retries loc_english.txt even when that was the file that failed
   if (
-    !LOC_LoadFile("localization/loc_" + userlang + ".txt") &&
-    userlang !== "english"
+    !LOC_LoadFile("localization/loc_" + lang + ".txt") && lang !== "english"
   ) {
+    lang = "english";
     LOC_LoadFile("localization/loc_english.txt");
   }
+
+  // KEX, not in Ironwail: mods add strings in localization/<base>_mod.txt
+  // (the rerelease's id1 pak0.pak ships a placeholder for each language, for
+  // mods to override). The port reads the one for the language whose strings
+  // were loaded above.
+  LOC_LoadModFile("localization/loc_" + lang + "_mod.txt");
 }
 
 export function LOC_GetSystemLanguage() {
