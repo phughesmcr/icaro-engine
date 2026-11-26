@@ -267,3 +267,25 @@ Deno.test( 'a connection that drops again at once keeps its attempt count', asyn
 	assertEqual( env.timers[ env.timers.length - 1 ].ms, 1000, 'fresh start after a stable connection' );
 
 } );
+
+Deno.test( 'a server that accepts and drops us repeatedly ends in a give up', async () => {
+
+	const env = makeEnv( { results: [ true, true, true, true, true, true, true, true ] } );
+	r.CLR_Connected( 'wss://host/mp' );
+	let handled = true;
+	for ( let i = 0; i < 10 && handled === true; i ++ ) {
+
+		handled = r.CLR_ConnectionLost();
+		if ( handled === true ) {
+
+			await env.fire();
+			env.time += 500;
+
+		}
+
+	}
+	assertEqual( handled, false, 'loop ended' );
+	assertEqual( env.giveUps.length, 1, 'gave up once' );
+	assertEqual( r.CLR_HasSession(), false, 'session forgotten' );
+
+} );

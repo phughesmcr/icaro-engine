@@ -196,6 +196,15 @@ export function CLR_ConnectionLost() {
 	if ( phase !== 'idle' ) return true;
 
 	if ( deps.now() - connectedAt >= CLR_STABLE_MS ) attempts = 0;
+	if ( attempts >= CLR_MAX_ATTEMPTS ) {
+
+		// A server that keeps accepting and dropping us: stop
+		CLR_Cancel();
+		deps.giveUp( 'Lost connection to the server and could not reconnect' );
+		return false;
+
+	}
+
 	deps.print( 'Connection to ' + session.host + ' lost\n' );
 	deps.notify( 'Reconnecting...' );
 	_schedule( CLR_BackoffMs( attempts ) );

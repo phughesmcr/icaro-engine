@@ -271,6 +271,8 @@ Host should be either "local" or a net address to be passed on
 For remote connections, this handles async WebTransport connections.
 =====================
 */
+let cl_connect_id = 0; // web-only: generation of the latest CL_EstablishConnection
+
 export async function CL_EstablishConnection( host, quiet = false ) {
 
 	if ( cls.state === ca_dedicated )
@@ -286,6 +288,7 @@ export async function CL_EstablishConnection( host, quiet = false ) {
 	// drivers and this function then skip the menu pages shown on failure.
 	if ( quiet === false )
 		CLR_Cancel();
+	const connect_id = ++ cl_connect_id;
 	NET_SetQuietConnect( quiet );
 
 	// Clear room from browser URL when connecting to single player (local)
@@ -294,6 +297,8 @@ export async function CL_EstablishConnection( host, quiet = false ) {
 		history.replaceState( null, '', Sys_PageURL( null ) );
 
 	}
+
+	let connected_sock = null;
 
 	try {
 
@@ -314,12 +319,12 @@ export async function CL_EstablishConnection( host, quiet = false ) {
 
 			} );
 
-			cls.netcon = await Promise.race( [ result, timeoutPromise ] );
+			connected_sock = await Promise.race( [ result, timeoutPromise ] );
 
 		} else {
 
 			// Sync connection (loopback)
-			cls.netcon = result;
+			connected_sock = result;
 
 		}
 
@@ -344,6 +349,16 @@ export async function CL_EstablishConnection( host, quiet = false ) {
 		return false;
 
 	}
+
+	// Web-only: a newer connect started while this one waited; drop this one
+	if ( connect_id !== cl_connect_id ) {
+
+		if ( connected_sock != null ) NET_Close( connected_sock );
+		return false;
+
+	}
+
+	cls.netcon = connected_sock;
 
 	NET_SetQuietConnect( false );
 
