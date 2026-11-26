@@ -2285,6 +2285,7 @@ const touchItems = [
     get: () => m_pitch.value < 0,
     set: () => Cvar_SetValue("m_pitch", -m_pitch.value),
   },
+  { label: "           Left-Handed", cvar: "touch_lefthanded" },
   { label: "      Look Screen-Size", cvar: "touch_look_screen" },
   {
     label: "     Look Acceleration",
@@ -2293,7 +2294,6 @@ const touchItems = [
     max: 2,
     step: 0.25,
   },
-  { label: "           Left-Handed", cvar: "touch_lefthanded" },
   {
     label: "           Button Size",
     cvar: "touch_size",
@@ -2311,6 +2311,11 @@ const touchItems = [
   { label: "             Vibration", cvar: "touch_haptics" },
 ];
 const TOUCH_ITEMS = touchItems.length;
+
+/** The Touch Controls row that sets cvar, or -1 (for tests). */
+export function M_TouchRow(cvar) {
+  return touchItems.findIndex((item) => item.cvar === cvar);
+}
 const TOUCH_TOP = 48;
 let m_touch_cursor = 0;
 
