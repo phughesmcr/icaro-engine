@@ -4,10 +4,14 @@ Design notes, 2026-11-25, against `dev` at `11e5cbd`. Status, 2026-11-26: the
 WebRTC driver, the listen-server rules, the lobby (Deno, and the Cloudflare
 Worker, which the maintainer has deployed), the client's lobby signaller
 (`src/net_rtclobby.js`) and the menus are built and unit tested. See PR 5 below
-for what a browser has been checked for. The goal is free multiplayer that
-doesn't depend on the maintainer's Mac or a paid server, on desktop and mobile.
-One player's browser tab hosts the room, the way a NetQuake listen server does,
-and the other players join it directly over WebRTC.
+for what a browser has been checked for. Since then (checked at `dev`
+`694b2cc`): on a page that isn't local and has no `?server=`, Start Game's _Host
+on_ starts at "This browser" (#235, `NET_DefaultHostInBrowser`; not checked on
+the deployed site), and a joiner that loses its connection reconnects by code
+(#239, below). The goal is free multiplayer that doesn't depend on the
+maintainer's Mac or a paid server, on desktop and mobile. One player's browser
+tab hosts the room, the way a NetQuake listen server does, and the other players
+join it directly over WebRTC.
 
 Tags, as in [always-on-hosting.md](always-on-hosting.md):
 
@@ -442,6 +446,19 @@ Paste each run's _Copy results_ JSON into this section.
    the WebRTC driver (`rtc:<code>`), both players spawn, and each sees the other
    move (entity origins read in each tab, with the joiner moved next to the
    host, since the two spawned out of each other's view).
+
+   Reconnect (#239): `src/cl_reconnect.js` retries `rtc:<code>` addresses as it
+   does lobby rooms. Each retry joins the room by code through the lobby again
+   and offers the host a new peer connection, with no menu page on a quiet
+   retry's failure. When the lobby answers "Room not found" (the host has left),
+   `CLR_GiveUp` ends the retries at once with "The host has left the room";
+   other lobby errors, "Room is full" included (the host may still hold the
+   dropped slot), stay retryable. A graceful host exit still sends
+   `svc_disconnect` and ends without retries. Checked in Chromium with two tabs
+   and the Deno lobby: a joiner whose reliable channel was closed reconnected on
+   the first retry, and one whose host vanished gave up after one retry. Not
+   checked: a real network change, an iOS freeze, TURN, the Cloudflare lobby,
+   and a full room in a browser (tests only).
 6. **Later, depending on the spike:** B (server in a Worker), or C (a
    `deno desktop` host app).
 

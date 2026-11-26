@@ -19,9 +19,17 @@ process per room. It was forked from mrdoob's three-quake.
   (the agent API, `window.icaro`; see `docs/agent-interface.md`), `turnstile.js`
   (the Turnstile widget shown before creating a room), `pwa_launch.js` (what the
   installed app does when launched again while open), `nav.js` (the walk graph
-  behind the agent's `goto` and `map`). Some files port features from Ironwail
-  or QuakeSpasm rather than id's C, and their headers cite it (`gl_fog.js`,
-  `gl_sky.js`, `gl_md5.js`, `gl_entalpha.js`, `gl_screenwarp.js`, `image.js`,
+  behind the agent's `goto` and `map`), `cl_reconnect.js` (reconnect after a
+  lost multiplayer connection, browser-hosted rooms included), `autosave.js`
+  (the autosave-on-hide rules), `gl_contextloss.js` (WebGL context loss and
+  restore), `gl_warmup.js` (shader warm-up behind the loading plaque),
+  `vid_dynres.js` (dynamic resolution, `vid_dynres`), `userdata.js` (bring your
+  own data: the Game data panel, its OPFS or IndexedDB store, and the player's
+  paks, saves, configs and demos), `touch_layout.js` (the touch HUD's saved
+  layout profiles) and `touch_editor.js` (the layout editor,
+  `touch_editlayout`). Some files port features from Ironwail or QuakeSpasm
+  rather than id's C, and their headers cite it (`gl_fog.js`, `gl_sky.js`,
+  `gl_md5.js`, `gl_entalpha.js`, `gl_screenwarp.js`, `image.js`,
   `pr_sprintf.js`, `default_cfg.js`, `unicode_translit.js`). For those,
   Ironwail's source is the reference.
 - `main.js` and `index.html`: the browser entry. `index.html`'s import map loads
@@ -84,18 +92,21 @@ process per room. It was forked from mrdoob's three-quake.
   the maintainer's account. Not linted or run in CI. `make_splash.py` draws the
   iOS launch images in `static/splash/` from `static/icon.png` and writes their
   tags into `index.html` (Python, standard library only; not linted or run in
-  CI, but `tests/manifest_test.js` checks its output). `fmt_ast_check.js`
-  compares each changed file's syntax tree with its version at a git ref, to
-  show that a formatting change (see `docs/style-cleanup-plan.md`) changed
-  nothing else; its header gives the command and what it accepts. Not linted or
-  run in CI. `collapse_banners.js` turned the C-style comment banners into doc
-  comments and `//` lines (tier 2 of the plan); the plan's catch-up steps for an
-  open PR run it again. `--verify <ref>` checks that no comment text was lost
-  but the name lines of the banners it deleted. Not linted or run in CI.
-  `check_container_image.sh` (`deno task image-check`, needs Docker) fails if
-  the game-room image or its build context holds any `.pak` but
-  `static/pak0.pak`, or TLS or env files, then starts a room in the image; CI
-  runs it.
+  CI, but `tests/manifest_test.js` checks its output). `gym/icaro_env.py` is a
+  Gymnasium env that plays through the agent MCP server's rl tools, one server
+  per env (Python; needs gymnasium, numpy and Deno; its header gives the
+  command; not linted or run in CI, but `tests/agent_rl_test.js` runs its call
+  sequence). `fmt_ast_check.js` compares each changed file's syntax tree with
+  its version at a git ref, to show that a formatting change (see
+  `docs/style-cleanup-plan.md`) changed nothing else; its header gives the
+  command and what it accepts. Not linted or run in CI. `collapse_banners.js`
+  turned the C-style comment banners into doc comments and `//` lines (tier 2 of
+  the plan); the plan's catch-up steps for an open PR run it again.
+  `--verify <ref>` checks that no comment text was lost but the name lines of
+  the banners it deleted. Not linted or run in CI. `check_container_image.sh`
+  (`deno task image-check`, needs Docker) fails if the game-room image or its
+  build context holds any `.pak` but `static/pak0.pak`, or TLS or env files,
+  then starts a room in the image; CI runs it.
 - `tools/bench/`: headless Deno benchmarks (not linted or run in CI). They use
   pak0 by default; the server, build, model and net benchmarks also take
   `-base rerelease` (and, except model, the game flags) to run on the gitignored
