@@ -49,8 +49,9 @@ as Hexen II and custom Icaro games.
   `maxclients` and stops with "Bad maxclients (0)". A new client can tell a
   legacy 1015 stream from a versioned one by the same byte.
 - The capabilities are the server's statement about its stream. The client
-  doesn't reply. Signon buffers are shared and recorded in demos, so this is the
-  only form that demos can replay. A client reply is left as an open question.
+  doesn't reply. Signon buffers are shared by all clients and recorded in demos,
+  so features that shape them can't differ per client, and demos replay what the
+  server declared. A client reply is left as an open question.
 - Required capabilities may change layouts. A client that lacks one refuses to
   connect and names it. Optional capabilities only add escape messages, which a
   client skips by length.
@@ -99,11 +100,12 @@ as Hexen II and custom Icaro games.
   `U_SIGNAL` or a command byte with the high bit set. The client's fast-update
   path is reached only by protocol 15 demos.
 - **Transports.** WebTransport, WebSocket and WebRTC open with an `"ICARO"`
-  hello carrying `WT_PROTOCOL_VERSION` 1 (`src/net.js:258-271`). On a mismatch
-  the client shows "Protocol mismatch: update your client" before any game data
-  (`src/net_webrtc.js:621-632`). `NET_PROTOCOL_VERSION` and `CCREQ_CONNECT`
-  (`src/net.js:23`, `:26`) are defined but nothing uses them. Loopback games and
-  demos have no transport hello at all.
+  hello carrying `WT_PROTOCOL_VERSION` 1 (`src/net.js:258-271`). On a version
+  mismatch the host rejects the client with "Protocol version N not supported
+  (server uses M)" before any game data (`src/net_webrtc.js:621-632`; the
+  WebSocket and WebTransport servers do the same). `NET_PROTOCOL_VERSION` and
+  `CCREQ_CONNECT` (`src/net.js:23`, `:26`) are defined but nothing uses them.
+  Loopback games and demos have no transport hello at all.
 - **Demos.** Recording must start before connecting (`src/cl_demo.js:292-297`),
   so a demo always starts with `svc_serverinfo`. Demos from builds before 1015
   stopped playing when 1015 arrived (`src/protocol.js:21-24`).
@@ -304,9 +306,9 @@ incomplete.
 | (none) | 128-255   | Fast updates in 15/666/999 demos | NetQuake, read-only |
 
 - **Game layer.** Numbers and payloads follow the game. In the Quake profile
-  they follow NetQuake, plus the Fitz and KEX numbers that Icaro reads (37, 40,
-  41, 52, 56). Icaro's wider fields still apply, as today: coordinates, model
-  indexes and sound indexes.
+  they follow NetQuake, plus the KEX numbers that Icaro reads today (52, 56) and
+  the Fitz numbers that migration step 2 adds (37, 40, 41). Icaro's wider fields
+  still apply, as today: coordinates, model indexes and sound indexes.
   - A profile may give a shared number a different payload, as H2 does for
     `svc_intermission`.
   - The engine writes some game-layer messages itself: `svc_serverinfo`,
@@ -388,15 +390,18 @@ string  sounds[]...   then a 0 byte
   client that doesn't know the bit skips them by length.
 - **Two bit spaces.** Required and optional capabilities are numbered
   separately. A capability is one or the other, for good.
-- **Revision 1 is today's 1015.** It includes 32-bit coordinates, short model
-  and sound indexes, packet entities, `svc_playerinfo`, the SU and SND extension
-  bits, and entity alpha. These are not capabilities. The server has no path
-  without them, so a bit for them could only ever be set. The audit suggested
-  turning today's features into bits; this design keeps bits for features the
-  server can turn off.
-- **No per-client tailoring.** Signon buffers are built once per map and shared
-  by every client (`src/sv_main.js:2164-2172`, sent at `:810-829`). So the
-  stream's capabilities are per server, not per client.
+- **Revision 1 has today's features**, on the new numbers. It includes 32-bit
+  coordinates, short model and sound indexes, packet entities, `svc_playerinfo`,
+  the SU and SND extension bits, and entity alpha. These are not capabilities.
+  The server has no path without them, so a bit for them could only ever be set.
+  The audit suggested turning today's features into bits; this design keeps bits
+  for features the server can turn off.
+- **No per-client tailoring.** The hello itself goes to each client's own
+  message buffer (`src/sv_main.js:570-576`), but the signon buffers that follow
+  it are built once per map and shared by every client
+  (`src/sv_main.js:2164-2172`, sent at `:810-829`). A capability that changes
+  how signon messages are laid out therefore has to be the same for every
+  client, so the stream's capabilities are per server, not per client.
 
 Proposed first allocations (to be confirmed in the PRs that add them):
 
@@ -561,8 +566,9 @@ adds escape ids from `0x8000`, or registers its own profile id.
 - **Network clients.** `WT_PROTOCOL_VERSION` (`src/net.js:271`) gates
   WebTransport, WebSocket and WebRTC before any game data. Bump it whenever the
   revision changes, so a stale client (for example a cached PWA joining a newer
-  browser-hosted room) sees "Protocol mismatch: update your client"
-  (`src/net_webrtc.js:630`). Don't wait for the hello.
+  browser-hosted room) is turned away with "Protocol version N not supported"
+  (`src/net_webrtc.js:631-632`) before the hello. Don't rely on the hello for
+  that.
 - **Loopback and demos.** These have no transport hello. The hello is their only
   source of truth, and the capability check is the backstop for everyone.
 - **Unused constants.** `NET_PROTOCOL_VERSION` and `CCREQ_CONNECT` belong to
@@ -673,7 +679,8 @@ the PR can't play together, and a demo recorded before it may stop playing.
    - The game itself (progs, BSP, models, physics, HUD) is far larger, and needs
      its own design.
 
-Steps 1, 2 and 4 can go in any order. Step 3 comes before 5.
+Steps 2 and 4 build on the tables from step 1, and can go in either order after
+it. Step 3 also comes after step 1, and before step 5.
 
 ## Not verified
 
