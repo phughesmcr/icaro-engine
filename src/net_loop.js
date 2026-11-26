@@ -18,6 +18,23 @@ let localconnectpending = false;
 let loop_client = null;
 let loop_server = null;
 
+/**
+ * Deliberate deviation: C's loopback queue is NET_MAXMESSAGE bytes, and
+ * Loop_SendMessage calls Sys_Error when a reliable message doesn't fit behind
+ * the datagrams already queued (QuakeSpasm and Ironwail too, where a
+ * MAX_MSGLEN message plus one datagram can exceed it). Here the queue has
+ * room for one more full message: unreliable messages still stop at
+ * NET_MAXMESSAGE, and a reliable message goes only when the last one has been
+ * read (NET_CanSendMessage), so it always fits.
+ */
+export const LOOP_QUEUE_BYTES = 2 * NET_MAXMESSAGE + 8;
+
+function Loop_SizeQueue(sock) {
+  if (sock.receiveMessage.length < LOOP_QUEUE_BYTES) {
+    sock.receiveMessage = new Uint8Array(LOOP_QUEUE_BYTES);
+  }
+}
+
 export function Loop_Init() {
   // In browser, we always support loopback (not dedicated)
   return 0;
@@ -63,6 +80,7 @@ export function Loop_Connect(host) {
 
     loop_client.address = "localhost";
   }
+  Loop_SizeQueue(loop_client);
 
   loop_client.receiveMessageLength = 0;
   loop_client.sendMessageLength = 0;
@@ -77,6 +95,7 @@ export function Loop_Connect(host) {
 
     loop_server.address = "LOCAL";
   }
+  Loop_SizeQueue(loop_server);
 
   loop_server.receiveMessageLength = 0;
   loop_server.sendMessageLength = 0;
@@ -145,7 +164,7 @@ export function Loop_SendMessage(sock, data) {
   const peer = sock.driverdata;
   const bufferLength = peer.receiveMessageLength;
 
-  if ((bufferLength + data.cursize + 4) > NET_MAXMESSAGE) {
+  if ((bufferLength + data.cursize + 4) > LOOP_QUEUE_BYTES) {
     Sys_Error("Loop_SendMessage: overflow\n");
   }
 

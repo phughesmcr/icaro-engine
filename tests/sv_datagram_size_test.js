@@ -12,6 +12,7 @@ import {
 import { NET_MAXMESSAGE, qsocket_t } from "../src/net.js";
 import "../src/server.js";
 import { SV_ClientDatagramSize } from "../src/sv_main.js";
+import { LOOP_QUEUE_BYTES } from "../src/net_loop.js"; // after sv_main.js: TDZ
 
 function assertEqual(actual, expected, message) {
   if (actual !== expected) {
@@ -35,13 +36,15 @@ Deno.test("the loopback client gets MAX_DATAGRAM, more than id's 1024", () => {
   );
 });
 
-Deno.test("MAX_DATAGRAM leaves room in the loopback buffer and fits a demo message", () => {
-  // Loop_SendMessage calls Sys_Error when the frame's datagram and a
-  // reliable message don't fit in one NET_MAXMESSAGE buffer (4-byte header each)
-  if (!(NET_MAXMESSAGE - (MAX_DATAGRAM + 4) - 4 >= 4000)) {
-    throw new Error(
-      "MAX_DATAGRAM leaves less than 4000 bytes for a reliable message",
-    );
+Deno.test("MAX_DATAGRAM leaves room in the loopback queue and fits a demo message", () => {
+  // Loop_SendMessage calls Sys_Error when a reliable message doesn't fit
+  // behind the queued datagrams, which stop at NET_MAXMESSAGE (4-byte
+  // header each); tests/max_msglen_test.js runs it
+  if (!(NET_MAXMESSAGE + MAX_MSGLEN + 4 <= LOOP_QUEUE_BYTES)) {
+    throw new Error("a MAX_MSGLEN message may not fit the loopback queue");
+  }
+  if (!(MAX_DATAGRAM + 4 <= NET_MAXMESSAGE)) {
+    throw new Error("a MAX_DATAGRAM datagram does not fit the loopback queue");
   }
   // CL_GetMessage rejects demo messages over MAX_MSGLEN
   if (!(MAX_DATAGRAM <= MAX_MSGLEN)) {

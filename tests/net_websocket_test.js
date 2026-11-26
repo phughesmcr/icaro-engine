@@ -1448,3 +1448,63 @@ Deno.test("WS: WS_Init fails without WebSocket", async () => {
     await captureOutput(() => client.WS_Init());
   }
 });
+
+// A message of n bytes whose every byte depends on its offset
+function patternMessage(n) {
+  const bytes = new Uint8Array(n);
+  for (let i = 0; i < n; i++) bytes[i] = (i * 7 + (i >> 8)) & 0xff;
+  return { data: bytes, cursize: n };
+}
+
+function assertPattern(result, n, what) {
+  assertEqual(result.ret, 1, what + " is reliable");
+  assertEqual(result.payload.length, n, what + " size");
+  const expected = patternMessage(n).data;
+  for (let i = 0; i < n; i++) {
+    if (result.payload[i] !== expected[i]) {
+      throw new Error(what + ": byte " + i + " differs");
+    }
+  }
+}
+
+Deno.test("WS: a NET_MAXMESSAGE (64000-byte) reliable message crosses both ways; a bigger one is refused", async () => {
+  const teardown = setupServer({ maxclients: 4, sockets: 10 });
+  try {
+    const { sock, serverSock } = await connectClient();
+    const size = net.NET_MAXMESSAGE;
+    assertEqual(size, 64000, "NET_MAXMESSAGE");
+
+    assertEqual(
+      server.WS_QSendMessage(serverSock, patternMessage(size)),
+      1,
+      "server sends",
+    );
+    await waitFor(
+      () => sock.driverdata.pendingMessages.length > 0,
+      1000,
+      "server message",
+    );
+    assertPattern(drainClient(sock)[0], size, "server -> client");
+
+    assertEqual(
+      client.WS_QSendMessage(sock, patternMessage(size)),
+      1,
+      "client sends",
+    );
+    await waitFor(
+      () => serverSock.driverdata.pendingMessages.length > 0,
+      1000,
+      "client message",
+    );
+    assertPattern(drainServer(serverSock)[0], size, "client -> server");
+
+    const { result } = await captureOutput(() =>
+      server.WS_QSendMessage(serverSock, patternMessage(size + 1))
+    );
+    assertEqual(result, -1, "server refuses NET_MAXMESSAGE + 1");
+
+    client.WS_Close(sock);
+  } finally {
+    await teardown();
+  }
+});
