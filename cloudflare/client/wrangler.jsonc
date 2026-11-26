@@ -1,0 +1,23 @@
+// The browser client as static files on a Worker (see README.md). No script:
+// assets only. Run wrangler from this folder only, after
+// `deno task client-build` has filled dist/ from the allowlist. From the
+// repository root, wrangler takes the whole repository for a static site,
+// registered game data included. Never point "directory" anywhere but dist/.
+{
+  "name": "icaro-client",
+  "compatibility_date": "2026-11-25",
+  "assets": {
+    "directory": "./dist",
+    // The page is one index.html with no client-side routes, and the engine's
+    // loaders take a 404 as "not there"
+    "not_found_handling": "none"
+  },
+  // The Worker is the hostname's origin. The lobby Worker's more specific
+  // route (cloudflare/lobby/wrangler.jsonc) runs in front of it for
+  // /mp/lobby. Creating the Custom Domain needs the hostname free of other
+  // DNS records (README.md, "First deploy").
+  "routes": [{ "pattern": "quake.anglezarke.games", "custom_domain": true }],
+  // One public hostname: Turnstile only accepts the page's own
+  "workers_dev": false,
+  "preview_urls": false
+}

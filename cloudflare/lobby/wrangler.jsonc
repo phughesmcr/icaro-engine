@@ -11,12 +11,45 @@
   },
   // SQLite-backed, the only kind the Free plan offers
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Lobby"] }],
+  // The game page's default lobby is /mp/lobby on its own host
+  // (WS_DefaultServer). Workers on routes run in front of a Custom Domain's
+  // Worker, here the client's (cloudflare/client/).
+  // workers.dev stays on for ?server=wss://icaro-lobby.<account>.workers.dev.
+  "routes": [
+    {
+      "pattern": "quake.anglezarke.games/mp/lobby*",
+      "zone_name": "anglezarke.games"
+    }
+  ],
+  "workers_dev": true,
   "vars": {
     // Turnstile on LOBBY_HOST (server/turnstile.js): the game page's
     // hostnames, never localhost here. The check is on only while the
     // TURNSTILE_SITEKEY secret is stored.
-    "TURNSTILE_HOSTNAMES": "quake.anglezarke.games"
-  }
+    "TURNSTILE_HOSTNAMES": "quake.anglezarke.games",
+    // Pages allowed to open lobby sockets (src/gate.js), comma-separated.
+    // Requests with no Origin (non-browser clients) still pass. Add
+    // "http://localhost:8137" to test a local page against this lobby.
+    "LOBBY_ORIGINS": "https://quake.anglezarke.games"
+  },
+  // Per-IP limits that survive the Durable Object's hibernation (its own
+  // limits are in memory). Approximate and per Cloudflare location. Each
+  // namespace_id must be unique in the account. Past LOBBY_CONNECT_LIMIT
+  // the Worker answers 429 without waking the object; past
+  // LOBBY_TURN_LIMIT a host or joiner gets STUN only. If a deploy refuses
+  // this block, removing it leaves the other limits in place (README.md).
+  "ratelimits": [
+    {
+      "name": "LOBBY_CONNECT_LIMIT",
+      "namespace_id": "4433001",
+      "simple": { "limit": 30, "period": 60 }
+    },
+    {
+      "name": "LOBBY_TURN_LIMIT",
+      "namespace_id": "4433002",
+      "simple": { "limit": 10, "period": 60 }
+    }
+  ]
   // Secrets (wrangler secret put, never in this file): TURNSTILE_SITEKEY
   // and TURNSTILE_SECRET, and TURN_KEY_ID and TURN_KEY_API_TOKEN for TURN
   // credentials.

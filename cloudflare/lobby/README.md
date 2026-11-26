@@ -12,9 +12,13 @@ that points its `/mp/lobby` here lists only rooms hosted in browsers.
 ## Files
 
 - `wrangler.jsonc`: the Worker, its Durable Object binding (`LOBBY`) and the
-  SQLite migration the Free plan needs. No assets.
+  SQLite migration the Free plan needs, and the `/mp/lobby` route. No assets:
+  the game page is the client Worker's (`../client/`).
 - `src/worker.js`: routes `<prefix>/lobby` to the Durable Object and upgrades
   the WebSocket. Workers-only code.
+- `src/gate.js`: the checks before the Durable Object (path, upgrade, Origin,
+  connection rate; see Abuse limits). `tests/cloudflare_lobby_gate_test.js`
+  covers it.
 - `src/lobby_core.js`: the Durable Object's logic: hibernation-safe session
   state, the alarm that drops silent hosts, TURN credentials.
   `tests/cloudflare_lobby_test.js` runs it under Deno with a fake `ctx`.
@@ -29,11 +33,15 @@ game data in `static/` included.
 cd cloudflare/lobby && npx wrangler deploy
 ```
 
-The Worker is then at `https://icaro-lobby.<account>.workers.dev/lobby`. Clients
-reach it as their lobby with `?server=wss://icaro-lobby.<account>.workers.dev`.
-To serve it at `/mp/lobby` on your own zone instead, add a route
-(`"routes": [ { "pattern": "example.com/mp/lobby*", "zone_name": "example.com" } ]`)
-or set one in the dashboard.
+The Worker is then at `https://icaro-lobby.<account>.workers.dev/lobby`, and at
+`https://quake.anglezarke.games/mp/lobby`, the lobby the game page there uses by
+default, through the route in `wrangler.jsonc`. Clients elsewhere reach it with
+`?server=wss://icaro-lobby.<account>.workers.dev`. For another zone, change the
+route's `pattern` and `zone_name`. The route needs a proxied DNS record for the
+hostname; the client Worker's Custom Domain (`../client/`) is one. While a
+Cloudflare Tunnel still serves that hostname, the route takes `/mp/lobby` from
+it as soon as it is deployed, and the Deno lobby behind the tunnel stops
+receiving lobby connections.
 
 ## TURN
 
@@ -55,12 +63,46 @@ joined one, within the lobby's rate limits. They last 6 hours
 (`TURN_TTL_SECONDS` overrides that), since a relay can't be refreshed once they
 expire. If minting fails, clients get STUN only.
 
-The rate limits (rooms hosted, joins and missed joins per IP per minute, frames
-per socket) live in the Durable Object's memory. When it hibernates and leaves
-memory, they start again from nothing, so a client that pauses between bursts
-can get past them. The caps on open sockets, rooms and joiners per IP hold,
-since they count live sockets. If that matters, add a Cloudflare rate-limiting
-rule on the route as well.
+## Abuse limits
+
+Three layers, from the edge in:
+
+1. **The Worker** (`src/gate.js`) turns a request away before it wakes the
+   Durable Object, so it costs no Durable Object request:
+   - The page's `Origin` must be in `LOBBY_ORIGINS` (a var in `wrangler.jsonc`,
+     comma-separated). Other sites' pages can't use this lobby, or its TURN
+     relays, through their visitors' browsers. A request with no `Origin` (curl,
+     `tools/room_bench.js`) still passes: a non-browser client could forge one
+     anyway, so the limits below are what hold it. Leave the var empty to accept
+     any page, or add `http://localhost:8137` to test a local page against the
+     deployed lobby.
+   - `LOBBY_CONNECT_LIMIT`, a Workers rate-limit binding: 30 lobby connections
+     per IP per minute, then 429. Every room-list refresh, host and join is one
+     connection.
+2. **TURN minting.** `LOBBY_TURN_LIMIT`: 10 TURN credentials per IP per minute.
+   Past it, a host or joiner gets STUN only, so a game can still start where no
+   relay is needed. TURN is the one thing here billed by use (past the free
+   allowance), and credentials are minted only after a `LOBBY_HOST` (behind
+   Turnstile) or a `LOBBY_JOIN` for a live room.
+3. **The Durable Object** (`server/lobby_rtc.js`, `RTC_LOBBY_LIMITS`): rooms
+   hosted, joins and missed joins per IP per minute, and frames per socket.
+   These live in its memory and start again when it hibernates, which is why the
+   two bindings exist. The caps on open sockets, rooms and joiners per IP always
+   hold, since they count live sockets.
+
+The bindings' counts are approximate and kept per Cloudflare location. Many
+players behind one address (a school, a mobile carrier's NAT) share a limit;
+raise `limit` in `wrangler.jsonc` if they hit it. Each binding needs a
+`namespace_id` unused elsewhere in the account. The code treats a missing or
+failing binding as "allowed", so if a deploy refuses the `ratelimits` block (for
+example, if the account's plan lacks the binding), removing it leaves the Origin
+check and the Durable Object's limits in place.
+
+A Cloudflare WAF rate-limiting rule is a fourth, optional layer, set in the
+dashboard (Security, WAF, Rate limiting rules). The Free plan allows one rule,
+counted per IP over 10 s. For example: requests matching
+`starts_with(http.request.uri.path, "/mp/lobby")` on `quake.anglezarke.games`,
+more than 20 in 10 s, block for 10 s.
 
 ## Turnstile
 

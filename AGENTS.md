@@ -51,9 +51,17 @@ process per room. It was forked from mrdoob's three-quake.
 - `cloudflare/lobby/`: the lobby Worker and Durable Object for rooms hosted in
   browsers, with TURN credentials and the Turnstile check (its README says how
   to deploy). `src/worker.js` imports `cloudflare:workers`, so tests run
-  `src/lobby_core.js` instead. Run wrangler only from that folder: from the
-  repository root it offers to upload the whole repository, registered data
+  `src/lobby_core.js` and `src/gate.js` (the Origin check and rate limits before
+  the Durable Object) instead. Its route serves it at
+  `quake.anglezarke.games/mp/lobby`. Run wrangler only from that folder: from
+  the repository root it offers to upload the whole repository, registered data
   included.
+- `cloudflare/client/`: the Worker that serves the game page at
+  `quake.anglezarke.games` as static assets (no script). `build.js`
+  (`deno task client-build`) fills its gitignored `dist/` from an allowlist of
+  tracked files with a deny check for registered data, and wrangler deploys only
+  `dist/`; its README gives the deploy steps. `tests/client_build_test.js`
+  covers the rules.
 - `docs/`: design notes, reviews and research; `docs/README.md` says what each
   one covers. Most are snapshots taken at a past revision, so check their claims
   against the code before relying on them.
@@ -108,10 +116,14 @@ process per room. It was forked from mrdoob's three-quake.
 - `deno task check` type-checks `main.js`, the server entry points (the MCP
   server `server/agent_mcp.ts` included), the room process manager
   (`server/room_process_manager.ts`), the WebSocket server driver
-  (`server/net_websocket_server.ts`) and the two TypeScript tests
+  (`server/net_websocket_server.ts`), the client Worker's build script
+  (`cloudflare/client/build.js`) and the two TypeScript tests
   (`tests/net_webtransport_server_test.ts`, `tests/quic_listen_test.ts`).
 - `deno task agent-mcp` runs the agent MCP server on stdio (reads only
   `static/`; no network).
+- `deno task client-build` fills `cloudflare/client/dist/` for the client Worker
+  (runs `git`; refuses uncommitted client files unless given `--allow-dirty`).
+  Deploy with `cd cloudflare/client && npx wrangler deploy`.
 - `deno task lobby` and `deno task game` need `server/cert.pem` and
   `server/key.pem` (see `server/README.md`). Both are gitignored.
 - To run the client, `deno task serve` and open http://localhost:8137/. It is
@@ -119,9 +131,11 @@ process per room. It was forked from mrdoob's three-quake.
   `deno.lock`), bound to 127.0.0.1 so registered data in `static/` isn't served
   to the network, and it honours HTTP Range, which the rerelease's lazily loaded
   paks need. Any static file server works otherwise. `.claude/launch.json`
-  defines the preview servers for Claude Code: `static` (`deno task serve`) and
-  `lobby` (`deno task lobby`: port 4433, the client's default, with rooms on
-  4434–4443; it needs the certs). To drive it as an agent, open
+  defines the preview servers for Claude Code: `static` (`deno task serve`),
+  `client-worker` (`wrangler dev` on `cloudflare/client/dist/`, port 8788, with
+  its security headers; run `deno task client-build` first) and `lobby`
+  (`deno task lobby`: port 4433, the client's default, with rooms on 4434–4443;
+  it needs the certs). To drive it as an agent, open
   `?agent=lockstep&map=e1m1&skill=1` and call `icaro.help()` in the page.
 - CI (`.github/workflows/ci.yml`) runs on PRs to `dev` and `main` and on pushes
   to them: a check that no pak but `static/pak0.pak` is tracked, then
