@@ -48,6 +48,11 @@ AGENTS.md, Git workflow).
   columns) and collapse the C-style comment banners, with trial results, tiers,
   neutrality checks and how open PRs catch up. Its status line says which tiers
   are done.
+- `architecture-plan.md`: a staged plan to split `src/` into platform, core and
+  game layers with downward imports only: the file-by-file assignment, the edges
+  that break the rule, the cut that keeps the renderer out of the dedicated
+  server, duplicated state, TypeScript and bundling, and PR-sized steps.
+  Measured on `dev` at 694b2cc; a snapshot.
 - `protocol-design.md`: design for a versioned Icaro network protocol: the hello
   with a revision, a game profile and capability words, a reserved svc range for
   Icaro's own messages, room for games that aren't Quake (Hexen II as the worked
