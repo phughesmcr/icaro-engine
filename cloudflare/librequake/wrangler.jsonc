@@ -1,0 +1,24 @@
+// LibreQuake's release zips from R2, on the game's own origin (see
+// README.md). Run wrangler from this folder only. From the repository root,
+// wrangler takes the whole repository for a static site, registered game
+// data included. This Worker serves no assets: never add an "assets" block.
+{
+  "name": "icaro-librequake",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-25",
+  // The bucket the README creates and uploads the zips to
+  "r2_buckets": [{ "binding": "LQ_BUCKET", "bucket_name": "icaro-librequake" }],
+  // The client downloads from static/librequake/ on the page's own origin
+  // (LQ_DOWNLOAD_BASE in src/librequake.js), so no CORS is needed. Workers
+  // on routes run in front of a Custom Domain's Worker, here the client's
+  // (cloudflare/client/), whose static assets never hold this path.
+  "routes": [
+    {
+      "pattern": "quake.anglezarke.games/static/librequake/*",
+      "zone_name": "anglezarke.games"
+    }
+  ],
+  // One public hostname, the game's
+  "workers_dev": false,
+  "preview_urls": false
+}

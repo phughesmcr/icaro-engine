@@ -2,9 +2,10 @@
 
 Status (2026-11-26): built. `src/intro.js` (the intro page), `src/librequake.js`
 (download, check, unpack) and the hooks in `main.js`, `src/userdata.js`,
-`src/pak.js`, `src/cd_audio.js` and `sw.js`. The release zips aren't hosted yet
-(see Hosting): until they are, the download button reports that the download
-isn't available and the shareware episode still plays.
+`src/pak.js`, `src/cd_audio.js` and `sw.js`. The release zips are served from R2
+by `cloudflare/librequake/` (see Hosting) once its bucket is filled and it is
+deployed: until then, the download button reports that the download isn't
+available and the shareware episode still plays.
 
 [LibreQuake](https://github.com/lavenderdotpet/LibreQuake) is a free replacement
 for id1's data: art and maps under the BSD 3-clause licence, QuakeC under the
@@ -102,18 +103,24 @@ the zips either (25 MiB a file).
 
 The download URL is one constant, `LQ_DOWNLOAD_BASE` in `src/librequake.js`,
 relative to the page: `static/librequake/v0.09-beta/`, then `full.zip` or
-`lite.zip`. Either:
+`lite.zip`. The game's own origin serves that path from an R2 bucket through the
+Worker in `cloudflare/librequake/` (its README gives the bucket, upload and
+deploy steps). Its route, `quake.anglezarke.games/static/librequake/*`, runs in
+front of the client Worker's Custom Domain on the same hostname (Cloudflare's
+[Custom Domains page](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/),
+"Interaction with Routes"), so the download is same-origin and needs no CORS.
+The Worker answers `GET` and `HEAD` for the two zips only, with 206 and
+`Content-Range` for a `bytes=` range, 416 for one past the end, and `ETag` and
+the other validators for conditional requests; R2's egress is free, and the two
+zips fit its free storage many times over.
 
-- serve that path on the game's own origin from something other than the static
-  assets, for example an R2 bucket behind a Worker route on
-  `quake.anglezarke.games/static/librequake/*` (routes run in front of the
-  Custom Domain), answering `Range` requests with 206; or
-- point the constant at an absolute `https:` URL on a host that sends
-  `Access-Control-Allow-Origin` for the game's origin. A `bytes=N-` range is a
-  CORS-safelisted request header, so no preflight is needed. The host should
-  also send `Access-Control-Expose-Headers: Content-Range`; without it, a 206 is
-  trusted as starting at the right place and the hash check catches a bad
-  resume.
+Moving the zips to another host means pointing the constant at an absolute
+`https:` URL on a host that sends `Access-Control-Allow-Origin` for the game's
+origin. A `bytes=N-` range is a CORS-safelisted request header, so no preflight
+is needed. The host should also send
+`Access-Control-Expose-Headers:
+Content-Range`; without it, a 206 is trusted as
+starting at the right place and the hash check catches a bad resume.
 
 `cloudflare/client/build.js` denies `static/librequake/` (it is gitignored too),
 so the zips and unpacked files never reach the static assets, and `sw.js` passes

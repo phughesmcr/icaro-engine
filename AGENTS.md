@@ -75,6 +75,13 @@ process per room. It was forked from mrdoob's three-quake.
   `quake.anglezarke.games/mp/lobby`. Run wrangler only from that folder: from
   the repository root it offers to upload the whole repository, registered data
   included.
+- `cloudflare/librequake/`: the Worker that serves LibreQuake's release zips
+  from an R2 bucket on the route `quake.anglezarke.games/static/librequake/*`,
+  in front of the client Worker, so the intro page downloads them from its own
+  origin (`LQ_DOWNLOAD_BASE`). `src/serve.js` (allowlist, byte ranges,
+  conditional requests) is tested by `tests/cloudflare_librequake_test.js`
+  against a fake bucket; its README gives the bucket, upload and deploy steps.
+  Run wrangler only from that folder.
 - `cloudflare/client/`: the Worker that serves the game page at
   `quake.anglezarke.games` as static assets, with a script for the page alone
   that adds a CSP nonce (`src/nonce.js`, tested by
@@ -303,15 +310,16 @@ deployed publicly; `.gitignore` covers those paths and every `.pak` but
 `static/pak0.pak`, and CI fails if another pak is tracked. `.gitignore` also
 covers `static/music/`, a player's CD rips, which `sw.js` caches on the player's
 device for offline play (no other `music/` folder is cached). LibreQuake, the
-browser's default content, is never committed or deployed either: it is
-downloaded into the player's browser storage, and `static/librequake/` (a local
-copy for testing, and the release zips under `v0.09-beta/`) is gitignored and
-denied by the client build. The client loads a mission pack with
-`?game=hipnotic` or `?game=rogue`, a rerelease add-on with `?game=mg1` (etc.),
-the rerelease layout with `?base=rerelease`, LibreQuake with `?base=librequake`
-and id's data with `?base=id1`; the servers take `-hipnotic`, `-rogue` or
-`-game <dir>`. If the data isn't present, test that the shareware game is
-unchanged and list manual test steps in the PR.
+browser's default content, is never committed or deployed with the client
+either: its pinned release zips are uploaded unchanged to an R2 bucket
+(`cloudflare/librequake/`) and downloaded into the player's browser storage, and
+`static/librequake/` (a local copy for testing, and the release zips under
+`v0.09-beta/`) is gitignored and denied by the client build. The client loads a
+mission pack with `?game=hipnotic` or `?game=rogue`, a rerelease add-on with
+`?game=mg1` (etc.), the rerelease layout with `?base=rerelease`, LibreQuake with
+`?base=librequake` and id's data with `?base=id1`; the servers take `-hipnotic`,
+`-rogue` or `-game <dir>`. If the data isn't present, test that the shareware
+game is unchanged and list manual test steps in the PR.
 
 ## Git workflow
 
