@@ -16,10 +16,12 @@ Deno.test( 'pr_exec.js case labels match the OP_ constants in pr_comp.js', () =>
 
 	const source = Deno.readTextFileSync( new URL( '../src/pr_exec.js', import.meta.url ) );
 
-	// the body of the interpreter switch, by brace matching
-	const open = source.indexOf( '{', source.indexOf( 'switch ( code[ o ] )' ) );
-	if ( open < 0 )
+	// the body of the interpreter switch, by brace matching. The patterns
+	// allow any spacing, so they hold with or without deno fmt's layout
+	const at = source.search( /switch\s*\(\s*code\[\s*o\s*\]\s*\)/ );
+	if ( at < 0 )
 		throw new Error( 'interpreter switch not found' );
+	const open = source.indexOf( '{', at );
 	let depth = 0, close = open;
 	for ( ; close < source.length; close ++ ) {
 
@@ -35,7 +37,7 @@ Deno.test( 'pr_exec.js case labels match the OP_ constants in pr_comp.js', () =>
 	const seen = new Set();
 	for ( const line of cases ) {
 
-		const m = /^case (\d+): \{? ?\/\/ (OP_\w+)/.exec( line );
+		const m = /^case (\d+):\s*\{?\s*\/\/ (OP_\w+)/.exec( line );
 		if ( m === null )
 			throw new Error( `case without an OP_ label: ${line}` );
 		const want = pr_comp[ m[ 2 ] ];
