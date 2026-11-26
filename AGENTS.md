@@ -95,10 +95,13 @@ process per room. It was forked from mrdoob's three-quake.
   `tests/quic_listen_test.ts`).
 - `deno task lobby` and `deno task game` need `server/cert.pem` and
   `server/key.pem` (see `server/README.md`). Both are gitignored.
-- To run the client, serve the repo root with any static file server
-  (`python3 -m http.server`) and open `index.html`. `.claude/launch.json`
-  defines the preview servers for Claude Code: `static` (the client, port
-  8137) and `lobby` (`deno task lobby`: port 4433, the client's default,
+- To run the client, `deno task serve` and open http://localhost:8137/. It
+  is Deno's std file server (version pinned in the task, its modules in
+  `deno.lock`), bound to 127.0.0.1 so registered data in `static/` isn't
+  served to the network, and it honours HTTP Range, which the rerelease's
+  lazily loaded paks need. Any static file server works otherwise.
+  `.claude/launch.json` defines the preview servers for Claude Code: `static`
+  (`deno task serve`) and `lobby` (`deno task lobby`: port 4433, the client's default,
   with rooms on 4434–4443; it needs the certs). To drive it as an
   agent, open `?agent=lockstep&map=e1m1&skill=1` and call `icaro.help()`
   in the page.
