@@ -1,6 +1,6 @@
 # Style cleanup plan
 
-Status: plan only, nothing done. Measured on `dev` at b8f46e7 (2026-11-26),
+Status: tier 0 done on `refactor/fmt-prep`; tiers 1–4 not started. Measured on `dev` at b8f46e7 (2026-11-26),
 after #205–#215 merged.
 
 Decisions made: adopt `deno fmt` with the settings below, collapse comment
@@ -124,34 +124,42 @@ any hand edits go in an earlier commit.
 
 ### Tier 0: preparation (no formatting)
 
-1. Change the two source-reading tests to accept both layouts. The trial
-   used these patterns:
-   - `pr_exec_ops_test.js`: find the switch with
-     `source.search( /switch\s*\(\s*code\[\s*o\s*\]\s*\)/ )`, and match case
-     labels with `/^case (\d+):\s*\{?\s*\/\/ (OP_\w+)/`.
-   - `menu_advanced_test.js`:
-     `/new cvar_t\(\s*(['"])([A-Za-z0-9_]+)\1,\s*(['"])([^'"]*)\3/g` and
-     `/name:\s*(['"])([A-Za-z0-9_]+)\1,\s*string:\s*(['"])([^'"]*)\3/g`,
-     reading the name from group 2 and the default from group 4.
-2. Change `tools/port_inventory.py`'s JS regexes to accept either quote, and
-   check that its output is unchanged on the current code.
-3. Add `// deno-fmt-ignore-file` (with a reason) to tables that read better
-   in rows: `src/anorm_dots.js`, and `src/progdefs.js` and
-   `src/menu_cvars.js` if their tables are row-shaped. Where only one
-   statement in a file needs it, use `// deno-fmt-ignore` on that statement.
-4. Add `tools/fmt_ast_check.js`. For each changed file, it parses the version
-   before and after (with `npm:@babel/parser`, which also reads TypeScript),
-   drops positions, `raw` text and comments, and compares the trees. It
-   accepts only these differences:
+Done on `refactor/fmt-prep`:
+
+1. The two source-reading tests accept either layout: any spacing around
+   `(`, `[` and `{`, and either quote. `menu_advanced_test.js` still finds
+   the same 199 cvar defaults.
+2. `tools/port_inventory.py`'s JS patterns accept either quote, including
+   the `''` stub body and the `Cvar_VariableValue( '…' )` reads. Its output
+   (both modes) is byte-identical on the current code and on a copy
+   formatted with the settings above.
+3. Six tables keep their rows under a `// deno-fmt-ignore` line:
+   `r_avertexnormal_dots` (`src/anorm_dots.js`), `crctable`
+   (`src/crc.js`), `turbsin` (`src/gl_warp.js`), `pop` (`src/common.js`),
+   its test copy `popShorts` (`tests/sv_engine_fixes_test.js`) and
+   `advancedPages` (`src/menu_cvars.js`). Without the markers they grow by
+   4,112, 219, 204, 43, 23 and 344 lines. `src/progdefs.js` has no marker:
+   it grows because one-line getters and setters get one statement per line,
+   which is ordinary code formatting, and its `globalvars_t_fields` rows
+   stay one per line anyway.
+4. `tools/fmt_ast_check.js <base-ref> [<file>...]` compares each changed
+   `.js`/`.ts` file's syntax tree with its version at `<base-ref>`, using
+   `@babel/parser` 8.1.3 (pinned in the `deno.json` import map). It ignores
+   positions, comments, raw text and redundant parentheses, and accepts:
    - a block holding one statement and that statement on its own
-     (`useBraces`);
+     (`useBraces`). That includes a lone `if`: the trees are already
+     parsed, so an `else` belongs to the same `if` either way;
+   - an empty statement dropped from a statement list;
    - a quoted and an unquoted property key with the same name
      (`quoteProps`);
    - a different order of the names inside one `import { … }` or
      `export { … }`.
    Anything else fails, including import declarations that moved: some
    modules are in import cycles where order matters (AGENTS.md "Engine
-   gotchas").
+   gotchas"). On a copy of this branch formatted with the settings above,
+   every changed file matches (302 files, about 4 seconds). After
+   formatting, a changed number, a changed string or two swapped import
+   declarations are each reported.
 
 ### Tier 1: `deno fmt` sweep
 
