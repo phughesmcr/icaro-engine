@@ -136,8 +136,8 @@ download's 404 was reported on the page with no policy violation.
 
 ## Not covered
 
-- LibreQuake's configs use `set`, `if` and `serverinfo`, which the console
-  doesn't have yet, and bind keys it doesn't know; the messages are harmless.
+- LibreQuake's configs: `set`, `seta` and its key names are accepted (PR #263);
+  `if` and `serverinfo` are not, and print harmless messages.
 - Lobby rooms run id1's maps, so `?room=` links start id's data. Joining a room
   from the menu during a LibreQuake game is untested.
 - A page that isn't yet controlled by the service worker when Play is pressed
