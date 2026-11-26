@@ -17,6 +17,7 @@ import { camera, scene } from "./src/gl_rmain.js";
 import { renderer } from "./src/vid.js";
 import { Draw_CachePicFromPNG, Draw_GetOverlayCanvas } from "./src/gl_draw.js";
 import { XR_Init } from "./src/webxr.js";
+import { PWA_InitLaunchQueue } from "./src/pwa_launch.js";
 import {
   CDAudio_SetTrackURLProvider,
   CDAudio_TrackURLs,
@@ -36,6 +37,9 @@ import {
   Agent_Screenshot,
   Agent_Step,
 } from "./src/agent.js";
+
+// web-only: set up before the game can rewrite the page's URL
+PWA_InitLaunchQueue(window);
 
 const parms = {
   basedir: ".",
