@@ -16,8 +16,9 @@ AGENTS.md, Git workflow).
 - `threejs-review.md`: a review of the Three.js rendering code against r183,
   with the status of each finding. A snapshot.
 - `cloudflare-multiplayer.md`: research notes on hosting multiplayer behind
-  Cloudflare. Its claims about this repository were rechecked on 2026-11-26; the
-  Cloudflare facts were not, and can change.
+  Cloudflare; its status note says how `quake.anglezarke.games` is served now.
+  Its claims about this repository were rechecked on 2026-11-26; the Cloudflare
+  facts were not, and can change.
 - `always-on-hosting.md`: hosting multiplayer without the home Mac (Containers,
   Durable Objects, VMs), with room memory/CPU/bandwidth measurements and the
   plan. Supersedes the recommendation in `cloudflare-multiplayer.md`, but its

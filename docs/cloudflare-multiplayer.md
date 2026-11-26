@@ -22,6 +22,13 @@ fact is tagged with how it was checked:
 > or 4: no room runs in a Durable Object, and Deno rooms have no WebRTC. For
 > option 3b, a room image (`server/Dockerfile`) and WebSocket-only rooms
 > (`-nowt`, `-trustproxy`) exist, but not a Containers Worker or lobby.
+>
+> **Status (`dev` `c28add2`):** `quake.anglezarke.games` no longer goes through
+> a Tunnel. The page is the `icaro-client` Worker (Workers static assets,
+> `cloudflare/client/`), and `/mp/lobby` is a route to the lobby Worker
+> (`cloudflare/lobby/`), so the page's default lobby lists only rooms hosted in
+> browsers. Deno rooms need a `?server=` that names a Deno lobby. Option 1 below
+> still describes self-hosting the Deno lobby behind a Tunnel.
 
 ## Summary
 
@@ -99,8 +106,10 @@ and the Realtime SFU are poor fits; see below.
     `?game=`, a valid `?server=` and `?transport=`.
 - **Certificates:** the client never passes `serverCertificateHashes`, so the
   lobby and rooms need a **publicly trusted** certificate for the hostname.
-  Self-signed certificates work only with Chrome flags. The server doesn't check
-  `Origin`, so the page and the game host can be different hosts.
+  Self-signed certificates work only with Chrome flags. The Deno server doesn't
+  check `Origin`, so the page and the game host can be different hosts. The
+  Cloudflare lobby does: it accepts only the pages in `LOBBY_ORIGINS`
+  (`cloudflare/lobby/README.md`, "Abuse limits").
 - **Timing needs:**
   - Each client sends a `clc_move` every client frame, up to `host_maxfps` = 72
     Hz.
