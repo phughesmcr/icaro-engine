@@ -47,6 +47,14 @@ export function Loop_SearchForHosts(_xmit) {
   hostcache[0].cname = "local";
 }
 
+/**
+ * Web-only: whether sock is the client end of the loopback connection, the
+ * one a local game (single-player, or a room this browser hosts) uses.
+ */
+export function Loop_IsClientSocket(sock) {
+  return loop_client !== null && sock === loop_client;
+}
+
 export function Loop_Connect(host) {
   if (host !== "local") {
     return null;
