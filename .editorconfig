@@ -12,10 +12,6 @@ indent_size = 2
 [*.{html,css,svg,sh,py}]
 indent_style = tab
 
-# Markdown ends a line with two spaces for a hard break (README.md)
-[*.md]
-trim_trailing_whitespace = false
-
 # Third-party map readmes: kept byte-for-byte (CRLF, see .gitattributes)
 [static/maps/*.txt]
 charset = unset
