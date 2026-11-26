@@ -1,11 +1,14 @@
 # Style cleanup plan
 
-Status: tier 0 done (#217); tier 1 done on `refactor/deno-fmt` (see its
-results below); tiers 2–4 not started. Measured on `dev` at b8f46e7 (2026-11-26),
+Status: tier 0 done (#217); tier 1 done (#218); tier 2 done on
+`refactor/comment-banners` (see its results below); tiers 3 and 4 not
+started. Measured on `dev` at b8f46e7 (2026-11-26),
 after #205–#215 merged.
 
-Decisions made: adopt `deno fmt` with the settings below, collapse comment
-banners to `//` lines, and include `tests/`.
+Decisions made: adopt `deno fmt` with the settings below, and include
+`tests/`. Comment banners go: `/** */` documents a declaration, and every
+other comment is `//` (this replaced the first decision, which made every
+banner `//` lines).
 
 ## What the noise is, and where it came from
 
@@ -211,25 +214,61 @@ Results, on `refactor/deno-fmt` (commit 2 is 21dc0a3):
 
 ### Tier 2: banners and comment boxes (comments only)
 
-- Name-only banners become one line: `/*\n===\nSV_Init\n===\n*/` →
-  `// SV_Init`. That keeps the AGENTS.md rule that a ported function's
-  comment names its C function, and keeps the name greppable against the C
-  source.
-- Banners with notes (756) become `// SV_MarkDatagram` followed by the notes
-  as `//` lines, word for word. Notes such as "Not in C" and deviation notes
-  must survive unchanged.
-- Section dividers (`/*\n=====\n\nEVENT MESSAGES\n\n=====\n*/`) become
-  `// EVENT MESSAGES` with one blank line above.
-- `//` / `// Movetype constants` / `//` boxes become `// Movetype constants`.
-- Tool: a codemod script (`tools/collapse_banners.js`), run once, then
-  `deno fmt`. Optionally add a lint plugin rule (`deno.json` `lint.plugins`)
-  that rejects new `===` banners.
-- Verify:
-  - `tools/fmt_ast_check.js` passes (it ignores comments).
-  - Every identifier on a banner's name line still appears in a comment in
-    the same file.
-  - `deno fmt --check` and `deno task ci` pass.
-- AGENTS.md "Port fidelity": give the banner format.
+`/** */` documents a declaration; everything else is `//`. The codemod,
+`tools/collapse_banners.js`, decides from the syntax tree, so strings and
+code are never touched. Its header gives the rules:
+
+- A banner directly on a top-level declaration or class member, whose
+  first line is the declaration's name:
+  - with notes, it becomes `/** notes */`, the name line dropped and the
+    notes kept word for word. Notes such as "Not in C" and deviation notes
+    survive unchanged, and now show on hover in an editor;
+  - with no notes, it is deleted: the declaration below carries the same C
+    name.
+- A banner whose first line names something else (a C function above its
+  scratch variables, `Cmd_Unalias_f -- johnfitz`, a pair such as
+  `S_AmbientOff / S_AmbientOn`) becomes `//` lines, so the C name it
+  records stays where it was.
+- A plain block directly on a declaration becomes `/** */`, unless its
+  first line is only another name.
+- Every other block (section dividers, file notes, comments inside
+  functions) becomes `//` lines, rules dropped and relative indentation
+  kept.
+- Runs of `//` lines lose rule lines and empty `//` lines at either end,
+  and `====` rules inside them.
+- A block made into `//` lines gets a blank line after it when a `//`
+  comment follows directly, so the two don't read as one.
+- Left alone: existing `/** */`, comments sharing a line with code, and
+  directives (`deno-lint-ignore`, `deno-fmt-ignore`, `@ts-*`).
+- Then `deno fmt`. A second run of the codemod changes nothing.
+
+Verify:
+
+- `tools/fmt_ast_check.js` passes (it ignores comments, so it proves the code
+  is untouched).
+- `tools/collapse_banners.js --verify <base>`: the words of every file's
+  comments match in order, and the only words gone are names declared in
+  that file that stood alone on their line.
+- The number of directive comments is unchanged.
+- `tools/port_inventory.py` output is byte-identical, in both modes.
+- `deno fmt --check` and `deno task ci` pass. The code is unchanged, so the
+  benchmarks and a browser check add nothing.
+
+Results, on `refactor/comment-banners`:
+
+- The codemod deleted 301 name-only banners and 2 blocks of rules only. It
+  made 633 banners into doc comments (name line dropped) and 28 plain blocks
+  into doc comments. It made 312 blocks into `//` lines, 118 of them banners
+  naming something else. It trimmed 381 `//` runs and deleted 20 that were
+  only rules.
+- With `deno fmt`: 109 files, +3,862/−10,597 lines.
+- `fmt_ast_check.js`: 109 of 109 files match. `--verify`: 306 of 306 files
+  keep their comment text, and 934 names went (301 + 633).
+- 13 directive comments before and after.
+- `port_inventory.py` showed a bug: it removed `/* */` before `//`, so a
+  `/*` quoted inside a `//` comment in `gl_md5.js` hid 211 lines. It now
+  removes both in one pass. Its output on the old tree is unchanged by the
+  fix, and it is byte-identical before and after the sweep.
 
 ### Tier 3: Markdown
 
@@ -281,8 +320,13 @@ One PR is open: #216 (MCP SDK), which touches `server/agent_mcp.ts`,
    Tested on #215's head, against `dev` as it was before #215 merged: the
    tree this recipe produced was identical to the result of merging #215
    normally and then running `deno fmt`.
-3. Do tier 2 straight after tier 1, with the same recipe using its codemod
-   commit.
+3. Do tier 2 straight after tier 1. An open PR catches up with the same
+   steps: `prep` is tier 2 commit 1 (the codemod) and `sweep` is tier 2
+   commit 2, and the second step runs the codemod before `deno fmt`:
+
+   ```bash
+   deno run --allow-read --allow-write --allow-run=git tools/collapse_banners.js && deno fmt && git commit -am "Collapse the comment banners"
+   ```
 
 The SHAs of the sweep commits (tier 1 commit 2 and the tier 2 codemod commit)
 go into `.git-blame-ignore-revs`. GitHub reads that file automatically;
