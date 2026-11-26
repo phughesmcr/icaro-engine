@@ -186,17 +186,21 @@ Deno.test( 'touch taps on dense menus select first, then act; taps just outside 
 		mouse( 100, 32 + 14 * 8 + 4 );
 		assertEqual( menu.m_state, menu.m_touch, 'mouse click acts on the first click' );
 
-		// Snap: a finger 3 units below the Options list takes its last row
+		// Snap: a finger just outside the Options list takes its nearest row
 		menu.M_Keydown( keys.K_ESCAPE );
-		const rows = menu.M_MenuRowAt( 100, 1000 ) === - 1;
-		assertEqual( rows, true, 'far below the list is no row' );
-		const last = menu.M_MenuRowAt( 100, 31, 4 );
-		assertEqual( last, 0, 'just above the list snaps to row 0' );
+		const listEnd = 32 + 17 * 8; // OPTIONS_ITEMS rows of 8 units
+		assertEqual( menu.M_MenuRowAt( 100, 1000 ), - 1, 'far below the list is no row' );
+		assertEqual( menu.M_MenuRowAt( 100, 31, 4 ), 0, 'just above the list snaps to row 0' );
+		assertEqual( menu.M_MenuRowAt( 100, listEnd + 3, 4 ), 16, 'just below the list snaps to the last row' );
 		assertEqual( menu.M_MenuRowAt( 100, 31 ), - 1, 'without slack, no row' );
 		assertEqual( menu.M_MenuRowAt( 100, 27, 4 ), - 1, 'beyond the slack, no row' );
+		finger( 100, listEnd + 3 );
+		assertEqual( cursor(), 16, 'a finger just below the list selects the last row' );
 
 		// The 20-unit main menu acts on the first tap
 		cmd.Cmd_ExecuteString( 'menu_main' );
+		finger( 100, 31 );
+		assertEqual( menu.m_state, menu.m_main, 'no snap on the main menu' );
 		finger( 100, 32 + 1 * 20 + 10 );
 		assertEqual( menu.m_state, menu.m_multiplayer, 'main menu row 1 opens at once' );
 

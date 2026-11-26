@@ -511,8 +511,8 @@ instead of 3, so menu rows are a fifth taller under the finger.
 */
 function M_MenuCanvasScale() {
 
-	const touchFit = ! ( scr_menuscale.value > 0 ) && Touch_MenuShown();
-	if ( ! ( scr_menuscale.value > 0 ) && ! touchFit )
+	const touchFit = ! ( scr_menuscale.value > 0 );
+	if ( touchFit && ! Touch_MenuShown() )
 		return 0;
 
 	// scale 1: the virtual screen is the physical one
@@ -4112,7 +4112,7 @@ function M_MenuClick( vx, vy, touch = false ) {
 
 	}
 
-	const row = M_MenuRowAt( vx, vy, touch ? TOUCH_ROW_SLACK : 0 );
+	const row = M_MenuRowAt( vx, vy, touch && M_IsDenseList() ? TOUCH_ROW_SLACK : 0 );
 
 	// Deviation (web-only, docs/mobile-roadmap.md B3): the dense lists' rows
 	// are 8 to 12 menu units apart, about as wide as a fingertip on a phone,
@@ -4273,10 +4273,36 @@ function M_MenuClick( vx, vy, touch = false ) {
 // Menu units a tap may land above or below a list and still take its end row
 const TOUCH_ROW_SLACK = 4;
 
-// For a tap on row of a dense list (rows under 20 units apart): if row is
-// not the cursor row, move the cursor there and return true (the tap is
-// used up). Other menus, and taps on the cursor row, return false.
+// Menus whose rows are under 20 units apart
+function M_IsDenseList() {
+
+	switch ( m_state ) {
+
+		case m_load:
+		case m_save:
+		case m_options:
+		case m_touch:
+		case m_advanced:
+		case m_advpage:
+		case m_keys:
+		case m_lanconfig:
+			return true;
+		default:
+			return false;
+
+	}
+
+}
+
+// For a tap on row of a dense list: if row is not the cursor row, move the
+// cursor there and return true (the tap is used up). Other menus, and taps
+// on the cursor row, return false. Not while the keys menu waits for a key
+// to bind, and not in a room list long enough to scroll: the list follows
+// the cursor, so the second tap would land on another room.
 function M_TouchSelectFirst( row ) {
+
+	if ( bind_grab )
+		return false;
 
 	switch ( m_state ) {
 
@@ -4306,7 +4332,7 @@ function M_TouchSelectFirst( row ) {
 			m_keys_cursor = row;
 			return true;
 		case m_lanconfig:
-			if ( row === slist_cursor ) return false;
+			if ( row === slist_cursor || slist_rooms.length > LAN_MAX_VISIBLE ) return false;
 			slist_cursor = row;
 			return true;
 		default:
