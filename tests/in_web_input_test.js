@@ -1104,7 +1104,8 @@ function deferred() {
 
 const flush = () => new Promise( ( r ) => setTimeout( r, 0 ) );
 
-// Fake THREE objects (browser_shim.js has no PlaneGeometry or WebGLRenderer)
+// Fake THREE objects (browser_shim.js has no PlaneGeometry, and its
+// WebGLRenderer is a no-op stub)
 function makeFakeThree() {
 
 	const created = { textures: [], meshes: [], scenes: [] };
@@ -1966,14 +1967,15 @@ Deno.test( 'IN: browser Back sends Escape once the guard is armed, and keeps the
 
 } );
 
-Deno.test( 'IN-4: touch joystick run speed in IN_Move', () => {
+Deno.test( 'IN-4: touch joystick run speed in IN_Move', async () => {
+
+	const { movevars } = await import( '../src/pmove.js' );
+	const oldFwd = cl_input.cl_forwardspeed.value;
 
 	withFakeDom( () => {
 
 		touch.Touch_Init( document.body );
 		touch.Touch_Enable();
-		const fwd = cl_input.cl_forwardspeed.value;
-		const back = cl_input.cl_backspeed.value;
 		const key = cl_input.cl_movespeedkey.value;
 		const near = ( a, b, m ) => assertEqual( Math.abs( a - b ) < 1e-6, true, m + ': ' + a + ' vs ' + b );
 		const move = () => {
@@ -1986,23 +1988,262 @@ Deno.test( 'IN-4: touch joystick run speed in IN_Move', () => {
 
 		cl_input.in_speed.state = 0;
 
-		touch.Touch_SetJoystick( 0, - 0.5 );
-		near( move().forwardmove, fwd * ( 0.5 - 0.15 ) / 0.75, 'half deflection walks' );
+		try {
 
-		touch.Touch_SetJoystick( 0, - 1 );
-		near( move().forwardmove, fwd * key, 'full deflection forward runs' );
+			// Default speeds, then Always Run (cl_forwardspeed 400)
+			for ( const fwdspeed of [ 200, 400 ] ) {
 
-		touch.Touch_SetJoystick( 0, 1 );
-		near( move().forwardmove, - back * key, 'full deflection backward runs at cl_backspeed' );
+				cl_input.cl_forwardspeed.value = fwdspeed;
+				const fwd = fwdspeed;
+				const back = cl_input.cl_backspeed.value;
+				const top = Math.min( fwd * key, movevars.maxspeed );
+				const tag = ' (cl_forwardspeed ' + fwd + ')';
 
-		touch.Touch_SetJoystick( 0, - 0.5 );
-		cl_input.in_speed.state = 1;
-		near( move().forwardmove, fwd * ( 0.5 - 0.15 ) / 0.75 * key, '+speed held scales a walk' );
-		cl_input.in_speed.state = 0;
+				// Continuous ramp: stick magnitude (0..1 past the deadzone)
+				// times run speed, capped at maxspeed
+				touch.Touch_SetJoystick( 0, - 0.5 );
+				near( move().forwardmove, top * ( 0.5 - 0.15 ) / 0.75, 'half deflection' + tag );
+
+				touch.Touch_SetJoystick( 0, - 0.9 );
+				near( move().forwardmove, top, 'full speed at the outer threshold' + tag );
+
+				touch.Touch_SetJoystick( 0, - 1 );
+				near( move().forwardmove, top, 'full deflection forward' + tag );
+
+				touch.Touch_SetJoystick( 0, 1 );
+				near( move().forwardmove, - Math.min( back * key, movevars.maxspeed ), 'full deflection backward' + tag );
+
+				// Monotonic with no jump: a small step in deflection is a small step in speed
+				let prev = 0;
+				for ( let d = 0.15; d <= 1; d += 0.005 ) {
+
+					touch.Touch_SetJoystick( 0, - d );
+					const f = move().forwardmove;
+					assertEqual( f >= prev - 1e-9, true, 'monotonic at ' + d + tag );
+					assertEqual( f - prev < top * 0.02, true, 'no jump at ' + d + tag );
+					prev = f;
+
+				}
+
+			}
+
+			// Walk speed is reached mid-throw at default speeds
+			cl_input.cl_forwardspeed.value = 200;
+			const top = Math.min( 200 * key, movevars.maxspeed );
+			touch.Touch_SetJoystick( 0, - ( 0.15 + 0.75 * 200 / top ) );
+			near( move().forwardmove, 200, 'mid-throw walks at cl_forwardspeed' );
+
+		} finally {
+
+			cl_input.cl_forwardspeed.value = oldFwd;
+
+		}
 
 		touch.Touch_Disable();
 		near( move().forwardmove, 0, 'released' );
 
 	} );
+
+} );
+
+Deno.test( 'IN-2: gamepad stick input hides the touch overlay until the next touch', async () => {
+
+	const { cls } = await import( '../src/client.js' );
+	const { ca_connected } = await import( '../src/client.js' );
+	const oldDest = keys.key_dest;
+	const oldState = cls.state;
+	const oldDemo = cls.demoplayback;
+	const savedNav = Object.getOwnPropertyDescriptor( globalThis, 'navigator' );
+	const pad = {
+		index: 0, connected: true, axes: [ 0, 0, 0, 0 ],
+		buttons: Array.from( { length: 16 }, () => ( { pressed: false, value: 0 } ) ),
+	};
+	Object.defineProperty( globalThis, 'navigator', { configurable: true, value: { getGamepads: () => [ pad ] } } );
+
+	try {
+
+		withFakeDom( ( dom ) => {
+
+			keys.set_key_dest( keys.key_game );
+			cls.state = ca_connected;
+			cls.demoplayback = false;
+			touch.Touch_Init( document.body );
+
+			dom.document.fire( 'pointerdown', { pointerType: 'touch' } );
+			input.IN_UpdateTouch();
+			assertEqual( touch.Touch_IsEnabled(), true, 'touch overlay is up in game' );
+
+			// Stick inside the deadzone changes nothing
+			pad.axes = [ 0.05, 0, 0, 0 ];
+			input.IN_Move( { forwardmove: 0, sidemove: 0, upmove: 0 } );
+			input.IN_UpdateTouch();
+			assertEqual( touch.Touch_IsEnabled(), true, 'a resting stick keeps the overlay' );
+
+			// Stick past the deadzone hides it, and the per-frame update keeps it hidden
+			pad.axes = [ 0, - 1, 0, 0 ];
+			input.IN_Move( { forwardmove: 0, sidemove: 0, upmove: 0 } );
+			input.IN_UpdateTouch();
+			input.IN_UpdateTouch();
+			assertEqual( touch.Touch_IsEnabled(), false, 'pad input hides the overlay' );
+			assertEqual( input.IN_IsMobile(), true, 'touch mode itself stays on' );
+
+			// A touch brings it back
+			pad.axes = [ 0, 0, 0, 0 ];
+			dom.document.fire( 'pointerdown', { pointerType: 'touch' } );
+			input.IN_UpdateTouch();
+			assertEqual( touch.Touch_IsEnabled(), true, 'touch shows the overlay again' );
+
+			// Hidden again, then a disconnect: the next game starts with the overlay
+			pad.axes = [ 0, - 1, 0, 0 ];
+			input.IN_Move( { forwardmove: 0, sidemove: 0, upmove: 0 } );
+			input.IN_UpdateTouch();
+			assertEqual( touch.Touch_IsEnabled(), false, 'pad input hides it again' );
+			cls.state = 0;
+			input.IN_UpdateTouch();
+			cls.state = ca_connected;
+			pad.axes = [ 0, 0, 0, 0 ];
+			input.IN_UpdateTouch();
+			assertEqual( touch.Touch_IsEnabled(), true, 'a new game shows the overlay' );
+
+			// Hidden again, then the pad is unplugged: the overlay comes back
+			pad.axes = [ 0, - 1, 0, 0 ];
+			input.IN_Move( { forwardmove: 0, sidemove: 0, upmove: 0 } );
+			input.IN_UpdateTouch();
+			assertEqual( touch.Touch_IsEnabled(), false, 'pad input hides it once more' );
+			Object.defineProperty( globalThis, 'navigator', { configurable: true, value: { getGamepads: () => [] } } );
+			input.IN_Move( { forwardmove: 0, sidemove: 0, upmove: 0 } );
+			input.IN_UpdateTouch();
+			assertEqual( touch.Touch_IsEnabled(), true, 'unplugging the pad shows the overlay' );
+
+		} );
+
+	} finally {
+
+		keys.set_key_dest( oldDest );
+		cls.state = oldState;
+		cls.demoplayback = oldDemo;
+		if ( savedNav ) Object.defineProperty( globalThis, 'navigator', savedNav );
+		else delete globalThis.navigator;
+
+	}
+
+} );
+
+Deno.test( 'IN: hiding the page opens the menu in single player only', async () => {
+
+	const { cls, ca_connected } = await import( '../src/client.js' );
+	const { sv, svs } = await import( '../src/server.js' );
+	const oldDest = keys.key_dest;
+	const oldState = cls.state;
+	const oldDemo = cls.demoplayback;
+	const oldActive = sv.active;
+	const oldMax = svs.maxclients;
+
+	// The menu reaches key_dest through these hooks. They match the wiring in
+	// Host_Init (src/host.js), so leaving them in place is the real app state.
+	const { M_SetExternals } = await import( '../src/menu.js' );
+	const agent = await import( '../src/agent.js' );
+	M_SetExternals( { key_dest_get: () => keys.key_dest, key_dest_set: ( v ) => keys.set_key_dest( v ) } );
+
+	// Hides the page and returns the resulting key_dest
+	const hide = ( dom, setup ) => {
+
+		keys.set_key_dest( keys.key_game );
+		cls.state = ca_connected;
+		cls.demoplayback = false;
+		sv.active = true;
+		svs.maxclients = 1;
+		setup();
+		dom.document.visibilityState = 'hidden';
+		dom.document.fire( 'visibilitychange', {} );
+		dom.document.visibilityState = 'visible';
+		return keys.key_dest;
+
+	};
+
+	try {
+
+		withFakeDom( ( dom ) => {
+
+			assertEqual( hide( dom, () => {} ), keys.key_menu, 'single player opens the menu' );
+			assertEqual( hide( dom, () => { svs.maxclients = 4; } ), keys.key_game, 'multiplayer keeps playing' );
+			assertEqual( hide( dom, () => { cls.demoplayback = true; } ), keys.key_game, 'demo keeps playing' );
+			assertEqual( hide( dom, () => { sv.active = false; } ), keys.key_game, 'no local server (remote game)' );
+			assertEqual( hide( dom, () => { keys.set_key_dest( keys.key_console ); } ), keys.key_console, 'console is left alone' );
+			assertEqual( hide( dom, () => { agent.Agent_Attach( 'lockstep' ); } ), keys.key_game, 'an attached agent keeps playing' );
+			agent.Agent_Detach();
+
+		} );
+
+	} finally {
+
+		keys.set_key_dest( oldDest );
+		cls.state = oldState;
+		cls.demoplayback = oldDemo;
+		sv.active = oldActive;
+		svs.maxclients = oldMax;
+
+	}
+
+} );
+
+Deno.test( 'touch: portrait prompt shows in game only, and a tap dismisses it for the session', () => {
+
+	const oldW = windowTarget.innerWidth;
+	const oldH = windowTarget.innerHeight;
+
+	try {
+
+		withFakeDom( ( dom ) => {
+
+			touch.Touch_Init( document.body );
+			const prompt = byId( 'touch-portrait' );
+			assertEqual( prompt !== null, true, 'prompt exists' );
+
+			// Landscape, in game: hidden
+			dom.window.innerWidth = 800;
+			dom.window.innerHeight = 400;
+			touch.Touch_Enable();
+			assertEqual( prompt.style.display, 'none', 'landscape hides it' );
+
+			// Rotate to portrait
+			dom.window.innerWidth = 400;
+			dom.window.innerHeight = 800;
+			dom.window.fire( 'resize', {} );
+			assertEqual( prompt.style.display, 'flex', 'portrait in game shows it' );
+
+			// Menus (touch controls disabled) hide it
+			touch.Touch_Disable();
+			assertEqual( prompt.style.display, 'none', 'menu hides it' );
+			touch.Touch_Enable();
+			assertEqual( prompt.style.display, 'flex', 'back in game shows it' );
+
+			// Rotating back hides it
+			dom.window.innerWidth = 800;
+			dom.window.innerHeight = 400;
+			dom.window.fire( 'orientationchange', {} );
+			assertEqual( prompt.style.display, 'none', 'orientationchange to landscape hides it' );
+
+			// A tap dismisses it for the session
+			dom.window.innerWidth = 400;
+			dom.window.innerHeight = 800;
+			dom.window.fire( 'resize', {} );
+			prompt.fire( 'click', {} );
+			assertEqual( prompt.style.display, 'none', 'tap dismisses' );
+			touch.Touch_Disable();
+			touch.Touch_Enable();
+			dom.window.fire( 'resize', {} );
+			assertEqual( prompt.style.display, 'none', 'stays dismissed' );
+
+			touch.Touch_Disable();
+
+		} );
+
+	} finally {
+
+		windowTarget.innerWidth = oldW;
+		windowTarget.innerHeight = oldH;
+
+	}
 
 } );

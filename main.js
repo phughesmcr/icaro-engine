@@ -11,9 +11,11 @@ import { cls, cl } from './src/client.js';
 import { sv } from './src/server.js';
 import { scene, camera } from './src/gl_rmain.js';
 import { renderer } from './src/vid.js';
-import { Draw_CachePicFromPNG } from './src/gl_draw.js';
+import { Draw_CachePicFromPNG, Draw_GetOverlayCanvas } from './src/gl_draw.js';
 import { XR_Init } from './src/webxr.js';
 import { CDAudio_SetTrackURLProvider, CDAudio_TrackURLs } from './src/cd_audio.js';
+import { AGENT_HELP, Agent_Attach, Agent_Detach, Agent_Mode, Agent_Lockstep, Agent_Step,
+	Agent_Observe, Agent_Command, Agent_NewGame, Agent_Key, Agent_MenuSelect, Agent_Screenshot } from './src/agent.js';
 
 const parms = {
 	basedir: '.',
@@ -41,6 +43,39 @@ const BASE_DIRS = { rerelease: 'static/rerelease' };
 // allocated.
 const PARTICLES_ARG = /^[0-9]+$/;
 const PARTICLES_URL_MAX = 262144;
+
+// ?listen=<n> stands in for -listen <n> (host.c Host_FindMaxClients): this
+// tab can host n players (MAX_SCOREBOARD, 16, caps larger values; 0 means 8)
+// and starts in deathmatch mode when n > 1, as the C does with the flag.
+// ?listen with no value is -listen alone, 8 players. Values that aren't a
+// whole number of up to three digits are ignored.
+const LISTEN_ARG = /^[0-9]{1,3}$/;
+
+// Web-only agent flags (docs/agent-interface.md): ?agent=lockstep or
+// ?agent=realtime attaches window.icaro at startup, and ?map=<name> with
+// optional ?skill=<0-3> starts that map instead of the intro demos. The map
+// name is checked, so a shared link can't run other commands.
+const AGENT_MODES = [ 'lockstep', 'realtime' ];
+const AGENT_MAP_ARG = /^[A-Za-z0-9_]{1,32}$/;
+
+// window.icaro: the agent API. Always present; it does nothing until called.
+function Agent_ExposeAPI() {
+
+	window.icaro = Object.freeze( {
+		help: () => AGENT_HELP,
+		attach: ( mode = 'lockstep' ) => Agent_Attach( mode ),
+		detach: () => Agent_Detach(),
+		mode: () => Agent_Mode(),
+		new_game: ( map = 'e1m1', skill = 1 ) => Agent_NewGame( map, skill ),
+		step: ( action = {}, tics = 1, opts = {} ) => Agent_Step( action, tics, opts ),
+		observe: ( opts = {} ) => Agent_Observe( opts ),
+		cmd: ( text ) => Agent_Command( text ),
+		key: ( name, count = 1 ) => Agent_Key( name, count ),
+		menu: ( label ) => Agent_MenuSelect( label ),
+		screenshot: ( width = 320 ) => Agent_Screenshot( renderer.domElement, Draw_GetOverlayCanvas(), width ),
+	} );
+
+}
 
 async function main() {
 
@@ -92,6 +127,19 @@ async function main() {
 		} else if ( particles !== null ) {
 
 			Sys_Printf( 'Ignoring particles "%s" (expected a whole number up to %d)\n', particles, PARTICLES_URL_MAX );
+
+		}
+
+		const listen = urlParams.get( 'listen' );
+		if ( listen === '' || ( listen !== null && LISTEN_ARG.test( listen ) ) ) {
+
+			if ( parms.argv.length === 0 ) parms.argv = [ 'quake' ];
+			parms.argv = listen === '' ? [ ...parms.argv, '-listen' ] : [ ...parms.argv, '-listen', listen ];
+			parms.argc = parms.argv.length;
+
+		} else if ( listen !== null ) {
+
+			Sys_Printf( 'Ignoring listen "%s" (expected a player count)\n', listen );
 
 		}
 
@@ -195,6 +243,26 @@ async function main() {
 		// Initialize WebXR (creates rig, offers VR session — must be after Host_Init)
 		XR_Init( scene );
 
+		Agent_ExposeAPI();
+		const agentMode = urlParams.get( 'agent' );
+		if ( AGENT_MODES.includes( agentMode ) ) Agent_Attach( agentMode );
+		const agentMap = urlParams.get( 'map' );
+		if ( agentMap !== null && roomId === null ) {
+
+			if ( AGENT_MAP_ARG.test( agentMap ) ) {
+
+				const skillParam = urlParams.get( 'skill' );
+				const skillArg = skillParam !== null && /^[0-3]$/.test( skillParam ) ? Number( skillParam ) : 1;
+				Agent_NewGame( agentMap, skillArg ).catch( ( e ) => console.error( e ) );
+
+			} else {
+
+				Sys_Printf( 'Ignoring map "%s" (expected letters, digits and _)\n', agentMap );
+
+			}
+
+		}
+
 		// Expose for debugging
 		window.Cbuf_AddText = Cbuf_AddText;
 		window.cls = cls;
@@ -215,6 +283,9 @@ async function main() {
 			const newtime = timestamp / 1000;
 			const time = newtime - oldtime;
 			oldtime = newtime;
+
+			// In lockstep the agent runs the frames (src/agent.js Agent_Step)
+			if ( Agent_Lockstep() ) return;
 
 			Host_Frame( time );
 

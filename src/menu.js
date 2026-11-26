@@ -2194,7 +2194,7 @@ const touchItems = [
 	{ label: '            Gyro Speed', cvar: 'touch_gyro_sensitivity', min: 0.25, max: 3, step: 0.25 },
 	{ label: '           Invert Look', get: () => m_pitch.value < 0, set: () => Cvar_SetValue( 'm_pitch', - m_pitch.value ) },
 	{ label: '           Left-Handed', cvar: 'touch_lefthanded' },
-	{ label: '           Button Size', cvar: 'touch_size', min: 0.6, max: 1.6, step: 0.1 },
+	{ label: '           Button Size', cvar: 'touch_size', min: 0.6, max: 2, step: 0.1 },
 	{ label: '        Button Opacity', cvar: 'touch_opacity', min: 0.2, max: 1, step: 0.1 },
 	{ label: '             Vibration', cvar: 'touch_haptics' }
 ];
@@ -4123,5 +4123,38 @@ function M_Quit_Touch( vx, vy ) {
 		M_Quit_Key( 121 ); // 'y'
 	else if ( choice === 0 )
 		M_Quit_Key( 110 ); // 'n'
+
+}
+
+/*
+==================
+M_AgentState
+
+Web-only: the open menu's cursor row for src/agent.js, which turns it into
+text. Rows count as the menu draws them; the main menu's first row is the
+port's Continue row while in a game.
+==================
+*/
+export function M_AgentState() {
+
+	let cursor = - 1;
+	switch ( m_state ) {
+
+		case m_main: cursor = m_main_cursor; break;
+		case m_singleplayer: cursor = m_singleplayer_cursor; break;
+		case m_multiplayer: cursor = m_multiplayer_cursor; break;
+		case m_load: case m_save: cursor = load_cursor; break;
+		case m_options: cursor = m_options_cursor; break;
+		case m_keys: cursor = m_keys_cursor; break;
+		case m_setup: cursor = setup_cursor; break;
+		case m_gameoptions: cursor = gameoptions_cursor; break;
+		case m_slist: cursor = slist_cursor; break;
+		case m_touch: cursor = m_touch_cursor; break;
+		case m_advanced: cursor = m_advanced_cursor; break;
+		case m_advpage: cursor = adv_cursor; break;
+
+	}
+
+	return { state: m_state, cursor: cursor, in_game: M_InGame() };
 
 }

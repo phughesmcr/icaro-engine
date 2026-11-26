@@ -65,7 +65,7 @@ let wakeLockPending = false;
 // Movement stick (nipplejs, loaded on demand from the import map)
 const JOYSTICK_SIZE = 120; // px, at touch_size 1
 const JOYSTICK_DEADZONE = 0.15; // fraction of the radius
-const JOYSTICK_RUN_THRESHOLD = 0.9; // past this the stick runs (+speed)
+const JOYSTICK_FULL = 0.9; // deflection that gives full speed (the thumb rarely reaches the rim)
 let nipplejs = null;
 let nippleLoad = null;
 let stickManager = null;
@@ -81,6 +81,10 @@ let menuDragging = false;
 let menuDragAxis = 0; // 0 = undecided, 1 = horizontal, 2 = vertical
 const menuTouchStart = { x: 0, y: 0 };
 const menuTouchStep = { x: 0, y: 0 };
+
+// "Rotate your device" prompt (portrait, in game). Dismissed for the session.
+let portraitPrompt = null;
+let portraitDismissed = false;
 
 // Accumulated values for IN_Move
 let moveForward = 0;
@@ -290,6 +294,7 @@ function Touch_CreateUI( container ) {
 
 	Touch_CreateMenuUI( container );
 	Touch_CreateSysBar( container );
+	Touch_CreatePortraitPrompt( container );
 
 	Touch_Layout();
 
@@ -409,6 +414,82 @@ function Touch_CreateMenuUI( container ) {
 	menuOverlay.addEventListener( 'touchcancel', onMenuTouchEnd, { passive: false } );
 
 	container.appendChild( menuOverlay );
+
+}
+
+/*
+=================
+Touch_CreatePortraitPrompt
+
+A full-screen "Rotate your device" card for portrait. The view keeps the
+vertical FOV of the 4:3 default (fov 90 at 4:3 is about 74 degrees
+vertically), so a portrait screen shows only about 38 degrees across. Tap to
+dismiss; it stays dismissed for the session, since foldables and tablets
+near square may never leave "portrait" by the innerHeight > innerWidth test.
+=================
+*/
+function Touch_CreatePortraitPrompt( container ) {
+
+	portraitPrompt = makeDiv( 'touch-portrait', `
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		display: none;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		box-sizing: border-box;
+		padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+		background: rgba(0, 0, 0, 0.8);
+		color: rgba(255, 255, 255, 0.9);
+		font-family: sans-serif;
+		text-align: center;
+		z-index: 202;
+		pointer-events: auto;
+		touch-action: manipulation;
+		user-select: none;
+		-webkit-user-select: none;
+		cursor: pointer;
+	` );
+
+	const icon = makeDiv( null, 'font-size: 56px; line-height: 1.2;' );
+	icon.textContent = '\u21BB';
+	const title = makeDiv( null, 'font-size: 22px; font-weight: bold; margin: 8px 16px;' );
+	title.textContent = 'Rotate your device';
+	const hint = makeDiv( null, 'font-size: 14px; opacity: 0.7; margin: 0 16px;' );
+	hint.textContent = 'Landscape gives a wider view. Tap to continue.';
+	portraitPrompt.appendChild( icon );
+	portraitPrompt.appendChild( title );
+	portraitPrompt.appendChild( hint );
+
+	portraitPrompt.addEventListener( 'click', () => {
+
+		portraitDismissed = true;
+		Touch_UpdatePortraitPrompt();
+
+	} );
+
+	container.appendChild( portraitPrompt );
+
+}
+
+/*
+=================
+Touch_UpdatePortraitPrompt
+
+Show the prompt while the game controls are up (touch mode, in game),
+the window is portrait and it has not been dismissed. Menus, the console
+and landscape hide it. Called on enable, disable, resize and rotation.
+=================
+*/
+function Touch_UpdatePortraitPrompt() {
+
+	if ( portraitPrompt === null ) return;
+
+	const portrait = typeof window !== 'undefined' && window.innerHeight > window.innerWidth;
+	portraitPrompt.style.display = ( enabled === true && portrait === true && portraitDismissed === false ) ? 'flex' : 'none';
 
 }
 
@@ -1006,8 +1087,11 @@ function Stick_Destroy() {
 Touch_SetJoystick
 
 x, y: knob offset as a fraction of the radius (screen axes, y down).
-Applies the deadzone (rescaled so movement starts at zero) and the run
-threshold (full deflection in that direction, flagged as running).
+Applies the deadzone, then ramps the magnitude linearly from 0 at the
+deadzone edge to 1 at JOYSTICK_FULL. IN_Move multiplies it by
+cl_movespeedkey, so the response is continuous: walk speed (1x
+cl_forwardspeed) lands mid-throw and run speed (cl_movespeedkey x) at full
+deflection, with no jump between them. `run` only flags full deflection.
 =================
 */
 export function Touch_SetJoystick( x, y ) {
@@ -1023,10 +1107,9 @@ export function Touch_SetJoystick( x, y ) {
 
 	}
 
-	// Rescale so speed rises from 0 past the deadzone to 1 at the run
-	// threshold, then stays at full deflection while running
-	moveRun = mag >= JOYSTICK_RUN_THRESHOLD;
-	const scale = moveRun ? 1 / mag : ( mag - JOYSTICK_DEADZONE ) / ( JOYSTICK_RUN_THRESHOLD - JOYSTICK_DEADZONE ) / mag;
+	const t = Math.min( ( mag - JOYSTICK_DEADZONE ) / ( JOYSTICK_FULL - JOYSTICK_DEADZONE ), 1 );
+	moveRun = t >= 1;
+	const scale = t / mag;
 
 	// Note: Y is inverted (up = forward = positive)
 	moveRight = x * scale;
@@ -1433,6 +1516,13 @@ export function Touch_Init( container ) {
 	document.addEventListener( 'fullscreenchange', onFullscreenChange );
 	document.addEventListener( 'webkitfullscreenchange', onFullscreenChange );
 
+	if ( typeof window !== 'undefined' ) {
+
+		window.addEventListener( 'resize', Touch_UpdatePortraitPrompt );
+		window.addEventListener( 'orientationchange', Touch_UpdatePortraitPrompt );
+
+	}
+
 	initialized = true;
 
 	// Fetch the stick library now, so it is ready by the first map
@@ -1455,6 +1545,7 @@ export function Touch_Enable() {
 	enabled = true;
 	overlay.style.display = 'block';
 	Touch_HideSysBar();
+	Touch_UpdatePortraitPrompt();
 
 	for ( const l of gameListeners ) l.el.addEventListener( l.type, l.fn, { passive: false } );
 
@@ -1482,6 +1573,7 @@ export function Touch_Disable() {
 
 	enabled = false;
 	overlay.style.display = 'none';
+	Touch_UpdatePortraitPrompt();
 
 	for ( const l of gameListeners ) l.el.removeEventListener( l.type, l.fn );
 

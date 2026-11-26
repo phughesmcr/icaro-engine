@@ -31,6 +31,7 @@ import {
 	PR_ZoneString, PR_UnzoneString, PR_ClearZoneStrings,
 } from './progs.js';
 import { PF_sprintf_internal, Q_FloatToInt } from './pr_sprintf.js';
+import { Sys_Random } from './sys.js';
 import {
 	ED_Alloc, ED_Free, ED_Print, ED_PrintNum, ED_PrintEdicts,
 } from './pr_edict.js';
@@ -456,7 +457,9 @@ random()
 */
 function PF_random() {
 
-	G_FLOAT_SET( OFS_RETURN, Math.random() );
+	// The C returns ( rand() & 0x7fff ) / (float)0x7fff; Sys_Random keeps the
+	// port's 0 <= num < 1 and can be seeded (see Sys_SetRandomSeed)
+	G_FLOAT_SET( OFS_RETURN, Sys_Random() );
 
 }
 

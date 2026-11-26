@@ -18,13 +18,15 @@ import { Con_Printf } from './console.js';
 import { cl, cls, ca_connected } from './client.js';
 import { sensitivity, m_pitch, m_yaw, m_forward, m_side, lookstrafe } from './cl_main.js';
 import {
-	in_mlook, in_strafe, in_speed,
+	in_mlook, in_strafe,
 	cl_forwardspeed, cl_backspeed, cl_sidespeed, cl_yawspeed, cl_pitchspeed, cl_movespeedkey,
 	CL_ClampPitch
 } from './cl_input.js';
 import { V_StopPitchDrift } from './view.js';
 import { host_frametime } from './host.js';
+import { sv, svs } from './server.js';
 import { PITCH, YAW } from './quakedef.js';
+import { movevars } from './pmove.js';
 import {
 	Touch_IsMobile, Touch_IsTouchCapable, Touch_Init, Touch_Enable, Touch_Disable, Touch_IsEnabled,
 	Touch_GetMoveInput, Touch_GetLookDelta, Touch_ReleaseButtons,
@@ -133,6 +135,10 @@ const keyForCode = new Map();
 // pointerdown switches to touch controls, mouse movement switches back to
 // pointer lock and mouse look. Touchscreen laptops start in mouse mode.
 let touchMode = false;
+// A gamepad drove the game while touch controls were showing: keep the touch
+// overlay hidden (IN_UpdateTouch re-enables it every frame otherwise) until
+// the next touch pointerdown. Web-only; there is no C counterpart.
+let gamepadHidTouch = false;
 
 // Meta Quest — disables pointer lock and fullscreen
 let isQuest = false;
@@ -488,6 +494,8 @@ function GP_Poll( cmd ) {
 	const gp = GP_GetPrimary();
 	if ( ! gp ) {
 
+		// The pad went away: the touch overlay comes back
+		gamepadHidTouch = false;
 		if ( _gpPrev != null ) GP_ReleaseAll();
 		_gpPrev = null;
 		return;
@@ -565,6 +573,16 @@ function GP_Poll( cmd ) {
 	const ly = _gpMove[ 1 ];
 	const rx = _gpLook[ 0 ];
 	const ry = _gpLook[ 1 ];
+
+	// Real pad input (past the deadzone) while the touch overlay is up hides it
+	if ( touchMode && ! gamepadHidTouch && ( lx !== 0 || ly !== 0 || rx !== 0 || ry !== 0 ) ) {
+
+		gamepadHidTouch = true;
+		Touch_ReleaseButtons();
+		Touch_Disable();
+		mouseactive = false;
+
+	}
 
 	// Left stick → movement
 	cmd.forwardmove -= cl_forwardspeed.value * ly;
@@ -1272,6 +1290,14 @@ export function IN_SoundActivate( active ) {
 
 }
 
+// Set by src/agent.js while an agent drives the game
+let in_agent_driven = false;
+export function IN_SetAgentDriven( driven ) {
+
+	in_agent_driven = driven;
+
+}
+
 function handleVisibilityChange() {
 
 	if ( ! in_initialized ) return;
@@ -1279,6 +1305,22 @@ function handleVisibilityChange() {
 	if ( document.visibilityState === 'hidden' ) {
 
 		IN_ClearAllStates();
+
+		// Web-only deviation: a single-player game goes to the menu when the
+		// page is hidden (tab switch, app switch, screen lock). In NQ the menu
+		// halts SV_Physics in single player (Host_Frame: svs.maxclients > 1 ||
+		// key_dest == key_game), so the game is paused when the player
+		// returns. The same Escape that handlePointerLockChange sends on
+		// desktop; whichever runs first leaves key_dest at key_menu, so the
+		// other does nothing. Never in multiplayer or demos, or while an
+		// agent drives the game (agents often run in a background tab).
+		if ( key_dest === key_game && sv.active === true && svs.maxclients === 1 && in_agent_driven === false &&
+			cls.state === ca_connected && ! cls.demoplayback ) {
+
+			Key_Event( K_ESCAPE, true );
+			Key_Event( K_ESCAPE, false );
+
+		}
 
 	}
 
@@ -1342,6 +1384,7 @@ function handlePointerDown( event ) {
 
 	if ( event.pointerType === 'touch' || event.pointerType === 'pen' ) {
 
+		gamepadHidTouch = false;
 		IN_SetTouchMode( true );
 
 	} else if ( event.pointerType === 'mouse' ) {
@@ -1881,15 +1924,18 @@ export function IN_Move( cmd ) {
 
 		}
 
-		// Add touch joystick movement. Past the run threshold the stick
-		// acts like +speed (cl_movespeedkey), unless +speed is already held
-		// (CL_BaseMove has then scaled the keyboard part, not ours).
+		// Add touch joystick movement. The stick magnitude (0..1) ramps
+		// continuously up to run speed (cl_movespeedkey) at full deflection,
+		// capped at the server's maxspeed: the server clamps past it anyway,
+		// so capping keeps the whole throw useful with Always Run (web-only;
+		// the C has no touch stick).
 		const touchMove = Touch_GetMoveInput();
-		const speed = ( touchMove.run || ( in_speed.state & 1 ) ) ? cl_movespeedkey.value : 1;
+		const key = cl_movespeedkey.value;
+		const maxspeed = movevars.maxspeed > 0 ? movevars.maxspeed : Infinity;
 		const forwardspeed = touchMove.forward >= 0 ? cl_forwardspeed.value : cl_backspeed.value;
 
-		cmd.forwardmove += forwardspeed * touchMove.forward * speed;
-		cmd.sidemove += cl_sidespeed.value * touchMove.right * speed;
+		cmd.forwardmove += Math.min( forwardspeed * key, maxspeed ) * touchMove.forward;
+		cmd.sidemove += Math.min( cl_sidespeed.value * key, maxspeed ) * touchMove.right;
 
 	}
 
@@ -2026,10 +2072,23 @@ export function IN_UpdateTouch() {
 
 	Touch_Frame();
 
+	// A new game starts with the touch overlay, even if a pad hid it last time
+	if ( cls.state !== ca_connected ) gamepadHidTouch = false;
+
 	if ( key_dest === key_game && cls.state === ca_connected && ! cls.demoplayback ) {
 
 		// In game (not demo, actually connected) - show game controls, hide menu controls
-		if ( ! Touch_IsEnabled() ) {
+		// unless a gamepad took over (gamepadHidTouch)
+		if ( gamepadHidTouch ) {
+
+			if ( Touch_IsEnabled() ) {
+
+				Touch_Disable();
+				mouseactive = false;
+
+			}
+
+		} else if ( ! Touch_IsEnabled() ) {
 
 			Touch_Enable();
 			mouseactive = true;

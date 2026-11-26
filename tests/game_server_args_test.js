@@ -111,7 +111,7 @@ Deno.test( '-trustproxy trusts the forwarded client address from any peer; -room
 
 Deno.test( 'room options are parsed as clamped integers and applied as cvars before the map spawns (MENU-4)', async () => {
 
-	const { applyGameOptions } = await import( '../server/game_server.js' );
+	const { Room_ApplyGameOptions: applyGameOptions } = await import( '../src/room_rules.js' );
 	const host = await import( '../src/host.js' );
 	const cvar = await import( '../src/cvar.js' );
 	const names = [ 'coop', 'teamplay', 'skill', 'fraglimit', 'timelimit' ];
@@ -152,7 +152,7 @@ Deno.test( 'room options are parsed as clamped integers and applied as cvars bef
 
 Deno.test( 'room exit rules reach QuakeC through the cvar list: noexit/samelevel on in deathmatch, off in co-op', async () => {
 
-	const { applyExitRules } = await import( '../server/game_server.js' );
+	const { Room_ApplyExitRules: applyExitRules } = await import( '../src/room_rules.js' );
 	const cvar = await import( '../src/cvar.js' );
 	const names = [ 'noexit', 'samelevel' ];
 

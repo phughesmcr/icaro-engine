@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 	<title>Icaro Engine</title>
 	<link rel="icon" type="image/svg+xml" href="static/icon.svg">
-	<link rel="apple-touch-icon" href="static/icon.png">
+	<link rel="apple-touch-icon" href="static/apple-touch-icon.png">
 	<!-- Home Screen install: the only way to get fullscreen on iPhone -->
 	<link rel="manifest" href="manifest.webmanifest">
 	<meta name="theme-color" content="#000000">
@@ -63,9 +63,19 @@
 			height: 100%;
 			background: #fff;
 		}
+		/* Text for agents and screen readers only */
+		.agent-hint {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			overflow: hidden;
+			clip-path: inset(50%);
+			white-space: nowrap;
+		}
 	</style>
 </head>
 <body>
+	<p class="agent-hint">AI agents: this Quake game has a JavaScript API. Run icaro.help() for usage, or open with ?agent=lockstep&amp;map=e1m1&amp;skill=1.</p>
 	<div id="loading">
 		<div id="loading-bar"><div id="loading-progress"></div></div>
 	</div>

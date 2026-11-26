@@ -13,7 +13,11 @@ import {
 	routeLobbyRequest,
 	serveLobbySocket,
 	proxyGameSocket,
+	handleLobbyRequest,
+	rtcLobby,
+	pruneRtcSessions,
 } from '../server/lobby_server.js';
+import { RTC_LOBBY_LIMITS } from '../server/lobby_rtc.js';
 import { WS_ClientAddress } from '../server/client_address.ts';
 import { createFakeWebSocketPair, OPEN as WS_OPEN, CLOSED as WS_CLOSED } from './fake_websocket.js';
 import {
@@ -582,4 +586,94 @@ Deno.test( 'proxyGameSocket closes both sides when the browser stops reading or 
 	text.browser.client.send( 'hello' );
 	await waitUntil( () => text.room.client.closeCalls.length === 1, 'connecting room socket closed' );
 	assert.equal( text.state.released, 1, 'released' );
+} );
+
+// One lobby socket through serveLobbySocket, with its replies decoded
+function lobbyClient( ip ) {
+	const pair = createFakeWebSocketPair( 'ws://127.0.0.1:4433/lobby' );
+	pair.client.readyState = WS_OPEN;
+	const replies = [];
+	pair.client.onmessage = ( event ) => {
+		const bytes = new Uint8Array( event.data );
+		const text = new TextDecoder().decode( bytes.subarray( 3 ) );
+		replies.push( { type: bytes[ 0 ], body: bytes[ 0 ] === 0x82 ? text : JSON.parse( text ) } );
+	};
+	const state = { released: 0 };
+	serveLobbySocket( pair.server, ip, ip + ':1', () => state.released++ );
+	return {
+		pair,
+		replies,
+		state,
+		send( type, value ) {
+			const data = typeof value === 'string' ? encoder.encode( value ) : encoder.encode( JSON.stringify( value ?? {} ) );
+			pair.client.send( encodeFrame( type, data ) );
+		},
+	};
+}
+
+Deno.test( 'serveLobbySocket keeps a host\'s and a joiner\'s sockets open and relays their signals', async () => {
+	await captureConsoleLogAsync( async () => {
+		const host = lobbyClient( '10.0.0.1' );
+		host.send( 0x04, { public: true, hostName: 'Tab', maxPlayers: 4 } );
+		await waitUntil( () => host.replies.length === 2, 'host reply' );
+		assert.equal( host.replies[ 0 ].type, 0x81, 'room record' );
+		assert.equal( host.replies[ 1 ].type, 0x84, 'ICE servers' );
+		const room = host.replies[ 0 ].body;
+		assert.match( room.id, /^[A-HJ-NP-Z2-9]{8}$/, 'browser room code' );
+		assert.equal( host.state.released, 1, 'one-request budget released' );
+
+		// LIST: only when asked for browser-hosted rooms
+		const plain = lobbyClient( '10.0.0.2' );
+		plain.send( 0x01, '' );
+		await waitUntil( () => plain.pair.client.readyState === WS_CLOSED, 'plain list' );
+		assert.ok( plain.replies[ 0 ].body.every( ( r ) => r.id !== room.id ), 'not in an empty LIST' );
+		const lister = lobbyClient( '10.0.0.2' );
+		lister.send( 0x01, { rtc: true } );
+		await waitUntil( () => lister.pair.client.readyState === WS_CLOSED, 'rtc list' );
+		assert.ok( lister.replies[ 0 ].body.some( ( r ) => r.id === room.id && r.transport === 'rtc' ), 'listed when asked' );
+
+		const joiner = lobbyClient( '10.0.0.3' );
+		joiner.send( 0x02, room.id );
+		await waitUntil( () => joiner.replies.length === 2, 'join reply' );
+		assert.equal( joiner.replies[ 0 ].body.id, room.id, 'joined' );
+
+		joiner.send( 0x05, { to: room.id, kind: 'offer', data: { type: 'offer', sdp: 'v=0' } } );
+		await waitUntil( () => host.replies.length === 3, 'offer at host' );
+		const offer = host.replies[ 2 ];
+		assert.equal( offer.type, 0x85, 'relayed signal' );
+		host.send( 0x05, { to: offer.body.from, kind: 'answer', data: { type: 'answer', sdp: 'v=0' } } );
+		await waitUntil( () => joiner.replies.length === 3, 'answer at joiner' );
+		assert.equal( joiner.replies[ 2 ].body.from, room.id, 'answer from the room' );
+		assert.equal( joiner.pair.client.readyState, WS_OPEN, 'joiner still open' );
+
+		// The host's tab goes: its room goes
+		host.pair.client.close();
+		await waitUntil( () => rtcLobby.hasRoom( room.id ) === false, 'room removed' );
+		joiner.pair.client.close();
+		await waitUntil( () => rtcLobby.sessions.size === 0, 'sessions gone' );
+	} );
+} );
+
+Deno.test( 'serveLobbySocket closes an unknown browser room\'s JOIN, and pruneRtcSessions a silent host', async () => {
+	await captureConsoleLogAsync( async () => {
+		const missing = lobbyClient( '10.0.0.4' );
+		missing.send( 0x02, 'ZZZZZZZZ' );
+		await waitUntil( () => missing.pair.client.readyState === WS_CLOSED, 'closed' );
+		assert.equal( missing.replies[ 0 ].body, 'Room not found. The game may have ended.' );
+		assert.equal( rtcLobby.sessions.size, 0, 'not kept' );
+
+		const host = lobbyClient( '10.0.0.5' );
+		host.send( 0x04, {} );
+		await waitUntil( () => host.replies.length === 2, 'hosted' );
+		const room = host.replies[ 0 ].body;
+
+		// Over WebTransport the lobby can't keep the socket open
+		const viaWt = await handleLobbyRequest( { type: 0x02, data: encoder.encode( room.id ) }, '10.0.0.6', '10.0.0.6:1' );
+		assert.equal( new TextDecoder().decode( viaWt.data ), 'This room is hosted in a browser. Join it over WebSocket.' );
+
+		pruneRtcSessions( Date.now() + RTC_LOBBY_LIMITS.heartbeatTimeoutMs + 1000 );
+		await waitUntil( () => host.pair.client.readyState === WS_CLOSED, 'silent host closed' );
+		assert.equal( rtcLobby.hasRoom( room.id ), false, 'room gone' );
+		assert.equal( rtcLobby.sessions.size, 0, 'no sessions' );
+	} );
 } );

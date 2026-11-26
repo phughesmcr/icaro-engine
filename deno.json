@@ -3,7 +3,7 @@
 		"three": "./server/browser_shim.js"
 	},
 	"lint": {
-		"include": ["main.js", "src/", "server/", "tests/"],
+		"include": ["main.js", "src/", "server/", "tests/", "cloudflare/"],
 		"exclude": ["static/", "docs/", "tests/fixtures/"],
 		"rules": {
 			"exclude": ["no-window", "no-window-prefix"]

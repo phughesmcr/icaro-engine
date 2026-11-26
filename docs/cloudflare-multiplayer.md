@@ -97,8 +97,10 @@ Spectrum and the Realtime SFU are poor fits; see below.
     about 116 KB/s for a 16-player room (measured; see
     [always-on-hosting.md](always-on-hosting.md#measurements)).
 - **Engine structure:** `src/net_main.js` keeps the NetQuake driver table
-  (`net_drivers`: loopback, WebTransport and WebSocket), as in C
-  (`net_dgrm`/`net_loop`). A WebRTC transport would be one more driver.
+  (`net_drivers`: loopback, WebTransport, WebSocket and, where the browser
+  has `RTCPeerConnection`, WebRTC), as in C (`net_dgrm`/`net_loop`). The
+  WebRTC driver (`src/net_webrtc.js`) is browser-only: a tab hosts and
+  joiners connect to `rtc:<ROOMCODE>`.
 
 ## Options
 
@@ -289,7 +291,8 @@ traversal aid, but only if the game moves to WebRTC data channels.
 - **Cost:** SFU + TURN share 1,000 GB/month free, then $0.05/GB egress
   [search]. [Pricing](https://developers.cloudflare.com/realtime/sfu/pricing/)
 - **Code changes:**
-  - A WebRTC net driver on both sides.
+  - A WebRTC net driver on both sides. The browser side exists
+    (`src/net_webrtc.js`); the server side does not.
   - Deno has no built-in `RTCPeerConnection` [unverified]; it would need an
     npm WebRTC library (e.g. `werift`, pure TS, or `node-datachannel`, a
     native addon), and that is untested here.

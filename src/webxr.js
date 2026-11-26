@@ -113,8 +113,8 @@ export function getXRRig() {
 }
 
 // Test seam: lets tests supply a fake renderer, THREE, overlay canvas and
-// clock (browser_shim.js has no WebGLRenderer or PlaneGeometry). Call with
-// no argument to restore.
+// clock (browser_shim.js has no PlaneGeometry, and its WebGLRenderer is a
+// no-op stub). Call with no argument to restore.
 export function XR_SetTestOverrides( overrides ) {
 
 	_rendererOverride = overrides != null && overrides.renderer != null ? overrides.renderer : null;

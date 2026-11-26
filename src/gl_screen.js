@@ -146,7 +146,13 @@ Called for important messages that should stay in the center of the screen
 for a few moments
 ==============
 */
+// Web-only: src/agent.js sees centerprints (null when no agent is attached)
+let scr_agent_hook = null;
+export function SCR_SetAgentHook( fn ) { scr_agent_hook = fn; }
+
 export function SCR_CenterPrint( str ) {
+
+	if ( scr_agent_hook !== null ) scr_agent_hook( str );
 
 	scr_centerstring = str.substring( 0, 1023 );
 	scr_centertime_off = scr_centertime.value;

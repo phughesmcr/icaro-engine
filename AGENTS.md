@@ -12,7 +12,11 @@ process per room. It was forked from mrdoob's three-quake.
 - `src/`: the engine, shared by the browser and the Deno server. File names
   mirror the C files (`sv_phys.js` is `sv_phys.c`). Web-only additions:
   `in_web.js`, `touch.js`, `webxr.js`, `net_webtransport.js`,
-  `net_websocket.js`, `pak.js`, `menu_cvars.js`. Some files port features
+  `net_websocket.js`, `net_webrtc.js` (browser-hosted rooms; the design is
+  `docs/browser-hosted-rooms.md`), `room_rules.js` (game rules shared by
+  lobby rooms and browser-hosted ones), `pak.js`, `menu_cvars.js`,
+  `agent.js` (the agent API,
+  `window.icaro`; see `docs/agent-interface.md`). Some files port features
   from Ironwail or QuakeSpasm rather than id's C, and their headers cite it
   (`gl_fog.js`, `gl_sky.js`, `gl_md5.js`, `gl_entalpha.js`,
   `gl_screenwarp.js`, `image.js`, `pr_sprintf.js`, `default_cfg.js`,
@@ -20,12 +24,24 @@ process per room. It was forked from mrdoob's three-quake.
 - `main.js` and `index.html`: the browser entry. `index.html`'s import map
   loads `three` and `nipplejs` from jsDelivr. Assets are in `static/`.
 - `server/`: `lobby_server.js`, `game_server.js` and the WebTransport and
-  WebSocket server drivers (`.ts`). Under Deno, `three` maps to `server/browser_shim.js` (root
+  WebSocket server drivers (`.ts`). `lobby_rtc.js` is the lobby for rooms
+  hosted in browsers (room table and WebRTC signal relay) and
+  `room_config.js` the room-config checks; both are pure, so the Cloudflare
+  lobby imports them too. Under Deno, `three` maps to `server/browser_shim.js` (root
   `deno.json`). If `src/` starts using a new Three.js export, add it to the
-  shim or the server and tests break. `server/Dockerfile` builds the
+  shim or the server and tests break. `server/headless_host.js` runs the
+  whole game (host, local server and a loopback client) under Deno with no
+  browser or rendering, for scripted play; its header says how to wait for
+  a level to load. `server/Dockerfile` builds the
   game-room image from an allowlist (`deno.json`, `server/`, `src/`,
   `static/pak0.pak`), with the root `.dockerignore` as a second guard; never
   widen either to registered data (see Game data).
+- `cloudflare/lobby/`: the lobby Worker and Durable Object for rooms hosted
+  in browsers, with TURN credentials (its README says how to deploy).
+  `src/worker.js` imports `cloudflare:workers`, so tests run
+  `src/lobby_core.js` instead. Run wrangler only from that folder: from the
+  repository root it offers to upload the whole repository, registered
+  data included.
 - `docs/port-review.md`: a fidelity review of the port against the C source.
   It is a snapshot taken at a past revision, so check its claims against the
   code before relying on them.
@@ -44,14 +60,27 @@ process per room. It was forked from mrdoob's three-quake.
   (Containers, Durable Objects, VMs), with room memory/CPU/bandwidth
   measurements and the plan. Supersedes the recommendation in
   `cloudflare-multiplayer.md`. A snapshot.
+- `docs/browser-hosted-rooms.md`: design for rooms hosted in a player's
+  browser tab and joined over WebRTC, with a Durable Object lobby for
+  signalling. A design; nothing in it is built or tested yet.
+- `docs/mobile-roadmap.md`: mobile-friendliness review (controls, rendering,
+  offline, lifecycle, networking, competitive landscape) with confirmed bugs
+  and a ranked roadmap. A snapshot; nothing in it was tested on a device.
+- `docs/agent-interface.md`: research and plan for making the engine
+  playable by LLM agents and RL (lockstep clock, text observations, macro
+  actions, MCP/Gymnasium adapters). Phase 1 (`src/agent.js`) is built; the
+  rest is a plan. A snapshot.
 - `tools/`: `port_inventory.py` regenerates that inventory's raw tables
   (Python, standard library only; not linted or run in CI).
   `room_bench.js` (with `room_bench_preload.js`) load-tests one room with
   headless WebSocket bots, and `room_memory_probe.js` measures a room's
-  memory by init stage; their headers give the commands. `do_cpu_probe/`
-  is a throwaway Cloudflare Worker that measures the Free plan's Durable
-  Object limits; `probe.js` gives the deploy steps, which need the
-  maintainer's account. Not linted or run in CI. `check_container_image.sh` (`deno task image-check`, needs Docker)
+  memory by init stage; their headers give the commands. `webrtc_spike/` is
+  a static page that answers the WebRTC questions in
+  `docs/browser-hosted-rooms.md`; its `index.html` says how to run it.
+  `do_cpu_probe/` is a throwaway Cloudflare Worker that measures the Free
+  plan's Durable Object limits; `probe.js` gives the deploy steps, which
+  need the maintainer's account. Not linted or run in CI.
+  `check_container_image.sh` (`deno task image-check`, needs Docker)
   fails if the game-room image or its build context holds any `.pak` but
   `static/pak0.pak`, or TLS or env files, then starts a room in the image;
   CI runs it.
@@ -73,7 +102,7 @@ process per room. It was forked from mrdoob's three-quake.
 - `deno task ci` runs what CI's main job runs: `deno task test`,
   `deno task lint` and `deno task check`. Run it before calling work done.
   CI's second job is `deno task image-check` (needs Docker).
-- `deno task test`: the whole suite (~750 tests, ~20 s). Its permissions are
+- `deno task test`: the whole suite (~850 tests, ~30 s). Its permissions are
   scoped: no network, env limited to the `FAKE_ROOM_*` variables, and run
   limited to `tests/fixtures/fake_room_server.sh`. A test that needs more must
   widen the task deliberately. For one file:
@@ -88,7 +117,9 @@ process per room. It was forked from mrdoob's three-quake.
 - `deno task lobby` and `deno task game` need `server/cert.pem` and
   `server/key.pem` (see `server/README.md`). Both are gitignored.
 - To run the client, serve the repo root with any static file server
-  (`python3 -m http.server`) and open `index.html`.
+  (`python3 -m http.server`) and open `index.html`. To drive it as an
+  agent, open `?agent=lockstep&map=e1m1&skill=1` and call `icaro.help()`
+  in the page.
 - CI (`.github/workflows/ci.yml`) runs on PRs to `dev` and `main`: test, lint
   and check, on the Deno version pinned in `.tool-versions`, and, in a second
   job, `tools/check_container_image.sh`. The Dockerfile pins the same Deno
@@ -100,7 +131,7 @@ process per room. It was forked from mrdoob's three-quake.
 ### Lint and format
 
 - `deno task lint` (config in root `deno.json`: `main.js`, `src/`, `server/`,
-  `tests/`; `no-window` rules off) passes with zero problems. The bar is
+  `tests/`, `cloudflare/`; `no-window` rules off) passes with zero problems. The bar is
   **lint passes**; CI enforces it.
 - Unused parameters kept for C-signature parity get a `_` prefix
   (`Z_Free( _ptr )`). Use a line-level `// deno-lint-ignore no-unused-vars`
