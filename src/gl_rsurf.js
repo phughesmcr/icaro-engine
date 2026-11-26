@@ -2497,6 +2497,36 @@ export function R_UploadLightmapRect( i, theRect, r ) {
 
 }
 
+/*
+R_LightmapsContextRestored
+
+Web-only (see gl_contextloss.js). After a WebGL context restore every lightmap
+texture must be uploaded again from scratch. Three.js does that on its own
+from the texture's image data, but that data is only current for rows
+R_UploadLightmapRect has already converted: rows changed while the context
+was lost (animated styles, dynamic lights) are still waiting in
+lightmap_rectchange. Mark every block fully modified, so the next
+R_BlendLightmaps converts and uploads all of it, and bump each texture's
+version so the whole image is sent as a fresh texture.
+*/
+export function R_LightmapsContextRestored() {
+
+	for ( let i = 0; i < lightmap_count; i ++ ) {
+
+		lightmap_modified[ i ] = true;
+		const theRect = lightmap_rectchange[ i ];
+		theRect.l = 0;
+		theRect.t = 0;
+		theRect.w = BLOCK_WIDTH;
+		theRect.h = BLOCK_HEIGHT;
+
+		const tex = lightmapTextures[ i ];
+		if ( tex != null ) tex.needsUpdate = true;
+
+	}
+
+}
+
 export function R_BlendLightmaps() {
 
 	R_CheckLightmapCvars();
@@ -2747,9 +2777,15 @@ function R_ClearMirrors() {
 let solidSkyMaterial = null;
 let alphaSkyMaterial = null;
 
-function R_DrawSkyChain( s ) {
+/*
+=================
+R_EnsureSkyMaterials
 
-	if ( ! worldGroup ) return;
+Split out of R_DrawSkyChain (web-only) so R_WarmupMeshes can build the sky
+materials before the first frame. The code is unchanged.
+=================
+*/
+function R_EnsureSkyMaterials() {
 
 	// Create or update sky materials from the sky textures
 	if ( solidskytexture && ! solidSkyMaterial ) {
@@ -2789,6 +2825,14 @@ function R_DrawSkyChain( s ) {
 		solidSkyMaterial.onBeforeCompile = Fog_PatchSkyShader;
 
 	}
+
+}
+
+function R_DrawSkyChain( s ) {
+
+	if ( ! worldGroup ) return;
+
+	R_EnsureSkyMaterials();
 
 	// Skybox (gl_sky.js): drawn on the sky surfaces in place of both layers
 	const sky = Sky_GetSkyBox();
@@ -2878,6 +2922,81 @@ function R_DrawSkyChain( s ) {
 		}
 
 	}
+
+}
+
+//============================================================================
+// R_WarmupMeshes
+//
+// Web-only (gl_warmup.js). Three.js builds a water or sky program the first
+// time one is drawn, and the world's sky and water meshes only exist once a
+// frame has drawn them. This returns one throwaway mesh per material the
+// level's textures will use, with the geometry attributes the real meshes
+// have, so gl_warmup.js can compile their programs behind the loading
+// plaque. The meshes are never added to the scene. The water materials are
+// the ones DrawGLWaterPoly will use (cached by texture); the sky ones are
+// the ones R_DrawSkyChain will use.
+//============================================================================
+
+let _warmWaterGeometry = null;
+let _warmSkyGeometry = null;
+const _warmMeshes = [];
+
+function R_WarmupGeometry( withNormals ) {
+
+	const geometry = new THREE.BufferGeometry();
+	geometry.setAttribute( 'position', new THREE.BufferAttribute( new Float32Array( 9 ), 3 ) );
+	if ( withNormals === true ) geometry.setAttribute( 'normal', new THREE.BufferAttribute( new Float32Array( 9 ), 3 ) );
+	geometry.setAttribute( 'uv', new THREE.BufferAttribute( new Float32Array( 6 ), 2 ) );
+	if ( withNormals === true ) geometry.setAttribute( 'uv1', new THREE.BufferAttribute( new Float32Array( 6 ), 2 ) );
+	return geometry;
+
+}
+
+function R_WarmupMesh( geometry, material ) {
+
+	const mesh = new THREE.Mesh( geometry, material );
+	mesh.frustumCulled = false;
+	return mesh;
+
+}
+
+export function R_WarmupMeshes( worldmodel ) {
+
+	_warmMeshes.length = 0;
+	if ( worldmodel === null || worldmodel === undefined || worldmodel.textures === null || worldmodel.textures === undefined ) return _warmMeshes;
+
+	let water = null;
+	let hasSky = false;
+	for ( let i = 0; i < worldmodel.numtextures; i ++ ) {
+
+		const t = worldmodel.textures[ i ];
+		if ( t === null || t === undefined || t.name === null || t.name === undefined ) continue;
+		if ( water === null && t.name.charCodeAt( 0 ) === 42 && t.gl_texture !== null && t.gl_texture !== undefined ) water = t; // '*'
+		if ( t.name.substring( 0, 3 ) === 'sky' ) hasSky = true;
+
+	}
+
+	if ( water !== null ) {
+
+		if ( _warmWaterGeometry === null ) _warmWaterGeometry = R_WarmupGeometry( true );
+		// the opaque and the r_wateralpha < 1 (transparent) variants
+		_warmMeshes.push( R_WarmupMesh( _warmWaterGeometry, _getWaterMaterial( water, 1 ) ) );
+		_warmMeshes.push( R_WarmupMesh( _warmWaterGeometry, _getWaterMaterial( water, 0.5 ) ) );
+
+	}
+
+	if ( hasSky === true ) {
+
+		if ( _warmSkyGeometry === null ) _warmSkyGeometry = R_WarmupGeometry( false );
+		R_EnsureSkyMaterials();
+		const sky = Sky_GetSkyBox();
+		_warmMeshes.push( R_WarmupMesh( _warmSkyGeometry, sky !== null ? R_SkyBoxMaterial( sky.cubemap ) : solidSkyMaterial ) );
+		if ( sky === null && alphaSkyMaterial !== null ) _warmMeshes.push( R_WarmupMesh( _warmSkyGeometry, alphaSkyMaterial ) );
+
+	}
+
+	return _warmMeshes;
 
 }
 

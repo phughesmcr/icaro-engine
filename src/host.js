@@ -28,6 +28,7 @@ import { SV_Physics, SV_SetFrametime, sv_gravity } from './sv_phys.js';
 import { sv, svs, client_t,
 	host_client, set_host_client } from './server.js';
 import { R_Init, D_FlushCaches } from './gl_rmisc.js';
+import { R_CheckQuality } from './gl_rmain.js';
 import { VID_Init, VID_Shutdown } from './vid.js';
 import { Draw_Init, Draw_Character, Draw_String, Draw_ConsoleBackground, Draw_SetExternals, Draw_PicFromWad, Draw_CachePic, Draw_Pic, Draw_SubPic, Draw_TransPic, Draw_TransPicTranslate, Draw_Fill, Draw_FadeScreen } from './gl_draw.js';
 import { SCR_Init, SCR_UpdateScreen, SCR_SetExternals, SCR_EndLoadingPlaque, SCR_BeginLoadingPlaque, SCR_CenterPrint } from './gl_screen.js';
@@ -49,7 +50,7 @@ import { V_RenderView, V_UpdatePalette } from './view.js';
 import { S_LocalSound } from './snd_dma.js';
 import { M_Menu_Main_f } from './menu.js';
 import { R_Efrag_SetExternals } from './gl_refrag.js';
-import { Host_InitCommands } from './host_cmd.js';
+import { Host_InitCommands, Host_MaybeOfferContinue } from './host_cmd.js';
 import { R_SetParticleExternals } from './r_part.js';
 
 /*
@@ -673,6 +674,8 @@ let host_speeds_time1 = 0;
 let host_speeds_time2 = 0;
 let host_speeds_time3 = 0;
 
+let autosave_offer_done = false;
+
 function _Host_Frame_Internal( time ) {
 
 	// keep the random time dependent
@@ -690,6 +693,10 @@ function _Host_Frame_Internal( time ) {
 
 	// process console commands
 	Cbuf_Execute();
+
+	// Web-only: offer to continue the autosave once per page load (autosave.js)
+	if ( autosave_offer_done === false )
+		autosave_offer_done = Host_MaybeOfferContinue();
 
 	NET_Poll();
 
@@ -739,6 +746,9 @@ function _Host_Frame_Internal( time ) {
 	// update video
 	if ( host_speeds.value !== 0 )
 		host_speeds_time1 = Sys_FloatTime();
+
+	// Web-only: vid_quality presets; every frame, also with no map drawn
+	R_CheckQuality();
 
 	SCR_UpdateScreen();
 

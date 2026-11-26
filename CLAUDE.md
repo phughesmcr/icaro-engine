@@ -18,9 +18,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Set `NO_COLOR=1` on `deno` commands whose output you parse.
 - A PostToolUse hook reports new `deno lint` problems in each `.js`/`.ts` file
   you edit, compared with `HEAD`. Fix them, or justify them as C-parity
-  leftovers.
+  leftovers. It skips the folders `deno task lint` doesn't cover (`tools/`,
+  `docs/`, `static/`).
+- A PreToolUse hook (`.claude/hooks/wrangler-guard.sh`) blocks a wrangler
+  deploy, publish or upload from a folder with no Wrangler config, such as
+  the repository root. `cd cloudflare/lobby` first, or pass `--config`.
 - Before opening a PR, run the `reviewer` agent on the whole diff. Run
-  `docs-checker` too when commands, config or docs changed. Both are
-  user-level agents, not defined in this repo; if they're missing, do the same
-  review yourself. `/pr` runs the whole checklist.
+  `docs-checker` too when commands, config or docs changed. Both are defined
+  in `.claude/agents/`. `/pr` runs the whole checklist.
 - Use the `quake-c-reference` skill when a change needs the original C source.

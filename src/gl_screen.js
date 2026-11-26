@@ -17,6 +17,7 @@ import { renderer } from './vid.js';
 import { r_refdef as _r_refdef_canonical } from './render.js';
 import { r_framecount } from './glquake.js';
 import { R_WaterWarp_Init, R_WarpScreen } from './gl_screenwarp.js';
+import { GL_ContextLoss_Init, GL_ContextLost } from './gl_contextloss.js';
 
 /*
 ==============================================================================
@@ -527,6 +528,8 @@ SCR_Init
 export function SCR_Init() {
 
 	if ( _r_refdef === null ) _r_refdef = _r_refdef_canonical;
+
+	GL_ContextLoss_Init( renderer ); // web-only: context loss and restore
 
 	Cvar_RegisterVariable( scr_fov );
 	Cvar_RegisterVariable( scr_viewsize );
@@ -1209,6 +1212,10 @@ export function SCR_UpdateScreen() {
 
 	if ( ! scr_initialized || ! con_initialized )
 		return; // not initialized yet
+
+	// Web-only: no drawing while the WebGL context is lost (gl_contextloss.js)
+	if ( GL_ContextLost() )
+		return;
 
 	// GL_BeginRendering
 	if ( _GL_BeginRendering ) _GL_BeginRendering();

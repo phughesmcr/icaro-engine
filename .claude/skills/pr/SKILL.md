@@ -26,10 +26,9 @@ unless the user asks (see step 10).
 5. **Lint.** Run `deno task lint`. It must pass with zero problems; CI runs
    the same command.
    - Keep C-parity parameters with a `_` prefix rather than deleting them.
-   - Don't run `deno fmt` (only `--check`).
+   - Don't format with `deno fmt`: `deno.json` excludes every file from it.
 6. **Review.**
-   - Run the `reviewer` agent on the whole diff. It and `docs-checker` are
-     user-level agents; if they aren't installed, do the review yourself.
+   - Run the `reviewer` agent on the whole diff (`.claude/agents/`).
    - Run `docs-checker` too if commands, config, docs or exported APIs changed.
    - Fix what they report, or note why you didn't. If the fixes are big, rerun
      steps 3–5.

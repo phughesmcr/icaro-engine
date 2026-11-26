@@ -503,7 +503,9 @@ Deno.test( 'touch: weapon buttons queue impulse 10 / 12', () => {
 		const impulses = [];
 		cmd.Cmd_AddCommand( 'impulse', () => impulses.push( cmd.Cmd_Argv( 1 ) ) );
 
+		// WPN▶ cycles on release (a longer hold opens the weapon wheel)
 		byId( 'touch-weapon-next' ).fire( 'touchstart', touchEvent( 'touchstart', 1, 0, 0 ) );
+		byId( 'touch-weapon-next' ).fire( 'touchend', touchEvent( 'touchend', 1, 0, 0 ) );
 		byId( 'touch-weapon-prev' ).fire( 'touchstart', touchEvent( 'touchstart', 2, 0, 0 ) );
 		run();
 		assertEqual( impulses.join( ',' ), '10,12', 'next then previous weapon' );
@@ -1556,7 +1558,7 @@ Deno.test( 'IN-4: menu overlay taps select; drags send arrow keys and never tap'
 		menu.fire( 'touchstart', ev( 'touchstart', [ [ 1, 110, 70 ] ] ) );
 		assertEqual( taps.length, 0, 'nothing on touchstart' );
 		menu.fire( 'touchend', ev( 'touchend', [ [ 1, 110, 70 ] ] ) );
-		assertEqual( JSON.stringify( taps ), '[[100,50,300,200]]', 'tap relative to the surface rect' );
+		assertEqual( JSON.stringify( taps ), '[[100,50,300,200,true]]', 'tap relative to the surface rect, marked as a finger' );
 		assertEqual( prevented, 2, 'default prevented' );
 
 		// A small wobble is still a tap
@@ -1603,7 +1605,7 @@ Deno.test( 'IN-4: menu overlay taps select; drags send arrow keys and never tap'
 		touch.Touch_SetMenuCallback( ( ...args ) => taps.push( args ) );
 		menu.fire( 'touchstart', ev( 'touchstart', [ [ 8, 5, 6 ] ] ) );
 		menu.fire( 'touchend', ev( 'touchend', [ [ 8, 5, 6 ] ] ) );
-		assertEqual( JSON.stringify( taps[ 3 ] ), '[5,6,640,480]', 'window-relative fallback' );
+		assertEqual( JSON.stringify( taps[ 3 ] ), '[5,6,640,480,true]', 'window-relative fallback' );
 
 		touch.Touch_SetMenuCallback( null );
 		menu.fire( 'touchstart', ev( 'touchstart', [ [ 9, 5, 6 ] ] ) );

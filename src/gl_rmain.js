@@ -4,9 +4,9 @@
 import * as THREE from 'three';
 import { Sys_FloatTime } from './sys.js';
 import { Con_Printf } from './common.js';
-import { vid, renderer, vid_renderscale } from './vid.js';
+import { vid, renderer, vid_renderscale, VID_CheckPixelRatio } from './vid.js';
 import { r_refdef, r_origin, vpn, vright, vup, entity_t, r_lerpmodels, r_lerpmove, r_nolerp_list } from './render.js';
-import { Cvar_RegisterVariable } from './cvar.js';
+import { Cvar_RegisterVariable, Cvar_SetValue } from './cvar.js';
 import {
 	M_PI, DotProduct, VectorCopy, VectorAdd, VectorSubtract, VectorNormalize,
 	AngleVectors, Length, RotatePointAroundVector, BoxOnPlaneSide
@@ -20,13 +20,13 @@ import {
 	Mod_PointInLeaf, SPR_SINGLE, SPR_VP_PARALLEL_UPRIGHT, SPR_FACING_UPRIGHT,
 	SPR_VP_PARALLEL, SPR_ORIENTED, SPR_VP_PARALLEL_ORIENTED, Mod_EnhancedAliasHeader
 } from './gl_model.js';
-import { R_AnimateLight as R_AnimateLight_impl, R_RenderDlights as R_RenderDlights_impl, R_DlightDistance, R_LightPoint, lightspot, lightcolor } from './gl_rlight.js';
+import { R_AnimateLight as R_AnimateLight_impl, R_RenderDlights as R_RenderDlights_impl, R_SetDlightLimit, R_DlightDistance, R_LightPoint, lightspot, lightcolor } from './gl_rlight.js';
 import { R_DrawAliasModel as R_DrawAliasModel_mesh, GL_DrawAliasShadow, alias_lerpdata } from './gl_mesh.js';
 import { r_avertexnormal_dots } from './anorm_dots.js';
 import { V_SetContentsColor as V_SetContentsColor_view, V_CalcBlend as V_CalcBlend_view } from './view.js';
 import { chase_active } from './chase.js';
 import {
-	R_InitParticles, R_SetParticleExternals, R_ClearParticles,
+	R_InitParticles, R_SetParticleLimit, R_SetParticleExternals, R_ClearParticles,
 	R_DrawParticles as R_DrawParticles_impl
 } from './r_part.js';
 import { isXRActive, getXRRig, XR_SetCamera, XR_SCALE, XR_GetControllerWorldPose, XR_RenderHUD, XR_SetupFrusta, XR_PolyBlend, XR_GetHeadOrigin, XR_ResetHeadOrigin } from './webxr.js';
@@ -1794,6 +1794,9 @@ export function R_Init() {
 	Cvar_RegisterVariable( r_nolerp_list );
 	// QuakeSpasm and Ironwail register this in gl_rmisc.c R_Init
 	Cvar_RegisterVariable( gl_farclip );
+	Cvar_RegisterVariable( vid_quality );
+	Cvar_RegisterVariable( r_particlecap );
+	Cvar_RegisterVariable( gl_dlightcap );
 
 	// create the Three.js scene
 	scene = new THREE.Scene();
@@ -1952,6 +1955,7 @@ function R_RenderDlights() {
 
 	if ( cl != null ) {
 
+		R_SetDlightLimit( R_DlightBucketCap() );
 		R_RenderDlights_impl( cl, scene );
 		R_PadDlights( scene );
 
@@ -1992,7 +1996,8 @@ export function R_CountRenderedDlights() {
 
 	}
 
-	return count;
+	// gl_rlight.js R_RenderDlights leaves out lights past the cap
+	return Math.min( count, R_DlightBucketCap() );
 
 }
 
@@ -2001,7 +2006,83 @@ export function R_DlightBucket( count ) {
 	if ( count === 0 ) return 0;
 	let bucket = 4;
 	while ( bucket < count ) bucket *= 2;
+	return Math.min( bucket, R_DlightBucketCap() );
+
+}
+
+// Web-only: gl_dlightcap (no Quake counterpart; a vid_quality preset sets
+// it) caps how many dlights are drawn and so the largest bucket above: the
+// value rounded up to 4, 8, 16, 32 or 64. Fewer buckets mean fewer shader
+// program sets and a shorter per-pixel light loop. R_DlightBucketCap is
+// exported for a shader warm-up to use.
+export const gl_dlightcap = { name: 'gl_dlightcap', string: '64', value: 64, archive: true };
+
+export function R_DlightBucketCap() {
+
+	let bucket = 4;
+	while ( bucket < 64 && bucket < gl_dlightcap.value ) bucket *= 2;
 	return bucket;
+
+}
+
+// Web-only, no C equivalent. vid_quality sets the cvars below as a group,
+// for battery and heat on phones. 3 (custom, the default) sets nothing, so
+// desktop behaviour and the touch DPR cap stay as before. A preset writes
+// the cvars once, when vid_quality changes; changing one of them by hand
+// later is left alone, until vid_quality changes again. Choosing the same
+// preset again does nothing; switch to another and back to re-apply it. The value read
+// when the first frame is drawn (after config.cfg) counts as already applied,
+// so a saved preset does not overwrite hand-tuned values on the next start.
+// Columns: vid_dprcap (0 = default rule), host_maxfps, gl_dlightcap,
+// r_particlecap (0 = the whole pool), gl_texture_anisotropy.
+export const vid_quality = { name: 'vid_quality', string: '3', value: 3, archive: true };
+export const r_particlecap = { name: 'r_particlecap', string: '0', value: 0, archive: true };
+
+export const VID_QUALITY_PRESETS = [
+	[ 1, 30, 4, 2048, 1 ], // 0: saver
+	[ 1.5, 60, 8, 8192, 2 ], // 1: medium
+	[ 0, 72, 64, 0, 4 ] // 2: high (the engine's defaults, plus anisotropy)
+];
+
+let _appliedQuality = - 1;
+
+export function R_ApplyQualityPreset( preset ) {
+
+	const row = VID_QUALITY_PRESETS[ preset ];
+	if ( row === undefined ) return;
+	Cvar_SetValue( 'vid_dprcap', row[ 0 ] );
+	Cvar_SetValue( 'host_maxfps', row[ 1 ] );
+	Cvar_SetValue( 'gl_dlightcap', row[ 2 ] );
+	Cvar_SetValue( 'r_particlecap', row[ 3 ] );
+	Cvar_SetValue( 'gl_texture_anisotropy', row[ 4 ] );
+
+}
+
+// Once a frame (Host_Frame calls it, so it also runs on the title screen): applies a changed vid_quality, and the live cvars it drives
+// (the DPR cap, the particle limit). The anisotropy change is picked up by
+// GL_CheckAnisotropy, and host_maxfps by the frame filter.
+export function R_CheckQuality() {
+
+	if ( _appliedQuality === - 1 ) {
+
+		_appliedQuality = vid_quality.value;
+
+	} else if ( vid_quality.value !== _appliedQuality ) {
+
+		_appliedQuality = vid_quality.value;
+		R_ApplyQualityPreset( _appliedQuality );
+
+	}
+
+	VID_CheckPixelRatio();
+	R_SetParticleLimit( r_particlecap.value );
+
+}
+
+// For tests
+export function R_ResetQuality() {
+
+	_appliedQuality = - 1;
 
 }
 
