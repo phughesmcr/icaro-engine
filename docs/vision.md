@@ -4,7 +4,8 @@ Icaro is a multi-platform game engine for the modern web. It runs Quake, but it
 is meant as a general-purpose engine for building multi-platform indie games: an
 engine that runs Quake, rather than a Quake engine. It was forked from
 `mrdoob/three-quake`, a JavaScript and Three.js port of the C code of
-WinQuake/QuakeWorld.
+WinQuake/QuakeWorld, and aims to be a modern source port: the original C is
+where it started, not a limit on how the code is written.
 
 ## Goals
 

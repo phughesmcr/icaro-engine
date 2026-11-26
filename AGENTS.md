@@ -1,13 +1,14 @@
 # AGENTS.md
 
 Icaro Engine is a multi-platform web game engine that runs Quake: an engine that
-runs Quake, not only a Quake engine. `docs/vision.md` gives the goals. Its core
-is a function-by-function port of id Software's WinQuake/GLQuake (C) to
-JavaScript ES modules. The client renders with Three.js r183 in the browser.
-Multiplayer uses WebTransport (or WebSocket where WebTransport is missing or a
-Cloudflare Tunnel sits in front), with QuakeWorld-style client prediction, and
-runs on a Deno lobby server that starts one `game_server.js` process per room.
-It was forked from mrdoob's three-quake.
+runs Quake, not only a Quake engine. `docs/vision.md` gives the goals. It began
+as a function-by-function port of id Software's WinQuake/GLQuake (C) to
+JavaScript ES modules and is becoming a modern source port: the port's structure
+is where it started, not a limit. The client renders with Three.js r183 in the
+browser. Multiplayer uses WebTransport (or WebSocket where WebTransport is
+missing or a Cloudflare Tunnel sits in front), with QuakeWorld-style client
+prediction, and runs on a Deno lobby server that starts one `game_server.js`
+process per room. It was forked from mrdoob's three-quake.
 
 ## Layout
 
@@ -181,20 +182,27 @@ It was forked from mrdoob's three-quake.
   - **Icaro's own features** (the web platform, netplay, input, the agent API, a
     future Icaro-native standard): no reference. Design them, but don't let them
     change how Quake content plays.
-- Within a layer, restore the reference's behaviour; don't invent new behaviour.
-  Note any deliberate deviation in a comment and in the PR body.
-- Keep the reference's names: functions (`SV_Physics`, `R_MarkLeaves`), globals,
-  struct fields, and **cvar/console names exactly as in Quake** or the port that
-  introduced them. Players' configs and QuakeC depend on them. A cvar or command
-  that is Icaro's own must not reuse a name any reference port uses for
-  something else.
-- New ported files start with a header citing their source, e.g.
-  `// Ported from: WinQuake/common.c` or `Ironwail Quake/gl_fog.c`. A ported
-  function keeps its C name. Where the JS name differs, or one function covers
-  several C ones, a comment names the C function it mirrors.
-- Before deleting code that looks dead or odd, check whether it mirrors the C.
-  If it does, keep it with `// deno-lint-ignore <rule>` and a "mirrors the C"
-  comment. Unused parameters often exist only to keep the C signature.
+- The references fix behaviour, not code structure. Within a layer, keep what
+  players and content see as the reference has it: how the game plays, looks and
+  sounds, and what QuakeC, configs, demos and saves rely on. Don't invent new
+  behaviour there, and note any deliberate deviation in a comment and in the PR
+  body. The code itself may be restructured, modernised or rewritten as long as
+  that behaviour is kept and tested (unit tests, the benchmarks' checksums).
+- Keep the names content depends on: **cvar and console names exactly as in
+  Quake** or the port that introduced them, and QuakeC builtins and fields.
+  Players' configs and QuakeC depend on them. A cvar or command that is Icaro's
+  own must not reuse a name any reference port uses for something else.
+- Code that still mirrors a reference function keeps its name (`SV_Physics`,
+  `R_MarkLeaves`), globals and struct fields, so the two can be compared. Files
+  ported from a reference start with a header citing it, e.g.
+  `// Ported from: WinQuake/common.c` or `Ironwail Quake/gl_fog.c`. Where the JS
+  name differs, or one function covers several C ones, a comment names the
+  function it mirrors. Rewritten code may use new names; a comment names what it
+  replaces.
+- Before deleting code that looks dead or odd, check whether it mirrors the
+  reference. In code that still mirrors it, keep it with
+  `// deno-lint-ignore <rule>` and a "mirrors the C" comment. Unused parameters
+  often exist only to keep the C signature.
 - The server runs NetQuake physics (`sv_phys.js`, `sv_user.js`) and must stay
   NQ-faithful. The client predicts with QW `pmove` (`pmove.js`, `cl_pred.js`).
   Fix prediction mismatches on the client side.
