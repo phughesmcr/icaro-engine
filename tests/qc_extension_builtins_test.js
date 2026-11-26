@@ -1,9 +1,20 @@
 // QuakeC extension builtins ported from Ironwail: maths, strings, tokenize,
-// sprintf, checkextension, the "= #0" name remap, and the table's
-// "unimplemented builtin" for numbers past id's #78.
+// sprintf, clientstat, checkcommand, clientcommand, checkextension, the
+// "= #0" name remap, and the table's "unimplemented builtin" for numbers past
+// id's #78.
 
+import * as cmd from "../src/cmd.js";
 import * as common from "../src/common.js";
-import { PR_InitBuiltins, PR_InitProgsBuiltins } from "../src/pr_cmds.js";
+import { Cvar_RegisterVariable, cvar_t } from "../src/cvar.js";
+import {
+  pr_checkextension,
+  pr_extbuiltins,
+  pr_extnames,
+  PR_InitBuiltins,
+  PR_InitProgsBuiltins,
+  sv_customstats,
+} from "../src/pr_cmds.js";
+import * as server from "../src/server.js";
 import {
   OFS_PARM0,
   OFS_PARM1,
@@ -21,6 +32,7 @@ import {
   PR_ClearZoneStrings,
   pr_functions,
   PR_GetString,
+  pr_global_struct,
   pr_globals_float,
   pr_globals_int,
   pr_numbuiltins,
@@ -29,6 +41,7 @@ import {
   PR_SetFunctions,
   PR_SetGlobalsFloat,
   PR_SetGlobalsInt,
+  PR_SetGlobalStruct,
   PR_SetProgs,
   PR_SetStatements,
   PR_SetStringsData,
@@ -48,10 +61,11 @@ import {
 } from "../src/progs.js";
 
 const printed = [];
+const dprinted = [];
 common.Con_SetPrintFunctions(
   (fmt, ...args) =>
     printed.push(args.length > 0 ? String(args[0]) : String(fmt)),
-  () => {},
+  (fmt, ...args) => dprinted.push([fmt, ...args].join("|")),
 );
 
 function assertEqual(actual, expected, message) {
@@ -109,7 +123,8 @@ function setup() {
 const str = (s) => PR_AppendString(s);
 
 // Calls builtin n directly with the given argument count and parameters.
-// Each parameter is a number (float), a string, or [ x, y, z ].
+// Each parameter is a number (float), a string, [ x, y, z ], or { int: n }
+// for an entity or field offset.
 function call(n, ...parms) {
   PR_SetArgc(parms.length);
   parms.forEach((p, i) => {
@@ -118,6 +133,8 @@ function call(n, ...parms) {
       pr_globals_int[o] = str(p);
     } else if (Array.isArray(p)) {
       pr_globals_float.set(p, o);
+    } else if (typeof p === "object") {
+      pr_globals_int[o] = p.int; // an entity or a field offset
     } else {
       pr_globals_float[o] = p;
     }
@@ -467,12 +484,10 @@ Deno.test("sprintf formats as C printf", () => {
   }
 });
 
-Deno.test("checkextension and finaleFinished return false", () => {
+Deno.test("finaleFinished returns false", () => {
   const restore = setup();
 
   try {
-    call(99, "FTE_QC_CHECKCOMMAND");
-    assertEqual(retF(), 0, "checkextension");
     pr_globals_float[OFS_RETURN] = 5;
     call(79);
     assertEqual(retF(), 0, "finaleFinished");
@@ -491,7 +506,7 @@ Deno.test("Builtins are reached through OP_CALL with its argument count, and unp
       null,
       makeFunction(0),
       makeFunction(-94),
-      makeFunction(-294),
+      makeFunction(-316),
       makeFunction(-1279),
     ]);
     PR_SetProgs({ numfunctions: 5 });
@@ -648,6 +663,420 @@ Deno.test("Re-release ex_ builtins bind by name and return 0 as in Ironwail", ()
       assertEqual(retF(), 0, names[i] + " returns 0");
       assertEqual(printed.length, 0, names[i] + " prints nothing");
     }
+  } finally {
+    restore();
+  }
+});
+
+const f32 = (x) => Math.fround(x);
+
+Deno.test("Inverse trig and tan: asin, acos, atan, atan2, tan (#471-#475)", () => {
+  const restore = setup();
+
+  try {
+    call(471, 1);
+    assertEqual(retF(), f32(Math.PI / 2), "asin(1)");
+    call(471, -0.5);
+    assertEqual(retF(), f32(-Math.PI / 6), "asin(-0.5)");
+    call(472, 1);
+    assertEqual(retF(), 0, "acos(1)");
+    call(472, 0);
+    assertEqual(retF(), f32(Math.PI / 2), "acos(0)");
+    call(473, 1);
+    assertEqual(retF(), f32(Math.PI / 4), "atan(1)");
+    // atan2(y, x): the first parameter is y, as C's atan2
+    call(474, 1, 0);
+    assertEqual(retF(), f32(Math.PI / 2), "atan2(1, 0)");
+    call(474, 0, -1);
+    assertEqual(retF(), f32(Math.PI), "atan2(0, -1)");
+    call(474, -1, -1);
+    assertEqual(retF(), f32(-3 * Math.PI / 4), "atan2(-1, -1)");
+    call(475, 0);
+    assertEqual(retF(), 0, "tan(0)");
+    call(475, f32(Math.PI / 4));
+    assertEqual(retF(), f32(Math.tan(f32(Math.PI / 4))), "tan(pi/4)");
+    call(471, 2);
+    assertEqual(Number.isNaN(retF()), true, "asin out of range is NaN");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("vectorvectors sets v_forward, v_right and v_up from a direction (#432)", () => {
+  const restore = setup();
+  const savedGlobals = pr_global_struct;
+  PR_SetGlobalStruct({
+    v_forward: new Float32Array(3),
+    v_right: new Float32Array(3),
+    v_up: new Float32Array(3),
+  });
+  const vec = (v) => Array.from(v).join(" ");
+
+  try {
+    // facing +x: right is -y, up is +z (as makevectors '0 0 0')
+    call(432, [3, 0, 0]);
+    assertEqual(vec(pr_global_struct.v_forward), "1 0 0", "forward of +x");
+    assertEqual(vec(pr_global_struct.v_right), "0 -1 0", "right of +x");
+    assertEqual(vec(pr_global_struct.v_up), "0 0 1", "up of +x");
+
+    // straight up: right is -y, up = right x forward = -x
+    call(432, [0, 0, 5]);
+    assertEqual(vec(pr_global_struct.v_forward), "0 0 1", "forward of +z");
+    assertEqual(vec(pr_global_struct.v_right), "0 -1 0", "right of +z");
+    assertEqual(vec(pr_global_struct.v_up), "-1 0 0", "up of +z");
+
+    // diagonal: right is normalized
+    call(432, [1, 1, 0]);
+    const h = f32(Math.SQRT1_2);
+    assertEqual(vec(pr_global_struct.v_forward), `${h} ${h} 0`, "forward");
+    assertEqual(vec(pr_global_struct.v_right), `${h} ${-h} 0`, "right");
+
+    // zero: everything zero, and v_right[1] is 0, not -1
+    pr_global_struct.v_right.set([9, 9, 9]);
+    call(432, [0, 0, 0]);
+    assertEqual(vec(pr_global_struct.v_forward), "0 0 0", "forward of 0");
+    assertEqual(vec(pr_global_struct.v_right), "0 0 0", "right of 0");
+    assertEqual(vec(pr_global_struct.v_up), "0 0 0", "up of 0");
+  } finally {
+    PR_SetGlobalStruct(savedGlobals);
+    restore();
+  }
+});
+
+Deno.test("str2chr reads one byte, from the end for a negative index (#222)", () => {
+  const restore = setup();
+
+  try {
+    call(222, "abc", 1);
+    assertEqual(retF(), 98, "str2chr(abc, 1)");
+    call(222, "abc", -1);
+    assertEqual(retF(), 99, "negative counts from the end");
+    call(222, "abc", -3);
+    assertEqual(retF(), 97, "-length is the first byte");
+    call(222, "abc", 3);
+    assertEqual(retF(), 0, "the length is the NUL");
+    call(222, "abc", 4);
+    assertEqual(retF(), 0, "past the end");
+    call(222, "abc", -4);
+    assertEqual(retF(), 0, "before the start");
+    call(222, "", 0);
+    assertEqual(retF(), 0, "empty string");
+    call(222, "\xe1z", 0);
+    assertEqual(retF(), 225, "a high byte is unsigned");
+    call(222, "xyz");
+    assertEqual(retF(), 120, "the index defaults to 0");
+    call(222, "abc", 1.9);
+    assertEqual(retF(), 98, "the index truncates");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("chr2str joins bytes, maps U+E0xx to Quake chars and others to ? (#223)", () => {
+  const restore = setup();
+
+  try {
+    call(223, 104, 105);
+    assertEqual(retS(), "hi", "two chars");
+    call(223, 0xe0c1, 0xe041);
+    assertEqual(retS(), "\xc1A", "U+E0xx is the Quake char xx");
+    call(223, 255);
+    assertEqual(retS(), "\xff", "255 is kept");
+    call(223, 256, 0x263a, -1, 65);
+    assertEqual(retS(), "???A", "anything else is ?");
+    call(223, 72, 0, 73);
+    assertEqual(retS(), "H", "a 0 ends the string");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("strconv changes case and colour as FTE_STRINGS does (#224)", () => {
+  const restore = setup();
+  const bytes = () => Array.from(retS(), (c) => c.charCodeAt(0)).join(",");
+
+  try {
+    call(224, 1, 0, 0, "HeLLo 12!");
+    assertEqual(retS(), "hello 12!", "lower case");
+    call(224, 2, 0, 0, "ab", "cd");
+    assertEqual(retS(), "ABCD", "upper case of all the string arguments");
+
+    // red: letters + 128, digits to the red digits (+128), punctuation + 128
+    call(224, 0, 2, 2, "a1!");
+    assertEqual(bytes(), "225,177,161", "to red");
+    call(224, 0, 1, 1, "\xe1\xb1\xa1");
+    assertEqual(retS(), "a1!", "red back to white");
+    call(224, 2, 1, 0, "\xe1");
+    assertEqual(retS(), "A", "white and upper case of a red letter");
+
+    // alternate: 5 makes even characters red, 6 odd ones
+    call(224, 0, 5, 0, "aaaa");
+    assertEqual(bytes(), "225,97,225,97", "alternate");
+    call(224, 0, 6, 0, "aaaa");
+    assertEqual(bytes(), "97,225,97,225", "alternate-alternate");
+
+    // the special digits: 3 is '0' - 30, 4 is '0' + 128 - 30
+    call(224, 0, 0, 3, "09");
+    assertEqual(bytes(), "18,27", "redspecial digits");
+    call(224, 0, 0, 4, "0");
+    assertEqual(bytes(), "146", "whitespecial digit");
+    call(224, 0, 0, 1, "\x12\x92\xb0");
+    assertEqual(retS(), "000", "every digit set back to plain");
+
+    // control characters (low 4 bits of 7) keep their value
+    call(224, 0, 2, 0, "\n\x8a");
+    assertEqual(bytes(), "10,138", "special chars unchanged");
+    call(224, 0, 0, 0, "a\xa1");
+    assertEqual(bytes(), "97,161", "0 0 0 changes nothing");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("tokenize_console splits as tokenize does (#514)", () => {
+  const restore = setup();
+
+  try {
+    call(514, 'say "hello there" 3');
+    assertEqual(retF(), 3, "token count");
+    call(442, 1);
+    assertEqual(retS(), "hello there", "a quoted token");
+    call(442, -1);
+    assertEqual(retS(), "3", "the last token");
+    call(1268); // argc, Ironwail's eleventh numberless builtin
+    assertEqual(retF(), 3, "argc");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("clientstat registers numeric stats, replacing one by index, and progs load clears them (#232)", () => {
+  const restore = setup();
+  PR_SetFunctions([]);
+  PR_InitProgsBuiltins();
+
+  try {
+    call(232, 40, 2, { int: 10 }); // ev_float
+    call(232, 41, 3, { int: 12 }); // ev_vector
+    call(232, 42, 8, { int: 14 }); // ev_ext_integer
+    call(232, 43, 4, { int: 15 }); // ev_entity
+    call(232, 40, 3, { int: 20 }); // replaces 40
+    call(232, 44, 1, { int: 21 }); // ev_string: ignored
+    call(232, 45, 6, { int: 22 }); // ev_function: ignored
+    call(232, 256, 2, { int: 23 }); // out of range
+    call(232, -1, 2, { int: 24 }); // out of range
+    call(232, 255, 2, { int: 25 }); // the last index
+
+    assertEqual(
+      JSON.stringify(sv_customstats),
+      JSON.stringify([
+        { idx: 40, type: 3, fld: 20 },
+        { idx: 41, type: 3, fld: 12 },
+        { idx: 42, type: 8, fld: 14 },
+        { idx: 43, type: 4, fld: 15 },
+        { idx: 255, type: 2, fld: 25 },
+      ]),
+      "registered stats",
+    );
+
+    PR_InitProgsBuiltins();
+    assertEqual(sv_customstats.length, 0, "cleared when progs load");
+  } finally {
+    sv_customstats.length = 0;
+    restore();
+  }
+});
+
+cmd.Cmd_Init();
+const ran = [];
+cmd.Cmd_AddCommand("zz_qc_command", () => {});
+// starts with "say", so a client may send it
+cmd.Cmd_AddCommand(
+  "sayzz_qc",
+  () => ran.push([server.host_client, cmd.Cmd_Argv(1)]),
+);
+cmd.Cmd_ExecuteString("alias zz_qc_alias echo", cmd.src_command);
+Cvar_RegisterVariable(new cvar_t("zz_qc_cvar", "1"));
+
+Deno.test("checkcommand: 1 command, 2 alias, 3 cvar, 0 none, ignoring case for commands and aliases (#294)", () => {
+  const restore = setup();
+
+  try {
+    call(294, "zz_qc_command");
+    assertEqual(retF(), 1, "command");
+    call(294, "ZZ_QC_Command");
+    assertEqual(retF(), 1, "command in another case");
+    call(294, "zz_qc_alias");
+    assertEqual(retF(), 2, "alias");
+    call(294, "ZZ_QC_ALIAS");
+    assertEqual(retF(), 2, "alias in another case");
+    call(294, "zz_qc_cvar");
+    assertEqual(retF(), 3, "cvar");
+    call(294, "zz_qc_nothing");
+    assertEqual(retF(), 0, "nothing");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("clientcommand runs a client's command as that client, and refuses others (#440)", () => {
+  const restore = setup();
+  const savedSV = sv;
+  const savedClients = server.svs.clients;
+  const savedMax = server.svs.maxclients;
+  const savedHost = server.host_client;
+  const client = { active: true, name: "Ranger" };
+  PR_SetSV({
+    edicts: [{ index: 0 }, { index: 1 }, { index: 2 }],
+    num_edicts: 3,
+    max_edicts: 3,
+  });
+  server.svs.clients = [client];
+  server.svs.maxclients = 1;
+  const other = { name: "other" };
+  server.set_host_client(other);
+
+  try {
+    ran.length = 0;
+    call(440, { int: 1 }, "sayzz_qc hello");
+    assertEqual(ran.length, 1, "the command ran");
+    assertEqual(ran[0][0], client, "as the client");
+    assertEqual(ran[0][1], "hello", "with its arguments");
+    assertEqual(server.host_client, other, "host_client restored");
+
+    ran.length = 0;
+    dprinted.length = 0;
+    call(440, { int: 1 }, "zz_qc_command");
+    assertEqual(
+      dprinted.join("\n"),
+      "%s tried to %s\n|Ranger|zz_qc_command",
+      "a command a client may not send",
+    );
+    assertEqual(server.host_client, other, "host_client restored");
+
+    for (const ent of [0, 2]) {
+      printed.length = 0;
+      call(440, { int: ent }, "sayzz_qc x");
+      assertEqual(
+        printed.join(""),
+        "PF_clientcommand: not a client\n",
+        "entity " + ent,
+      );
+    }
+    client.active = false;
+    printed.length = 0;
+    call(440, { int: 1 }, "sayzz_qc x");
+    assertEqual(
+      printed.join(""),
+      "PF_clientcommand: not a client\n",
+      "inactive client",
+    );
+    assertEqual(ran.length, 0, "none of those ran");
+  } finally {
+    PR_SetSV(savedSV);
+    server.svs.clients = savedClients;
+    server.svs.maxclients = savedMax;
+    server.set_host_client(savedHost);
+    restore();
+  }
+});
+
+// The names mods probe that Ironwail doesn't know
+const PROBED_NAMES = [
+  "DP_SV_POINTPARTICLES",
+  "FTE_SV_POINTPARTICLES",
+  "DP_GFX_FOG",
+  "DP_QC_GETSURFACE",
+  "DP_TE_PARTICLERAIN",
+  "DP_TE_PARTICLESNOW",
+  "DP_SV_ROTATINGBMODEL",
+  "FTE_ENT_SKIN_CONTENTS",
+  "DP_QC_RANDOMVEC",
+  "EXT_BITSHIFT",
+  "FTE_PART_NAMESPACE_EFFECTINFO",
+  "DP_SV_SETCOLOR",
+  "EX_EXTENDED_EF",
+  "EX_MOVETYPE_GIB",
+  "EX_PROMPT",
+  "QUAKE_EX",
+  "EXT_CSQC",
+  "",
+  "fte_qc_checkcommand",
+];
+
+Deno.test("checkextension answers true for exactly Ironwail's FTE_QC_CHECKCOMMAND, whose builtins all exist", () => {
+  const restore = setup();
+
+  try {
+    // Ironwail's QCEXTENSIONS_ALL, in order
+    assertEqual(
+      pr_extnames.join(" "),
+      "STD_QC FRIK_FILE FTE_STRINGS FTE_QC_CHECKCOMMAND DP_QC_ETOS " +
+        "DP_QC_MINMAXBOUND DP_QC_SINCOSSQRTPOW DP_QC_ASINACOSATANATAN2TAN " +
+        "DP_QC_VECTORVECTORS DP_QC_STRING_CASE_FUNCTIONS DP_QC_SPRINTF " +
+        "DP_QC_TOKENIZE_CONSOLE DP_QC_STRFTIME KRIMZON_SV_PARSECLIENTCOMMAND",
+      "extension names",
+    );
+
+    const claimed = [];
+    for (const name of [...pr_extnames, ...PROBED_NAMES]) {
+      pr_globals_float[OFS_RETURN] = 5;
+      call(99, name);
+      if (retF() !== 0) {
+        assertEqual(retF(), 1, name + " answers 1");
+        claimed.push(name);
+      }
+    }
+    assertEqual(claimed.join(" "), "FTE_QC_CHECKCOMMAND", "claimed");
+
+    // never claims more: every builtin of a claimed extension is implemented
+    const fixme = pr_builtins[0];
+    for (const ext of claimed) {
+      const rows = pr_extbuiltins.filter((r) => r[3] === ext);
+      assertEqual(rows.length > 0, true, ext + " has builtins");
+      for (const [name, func, number] of rows) {
+        assertEqual(func !== fixme, true, name + " is implemented");
+        assertEqual(pr_builtins[number], func, name + " is in its slot");
+      }
+    }
+
+    // every tag is a known extension
+    for (const [name, , , ext] of pr_extbuiltins) {
+      assertEqual(
+        ext === null || pr_extnames.includes(ext),
+        true,
+        name + "'s tag " + ext,
+      );
+    }
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("Only Ironwail's CSQC-only builtins stay unimplemented, and pr_checkextension is 1", () => {
+  const restore = setup();
+
+  try {
+    const fixme = pr_builtins[0];
+    const unported = pr_extbuiltins.filter((r) => r[1] === fixme).map((r) =>
+      r[0]
+    );
+    assertEqual(
+      unported.join(" "),
+      "iscachedpic precache_pic drawgetimagesize drawcharacter " +
+        "drawrawstring drawpic drawfill drawsetcliparea drawresetcliparea " +
+        "drawstring stringwidth drawsubpic getstati getstatf getstats " +
+        "getplayerkeyvalue getplayerkeyfloat registercommand",
+      "unported builtins",
+    );
+    for (const [name, func, number] of pr_extbuiltins) {
+      if (number !== 0) {
+        assertEqual(pr_builtins[number], func, name + " is #" + number);
+      }
+    }
+
+    assertEqual(pr_checkextension.name, "pr_checkextension", "cvar name");
+    assertEqual(pr_checkextension.string, "1", "cvar default");
   } finally {
     restore();
   }

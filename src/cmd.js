@@ -284,6 +284,36 @@ export function Cmd_Exists(cmd_name) {
   return false;
 }
 
+/**
+ * Ironwail's Cmd_FindCommand (cmd.c): the command with this name, matched
+ * case-insensitively, or null. id's Cmd_Exists above matches case.
+ */
+export function Cmd_FindCommand(cmd_name) {
+  const name = cmd_name.toLowerCase();
+  for (let cmd = cmd_functions; cmd !== null; cmd = cmd.next) {
+    if (cmd.name.toLowerCase() === name) {
+      return cmd;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Ironwail's Cmd_AliasExists (cmd.c): whether an alias has this name, matched
+ * case-insensitively.
+ */
+export function Cmd_AliasExists(aliasname) {
+  const name = aliasname.toLowerCase();
+  for (let a = cmd_alias; a !== null; a = a.next) {
+    if (a.name.toLowerCase() === name) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function Cmd_CompleteCommand(partial) {
   const len = partial.length;
 
