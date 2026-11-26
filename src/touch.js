@@ -37,37 +37,83 @@ import {
 } from "./quakedef.js";
 import { S_UnlockAudio } from "./snd_dma.js";
 import { VID_IsTouchPrimary } from "./vid.js";
-import { Cvar_RegisterVariable, cvar_t } from "./cvar.js";
+import {
+  Cvar_FindVar,
+  Cvar_RegisterVariable,
+  Cvar_SetValue,
+  cvar_t,
+} from "./cvar.js";
 import { Cbuf_AddText } from "./cmd.js";
 import { Con_SetNotifyTop } from "./console.js";
+import {
+  TL_Active,
+  TL_BindDown,
+  TL_BindUp,
+  TL_Button,
+  TL_CUSTOM_KEY_BASE,
+  TL_Hidden,
+  TL_MOVABLE,
+  tl_version,
+} from "./touch_layout.js";
 
 // CVARS (archived, set from the Touch Controls menu)
 
+// Web-only: how wide the server's autoaim cone is, 0 (off) to 4. See
+// Touch_AimAssistFrame.
+export const touch_aimassist = new cvar_t("touch_aimassist", "2", true);
 export const touch_sensitivity = new cvar_t("touch_sensitivity", "1", true); // drag look speed
-export const touch_gyro = new cvar_t("touch_gyro", "0", true); // gyro aiming on/off
+// gyro aiming: 0 off, 1 always, 2 while a finger is aiming (the look area or a
+// hold button, so lifting it ratchets the view), 3 while FIRE is held
+export const touch_gyro = new cvar_t("touch_gyro", "0", true);
 export const touch_gyro_sensitivity = new cvar_t(
   "touch_gyro_sensitivity",
   "1",
   true,
 ); // 1 = real-world degrees
+// Degrees per second below which gyro input is scaled down (tightened) towards
+// zero, so hand tremor and sensor drift don't move the view; 0 = off
+export const touch_gyro_deadzone = new cvar_t("touch_gyro_deadzone", "0", true);
+// Gyro smoothing time constant in seconds; 0 = off
+export const touch_gyro_smooth = new cvar_t("touch_gyro_smooth", "0", true);
 export const touch_size = new cvar_t("touch_size", "1", true); // button scale
 export const touch_opacity = new cvar_t("touch_opacity", "0.6", true);
 export const touch_lefthanded = new cvar_t("touch_lefthanded", "0", true); // mirror the layout
 export const touch_haptics = new cvar_t("touch_haptics", "1", true); // vibrate on button press (Android)
+// 1: drag look turns as far per screen fraction on a tablet as on a phone
+// (see Touch_LookScreenScale); 0: per pixel, the same on every screen
+export const touch_look_screen = new cvar_t("touch_look_screen", "1", true);
+// Drag look acceleration: fast flicks turn further than slow drags; 0 = off
+export const touch_look_accel = new cvar_t("touch_look_accel", "0", true);
 
 export function Touch_RegisterCvars() {
+  Cvar_RegisterVariable(touch_aimassist);
   Cvar_RegisterVariable(touch_sensitivity);
   Cvar_RegisterVariable(touch_gyro);
   Cvar_RegisterVariable(touch_gyro_sensitivity);
+  Cvar_RegisterVariable(touch_gyro_deadzone);
+  Cvar_RegisterVariable(touch_gyro_smooth);
   Cvar_RegisterVariable(touch_size);
   Cvar_RegisterVariable(touch_opacity);
   Cvar_RegisterVariable(touch_lefthanded);
   Cvar_RegisterVariable(touch_haptics);
+  Cvar_RegisterVariable(touch_look_screen);
+  Cvar_RegisterVariable(touch_look_accel);
 }
 
 // Degrees of view rotation per CSS pixel of drag at touch_sensitivity 1
 // (the same speed as before touch_sensitivity existed)
 const LOOK_DEGREES_PER_PX = 0.4;
+// Short side, in CSS pixels, of the largest phone screens: on a touch-first
+// device with a bigger screen (a tablet), drag look is scaled up by short
+// side / this, at most LOOK_SCREEN_MAX (the largest tablets), and never down.
+// Touchscreen laptops and desktops (a fine pointer too) aren't scaled.
+export const LOOK_SCREEN_REF = 430;
+export const LOOK_SCREEN_MAX = 2.5;
+// Drag speed (reference pixels per second) at which touch_look_accel 1
+// doubles the turn, and the largest gain it can reach
+export const LOOK_ACCEL_SPEED = 1000;
+export const LOOK_ACCEL_MAX = 4;
+const LOOK_MIN_DT = 0.004; // seconds: touch events closer than this are batched
 
 // STATE
 
@@ -92,7 +138,8 @@ let stickManager = null;
 
 // Look area (drag to look)
 let lookTouch = null;
-const lastLookPos = { x: 0, y: 0 };
+const lastLookPos = { x: 0, y: 0, t: 0 };
+let lookScale = 1; // Touch_LookScreenScale, set when an aiming touch starts
 
 // Menu touch (tap to select, drag to send arrow keys)
 const MENU_DRAG_STEP = 24; // px of drag per arrow key
@@ -121,9 +168,16 @@ const _lookDelta = { yaw: 0, pitch: 0 };
 let gyroListening = false;
 let gyroPermission = "unknown"; // 'unknown' | 'pending' | 'granted' | 'denied'
 let gyroLastTime = -1;
+const gyroFilter = { x: 0, y: 0, outX: 0, outY: 0 }; // Gyro_Filter state
 
 // Layout inputs last applied (re-laid out when a cvar changes)
 let layoutKey = "";
+let layoutVersion = -1; // touch_layout.js's tl_version last applied
+let stickScale = -1; // touch_size and opacity the stick was built for
+let stickOpacity = -1;
+let stickMirror = false; // touch_lefthanded the stick was built for
+let editing = false; // touch_editor.js is open: show every button, take no input
+const _tlButton = { cx: 0, cy: 0, size: 0, hidden: false }; // TL_Button's out
 
 // UI elements
 let overlay = null;
@@ -228,6 +282,11 @@ const chatButton = {
 };
 const barButtons = [saveButton, loadButton, consoleButton, chatButton];
 tapButtons.push(...barButtons);
+
+// The player's own buttons (touch_layout.js profiles), web-only: each runs a
+// command like a key binding, a +command held while the finger stays on it.
+// Rebuilt by Touch_SyncCustom when the profile changes.
+const customButtons = [];
 
 // Weapon wheel (web-only: held WPN▶ opens it, the impulses it sends are the
 // C ones, impulse 1-8)
@@ -450,24 +509,36 @@ function Touch_Layout() {
   lookArea.style[near] = "0";
   lookArea.style[far] = "";
 
-  // Circle centred (cx, cy) px from the near and bottom edges
-  const place = (el, cx, cy, size) => {
+  // The viewport, to keep every button on screen whatever size of screen the
+  // profile was made on
+  const vw = typeof window !== "undefined" && window.innerWidth > 0 ?
+    window.innerWidth :
+    0;
+  const vh = typeof window !== "undefined" && window.innerHeight > 0 ?
+    window.innerHeight :
+    0;
+
+  // Circle centred (cx, cy) px from the near and bottom edges. Hidden ones
+  // show faintly while the layout editor is open, so they can be brought back.
+  const place = (el, cx, cy, size, hidden) => {
     const s = size * scale;
+    let x = cx * scale;
+    let y = cy * scale;
+    if (vw > 0) x = Math.min(Math.max(x, s / 2), Math.max(vw - s / 2, s / 2));
+    if (vh > 0) y = Math.min(Math.max(y, s / 2), Math.max(vh - s / 2, s / 2));
+    el.style.display = hidden && !editing ? "none" : "flex";
     el.style.width = s + "px";
     el.style.height = s + "px";
-    el.style[near] = `calc(${inset(near)} + ${cx * scale - s / 2}px)`;
+    el.style[near] = `calc(${inset(near)} + ${x - s / 2}px)`;
     el.style[far] = "";
-    el.style.bottom = `calc(${inset("bottom")} + ${cy * scale - s / 2}px)`;
-    el.style.fontSize = Math.round(13 * scale) + "px";
-    el.style.opacity = String(opacity);
+    el.style.bottom = `calc(${inset("bottom")} + ${y - s / 2}px)`;
+    el.style.fontSize = Math.round(13 * scale * Math.min(size / 56, 1.5)) +
+      "px";
+    el.style.opacity = String(hidden ? opacity * 0.35 : opacity);
+    el.style.borderStyle = hidden ? "dashed" : "solid";
   };
 
-  place(fireButton.el, 100, 112, 88);
-  place(jumpButton.el, 48, 48, 64);
-  place(weaponNextButton.el, 96, 206, 56);
-  place(weaponPrevButton.el, 168, 176, 44);
-  place(downButton.el, 148, 40, 44); // clear of FIRE (its bottom edge is 68)
-
+  // Set the border before place() picks its style
   for (const b of holdButtons) {
     b.el.style.border = `2px solid rgba(${b.color}, 0.8)`;
     Touch_SetButtonPressed(b, b.touches.size > 0);
@@ -476,6 +547,34 @@ function Touch_Layout() {
   for (const b of tapButtons) {
     b.el.style.border = "2px solid rgba(255, 255, 255, 0.5)";
     b.el.style.background = "rgba(0, 0, 0, 0.25)";
+  }
+
+  // The built-in buttons, from the active layout profile (touch_layout.js)
+  layoutVersion = tl_version;
+  for (const d of TL_MOVABLE) {
+    const b = Touch_ButtonById(d.id);
+    if (b === null) continue;
+    TL_Button(d.id, _tlButton);
+    place(b.el, _tlButton.cx, _tlButton.cy, _tlButton.size, _tlButton.hidden);
+    // A hold button hidden while held lets go (no touchend will come)
+    if (
+      _tlButton.hidden && !editing && b.touches !== undefined &&
+      b.touches.size > 0
+    ) {
+      Touch_ReleaseHold(b);
+    }
+  }
+
+  Touch_SyncCustom();
+  const custom = TL_Active().custom;
+  for (let i = 0; i < customButtons.length; i++) {
+    const b = customButtons[i];
+    const c = custom[i];
+    b.el.style.border = "2px solid rgba(255, 210, 110, 0.7)";
+    if (b.touches.size === 0) b.el.style.background = "rgba(0, 0, 0, 0.25)";
+    place(b.el, c.cx, c.cy, c.size, c.hidden);
+    // A button hidden while held lets go
+    if (c.hidden && !editing) Touch_ReleaseCustom(b);
   }
 
   Touch_LayoutBar();
@@ -493,8 +592,12 @@ function Touch_Layout() {
   pauseButton.style.opacity = String(opacity);
   Touch_UpdateNotifyTop();
 
-  // The stick size is a nipplejs option: rebuild it
-  if (stickManager !== null) {
+  // The stick size is a nipplejs option, and its zone moved if the layout
+  // was mirrored: rebuild it when either changes
+  if (
+    stickManager !== null &&
+    (scale !== stickScale || opacity !== stickOpacity || mirror !== stickMirror)
+  ) {
     Stick_Destroy();
     Stick_Create();
   }
@@ -522,7 +625,7 @@ function Touch_LayoutBar() {
   const far = touch_lefthanded.value !== 0 ? "right" : "left";
   let x = 12 + 40 * size + 8; // past the menu button
   let shown = 0;
-  for (const b of barButtons) if (barVisible[b.bar] !== false) shown++;
+  for (const b of barButtons) if (Touch_BarShown(b)) shown++;
   const width =
     typeof window !== "undefined" && typeof window.innerWidth === "number" ?
       window.innerWidth :
@@ -532,12 +635,13 @@ function Touch_LayoutBar() {
   const h = 32 * scale;
 
   for (const b of barButtons) {
-    if (barVisible[b.bar] === false) {
+    if (!Touch_BarShown(b)) {
       b.el.style.display = "none";
       continue;
     }
 
     b.el.style.display = "flex";
+    b.el.style.borderStyle = TL_Hidden(b.id) ? "dashed" : "solid";
     b.el.style.borderRadius = "8px";
     b.el.style.width = w + "px";
     b.el.style.height = h + "px";
@@ -546,10 +650,17 @@ function Touch_LayoutBar() {
     b.el.style[far === "left" ? "right" : "left"] = "";
     b.el.style.bottom = "";
     b.el.style.fontSize = Math.round(11 * scale) + "px";
-    b.el.style.opacity = String(opacity);
+    b.el.style.opacity = String(TL_Hidden(b.id) ? opacity * 0.35 : opacity);
     x += w + 6;
   }
   Touch_UpdateNotifyTop();
+}
+
+// A bar button shows when the game wants it and the layout doesn't hide it.
+// The layout editor shows all four, so each can be hidden or brought back.
+function Touch_BarShown(b) {
+  if (editing) return true;
+  return barVisible[b.bar] !== false && !TL_Hidden(b.id);
 }
 
 // Tell the console how far down the top buttons reach, so the notify lines
@@ -938,8 +1049,41 @@ function haptic(ms) {
   navigator.vibrate(ms);
 }
 
-function addLook(dx, dy) {
-  const k = LOOK_DEGREES_PER_PX * touch_sensitivity.value;
+/**
+ * How much more each pixel of drag turns on this screen: 1 on a phone, more
+ * on a tablet, so the same fraction of the screen turns as far.
+ */
+export function Touch_LookScreenScale(width, height) {
+  const side = Math.min(width, height);
+  if (!(side > LOOK_SCREEN_REF)) return 1;
+  return Math.min(side / LOOK_SCREEN_REF, LOOK_SCREEN_MAX);
+}
+
+/** Sets lookScale for a new aiming touch (not per move: matchMedia allocates). */
+function Touch_UpdateLookScale() {
+  lookScale = touch_look_screen.value !== 0 && typeof window !== "undefined" &&
+      Touch_IsMobile() ?
+    Touch_LookScreenScale(window.innerWidth, window.innerHeight) :
+    1;
+}
+
+/**
+ * The acceleration gain for a drag of (dx, dy) reference pixels over dt
+ * seconds: 1 + accel * speed / LOOK_ACCEL_SPEED, at most LOOK_ACCEL_MAX.
+ */
+export function Touch_LookGain(dx, dy, dt, accel) {
+  if (accel <= 0) return 1;
+  // (a missing timestamp counts as the shortest gap)
+  const speed = Math.hypot(dx, dy) / (dt > LOOK_MIN_DT ? dt : LOOK_MIN_DT);
+  return Math.min(1 + accel * speed / LOOK_ACCEL_SPEED, LOOK_ACCEL_MAX);
+}
+
+/** Turns the view for a drag of (dx, dy) CSS pixels over dt seconds. */
+function addLook(dx, dy, dt) {
+  dx *= lookScale;
+  dy *= lookScale;
+  const k = LOOK_DEGREES_PER_PX * touch_sensitivity.value *
+    Touch_LookGain(dx, dy, dt, touch_look_accel.value);
   lookYaw -= dx * k;
   lookPitch += dy * k;
 }
@@ -953,6 +1097,8 @@ function onLookTouchStart(e) {
     lookTouch = touch.identifier;
     lastLookPos.x = touch.clientX;
     lastLookPos.y = touch.clientY;
+    lastLookPos.t = e.timeStamp;
+    Touch_UpdateLookScale();
   }
 }
 
@@ -964,9 +1110,14 @@ function onLookTouchMove(e) {
     null;
   if (touch === null) return;
 
-  addLook(touch.clientX - lastLookPos.x, touch.clientY - lastLookPos.y);
+  addLook(
+    touch.clientX - lastLookPos.x,
+    touch.clientY - lastLookPos.y,
+    (e.timeStamp - lastLookPos.t) / 1000,
+  );
   lastLookPos.x = touch.clientX;
   lastLookPos.y = touch.clientY;
+  lastLookPos.t = e.timeStamp;
 }
 
 function onLookTouchEnd(e) {
@@ -998,7 +1149,12 @@ function onHoldTouchStart(b, e) {
     }
 
     b.touches.add(touch.identifier);
-    b.lastPos.set(touch.identifier, { x: touch.clientX, y: touch.clientY });
+    b.lastPos.set(touch.identifier, {
+      x: touch.clientX,
+      y: touch.clientY,
+      t: e.timeStamp,
+    });
+    Touch_UpdateLookScale();
   }
 }
 
@@ -1008,9 +1164,14 @@ function onHoldTouchMove(b, e) {
   for (const touch of e.changedTouches) {
     const last = b.lastPos.get(touch.identifier);
     if (last === undefined) continue;
-    addLook(touch.clientX - last.x, touch.clientY - last.y);
+    addLook(
+      touch.clientX - last.x,
+      touch.clientY - last.y,
+      (e.timeStamp - last.t) / 1000,
+    );
     last.x = touch.clientX;
     last.y = touch.clientY;
+    last.t = e.timeStamp;
   }
 }
 
@@ -1330,6 +1491,10 @@ function Stick_Create() {
   if (nipplejs === null || moveZone === null || stickManager !== null) return;
 
   const scale = Math.min(Math.max(touch_size.value || 1, 0.5), 2);
+  const opacity = Math.min(Math.max(touch_opacity.value, 0.1), 1);
+  stickScale = scale;
+  stickOpacity = opacity;
+  stickMirror = touch_lefthanded.value !== 0;
   stickManager = nipplejs.create({
     zone: moveZone,
     mode: "dynamic",
@@ -1337,7 +1502,7 @@ function Stick_Create() {
     color: "white",
     fadeTime: 120,
     multitouch: false,
-    restOpacity: Math.min(Math.max(touch_opacity.value, 0.1), 1),
+    restOpacity: opacity,
   });
 
   // nipplejs 1.x passes one event object; 0.x passed ( event, data )
@@ -1402,6 +1567,7 @@ function Touch_ResetJoystick() {
  */
 export function Touch_ReleaseButtons() {
   for (const b of holdButtons) Touch_ReleaseHold(b);
+  for (const b of customButtons) Touch_ReleaseCustom(b);
   Touch_WheelClose();
   Touch_ResetJoystick();
   lookTouch = null;
@@ -1436,7 +1602,12 @@ function onDeviceMotion(e) {
 
   // Skip the first event after a pause instead of integrating the gap
   const dt = (t - last) / 1000;
-  if (dt <= 0 || dt > 0.25) return;
+  if (dt > 0.25) {
+    gyroFilter.x = 0; // and start smoothing afresh
+    gyroFilter.y = 0;
+    return;
+  }
+  if (dt <= 0) return;
 
   const angle = Gyro_ScreenAngle() * Math.PI / 180;
   const c = Math.cos(angle);
@@ -1447,9 +1618,75 @@ function onDeviceMotion(e) {
   const wy = r.beta * s + r.gamma * c;
   const wz = r.alpha;
 
+  if (
+    !Gyro_ModeActive(
+      touch_gyro.value,
+      Touch_Aiming(),
+      fireButton.touches.size > 0,
+    )
+  ) {
+    gyroFilter.x = 0;
+    gyroFilter.y = 0;
+    return;
+  }
+
+  Gyro_Filter(
+    gyroFilter,
+    wy + wz,
+    wx,
+    dt,
+    touch_gyro_deadzone.value,
+    touch_gyro_smooth.value,
+  );
   const k = touch_gyro_sensitivity.value * dt;
-  lookYaw += (wy + wz) * k; // counter-clockwise from above = turn left
-  lookPitch -= wx * k; // top edge towards the viewer (camera tilts up) = look up
+  lookYaw += gyroFilter.outX * k; // counter-clockwise from above = turn left
+  lookPitch -= gyroFilter.outY * k; // top edge towards the viewer (camera tilts up) = look up
+}
+
+/** A finger is aiming: on the look area or on a hold button (they aim too). */
+function Touch_Aiming() {
+  if (lookTouch !== null) return true;
+  for (const b of holdButtons) {
+    if (b.touches.size > 0) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether touch_gyro's mode turns the view now: 1 always, 2 while a finger is
+ * aiming, 3 while FIRE is held.
+ */
+export function Gyro_ModeActive(mode, aiming, firing) {
+  if (mode === 1) return true;
+  if (mode === 2) return aiming;
+  if (mode === 3) return firing;
+  return false;
+}
+
+/**
+ * Smooths and tightens one gyro sample (degrees per second, yaw and pitch
+ * rates) into f.outX / f.outY. Smoothing is an exponential moving average
+ * with time constant smooth (seconds). Below deadzone degrees per second the
+ * rate is scaled by speed / deadzone (JoyShockMapper's "tightening"), so slow
+ * drift fades out without a jump at the edge.
+ */
+export function Gyro_Filter(f, yaw, pitch, dt, deadzone, smooth) {
+  if (smooth > 0) {
+    const a = 1 - Math.exp(-dt / smooth);
+    f.x += (yaw - f.x) * a;
+    f.y += (pitch - f.y) * a;
+  } else {
+    f.x = yaw;
+    f.y = pitch;
+  }
+
+  let k = 1;
+  if (deadzone > 0) {
+    const speed = Math.hypot(f.x, f.y);
+    if (speed < deadzone) k = speed / deadzone;
+  }
+  f.outX = f.x * k;
+  f.outY = f.y * k;
 }
 
 function Gyro_ScreenAngle() {
@@ -1526,6 +1763,8 @@ function Gyro_Start() {
   if (gyroListening) return;
   gyroListening = true;
   gyroLastTime = -1;
+  gyroFilter.x = 0;
+  gyroFilter.y = 0;
   window.addEventListener("devicemotion", onDeviceMotion);
 }
 
@@ -1544,11 +1783,59 @@ export function Touch_Frame() {
 
   const key = touch_size.string + "|" + touch_opacity.string + "|" +
     touch_lefthanded.string;
-  if (key !== layoutKey) Touch_Layout();
+  if (key !== layoutKey || tl_version !== layoutVersion) Touch_Layout();
 
   if ((touch_gyro.value !== 0) !== gyroListening) Gyro_Update(false);
 
   Touch_UpdateBar();
+}
+
+// AIM ASSIST
+//
+// Web-only, no C counterpart. Touch aiming is coarse, so touch_aimassist
+// widens or narrows the cone PF_aim searches for a target, by setting the
+// server's sv_aim (the cosine of the cone's half-angle). PF_aim is unchanged:
+// it keeps the view's heading and only takes the target's height, so a wider
+// cone helps with vertical aim. Only the browser's own server reads sv_aim
+// (single player and games this browser hosts, where it applies to every
+// player); an online room runs its own.
+
+// sv_aim for each level, about 0, 14, 22, 30 and 37 degrees each side;
+// level 2 is Quake's default
+const AIM_ASSIST_CONES = [1, 0.97, 0.93, 0.87, 0.8];
+const AIM_ASSIST_DEFAULT = 2;
+
+// The level last written to sv_aim. Starting at the default means a player
+// who never moves the slider keeps sv_aim as the console or a config set it,
+// and a saved level other than the default is applied on the first frame.
+// The Local game page's Autoaim row (menu_cvars.js) writes sv_aim too; the
+// one changed last wins, as with a console sv_aim.
+let aimAssistApplied = AIM_ASSIST_DEFAULT;
+
+/** touch_aimassist's value as a level, rounded and clamped */
+export function Touch_AimAssistLevel(v) {
+  const level = Math.round(v);
+  if (level < 0) return 0;
+  if (level >= AIM_ASSIST_CONES.length) return AIM_ASSIST_CONES.length - 1;
+  return level;
+}
+
+/** sv_aim for a touch_aimassist level */
+export function Touch_AimAssistCone(level) {
+  return AIM_ASSIST_CONES[Touch_AimAssistLevel(level)];
+}
+
+/**
+ * Writes sv_aim when touch_aimassist changes (from the menu or the console).
+ * Called every client frame, in touch mode or not: the menu row is on every
+ * device, and any mouse movement leaves touch mode.
+ */
+export function Touch_AimAssistFrame() {
+  const level = Touch_AimAssistLevel(touch_aimassist.value);
+  if (level === aimAssistApplied) return;
+  if (Cvar_FindVar("sv_aim") === null) return;
+  aimAssistApplied = level;
+  Cvar_SetValue("sv_aim", AIM_ASSIST_CONES[level]);
 }
 
 /**
@@ -1788,7 +2075,7 @@ export function Touch_Disable() {
   if (!initialized || !enabled) return;
 
   enabled = false;
-  overlay.style.display = "none";
+  overlay.style.display = editing ? "block" : "none";
   Touch_SetPlayingClass(false);
   Con_SetNotifyTop(0);
   Touch_UpdatePortraitPrompt();
@@ -1891,4 +2178,164 @@ export function Touch_HideSysBar() {
 export function Touch_SetMenuCallback(callback, getSurface) {
   menuTouchCallback = callback;
   menuSurfaceGetter = getSurface || null;
+}
+
+// LAYOUT PROFILES AND CUSTOM BUTTONS
+//
+// Web-only. touch_layout.js keeps the profiles; touch_editor.js edits them
+// through the functions below.
+
+/** The built-in button (hold or tap) with element id id, or null */
+function Touch_ButtonById(id) {
+  switch (id) {
+    case "touch-fire":
+      return fireButton;
+    case "touch-jump":
+      return jumpButton;
+    case "touch-weapon-next":
+      return weaponNextButton;
+    case "touch-weapon-prev":
+      return weaponPrevButton;
+    case "touch-movedown":
+      return downButton;
+  }
+  return null;
+}
+
+function onCustomTouchStart(b, e) {
+  e.preventDefault();
+  if (!enabled || editing) return;
+  S_UnlockAudio();
+
+  for (const touch of e.changedTouches) {
+    if (b.touches.size === 0) {
+      b.held = true;
+      if (b.down !== "") Cbuf_AddText(b.down);
+      b.el.style.background = "rgba(255, 210, 110, 0.35)";
+      haptic(8);
+    }
+    b.touches.add(touch.identifier);
+  }
+}
+
+function onCustomTouchEnd(b, e) {
+  e.preventDefault();
+  for (const touch of e.changedTouches) b.touches.delete(touch.identifier);
+  if (b.touches.size === 0) Touch_ReleaseCustom(b);
+  onGameTouchEnd(e);
+}
+
+/** Lets go of a custom button: runs its -command if it was held */
+function Touch_ReleaseCustom(b) {
+  b.touches.clear();
+  if (b.el !== null) b.el.style.background = "rgba(0, 0, 0, 0.25)";
+  if (!b.held) return;
+  b.held = false;
+  if (b.up !== "") Cbuf_AddText(b.up);
+}
+
+/**
+ * Makes customButtons match the active profile: one element each, with its
+ * label and the commands it runs. A button whose command changed lets go
+ * first, so a +command is never left down.
+ */
+function Touch_SyncCustom() {
+  if (overlay === null) return;
+  const custom = TL_Active().custom;
+
+  while (customButtons.length > custom.length) {
+    const b = customButtons.pop();
+    Touch_ReleaseCustom(b);
+    b.el.remove();
+  }
+
+  while (customButtons.length < custom.length) {
+    const i = customButtons.length;
+    const b = {
+      id: "touch-custom-" + (i + 1),
+      el: makeDiv("touch-custom-" + (i + 1), BUTTON_CSS),
+      key: TL_CUSTOM_KEY_BASE + i + 1,
+      command: "",
+      down: "",
+      up: "",
+      held: false,
+      touches: new Set(),
+    };
+    b.el.addEventListener("touchstart", (e) => onCustomTouchStart(b, e), {
+      passive: false,
+    });
+    b.el.addEventListener("touchend", (e) => onCustomTouchEnd(b, e), {
+      passive: false,
+    });
+    b.el.addEventListener("touchcancel", (e) => onCustomTouchEnd(b, e), {
+      passive: false,
+    });
+    b.el.addEventListener("touchmove", (e) => e.preventDefault(), {
+      passive: false,
+    });
+    overlay.insertBefore(b.el, wheelEl);
+    customButtons.push(b);
+  }
+
+  for (let i = 0; i < custom.length; i++) {
+    const b = customButtons[i];
+    const c = custom[i];
+    if (b.command !== c.command) {
+      Touch_ReleaseCustom(b);
+      b.command = c.command;
+      b.down = TL_BindDown(c.command, b.key);
+      b.up = TL_BindUp(c.command, b.key);
+    }
+    const label = c.label !== "" ? c.label : String(i + 1);
+    if (b.el.textContent !== label) b.el.textContent = label;
+  }
+}
+
+/** Lays the controls out again now (the layout editor, after a change) */
+export function Touch_Relayout() {
+  Touch_Layout();
+}
+
+/** True once the touch controls exist (the layout editor needs them) */
+export function Touch_IsInitialized() {
+  return initialized;
+}
+
+/** touch_size as Touch_Layout uses it, and whether the layout is mirrored */
+export function Touch_LayoutScale() {
+  return Math.min(Math.max(touch_size.value || 1, 0.5), 2);
+}
+
+export function Touch_LayoutMirrored() {
+  return touch_lefthanded.value !== 0;
+}
+
+/**
+ * The layout editor is open (or closed): show the controls, every button
+ * included, and let go of anything held. The controls take no input while it
+ * is open. On close the overlay goes back to what Touch_Enable/Disable set.
+ */
+export function Touch_SetEditing(on) {
+  if (!initialized || editing === on) return;
+  editing = on;
+  Touch_ReleaseButtons();
+  overlay.style.display = editing || enabled ? "block" : "none";
+  Touch_Layout();
+}
+
+/**
+ * The buttons the layout editor can pick, as { id, el, custom } (custom: the
+ * index in the profile's custom list, or -1). Fills and returns out.
+ */
+export function Touch_EditTargets(out) {
+  out.length = 0;
+  for (const b of barButtons) out.push({ id: b.id, el: b.el, custom: -1 });
+  for (const d of TL_MOVABLE) {
+    const b = Touch_ButtonById(d.id);
+    if (b !== null) out.push({ id: d.id, el: b.el, custom: -1 });
+  }
+  for (let i = 0; i < customButtons.length; i++) {
+    out.push({ id: customButtons[i].id, el: customButtons[i].el, custom: i });
+  }
+  return out;
 }
