@@ -83,9 +83,9 @@ function _trimSlash(dir) {
  * that directory is named id1 (common.c's basedir).
  */
 function _gameBaseDirectory(pak) {
-  const dir = pak.lastIndexOf("/") >= 0
-    ? pak.slice(0, pak.lastIndexOf("/"))
-    : ".";
+  const dir = pak.lastIndexOf("/") >= 0 ?
+    pak.slice(0, pak.lastIndexOf("/")) :
+    ".";
   const name = dir.slice(dir.lastIndexOf("/") + 1);
   if (name.toLowerCase() !== "id1") return dir;
   return dir.lastIndexOf("/") >= 0 ? dir.slice(0, dir.lastIndexOf("/")) : ".";
@@ -231,12 +231,12 @@ export function headless_install_globals() {
  */
 export function headless_search_paths(opts = {}) {
   const base = opts.base !== undefined ? _trimSlash(opts.base) : null;
-  const pak = opts.pak !== undefined
-    ? opts.pak
-    : (base !== null ? base + "/id1/pak0.pak" : DEFAULT_PAK);
-  const pak_sequence = opts.pak_sequence !== undefined
-    ? opts.pak_sequence
-    : base !== null;
+  const pak = opts.pak !== undefined ?
+    opts.pak :
+    (base !== null ? base + "/id1/pak0.pak" : DEFAULT_PAK);
+  const pak_sequence = opts.pak_sequence !== undefined ?
+    opts.pak_sequence :
+    base !== null;
   const argv = ["quake", ...(opts.argv !== undefined ? opts.argv : [])];
   const basedir = base !== null ? base : _gameBaseDirectory(pak);
 
