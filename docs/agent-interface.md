@@ -41,75 +41,130 @@ Phase 1 is built: `src/agent.js`, exposed as `window.icaro` by `main.js`
   without it every brush entity is `#`. A 41x41 map takes about 0.4 ms headless;
   the text form cuts blank rows and columns. `tests/agent_map_test.js` covers it
   on e1m1.
-- Not built yet: the `screen` (except `icaro.screenshot()`) and `rl` tiers, the
-  `use` macro and a new-enemy interrupt for the macros, the render-skip flag,
-  labels for the options menu, `/agent.md` or `llms.txt` and its `<meta>` link
-  (only the hidden line in `index.html` exists), and every adapter except
-  `window.icaro` and the stdio MCP server (below).
+- The `screen` tier, in the browser only (#246): `icaro.screenshot( width )` (a
+  JPEG data URL) and
+  `icaro.screen_rgba( width = 84, height = 0,
+  overlay = true )`
+  (`Agent_ScreenRGBA`), which returns `{ width, height,
+  data }` with RGBA
+  bytes of the 3D view and, unless `overlay` is false, the 2D overlay, scaled to
+  the size asked for (height 0 keeps the view's aspect; each side is clamped to
+  16–1920). The headless server has no renderer, so the MCP `screenshot` tool
+  always returns an error that names these two calls. The PR measured a 4-tic
+  step plus `screen_rgba(84)` at about 6.8 ms.
+- Not built yet: the `rl` tier's pixel buffers (depth and per-pixel label render
+  targets; `rl` below is numeric), the `use` macro, the render-skip flag, labels
+  for the options menu, `/agent.md` or `llms.txt` and its `<meta>` link (only
+  the hidden line in `index.html` exists), and the adapters other than
+  `window.icaro`, the stdio MCP server and the Gymnasium env (below): WebMCP,
+  the accessibility mirror and the MCP server's HTTP transport.
 
 Parts of phases 2 and 3 are built too (status checked against the code at `dev`
-`8474098`; measurements not rerun):
+`694b2cc`; measurements are the PRs', not rerun):
 
 - Headless play: `server/headless_host.js` runs the host, a local server and a
   loopback client under Deno with no rendering (#191). Its header gives the
   usage.
 - MCP server: `server/agent_mcp.ts` (stdio, `deno task agent-mcp`) runs the
   headless host in lockstep and exposes `start`, `step`, `goto`, `turn_to`,
-  `attack`, `observe`, `cmd`, `key` and `menu` (`step`, `goto`, `turn_to`,
-  `attack` and `observe` take `map`). Each result is the text observation plus
-  `tic=N hash=H` (tics since `start`, and `Agent_StateHash`, a hash of the
+  `attack`, `observe`, `rl_spec`, `rl_step`, `cmd`, `key`, `menu` and
+  `screenshot` (`step`, `goto`, `turn_to`, `attack` and `observe` take `map`;
+  `screenshot` always errors, see above). Each result is the text observation
+  plus `tic=N hash=H` (tics since `start`, and `Agent_StateHash`, a hash of the
   server's edicts and the client's stats). `start` with a `seed` turns on both
   determinism hooks below, with a virtual clock that advances one tic per frame;
   without one they are off. It is built on the official MCP TypeScript SDK
   (`@modelcontextprotocol/server` 2.4.0, pinned in `deno.lock`), whose
   `serveStdio` serves both the initialize-based versions (2024-11-05 to
-  2025-11-25) and 2026-07-28. It has no Streamable HTTP transport, `act` or
-  `screenshot` yet; the SDK's `createMcpHandler` is the way to add HTTP.
-  `tests/agent_mcp_test.js` replays a seeded action log (moving, firing, a
-  console command) against the process's first game and gets the same hash.
+  2025-11-25) and 2026-07-28. It has no Streamable HTTP transport or `act` yet;
+  the SDK's `createMcpHandler` is the way to add HTTP. `tests/agent_mcp_test.js`
+  replays a seeded action log (moving, firing, a console command) against the
+  process's first game and gets the same hash.
 - Determinism: `Sys_SetRandomSeed` and `Sys_SetClockOverride` in `src/sys.js`
   seed the gameplay randomness and override the clock, both opt-in.
   `tests/determinism_test.js` checks them (#190).
 - `turn_to( id | { yaw }, { ents, map } )` and
-  `attack( id, { max_tics, ents, map } )`: in `src/agent.js` (`Agent_TurnTo`,
-  `Agent_Attack`, and the MCP `turn_to` and `attack` tools). Look changes in
-  this API are immediate, so `turn_to` sets the view at once (yaw and pitch at
-  the entity's centre) and doesn't advance the game. `attack` (lockstep only)
-  aims at the target's centre every tic and holds fire while a hull 0 trace from
-  the eye reaches it. It doesn't move. The first line of the result is `killed`
-  (with a local server: the monster's health, or its edict freed or gibbed),
-  `gone (not in view)` (36 tics out of the client's updates), `out of sight` (36
-  tics with no line of sight), `out of ammo`, `out of reach (axe only ...)`
-  (beyond 80 units with only the axe), `died`, `level changed`,
-  `level done (intermission)` or `timeout` (default 10 s). It aims for the
-  agent, so it is aim assistance; the benchmark profile that would turn it off
-  isn't built. `tests/agent_attack_test.js` covers both on e1m1.
+  `attack( id, { max_tics, stop_on_enemy, ents, map } )`: in `src/agent.js`
+  (`Agent_TurnTo`, `Agent_Attack`, and the MCP `turn_to` and `attack` tools).
+  Look changes in this API are immediate, so `turn_to` sets the view at once
+  (yaw and pitch at the entity's centre) and doesn't advance the game. `attack`
+  (lockstep only) aims at the target's centre every tic and holds fire while a
+  hull 0 trace from the eye reaches it. It doesn't move. The first line of the
+  result is `killed` (with a local server: the monster's health, or its edict
+  freed or gibbed), `gone (not in view)` (36 tics out of the client's updates),
+  `out of sight` (36 tics with no line of sight), `out of ammo`,
+  `out of reach (axe only ...)` (beyond 80 units with only the axe),
+  `new enemy #id ...` (see `goto`), `died`, `level changed`,
+  `level done (intermission)` or `timeout` (default 10 s). The kill check runs
+  first, so a killing shot reads `killed`. It aims for the agent, so it is aim
+  assistance; the benchmark profile that would turn it off isn't built.
+  `tests/agent_attack_test.js` covers both on e1m1.
 - Navigation: `src/nav.js` builds a walk graph from the BSP and answers A* path
   queries; `tools/nav/nav_build.js` builds graphs offline (#194). `src/agent.js`
   builds one on each level event while an agent is attached
   (`Agent_NavGraph()`), with the server's skill and deathmatch filters.
-- `goto( id | [x, y, z], { max_tics, stop_on_damage, ents, map } )`: in
-  `src/agent.js` (`icaro.goto`, and the MCP `goto` tool), lockstep only. It
+- `goto( id | [x, y, z], { max_tics, stop_on_damage, stop_on_enemy, ents, map } )`:
+  in `src/agent.js` (`icaro.goto`, and the MCP `goto` tool), lockstep only. It
   follows the graph's path one tic at a time: yaw toward the next waypoint,
   `forward` held, jump tapped on jump links, swim up on swim links, standing
   still while a plat rises. The first line of the result is one of `arrived` (an
   item by id also arrives when it is picked up),
   `blocked by #id
   <kind> at x,y,z (...)`, `took damage (-N hp), stopped`,
-  `died`, `level changed`, `level done (intermission)`, `no path` or `timeout`.
-  Stuck means 36 tics without getting 8 units closer to the waypoint (144 on
-  door and plat links); goto hops, then replans, then reports blocked. A blocked
-  report names a monster in the way, or the graph's entity on the link with how
-  it opens (a key, `button #id`, shoot it), and the next goto avoids that
-  entity's links until it moves (or the level changes). Damage means a
-  `svc_damage` message (`cl.faceanimtime` moved) with a health drop, so
-  megahealth wearing off doesn't stop it. Not built: a new-enemy interrupt and
-  realtime mode. `tests/agent_goto_test.js` covers it on e1m1; a scripted e1m1
-  run with god and notarget (goto the exit; on a block, press the named button
-  or shoot the monster) reached the far water rooms but not the exit. Stalls
-  left: from inside, the shoot-to-open secret door #50 doesn't open to shots,
-  and door #65 is "opened by a trigger elsewhere" (its trigger isn't in the
-  graph's activators).
+  `new enemy #id <entity line>, stopped`, `died`, `level changed`,
+  `level done (intermission)`, `no path` or `timeout`. Stuck means 36 tics
+  without getting 8 units closer to the waypoint (144 on door and plat links);
+  goto hops, then replans, then reports blocked. A blocked report names a
+  monster in the way, or the graph's entity on the link with how it opens (a
+  key, `button #id`, shoot it), and the next goto avoids that entity's links
+  until it moves (or the level changes). Damage means a `svc_damage` message
+  (`cl.faceanimtime` moved) with a health drop, so megahealth wearing off
+  doesn't stop it. A new enemy (#237) is a live monster coming into sight: in
+  the client's latest update, a hull 0 trace from the eye reaches its centre
+  with no brush entity box in between (with a local server and `truth`, corpses
+  are skipped). Each monster is announced once per level, monsters in sight when
+  the macro starts count as known, the macro's own target is never reported, and
+  `(+N more)` counts others that appeared on the same tic.
+  `stop_on_enemy: false` turns it off (on `attack` too). Not built: realtime
+  mode. `tests/agent_goto_test.js` covers it on e1m1; a scripted e1m1 run with
+  god and notarget (goto the exit; on a block, press the named button or shoot
+  the monster) reached the far water rooms but not the exit. Stalls left: from
+  inside, the shoot-to-open secret door #50 doesn't open to shots, and door #65
+  is "opened by a trigger elsewhere" (its trigger isn't in the graph's
+  activators).
+- The `rl` tier (#243), the "RL TIER" section of `src/agent.js`:
+  `icaro.rl_spec( opts )`, `rl_observe( opts )` and
+  `rl_step( action, tics = 4, opts )`, and the MCP `rl_spec` and `rl_step`
+  tools. It is numeric, not the design's render targets:
+  - `rl_spec` gives the layout (`version: 1`): each field's name, offset, size,
+    bounds and classes, the map glyph codes, the action components and the
+    default reward weights. Adapters build their spaces from it.
+  - The observation is one reused `Float32Array`: 41 status values (health,
+    ammo, weapons, items, flags, position, velocity, facing, kills and secrets,
+    time); the nearest `ents` entities (default 16, up to 64), egocentric, each
+    with present, class, forward, left, up, dist, visible and hp (−1 without
+    `truth`); `rays` horizontal world-trace distances (default 32, up to 128;
+    entities don't block them); and, with `map`, the map tier's grid as glyph
+    codes. `truth: false` hides hp and what only the server knows.
+  - The action is 8 integers: move, strafe, turn, look, attack, jump, speed and
+    weapon (an impulse). Buttons stay held between steps and are released when
+    the episode ends. Lockstep only, serialized with the macros.
+  - The reward is per step: kill, secret, hurt (per hp lost), death, exit and
+    tic, each overridable with `opts.reward`. It doesn't consume the event log.
+    `why` is `died`, `level done`, `level changed` or `level restarted` when the
+    episode ends.
+  - The PR measured about 2,600 steps/s headless at 4 tics a step, and about 43
+    µs an observation (101 µs with a 21x21 map). `tests/agent_rl_test.js` covers
+    it; the `secret` weight, weapon impulses, the strafe and look signs and held
+    buttons have no test.
+- Gymnasium env (#244): `tools/gym/icaro_env.py` (Python: gymnasium, numpy and
+  Deno; not linted or run in CI). Each env starts its own `server/agent_mcp.ts`
+  and speaks MCP JSON-RPC over stdio to it, not the framed protocol the design
+  below planned. Its spaces (`Box`, `MultiDiscrete`) come from `rl_spec`;
+  `reset` is `start` plus a 0-tic `rl_step`, and `step` returns Gymnasium's
+  5-tuple. Its header gives the run line. The PR measured about 2,000 steps/s on
+  a random e1m1 episode. Not done: vectorised envs (`AsyncVectorEnv` is
+  untried), ViZDoom-style scenario `.cfg` files, and a training run.
 
 Confidence labels on outside claims: **[V]** read on a primary source, **[S]**
 secondary source or search summary, **[U]** unverified. Claims about this engine
@@ -374,9 +429,11 @@ document it. A useful `goto` needs a graph. Options, in order:
     `detach()`, `mode()`, `new_game( map, skill )`,
     `step( action, tics, opts )`, `goto( target, opts )`,
     `turn_to( target, opts )`, `attack( id, opts )`, `observe( opts )`,
-    `cmd( text )`, `key( name )`, `menu( label )` and `screenshot( width )`.
-    Events come back inside each observation. Of the macro actions `goto`,
-    `turn_to` and `attack` are built (no `act`).
+    `rl_spec( opts )`, `rl_observe( opts )`, `rl_step( action, tics, opts )`,
+    `cmd( text )`, `key( name )`, `menu( label )`, `screenshot( width )` and
+    `screen_rgba( width, height, overlay )`. Events come back inside each
+    observation. Of the macro actions `goto`, `turn_to` and `attack` are built
+    (no `act`).
   - Typical use: one `javascript_tool` call does `icaro.step(...)` and gets the
     next observation back, so each turn is one round trip.
   - URL flags (as built): `window.icaro` is always present. `?agent=lockstep` or
@@ -389,7 +446,8 @@ document it. A useful `goto` needs a graph. Options, in order:
 - **MCP server on Deno** (`server/agent_mcp.ts`):
   - Runs the same core headless, with stdio and Streamable HTTP transports.
   - Tools stay few and coarse, as in doom-mcp: `start`, `step`, `act`, `observe`
-    and `screenshot`. Each returns the default text observation.
+    and `screenshot`. Each returns the default text observation. As built, the
+    headless `screenshot` returns an error instead (see Status).
   - The headless loopback client this needed is built
     (`server/headless_host.js`), and the stdio server is (`server/agent_mcp.ts`;
     see Status).
@@ -398,7 +456,8 @@ document it. A useful `goto` needs a graph. Options, in order:
 - **Gymnasium bridge** (`tools/gym/`, Python):
   - Shape: a `gymnasium.Env` speaking framed JSON or binary over stdio to a Deno
     process per environment. Vectorise with `AsyncVectorEnv`, since this repo
-    already runs one process per room.
+    already runs one process per room. As built (see Status), it speaks MCP
+    JSON-RPC to one `server/agent_mcp.ts` per env.
   - Names: ViZDoom's (`make_action`, buffers, scenario `.cfg` files with map,
     skill, buttons and reward variables).
   - Reward: from stat and event deltas (kills `STAT_MONSTERS`, secrets, damage,
