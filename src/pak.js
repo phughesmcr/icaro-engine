@@ -912,11 +912,13 @@ export async function COM_FetchPak(
  * one, stopping at the first missing file, as common.c COM_AddGameDirectory
  * does. Later paks are searched first, so pak1 (registered) overrides pak0.
  * pak0 is required; the rest are optional. Returns the number of paks added.
- * Each name is tried in lower case, then upper case (PAK1.PAK as copied from
- * a Windows install), since web servers and most file systems other than
- * macOS's are case-sensitive. A URL that does not end in pak0.pak (in either
- * case) is loaded on its own. onProgress runs from
- * 0 to 1 for each pak in turn, since the total size is not known in advance.
+ * A pak the player added through the Game data panel (COM_SetUserPaks) is
+ * tried first, and the server's copy only if there is none or it does not
+ * open. Each server name is tried in lower case, then upper case (PAK1.PAK as
+ * copied from a Windows install), since web servers and most file systems
+ * other than macOS's are case-sensitive. A URL that does not end in pak0.pak
+ * (in either case) is loaded on its own. onProgress runs from 0 to 1 for each
+ * pak in turn, since the total size is not known in advance.
  */
 export async function COM_AddPakSequence(pak0Url, onProgress) {
   const match = /^(.*?)pak0\.pak$/i.exec(pak0Url);
