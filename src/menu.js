@@ -1856,6 +1856,8 @@ function M_HostInBrowser( mapName ) {
 
 	} ).catch( ( e ) => {
 
+		// A newer Start Game, or the game ending first, isn't a failure
+		if ( e instanceof Error && e.cancelled === true ) return;
 		Con_Printf( 'Hosting failed: %s\n', e instanceof Error ? e.message : String( e ) );
 
 	} );

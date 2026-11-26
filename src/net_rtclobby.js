@@ -105,6 +105,16 @@ function _RTCLobby_Error( message ) {
 
 }
 
+// A host given up for something newer (another Start Game, or the server
+// stopping): not a failure to report
+function _RTCLobby_Cancelled() {
+
+	const error = _RTCLobby_Error( 'Hosting was cancelled' );
+	error.cancelled = true;
+	return error;
+
+}
+
 function _RTCLobby_Send( session, type, value ) {
 
 	if ( session.closed === true ) return;
@@ -374,10 +384,23 @@ export async function RTCLobby_HostRoom( config, spawnCount, exitRules ) {
 	// Register only once joiners can be answered: the map is up and the
 	// driver accepts offers
 	const deadline = Date.now() + RTCLOBBY_SPAWN_TIMEOUT_MS;
-	while ( svs.spawncount === spawnCount || sv.active !== true || svs.maxclients < 2 ||
-		rtclobby_listening === null || rtclobby_listening() !== true ) {
+	for ( ; ; ) {
 
-		if ( token !== host_token ) throw _RTCLobby_Error( 'Hosting was cancelled' );
+		if ( token !== host_token ) throw _RTCLobby_Cancelled();
+
+		// The caller queued one map: a second spawn, or another map, means
+		// the room's game ended before it registered and something else runs
+		if ( svs.spawncount !== spawnCount && ( svs.spawncount !== spawnCount + 1 ||
+			( typeof config.map === 'string' && sv.name !== config.map ) ) ) {
+
+			_RTCLobby_ResetRules();
+			throw _RTCLobby_Error( 'Another game started before the room was listed' );
+
+		}
+
+		if ( svs.spawncount !== spawnCount && sv.active === true && svs.maxclients >= 2 &&
+			rtclobby_listening !== null && rtclobby_listening() === true ) break;
+
 		if ( Date.now() > deadline ) {
 
 			// The room never registered, so its end won't reset the rules:
@@ -406,7 +429,7 @@ export async function RTCLobby_HostRoom( config, spawnCount, exitRules ) {
 
 		// The server stopped while the lobby answered
 		_RTCLobby_Close( session );
-		throw _RTCLobby_Error( 'Hosting was cancelled' );
+		throw _RTCLobby_Cancelled();
 
 	}
 

@@ -471,6 +471,79 @@ Deno.test( 'RTC lobby: a map that never spawns gives up and resets the rules', a
 
 } );
 
+Deno.test( 'RTC lobby: another game replacing the room before it is listed resets the rules', async () => {
+
+	const { lobbyServer, teardown } = setup();
+	try {
+
+		// The room's game ended before its map spawned, and another map started
+		Cvar_Set( 'noexit', '1' );
+		let error = null;
+		let hosting = RTCLobby_HostRoom( { map: 'e1m2', hostName: 'Tester' }, svs.spawncount, true ).catch( ( e ) => error = e );
+		spawn( 'e1m3' );
+		await hosting;
+		assert( error !== null && error.message === 'Another game started before the room was listed', 'gave up: ' + error );
+		assertEqual( Cvar_FindVar( 'noexit' ).value, 0, 'noexit reset' );
+		assertEqual( lobbyServer.opened, 0, 'never registered' );
+
+		// The same map, but spawned twice: the room's game, then another
+		Cvar_Set( 'noexit', '1' );
+		error = null;
+		hosting = RTCLobby_HostRoom( { map: 'e1m2', hostName: 'Tester' }, svs.spawncount, true ).catch( ( e ) => error = e );
+		spawn( 'e1m2' );
+		spawn( 'e1m2' );
+		await hosting;
+		assert( error !== null && error.message === 'Another game started before the room was listed', 'gave up again: ' + error );
+		assertEqual( Cvar_FindVar( 'noexit' ).value, 0, 'noexit reset again' );
+		assertEqual( lobbyServer.opened, 0, 'still never registered' );
+
+		// A newer Start Game cancels the older one without calling it a failure
+		error = null;
+		const first = RTCLobby_HostRoom( { map: 'e1m2', hostName: 'Tester' }, svs.spawncount, true ).catch( ( e ) => error = e );
+		const second = RTCLobby_HostRoom( { map: 'e1m2', hostName: 'Tester' }, svs.spawncount, true );
+		await first;
+		assert( error !== null && error.cancelled === true, 'the older one is cancelled: ' + error );
+		spawn( 'e1m2' );
+		await second;
+
+	} finally {
+
+		await teardown();
+
+	}
+
+} );
+
+Deno.test( 'RTC lobby: a registration the lobby never answers leaves the shutdown to reset the rules', async () => {
+
+	const { lobbyServer, teardown } = setup();
+	try {
+
+		RTCLobby_SetTimeouts( { requestMs: 50 } );
+		lobbyServer.delays.push( 500 );
+		Cvar_Set( 'noexit', '1' );
+		Cvar_Set( 'samelevel', '1' );
+		let error = null;
+		const hosting = RTCLobby_HostRoom( { map: 'e1m2', hostName: 'Tester' }, svs.spawncount, true ).catch( ( e ) => error = e );
+		spawn( 'e1m2' );
+		await hosting;
+		assert( error !== null, 'registration failed' );
+		assertEqual( Cvar_FindVar( 'noexit' ).value, 1, 'the game still runs with its rules' );
+
+		// Host_ShutdownServer ends the unlisted game
+		RTCLobby_ServerShutdown();
+		assertEqual( Cvar_FindVar( 'noexit' ).value, 0, 'noexit reset' );
+		assertEqual( Cvar_FindVar( 'samelevel' ).value, 0, 'samelevel reset' );
+
+	} finally {
+
+		RTCLobby_SetTimeouts( { requestMs: 1000 } );
+		await teardown();
+
+	}
+
+} );
+
 Deno.test( 'RTC lobby: a join whose lobby answers after a newer one gives way to it', async () => {
 
 	const { lobbyServer, teardown } = setup();
