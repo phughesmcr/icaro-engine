@@ -145,12 +145,10 @@ Deno.test("advanced menu: slider fractions and value text", () => {
   assertEqual(M_CvarItem_Format(flag, 0), "off", "toggle off");
 });
 
-/*
-Every row names a cvar defined in src/ under that console name, and its
-default is a value the row can show and reach: on the slider grid, in the
-choices, or 0/1 for a toggle. This catches typos such as gl_doubleeyes (the
-JS name) for gl_doubleeys (the console name).
-*/
+// Every row names a cvar defined in src/ under that console name, and its
+// default is a value the row can show and reach: on the slider grid, in the
+// choices, or 0/1 for a toggle. This catches typos such as gl_doubleeyes (the
+// JS name) for gl_doubleeys (the console name).
 Deno.test("advanced menu: every row is a real cvar whose default the row can reach", async () => {
   const defaults = new Map();
   // Either quote and any spacing, so the patterns hold with or without

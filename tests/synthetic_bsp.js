@@ -3,9 +3,7 @@
 
 import * as bspfile from "../src/bspfile.js";
 
-// ----------------------------------------------------------------------------
 // Synthetic BSP builder: one description, written as BSP29 or BSP2
-// ----------------------------------------------------------------------------
 
 export function buildBsp(version, lumps) {
   const header = 4 + bspfile.HEADER_LUMPS * 8;

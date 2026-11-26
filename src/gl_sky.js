@@ -40,25 +40,16 @@ let skybox_serial = 0;
 // The last loaded box, reused when a map asks for it again
 let skybox_cache = null;
 
-/*
-==================
-Sky_SkyBoxFilename
-==================
-*/
 export function Sky_SkyBoxFilename(name, i) {
   return "gfx/env/" + name + suf[i];
 }
 
-/*
-==================
-Sky_LoadSkyBoxFaces
-
-The image part of Sky_LoadSkyBox, from files already fetched. Returns
-{ size, faces } with faces the six RGBA faces in cubemap_order (null for a
-missing one, which is drawn black), or null when no face loaded or they
-aren't all square and the same size.
-==================
-*/
+/**
+ * The image part of Sky_LoadSkyBox, from files already fetched. Returns
+ * { size, faces } with faces the six RGBA faces in cubemap_order (null for a
+ * missing one, which is drawn black), or null when no face loaded or they
+ * aren't all square and the same size.
+ */
 export function Sky_LoadSkyBoxFaces(name) {
   const data = new Array(6);
   let numloaded = 0;
@@ -102,11 +93,6 @@ export function Sky_LoadSkyBoxFaces(name) {
   return { size: samesize, faces };
 }
 
-/*
-==================
-Sky_CreateCubemap
-==================
-*/
 function Sky_CreateCubemap(size, faces) {
   const images = new Array(6);
   for (let i = 0; i < 6; i++) {
@@ -127,24 +113,13 @@ function Sky_CreateCubemap(size, faces) {
   return cubemap;
 }
 
-/*
-==================
-Sky_FreeSkyBox
-==================
-*/
 function Sky_FreeSkyBox(sky) {
   if (sky !== null) {
     sky.cubemap.dispose();
   }
 }
 
-/*
-==================
-Sky_InstallSkyBox
-
-The end of Sky_LoadSkyBox, once the faces are available
-==================
-*/
+/** The end of Sky_LoadSkyBox, once the faces are available */
 function Sky_InstallSkyBox(name) {
   const loaded = Sky_LoadSkyBoxFaces(name);
   if (loaded === null) {
@@ -160,14 +135,10 @@ function Sky_InstallSkyBox(name) {
   skybox_cache = skybox;
 }
 
-/*
-==================
-Sky_LoadSkyBox
-
-Returns a Promise that settles when the box is in place (or failed), for
-the tests; callers don't need to wait for it.
-==================
-*/
+/**
+ * Returns a Promise that settles when the box is in place (or failed), for
+ * the tests; callers don't need to wait for it.
+ */
 export function Sky_LoadSkyBox(name) {
   if (skybox_name === name) {
     return Promise.resolve(); // no change
@@ -204,30 +175,22 @@ export function Sky_LoadSkyBox(name) {
   });
 }
 
-/*
-=================
-Sky_ClearAll
-
-Called on map unload/game change. Ironwail frees every box here; this
-keeps the last one for a map that asks for it again (Sky_NewMap frees it
-otherwise).
-=================
-*/
+/**
+ * Called on map unload/game change. Ironwail frees every box here; this
+ * keeps the last one for a map that asks for it again (Sky_NewMap frees it
+ * otherwise).
+ */
 export function Sky_ClearAll() {
   skybox_serial++;
   skybox = null;
   skybox_name = "";
 }
 
-/*
-=================
-Sky_NewMap
-
-The skybox part. Ironwail reads the worldspawn's "sky" key (with or without
-the leading '_' mappers use), and also accepts Half-Life's "skyname" and
-Quake Live's "qlsky". Returns the Promise from Sky_LoadSkyBox.
-=================
-*/
+/**
+ * The skybox part. Ironwail reads the worldspawn's "sky" key (with or without
+ * the leading '_' mappers use), and also accepts Half-Life's "skyname" and
+ * Quake Live's "qlsky". Returns the Promise from Sky_LoadSkyBox.
+ */
 export function Sky_NewMap(entities) {
   Sky_ClearAll();
 
@@ -246,14 +209,10 @@ export function Sky_NewMap(entities) {
   return Sky_LoadSkyBox(name);
 }
 
-/*
-=================
-Sky_ParseWorldspawn
-
-The worldspawn loop of Sky_NewMap: calls fn( key, value ) for each pair,
-the key without a leading '_' and trailing spaces
-=================
-*/
+/**
+ * The worldspawn loop of Sky_NewMap: calls fn( key, value ) for each pair,
+ * the key without a leading '_' and trailing spaces
+ */
 function Sky_ParseWorldspawn(entities, fn) {
   if (entities === null || entities === undefined) {
     return;
@@ -285,11 +244,6 @@ function Sky_ParseWorldspawn(entities, fn) {
   }
 }
 
-/*
-=================
-Sky_SkyCommand_f
-=================
-*/
 export function Sky_SkyCommand_f() {
   switch (Cmd_Argc()) {
     case 1:
@@ -303,25 +257,15 @@ export function Sky_SkyCommand_f() {
   }
 }
 
-/*
-=============
-Sky_Init
-
-The skybox part: r_skyfog is registered by Fog_Init (gl_fog.js)
-=============
-*/
+/** The skybox part: r_skyfog is registered by Fog_Init (gl_fog.js) */
 export function Sky_Init() {
   Cmd_AddCommand("sky", Sky_SkyCommand_f);
 }
 
-/*
-=============
-Sky_GetSkyBox
-
-The box R_DrawSkyChain draws, { name, cubemap }, or null for the scrolling
-sky
-=============
-*/
+/**
+ * The box R_DrawSkyChain draws, { name, cubemap }, or null for the scrolling
+ * sky
+ */
 export function Sky_GetSkyBox() {
   return skybox;
 }

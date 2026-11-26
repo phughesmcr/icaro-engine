@@ -95,12 +95,8 @@ client.WS_SetTimeouts({
   closeFlushMs: 300,
 });
 
-/*
-=============
-Server setup, as setupServer in webtransport_test_env.js but with the
-WebSocket server driver in slot 1.
-=============
-*/
+// Server setup, as setupServer in webtransport_test_env.js but with the
+// WebSocket server driver in slot 1.
 const DEFAULT_CONFIG = {
   maxSessionsPerIp: 8,
   maxHandshakingSessions: 16,
@@ -300,11 +296,7 @@ function serverGameMessages(pair) {
   return pair.server.sent.slice(1);
 }
 
-/*
-=============
-Tests
-=============
-*/
+// Tests
 
 Deno.test("WS: client and server handshake and exchange reliable and unreliable messages with acks", async () => {
   const teardown = setupServer({ maxclients: 4, sockets: 10 });

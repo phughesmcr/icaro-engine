@@ -140,13 +140,7 @@ function joinSelected() {
   return new URL(url).searchParams.get("room");
 }
 
-/*
-==============================================================================
-
-Room list: stale replies
-
-==============================================================================
-*/
+// Room list: stale replies
 
 Deno.test("an older room list reply that finishes last is dropped", async () => {
   await withGlobals(joinGlobals(), async () => {
@@ -206,13 +200,7 @@ Deno.test("Searching stays up until the latest reply, and an older error is drop
   });
 });
 
-/*
-==============================================================================
-
-Room list: cursor and bad entries
-
-==============================================================================
-*/
+// Room list: cursor and bad entries
 
 Deno.test("a refresh that returns a shorter list clamps the cursor", async () => {
   await withGlobals(joinGlobals(), async () => {
@@ -275,13 +263,7 @@ Deno.test("a reply that is not an array is an empty list", async () => {
   });
 });
 
-/*
-==============================================================================
-
-Return state
-
-==============================================================================
-*/
+// Return state
 
 Deno.test("Join sets the error return, and M_ClearReturnOnError clears it as a connect does", async () => {
   await withGlobals(joinGlobals(), async () => {
@@ -309,13 +291,7 @@ Deno.test("Join sets the error return, and M_ClearReturnOnError clears it as a c
   });
 });
 
-/*
-==============================================================================
-
-Setup: Accept sends name only when it changed (menu.c:797-798)
-
-==============================================================================
-*/
+// Setup: Accept sends name only when it changed (menu.c:797-798)
 
 Deno.test("Setup Accept sends name only when it changed", () => {
   const saved = cl_name.string;

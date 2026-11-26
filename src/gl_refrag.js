@@ -3,13 +3,7 @@
 import { CONTENTS_SOLID } from "./bspfile.js";
 import { efrag_t } from "./client.js";
 
-/*
-===============================================================================
-
-					ENTITY FRAGMENT FUNCTIONS
-
-===============================================================================
-*/
+// ENTITY FRAGMENT FUNCTIONS
 
 let r_pefragtopnode = null;
 let lastlink = null;
@@ -24,14 +18,10 @@ export function R_Efrag_SetExternals(externals) {
   if (externals.cl) _cl = externals.cl;
 }
 
-/*
-================
-BOX_ON_PLANE_SIDE
-
-Returns 1 if box is entirely on front side of plane,
-2 if entirely on back side, or 3 if crossing the plane
-================
-*/
+/**
+ * Returns 1 if box is entirely on front side of plane,
+ * 2 if entirely on back side, or 3 if crossing the plane
+ */
 function BOX_ON_PLANE_SIDE(emins, emaxs, p) {
   const normal = p.normal;
   const dist = p.dist;
@@ -111,13 +101,9 @@ function BOX_ON_PLANE_SIDE(emins, emaxs, p) {
   return sides;
 }
 
-/*
-================
-R_RemoveEfrags
-
-Call when removing an object from the world or moving it to another position
-================
-*/
+/**
+ * Call when removing an object from the world or moving it to another position
+ */
 export function R_RemoveEfrags(ent) {
   if (_cl == null) return;
 
@@ -152,17 +138,13 @@ export function R_RemoveEfrags(ent) {
   ent.efrag = null;
 }
 
-/*
-================
-R_GetEfrag
-
-Deliberate deviation, from QuakeSpasm (gl_refrag.c R_GetEfrag): id stops
-with "Too many efrags!" once its MAX_EFRAGS pool is used up. With
-MAX_STATIC_ENTITIES raised to 4096, grow the free list in batches instead.
-CL_ClearState rebuilds the free list from cl_efrags only, so the extra
-efrags last until the next map, as QuakeSpasm's hunk allocations do.
-================
-*/
+// R_GetEfrag
+//
+// Deliberate deviation, from QuakeSpasm (gl_refrag.c R_GetEfrag): id stops
+// with "Too many efrags!" once its MAX_EFRAGS pool is used up. With
+// MAX_STATIC_ENTITIES raised to 4096, grow the free list in batches instead.
+// CL_ClearState rebuilds the free list from cl_efrags only, so the extra
+// efrags last until the next map, as QuakeSpasm's hunk allocations do.
 const EXTRA_EFRAGS = 128;
 
 function R_GetEfrag() {
@@ -182,11 +164,6 @@ function R_GetEfrag() {
   return ef;
 }
 
-/*
-===================
-R_SplitEntityOnNode
-===================
-*/
 function R_SplitEntityOnNode(node) {
   if (node == null) return;
   if (node.contents === CONTENTS_SOLID) return;
@@ -243,11 +220,6 @@ function R_SplitEntityOnNode(node) {
   }
 }
 
-/*
-===========
-R_AddEfrags
-===========
-*/
 export function R_AddEfrags(ent) {
   if (_cl == null) return;
   if (ent.model == null) return;
@@ -272,13 +244,7 @@ export function R_AddEfrags(ent) {
   ent.topnode = r_pefragtopnode;
 }
 
-/*
-================
-R_StoreEfrags
-
-Add efrags to the visible entity list
-================
-*/
+/** Add efrags to the visible entity list */
 export function R_StoreEfrags(
   ppefrag,
   cl_visedicts,

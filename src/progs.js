@@ -8,16 +8,12 @@ import { entvars_t } from "./progdefs.js";
 
 export const MAX_ENT_LEAFS = 16;
 
-//
 // eval_t - union type for accessing progs data as different types
 // In C this is a union of string, float, vector[3], function, int, edict.
 // In JS we provide accessor helpers on the backing ArrayBuffer.
-//
 
-//
 // EdictFieldAccessor - provides typed access to an ArrayBuffer region
 // Used for both pr_globals and per-edict field data.
-//
 export class EdictFieldAccessor {
   constructor(buffer, byteOffset, length) {
     // buffer: ArrayBuffer
@@ -83,9 +79,7 @@ export class EdictFieldAccessor {
   }
 }
 
-//
 // edict_t - entity dictionary entry
-//
 export class edict_t {
   constructor(index, entityfields) {
     this.index = index; // entity number (replaces pointer arithmetic)
@@ -130,9 +124,7 @@ export class edict_t {
   }
 }
 
-//============================================================================
 // Progs module state
-//============================================================================
 
 export let progs = null; // dprograms_t
 export let pr_functions = null; // dfunction_t[]
@@ -171,9 +163,7 @@ let pr_string_tempindex = 0; // C: static byte pr_string_tempindex
 // type_size[etype] - number of int/float slots per type
 export const type_size = [1, 1, 1, 3, 1, 1, 1, 1];
 
-//============================================================================
 // Setter functions for module state (since we use export let)
-//============================================================================
 
 export function PR_SetProgs(p) {
   progs = p;
@@ -349,10 +339,8 @@ export function PR_AppendString(str) {
   return ofs;
 }
 
-//============================================================================
 // Global access helper macros (ported as functions)
 // These match the C macros: G_FLOAT, G_INT, G_VECTOR, G_STRING, etc.
-//============================================================================
 
 export function G_FLOAT(o) {
   return pr_globals_float[o];
@@ -401,9 +389,7 @@ export function G_FUNCTION(o) {
   return pr_globals_int[o];
 }
 
-//============================================================================
 // String table helpers
-//============================================================================
 
 export function PR_GetString(ofs) {
   // Bound by the bytes in use, not the buffer: PR_AppendString leaves zeroed
@@ -419,16 +405,12 @@ export function PR_GetString(ofs) {
   return s;
 }
 
-/*
-============
-PR_strcmp_ofs
-
-PR_strcmp( PR_GetString( a ), PR_GetString( b ) ) for OP_EQ_S, OP_NE_S and PF_Find,
-comparing the bytes in pr_strings_data without building JS strings. An offset
-outside the table reads as "", and so does a string with no NUL before the end
-of the table, as in PR_GetString.
-============
-*/
+/**
+ * PR_strcmp( PR_GetString( a ), PR_GetString( b ) ) for OP_EQ_S, OP_NE_S and PF_Find,
+ * comparing the bytes in pr_strings_data without building JS strings. An offset
+ * outside the table reads as "", and so does a string with no NUL before the end
+ * of the table, as in PR_GetString.
+ */
 export function PR_strcmp_ofs(a, b) {
   if (a === b) {
     return 0;
@@ -451,11 +433,9 @@ export function PR_strcmp_ofs(a, b) {
   }
 }
 
-//============================================================================
 // Edict number <-> pointer helpers
 // In C these use byte pointer arithmetic on sv.edicts.
 // In JS we use an array of edict_t objects.
-//============================================================================
 
 // These are set by the server module
 export let sv = null; // will reference the server state
@@ -481,17 +461,13 @@ export function EDICT_NUM(n) {
   return sv.edicts[n];
 }
 
-/*
-=================
-ED_GrowEdicts
-
-Not in C, which allocates all sv.max_edicts edicts at map load. With
-MAX_EDICTS at 32000 (quakedef.js) that would cost tens of megabytes per
-map, so sv.edicts starts smaller (SV_SpawnServer) and grows here, up to
-sv.max_edicts. ED_Alloc keeps one edict past sv.num_edicts, so NEXT_EDICT
-of the last edict is a free one, as with C's fixed array.
-=================
-*/
+/**
+ * Not in C, which allocates all sv.max_edicts edicts at map load. With
+ * MAX_EDICTS at 32000 (quakedef.js) that would cost tens of megabytes per
+ * map, so sv.edicts starts smaller (SV_SpawnServer) and grows here, up to
+ * sv.max_edicts. ED_Alloc keeps one edict past sv.num_edicts, so NEXT_EDICT
+ * of the last edict is a free one, as with C's fixed array.
+ */
 export function ED_GrowEdicts(count) {
   const edicts = sv.edicts;
   if (count > sv.max_edicts) {
@@ -522,14 +498,14 @@ export function EDICT_TO_PROG(e) {
   return e.index;
 }
 
-/*
-C's PROG_TO_EDICT is pointer arithmetic into an array of sv.max_edicts
-edicts, all zeroed at map load. sv.edicts grows on demand here (see
-ED_GrowEdicts), so an edict number past the allocated ones but below
-sv.max_edicts grows the array, as EDICT_NUM does, and reads a zeroed edict.
-Numbers outside [0, sv.max_edicts) still return undefined: C reads past the
-array there, and PR_ExecuteProgram turns the TypeError into a PR_RunError.
-*/
+/**
+ * C's PROG_TO_EDICT is pointer arithmetic into an array of sv.max_edicts
+ * edicts, all zeroed at map load. sv.edicts grows on demand here (see
+ * ED_GrowEdicts), so an edict number past the allocated ones but below
+ * sv.max_edicts grows the array, as EDICT_NUM does, and reads a zeroed edict.
+ * Numbers outside [0, sv.max_edicts) still return undefined: C reads past the
+ * array there, and PR_ExecuteProgram turns the TypeError into a PR_RunError.
+ */
 export function PROG_TO_EDICT(e) {
   const ed = sv.edicts[e];
   if (ed !== undefined || e < sv.edicts.length || e >= sv.max_edicts) {
@@ -540,10 +516,8 @@ export function PROG_TO_EDICT(e) {
   return sv.edicts[e];
 }
 
-//============================================================================
 // Edict field access helpers (match C macros)
 // E_FLOAT, E_INT, E_VECTOR, E_STRING
-//============================================================================
 
 export function E_FLOAT(e, o) {
   return e._fieldAccessor.getFloat(o);
@@ -569,9 +543,7 @@ export function E_STRING(e, o) {
   return PR_GetString(e._fieldAccessor.getInt32(o));
 }
 
-//============================================================================
 // G_EDICT, G_EDICTNUM - read edict from globals
-//============================================================================
 
 export function G_EDICT(o) {
   return PROG_TO_EDICT(pr_globals_int[o]);
@@ -585,9 +557,7 @@ export function RETURN_EDICT(e) {
   pr_globals_int[OFS_RETURN] = EDICT_TO_PROG(e);
 }
 
-//============================================================================
 // Builtin function types
-//============================================================================
 
 export let pr_builtins = null; // Function[]
 export let pr_numbuiltins = 0;

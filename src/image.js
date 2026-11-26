@@ -7,18 +7,14 @@
 import { Con_Printf } from "./common.js";
 import { COM_FindFile } from "./pak.js";
 
-/*
-============
-Image_LoadImage
-
-returns { data, width, height }, data being RGBA top to bottom, or null.
-
-Ironwail tries name.png, .tga and .jpg (through stb_image), then .pcx and
-.lmp. Only .tga is ported: the browser decodes png and jpg only
-asynchronously, and each name tried and missing is a loose-file request
-(COM_EnsureFile). The caller makes sure the file has been fetched.
-============
-*/
+/**
+ * returns { data, width, height }, data being RGBA top to bottom, or null.
+ *
+ * Ironwail tries name.png, .tga and .jpg (through stb_image), then .pcx and
+ * .lmp. Only .tga is ported: the browser decodes png and jpg only
+ * asynchronously, and each name tried and missing is a loose-file request
+ * (COM_EnsureFile). The caller makes sure the file has been fetched.
+ */
 export function Image_LoadImage(name) {
   const loadfilename = name + ".tga";
   const file = COM_FindFile(loadfilename);
@@ -29,29 +25,19 @@ export function Image_LoadImage(name) {
   return Image_LoadTGA(file.data.subarray(0, file.size), loadfilename);
 }
 
-/*
-=========================================================
+// Targa
 
-  Targa
-
-=========================================================
-*/
-
-/*
-=============
-Image_LoadTGA
-
-Reads an uncompressed paletted (type 1), truecolor (2) or grayscale (3)
-targa, or a run-length encoded truecolor one (10), at 24 or 32 bits per
-pixel. Returns { data, width, height } with data RGBA, top row first, or
-null.
-
-Deliberate deviation: QuakeSpasm calls Sys_Error for an unsupported targa,
-which ends the game for a bad skybox face. This warns and returns null, as
-Ironwail (stb_image) does. Reads past the end of the file give 0 rather
-than C's EOF.
-=============
-*/
+/**
+ * Reads an uncompressed paletted (type 1), truecolor (2) or grayscale (3)
+ * targa, or a run-length encoded truecolor one (10), at 24 or 32 bits per
+ * pixel. Returns { data, width, height } with data RGBA, top row first, or
+ * null.
+ *
+ * Deliberate deviation: QuakeSpasm calls Sys_Error for an unsupported targa,
+ * which ends the game for a bad skybox face. This warns and returns null, as
+ * Ironwail (stb_image) does. Reads past the end of the file give 0 rather
+ * than C's EOF.
+ */
 export function Image_LoadTGA(buf, loadfilename = "") {
   if (buf.length < 18) {
     Con_Printf("Image_LoadTGA: " + loadfilename + " is too short\n");

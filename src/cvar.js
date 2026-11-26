@@ -1,22 +1,18 @@
 // Ported from: WinQuake/cvar.c -- dynamic variable tracking
 
-/*
-
-cvar_t variables are used to hold scalar or string variables that can be
-changed or displayed at the console or prog code as well as accessed directly
-in C code.
-
-it is sufficient to initialize a cvar_t with just the first two fields, or
-you can add a ,true flag for variables that you want saved to the configuration
-file when the game is quit:
-
-Cvars must be registered before use, or they will have a 0 value instead of
-the float interpretation of the string. Generally, all cvar_t declarations
-should be registered in the appropriate init function before any console
-commands are executed:
-Cvar_RegisterVariable(host_framerate);
-
-*/
+// cvar_t variables are used to hold scalar or string variables that can be
+// changed or displayed at the console or prog code as well as accessed directly
+// in C code.
+//
+// it is sufficient to initialize a cvar_t with just the first two fields, or
+// you can add a ,true flag for variables that you want saved to the configuration
+// file when the game is quit:
+//
+// Cvars must be registered before use, or they will have a 0 value instead of
+// the float interpretation of the string. Generally, all cvar_t declarations
+// should be registered in the appropriate init function before any console
+// commands are executed:
+// Cvar_RegisterVariable(host_framerate);
 
 import { Con_Printf, Q_atof } from "./common.js";
 import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv, Cmd_Exists } from "./cmd.js";
@@ -75,21 +71,11 @@ export let cvar_vars = null; // read by the console's tab completion
 // cvars.
 const cvar_map = new Map();
 
-/*
-============
-Cvar_FindVar
-============
-*/
 export function Cvar_FindVar(var_name) {
   const _var = cvar_map.get(var_name);
   return _var === undefined ? null : _var;
 }
 
-/*
-============
-Cvar_VariableValue
-============
-*/
 export function Cvar_VariableValue(var_name) {
   const _var = Cvar_FindVar(var_name);
   if (!_var) {
@@ -98,11 +84,6 @@ export function Cvar_VariableValue(var_name) {
   return Q_atof(_var.string);
 }
 
-/*
-============
-Cvar_VariableString
-============
-*/
 export function Cvar_VariableString(var_name) {
   const _var = Cvar_FindVar(var_name);
   if (!_var) {
@@ -111,11 +92,6 @@ export function Cvar_VariableString(var_name) {
   return _var.string;
 }
 
-/*
-============
-Cvar_CompleteVariable
-============
-*/
 export function Cvar_CompleteVariable(partial) {
   const len = partial.length;
 
@@ -135,24 +111,15 @@ export function Cvar_CompleteVariable(partial) {
   return null;
 }
 
-/*
-============
-Cvar_SetCompletion
-
-Ironwail: sets the function that lists a cvar's values for console tab
-completion. It is called as func( var, partial ) and adds each value with
-Con_AddToTabList. Not in id's cvar.c.
-============
-*/
+/**
+ * Ironwail: sets the function that lists a cvar's values for console tab
+ * completion. It is called as func( var, partial ) and adds each value with
+ * Con_AddToTabList. Not in id's cvar.c.
+ */
 export function Cvar_SetCompletion(variable, func) {
   variable.completion = func;
 }
 
-/*
-============
-Cvar_Set
-============
-*/
 export function Cvar_Set(var_name, value) {
   const _var = Cvar_FindVar(var_name);
   if (!_var) {
@@ -180,11 +147,6 @@ export function Cvar_Set(var_name, value) {
   }
 }
 
-/*
-============
-Cvar_SetValue
-============
-*/
 export function Cvar_SetValue(var_name, value) {
   // Match original Quake behavior (va("%f", value)) and avoid scientific
   // notation strings that Q_atof cannot parse correctly.
@@ -196,13 +158,7 @@ export function Cvar_SetValue(var_name, value) {
   Cvar_Set(var_name, String(value));
 }
 
-/*
-============
-Cvar_RegisterVariable
-
-Adds a freestanding variable to the variable list.
-============
-*/
+/** Adds a freestanding variable to the variable list. */
 export function Cvar_RegisterVariable(variable) {
   // first check to see if it has already been defined
   if (Cvar_FindVar(variable.name)) {
@@ -241,13 +197,7 @@ export function Cvar_RegisterVariable(variable) {
   cvar_map.set(variable.name, variable);
 }
 
-/*
-============
-Cvar_Command
-
-Handles variable inspection and changing from the console
-============
-*/
+/** Handles variable inspection and changing from the console */
 export function Cvar_Command() {
   const v = Cvar_FindVar(Cmd_Argv(0));
   if (!v) {
@@ -276,14 +226,10 @@ export function Cvar_Command() {
   return true;
 }
 
-/*
-============
-Cvar_WriteVariables
-
-Writes lines containing "set variable value" for all variables
-with the archive flag set to true.
-============
-*/
+/**
+ * Writes lines containing "set variable value" for all variables
+ * with the archive flag set to true.
+ */
 export function Cvar_WriteVariables() {
   const lines = [];
   let _var = cvar_vars;
@@ -297,11 +243,7 @@ export function Cvar_WriteVariables() {
   return lines.join("");
 }
 
-/*
-============
-Cvar_Reset -- johnfitz
-============
-*/
+// Cvar_Reset -- johnfitz
 export function Cvar_Reset(name) {
   const _var = Cvar_FindVar(name);
   if (_var === null) {
@@ -320,11 +262,7 @@ function Cvar_SortedList() {
   return list.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 
-/*
-============
-Cvar_List_f -- johnfitz
-============
-*/
+// Cvar_List_f -- johnfitz
 function Cvar_List_f() {
   const partial = Cmd_Argc() > 1 ? Cmd_Argv(1) : null;
 
@@ -346,11 +284,7 @@ function Cvar_List_f() {
   );
 }
 
-/*
-============
-Cvar_Inc_f -- johnfitz
-============
-*/
+// Cvar_Inc_f -- johnfitz
 function Cvar_Inc_f() {
   switch (Cmd_Argc()) {
     default:
@@ -369,11 +303,7 @@ function Cvar_Inc_f() {
   }
 }
 
-/*
-============
-Cvar_Toggle_f -- johnfitz
-============
-*/
+// Cvar_Toggle_f -- johnfitz
 function Cvar_Toggle_f() {
   switch (Cmd_Argc()) {
     default:
@@ -390,16 +320,12 @@ function Cvar_Toggle_f() {
   }
 }
 
-/*
-============
-Cvar_HasValue
-
-Ironwail: a value that reads as a number (sscanf "%f") matches the cvar's
-value, anything else its string. Compared as floats, as C does. Unlike
-sscanf, this doesn't read inf, nan or hex as numbers; those compare as
-strings.
-============
-*/
+// Cvar_HasValue
+//
+// Ironwail: a value that reads as a number (sscanf "%f") matches the cvar's
+// value, anything else its string. Compared as floats, as C does. Unlike
+// sscanf, this doesn't read inf, nan or hex as numbers; those compare as
+// strings.
 const CVAR_FLOAT_PREFIX = /^\s*[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?/;
 
 function Cvar_HasValue(_var, value) {
@@ -410,13 +336,9 @@ function Cvar_HasValue(_var, value) {
   return value === _var.string;
 }
 
-/*
-============
-Cvar_Cycle_f -- johnfitz
-
-cycle and cycleback
-============
-*/
+// Cvar_Cycle_f -- johnfitz
+//
+// cycle and cycleback
 function Cvar_Cycle_f() {
   const argc = Cmd_Argc();
   if (argc < 3) {
@@ -460,11 +382,7 @@ function Cvar_Cycle_f() {
   Cvar_Set(_var.name, Cmd_Argv(i));
 }
 
-/*
-============
-Cvar_Reset_f -- johnfitz
-============
-*/
+// Cvar_Reset_f -- johnfitz
 function Cvar_Reset_f() {
   switch (Cmd_Argc()) {
     default:
@@ -477,24 +395,16 @@ function Cvar_Reset_f() {
   }
 }
 
-/*
-============
-Cvar_ResetAll_f -- johnfitz
-============
-*/
+// Cvar_ResetAll_f -- johnfitz
 function Cvar_ResetAll_f() {
   for (const _var of Cvar_SortedList()) {
     Cvar_Reset(_var.name);
   }
 }
 
-/*
-============
-Cvar_ResetCfg_f -- QuakeSpasm
-
-Resets the archived cvars, the ones a config saves
-============
-*/
+// Cvar_ResetCfg_f -- QuakeSpasm
+//
+// Resets the archived cvars, the ones a config saves
 function Cvar_ResetCfg_f() {
   for (const _var of Cvar_SortedList()) {
     if (_var.archive) {
@@ -503,13 +413,9 @@ function Cvar_ResetCfg_f() {
   }
 }
 
-/*
-============
-Cvar_Init -- johnfitz
-
-Registers the cvar commands (Ironwail; id's cvar.c has none)
-============
-*/
+// Cvar_Init -- johnfitz
+//
+// Registers the cvar commands (Ironwail; id's cvar.c has none)
 export function Cvar_Init() {
   Cmd_AddCommand("cvarlist", Cvar_List_f);
   Cmd_AddCommand("toggle", Cvar_Toggle_f);

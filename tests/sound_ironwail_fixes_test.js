@@ -19,13 +19,7 @@ function assertEqual(actual, expected, message) {
 cmd.Cbuf_Init();
 cmd.Cmd_Init();
 
-/*
-==============================================================================
-
-			FAKE WEB AUDIO
-
-==============================================================================
-*/
+// FAKE WEB AUDIO
 
 const created = { buffers: [], sources: [] };
 
@@ -163,13 +157,7 @@ function withSound(fn) {
   }
 }
 
-/*
-==============================================================================
-
-			PITCH AND LIMITS
-
-==============================================================================
-*/
+// PITCH AND LIMITS
 
 Deno.test("sounds are cached at 11025 Hz whatever the device rate, so pitch is exact", () => {
   withSound(() => {
@@ -243,13 +231,7 @@ Deno.test("channel limits: 8 dynamic channels as in WinQuake, 1024 in all as in 
   });
 });
 
-/*
-==============================================================================
-
-			AMBIENTS
-
-==============================================================================
-*/
+// AMBIENTS
 
 Deno.test("ambient_level 0 stops the ambient loops, and they come back at their old level", () => {
   const oldWorld = cl.worldmodel;
@@ -306,13 +288,7 @@ Deno.test("ambient_level 0 stops the ambient loops, and they come back at their 
   }
 });
 
-/*
-==============================================================================
-
-			CD MUSIC
-
-==============================================================================
-*/
+// CD MUSIC
 
 class FakeAudio {
   constructor() {

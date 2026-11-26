@@ -57,13 +57,7 @@ import { r_framecount } from "./glquake.js";
 import { R_WarpScreen, R_WaterWarp_Init } from "./gl_screenwarp.js";
 import { GL_ContextLoss_Init, GL_ContextLost } from "./gl_contextloss.js";
 
-/*
-==============================================================================
-
-			GL SCREEN STATE
-
-==============================================================================
-*/
+// GL SCREEN STATE
 
 export let scr_con_current = 0;
 let scr_conlines = 0; // lines of console to display
@@ -162,13 +156,7 @@ let scr_drawdialog = false;
 // SIGNONS constant
 const SIGNONS = 4;
 
-/*
-==============================================================================
-
-			EXTERNAL REFERENCES
-
-==============================================================================
-*/
+// EXTERNAL REFERENCES
 
 let _realVid = { width: 640, height: 480, numpages: 2, recalc_refdef: false };
 const _vid = {
@@ -221,14 +209,11 @@ export function SCR_SetExternals(externals) {
   if (externals.S_StopAllSounds) _S_StopAllSounds = externals.S_StopAllSounds;
 }
 
-/*
-==============
-SCR_CenterPrint
+// SCR_CenterPrint
+//
+// Called for important messages that should stay in the center of the screen
+// for a few moments
 
-Called for important messages that should stay in the center of the screen
-for a few moments
-==============
-*/
 // Web-only: src/agent.js sees centerprints (null when no agent is attached)
 let scr_agent_hook = null;
 export function SCR_SetAgentHook(fn) {
@@ -251,24 +236,15 @@ export function SCR_CenterPrint(str) {
   }
 }
 
-/*
-==============================================================================
-
-	CENTERPRINT LOGGING (johnfitz)
-
-Ironwail keeps these in console.c; they live here because console.js is
-outside this change.
-==============================================================================
-*/
+// CENTERPRINT LOGGING (johnfitz)
+//
+// Ironwail keeps these in console.c; they live here because console.js is
+// outside this change.
 
 let con_lastcenterstring = ""; //johnfitz
 
-/*
-================
-Con_Quakebar -- johnfitz -- returns a bar of the desired length, but never
-wider than the console. Includes a newline, unless len >= con_linewidth.
-================
-*/
+// Con_Quakebar -- johnfitz -- returns a bar of the desired length, but never
+// wider than the console. Includes a newline, unless len >= con_linewidth.
 export function Con_Quakebar(len) {
   len = Math.min(len, 40);
   len = Math.min(len, con_linewidth);
@@ -286,11 +262,7 @@ export function Con_Quakebar(len) {
   return bar;
 }
 
-/*
-================
-Con_CenterPrintf -- pad each line with spaces to make it appear centered
-================
-*/
+// Con_CenterPrintf -- pad each line with spaces to make it appear centered
 function Con_CenterPrintf(linewidth, msg) {
   linewidth = Math.min(linewidth, con_linewidth);
   for (let src = 0; src < msg.length;) {
@@ -307,11 +279,7 @@ function Con_CenterPrintf(linewidth, msg) {
   }
 }
 
-/*
-==================
-Con_LogCenterPrint -- johnfitz -- echo centerprint message to the console
-==================
-*/
+// Con_LogCenterPrint -- johnfitz -- echo centerprint message to the console
 export function Con_LogCenterPrint(str) {
   if (str === con_lastcenterstring) {
     return; // ignore duplicates
@@ -337,11 +305,6 @@ export function Con_ClearLastCenterString() {
   con_lastcenterstring = "";
 }
 
-/*
-==============
-SCR_DrawCenterString
-==============
-*/
 function SCR_DrawCenterString() {
   let remaining;
 
@@ -423,11 +386,6 @@ function SCR_CheckDrawCenterString() {
   SCR_DrawCenterString();
 }
 
-/*
-====================
-CalcFov
-====================
-*/
 function CalcFov(fov_x, width, height) {
   if (fov_x < 1 || fov_x > 179) {
     fov_x = 90;
@@ -439,13 +397,7 @@ function CalcFov(fov_x, width, height) {
   return a;
 }
 
-/*
-====================
-CalcFovX
-
-Inverse of CalcFov - given vertical FOV, calculate horizontal FOV
-====================
-*/
+/** Inverse of CalcFov - given vertical FOV, calculate horizontal FOV */
 function CalcFovX(fov_y, width, height) {
   if (fov_y < 1 || fov_y > 179) {
     fov_y = 90;
@@ -457,14 +409,10 @@ function CalcFovX(fov_y, width, height) {
   return a;
 }
 
-/*
-=================
-SCR_CalcRefdef
-
-Must be called whenever vid changes
-Internal use only (exported for tests)
-=================
-*/
+/**
+ * Must be called whenever vid changes
+ * Internal use only (exported for tests)
+ */
 export function SCR_CalcRefdef() {
   _vid.recalc_refdef = false;
   _r_refdef.vrectScale = Draw_GetUIScale();
@@ -575,35 +523,18 @@ export function SCR_CalcRefdef() {
   scr_vrect.height = _r_refdef.vrect.height;
 }
 
-/*
-=================
-SCR_SizeUp_f
-
-Keybinding command
-=================
-*/
+/** Keybinding command */
 function SCR_SizeUp_f() {
   Cvar_SetValue("viewsize", scr_viewsize.value + 10);
   _vid.recalc_refdef = true;
 }
 
-/*
-=================
-SCR_SizeDown_f
-
-Keybinding command
-=================
-*/
+/** Keybinding command */
 function SCR_SizeDown_f() {
   Cvar_SetValue("viewsize", scr_viewsize.value - 10);
   _vid.recalc_refdef = true;
 }
 
-/*
-==================
-SCR_Init
-==================
-*/
 export function SCR_Init() {
   if (_r_refdef === null) _r_refdef = _r_refdef_canonical;
 
@@ -627,9 +558,7 @@ export function SCR_Init() {
   Cvar_RegisterVariable(scr_usekfont); // 2021 re-release
   R_WaterWarp_Init();
 
-  //
   // register our commands
-  //
   Cmd_AddCommand("screenshot", SCR_ScreenShot_f);
   Cmd_AddCommand("sizeup", SCR_SizeUp_f);
   Cmd_AddCommand("sizedown", SCR_SizeDown_f);
@@ -640,11 +569,6 @@ export function SCR_Init() {
   scr_initialized = true;
 }
 
-/*
-==============
-SCR_DrawRam
-==============
-*/
 function SCR_DrawRam() {
   if (!scr_showram.value) {
     return;
@@ -653,11 +577,7 @@ function SCR_DrawRam() {
   // r_cache_thrash is not applicable in Three.js port
 }
 
-/*
-==============
-SCR_DrawTurtle
-==============
-*/
+// SCR_DrawTurtle
 let turtle_count = 0;
 
 function SCR_DrawTurtle() {
@@ -678,11 +598,6 @@ function SCR_DrawTurtle() {
   Draw_Pic(scr_vrect.x, scr_vrect.y, scr_turtle);
 }
 
-/*
-==============
-SCR_DrawNet
-==============
-*/
 function SCR_DrawNet() {
   if (realtime - _cl.last_received_message < 0.3) {
     return;
@@ -694,23 +609,19 @@ function SCR_DrawNet() {
   Draw_Pic(scr_vrect.x + 64, scr_vrect.y, scr_net);
 }
 
-/*
-==============
-SCR_DrawCrosshair
-
-The crosshair draw from gl_screen.c SCR_UpdateScreen, split out under
-FitzQuake's name. GLQuake draws '+' at the centre of scr_vrect, during demo
-playback too. cl_crossx and cl_crossy are registered but, as in GLQuake,
-not read: only the software renderer's view.c V_RenderView (#ifndef
-GLQUAKE) offsets the crosshair by them.
-
-Deviations, both from FitzQuake/Ironwail SCR_DrawCrosshair:
-- The glyph is centred (- 4). id's C puts its top-left corner at the
-  centre, half a character down and right of the aim point.
-- No crosshair during intermission. In id's C intermission 3
-  (svc_cutscene) reaches this branch and drew it over the cutscene.
-==============
-*/
+/**
+ * The crosshair draw from gl_screen.c SCR_UpdateScreen, split out under
+ * FitzQuake's name. GLQuake draws '+' at the centre of scr_vrect, during demo
+ * playback too. cl_crossx and cl_crossy are registered but, as in GLQuake,
+ * not read: only the software renderer's view.c V_RenderView (#ifndef
+ * GLQUAKE) offsets the crosshair by them.
+ *
+ * Deviations, both from FitzQuake/Ironwail SCR_DrawCrosshair:
+ * - The glyph is centred (- 4). id's C puts its top-left corner at the
+ *   centre, half a character down and right of the aim point.
+ * - No crosshair during intermission. In id's C intermission 3
+ *   (svc_cutscene) reaches this branch and drew it over the cutscene.
+ */
 export function SCR_DrawCrosshair() {
   if (Cvar_VariableValue("crosshair") === 0 || _cl.intermission !== 0) {
     return;
@@ -723,11 +634,6 @@ export function SCR_DrawCrosshair() {
   ); // '+'
 }
 
-/*
-==============
-SCR_DrawPause
-==============
-*/
 function SCR_DrawPause() {
   if (!scr_showpause.value) {
     return;
@@ -747,11 +653,6 @@ function SCR_DrawPause() {
   }
 }
 
-/*
-==============
-SCR_DrawLoading
-==============
-*/
 export function SCR_DrawLoading() {
   if (!scr_drawloading) {
     return;
@@ -767,12 +668,7 @@ export function SCR_DrawLoading() {
   }
 }
 
-/*
-==================
-SCR_SetUpToDrawConsole
-(exported for tests)
-==================
-*/
+/** (exported for tests) */
 export function SCR_SetUpToDrawConsole() {
   Con_CheckResize();
 
@@ -818,13 +714,7 @@ export function SCR_SetUpToDrawConsole() {
   }
 }
 
-/*
-==================
-SCR_DrawSbar
-
-Sbar_Draw on the status bar canvas (Ironwail CANVAS_SBAR, scr_sbarscale)
-==================
-*/
+/** Sbar_Draw on the status bar canvas (Ironwail CANVAS_SBAR, scr_sbarscale) */
 function SCR_DrawSbar() {
   Draw_SetCanvasScale(scr_sbarscale.value);
   try {
@@ -834,11 +724,6 @@ function SCR_DrawSbar() {
   }
 }
 
-/*
-==================
-SCR_DrawConsole
-==================
-*/
 function SCR_DrawConsole() {
   if (scr_con_current) {
     Con_DrawConsole(scr_con_current, true);
@@ -850,15 +735,11 @@ function SCR_DrawConsole() {
   }
 }
 
-/*
-==================
-SCR_ModalMessage
-
-Displays a text string in the center of the screen and waits for a Y or N
-keypress. C blocks and returns the answer; here the answer goes to callback
-once Key_Event sees 'y', 'n' or escape.
-==================
-*/
+/**
+ * Displays a text string in the center of the screen and waits for a Y or N
+ * keypress. C blocks and returns the answer; here the answer goes to callback
+ * once Key_Event sees 'y', 'n' or escape.
+ */
 export function SCR_ModalMessage(text, callback) {
   if (_cls.state === 0) { // ca_dedicated
     callback(true);
@@ -876,11 +757,6 @@ export function SCR_ModalMessage(text, callback) {
   });
 }
 
-/*
-==================
-SCR_DrawNotifyString
-==================
-*/
 function SCR_DrawNotifyString() {
   let start = 0;
   let y = Math.floor(_vid.height * 0.35);
@@ -933,14 +809,10 @@ function SCR_ModalYesNoTop() {
   return Math.floor(_vid.height * 0.35) + lines * 8 + 8;
 }
 
-/*
-==================
-SCR_ModalYesNoAt
-
-Which choice of SCR_ModalMessage's YES / NO row is at a point in _vid
-pixels: 1 for YES, 0 for NO, -1 for neither
-==================
-*/
+/**
+ * Which choice of SCR_ModalMessage's YES / NO row is at a point in _vid
+ * pixels: 1 for YES, 0 for NO, -1 for neither
+ */
 export function SCR_ModalYesNoAt(x, y) {
   return SCR_YesNoHit(x, y, _vid.width >> 1, SCR_ModalYesNoTop());
 }
@@ -957,30 +829,22 @@ function SCR_DrawYesNoLabel(x, y, label, selected) {
   }
 }
 
-/*
-==================
-SCR_DrawYesNo
-
-Deliberate deviation (web-only input): draws the YES / NO choice under a
-yes/no prompt (SCR_ModalMessage, the quit menu), with the blinking menu
-cursor and white text on the selected one. x is the centre of the row and
-y its top, in _vid pixels.
-==================
-*/
+/**
+ * Deliberate deviation (web-only input): draws the YES / NO choice under a
+ * yes/no prompt (SCR_ModalMessage, the quit menu), with the blinking menu
+ * cursor and white text on the selected one. x is the centre of the row and
+ * y its top, in _vid pixels.
+ */
 export function SCR_DrawYesNo(x, y, yes) {
   SCR_DrawYesNoLabel(x - 44, y, "YES", yes);
   SCR_DrawYesNoLabel(x + 24, y, "NO", !yes);
 }
 
-/*
-==================
-SCR_YesNoHit
-
-Which choice of a YES / NO row drawn by SCR_DrawYesNo( rowx, rowy ) is at
-the point x, y (same units): 1 for YES, 0 for NO, -1 for neither. Each
-choice's tap box is a little larger than its text.
-==================
-*/
+/**
+ * Which choice of a YES / NO row drawn by SCR_DrawYesNo( rowx, rowy ) is at
+ * the point x, y (same units): 1 for YES, 0 for NO, -1 for neither. Each
+ * choice's tap box is a little larger than its text.
+ */
 export function SCR_YesNoHit(x, y, rowx, rowy) {
   if (y < rowy - 8 || y >= rowy + 16) {
     return -1;
@@ -994,14 +858,10 @@ export function SCR_YesNoHit(x, y, rowx, rowy) {
   return -1;
 }
 
-/*
-==============
-SCR_FormatFPS, SCR_FormatClock
-
-The strings QS's SCR_DrawFPS ("%4.0f fps") and SCR_DrawClock ("%i:%i%i")
-print
-==============
-*/
+// SCR_FormatFPS, SCR_FormatClock
+//
+// The strings QS's SCR_DrawFPS ("%4.0f fps") and SCR_DrawClock ("%i:%i%i")
+// print
 export function SCR_FormatFPS(fps) {
   return String(Math.round(fps)).padStart(4, " ") + " fps";
 }
@@ -1022,14 +882,10 @@ function SCR_DrawBottomRight(str, line) {
   }
 }
 
-/*
-==============
-SCR_DrawFPS -- johnfitz
-
-Ported from QuakeSpasm Quake/gl_screen.c. Frames are counted with
-r_framecount, so the rate is of 3D frames, as in QS.
-==============
-*/
+// SCR_DrawFPS -- johnfitz
+//
+// Ported from QuakeSpasm Quake/gl_screen.c. Frames are counted with
+// r_framecount, so the rate is of 3D frames, as in QS.
 let fps_oldtime = 0;
 let fps_lastfps = 0;
 let fps_oldframecount = 0;
@@ -1064,13 +920,9 @@ function SCR_DrawFPS() {
   }
 }
 
-/*
-==============
-SCR_DrawClock -- johnfitz
-
-Ported from QuakeSpasm Quake/gl_screen.c
-==============
-*/
+// SCR_DrawClock -- johnfitz
+//
+// Ported from QuakeSpasm Quake/gl_screen.c
 let clock_string = "";
 let clock_seconds = -1;
 
@@ -1088,11 +940,6 @@ function SCR_DrawClock() {
   SCR_DrawBottomRight(clock_string, 0);
 }
 
-/*
-==================
-SCR_TileClear
-==================
-*/
 function SCR_TileClear() {
   if (_r_refdef.vrect.x > 0) {
     // left
@@ -1125,11 +972,7 @@ function SCR_TileClear() {
   }
 }
 
-/*
-==============
-SCR_ScreenShot_f
-==============
-*/
+// SCR_ScreenShot_f
 let _screenshotPending = false;
 
 function SCR_ScreenShot_f() {
@@ -1160,11 +1003,6 @@ function SCR_DoScreenShot() {
   }
 }
 
-/*
-===============
-SCR_BeginLoadingPlaque
-================
-*/
 export function SCR_BeginLoadingPlaque() {
   if (_S_StopAllSounds) _S_StopAllSounds(true);
 
@@ -1189,27 +1027,18 @@ export function SCR_BeginLoadingPlaque() {
   scr_disabled_time = realtime;
 }
 
-/*
-===============
-SCR_EndLoadingPlaque
-================
-*/
 export function SCR_EndLoadingPlaque() {
   scr_disabled_for_loading = false;
   Con_ClearNotify();
 }
 
-/*
-==================
-SCR_UpdateScreen
-
-This is called every frame, and can also be called explicitly to flush
-text to the screen.
-
-WARNING: be very careful calling this from elsewhere, because the refresh
-needs almost the entire 256k of stack space!
-==================
-*/
+/**
+ * This is called every frame, and can also be called explicitly to flush
+ * text to the screen.
+ *
+ * WARNING: be very careful calling this from elsewhere, because the refresh
+ * needs almost the entire 256k of stack space!
+ */
 export function SCR_UpdateScreen() {
   if (block_drawing) {
     return;
@@ -1241,9 +1070,7 @@ export function SCR_UpdateScreen() {
   // Clear 2D overlay
   Draw_BeginFrame();
 
-  //
   // determine size of refresh window
-  //
   if (oldfov !== scr_fov.value) {
     oldfov = scr_fov.value;
     _vid.recalc_refdef = true;
@@ -1269,7 +1096,6 @@ export function SCR_UpdateScreen() {
     SCR_CalcRefdef();
   }
 
-  //
   // do 3D refresh drawing, and then update the screen
   //
   // The console is laid out on its own canvas (scr_conscale). scr_con_current
@@ -1294,9 +1120,7 @@ export function SCR_UpdateScreen() {
 
   GL_Set2D();
 
-  //
   // draw any areas not covered by the refresh
-  //
   SCR_TileClear();
 
   if (scr_drawdialog) {

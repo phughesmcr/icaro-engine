@@ -60,27 +60,17 @@ void main() {
 }
 `;
 
-/*
-=============
-R_WaterWarp_Init
-
-Registers r_waterwarp (Ironwail gl_rmisc.c R_Init)
-=============
-*/
+/** Registers r_waterwarp (Ironwail gl_rmisc.c R_Init) */
 export function R_WaterWarp_Init() {
   if (Cvar_FindVar(r_waterwarp.name) === null) {
     Cvar_RegisterVariable(r_waterwarp);
   }
 }
 
-/*
-=============
-R_WaterWarpActive
-
-Ironwail R_SetupView: the screen warp is on when r_waterwarp is nonzero and
-not above 1 (above 1 is the FOV warp), and the eye is in a liquid
-=============
-*/
+/**
+ * Ironwail R_SetupView: the screen warp is on when r_waterwarp is nonzero and
+ * not above 1 (above 1 is the FOV warp), and the eye is in a liquid
+ */
 export function R_WaterWarpActive(value, contents) {
   if (value === 0 || value > 1) {
     return false;
@@ -117,30 +107,22 @@ function R_WarpCreate() {
   _bufferSize = new THREE.Vector2();
 }
 
-/*
-=============
-R_WarpContextRestored
-
-Web-only (see gl_contextloss.js). Drop the framebuffer copy after a WebGL
-context restore; R_WarpScreen makes a new one the next time the eye is in
-water. The material and scene stay: they hold no GPU objects of their own.
-=============
-*/
+/**
+ * Web-only (see gl_contextloss.js). Drop the framebuffer copy after a WebGL
+ * context restore; R_WarpScreen makes a new one the next time the eye is in
+ * water. The material and scene stay: they hold no GPU objects of their own.
+ */
 export function R_WarpContextRestored() {
   if (warpTexture !== null) warpTexture.dispose();
   warpTexture = null;
   if (warpMaterial !== null) warpMaterial.uniforms.Tex.value = null;
 }
 
-/*
-=============
-R_WarpScreen
-
-Called by SCR_UpdateScreen right after V_RenderView. Warps the 3D view
-rendered this frame when R_WaterWarpActive says so. time is cl.time, as in
-Ironwail R_WarpScaleView.
-=============
-*/
+/**
+ * Called by SCR_UpdateScreen right after V_RenderView. Warps the 3D view
+ * rendered this frame when R_WaterWarpActive says so. time is cl.time, as in
+ * Ironwail R_WarpScaleView.
+ */
 export function R_WarpScreen(time) {
   if (renderer === null || r_viewleaf === null) {
     return;

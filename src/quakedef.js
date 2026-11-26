@@ -5,9 +5,7 @@ export const GLQUAKE_VERSION = 1.00;
 
 export const GAMENAME = "id1"; // directory to look in by default
 
-//
 // angles
-//
 export const PITCH = 0; // up / down
 export const YAW = 1; // left / right
 export const ROLL = 2; // fall over
@@ -34,7 +32,6 @@ export const DATAGRAM_MTU = 1400; // FitzQuake: actual limit for unreliable mess
 // client's MAX_MSGLEN reliable message (an overflow there drops the client)
 export const MAX_DATAGRAM_ID = 1024;
 
-//
 // per-level limits
 //
 // Deliberate deviations, Ironwail's limits for the 2021 rerelease maps. C
@@ -53,9 +50,7 @@ export const SAVEGAME_COMMENT_LENGTH = 39;
 
 export const MAX_STYLESTRING = 64;
 
-//
 // stats are integers communicated to the client by the server
-//
 export const MAX_CL_STATS = 32;
 export const STAT_HEALTH = 0;
 export const STAT_FRAGS = 1;
@@ -104,7 +99,6 @@ export const IT_SIGIL2 = 1 << 29;
 export const IT_SIGIL3 = 1 << 30;
 export const IT_SIGIL4 = 1 << 31;
 
-//===========================================
 //rogue changed and added defines
 
 export const RIT_SHELLS = 128;
@@ -128,7 +122,6 @@ export const RIT_ANTIGRAV = 1073741824;
 export const RIT_SUPERHEALTH = 2147483648;
 
 //MED 01/04/97 added hipnotic defines
-//===========================================
 //hipnotic added defines
 export const HIT_PROXIMITY_GUN_BIT = 16;
 export const HIT_MJOLNIR_BIT = 7;
@@ -138,8 +131,6 @@ export const HIT_MJOLNIR = 1 << HIT_MJOLNIR_BIT;
 export const HIT_LASER_CANNON = 1 << HIT_LASER_CANNON_BIT;
 export const HIT_WETSUIT = 1 << (23 + 2);
 export const HIT_EMPATHY_SHIELDS = 1 << (23 + 3);
-
-//===========================================
 
 export const MAX_SCOREBOARD = 16;
 export const MAX_SCOREBOARDNAME = 32;
@@ -189,12 +180,10 @@ export class entity_state_t {
   }
 }
 
-//
 // packet_entities_t - QW-style delta compressed entity snapshot
 // Ported from: QW/client/protocol.h. QW preallocates MAX_PACKET_ENTITIES
 // states; this grows on demand, since the cap is the edict limit and each
 // client keeps PE_UPDATE_BACKUP of these on the server.
-//
 export class packet_entities_t {
   constructor() {
     this.num_entities = 0;
@@ -210,8 +199,6 @@ export class packet_entities_t {
     return entities[i];
   }
 }
-
-//=============================================================================
 
 // the host system specifies the base of the directory tree, the
 // command line parms passed to the program, and the amount of memory

@@ -71,14 +71,10 @@ export function R_Misc_SetCallbacks(callbacks) {
   if (callbacks.R_InitParticles) R_InitParticles = callbacks.R_InitParticles;
 }
 
-/*
-===============
-R_InitParticleTexture
-
-Creates the particle dot texture used for particle effects.
-The original is an 8x8 texture with a circular dot pattern.
-===============
-*/
+// R_InitParticleTexture
+//
+// Creates the particle dot texture used for particle effects.
+// The original is an 8x8 texture with a circular dot pattern.
 
 const dottexture = [
   [0, 1, 1, 0, 0, 0, 0, 0],
@@ -92,9 +88,7 @@ const dottexture = [
 ];
 
 export function R_InitParticleTexture() {
-  //
   // particle texture
-  //
   const data = new Uint8Array(8 * 8 * 4);
 
   for (let x = 0; x < 8; x++) {
@@ -115,14 +109,10 @@ export function R_InitParticleTexture() {
   return texture;
 }
 
-/*
-====================
-R_TimeRefresh_f
-
-For program optimization: renders 128 frames spinning the view through
-360 degrees and reports the time taken.
-====================
-*/
+/**
+ * For program optimization: renders 128 frames spinning the view through
+ * 360 degrees and reports the time taken.
+ */
 export function R_TimeRefresh_f() {
   // R_RenderView draws nothing without a world or with r_norefresh set, so
   // the timing would be meaningless (gl_rmisc.c prints it anyway).
@@ -157,11 +147,6 @@ export function R_TimeRefresh_f() {
   );
 }
 
-/*
-===============
-R_Init
-===============
-*/
 export function R_Init() {
   // Register commands
   const _Cmd_AddCommand = Cmd_AddCommand || Cmd_AddCommand_impl;
@@ -237,15 +222,11 @@ export function R_Init() {
   return { particleTexture: particleTex };
 }
 
-/*
-===============
-R_TranslatePlayerSkin
-
-Translates a skin texture by the per-player color lookup.
-For Three.js, builds a new texture with translated colors.
-Stores the result in _playerSkinTextures[playernum] for gl_mesh.js to use.
-===============
-*/
+// R_TranslatePlayerSkin
+//
+// Translates a skin texture by the per-player color lookup.
+// For Three.js, builds a new texture with translated colors.
+// Stores the result in _playerSkinTextures[playernum] for gl_mesh.js to use.
 
 const MAX_SCOREBOARD = 16;
 const _playerSkinTextures = new Array(MAX_SCOREBOARD).fill(null);
@@ -284,9 +265,7 @@ export function R_TranslatePlayerSkin(playernum) {
     }
   }
 
-  //
   // locate the original skin pixels
-  //
   const entity = cl_entities[1 + playernum];
   if (entity == null || entity.model == null) {
     return; // player doesn't have a model yet
@@ -376,11 +355,6 @@ export function R_TranslatePlayerSkin(playernum) {
   _playerSkinTextures[playernum] = texture;
 }
 
-/*
-===============
-R_NewMap
-===============
-*/
 export function R_NewMap(cl) {
   // Initialize light style values
   for (let i = 0; i < 256; i++) {
@@ -432,13 +406,7 @@ export function R_NewMap(cl) {
   };
 }
 
-/*
-====================
-D_FlushCaches
-
-No-op in GL renderer
-====================
-*/
+/** No-op in GL renderer */
 export function D_FlushCaches() {
   // no-op
 }

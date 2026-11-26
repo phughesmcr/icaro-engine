@@ -148,16 +148,12 @@ import { R_Efrag_SetExternals } from "./gl_refrag.js";
 import { Host_InitCommands, Host_MaybeOfferContinue } from "./host_cmd.js";
 import { R_SetParticleExternals } from "./r_part.js";
 
-/*
-
-A server can always be started, even if the system started out as a client
-to a remote system.
-
-A client can NOT be started if the system started as a dedicated server.
-
-Memory is cleared / released when a server or client begins, not when they end.
-
-*/
+// A server can always be started, even if the system started out as a client
+// to a remote system.
+//
+// A client can NOT be started if the system started as a dedicated server.
+//
+// Memory is cleared / released when a server or client begins, not when they end.
 
 export let host_parms = null;
 
@@ -216,17 +212,17 @@ export function set_host_frametime(v) {
   SV_SetFrametime(v);
 }
 
-/*
-Renderer/network isolation (QuakeSpasm/Ironwail host_netinterval, Max_Fps_f).
-When it is on, render frames run at up to host_maxfps while CL_SendCmd and
-the local server frame run at their own 72 Hz tick.
-
-host_netinterval: the tick length, or 0 when off (WinQuake's single loop)
-host_netframetime: the length of this frame's tick, which CL_SendMove sends
-	as msec. It equals host_frametime when isolation is off.
-host_netaccum: game time not yet ticked. Client prediction runs a partial
-	command of this length so the view moves between ticks.
-*/
+/**
+ * Renderer/network isolation (QuakeSpasm/Ironwail host_netinterval, Max_Fps_f).
+ * When it is on, render frames run at up to host_maxfps while CL_SendCmd and
+ * the local server frame run at their own 72 Hz tick.
+ *
+ * host_netinterval: the tick length, or 0 when off (WinQuake's single loop)
+ * host_netframetime: the length of this frame's tick, which CL_SendMove sends
+ * 	as msec. It equals host_frametime when isolation is off.
+ * host_netaccum: game time not yet ticked. Client prediction runs a partial
+ * 	command of this length so the view moves between ticks.
+ */
 export const HOST_NETINTERVAL = 1.0 / 72.0;
 export let host_netinterval = 0;
 export let host_netframetime = 0;
@@ -250,18 +246,14 @@ export { set_host_client } from "./server.js";
 // sv is the server state, re-exported for client-side prediction
 export { sv } from "./server.js";
 
-/*
-====================
-GL_BeginRendering / GL_EndRendering
-
-In original Quake these are in gl_vidnt.c. Deliberate deviation: C's
-GL_BeginRendering doesn't clear, but this one clears the colour buffer so no
-earlier frame shows through where nothing is drawn (the 2D overlay is a
-separate canvas, and the browser doesn't reliably clear the WebGL canvas
-between frames). R_Clear clears depth, as in C. EndRendering is a no-op: the
-browser composites on the next frame automatically.
-====================
-*/
+// GL_BeginRendering / GL_EndRendering
+//
+// In original Quake these are in gl_vidnt.c. Deliberate deviation: C's
+// GL_BeginRendering doesn't clear, but this one clears the colour buffer so no
+// earlier frame shows through where nothing is drawn (the 2D overlay is a
+// separate canvas, and the browser doesn't reliably clear the WebGL canvas
+// between frames). R_Clear clears depth, as in C. EndRendering is a no-op: the
+// browser composites on the next frame automatically.
 function _GL_BeginRendering() {
   if (renderer) {
     renderer.clear(true, false, false);
@@ -272,14 +264,10 @@ function _GL_EndRendering() {
   // Three.js presents automatically at end of rAF callback
 }
 
-/*
-================
-Host_ClearMemory
-
-This clears all the memory used by both the client and server, but does
-not reinitialize anything.
-================
-*/
+/**
+ * This clears all the memory used by both the client and server, but does
+ * not reinitialize anything.
+ */
 export function Host_ClearMemory() {
   Con_DPrintf("Clearing memory\n");
   D_FlushCaches();
@@ -294,11 +282,6 @@ export function Host_ClearMemory() {
   // cl is reset in CL_ClearState
 }
 
-/*
-=======================
-Host_InitLocal
-=======================
-*/
 function Host_InitLocal() {
   Host_InitCommands();
 
@@ -335,15 +318,11 @@ function Host_InitLocal() {
   host_time = 1.0; // so a think at time 0 won't get called
 }
 
-/*
-======================
-Host_FindMaxClients
-
-Mirrors WinQuake/host.c Host_FindMaxClients, without -dedicated: the
-dedicated room is server/game_server.js, which never runs Host_Init. In the
-browser, main.js passes -listen from ?listen=N.
-======================
-*/
+/**
+ * Mirrors WinQuake/host.c Host_FindMaxClients, without -dedicated: the
+ * dedicated room is server/game_server.js, which never runs Host_Init. In the
+ * browser, main.js passes -listen from ?listen=N.
+ */
 export function Host_FindMaxClients() {
   svs.maxclients = 1;
 
@@ -382,11 +361,8 @@ export function Host_FindMaxClients() {
   }
 }
 
-/*
-====================
-Host_Init
-====================
-*/
+// Host_Init
+
 // Kept async: main.js awaits Host_Init.
 // deno-lint-ignore require-await
 export async function Host_Init(parms) {
@@ -606,13 +582,7 @@ export async function Host_Init(parms) {
   Sys_Printf("Host_Init complete\n");
 }
 
-/*
-==================
-Host_ServerFrame
-
-Runs server simulation for the current frame
-==================
-*/
+/** Runs server simulation for the current frame */
 export function Host_ServerFrame() {
   // sync frametime to physics module
   SV_SetFrametime(host_frametime);
@@ -641,13 +611,10 @@ export function Host_ServerFrame() {
   SV_SendClientMessages();
 }
 
-/*
-==================
-Host_Frame
+// Host_Frame
+//
+// Runs all active servers
 
-Runs all active servers
-==================
-*/
 // host.c Host_Frame statics for serverprofile
 let serverprofile_timetotal = 0;
 let serverprofile_timecount = 0;
@@ -742,21 +709,13 @@ function _Host_Frame_Internal(time) {
       CL_SendCmd();
     }
 
-    //-------------------
-    //
     // server operations
-    //
-    //-------------------
 
     if (sv.active) {
       Host_ServerFrame();
     }
 
-    //-------------------
-    //
     // client operations
-    //
-    //-------------------
 
     // if running the server remotely, send intentions now after
     // the incoming messages have been read
@@ -815,26 +774,22 @@ function _Host_Frame_Internal(time) {
   host_framecount++;
 }
 
-/*
-==================
-Host_NetTickTime
-
-Renderer/network isolation: how much of the untimed game time accum (in
-seconds, this frame's time included) to run as this frame's tick, or 0 for
-no tick. The caller subtracts the result from accum. At most one tick runs
-per frame.
-
-Ironwail (_Host_Frame) runs one tick of all of accum once it reaches the
-interval. On a 90 Hz display that is a 45 Hz tick, and with frame-time
-jitter around 72 Hz it drops a tick and then runs a double one. Deliberate
-deviation: a tick is one interval, so a display at 72 Hz or faster keeps a
-72 Hz average, with the remainder carried; a tick that comes up to 1 ms
-early still runs, which absorbs timer jitter. When frames are slower than
-the interval the tick takes all but one interval, so a 60 Hz display
-settles at one 1/60 s tick per frame and the carry never grows past one
-interval. The total of all ticks plus accum is always the total frame time.
-==================
-*/
+// Host_NetTickTime
+//
+// Renderer/network isolation: how much of the untimed game time accum (in
+// seconds, this frame's time included) to run as this frame's tick, or 0 for
+// no tick. The caller subtracts the result from accum. At most one tick runs
+// per frame.
+//
+// Ironwail (_Host_Frame) runs one tick of all of accum once it reaches the
+// interval. On a 90 Hz display that is a 45 Hz tick, and with frame-time
+// jitter around 72 Hz it drops a tick and then runs a double one. Deliberate
+// deviation: a tick is one interval, so a display at 72 Hz or faster keeps a
+// 72 Hz average, with the remainder carried; a tick that comes up to 1 ms
+// early still runs, which absorbs timer jitter. When frames are slower than
+// the interval the tick takes all but one interval, so a 60 Hz display
+// settles at one 1/60 s tick per frame and the carry never grows past one
+// interval. The total of all ticks plus accum is always the total frame time.
 export const HOST_NETTICK_SLACK = 0.001;
 
 export function Host_NetTickTime(accum, interval) {
@@ -845,16 +800,12 @@ export function Host_NetTickTime(accum, interval) {
   return Math.max(interval, accum - interval);
 }
 
-/*
-==================
-Host_UpdateNetInterval
-
-QuakeSpasm/Ironwail Max_Fps_f: isolation is on when host_maxfps is above 72
-or 0. Deviation: it is also on during a WebXR session, where the headset
-sets the frame rate and every XR frame has to be drawn. A timedemo keeps
-the single loop, so it runs as fast as WinQuake's.
-==================
-*/
+/**
+ * QuakeSpasm/Ironwail Max_Fps_f: isolation is on when host_maxfps is above 72
+ * or 0. Deviation: it is also on during a WebXR session, where the headset
+ * sets the frame rate and every XR frame has to be drawn. A timedemo keeps
+ * the single loop, so it runs as fast as WinQuake's.
+ */
 function Host_UpdateNetInterval() {
   const maxfps = host_maxfps.value;
   let interval = 0;
@@ -878,14 +829,10 @@ function Host_UpdateNetInterval() {
   host_lookframetime = 0;
 }
 
-/*
-==================
-_Host_FilterTime
-
-Returns false if the time is too short to run a frame
-(exported for tests)
-==================
-*/
+/**
+ * Returns false if the time is too short to run a frame
+ * (exported for tests)
+ */
 export function _Host_FilterTime(time) {
   realtime += time;
 
@@ -940,23 +887,19 @@ export function _Host_FilterTime(time) {
   return true;
 }
 
-/*
-==================
-_Host_NetFrame
-
-Ironwail _Host_Frame's network block, run instead of WinQuake's CL_SendCmd /
-Host_ServerFrame calls while isolation is on. A frame with no tick only
-turns the view (CL_AccumulateCmd).
-
-During CL_SendCmd host_frametime is the render time since the view last
-turned: this frame's, or every frame's since the last tick when
-CL_AccumulateCmd couldn't turn it. So keyboard, stick and XR turning in
-CL_BaseMove / IN_Move cover each frame once. CL_SendMove sends the tick's
-length (host_netframetime). The local server runs with host_frametime set
-to the tick's length.
-(exported for tests)
-==================
-*/
+/**
+ * Ironwail _Host_Frame's network block, run instead of WinQuake's CL_SendCmd /
+ * Host_ServerFrame calls while isolation is on. A frame with no tick only
+ * turns the view (CL_AccumulateCmd).
+ *
+ * During CL_SendCmd host_frametime is the render time since the view last
+ * turned: this frame's, or every frame's since the last tick when
+ * CL_AccumulateCmd couldn't turn it. So keyboard, stick and XR turning in
+ * CL_BaseMove / IN_Move cover each frame once. CL_SendMove sends the tick's
+ * length (host_netframetime). The local server runs with host_frametime set
+ * to the tick's length.
+ * (exported for tests)
+ */
 export function _Host_NetFrame() {
   let dt = host_rawframetime;
   if (dt < 0) dt = 0;
@@ -1026,13 +969,9 @@ function _Host_SendCmd(lookframetime) {
   }
 }
 
-/*
-================
-Host_Error
-
-This shuts down both the client and server
-================
-*/
+// Host_Error
+//
+// This shuts down both the client and server
 let host_error_reentrancy = false;
 
 export function Host_Error(error) {
@@ -1065,13 +1004,7 @@ export function Host_Error(error) {
 // Host_Init, has it too.
 COM_SetHostError(Host_Error);
 
-/*
-================
-Host_EndGame
-
-End the current game
-================
-*/
+/** End the current game */
 export function Host_EndGame(message) {
   Con_DPrintf("Host_EndGame: %s\n", message);
 
@@ -1089,13 +1022,10 @@ export function Host_EndGame(message) {
   throw new Error("Host_EndGame: " + message);
 }
 
-/*
-================
-Host_ShutdownServer
+// Host_ShutdownServer
+//
+// This only happens at the end of a game, not between levels
 
-This only happens at the end of a game, not between levels
-================
-*/
 // Cached buffer for Host_ShutdownServer disconnect message (avoid per-call allocations)
 const _shutdownBuf = new Uint8Array(4);
 const _shutdownMsg = {
@@ -1171,20 +1101,16 @@ export function Host_ShutdownServer(crash) {
   RTCLobby_ServerShutdown();
 }
 
-/*
-==================
-Host_PageHide
-
-Web addition. A listen server's tab going away ends its game as quitting
-does (Host_Quit_f -> CL_Disconnect -> Host_ShutdownServer), so the other
-players get svc_disconnect instead of waiting out net_messagetimeout. A
-page that is going away may not flush what it sends; joiners then see
-their connection close. Single player has no one to tell. Each send is
-tried once, with no waiting, so closing the tab doesn't hang. pagehide also
-fires when the page enters the back-forward cache; ending the game then is
-deliberate, since a frozen page can't serve its players.
-==================
-*/
+/**
+ * Web addition. A listen server's tab going away ends its game as quitting
+ * does (Host_Quit_f -> CL_Disconnect -> Host_ShutdownServer), so the other
+ * players get svc_disconnect instead of waiting out net_messagetimeout. A
+ * page that is going away may not flush what it sends; joiners then see
+ * their connection close. Single player has no one to tell. Each send is
+ * tried once, with no waiting, so closing the tab doesn't hang. pagehide also
+ * fires when the page enters the back-forward cache; ending the game then is
+ * deliberate, since a frozen page can't serve its players.
+ */
 export function Host_PageHide() {
   if (sv.active === true && svs.maxclients > 1) {
     host_shutdown_nowait = true;
@@ -1196,13 +1122,9 @@ export function Host_PageHide() {
   }
 }
 
-/*
-===============
-Host_WriteConfiguration
-
-Writes key bindings and archived cvars to localStorage
-===============
-*/
+// Host_WriteConfiguration
+//
+// Writes key bindings and archived cvars to localStorage
 const CONFIG_STORAGE_KEY = "quake_config";
 
 export function Host_WriteConfiguration() {
@@ -1219,13 +1141,7 @@ export function Host_WriteConfiguration() {
   }
 }
 
-/*
-================
-Host_Shutdown
-
-Cleanly shut down everything
-================
-*/
+/** Cleanly shut down everything */
 export function Host_Shutdown() {
   if (!host_initialized) {
     return;
@@ -1246,13 +1162,7 @@ export function Host_Shutdown() {
   Con_Printf("Host_Shutdown complete\n");
 }
 
-/*
-================
-SV_ClientPrintf
-
-Sends text across to be displayed
-================
-*/
+/** Sends text across to be displayed */
 export function SV_ClientPrintf(fmt, ...args) {
   // Format the string
   let msg = fmt;
@@ -1267,13 +1177,7 @@ export function SV_ClientPrintf(fmt, ...args) {
   }
 }
 
-/*
-================
-SV_BroadcastPrintf
-
-Sends text to all active clients
-================
-*/
+/** Sends text to all active clients */
 export function SV_BroadcastPrintf(fmt, ...args) {
   // Format the string
   let msg = fmt;

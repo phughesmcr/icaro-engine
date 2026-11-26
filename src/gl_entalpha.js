@@ -75,13 +75,7 @@ function _alphaClone(base, alpha, double) {
   return clone;
 }
 
-/*
-=================
-R_EntAlpha_Apply
-
-Called once per drawn brush entity, after gl_rsurf.js R_DrawBrushModel.
-=================
-*/
+/** Called once per drawn brush entity, after gl_rsurf.js R_DrawBrushModel. */
 export function R_EntAlpha_Apply(e) {
   const group = e._brushGroup;
   if (group == null) return;
@@ -134,14 +128,10 @@ function _syncClone(clone, base) {
   clone.needsUpdate = true; // the map, fullbright and vertex colour paths are compiled in
 }
 
-/*
-=================
-R_EntAlpha_ApplyMesh
-
-Called once per drawn alias entity (the view model included), after
-gl_mesh.js R_DrawAliasModel has set the mesh's material for this frame.
-=================
-*/
+/**
+ * Called once per drawn alias entity (the view model included), after
+ * gl_mesh.js R_DrawAliasModel has set the mesh's material for this frame.
+ */
 export function R_EntAlpha_ApplyMesh(e, mesh) {
   const alpha = e.alpha;
   const blended = alpha !== ENTALPHA_DEFAULT && alpha !== ENTALPHA_ONE;

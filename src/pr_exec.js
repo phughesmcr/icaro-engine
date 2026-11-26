@@ -40,9 +40,6 @@ import {
 import { ED_Print } from "./pr_edict.js";
 import { ss_active } from "./server.js";
 
-/*
-*/
-
 // Deliberate deviation from id (32 and 2048): Ironwail/QuakeSpasm's limits
 // (progs.h), so deeply recursive mods don't hit "stack overflow"
 const MAX_STACK_DEPTH = 1024;
@@ -131,13 +128,6 @@ const pr_opnames = [
   "BITOR",
 ];
 
-//=============================================================================
-
-/*
-=================
-PR_PrintStatement
-=================
-*/
 export function PR_PrintStatement(s) {
   let line = "";
 
@@ -170,14 +160,10 @@ export function PR_PrintStatement(s) {
   Con_Printf("%s\n", line);
 }
 
-/*
-============
-PR_strcmp
-
-strcmp() for OP_NE_S. C only guarantees the sign of the result, so this
-returns -1, 0 or 1 from the first differing byte.
-============
-*/
+/**
+ * strcmp() for OP_NE_S. C only guarantees the sign of the result, so this
+ * returns -1, 0 or 1 from the first differing byte.
+ */
 export function PR_strcmp(a, b) {
   const n = Math.min(a.length, b.length);
   for (let i = 0; i < n; i++) {
@@ -193,11 +179,6 @@ export function PR_strcmp(a, b) {
   return a.length < b.length ? -1 : 1;
 }
 
-/*
-============
-PR_StackTrace
-============
-*/
 export function PR_StackTrace() {
   if (pr_depth === 0) {
     Con_Printf("<NO STACK>\n");
@@ -217,13 +198,7 @@ export function PR_StackTrace() {
   }
 }
 
-/*
-============
-PR_RunError
-
-Aborts the currently executing function
-============
-*/
+/** Aborts the currently executing function */
 export function PR_RunError(error, ...args) {
   let message = error;
   // Simple sprintf-like formatting
@@ -240,21 +215,11 @@ export function PR_RunError(error, ...args) {
   PR_HostError("Program error");
 }
 
-/*
-============================================================================
-PR_ExecuteProgram
+// PR_ExecuteProgram
+//
+// The interpretation main loop
 
-The interpretation main loop
-============================================================================
-*/
-
-/*
-====================
-PR_EnterFunction
-
-Returns the new program statement counter
-====================
-*/
+/** Returns the new program statement counter */
 export function PR_EnterFunction(f) {
   pr_stack[pr_depth].s = pr_xstatement;
   pr_stack[pr_depth].f = pr_xfunction;
@@ -288,11 +253,6 @@ export function PR_EnterFunction(f) {
   return f.first_statement - 1; // offset the s++
 }
 
-/*
-====================
-PR_LeaveFunction
-====================
-*/
 export function PR_LeaveFunction() {
   // id has Sys_Error; Host_Error is Ironwail's (deliberate deviation)
   if (pr_depth <= 0) {
@@ -317,36 +277,28 @@ export function PR_LeaveFunction() {
   return pr_stack[pr_depth].s;
 }
 
-/*
-====================
-PR_ExecuteProgram
-
-Port addition: in C a bad edict number in OP_LOAD_*, OP_STOREP_*,
-OP_ADDRESS or OP_STATE reads or writes stray memory (Ironwail range-checks
-only under PARANOID). A number below sv.max_edicts is not bad: as in C it
-reads a zeroed edict (PROG_TO_EDICT grows sv.edicts). For a negative one,
-or one at or past sv.max_edicts, sv.edicts[ n ] is undefined and the opcode
-throws a TypeError, which Host_Frame rethrows and the room dies. Turn that
-into a PR_RunError (a Host_Error, as Ironwail's PARANOID NUM_FOR_EDICT
-check does). The check runs only after a throw, so the interpreter loop
-pays nothing for it. The loop keeps its statement counter in a local and
-writes pr_xstatement only where something reads it (a call, an error, this
-check), so its catch block stores the counter before running the check.
-====================
-*/
+/**
+ * Port addition: in C a bad edict number in OP_LOAD_*, OP_STOREP_*,
+ * OP_ADDRESS or OP_STATE reads or writes stray memory (Ironwail range-checks
+ * only under PARANOID). A number below sv.max_edicts is not bad: as in C it
+ * reads a zeroed edict (PROG_TO_EDICT grows sv.edicts). For a negative one,
+ * or one at or past sv.max_edicts, sv.edicts[ n ] is undefined and the opcode
+ * throws a TypeError, which Host_Frame rethrows and the room dies. Turn that
+ * into a PR_RunError (a Host_Error, as Ironwail's PARANOID NUM_FOR_EDICT
+ * check does). The check runs only after a throw, so the interpreter loop
+ * pays nothing for it. The loop keeps its statement counter in a local and
+ * writes pr_xstatement only where something reads it (a call, an error, this
+ * check), so its catch block stores the counter before running the check.
+ */
 export function PR_ExecuteProgram(fnum) {
   PR_ExecuteProgram_Loop(fnum);
 }
 
-/*
-====================
-PR_CheckBadEdict
-
-Cold path for PR_ExecuteProgram. If the statement that threw is an edict
-opcode with an edict number outside sv.edicts, abort it with PR_RunError.
-Any other TypeError (from a builtin, say) is left for the caller to rethrow.
-====================
-*/
+/**
+ * Cold path for PR_ExecuteProgram. If the statement that threw is an edict
+ * opcode with an edict number outside sv.edicts, abort it with PR_RunError.
+ * Any other TypeError (from a builtin, say) is left for the caller to rethrow.
+ */
 function PR_CheckBadEdict() {
   const st = pr_statements[pr_xstatement];
   if (st === undefined) {
@@ -573,7 +525,6 @@ function PR_ExecuteProgram_Loop(fnum) {
           gf[stC] = (gi[stA] !== gi[stB]) ? 1 : 0;
           break;
 
-        //==================
         case 31: // OP_STORE_F
         case 34: // OP_STORE_ENT
         case 35: // OP_STORE_FLD integers
@@ -647,8 +598,6 @@ function PR_ExecuteProgram_Loop(fnum) {
           gf[stC + 2] = fv[fieldOfs + 2];
           break;
         }
-
-        //==================
 
         case 50: // OP_IFNOT
           if (gi[stA] === 0) {

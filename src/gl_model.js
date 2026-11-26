@@ -74,9 +74,7 @@ import {
   r_novis,
 } from "./glquake.js";
 
-// ============================================================================
 // modelgen.h constants
-// ============================================================================
 
 export const ALIAS_VERSION = 6;
 export const ALIAS_ONSEAM = 0x0020;
@@ -102,9 +100,7 @@ export const IDPOLYHEADER = ("O".charCodeAt(0) << 24) +
 export const ALIAS_BASE_SIZE_RATIO = 1.0 / 11.0;
 export const MAX_LBM_HEIGHT = 480;
 
-// ============================================================================
 // spritegn.h constants
-// ============================================================================
 
 export const SPRITE_VERSION = 1;
 
@@ -122,18 +118,14 @@ export const SPR_GROUP = 1;
 export const IDSPRITEHEADER = ("P".charCodeAt(0) << 24) +
   ("S".charCodeAt(0) << 16) + ("D".charCodeAt(0) << 8) + "I".charCodeAt(0);
 
-// ============================================================================
 // gl_model.h -- entity effects
-// ============================================================================
 
 export const EF_BRIGHTFIELD = 1;
 export const EF_MUZZLEFLASH = 2;
 export const EF_BRIGHTLIGHT = 4;
 export const EF_DIMLIGHT = 8;
 
-// ============================================================================
 // Surface flags
-// ============================================================================
 
 export const SURF_PLANEBACK = 2;
 export const SURF_DRAWSKY = 4;
@@ -157,31 +149,23 @@ export const r_lavaalpha = { name: "r_lavaalpha", string: "0", value: 0 };
 export const r_slimealpha = { name: "r_slimealpha", string: "0", value: 0 };
 export const r_telealpha = { name: "r_telealpha", string: "0", value: 0 };
 
-// ============================================================================
 // Plane sides
-// ============================================================================
 
 export const SIDE_FRONT = 0;
 export const SIDE_BACK = 1;
 export const SIDE_ON = 2;
 
-// ============================================================================
 // GL poly vertex size
-// ============================================================================
 
 export const VERTEXSIZE = 7;
 
-// ============================================================================
 // Model types
-// ============================================================================
 
 export const mod_brush = 0;
 export const mod_sprite = 1;
 export const mod_alias = 2;
 
-// ============================================================================
 // Entity effect flags (model flags from MDL header)
-// ============================================================================
 
 export const EF_ROCKET = 1; // leave a trail
 export const EF_GRENADE = 2; // leave a trail
@@ -201,9 +185,7 @@ export const MOD_NOLERP = 256; // don't lerp when animating
 // the mdl's skins. Mods set it in the mdl header; id's models don't.
 export const MF_HOLEY = 1 << 14;
 
-// ============================================================================
 // Alias model limits
-// ============================================================================
 
 export const MAX_SKINS = 32;
 // Deliberate deviation: QuakeSpasm's limits, were 1024, 256 and 2048 in
@@ -216,9 +198,7 @@ export const MAXALIASTRIS = 4096;
 // Deliberate deviation: QuakeSpasm's surface extents limit, 512 in GLQuake
 export const MAX_SURFACE_EXTENTS = 2000;
 
-// ============================================================================
 // In-memory model structures (m*_t)
-// ============================================================================
 
 // Typed-array fields can be views into a caller's slab: `new Float32Array( 3 )`
 // per struct costs ~6x a view over a shared buffer in V8 (a BSP has tens of
@@ -443,9 +423,7 @@ export class hull_t {
   }
 }
 
-// ============================================================================
 // Sprite model structures
-// ============================================================================
 
 export class mspriteframe_t {
   constructor() {
@@ -486,9 +464,7 @@ export class msprite_t {
   }
 }
 
-// ============================================================================
 // Alias model structures
-// ============================================================================
 
 export class trivertx_t {
   constructor() {
@@ -565,9 +541,7 @@ export class aliashdr_t {
   }
 }
 
-// ============================================================================
 // dmodel_t -- on-disk submodel structure
-// ============================================================================
 
 export class dmodel_t {
   constructor() {
@@ -581,9 +555,7 @@ export class dmodel_t {
   }
 }
 
-// ============================================================================
 // Whole model
-// ============================================================================
 
 export class model_t {
   constructor() {
@@ -669,9 +641,7 @@ export class model_t {
   }
 }
 
-// ============================================================================
 // Module-level state (mirrors C globals)
-// ============================================================================
 
 let loadmodel = null;
 
@@ -716,7 +686,6 @@ let mod_base = null;
 // Decompressed visibility buffer (reused; sized by Mod_AllocVisBuffers)
 let decompressed = new Uint8Array(0);
 
-// ============================================================================
 // GL_LoadTexture: 8-bit paletted pixels -> THREE.DataTexture. Unlike GLQuake it
 // doesn't dedupe by name: textures are owned per model and disposed in
 // Mod_ClearAll; `name` only labels them for GPU debuggers.
@@ -728,7 +697,6 @@ let decompressed = new Uint8Array(0);
 // (alias skins: the fullbright texture's alpha is the mask the alias shader
 // mixes by); without it they are blacked out of the base (world textures,
 // drawn with the fullbright texture as an emissive map).
-// ============================================================================
 
 export function GL_LoadTexture(
   name,
@@ -906,7 +874,6 @@ function R_InitSky(tx) {
   alphaskytexture = result.alphaTexture;
 }
 
-// ============================================================================
 // gl_texture_anisotropy
 //
 // Deliberate deviation, from QuakeSpasm (gl_texmgr.c): anisotropic filtering
@@ -917,7 +884,6 @@ function R_InitSky(tx) {
 // R_DrawWorld calls it each frame). Three.js only applies anisotropy to
 // textures whose min filter is *_MIPMAP_LINEAR and mag filter isn't
 // GL_NEAREST, so it shows only with such a gl_texturemode.
-// ============================================================================
 
 export const gl_texture_anisotropy = {
   name: "gl_texture_anisotropy",
@@ -963,9 +929,7 @@ export function GL_CheckAnisotropy(maxAnisotropy = GL_MaxAnisotropy()) {
   }
 }
 
-// ============================================================================
 // Mod_Init
-// ============================================================================
 
 export function Mod_Init() {
   Cvar_RegisterVariable(gl_subdivide_size);
@@ -978,13 +942,11 @@ export function Mod_Init() {
   mod_novis.fill(0xff);
 }
 
-// ============================================================================
 // Mod_AllocVisBuffers
 //
 // Grows mod_novis and decompressed to hold one PVS row for numleafs leafs.
 // The rows only grow, so a row handed out for an earlier model stays valid
 // in length. Called at load time from Mod_LoadLeafs.
-// ============================================================================
 
 export function Mod_AllocVisBuffers(numleafs) {
   const row = (numleafs + 7) >> 3;
@@ -997,9 +959,7 @@ export function Mod_AllocVisBuffers(numleafs) {
   }
 }
 
-// ============================================================================
 // R_InitTextures
-// ============================================================================
 
 export function R_InitTextures() {
   if (r_notexture_mip != null && r_notexture_mip.gl_texture != null) {
@@ -1054,11 +1014,9 @@ export function R_InitTextures() {
   return r_notexture_mip;
 }
 
-// ============================================================================
 // Mod_Extradata
 //
 // Caches the data if needed
-// ============================================================================
 
 export function Mod_Extradata(mod) {
   const r = mod.cache.data;
@@ -1074,9 +1032,7 @@ export function Mod_Extradata(mod) {
   return mod.cache.data;
 }
 
-// ============================================================================
 // Mod_PointInLeaf
-// ============================================================================
 
 export function Mod_PointInLeaf(p, model) {
   if (!model || !model.nodes) {
@@ -1105,12 +1061,10 @@ export function Mod_PointInLeaf(p, model) {
   }
 }
 
-// ============================================================================
 // Mod_DecompressVis
 //
 // numleafs sizes the row. It defaults to model.numleafs as in the C;
 // Mod_CheckWaterVis passes the visleafs count (see there).
-// ============================================================================
 
 export function Mod_DecompressVis(
   _in,
@@ -1188,9 +1142,7 @@ export function Mod_DecompressVis(
   return decompressed;
 }
 
-// ============================================================================
 // Mod_LeafPVS
-// ============================================================================
 
 export function Mod_LeafPVS(leaf, model) {
   if (leaf === model.leafs[0]) {
@@ -1206,9 +1158,7 @@ export function Mod_LeafPVS(leaf, model) {
   );
 }
 
-// ============================================================================
 // Mod_ClearAll
-// ============================================================================
 
 export function Mod_ClearAll() {
   const disposedTextures = new Set();
@@ -1243,9 +1193,7 @@ export function Mod_ClearAll() {
   alphaskytexture = null;
 }
 
-// ============================================================================
 // Mod_FindName
-// ============================================================================
 
 export function Mod_FindName(name) {
   if (!name || name.length === 0) {
@@ -1275,9 +1223,7 @@ export function Mod_FindName(name) {
   return mod_known[i];
 }
 
-// ============================================================================
 // Mod_TouchModel
-// ============================================================================
 
 export function Mod_TouchModel(name) {
   const mod = Mod_FindName(name);
@@ -1290,11 +1236,9 @@ export function Mod_TouchModel(name) {
   }
 }
 
-// ============================================================================
 // Mod_LoadModel
 //
 // Loads a model into the cache
-// ============================================================================
 
 export function Mod_LoadModel(mod, crash) {
   if (!mod.needload) {
@@ -1344,11 +1288,9 @@ export function Mod_LoadModel(mod, crash) {
   return mod;
 }
 
-// ============================================================================
 // Mod_ForName
 //
 // Loads in a model for the given name
-// ============================================================================
 
 export function Mod_ForName(name, crash) {
   const mod = Mod_FindName(name);
@@ -1356,11 +1298,7 @@ export function Mod_ForName(name, crash) {
   return Mod_LoadModel(mod, crash);
 }
 
-// ============================================================================
-//
 //                     BRUSHMODEL LOADING
-//
-// ============================================================================
 
 // On-disk structure sizes (must match the BSP file layout)
 const SIZEOF_DVERTEX = 12; // 3 floats
@@ -1379,9 +1317,7 @@ const SIZEOF_TEXINFO = 40; // float vecs[2][4], int miptex, int flags
 const SIZEOF_DPLANE = 20; // float normal[3], float dist, int type
 const SIZEOF_DMODEL = 64; // float mins[3], maxs[3], origin[3], int headnode[4], int visleafs, int firstface, int numfaces
 
-// ============================================================================
 // Helper: read a null-terminated string from Uint8Array
-// ============================================================================
 
 function readString(bytes, offset, maxLen) {
   let s = "";
@@ -1394,9 +1330,7 @@ function readString(bytes, offset, maxLen) {
   return s;
 }
 
-// ============================================================================
 // Mod_LoadTextures
-// ============================================================================
 
 function Mod_LoadTextures(fileofs, filelen) {
   if (filelen === 0) {
@@ -1528,9 +1462,7 @@ function Mod_LoadTextures(fileofs, filelen) {
     }
   }
 
-  //
   // sequence the animations
-  //
   const ANIM_CYCLE = 2;
 
   for (let i = 0; i < nummiptex; i++) {
@@ -1627,9 +1559,7 @@ function Mod_LoadTextures(fileofs, filelen) {
   }
 }
 
-// ============================================================================
 // Mod_LoadLighting
-// ============================================================================
 
 // Deliberate deviation (Ironwail Mod_LoadLighting, "lit support via
 // lordhavoc"): use maps/<name>.lit coloured lighting when there is a good
@@ -1691,9 +1621,7 @@ function Mod_LoadLighting(fileofs, filelen) {
   loadmodel.lightdata.set(mod_base.subarray(fileofs, fileofs + filelen));
 }
 
-// ============================================================================
 // Mod_LoadVisibility
-// ============================================================================
 
 function Mod_LoadVisibility(fileofs, filelen) {
   if (filelen === 0) {
@@ -1705,9 +1633,7 @@ function Mod_LoadVisibility(fileofs, filelen) {
   loadmodel.visdata.set(mod_base.subarray(fileofs, fileofs + filelen));
 }
 
-// ============================================================================
 // Mod_LoadEntities
-// ============================================================================
 
 function Mod_LoadEntities(fileofs, filelen) {
   if (filelen === 0) {
@@ -1726,9 +1652,7 @@ function Mod_LoadEntities(fileofs, filelen) {
   loadmodel.entities = s;
 }
 
-// ============================================================================
 // Mod_LoadVertexes
-// ============================================================================
 
 function Mod_LoadVertexes(fileofs, filelen) {
   if (filelen % SIZEOF_DVERTEX) {
@@ -1757,9 +1681,7 @@ function Mod_LoadVertexes(fileofs, filelen) {
   }
 }
 
-// ============================================================================
 // Mod_LoadEdges
-// ============================================================================
 
 // bsp2 (Ironwail): read dledge_t, with unsigned int vertex numbers
 
@@ -1799,9 +1721,7 @@ function Mod_LoadEdges(fileofs, filelen, bsp2 = false) {
   out[count] = new medge_t(slab, count * 8);
 }
 
-// ============================================================================
 // Mod_LoadSurfedges
-// ============================================================================
 
 function Mod_LoadSurfedges(fileofs, filelen) {
   if (filelen % 4) {
@@ -1824,9 +1744,7 @@ function Mod_LoadSurfedges(fileofs, filelen) {
   }
 }
 
-// ============================================================================
 // Mod_LoadPlanes
-// ============================================================================
 
 function Mod_LoadPlanes(fileofs, filelen) {
   if (filelen % SIZEOF_DPLANE) {
@@ -1870,9 +1788,7 @@ function Mod_LoadPlanes(fileofs, filelen) {
   }
 }
 
-// ============================================================================
 // Mod_LoadTexinfo
-// ============================================================================
 
 function Mod_LoadTexinfo(fileofs, filelen) {
   if (filelen % SIZEOF_TEXINFO) {
@@ -1937,11 +1853,9 @@ function Mod_LoadTexinfo(fileofs, filelen) {
   }
 }
 
-// ============================================================================
 // CalcSurfaceExtents
 //
 // Fills in s->texturemins[] and s->extents[]
-// ============================================================================
 
 const FLT_MAX = 3.4028234663852886e+38;
 
@@ -1992,12 +1906,10 @@ function CalcSurfaceExtents(s) {
   }
 }
 
-// ============================================================================
 // Mod_LiquidFlagFromName
 //
 // Deliberate deviation, from Ironwail (gl_model.c Mod_TextureTypeFromName,
 // liquids only): which SURF_DRAW* liquid flag a '*' texture gets.
-// ============================================================================
 
 export function Mod_LiquidFlagFromName(texname) {
   if (texname.startsWith("lava", 1)) return SURF_DRAWLAVA;
@@ -2006,7 +1918,6 @@ export function Mod_LiquidFlagFromName(texname) {
   return SURF_DRAWWATER;
 }
 
-// ============================================================================
 // Mod_CheckWaterVis
 //
 // Deliberate deviation, from QuakeSpasm-Spiked and Ironwail (gl_model.c, by
@@ -2014,7 +1925,6 @@ export function Mod_LiquidFlagFromName(texname) {
 // leaf whose PVS holds a leaf of other contents), for the worldspawn
 // _wateralpha keys (gl_rsurf.js). Liquids the map doesn't have count as
 // see-through, so submodel liquids work.
-// ============================================================================
 
 const SURF_DRAWLIQUIDS = SURF_DRAWWATER | SURF_DRAWTELE | SURF_DRAWSLIME |
   SURF_DRAWLAVA;
@@ -2113,9 +2023,7 @@ function Mod_CheckWaterVis() {
     (~contentfound & SURF_DRAWLIQUIDS);
 }
 
-// ============================================================================
 // Mod_LoadFaces
-// ============================================================================
 
 // bsp2 (Ironwail): read dlface_t, with int fields where dface_t has shorts
 
@@ -2212,9 +2120,7 @@ function Mod_LoadFaces(fileofs, filelen, bsp2 = false) {
   }
 }
 
-// ============================================================================
 // Mod_SetParent
-// ============================================================================
 
 function Mod_SetParent(node, parent) {
   node.parent = parent;
@@ -2225,9 +2131,7 @@ function Mod_SetParent(node, parent) {
   Mod_SetParent(node.children[1], node);
 }
 
-// ============================================================================
 // Mod_LoadNodes
-// ============================================================================
 
 // bsp2 (Ironwail Mod_LoadNodes_L2): read dl2node_t, with int children, float
 // bounds and unsigned int face numbers. Ironwail splits the two layouts into
@@ -2347,9 +2251,7 @@ function Mod_LoadNodes(fileofs, filelen, bsp2 = false) {
   Mod_SetParent(loadmodel.nodes[0], null);
 }
 
-// ============================================================================
 // Mod_LoadLeafs
-// ============================================================================
 
 // bsp2 (Ironwail Mod_ProcessLeafs_L2): read dl2leaf_t, with float bounds and
 // unsigned int marksurface numbers, and no leaf limit
@@ -2450,9 +2352,7 @@ function Mod_LoadLeafs(fileofs, filelen, bsp2 = false) {
   }
 }
 
-// ============================================================================
 // Mod_LoadClipnodes
-// ============================================================================
 
 // bsp2 (Ironwail Mod_LoadClipnodes): read dlclipnode_t, with int children
 
@@ -2539,11 +2439,9 @@ function Mod_LoadClipnodes(fileofs, filelen, bsp2 = false) {
   }
 }
 
-// ============================================================================
 // Mod_MakeHull0
 //
 // Duplicate the drawing hull structure as a clipping hull
-// ============================================================================
 
 function Mod_MakeHull0() {
   const hull = loadmodel.hulls[0];
@@ -2591,9 +2489,7 @@ function Mod_MakeHull0() {
   }
 }
 
-// ============================================================================
 // Mod_LoadMarksurfaces
-// ============================================================================
 
 // bsp2 (Ironwail): unsigned int surface numbers
 
@@ -2626,9 +2522,7 @@ function Mod_LoadMarksurfaces(fileofs, filelen, bsp2 = false) {
   }
 }
 
-// ============================================================================
 // Mod_LoadSubmodels
-// ============================================================================
 
 function Mod_LoadSubmodels(fileofs, filelen) {
   if (filelen % SIZEOF_DMODEL) {
@@ -2669,9 +2563,7 @@ function Mod_LoadSubmodels(fileofs, filelen) {
   }
 }
 
-// ============================================================================
 // RadiusFromBounds
-// ============================================================================
 
 export function RadiusFromBounds(mins, maxs) {
   const corner = new Float32Array(3);
@@ -2685,9 +2577,7 @@ export function RadiusFromBounds(mins, maxs) {
   return Length(corner);
 }
 
-// ============================================================================
 // Mod_LoadBrushModel
-// ============================================================================
 
 function Mod_LoadBrushModel(mod, buffer) {
   loadmodel.type = mod_brush;
@@ -2760,9 +2650,7 @@ function Mod_LoadBrushModel(mod, buffer) {
 
   Mod_CheckWaterVis();
 
-  //
   // set up the submodels (FIXME: this is confusing)
-  //
   for (let i = 0; i < mod.numsubmodels; i++) {
     const bm = mod.submodels[i];
 
@@ -2847,15 +2735,9 @@ function Mod_LoadBrushModel(mod, buffer) {
   }
 }
 
-// ============================================================================
-//
 //                        ALIAS MODELS
-//
-// ============================================================================
 
-// ============================================================================
 // Mod_LoadAliasFrame
-// ============================================================================
 
 function Mod_LoadAliasFrame(buf, offset, frame) {
   // daliasframe_t: bboxmin (4 bytes), bboxmax (4 bytes), name (16 bytes) = 24 bytes
@@ -2888,9 +2770,7 @@ function Mod_LoadAliasFrame(buf, offset, frame) {
   return pinframe + pheader.numverts * SIZEOF_TRIVERTX;
 }
 
-// ============================================================================
 // Mod_LoadAliasGroup
-// ============================================================================
 
 function Mod_LoadAliasGroup(buf, offset, frame) {
   const view = new DataView(buf, offset);
@@ -2937,11 +2817,9 @@ function Mod_LoadAliasGroup(buf, offset, frame) {
   return ptemp;
 }
 
-// ============================================================================
 // Mod_FloodFillSkin
 //
 // Fill background pixels so mipmapping doesn't have haloes - Ed
-// ============================================================================
 
 function Mod_FloodFillSkin(skin, skinwidth, skinheight) {
   const fillcolor = skin[0];
@@ -3021,9 +2899,7 @@ function Mod_FloodFillSkin(skin, skinwidth, skinheight) {
   }
 }
 
-// ============================================================================
 // Mod_LoadAllSkins
-// ============================================================================
 
 // Deliberate deviation (QuakeSpasm, gl_fullbrights 1): GLQuake has no
 // fullbright pass on alias models, so glowing eyes and lights went dark in
@@ -3125,9 +3001,7 @@ function Mod_LoadAllSkins(buf, numskins, offset) {
   return pos;
 }
 
-// ============================================================================
 // Mod_LoadAliasModel
-// ============================================================================
 
 function Mod_LoadAliasModel(mod, buffer) {
   const view = new DataView(buffer);
@@ -3228,16 +3102,12 @@ function Mod_LoadAliasModel(mod, buffer) {
     pheader.frames[i] = new maliasframedesc_t();
   }
 
-  //
   // load the skins
-  //
   const SIZEOF_MDL = 84;
   let pos = Mod_LoadAllSkins(buffer, pheader.numskins, SIZEOF_MDL);
 
-  //
   // load base s and t vertices
   // stvert_t: int onseam, int s, int t = 12 bytes
-  //
   const SIZEOF_STVERT = 12;
   for (let i = 0; i < pheader.numverts; i++) {
     const o = pos + i * SIZEOF_STVERT;
@@ -3248,10 +3118,8 @@ function Mod_LoadAliasModel(mod, buffer) {
 
   pos += pheader.numverts * SIZEOF_STVERT;
 
-  //
   // load triangle lists
   // dtriangle_t: int facesfront, int vertindex[3] = 16 bytes
-  //
   const SIZEOF_DTRIANGLE = 16;
   for (let i = 0; i < pheader.numtris; i++) {
     const o = pos + i * SIZEOF_DTRIANGLE;
@@ -3263,9 +3131,7 @@ function Mod_LoadAliasModel(mod, buffer) {
 
   pos += pheader.numtris * SIZEOF_DTRIANGLE;
 
-  //
   // load the frames
-  //
   posenum = 0;
   const SIZEOF_DALIASFRAMETYPE = 4; // int type
 
@@ -3300,10 +3166,8 @@ function Mod_LoadAliasModel(mod, buffer) {
   // the decoded vertices or the display lists (posedata, commands and the
   // cull sphere are renderer data), so it skips building them
   if (cls.state !== ca_dedicated) {
-    //
     // Decode poseverts from raw {buffer, offset} into arrays of trivertx_t objects
     // so that GL_MakeAliasModelDisplayLists can index them
-    //
     const decodedPoseverts = [];
     for (let i = 0; i < pheader.numposes; i++) {
       const pv = poseverts[i];
@@ -3325,15 +3189,11 @@ function Mod_LoadAliasModel(mod, buffer) {
     pheader.stverts = stverts;
     pheader.poseverts = decodedPoseverts;
 
-    //
     // build the draw lists
-    //
     GL_MakeAliasModelDisplayLists(mod, pheader);
   }
 
-  //
   // move the complete, relocatable alias model to the cache
-  //
   mod.cache.data = pheader;
 
   Mod_SetExtraFlags(mod); //johnfitz
@@ -3347,20 +3207,16 @@ function Mod_LoadAliasModel(mod, buffer) {
   }
 }
 
-/*
-=================
-r_enhancedmodels
-
-Deliberate deviation, from Ironwail (gl_model.c): draw the 2021 rerelease's
-MD5 replacement models (gl_md5.js) where there is one. Ironwail defaults it
-to 1, and so does this port: only rerelease data has .md5mesh files, so it
-changes nothing for the original game. Ironwail reloads every alias model
-when it changes; here the .mdl is always loaded and the choice is made when
-an entity is drawn (Mod_EnhancedAliasHeader). Ironwail's
-r_enhancedmodels_priority picks between MD3 and MD5; the port has no MD3
-loader, so it is not ported.
-=================
-*/
+/**
+ * Deliberate deviation, from Ironwail (gl_model.c): draw the 2021 rerelease's
+ * MD5 replacement models (gl_md5.js) where there is one. Ironwail defaults it
+ * to 1, and so does this port: only rerelease data has .md5mesh files, so it
+ * changes nothing for the original game. Ironwail reloads every alias model
+ * when it changes; here the .mdl is always loaded and the choice is made when
+ * an entity is drawn (Mod_EnhancedAliasHeader). Ironwail's
+ * r_enhancedmodels_priority picks between MD3 and MD5; the port has no MD3
+ * loader, so it is not ported.
+ */
 export const r_enhancedmodels = {
   name: "r_enhancedmodels",
   string: "1",
@@ -3375,23 +3231,19 @@ export const MD5_DONE = 2; // looked for: md5hdr is the model, or null
 
 const md5decoder = new TextDecoder("latin1");
 
-/*
-=================
-Mod_LoadMD5Replacement
-
-Ironwail loadMd5Replacement: use progs/<name>.md5mesh, with its .md5anim,
-when it is in the same game directory as the .mdl or a later one. Unlike
-Ironwail, which loads the MD5 instead of the .mdl, the .mdl is loaded as
-before and stays the model's cache data: the server (setmodel, the bounds),
-the frame names and the flags read it, and the renderer draws md5hdr in
-its place (Mod_EnhancedAliasHeader). A dedicated server never draws, so it
-does not look.
-
-A lazily opened pak (pak.js) defers .md5mesh and .md5anim entries; they
-are fetched here with COM_EnsureFile, and the .mdl is drawn until they
-arrive. The skins (.lmp) are fetched with the pak.
-=================
-*/
+/**
+ * Ironwail loadMd5Replacement: use progs/<name>.md5mesh, with its .md5anim,
+ * when it is in the same game directory as the .mdl or a later one. Unlike
+ * Ironwail, which loads the MD5 instead of the .mdl, the .mdl is loaded as
+ * before and stays the model's cache data: the server (setmodel, the bounds),
+ * the frame names and the flags read it, and the renderer draws md5hdr in
+ * its place (Mod_EnhancedAliasHeader). A dedicated server never draws, so it
+ * does not look.
+ *
+ * A lazily opened pak (pak.js) defers .md5mesh and .md5anim entries; they
+ * are fetched here with COM_EnsureFile, and the .mdl is drawn until they
+ * arrive. The skins (.lmp) are fetched with the pak.
+ */
 export function Mod_LoadMD5Replacement(mod) {
   if (mod.md5state !== MD5_UNTRIED) {
     return;
@@ -3457,16 +3309,12 @@ function Mod_LoadMD5Files(mod, meshname, animname) {
   }
 }
 
-/*
-=================
-Mod_EnhancedAliasHeader
-
-Not in the C. The alias header to draw mod with: its MD5 replacement when
-r_enhancedmodels is on and it has one, else the .mdl's. Turning
-r_enhancedmodels on looks for replacements the first time each model is
-drawn.
-=================
-*/
+/**
+ * Not in the C. The alias header to draw mod with: its MD5 replacement when
+ * r_enhancedmodels is on and it has one, else the .mdl's. Turning
+ * r_enhancedmodels on looks for replacements the first time each model is
+ * drawn.
+ */
 export function Mod_EnhancedAliasHeader(mod) {
   const hdr = mod.cache.data;
   if (r_enhancedmodels.value === 0 || mod.type !== mod_alias) {
@@ -3478,14 +3326,10 @@ export function Mod_EnhancedAliasHeader(mod) {
   return mod.md5hdr != null ? mod.md5hdr : hdr;
 }
 
-/*
-=================
-nameInList
-
-Ported from: QuakeSpasm gl_model.c. Is name one of the comma-separated
-entries in list?
-=================
-*/
+/**
+ * Ported from: QuakeSpasm gl_model.c. Is name one of the comma-separated
+ * entries in list?
+ */
 export function nameInList(list, name) {
   let s = 0;
   while (s < list.length) {
@@ -3508,17 +3352,13 @@ export function nameInList(list, name) {
   return false;
 }
 
-/*
-=================
-Mod_SetExtraFlags -- johnfitz -- set up extra flags that aren't in the mdl
-
-Ported from: QuakeSpasm gl_model.c (only MOD_NOLERP: r_noshadow_list and
-the fullbright hack are not ported). QS reruns it from a cvar callback when
-r_nolerp_list changes; this port's cvars have no callbacks, so gl_mesh.js
-R_SetupAliasFrame reruns it when the list string differs from the one the
-flags were built from.
-=================
-*/
+// Mod_SetExtraFlags -- johnfitz -- set up extra flags that aren't in the mdl
+//
+// Ported from: QuakeSpasm gl_model.c (only MOD_NOLERP: r_noshadow_list and
+// the fullbright hack are not ported). QS reruns it from a cvar callback when
+// r_nolerp_list changes; this port's cvars have no callbacks, so gl_mesh.js
+// R_SetupAliasFrame reruns it when the list string differs from the one the
+// flags were built from.
 export function Mod_SetExtraFlags(mod) {
   if (mod == null || mod.type !== mod_alias) {
     return;
@@ -3534,15 +3374,9 @@ export function Mod_SetExtraFlags(mod) {
   mod.extraflags_list = r_nolerp_list.string;
 }
 
-// ============================================================================
-//
 //                        SPRITE MODELS
-//
-// ============================================================================
 
-// ============================================================================
 // Mod_LoadSpriteFrame
-// ============================================================================
 
 function Mod_LoadSpriteFrame(buf, offset, framenum) {
   const view = new DataView(buf, offset);
@@ -3583,9 +3417,7 @@ function Mod_LoadSpriteFrame(buf, offset, framenum) {
   };
 }
 
-// ============================================================================
 // Mod_LoadSpriteGroup
-// ============================================================================
 
 function Mod_LoadSpriteGroup(buf, offset, framenum) {
   const view = new DataView(buf, offset);
@@ -3628,9 +3460,7 @@ function Mod_LoadSpriteGroup(buf, offset, framenum) {
   };
 }
 
-// ============================================================================
 // Mod_LoadSpriteModel
-// ============================================================================
 
 function Mod_LoadSpriteModel(mod, buffer) {
   const view = new DataView(buffer);
@@ -3664,9 +3494,7 @@ function Mod_LoadSpriteModel(mod, buffer) {
   mod.mins[2] = (-psprite.maxheight / 2) | 0;
   mod.maxs[2] = (psprite.maxheight / 2) | 0;
 
-  //
   // load the frames
-  //
   if (numframes < 1) {
     Sys_Error("Mod_LoadSpriteModel: Invalid # of frames: " + numframes);
   }
@@ -3710,9 +3538,7 @@ function Mod_LoadSpriteModel(mod, buffer) {
   mod.type = mod_sprite;
 }
 
-// ============================================================================
 // Mod_Print
-// ============================================================================
 
 export function Mod_Print() {
   Con_Printf("Cached models:\n");

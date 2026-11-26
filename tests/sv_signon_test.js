@@ -118,9 +118,7 @@ Deno.test("SV_ReserveSignonSpace starts a new buffer rather than split a message
   });
 });
 
-//
 // SV_SendClientMessages over a fake net driver
-//
 const FAKE_DRIVER = net.MAX_NET_DRIVERS - 1;
 
 function withClient(fn) {

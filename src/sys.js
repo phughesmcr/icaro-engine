@@ -1,12 +1,6 @@
 // Ported from: WinQuake/sys.h + sys_win.c -- system interface (browser)
 
-/*
-===============================================================================
-
-SYSTEM IO
-
-===============================================================================
-*/
+// SYSTEM IO
 
 export function Sys_Init() {
   console.log("Icaro Engine initializing...");
@@ -25,19 +19,13 @@ export function Sys_Error(error) {
   throw new Error(error);
 }
 
-/*
-===============================================================================
-
-LOBBY ADDRESS (web only, no C counterpart)
-
-The page's ?server= parameter names the multiplayer lobby. It comes from a
-link anyone can craft, and the menus and the auto-join turn it into a
-`connect "..."` line for the command buffer, so it is checked here: a `"`
-would end the quoted argument, and a `;` or newline would start a new
-command.
-
-===============================================================================
-*/
+// LOBBY ADDRESS (web only, no C counterpart)
+//
+// The page's ?server= parameter names the multiplayer lobby. It comes from a
+// link anyone can craft, and the menus and the auto-join turn it into a
+// `connect "..."` line for the command buffer, so it is checked here: a `"`
+// would end the quoted argument, and a `;` or newline would start a new
+// command.
 
 export const SYS_DEFAULT_LOBBY = "https://localhost:4433";
 
@@ -48,18 +36,14 @@ const _unsafeCommandChars = /["';\\\s\p{Cc}]/u;
 // A WebSocket lobby's path (e.g. the tunnel's /mp): plain segments only.
 const _lobbyPathPattern = /^(?:\/[A-Za-z0-9._~-]+)*\/?$/;
 
-/*
-================
-Sys_ParseLobbyURL
-
-Returns raw as 'https://host[:port]' if it names a lobby: an https://, wts://
-or wt:// URL (or a bare host[:port]) with no user info, path, query or
-fragment. A WebSocket lobby (src/net_websocket.js) may also be a ws:// or
-wss:// URL with a path of plain segments, returned as
-'wss://host[:port]/path' (or ws://) without a trailing slash. Returns null
-for anything else.
-================
-*/
+/**
+ * Returns raw as 'https://host[:port]' if it names a lobby: an https://, wts://
+ * or wt:// URL (or a bare host[:port]) with no user info, path, query or
+ * fragment. A WebSocket lobby (src/net_websocket.js) may also be a ws:// or
+ * wss:// URL with a path of plain segments, returned as
+ * 'wss://host[:port]/path' (or ws://) without a trailing slash. Returns null
+ * for anything else.
+ */
 export function Sys_ParseLobbyURL(raw) {
   if (
     typeof raw !== "string" || raw.length === 0 || _unsafeCommandChars.test(raw)
@@ -127,27 +111,19 @@ function _Sys_ParseWebSocketLobbyURL(raw) {
   return u.protocol + "//" + u.host + u.pathname.replace(/\/+$/, "");
 }
 
-/*
-================
-Sys_CommandArgIsSafe
-
-True when s can be quoted into a command line as one argument: no quote,
-semicolon, backslash, whitespace or control character.
-================
-*/
+/**
+ * True when s can be quoted into a command line as one argument: no quote,
+ * semicolon, backslash, whitespace or control character.
+ */
 export function Sys_CommandArgIsSafe(s) {
   return typeof s === "string" && _unsafeCommandChars.test(s) === false;
 }
 
-/*
-================
-Sys_LobbyURL
-
-The lobby named by the page's ?server= parameter, as 'https://host[:port]'.
-SYS_DEFAULT_LOBBY when there is none, and null when it is not a valid lobby
-address (callers refuse to connect rather than fall back to localhost).
-================
-*/
+/**
+ * The lobby named by the page's ?server= parameter, as 'https://host[:port]'.
+ * SYS_DEFAULT_LOBBY when there is none, and null when it is not a valid lobby
+ * address (callers refuse to connect rather than fall back to localhost).
+ */
 export function Sys_LobbyURL() {
   const server = new URLSearchParams(globalThis.location.search).get("server");
   if (server === null || server === "") {
@@ -156,17 +132,13 @@ export function Sys_LobbyURL() {
   return Sys_ParseLobbyURL(server);
 }
 
-/*
-================
-Sys_ConnectURL
-
-The argument for a `connect` command: 'wts://host[:port]' for lobby (a
-Sys_LobbyURL result), with the port replaced by port when it is not null and
-'?room=<id>' added when roomId is not null. The room id is percent-encoded.
-Returns null if lobby or port is invalid, so the caller never quotes an
-unchecked string into the command buffer.
-================
-*/
+/**
+ * The argument for a `connect` command: 'wts://host[:port]' for lobby (a
+ * Sys_LobbyURL result), with the port replaced by port when it is not null and
+ * '?room=<id>' added when roomId is not null. The room id is percent-encoded.
+ * Returns null if lobby or port is invalid, so the caller never quotes an
+ * unchecked string into the command buffer.
+ */
 export function Sys_ConnectURL(lobby, roomId, port) {
   const host = Sys_ParseLobbyURL(lobby);
   if (host === null) {
@@ -196,17 +168,13 @@ export function Sys_ConnectURL(lobby, roomId, port) {
   return connectUrl;
 }
 
-/*
-================
-Sys_PageURL
-
-The page URL to put in the address bar: room= when roomId is given, and
-game=, server= and transport= kept from the current URL, since whoever opens
-a shared link needs the same mission pack, lobby and transport. server= is
-kept only when it is a valid lobby address, and transport= only when it is
-ws or wt. Other parameters are dropped.
-================
-*/
+/**
+ * The page URL to put in the address bar: room= when roomId is given, and
+ * game=, server= and transport= kept from the current URL, since whoever opens
+ * a shared link needs the same mission pack, lobby and transport. server= is
+ * kept only when it is a valid lobby address, and transport= only when it is
+ * ws or wt. Other parameters are dropped.
+ */
 export function Sys_PageURL(roomId) {
   const params = new URLSearchParams();
   if (roomId) params.set("room", roomId);
@@ -293,30 +261,20 @@ export function Sys_Quit() {
   console.log("Sys_Quit");
 }
 
-/*
-===============================================================================
-
-DETERMINISM HOOKS
-
-Not in id's C. A lockstep driver (an agent, an RL environment, a bug-report
-replay) needs a run to be reproducible from a seed and an action log, so the
-clock and the server's gameplay randomness can be put under its control.
-Both are opt-in: with neither set, behaviour is unchanged.
-
-===============================================================================
-*/
+// DETERMINISM HOOKS
+//
+// Not in id's C. A lockstep driver (an agent, an RL environment, a bug-report
+// replay) needs a run to be reproducible from a seed and an action log, so the
+// clock and the server's gameplay randomness can be put under its control.
+// Both are opt-in: with neither set, behaviour is unchanged.
 
 let _clockOverride = null;
 
-/*
-================
-Sys_SetClockOverride
-
-Makes Sys_FloatTime and Sys_DoubleTime return fn() (seconds) instead of the
-wall clock; null restores the wall clock. A lockstep driver keeps its own
-time and passes the matching frame time to Host_Frame.
-================
-*/
+/**
+ * Makes Sys_FloatTime and Sys_DoubleTime return fn() (seconds) instead of the
+ * wall clock; null restores the wall clock. A lockstep driver keeps its own
+ * time and passes the matching frame time to Host_Frame.
+ */
 export function Sys_SetClockOverride(fn) {
   if (fn !== null && typeof fn !== "function") {
     throw new TypeError("Sys_SetClockOverride: expected a function or null");
@@ -342,19 +300,15 @@ export function Sys_DoubleTime() {
 let _randomSeeded = false;
 let _rand_a = 0, _rand_b = 0, _rand_c = 0, _rand_d = 0;
 
-/*
-================
-Sys_Random
-
-Server-side gameplay randomness, 0 <= num < 1: QuakeC random() (PF_random)
-and monster chase moves (SV_NewChaseDir, SV_MoveToGoal).
-
-Deliberate deviation: Quake drew these from the C library's rand(), which
-nothing outside the engine could seed. The port used Math.random; it still
-does unless Sys_SetRandomSeed has been called. Math.random is looked up on
-each call, so code that swaps it (tools/bench) still controls the default.
-================
-*/
+/**
+ * Server-side gameplay randomness, 0 <= num < 1: QuakeC random() (PF_random)
+ * and monster chase moves (SV_NewChaseDir, SV_MoveToGoal).
+ *
+ * Deliberate deviation: Quake drew these from the C library's rand(), which
+ * nothing outside the engine could seed. The port used Math.random; it still
+ * does unless Sys_SetRandomSeed has been called. Math.random is looked up on
+ * each call, so code that swaps it (tools/bench) still controls the default.
+ */
 export function Sys_Random() {
   if (_randomSeeded !== true) {
     return Math.random();
@@ -370,14 +324,10 @@ export function Sys_Random() {
   return (t >>> 0) / 4294967296;
 }
 
-/*
-================
-Sys_SetRandomSeed
-
-Seeds Sys_Random with a 32-bit integer (other numbers are truncated to one);
-null goes back to Math.random. The same seed gives the same sequence.
-================
-*/
+/**
+ * Seeds Sys_Random with a 32-bit integer (other numbers are truncated to one);
+ * null goes back to Math.random. The same seed gives the same sequence.
+ */
 export function Sys_SetRandomSeed(seed) {
   if (seed === null) {
     _randomSeeded = false;

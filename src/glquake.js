@@ -2,13 +2,7 @@
 
 import * as THREE from "three";
 
-/*
-===============================================================================
-
-GL DEFINITIONS AND STATE
-
-===============================================================================
-*/
+// GL DEFINITIONS AND STATE
 
 export const ALIAS_BASE_SIZE_RATIO = 1.0 / 11.0;
 export const MAX_LBM_HEIGHT = 480;
@@ -32,20 +26,12 @@ export const LIGHTMAP_INTENSITY = Math.PI;
 export const TEXTURE0_SGIS = 0x835E;
 export const TEXTURE1_SGIS = 0x835F;
 
-//
 // VERTEXSIZE for glpoly_t verts: x y z s t (lightmap s) (lightmap t)
-//
 export const VERTEXSIZE = 7;
 
 export const MAXLIGHTMAPS = 4;
 
-/*
-===============================================================================
-
-TEXTURE MANAGEMENT
-
-===============================================================================
-*/
+// TEXTURE MANAGEMENT
 
 export const MAX_GLTEXTURES = 1024;
 
@@ -83,13 +69,7 @@ export function getTextureExtensionNumber() {
   return texture_extension_number++;
 }
 
-/*
-===============================================================================
-
-POLYGON STRUCTURE
-
-===============================================================================
-*/
+// POLYGON STRUCTURE
 
 export class glpoly_t {
   constructor() {
@@ -101,13 +81,7 @@ export class glpoly_t {
   }
 }
 
-/*
-===============================================================================
-
-GL VERTEX TYPE
-
-===============================================================================
-*/
+// GL VERTEX TYPE
 
 export class glvert_t {
   constructor() {
@@ -129,13 +103,7 @@ export const gly = 0;
 export const glwidth = 640;
 export const glheight = 480;
 
-/*
-===============================================================================
-
-PARTICLE TYPE
-
-===============================================================================
-*/
+// PARTICLE TYPE
 
 export const pt_static = 0;
 export const pt_grav = 1;
@@ -160,13 +128,7 @@ export class particle_t {
   }
 }
 
-/*
-===============================================================================
-
-RENDER STATE VARIABLES
-
-===============================================================================
-*/
+// RENDER STATE VARIABLES
 
 export const r_worldentity = null; // entity_t
 export const r_cache_thrash = false;
@@ -215,13 +177,7 @@ export const gl_alpha_format = 4; // GL_RGBA
 
 export const gl_mtexable = false;
 
-/*
-===============================================================================
-
-CVARS (placeholder objects matching cvar_t structure)
-
-===============================================================================
-*/
+// CVARS (placeholder objects matching cvar_t structure)
 
 export const r_norefresh = { name: "r_norefresh", string: "0", value: 0 };
 export const r_drawentities = { name: "r_drawentities", string: "1", value: 1 };
@@ -331,10 +287,10 @@ export function GL_ThreeFilter(filter) {
   );
 }
 
-/*
-gl_draw.c GL_Upload32: a mipmapped texture gets gl_filter_min / gl_filter_max,
-any other texture gets gl_filter_max both ways.
-*/
+/**
+ * gl_draw.c GL_Upload32: a mipmapped texture gets gl_filter_min / gl_filter_max,
+ * any other texture gets gl_filter_max both ways.
+ */
 export function GL_SetTextureFilter(texture, mipmap) {
   texture.minFilter = GL_ThreeFilter(mipmap ? gl_filter_min : gl_filter_max);
   texture.magFilter = GL_ThreeFilter(gl_filter_max);
@@ -349,17 +305,13 @@ export function GL_RegisterTexture(texture) {
   }
 }
 
-/*
-================
-GL_ScaledTextureSize
-
-The size GL_Upload32 (gl_draw.c) uploads a texture at: shifted down by
-gl_picmip, then clamped to gl_max_size. GLQuake first rounds up to a power of
-two; WebGL2 takes any size, so the port skips that and only ever shrinks.
-Never below 1 texel (C has no floor; a huge picmip would upload 0x0).
-Returns the shared _scaledSize scratch object.
-================
-*/
+// GL_ScaledTextureSize
+//
+// The size GL_Upload32 (gl_draw.c) uploads a texture at: shifted down by
+// gl_picmip, then clamped to gl_max_size. GLQuake first rounds up to a power of
+// two; WebGL2 takes any size, so the port skips that and only ever shrinks.
+// Never below 1 texel (C has no floor; a huge picmip would upload 0x0).
+// Returns the shared _scaledSize scratch object.
 const _scaledSize = { width: 0, height: 0 };
 
 export function GL_ScaledTextureSize(width, height, mip = gl_picmip.value) {
@@ -380,15 +332,11 @@ export function GL_ScaledTextureSize(width, height, mip = gl_picmip.value) {
   return _scaledSize;
 }
 
-/*
-================
-GL_ResampleTexture8
-
-GL_ResampleTexture (gl_draw.c) point-samples 32-bit texels; doing the same on
-8-bit palette indices picks the same source texels, so the base and fullbright
-textures split from the result keep matching sizes.
-================
-*/
+/**
+ * GL_ResampleTexture (gl_draw.c) point-samples 32-bit texels; doing the same on
+ * 8-bit palette indices picks the same source texels, so the base and fullbright
+ * textures split from the result keep matching sizes.
+ */
 export function GL_ResampleTexture8(
   data,
   inwidth,
@@ -412,16 +360,13 @@ export function GL_ResampleTexture8(
   return out;
 }
 
-/*
-================
-gl_cull
+// gl_cull
+//
+// R_SetupGL (gl_rmain.c) enables GL_CULL_FACE only while gl_cull is set. Three.js
+// culls per material, so materials that are culled by default register here and
+// flip between FrontSide and DoubleSide when the cvar changes. Materials that are
+// intrinsically DoubleSide (sky, particles) never register.
 
-R_SetupGL (gl_rmain.c) enables GL_CULL_FACE only while gl_cull is set. Three.js
-culls per material, so materials that are culled by default register here and
-flip between FrontSide and DoubleSide when the cvar changes. Materials that are
-intrinsically DoubleSide (sky, particles) never register.
-================
-*/
 // Weak references: alias material caches live on model headers that can be
 // dropped without disposing their materials, so the registry must not keep
 // them alive.
@@ -486,11 +431,11 @@ export function GL_UnregisterTexture(texture) {
   if (index !== -1) _allGameTextures.splice(index, 1);
 }
 
-/*
-The loop at the end of gl_draw.c Draw_TextureMode_f: "change all the existing
-mipmap texture objects". As in C, textures without mipmaps keep the filter
-they were loaded with.
-*/
+/**
+ * The loop at the end of gl_draw.c Draw_TextureMode_f: "change all the existing
+ * mipmap texture objects". As in C, textures without mipmaps keep the filter
+ * they were loaded with.
+ */
 export function GL_UpdateTextureFiltering() {
   for (const texture of _allGameTextures) {
     if (texture != null && texture.generateMipmaps === true) {
@@ -500,14 +445,8 @@ export function GL_UpdateTextureFiltering() {
   }
 }
 
-/*
-===============================================================================
-
-THREE.JS HELPER FUNCTIONS
-(Replacing raw GL_Bind / GL_BeginRendering / etc.)
-
-===============================================================================
-*/
+// THREE.JS HELPER FUNCTIONS
+// (Replacing raw GL_Bind / GL_BeginRendering / etc.)
 
 export function GL_Bind(texnum) {
   currenttexture = texnum;

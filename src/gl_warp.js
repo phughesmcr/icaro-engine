@@ -61,11 +61,6 @@ export const turbsin = new Float32Array( [
 	- 1.56072, - 1.3677, - 1.17384, - 0.979285, - 0.784137, - 0.588517, - 0.392541, - 0.19633,
 ] );
 
-/*
-=============
-BoundPoly
-=============
-*/
 export function BoundPoly(numverts, verts, mins, maxs) {
   // id's gl_warp.c starts at +/-9999, which gives wrong bounds for any
   // vertex beyond 9999 units. QuakeSpasm starts at FLT_MAX instead.
@@ -85,11 +80,7 @@ export function BoundPoly(numverts, verts, mins, maxs) {
   }
 }
 
-/*
-=============
-SubdividePolygon
-=============
-*/
+// SubdividePolygon
 const subdivide_mins = new Float32Array(3);
 const subdivide_maxs = new Float32Array(3);
 const subdivide_dist = new Float32Array(65);
@@ -193,21 +184,15 @@ export function SubdividePolygon(numverts, verts) {
   }
 }
 
-/*
-================
-GL_SubdivideSurface
-
-Breaks a polygon up along axial 64 unit
-boundaries so that turbulent and sky warps
-can be done reasonably.
-================
-*/
+/**
+ * Breaks a polygon up along axial 64 unit
+ * boundaries so that turbulent and sky warps
+ * can be done reasonably.
+ */
 export function GL_SubdivideSurface(fa) {
   warpface = fa;
 
-  //
   // convert edges back to a normal polygon
-  //
   const verts = [];
   let numverts = 0;
   for (let i = 0; i < fa.numedges; i++) {
@@ -230,22 +215,18 @@ export function GL_SubdivideSurface(fa) {
   SubdividePolygon(numverts, arr);
 }
 
-/*
-=============
-R_InitSky
-
-A sky texture is 256*128, with the right side being a masked overlay.
-For Three.js, creates two textures (solid sky and alpha sky) from the
-sky texture data.
-
-Deliberate deviation, from QuakeSpasm's Sky_LoadTexture (gl_sky.c): id
-hard-codes 128*128 layers with a 256 stride, so a sky of any other size is
-read wrongly (or past its end). Each layer here is width/2 by height, with a
-warning for sizes other than 256*128. A texture too small to split gives no
-sky (null). mt.width and mt.height default to 256 and 128 when the caller
-doesn't pass them.
-==============
-*/
+/**
+ * A sky texture is 256*128, with the right side being a masked overlay.
+ * For Three.js, creates two textures (solid sky and alpha sky) from the
+ * sky texture data.
+ *
+ * Deliberate deviation, from QuakeSpasm's Sky_LoadTexture (gl_sky.c): id
+ * hard-codes 128*128 layers with a 256 stride, so a sky of any other size is
+ * read wrongly (or past its end). Each layer here is width/2 by height, with a
+ * warning for sizes other than 256*128. A texture too small to split gives no
+ * sky (null). mt.width and mt.height default to 256 and 128 when the caller
+ * doesn't pass them.
+ */
 export function R_InitSky(mt, d_8to24table) {
   const src = mt.data;
   const srcOffset = mt.offsets[0];

@@ -129,11 +129,6 @@ function Q_strncasecmp(s1, s2, n) {
   return s1.substring(0, n).toLowerCase() === s2.substring(0, n).toLowerCase();
 }
 
-/*
-===============
-SV_SetIdealPitch
-===============
-*/
 export function SV_SetIdealPitch() {
   // Use cached buffers instead of allocating per-call
   const z = _idealpitch_z;
@@ -197,11 +192,6 @@ export function SV_SetIdealPitch() {
   sv_player.v.idealpitch = -dir * sv_idealpitchscale.value;
 }
 
-/*
-==================
-SV_UserFriction
-==================
-*/
 export function SV_UserFriction() {
   const vel = velocity;
   const start = _userfriction_start;
@@ -241,11 +231,6 @@ export function SV_UserFriction() {
   vel[2] = vel[2] * newspeed;
 }
 
-/*
-==============
-SV_Accelerate
-==============
-*/
 export function SV_Accelerate() {
   const currentspeed = DotProduct(velocity, wishdir);
   const addspeed = wishspeed - currentspeed;
@@ -262,11 +247,6 @@ export function SV_Accelerate() {
   }
 }
 
-/*
-==============
-SV_AirAccelerate
-==============
-*/
 export function SV_AirAccelerate(wishveloc) {
   // Use cached buffer instead of allocating per-call
   _airaccel_wishvel[0] = wishveloc[0];
@@ -293,11 +273,6 @@ export function SV_AirAccelerate(wishveloc) {
   }
 }
 
-/*
-==============
-DropPunchAngle
-==============
-*/
 function DropPunchAngle() {
   let len = VectorNormalize(sv_player.v.punchangle);
 
@@ -308,18 +283,11 @@ function DropPunchAngle() {
   VectorScale(sv_player.v.punchangle, len, sv_player.v.punchangle);
 }
 
-/*
-===================
-SV_WaterMove
-===================
-*/
 export function SV_WaterMove() {
   // Use cached buffer instead of allocating per-call
   const wishvel = _watermove_wishvel;
 
-  //
   // user intentions
-  //
   AngleVectors(sv_player.v.v_angle, forward, right, up);
 
   for (let i = 0; i < 3; i++) {
@@ -340,9 +308,7 @@ export function SV_WaterMove() {
 
   _wishspeed *= 0.7;
 
-  //
   // water friction
-  //
   const speed = Length(velocity);
   let newspeed;
   if (speed) {
@@ -355,9 +321,7 @@ export function SV_WaterMove() {
     newspeed = 0;
   }
 
-  //
   // water acceleration
-  //
   if (_wishspeed === 0) {
     return;
   }
@@ -378,11 +342,6 @@ export function SV_WaterMove() {
   }
 }
 
-/*
-==============
-SV_WaterJump
-==============
-*/
 function SV_WaterJump() {
   if (
     sv.time > sv_player.v.teleport_time ||
@@ -396,13 +355,9 @@ function SV_WaterJump() {
   sv_player.v.velocity[1] = sv_player.v.movedir[1];
 }
 
-/*
-===================
-SV_NoclipMove -- johnfitz
-
-new, alternate noclip. old noclip is still handled in SV_AirMove
-===================
-*/
+// SV_NoclipMove -- johnfitz
+//
+// new, alternate noclip. old noclip is still handled in SV_AirMove
 export function SV_NoclipMove() {
   AngleVectors(sv_player.v.v_angle, forward, right, up);
 
@@ -417,11 +372,6 @@ export function SV_NoclipMove() {
   }
 }
 
-/*
-===================
-SV_AirMove
-===================
-*/
 export function SV_AirMove() {
   // Use cached buffer instead of allocating per-call
   const wishvel = _airmove_wishvel;
@@ -465,14 +415,10 @@ export function SV_AirMove() {
   }
 }
 
-/*
-===================
-SV_ClientThink
-
-the move fields specify an intended velocity in pix/sec
-the angle fields specify an exact angular motion in degrees
-===================
-*/
+/**
+ * the move fields specify an intended velocity in pix/sec
+ * the angle fields specify an exact angular motion in degrees
+ */
 export function SV_ClientThink() {
   // Use cached buffer instead of allocating per-call
   const v_angle = _clientthink_v_angle;
@@ -488,14 +434,11 @@ export function SV_ClientThink() {
 
   DropPunchAngle();
 
-  //
   // if dead, behave differently
-  //
   if (sv_player.v.health <= 0) {
     return;
   }
 
-  //
   // angles
   // show 1/3 the pitch angle and all the roll angle
   cmd = host_client.cmd;
@@ -513,7 +456,6 @@ export function SV_ClientThink() {
     return;
   }
 
-  //
   // walk
   //
   // johnfitz -- alternate noclip
@@ -533,11 +475,6 @@ export function SV_ClientThink() {
   SV_AirMove();
 }
 
-/*
-===================
-SV_ReadClientMove
-===================
-*/
 export function SV_ReadClientMove(move) {
   // Use cached buffer instead of allocating per-call
   const angle = _readclientmove_angle;
@@ -590,13 +527,9 @@ export function SV_ReadClientMove(move) {
   host_client.lastcmd.upmove = move.upmove;
 }
 
-/*
-===================
-SV_ReadClientMessage
-
-Returns false if the client should be killed
-===================
-*/
+// SV_ReadClientMessage
+//
+// Returns false if the client should be killed
 
 // Maximum messages to process per client per frame.
 // Prevents infinite loops from async message queuing (WebTransport) and
@@ -735,11 +668,6 @@ export function SV_ReadClientMessage() {
   return true;
 }
 
-/*
-==================
-SV_RunClients
-==================
-*/
 export function SV_RunClients() {
   for (let i = 0; i < svs.maxclients; i++) {
     host_client = svs.clients[i];

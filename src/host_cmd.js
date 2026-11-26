@@ -167,11 +167,8 @@ export function set_noclip_anglehack(v) {
   noclip_anglehack = v;
 }
 
-/*
-======================
-Host_InitCommands
-======================
-*/
+// Host_InitCommands
+
 // Web-only cvar (no Quake equivalent): save the game when the page is hidden
 // (Host_AutoSave). 0 turns it off.
 const web_autosave = new cvar_t("web_autosave", "1", true);
@@ -224,11 +221,6 @@ export function Host_InitCommands() {
   Cmd_AddCommand("vibrate", Host_Vibrate_f); // 2021 re-release
 }
 
-/*
-==================
-Host_Status_f
-==================
-*/
 function Host_Status_f() {
   let print;
 
@@ -296,14 +288,10 @@ function Host_Quit_f() {
   Host_Shutdown();
 }
 
-/*
-======================
-Host_ClientMapName
-
-Ironwail's cl.mapname (the world model's name without "maps/" and ".bsp"),
-which this port's client_state_t doesn't keep
-======================
-*/
+/**
+ * Ironwail's cl.mapname (the world model's name without "maps/" and ".bsp"),
+ * which this port's client_state_t doesn't keep
+ */
 function Host_ClientMapName() {
   if (cl.worldmodel === null || cl.worldmodel === undefined) {
     return "";
@@ -436,13 +424,7 @@ function Host_Changelevel_f() {
   // here because the client is already connected - it just needs new signon messages.
 }
 
-/*
-==================
-Host_Restart_f
-
-Restarts the current server for a dead player
-==================
-*/
+/** Restarts the current server for a dead player */
 function Host_Restart_f() {
   if (cls.demoplayback || !sv.active) {
     return;
@@ -591,17 +573,13 @@ function Host_Pause_f() {
   }
 }
 
-/*
-==================
-Host_ChatLine
-
-The check-length-and-truncate step of Ironwail's Host_Say and Host_Tell_f.
-id's C cuts the line to fit a 64-byte buffer (about 46 characters of
-message); Ironwail's buffer is MAXCMDLINE. Without truncation it drops
-trailing CRs and LFs, and the closing quote only if the message began with
-one (id's C drops the last character whether or not it is a quote).
-==================
-*/
+/**
+ * The check-length-and-truncate step of Ironwail's Host_Say and Host_Tell_f.
+ * id's C cuts the line to fit a 64-byte buffer (about 46 characters of
+ * message); Ironwail's buffer is MAXCMDLINE. Without truncation it drops
+ * trailing CRs and LFs, and the closing quote only if the message began with
+ * one (id's C drops the last character whether or not it is a quote).
+ */
 export function Host_ChatLine(text, quoted) {
   if (text.length >= MAXCMDLINE - 1) {
     return text.substring(0, MAXCMDLINE - 2) + "\n";
@@ -1250,13 +1228,9 @@ function Host_RequestPersistentStorage() {
   }
 }
 
-/*
-===============
-Host_SavegameComment
-
-Writes a SAVEGAME_COMMENT_LENGTH character comment describing the current game
-===============
-*/
+/**
+ * Writes a SAVEGAME_COMMENT_LENGTH character comment describing the current game
+ */
 function Host_SavegameComment() {
   // Build comment: levelname padded to 22 chars, then kills:xxx/xxx.
   // QuakeSpasm/Ironwail: fall back to the map name when the level has no
@@ -1279,11 +1253,6 @@ function Host_SavegameComment() {
   return text.replace(/ /g, "_");
 }
 
-/*
-===============
-Host_Savegame_f
-===============
-*/
 function Host_Savegame_f() {
   if (cmd_source !== src_command) return;
 
@@ -1393,19 +1362,15 @@ function Host_WriteSave(name, quiet) {
   return true;
 }
 
-/*
-===============
-Host_AutoSave
-
-Web-only deviation (mobile roadmap Tier 2 item 14, rules in autosave.js): iOS
-discards background tabs, so in_web.js calls this when the page is hidden
-(visibilitychange, pagehide). A local single-player game in progress is saved
-into the reserved slot "autosave", which the s0-s11 menu slots never touch.
-It uses the refusals of Host_Savegame_f but prints nothing, and it is
-synchronous (localStorage), so it finishes inside the event. Returns true if
-a save was written.
-===============
-*/
+// Host_AutoSave
+//
+// Web-only deviation (mobile roadmap Tier 2 item 14, rules in autosave.js): iOS
+// discards background tabs, so in_web.js calls this when the page is hidden
+// (visibilitychange, pagehide). A local single-player game in progress is saved
+// into the reserved slot "autosave", which the s0-s11 menu slots never touch.
+// It uses the refusals of Host_Savegame_f but prints nothing, and it is
+// synchronous (localStorage), so it finishes inside the event. Returns true if
+// a save was written.
 let autosave_last_name = "";
 let autosave_last_time = -1;
 
@@ -1439,14 +1404,10 @@ export function Host_AutoSave() {
   return true;
 }
 
-/*
-===============
-Host_AutosaveVisible
-
-The page is visible again, so the game in memory is the live one: nothing to
-recover if it is discarded later than this (autosave.js rules).
-===============
-*/
+/**
+ * The page is visible again, so the game in memory is the live one: nothing to
+ * recover if it is discarded later than this (autosave.js rules).
+ */
 export function Host_AutosaveVisible() {
   // Only the autosave this page wrote: one left by an earlier page waits
   // for the Continue offer, even if the player switches tabs first
@@ -1455,16 +1416,12 @@ export function Host_AutosaveVisible() {
   autosave_last_time = -1;
 }
 
-/*
-===============
-Host_MaybeOfferContinue
-
-Web-only. Called once per frame by Host_Frame until it returns true. On the
-first page load after an autosave it asks, with the engine's YES/NO prompt
-(SCR_ModalMessage, which takes touch taps), whether to continue. Yes loads
-the autosave; either answer consumes it. Rules: autosave.js.
-===============
-*/
+// Host_MaybeOfferContinue
+//
+// Web-only. Called once per frame by Host_Frame until it returns true. On the
+// first page load after an autosave it asks, with the engine's YES/NO prompt
+// (SCR_ModalMessage, which takes touch taps), whether to continue. Yes loads
+// the autosave; either answer consumes it. Rules: autosave.js.
 let offer_frames = 0;
 
 export function Host_MaybeOfferContinue() {
@@ -1508,11 +1465,6 @@ export function Host_MaybeOfferContinue() {
   return true;
 }
 
-/*
-===============
-Host_Loadgame_f
-===============
-*/
 function Host_Loadgame_f() {
   if (cmd_source !== src_command) return;
 
@@ -1703,27 +1655,19 @@ function Host_Stopdemo_f() {
   CL_Disconnect();
 }
 
-/*
-==================
-Host_Version_f
-
-C also prints the build time ("Exe: " __TIME__ " " __DATE__). The port has
-no build step that could stamp one, so that line is left out.
-==================
-*/
+/**
+ * C also prints the build time ("Exe: " __TIME__ " " __DATE__). The port has
+ * no build step that could stamp one, so that line is left out.
+ */
 export function Host_Version_f() {
   Con_Printf("Version " + VERSION.toFixed(2) + "\n");
 }
 
-/*
-==================
-FindViewthing
-
-The view* commands step a "viewthing" entity through a model's frames, for
-modders inspecting a model. They read both the local server's edicts and the
-client's model_precache, so like C they only work in a local game.
-==================
-*/
+/**
+ * The view* commands step a "viewthing" entity through a model's frames, for
+ * modders inspecting a model. They read both the local server's edicts and the
+ * client's model_precache, so like C they only work in a local game.
+ */
 export function FindViewthing() {
   for (let i = 0; i < sv.num_edicts; i++) {
     const e = EDICT_NUM(i);
@@ -1736,11 +1680,6 @@ export function FindViewthing() {
   return null;
 }
 
-/*
-==================
-Host_Viewmodel_f
-==================
-*/
 export function Host_Viewmodel_f() {
   const e = FindViewthing();
   if (e === null) {
@@ -1757,11 +1696,6 @@ export function Host_Viewmodel_f() {
   cl.model_precache[Math.trunc(e.v.modelindex)] = m;
 }
 
-/*
-==================
-Host_Viewframe_f
-==================
-*/
 export function Host_Viewframe_f() {
   const e = FindViewthing();
   if (e === null) {
@@ -1777,11 +1711,6 @@ export function Host_Viewframe_f() {
   e.v.frame = f;
 }
 
-/*
-==================
-PrintFrameName
-==================
-*/
 function PrintFrameName(m, frame) {
   // C casts any model's extra data to aliashdr_t and reads garbage for a
   // brush or sprite model; the port's Mod_Extradata would Sys_Error on a
@@ -1798,11 +1727,6 @@ function PrintFrameName(m, frame) {
   Con_Printf("frame %i: %s\n", frame, pframedesc.name);
 }
 
-/*
-==================
-Host_Viewnext_f
-==================
-*/
 export function Host_Viewnext_f() {
   const e = FindViewthing();
   if (e === null) {
@@ -1818,11 +1742,6 @@ export function Host_Viewnext_f() {
   PrintFrameName(m, e.v.frame);
 }
 
-/*
-==================
-Host_Viewprev_f
-==================
-*/
 export function Host_Viewprev_f() {
   const e = FindViewthing();
   if (e === null) {
@@ -1839,26 +1758,17 @@ export function Host_Viewprev_f() {
   PrintFrameName(m, e.v.frame);
 }
 
-/*
-==================
-Host_Vibrate_f
-
-Deliberate addition; not in id's Quake or Ironwail. The 2021 re-release's
-published QuakeC has `stuffcmd (self, "vibrate tactile/....bnvib")` at ten
-sites in weapons.qc, all commented out, and no shipped progs.dat contains
-"vibrate". The KEX executable has the command and the paks ship the .bnvib
-files under tactile/. Registered so a mod that re-enables those lines gets
-silence instead of "Unknown command"; it ignores its arguments.
-==================
-*/
+/**
+ * Deliberate addition; not in id's Quake or Ironwail. The 2021 re-release's
+ * published QuakeC has `stuffcmd (self, "vibrate tactile/....bnvib")` at ten
+ * sites in weapons.qc, all commented out, and no shipped progs.dat contains
+ * "vibrate". The KEX executable has the command and the paks ship the .bnvib
+ * files under tactile/. Registered so a mod that re-enables those lines gets
+ * silence instead of "Unknown command"; it ignores its arguments.
+ */
 function Host_Vibrate_f() {
 }
 
-/*
-==================
-Host_PreSpawn_f
-==================
-*/
 function Host_PreSpawn_f() {
   if (cmd_source === src_command) {
     Con_Printf("prespawn is not valid from the console\n");
@@ -1876,11 +1786,6 @@ function Host_PreSpawn_f() {
   host_client.signonidx = 0;
 }
 
-/*
-==================
-Host_Spawn_f
-==================
-*/
 function Host_Spawn_f() {
   if (cmd_source === src_command) {
     Con_Printf("spawn is not valid from the console\n");
@@ -2013,11 +1918,6 @@ function Host_Spawn_f() {
   host_client.sendsignon = PRESPAWN_FLUSH;
 }
 
-/*
-==================
-Host_Begin_f
-==================
-*/
 function Host_Begin_f() {
   if (cmd_source === src_command) {
     Con_Printf("begin is not valid from the console\n");

@@ -52,12 +52,12 @@ export function Autosave_ParseMeta(text, now) {
   return { t: meta.t, map: meta.map };
 }
 
-/*
-state: { search, now, metaText, saveExists, connected (a game is running or
-connecting), dedicated, modalActive, ready (the host has run a few frames) }
-Returns 'wait' (try again next frame), 'skip' (never offer this page load)
-or 'offer'.
-*/
+/**
+ * state: { search, now, metaText, saveExists, connected (a game is running or
+ * connecting), dedicated, modalActive, ready (the host has run a few frames) }
+ * Returns 'wait' (try again next frame), 'skip' (never offer this page load)
+ * or 'offer'.
+ */
 export function Autosave_OfferDecision(state) {
   if (state.dedicated === true) return "skip"; // SCR_ModalMessage would answer yes
   if (Autosave_UrlBlocksOffer(state.search)) return "skip";

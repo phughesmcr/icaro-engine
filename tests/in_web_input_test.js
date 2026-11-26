@@ -1196,9 +1196,7 @@ Deno.test("IN-5: every numpad code maps as WinQuake scantokey does", () => {
   });
 });
 
-//============================================================================
 // Residual coverage: XR, touch menu, fullscreen race, touch run speed
-//============================================================================
 
 const host = await import("../src/host.js");
 const cvarModule = await import("../src/cvar.js");

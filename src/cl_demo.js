@@ -24,26 +24,15 @@ import { Host_Error, host_framecount, realtime } from "./host.js";
 import { NET_GetMessage } from "./net_main.js";
 import { COM_FindFile } from "./pak.js";
 
-/*
-==============================================================================
+// DEMO CODE
+//
+// When a demo is playing back, all NET_SendMessages are skipped, and
+// NET_GetMessages are read from the demo file.
+//
+// Whenever cl.time gets past the last received message, another message is
+// read from the demo file.
 
-DEMO CODE
-
-When a demo is playing back, all NET_SendMessages are skipped, and
-NET_GetMessages are read from the demo file.
-
-Whenever cl.time gets past the last received message, another message is
-read from the demo file.
-==============================================================================
-*/
-
-/*
-==============
-CL_StopPlayback
-
-Called when a demo file runs out, or the user starts a game
-==============
-*/
+/** Called when a demo file runs out, or the user starts a game */
 export function CL_StopPlayback() {
   if (!cls.demoplayback) {
     return;
@@ -65,13 +54,10 @@ export function CL_StopPlayback() {
   }
 }
 
-/*
-====================
-CL_WriteDemoMessage
+// CL_WriteDemoMessage
+//
+// Dumps the current net message, prefixed by the length and view angles
 
-Dumps the current net message, prefixed by the length and view angles
-====================
-*/
 // Demo recording buffer state
 let demo_buffer = null; // Uint8Array
 let demo_buffer_pos = 0;
@@ -132,13 +118,7 @@ export function CL_WriteDemoMessage() {
   DemoBuffer_WriteBytes(net_message.data, 0, net_message.cursize);
 }
 
-/*
-====================
-CL_GetMessage
-
-Handles recording and playback of demos, on top of NET_ code
-====================
-*/
+/** Handles recording and playback of demos, on top of NET_ code */
 export function CL_GetMessage() {
   if (cls.demoplayback) {
     // ericw -- demo pause support (QuakeSpasm). QuakeSpasm lets cl.time
@@ -255,13 +235,7 @@ export function CL_GetMessage() {
   return r;
 }
 
-/*
-====================
-CL_Stop_f
-
-stop recording a demo
-====================
-*/
+/** stop recording a demo */
 export function CL_Stop_f() {
   if (cmd_source !== src_command) {
     return;
@@ -298,13 +272,7 @@ export function CL_Stop_f() {
   Con_Printf("Completed demo\n");
 }
 
-/*
-====================
-CL_Record_f
-
-record <demoname> <map> [cd track]
-====================
-*/
+/** record <demoname> <map> [cd track] */
 export function CL_Record_f() {
   if (cmd_source !== src_command) {
     return;
@@ -358,13 +326,7 @@ export function CL_Record_f() {
   cls.demorecording = true;
 }
 
-/*
-====================
-CL_PlayDemo_f
-
-play [demoname]
-====================
-*/
+/** play [demoname] */
 export function CL_PlayDemo_f() {
   if (cmd_source !== src_command) {
     return;
@@ -375,14 +337,10 @@ export function CL_PlayDemo_f() {
     return;
   }
 
-  //
   // disconnect from server
-  //
   CL_Disconnect();
 
-  //
   // open the demo file
-  //
   let name = Cmd_Argv(1);
   name = COM_DefaultExtension(name, ".dem");
 
@@ -401,13 +359,7 @@ export function CL_PlayDemo_f() {
   CL_PlayDemoFromData(buf);
 }
 
-/*
-====================
-CL_PlayDemoFromData
-
-Play a demo from an ArrayBuffer (browser-specific entry point)
-====================
-*/
+/** Play a demo from an ArrayBuffer (browser-specific entry point) */
 export function CL_PlayDemoFromData(data) {
   CL_Disconnect();
 
@@ -438,12 +390,6 @@ export function CL_PlayDemoFromData(data) {
   Con_Printf("Playing demo (forcetrack %i)\n", cls.forcetrack);
 }
 
-/*
-====================
-CL_FinishTimeDemo
-
-====================
-*/
 function CL_FinishTimeDemo() {
   cls.timedemo = false;
 
@@ -461,13 +407,7 @@ function CL_FinishTimeDemo() {
   );
 }
 
-/*
-====================
-CL_TimeDemo_f
-
-timedemo [demoname]
-====================
-*/
+/** timedemo [demoname] */
 export function CL_TimeDemo_f() {
   if (cmd_source !== src_command) {
     return;

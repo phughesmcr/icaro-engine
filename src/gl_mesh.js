@@ -25,13 +25,7 @@ import {
 } from "./render.js";
 import { MF_HOLEY, MOD_NOLERP, Mod_SetExtraFlags } from "./gl_model.js";
 
-/*
-=================================================================
-
-ALIAS MODEL DISPLAY LIST GENERATION
-
-=================================================================
-*/
+// ALIAS MODEL DISPLAY LIST GENERATION
 
 let paliashdr = null; // aliashdr_t *
 
@@ -70,11 +64,6 @@ let poseverts = null; // trivertx_t[][]
 
 // r_avertexnormals is imported from anorm_dots.js to avoid circular dependency
 
-/*
-================
-StripLength
-================
-*/
 function StripLength(starttri, startv) {
   used[starttri] = 2;
 
@@ -146,11 +135,6 @@ function StripLength(starttri, startv) {
   return stripcount;
 }
 
-/*
-===========
-FanLength
-===========
-*/
 function FanLength(starttri, startv) {
   used[starttri] = 2;
 
@@ -218,21 +202,15 @@ function FanLength(starttri, startv) {
   return stripcount;
 }
 
-/*
-================
-BuildTris
-
-Generate a list of trifans or strips
-for the model, which holds for all frames
-================
-*/
+/**
+ * Generate a list of trifans or strips
+ * for the model, which holds for all frames
+ */
 export function BuildTris() {
   const bestverts = new Int32Array(MAXALIASTRIS + 2);
   const besttris = new Int32Array(MAXALIASTRIS);
 
-  //
   // build tristrips
-  //
   numorder = 0;
   numcommands = 0;
   used.fill(0);
@@ -315,15 +293,11 @@ export function BuildTris() {
   alltris += pheader.numtris;
 }
 
-/*
-================
-GL_MakeAliasModelDisplayLists
-
-In Three.js, we build a BufferGeometry from the alias model vertex/triangle data.
-The original code generates GL command lists (triangle strips/fans);
-we instead build indexed triangle geometry.
-================
-*/
+/**
+ * In Three.js, we build a BufferGeometry from the alias model vertex/triangle data.
+ * The original code generates GL command lists (triangle strips/fans);
+ * we instead build indexed triangle geometry.
+ */
 export function GL_MakeAliasModelDisplayLists(m, hdr) {
   paliashdr = hdr;
   pheader = hdr;
@@ -356,18 +330,14 @@ export function GL_MakeAliasModelDisplayLists(m, hdr) {
   GL_AliasCullSphere(paliashdr);
 }
 
-/*
-================
-GL_AliasCullSphere
-
-Not in the C: GL draws every alias model it is given and lets the hardware
-clip it. Three.js frustum-culls a mesh by its geometry's bounding sphere,
-which it computes once from the first pose it sees, so a later pose that
-reaches outside it (an arm swing, a death fall) could be culled at the
-screen edge. Work out one sphere, in model space, that holds every vertex
-of every pose; R_DrawAliasModel gives it to the entity's geometry.
-================
-*/
+/**
+ * Not in the C: GL draws every alias model it is given and lets the hardware
+ * clip it. Three.js frustum-culls a mesh by its geometry's bounding sphere,
+ * which it computes once from the first pose it sees, so a later pose that
+ * reaches outside it (an arm swing, a death fall) could be culled at the
+ * screen edge. Work out one sphere, in model space, that holds every vertex
+ * of every pose; R_DrawAliasModel gives it to the entity's geometry.
+ */
 function GL_AliasCullSphere(hdr) {
   const scale = hdr.scale;
   const origin = hdr.scale_origin;
@@ -419,18 +389,14 @@ function GL_AliasCullSphere(hdr) {
   hdr._cullRadius = Math.sqrt(radiusSq);
 }
 
-/*
-================
-GL_DrawAliasFrame
-
-Build a Three.js BufferGeometry from a single pose of an alias model.
-Uses the command list to reconstruct triangle strips/fans into indexed triangles.
-
-Caches geometry template (positions, UVs, indices, normals, lightnormalindices)
-per (paliashdr, posenum) to avoid recomputation every frame. Vertex colors
-are updated in place from a pre-allocated buffer.
-================
-*/
+// GL_DrawAliasFrame
+//
+// Build a Three.js BufferGeometry from a single pose of an alias model.
+// Uses the command list to reconstruct triangle strips/fans into indexed triangles.
+//
+// Caches geometry template (positions, UVs, indices, normals, lightnormalindices)
+// per (paliashdr, posenum) to avoid recomputation every frame. Vertex colors
+// are updated in place from a pre-allocated buffer.
 
 // Shared buffers for int-to-float bit casting
 const _castIntBuf = new Int32Array(1);
@@ -560,13 +526,7 @@ export function GL_DrawAliasFrame(paliashdr, posenum) {
   return cached;
 }
 
-/*
-================
-GL_ClearAliasCache
-
-Port-only hook for clearing cached alias model geometries. Unused.
-================
-*/
+/** Port-only hook for clearing cached alias model geometries. Unused. */
 export function GL_ClearAliasCache() {
   // Caches are stored on paliashdr objects. Mod_ClearAll keeps alias
   // models across map changes, as C does, so the caches stay valid and
@@ -574,14 +534,10 @@ export function GL_ClearAliasCache() {
   // ever needed.
 }
 
-/*
-=================
-lerpdata_t
-
-FitzQuake/QuakeSpasm (r_alias.c): what R_SetupAliasFrame and
-R_SetupEntityTransform work out for one draw of one entity.
-=================
-*/
+/**
+ * FitzQuake/QuakeSpasm (r_alias.c): what R_SetupAliasFrame and
+ * R_SetupEntityTransform work out for one draw of one entity.
+ */
 export class lerpdata_t {
   constructor() {
     this.pose1 = 0;
@@ -600,17 +556,13 @@ function CLAMP(min, x, max) {
   return x < min ? min : (x > max ? max : x);
 }
 
-/*
-=================
-R_SetupAliasFrame -- johnfitz -- rewritten to support lerping
-
-Ported from: QuakeSpasm r_alias.c. Deliberate deviation for r_lerpmodels
-(id's R_SetupAliasFrame picks one pose and draws it): blend from the
-previous pose to the new one over the frame's interval, 0.1 s for a
-single-pose frame. With r_lerpmodels 0, pose1 = pose2 = id's pose.
-QS takes currententity; this takes the entity as its first argument.
-=================
-*/
+// R_SetupAliasFrame -- johnfitz -- rewritten to support lerping
+//
+// Ported from: QuakeSpasm r_alias.c. Deliberate deviation for r_lerpmodels
+// (id's R_SetupAliasFrame picks one pose and draws it): blend from the
+// previous pose to the new one over the frame's interval, 0.1 s for a
+// single-pose frame. With r_lerpmodels 0, pose1 = pose2 = id's pose.
+// QS takes currententity; this takes the entity as its first argument.
 export function R_SetupAliasFrame(e, paliashdr, frame, lerpdata) {
   const time = cl != null ? cl.time : 0;
 
@@ -707,17 +659,13 @@ export function R_SetupAliasFrame(e, paliashdr, frame, lerpdata) {
   }
 }
 
-/*
-=================
-R_SetupEntityTransform -- johnfitz -- set up transform part of lerpdata
-
-Ported from: QuakeSpasm r_alias.c. Deliberate deviation for r_lerpmove:
-a MOVETYPE_STEP entity (LERP_MOVESTEP) slides from its last position to
-the new one over 0.1 s instead of jumping at each think. The client
-receives no lerpfinish (no U_LERPFINISH), so LERP_FINISH is never set
-and QS's 0.1 s fallback applies.
-=================
-*/
+// R_SetupEntityTransform -- johnfitz -- set up transform part of lerpdata
+//
+// Ported from: QuakeSpasm r_alias.c. Deliberate deviation for r_lerpmove:
+// a MOVETYPE_STEP entity (LERP_MOVESTEP) slides from its last position to
+// the new one over 0.1 s instead of jumping at each think. The client
+// receives no lerpfinish (no U_LERPFINISH), so LERP_FINISH is never set
+// and QS's 0.1 s fallback applies.
 export function R_SetupEntityTransform(e, lerpdata) {
   // if LERP_RESETMOVE, kill any lerps in progress
   if ((e.lerpflags & LERP_RESETMOVE) !== 0) {
@@ -776,20 +724,16 @@ export function R_SetupEntityTransform(e, lerpdata) {
   }
 }
 
-/*
-=================
-AliasMaterial
-
-Not in the C. QuakeSpasm draws an alias model's fullbright pixels in a
-second pass that ignores the light; here the fragment shader does it.
-fullbrightMap is the skin's fullbright mask (GL_LoadTexture's
-_fullbright): alpha 1 on fullbright pixels, which then show the skin (map)
-colour unlit. Only the mask's alpha is read: its colour is black off the
-fullbright pixels and would darken the filtered edges. The hooks live on the class, not the instance, so a clone (the view
-model's depth-hack copy in gl_rmain.js) keeps them; copy() carries the map
-and the r_lerpmodels blend.
-=================
-*/
+/**
+ * Not in the C. QuakeSpasm draws an alias model's fullbright pixels in a
+ * second pass that ignores the light; here the fragment shader does it.
+ * fullbrightMap is the skin's fullbright mask (GL_LoadTexture's
+ * _fullbright): alpha 1 on fullbright pixels, which then show the skin (map)
+ * colour unlit. Only the mask's alpha is read: its colour is black off the
+ * fullbright pixels and would darken the filtered edges. The hooks live on the class, not the instance, so a clone (the view
+ * model's depth-hack copy in gl_rmain.js) keeps them; copy() carries the map
+ * and the r_lerpmodels blend.
+ */
 export class AliasMaterial extends THREE.MeshBasicMaterial {
   constructor(parameters) {
     super(parameters);
@@ -877,15 +821,11 @@ function R_GetAliasSkinTexture(paliashdr, entity, anim) {
     skinGroup;
 }
 
-/*
-=================
-R_GetAliasMaterial
-
-Get or create a cached material for the given alias model skin.
-Materials are cached per (paliashdr, skin texture, hasLighting) to avoid
-per-frame material creation and shader compilation.
-=================
-*/
+/**
+ * Get or create a cached material for the given alias model skin.
+ * Materials are cached per (paliashdr, skin texture, hasLighting) to avoid
+ * per-frame material creation and shader compilation.
+ */
 export function R_GetAliasMaterial(
   paliashdr,
   entity,
@@ -962,20 +902,16 @@ export function R_GetAliasMaterial(
   return material;
 }
 
-/*
-=================
-R_GetAliasLerpMaterial
-
-Not in the C. For r_lerpmodels, GL_DrawAliasFrame (QS r_alias.c) blends
-two poses per vertex; here the vertex shader does it: the geometry carries
-the previous pose as a second attribute, pose1, next to position (pose2),
-and a uniform holds the blend. Three uploads a material's uniforms only
-when the material changes between draws, so two entities sharing one
-cached material would draw with one blend: each entity gets its own
-material, kept in step with the cached one R_GetAliasMaterial picked.
-With r_lerpmodels 0 the cached materials are used, as before.
-=================
-*/
+/**
+ * Not in the C. For r_lerpmodels, GL_DrawAliasFrame (QS r_alias.c) blends
+ * two poses per vertex; here the vertex shader does it: the geometry carries
+ * the previous pose as a second attribute, pose1, next to position (pose2),
+ * and a uniform holds the blend. Three uploads a material's uniforms only
+ * when the material changes between draws, so two entities sharing one
+ * cached material would draw with one blend: each entity gets its own
+ * material, kept in step with the cached one R_GetAliasMaterial picked.
+ * With r_lerpmodels 0 the cached materials are used, as before.
+ */
 export function R_GetAliasLerpMaterial(entity, base, blend) {
   let material = entity._aliasLerpMaterial;
   if (material == null) {
@@ -1016,18 +952,14 @@ const _aliasRY = new THREE.Matrix4();
 const _aliasRX = new THREE.Matrix4();
 const _eyesOffset = new THREE.Vector3();
 
-/*
-=================
-cl_gun_fovscale
-
-Deliberate deviation, from Ironwail (gl_screen.c, after Qrack): above a 90
-degree fov, the view model is scaled across the screen (model y and z) by
-tan( fov / 2 ), so the gun keeps its shape instead of being stretched. The
-cvar sets how much of that correction to apply. Ironwail defaults it to 1;
-this port defaults to 0, GLQuake's unscaled gun. Ironwail registers it in
-SCR_Init; here gl_model.js Mod_Init does.
-=================
-*/
+/**
+ * Deliberate deviation, from Ironwail (gl_screen.c, after Qrack): above a 90
+ * degree fov, the view model is scaled across the screen (model y and z) by
+ * tan( fov / 2 ), so the gun keeps its shape instead of being stretched. The
+ * cvar sets how much of that correction to apply. Ironwail defaults it to 1;
+ * this port defaults to 0, GLQuake's unscaled gun. Ironwail registers it in
+ * SCR_Init; here gl_model.js Mod_Init does.
+ */
 export const cl_gun_fovscale = {
   name: "cl_gun_fovscale",
   string: "0",
@@ -1054,15 +986,12 @@ export function R_GunFovScale() {
 }
 const _DEG2RAD = Math.PI / 180;
 
-/*
-=================
-R_DrawAliasModel
+// R_DrawAliasModel
+//
+// Builds and returns a Three.js Mesh for the given alias model entity.
+// Caches geometry per (model, pose), materials per (model, skin),
+// and reuses mesh objects per entity to minimize per-frame allocations.
 
-Builds and returns a Three.js Mesh for the given alias model entity.
-Caches geometry per (model, pose), materials per (model, skin),
-and reuses mesh objects per entity to minimize per-frame allocations.
-=================
-*/
 // sRGB decode of a display-space light level, clamped as glColor3f clamps.
 // GL keeps vertex colours at 8 bits per channel, so a 256-entry table is
 // exact enough and keeps Math.pow out of the per-vertex loop.
@@ -1080,11 +1009,11 @@ export function GL_LinearLight(l) {
   return _linearLight[(l * 255 + 0.5) | 0];
 }
 
-/*
-Port-only: the per-entity vertex colour attribute R_DrawAliasModel rewrites
-whenever the lighting changes, marked dynamic for the GL driver. (The server's
-Three.js shim has no setUsage, hence the check.)
-*/
+/**
+ * Port-only: the per-entity vertex colour attribute R_DrawAliasModel rewrites
+ * whenever the lighting changes, marked dynamic for the GL driver. (The server's
+ * Three.js shim has no setUsage, hence the check.)
+ */
 function R_NewAliasColorAttribute(array) {
   const attribute = new THREE.BufferAttribute(array, 3);
   if (attribute.setUsage !== undefined) {
@@ -1361,14 +1290,10 @@ export function R_DrawAliasModel(entity, paliashdr, shadedots, shadecolor) {
   return mesh;
 }
 
-/*
-=============
-GL_DrawAliasShadow
-
-Projects alias model vertices onto the ground plane to create a shadow.
-Ported from WinQuake/gl_rmain.c:347-405
-=============
-*/
+// GL_DrawAliasShadow
+//
+// Projects alias model vertices onto the ground plane to create a shadow.
+// Ported from WinQuake/gl_rmain.c:347-405
 
 // Shared shadow material (Golden Rule #4 — one for all entities)
 const _shadowMaterial = new THREE.MeshBasicMaterial({

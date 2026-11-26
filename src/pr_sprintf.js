@@ -124,15 +124,11 @@ function stripZeros(s) {
   return mant + rest;
 }
 
-/*
-============
-Q_FormatFloat
-
-C printf %e %E %f %F %g %G of one double. JS rounds exact decimal ties away
-from zero where glibc rounds them to even (printf( "%.0f", 2.5 ) gives "2"
-in C and "3" here); other values match.
-============
-*/
+/**
+ * C printf %e %E %f %F %g %G of one double. JS rounds exact decimal ties away
+ * from zero where glibc rounds them to even (printf( "%.0f", 2.5 ) gives "2"
+ * in C and "3" here); other values match.
+ */
 export function Q_FormatFloat(conv, flags, width, precision, v) {
   const upper = conv === "E" || conv === "F" || conv === "G";
   const negative = v < 0 || Object.is(v, -0);
@@ -200,13 +196,7 @@ export function Q_FormatFloat(conv, flags, width, precision, v) {
   return padNumber(sign, "", body, width, flags, true);
 }
 
-/*
-============
-Q_FormatInt
-
-C printf %d %i (signed) and %o %u %x %X (unsigned) of one 32-bit integer
-============
-*/
+/** C printf %d %i (signed) and %o %u %x %X (unsigned) of one 32-bit integer */
 export function Q_FormatInt(conv, flags, width, precision, v) {
   let negative = false;
   let digits;
@@ -257,14 +247,10 @@ function Con_Warning(msg) {
   Con_Printf("%s", "Warning: " + msg);
 }
 
-/*
-============
-PF_sprintf_internal
-
-Formats the QuakeC arguments from firstarg on with the format s, and
-returns the result cut to outbuflen - 1 characters.
-============
-*/
+/**
+ * Formats the QuakeC arguments from firstarg on with the format s, and
+ * returns the result cut to outbuflen - 1 characters.
+ */
 export function PF_sprintf_internal(s, firstarg, outbuflen) {
   let o = "";
   let argpos = firstarg;

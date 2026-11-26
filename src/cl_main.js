@@ -138,12 +138,6 @@ export const m_yaw = new cvar_t("m_yaw", "0.022", true);
 export const m_forward = new cvar_t("m_forward", "1", true);
 export const m_side = new cvar_t("m_side", "0.8", true);
 
-/*
-=====================
-CL_ClearState
-
-=====================
-*/
 export function CL_ClearState() {
   if (sv.active === false) {
     Host_ClearMemory();
@@ -248,9 +242,7 @@ export function CL_ClearState() {
     cl_beams[i] = new beam_t();
   }
 
-  //
   // allocate the efrags and chain together into a free list
-  //
   cl.free_efrags = cl_efrags[0];
   for (let i = 0; i < MAX_EFRAGS - 1; i++) {
     cl_efrags[i].entnext = cl_efrags[i + 1];
@@ -258,14 +250,10 @@ export function CL_ClearState() {
   cl_efrags[MAX_EFRAGS - 1].entnext = null;
 }
 
-/*
-=====================
-CL_Disconnect
-
-Sends a disconnect message to the server
-This is also called on Host_Error, so it shouldn't cause any errors
-=====================
-*/
+/**
+ * Sends a disconnect message to the server
+ * This is also called on Host_Error, so it shouldn't cause any errors
+ */
 export function CL_Disconnect() {
   R_WarmupCancel(); // web-only: no held plaque callback outlives the connection
 
@@ -343,14 +331,10 @@ export function CL_Disconnect_f() {
   }
 }
 
-/*
-=====================
-CL_EstablishConnection
-
-Host should be either "local" or a net address to be passed on
-For remote connections, this handles async WebTransport connections.
-=====================
-*/
+// CL_EstablishConnection
+//
+// Host should be either "local" or a net address to be passed on
+// For remote connections, this handles async WebTransport connections.
 let cl_connect_id = 0; // web-only: generation of the latest CL_EstablishConnection
 
 export async function CL_EstablishConnection(host, quiet = false) {
@@ -487,13 +471,7 @@ export async function CL_EstablishConnection(host, quiet = false) {
   return true;
 }
 
-/*
-=====================
-CL_SignonReply
-
-An svc_signonnum has been received, perform a client side setup
-=====================
-*/
+/** An svc_signonnum has been received, perform a client side setup */
 export function CL_SignonReply() {
   Con_DPrintf("CL_SignonReply: %i\n", cls.signon);
 
@@ -531,13 +509,7 @@ export function CL_SignonReply() {
   }
 }
 
-/*
-=====================
-CL_NextDemo
-
-Called to play the next demo in the demo loop
-=====================
-*/
+/** Called to play the next demo in the demo loop */
 export function CL_NextDemo() {
   if (cls.demonum === -1) {
     return; // don't play demos
@@ -558,11 +530,6 @@ export function CL_NextDemo() {
   cls.demonum++;
 }
 
-/*
-==============
-CL_PrintEntities_f
-==============
-*/
 function CL_PrintEntities_f() {
   for (let i = 0; i < cl.num_entities; i++) {
     const ent = cl_entities[i];
@@ -586,12 +553,6 @@ function CL_PrintEntities_f() {
   }
 }
 
-/*
-===============
-CL_AllocDlight
-
-===============
-*/
 export function CL_AllocDlight(key) {
   // first look for an exact key match
   if (key) {
@@ -636,16 +597,12 @@ export function CL_AllocDlight(key) {
   return dl;
 }
 
-/*
-===============
-CL_QexEffectLights
-
-The 2021 rerelease's coloured powerup glows, from Ironwail's
-CL_RelinkEntities (cl_main.c), shared by the three places this port links
-entities. The server sends these bits only for a progs that defines them
-(PR_FindSupportedEffects). EF_QEX_CANDLELIGHT gets no light, as in Ironwail.
-===============
-*/
+/**
+ * The 2021 rerelease's coloured powerup glows, from Ironwail's
+ * CL_RelinkEntities (cl_main.c), shared by the three places this port links
+ * entities. The server sends these bits only for a progs that defines them
+ * (PR_FindSupportedEffects). EF_QEX_CANDLELIGHT gets no light, as in Ironwail.
+ */
 export function CL_QexEffectLights(effects, key, origin) {
   if (effects & 0x0010) { // EF_QEX_QUADLIGHT
     const dl = CL_AllocDlight(key);
@@ -668,12 +625,6 @@ export function CL_QexEffectLights(effects, key, origin) {
   }
 }
 
-/*
-===============
-CL_DecayLights
-
-===============
-*/
 export function CL_DecayLights() {
   const time = cl.time - cl.oldtime;
 
@@ -690,14 +641,10 @@ export function CL_DecayLights() {
   }
 }
 
-/*
-===============
-CL_LerpPoint
-
-Determines the fraction between the last two messages that the objects
-should be put at.
-===============
-*/
+/**
+ * Determines the fraction between the last two messages that the objects
+ * should be put at.
+ */
 export function CL_LerpPoint() {
   let f = cl.mtime[0] - cl.mtime[1];
 
@@ -731,15 +678,11 @@ export function CL_LerpPoint() {
   return frac;
 }
 
-/*
-===============
-CL_NoLerpMuzzleFlash
-
-QS cl_main.c CL_RelinkEntities (EF_MUZZLEFLASH): no lerping for two
-frames, on the gun when it is the view entity's flash. Shared by the NQ
-relink and the QW player and packet-entity paths.
-===============
-*/
+/**
+ * QS cl_main.c CL_RelinkEntities (EF_MUZZLEFLASH): no lerping for two
+ * frames, on the gun when it is the view entity's flash. Shared by the NQ
+ * relink and the QW player and packet-entity paths.
+ */
 export function CL_NoLerpMuzzleFlash(num) {
   if (num === cl.viewentity) {
     cl.viewent.lerpflags |= LERP_RESETANIM | LERP_RESETANIM2; //no lerping for two frames
@@ -748,15 +691,11 @@ export function CL_NoLerpMuzzleFlash(num) {
   }
 }
 
-/*
-===============
-CL_LinkPacketEntities
-
-Links non-player entities from QW-style packet_entities into the
-visible entity list. Handles effects, dynamic lights, and particle trails.
-Ported from: QW/client/cl_ents.c
-===============
-*/
+// CL_LinkPacketEntities
+//
+// Links non-player entities from QW-style packet_entities into the
+// visible entity list. Handles effects, dynamic lights, and particle trails.
+// Ported from: QW/client/cl_ents.c
 
 // Cached vectors for CL_LinkPacketEntities (avoid per-frame allocations)
 const _peOldorg = new Float32Array(3);
@@ -887,7 +826,6 @@ function CL_LinkPacketEntities(frac) {
     // Save previous origin for trails
     VectorCopy(ent.origin, _peOldorg);
 
-    //
     // Interpolation: track per-entity server positions using msg_origins
     // similar to the NQ-style entity interpolation in CL_RelinkEntities.
     // Update msg_origins only when new server data arrives (sequence changed).
@@ -896,7 +834,6 @@ function CL_LinkPacketEntities(frac) {
     // from (cl_parse.c CL_ParseUpdate: ent->msgtime != cl.mtime[1] means
     // forcelink), so snap it: this covers slots re-entering the PVS and
     // slots reused by a new entity.
-    //
     if (
       ent._lastPESeq !== seq &&
       (ent._lastPESeq === 0 || ent._lastPESeq !== _pePrevSeq)
@@ -1022,14 +959,10 @@ function CL_LinkPacketEntities(frac) {
   }
 }
 
-/*
-=============
-CL_LinkPlayers
-
-Create visible entities in the correct position
-for all current players. Ported from QW cl_ents.c.
-=============
-*/
+// CL_LinkPlayers
+//
+// Create visible entities in the correct position
+// for all current players. Ported from QW cl_ents.c.
 
 // Cached vectors for CL_LinkPlayers (avoid per-frame allocations)
 const _lpAngles = new Float32Array(3);
@@ -1187,20 +1120,13 @@ const _relinkFv = new Float32Array(3);
 const _relinkRv = new Float32Array(3);
 const _relinkUv = new Float32Array(3);
 
-/*
-===============
-CL_RelinkEntities
-===============
-*/
 export function CL_RelinkEntities() {
   // determine partial update time
   const frac = CL_LerpPoint();
 
   set_cl_numvisedicts(0);
 
-  //
   // interpolate player info
-  //
   for (let i = 0; i < 3; i++) {
     cl.velocity[i] = cl.mvelocity[1][i] +
       frac * (cl.mvelocity[0][i] - cl.mvelocity[1][i]);
@@ -1398,13 +1324,7 @@ export function CL_RelinkEntities() {
   }
 }
 
-/*
-===============
-CL_ReadFromServer
-
-Read all incoming data from the server
-===============
-*/
+/** Read all incoming data from the server */
 export function CL_ReadFromServer() {
   cl.oldtime = cl.time;
   cl.time += host_frametime;
@@ -1460,11 +1380,6 @@ export function CL_ReadFromServer() {
   return 0;
 }
 
-/*
-=================
-CL_SendCmd
-=================
-*/
 export function CL_SendCmd() {
   if (cls.state !== ca_connected) {
     return;
@@ -1504,11 +1419,6 @@ export function CL_SendCmd() {
   SZ_Clear(cls.message);
 }
 
-/*
-=================
-CL_Init
-=================
-*/
 export function CL_Init() {
   SZ_Alloc(cls.message, 1024);
 
@@ -1541,9 +1451,7 @@ export function CL_Init() {
   CL_InitTEnts();
   CL_InitPrediction();
 
-  //
   // register our commands
-  //
   Cvar_RegisterVariable(cl_name);
   Cvar_RegisterVariable(cl_color);
   Cvar_RegisterVariable(cl_upspeed);

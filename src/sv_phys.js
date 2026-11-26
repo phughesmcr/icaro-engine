@@ -17,28 +17,22 @@ import {
 import { MAX_EDICTS } from "./quakedef.js";
 import { PR_GetString } from "./progs.js";
 
-/*
-
-pushmove objects do not obey gravity, and do not interact with each other or
-trigger fields, but block normal movement and push normal objects when they move.
-
-onground is set for toss objects when they come to a complete rest. it is set
-for steping or walking objects
-
-doors, plats, etc are SOLID_BSP, and MOVETYPE_PUSH
-bonus items are SOLID_TRIGGER touch, and MOVETYPE_TOSS
-corpses are SOLID_NOT and MOVETYPE_TOSS
-crates are SOLID_BBOX and MOVETYPE_TOSS
-walking monsters are SOLID_SLIDEBOX and MOVETYPE_STEP
-flying/floating monsters are SOLID_SLIDEBOX and MOVETYPE_FLY
-
-solid_edge items only clip against bsp models.
-
-*/
-
+// pushmove objects do not obey gravity, and do not interact with each other or
+// trigger fields, but block normal movement and push normal objects when they move.
 //
+// onground is set for toss objects when they come to a complete rest. it is set
+// for steping or walking objects
+//
+// doors, plats, etc are SOLID_BSP, and MOVETYPE_PUSH
+// bonus items are SOLID_TRIGGER touch, and MOVETYPE_TOSS
+// corpses are SOLID_NOT and MOVETYPE_TOSS
+// crates are SOLID_BBOX and MOVETYPE_TOSS
+// walking monsters are SOLID_SLIDEBOX and MOVETYPE_STEP
+// flying/floating monsters are SOLID_SLIDEBOX and MOVETYPE_FLY
+//
+// solid_edge items only clip against bsp models.
+
 // Movetype constants (from progs.h / server.h)
-//
 export const MOVETYPE_NONE = 0;
 export const MOVETYPE_ANGLENOCLIP = 1;
 export const MOVETYPE_ANGLECLIP = 2;
@@ -53,18 +47,14 @@ export const MOVETYPE_BOUNCE = 10;
 export const MOVETYPE_BOUNCEMISSILE = 11; // QUAKE2
 export const MOVETYPE_FOLLOW = 12; // QUAKE2 - stuck to aiment entity
 
-//
 // Solid type constants
-//
 export const SOLID_NOT = 0;
 export const SOLID_TRIGGER = 1;
 export const SOLID_BBOX = 2;
 export const SOLID_SLIDEBOX = 3;
 export const SOLID_BSP = 4;
 
-//
 // Entity flags
-//
 export const FL_FLY = 1;
 export const FL_SWIM = 2;
 export const FL_CONVEYOR = 4;
@@ -79,16 +69,12 @@ export const FL_PARTIALGROUND = 1024;
 export const FL_WATERJUMP = 2048;
 export const FL_JUMPRELEASED = 4096;
 
-//
 // Move type for SV_Move
-//
 export const MOVE_NORMAL = 0;
 export const MOVE_NOMONSTERS = 1;
 export const MOVE_MISSILE = 2;
 
-//
 // Contents
-//
 export const CONTENTS_EMPTY = -1;
 export const CONTENTS_SOLID = -2;
 export const CONTENTS_WATER = -3;
@@ -196,9 +182,7 @@ const _pushrotate_up = new Float32Array(3);
 const _pushrotate_moved_edict = new Array(MAX_EDICTS);
 const _pushrotate_moved_from = [];
 
-//
 // cvars (proper cvar_t instances, registered in sv_main.js SV_Init)
-//
 export const sv_maxvelocity = new cvar_t("sv_maxvelocity", "2000");
 export const sv_gravity = new cvar_t("sv_gravity", "800", false, true);
 export const sv_nostep = new cvar_t("sv_nostep", "0");
@@ -212,9 +196,7 @@ export const sv_idealpitchscale = new cvar_t("sv_idealpitchscale", "0.8");
 // stands still, freezing monsters, doors and projectiles. Default 0 (id)
 export const sv_freezenonclients = new cvar_t("sv_freezenonclients", "0");
 
-//
 // External references (set by the engine during initialization)
-//
 export let sv = null; // server_t
 export let svs = null; // server_static_t
 export let sv_player = null; // edict_t *
@@ -272,11 +254,6 @@ function IS_NAN(x) {
   return isNaN(x);
 }
 
-/*
-================
-SV_CheckAllEnts
-================
-*/
 export function SV_CheckAllEnts() {
   let check;
 
@@ -301,15 +278,8 @@ export function SV_CheckAllEnts() {
   }
 }
 
-/*
-================
-SV_CheckVelocity
-================
-*/
 export function SV_CheckVelocity(ent) {
-  //
   // bound velocity
-  //
   for (let i = 0; i < 3; i++) {
     if (IS_NAN(ent.v.velocity[i])) {
       Con_Printf("Got a NaN velocity on %s\n", PR_GetString(ent.v.classname));
@@ -329,16 +299,12 @@ export function SV_CheckVelocity(ent) {
   }
 }
 
-/*
-=============
-SV_RunThink
-
-Runs thinking code if time. There is some play in the exact time the think
-function will be called, because it is called before any movement is done
-in a frame. Not used for pushmove objects, because they must be exact.
-Returns false if the entity removed itself.
-=============
-*/
+/**
+ * Runs thinking code if time. There is some play in the exact time the think
+ * function will be called, because it is called before any movement is done
+ * in a frame. Not used for pushmove objects, because they must be exact.
+ * Returns false if the entity removed itself.
+ */
 export function SV_RunThink(ent) {
   let thinktime;
 
@@ -360,13 +326,7 @@ export function SV_RunThink(ent) {
   return !ent.free;
 }
 
-/*
-==================
-SV_Impact
-
-Two entities have touched, so run their touch functions
-==================
-*/
+/** Two entities have touched, so run their touch functions */
 export function SV_Impact(e1, e2) {
   const old_self = pr_global_struct.self;
   const old_other = pr_global_struct.other;
@@ -388,14 +348,10 @@ export function SV_Impact(e1, e2) {
   pr_global_struct.other = old_other;
 }
 
-/*
-==================
-ClipVelocity
-
-Slide off of the impacting object
-returns the blocked flags (1 = floor, 2 = step / wall)
-==================
-*/
+/**
+ * Slide off of the impacting object
+ * returns the blocked flags (1 = floor, 2 = step / wall)
+ */
 export function ClipVelocity(_in, normal, out, overbounce) {
   let blocked = 0;
 
@@ -419,18 +375,14 @@ export function ClipVelocity(_in, normal, out, overbounce) {
   return blocked;
 }
 
-/*
-============
-SV_FlyMove
-
-The basic solid body movement clip that slides along multiple planes
-Returns the clipflags if the velocity was modified (hit something solid)
-1 = floor
-2 = wall / step
-4 = dead stop
-If steptrace is not null, the trace of any vertical wall hit will be stored
-============
-*/
+/**
+ * The basic solid body movement clip that slides along multiple planes
+ * Returns the clipflags if the velocity was modified (hit something solid)
+ * 1 = floor
+ * 2 = wall / step
+ * 4 = dead stop
+ * If steptrace is not null, the trace of any vertical wall hit will be stored
+ */
 export function SV_FlyMove(ent, time, steptrace) {
   const numbumps = 4;
 
@@ -515,9 +467,7 @@ export function SV_FlyMove(ent, time, steptrace) {
       }
     }
 
-    //
     // run the impact function
-    //
     SV_Impact(ent, trace.ent);
     if (ent.free) {
       break; // removed by the impact function
@@ -535,9 +485,7 @@ export function SV_FlyMove(ent, time, steptrace) {
     VectorCopy(trace.plane.normal, planes[numplanes]);
     numplanes++;
 
-    //
     // modify original_velocity so it parallels all of the clip planes
-    //
     let i, j;
     for (i = 0; i < numplanes; i++) {
       ClipVelocity(original_velocity, planes[i], new_velocity, 1);
@@ -569,10 +517,8 @@ export function SV_FlyMove(ent, time, steptrace) {
       VectorScale(dir, d, ent.v.velocity);
     }
 
-    //
     // if original velocity is against the original velocity, stop dead
     // to avoid tiny occilations in sloping corners
-    //
     if (DotProduct(ent.v.velocity, primal_velocity) <= 0) {
       VectorCopy(vec3_origin, ent.v.velocity);
       return blocked;
@@ -582,11 +528,6 @@ export function SV_FlyMove(ent, time, steptrace) {
   return blocked;
 }
 
-/*
-============
-SV_AddGravity
-============
-*/
 export function SV_AddGravity(ent) {
   let ent_gravity;
 
@@ -603,21 +544,9 @@ export function SV_AddGravity(ent) {
   ent.v.velocity[2] -= ent_gravity * sv_gravity.value * host_frametime;
 }
 
-/*
-===============================================================================
+// PUSHMOVE
 
-PUSHMOVE
-
-===============================================================================
-*/
-
-/*
-============
-SV_PushEntity
-
-Does not change the entities velocity at all
-============
-*/
+/** Does not change the entities velocity at all */
 export function SV_PushEntity(ent, push) {
   // Use cached buffer instead of allocating per-call
   const end = _pushentity_end;
@@ -665,14 +594,10 @@ export function SV_PushEntity(ent, push) {
   return trace;
 }
 
-/*
-============
-SV_PushRotate
-
-Handles rotating brush entities (doors, platforms with avelocity)
-QUAKE2 feature
-============
-*/
+/**
+ * Handles rotating brush entities (doors, platforms with avelocity)
+ * QUAKE2 feature
+ */
 export function SV_PushRotate(pusher, movetime) {
   // Use cached buffers instead of allocating per-call
   const amove = _pushrotate_amove;
@@ -828,11 +753,6 @@ export function SV_PushRotate(pusher, movetime) {
   }
 }
 
-/*
-============
-SV_PushMove
-============
-*/
 export function SV_PushMove(pusher, movetime) {
   // Use cached buffers to avoid per-call allocations (Golden Rule #4)
   const mins = _pushmove_mins;
@@ -968,11 +888,6 @@ export function SV_PushMove(pusher, movetime) {
   }
 }
 
-/*
-================
-SV_Physics_Pusher
-================
-*/
 export function SV_Physics_Pusher(ent) {
   const oldltime = ent.v.ltime;
 
@@ -1011,22 +926,12 @@ export function SV_Physics_Pusher(ent) {
   }
 }
 
-/*
-===============================================================================
+// CLIENT MOVEMENT
 
-CLIENT MOVEMENT
-
-===============================================================================
-*/
-
-/*
-=============
-SV_CheckStuck
-
-This is a big hack to try and fix the rare case of getting stuck in the world
-clipping hull.
-=============
-*/
+/**
+ * This is a big hack to try and fix the rare case of getting stuck in the world
+ * clipping hull.
+ */
 export function SV_CheckStuck(ent) {
   const org = _checkstuck_org;
 
@@ -1062,11 +967,6 @@ export function SV_CheckStuck(ent) {
   Con_DPrintf("player is stuck.\n");
 }
 
-/*
-=============
-SV_CheckWater
-=============
-*/
 export function SV_CheckWater(ent) {
   const point = _checkwater_point;
 
@@ -1095,11 +995,6 @@ export function SV_CheckWater(ent) {
   return ent.v.waterlevel > 1;
 }
 
-/*
-============
-SV_WallFriction
-============
-*/
 function SV_WallFriction(ent, trace) {
   const forward = _wallfriction_forward;
   const right = _wallfriction_right;
@@ -1124,18 +1019,14 @@ function SV_WallFriction(ent, trace) {
   ent.v.velocity[1] = side[1] * (1 + d);
 }
 
-/*
-=====================
-SV_TryUnstick
-
-Player has come to a dead stop, possibly due to the problem with limited
-float precision at some angle joins in the BSP hull.
-
-Try fixing by pushing one pixel in each direction.
-
-This is a hack, but in the interest of good gameplay...
-======================
-*/
+/**
+ * Player has come to a dead stop, possibly due to the problem with limited
+ * float precision at some angle joins in the BSP hull.
+ *
+ * Try fixing by pushing one pixel in each direction.
+ *
+ * This is a hack, but in the interest of good gameplay...
+ */
 export function SV_TryUnstick(ent, oldvel) {
   const oldorg = _tryunstick_oldorg;
   const dir = _tryunstick_dir;
@@ -1204,13 +1095,7 @@ export function SV_TryUnstick(ent, oldvel) {
   return 7; // still not moving
 }
 
-/*
-=====================
-SV_WalkMove
-
-Only used by players
-======================
-*/
+/** Only used by players */
 export function SV_WalkMove(ent) {
   const upmove = _walkmove_upmove;
   const downmove = _walkmove_downmove;
@@ -1226,9 +1111,7 @@ export function SV_WalkMove(ent) {
   steptrace.plane.normal[1] = 0;
   steptrace.plane.normal[2] = 0;
 
-  //
   // do a regular slide move unless it looks like you ran into a step
-  //
   const oldonground = (ent.v.flags | 0) & FL_ONGROUND;
   ent.v.flags = (ent.v.flags | 0) & ~FL_ONGROUND;
 
@@ -1260,9 +1143,7 @@ export function SV_WalkMove(ent) {
   VectorCopy(ent.v.origin, nosteporg);
   VectorCopy(ent.v.velocity, nostepvel);
 
-  //
   // try moving up and forward to go up a step
-  //
   VectorCopy(oldorg, ent.v.origin); // back to start pos
 
   VectorCopy(vec3_origin, upmove);
@@ -1313,33 +1194,21 @@ export function SV_WalkMove(ent) {
   }
 }
 
-/*
-================
-SV_Physics_Client
-
-Player character actions
-================
-*/
+/** Player character actions */
 export function SV_Physics_Client(ent, num) {
   if (!svs.clients[num - 1].active) {
     return; // unconnected slot
   }
 
-  //
   // call standard client pre-think
-  //
   pr_global_struct.time = sv.time;
   pr_global_struct.self = EDICT_TO_PROG(ent);
   PR_ExecuteProgram(pr_global_struct.PlayerPreThink);
 
-  //
   // do a move
-  //
   SV_CheckVelocity(ent);
 
-  //
   // decide which move function to call
-  //
   switch (ent.v.movetype | 0) {
     case MOVETYPE_NONE:
       if (!SV_RunThink(ent)) {
@@ -1381,9 +1250,7 @@ export function SV_Physics_Client(ent, num) {
       Sys_Error("SV_Physics_client: bad movetype " + (ent.v.movetype | 0));
   }
 
-  //
   // call standard player post-think
-  //
   SV_LinkEdict(ent, true);
 
   pr_global_struct.time = sv.time;
@@ -1391,27 +1258,13 @@ export function SV_Physics_Client(ent, num) {
   PR_ExecuteProgram(pr_global_struct.PlayerPostThink);
 }
 
-//============================================================================
-
-/*
-=============
-SV_Physics_None
-
-Non moving objects can only think
-=============
-*/
+/** Non moving objects can only think */
 export function SV_Physics_None(ent) {
   // regular thinking
   SV_RunThink(ent);
 }
 
-/*
-=============
-SV_Physics_Follow
-
-Entities that are "stuck" to another entity (QUAKE2 feature)
-=============
-*/
+/** Entities that are "stuck" to another entity (QUAKE2 feature) */
 export function SV_Physics_Follow(ent) {
   // regular thinking
   SV_RunThink(ent);
@@ -1425,13 +1278,7 @@ export function SV_Physics_Follow(ent) {
   SV_LinkEdict(ent, true);
 }
 
-/*
-=============
-SV_Physics_Noclip
-
-A moving object that doesn't obey physics
-=============
-*/
+/** A moving object that doesn't obey physics */
 export function SV_Physics_Noclip(ent) {
   // regular thinking
   if (!SV_RunThink(ent)) {
@@ -1444,19 +1291,8 @@ export function SV_Physics_Noclip(ent) {
   SV_LinkEdict(ent, false);
 }
 
-/*
-==============================================================================
+// TOSS / BOUNCE
 
-TOSS / BOUNCE
-
-==============================================================================
-*/
-
-/*
-=============
-SV_CheckWaterTransition
-=============
-*/
 export function SV_CheckWaterTransition(ent) {
   const cont = SV_PointContents(ent.v.origin);
 
@@ -1486,13 +1322,7 @@ export function SV_CheckWaterTransition(ent) {
   }
 }
 
-/*
-=============
-SV_Physics_Toss
-
-Toss, bounce, and fly movement. When onground, do nothing.
-=============
-*/
+/** Toss, bounce, and fly movement. When onground, do nothing. */
 export function SV_Physics_Toss(ent) {
   const move = _toss_move;
 
@@ -1552,25 +1382,15 @@ export function SV_Physics_Toss(ent) {
   SV_CheckWaterTransition(ent);
 }
 
-/*
-===============================================================================
+// STEPPING MOVEMENT
 
-STEPPING MOVEMENT
-
-===============================================================================
-*/
-
-/*
-=============
-SV_Physics_Step
-
-Monsters freefall when they don't have a ground entity, otherwise
-all movement is done with discrete steps.
-
-This is also used for objects that have become still on the ground, but
-will fall if the floor is pulled out from under them.
-=============
-*/
+/**
+ * Monsters freefall when they don't have a ground entity, otherwise
+ * all movement is done with discrete steps.
+ *
+ * This is also used for objects that have become still on the ground, but
+ * will fall if the floor is pulled out from under them.
+ */
 export function SV_Physics_Step(ent) {
   let hitsound;
 
@@ -1601,13 +1421,6 @@ export function SV_Physics_Step(ent) {
   SV_CheckWaterTransition(ent);
 }
 
-//============================================================================
-
-/*
-================
-SV_Physics
-================
-*/
 export function SV_Physics() {
   // let the progs know that a new frame has started
   pr_global_struct.self = EDICT_TO_PROG(sv.edicts[0]);
@@ -1615,7 +1428,6 @@ export function SV_Physics() {
   pr_global_struct.time = sv.time;
   PR_ExecuteProgram(pr_global_struct.StartFrame);
 
-  //
   // treat each object in turn
   //
   // Ironwail: sv_freezenonclients runs physics on the world and clients only

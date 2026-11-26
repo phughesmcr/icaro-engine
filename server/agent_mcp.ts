@@ -143,13 +143,7 @@ const KEY_ARGS = z.strictObject({
 
 const MENU_ARGS = z.strictObject({ label: z.string() });
 
-/*
-==============================================================================
-
-	ENGINE
-
-==============================================================================
-*/
+// ENGINE
 
 let engine: Promise<Engine> | null = null;
 let game_origin = 0; // Agent_Tics() when the current game started
@@ -184,15 +178,11 @@ function footer(e: Engine): string {
     (hash !== "" ? " hash=" + hash : "");
 }
 
-/*
-==================
-agent_mcp_start
-
-Seeds before the map loads, after the old game is gone, so the load and
-everything after it draw from the seeded generator and the virtual clock.
-Without a seed, both go back to the engine's defaults.
-==================
-*/
+/**
+ * Seeds before the map loads, after the old game is gone, so the load and
+ * everything after it draw from the seeded generator and the virtual clock.
+ * Without a seed, both go back to the engine's defaults.
+ */
 async function agent_mcp_start(
   e: Engine,
   args: z.infer<typeof START_ARGS>,
@@ -219,13 +209,7 @@ async function agent_mcp_start(
   return await e.agent.Agent_NewGame(map, args.skill ?? 1);
 }
 
-/*
-==============================================================================
-
-	TOOLS
-
-==============================================================================
-*/
+// TOOLS
 
 // Calls run one at a time, in arrival order
 let call_queue: Promise<unknown> = Promise.resolve();
@@ -267,13 +251,9 @@ export async function agent_mcp_drain(): Promise<void> {
 
 const LOCAL = { destructiveHint: false, openWorldHint: false };
 
-/*
-==================
-agent_mcp_server
-
-Builds the server with the tools. serveStdio calls it once per connection.
-==================
-*/
+/**
+ * Builds the server with the tools. serveStdio calls it once per connection.
+ */
 export function agent_mcp_server(): McpServer {
   const server = new McpServer(SERVER_INFO, { instructions: INSTRUCTIONS });
 
@@ -391,14 +371,10 @@ export function agent_mcp_server(): McpServer {
   return server;
 }
 
-/*
-==================
-agent_mcp_serve
-
-Serves MCP over a pair of streams (the process's stdin and stdout, or a
-test's), one JSON-RPC message per line.
-==================
-*/
+/**
+ * Serves MCP over a pair of streams (the process's stdin and stdout, or a
+ * test's), one JSON-RPC message per line.
+ */
 export function agent_mcp_serve(
   input: Readable,
   output: Writable,

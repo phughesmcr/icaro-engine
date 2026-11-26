@@ -137,18 +137,14 @@ function _RTCLobby_Close(session) {
   } catch { /* already closed */ }
 }
 
-/*
-=============
-_RTCLobby_Request
-
-Open a lobby socket, send one LOBBY_HOST or LOBBY_JOIN, and resolve to the
-session once the lobby has replied with the room (LOBBY_ROOMS) and the ICE
-servers (LOBBY_ICE). The socket stays open for signals. Rejects with the
-lobby's LOBBY_ERROR text, or on a timeout or a closed socket. A lobby that
-wants a Turnstile token first (LOBBY_VERIFY) rejects with an error whose
-`turnstile` is { sitekey, action }.
-=============
-*/
+/**
+ * Open a lobby socket, send one LOBBY_HOST or LOBBY_JOIN, and resolve to the
+ * session once the lobby has replied with the room (LOBBY_ROOMS) and the ICE
+ * servers (LOBBY_ICE). The socket stays open for signals. Rejects with the
+ * lobby's LOBBY_ERROR text, or on a timeout or a closed socket. A lobby that
+ * wants a Turnstile token first (LOBBY_VERIFY) rejects with an error whose
+ * `turnstile` is { sitekey, action }.
+ */
 function _RTCLobby_Request(url, role, type, value) {
   return new Promise((resolve, reject) => {
     let socket;
@@ -245,11 +241,7 @@ function _RTCLobby_Request(url, role, type, value) {
   });
 }
 
-/*
-=============
-The WebRTC driver's signaller
-=============
-*/
+// The WebRTC driver's signaller
 const rtclobby_signaller = {
   send(to, kind, data) {
     // A joiner addresses the room's code; a host, its joiners' peer ids.
@@ -300,15 +292,11 @@ const rtclobby_signaller = {
   },
 };
 
-/*
-=============
-RTCLobby_Init
-
-Install the signaller. lobbyUrl() gives the lobby's WebSocket address (or
-null when the page's lobby isn't reached over WebSocket); listening() says
-whether the server accepts remote players.
-=============
-*/
+/**
+ * Install the signaller. lobbyUrl() gives the lobby's WebSocket address (or
+ * null when the page's lobby isn't reached over WebSocket); listening() says
+ * whether the server accepts remote players.
+ */
 export function RTCLobby_Init(lobbyUrl, listening) {
   rtclobby_url = lobbyUrl;
   rtclobby_listening = listening;
@@ -344,18 +332,14 @@ function _RTCLobby_Wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/*
-=============
-RTCLobby_HostRoom
-
-Register the listen server this page is starting with the lobby. The caller
-has already queued its commands (maxplayers, listen, map); spawnCount is
-svs.spawncount from before them, so a server that was running before
-doesn't count. Resolves to the room record (its id is the code to share).
-config: { map, hostName, public, options }; maxPlayers comes from the server.
-exitRules: the caller set the room's noexit/samelevel, to undo at the end.
-=============
-*/
+/**
+ * Register the listen server this page is starting with the lobby. The caller
+ * has already queued its commands (maxplayers, listen, map); spawnCount is
+ * svs.spawncount from before them, so a server that was running before
+ * doesn't count. Resolves to the room record (its id is the code to share).
+ * config: { map, hostName, public, options }; maxPlayers comes from the server.
+ * exitRules: the caller set the room's noexit/samelevel, to undo at the end.
+ */
 export async function RTCLobby_HostRoom(config, spawnCount, exitRules) {
   const token = ++host_token;
   _RTCLobby_EndHost();
@@ -453,16 +437,12 @@ export async function RTCLobby_HostRoom(config, spawnCount, exitRules) {
   return session.room;
 }
 
-/*
-=============
-_RTCLobby_RequestHost
-
-Send LOBBY_HOST. A lobby that checks room creation (server/turnstile.js)
-answers the first request with LOBBY_VERIFY: show the widget, then ask once
-more with its token, as NET_CreateRoom does for lobby rooms. token is the
-HostRoom's, to notice a cancel while the widget is up.
-=============
-*/
+/**
+ * Send LOBBY_HOST. A lobby that checks room creation (server/turnstile.js)
+ * answers the first request with LOBBY_VERIFY: show the widget, then ask once
+ * more with its token, as NET_CreateRoom does for lobby rooms. token is the
+ * HostRoom's, to notice a cancel while the widget is up.
+ */
 async function _RTCLobby_RequestHost(url, request, token) {
   let challenge;
   try {
@@ -520,16 +500,12 @@ function _RTCLobby_EndHost() {
   host_session = null;
 }
 
-/*
-=============
-RTCLobby_ServerShutdown
-
-Host_ShutdownServer ends the hosted room: its lobby socket closes, which
-removes the room, and the exit rules it set go back to the C's defaults so
-a later single-player game isn't affected. Before the room's own map has
-spawned (the "disconnect" ahead of its "map"), this does nothing.
-=============
-*/
+/**
+ * Host_ShutdownServer ends the hosted room: its lobby socket closes, which
+ * removes the room, and the exit rules it set go back to the C's defaults so
+ * a later single-player game isn't affected. Before the room's own map has
+ * spawned (the "disconnect" ahead of its "map"), this does nothing.
+ */
 export function RTCLobby_ServerShutdown() {
   if (host_armed === false) return;
 

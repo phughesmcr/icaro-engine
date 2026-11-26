@@ -11,8 +11,6 @@ import {
 } from "./quakedef.js";
 import { sizebuf_t } from "./common.js";
 
-//=============================================================================
-
 export const SIGNONS = 4; // signon messages to receive before connected
 
 // The one definition of MAX_DLIGHTS and MAX_VISEDICTS: gl_rmain.js and
@@ -36,23 +34,17 @@ export const MAX_DEMONAME = 16;
 
 export const NAME_LENGTH = 64;
 
-//
 // color shifts
-//
 export const CSHIFT_CONTENTS = 0;
 export const CSHIFT_DAMAGE = 1;
 export const CSHIFT_BONUS = 2;
 export const CSHIFT_POWERUP = 3;
 export const NUM_CSHIFTS = 4;
 
-//
 // cactive_t -- connection state
-//
 export const ca_dedicated = 0; // a dedicated server with no ability to start a client
 export const ca_disconnected = 1; // full screen console with no connection
 export const ca_connected = 2; // valid netcon, talking to a server
-
-//=============================================================================
 
 export class usercmd_t {
   constructor() {
@@ -133,9 +125,7 @@ export class kbutton_t {
 // server's client_frame_t can share it
 export { packet_entities_t };
 
-//
 // entity_t - client side entity
-//
 export class entity_t {
   constructor() {
     this.forcelink = false; // model changed
@@ -186,9 +176,7 @@ export class entity_t {
   }
 }
 
-//
 // efrag_t
-//
 export class efrag_t {
   constructor() {
     this.leaf = null;
@@ -198,10 +186,8 @@ export class efrag_t {
   }
 }
 
-//
 // the client_static_t structure is persistant through an arbitrary number
 // of server connections
-//
 export class client_static_t {
   constructor() {
     this.state = ca_disconnected;
@@ -235,10 +221,8 @@ export class client_static_t {
   }
 }
 
-//
 // the client_state_t structure is wiped completely at every
 // server signon
-//
 export class client_state_t {
   constructor() {
     this.movemessages = 0; // since connecting to this server
@@ -299,9 +283,7 @@ export class client_state_t {
 
     this.last_received_message = 0; // (realtime) for net trouble icon
 
-    //
     // information that is static for the entire time connected to a server
-    //
     this.model_precache = new Array(MAX_MODELS).fill(null);
     this.sound_precache = new Array(MAX_SOUNDS).fill(null);
 
@@ -326,9 +308,7 @@ export class client_state_t {
   }
 }
 
-//=============================================================================
 // Global instances
-//=============================================================================
 
 export const cls = new client_static_t();
 export const cl = new client_state_t();

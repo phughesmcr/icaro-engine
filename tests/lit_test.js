@@ -29,9 +29,7 @@ function assertEqual(actual, expected, message) {
   }
 }
 
-// ----------------------------------------------------------------------------
 // Mod_LoadLighting
-// ----------------------------------------------------------------------------
 
 const LIGHT_LEN = 128; // smallMap's lit face reads from lightofs 64
 
@@ -124,9 +122,7 @@ Deno.test("a dedicated server does not read the .lit", () => {
   }
 });
 
-// ----------------------------------------------------------------------------
 // COM_EnsureFile fetches the .lit with its map
-// ----------------------------------------------------------------------------
 
 const MAP_SIZE = 40000; // deferred: over the 32k of the b_*.bsp item models
 
@@ -279,9 +275,7 @@ Deno.test("COM_EnsureFile on a loose map also fetches a loose .lit", async () =>
   }
 });
 
-// ----------------------------------------------------------------------------
 // Lightmap build and upload
-// ----------------------------------------------------------------------------
 
 // A 2x2-luxel surface with light style 0. samples: the luxel values, one a
 // luxel (mono) or three (rgb).
@@ -455,9 +449,7 @@ Deno.test("dynamic lights add their colour to RGB lightmaps", () => {
   }
 });
 
-// ----------------------------------------------------------------------------
 // R_LightPoint
-// ----------------------------------------------------------------------------
 
 // One node at z = 0 holding one 128x128 surface around the origin (9x9 luxels)
 function lightPointWorld(samples, rgb) {
@@ -519,9 +511,7 @@ Deno.test("R_LightPoint reads RGB samples into lightcolor and returns their mean
   );
 });
 
-// ----------------------------------------------------------------------------
 // Search-path priority across pak sequences
-// ----------------------------------------------------------------------------
 
 Deno.test("paks of one game directory share a search path; a .lit from a lower directory is ignored", async () => {
   const map = smallMap();
@@ -587,9 +577,7 @@ Deno.test("paks of one game directory share a search path; a .lit from a lower d
   });
 });
 
-// ----------------------------------------------------------------------------
 // Lightmap rebuilds
-// ----------------------------------------------------------------------------
 
 Deno.test("r_fullbright rebuilds RGB lightmaps at the right offsets", () => {
   const rgb = makeSurface(

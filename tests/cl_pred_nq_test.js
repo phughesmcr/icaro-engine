@@ -50,12 +50,10 @@ function assertNear(actual, expected, epsilon, message) {
   }
 }
 
-//
 // Synthetic map, in world units:
 //   - floor top at z = 0 for x < 64, lower floor at z = -200 beyond (a ledge)
 //   - wall face at y = 100 (solid for y >= 100)
 // Hull 1 is the same brushes expanded by the player box (-16 -16 -24, 16 16 32).
-//
 function axisPlane(type, dist) {
   const normal = new Float32Array(3);
   normal[type] = 1;
@@ -154,9 +152,7 @@ const stepWorld = {
 
 let worldmodel = dryWorld;
 
-//
 // Server side: the real sv_user / sv_phys code with SV_Move over the hulls
-//
 const worldEdict = new edict_t(0, 106);
 worldEdict.v.solid = SOLID_BSP;
 
@@ -291,9 +287,7 @@ function serverFrame(ent, viewangles, move, buttons, dt) {
   SV_WalkMove(ent);
 }
 
-//
 // Client side: CL_PredictUsercmd in NetQuake mode over the same hulls
-//
 function setupClientWorld(world) {
   pmove.numphysent = 1;
   pmove.physents[0].model = world;

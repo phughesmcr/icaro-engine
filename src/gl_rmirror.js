@@ -19,9 +19,7 @@
 
 import * as THREE from "three";
 
-//============================================================================
 // Gate
-//============================================================================
 
 // True when a mirror pass should run. GLQuake runs it for r_mirroralpha != 1;
 // values above 1 mean nothing, so only < 1 counts. No pass under WebXR.
@@ -29,9 +27,7 @@ export function R_MirrorGate(alpha, xrActive) {
   return xrActive !== true && alpha < 1;
 }
 
-//============================================================================
 // Reflection maths. A plane is normal . p = dist, normal unit length.
-//============================================================================
 
 export function R_ReflectPoint(out, p, normal, dist) {
   const d = normal[0] * p[0] + normal[1] * p[1] + normal[2] * p[2] - dist;
@@ -161,9 +157,7 @@ export function R_ObliqueProjection(proj, clipPlane, bias = 0) {
   return proj;
 }
 
-//============================================================================
 // Render pass
-//============================================================================
 
 const MIRROR_VERTEX = `
 uniform mat4 textureMatrix;

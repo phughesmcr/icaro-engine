@@ -109,13 +109,7 @@ const DEFAULT_OPTS = {
   deathmatch: false,
 };
 
-/*
-==============================================================================
-
-TRACES (build time)
-
-==============================================================================
-*/
+// TRACES (build time)
 
 const tr = new trace_t();
 const tr_sub = new trace_t();
@@ -268,13 +262,7 @@ function is_liquid(c) {
   return c <= CONTENTS_WATER && c !== CONTENTS_SOLID;
 }
 
-/*
-==============================================================================
-
-ENTITY LUMP
-
-==============================================================================
-*/
+// ENTITY LUMP
 
 // The entity lump as a list of key/value objects (ED_ParseEdict's input)
 function parse_entities(text) {
@@ -370,13 +358,7 @@ const NAV_CLASSES = new Set([
   "trigger_changelevel",
 ]);
 
-/*
-==============================================================================
-
-BUILD
-
-==============================================================================
-*/
+// BUILD
 
 // Vertices of surface s in the xy plane, into xs/ys; returns the count
 function surface_polygon(model, s, xs, ys) {
@@ -438,15 +420,11 @@ const NUDGES = [
   -16,
 ];
 
-/*
-==================
-Nav_Build
-
-Builds the walk graph for a loaded brush model (sv.worldmodel or
-cl.worldmodel). opts: grid (32), maxdrop (256), jump (40), skill (1),
-deathmatch (false).
-==================
-*/
+/**
+ * Builds the walk graph for a loaded brush model (sv.worldmodel or
+ * cl.worldmodel). opts: grid (32), maxdrop (256), jump (40), skill (1),
+ * deathmatch (false).
+ */
 export function Nav_Build(worldmodel, opts = {}) {
   const t0 = performance.now();
   const o = { ...DEFAULT_OPTS, ...opts };
@@ -456,9 +434,7 @@ export function Nav_Build(worldmodel, opts = {}) {
   b_hull0 = worldmodel.hulls[0];
   b_clips = [];
 
-  //
   // entities
-  //
   const lump = parse_entities(worldmodel.entities);
   const ents = [];
   const by_targetname = new Map();
@@ -577,9 +553,7 @@ export function Nav_Build(worldmodel, opts = {}) {
     }
   }
 
-  //
   // clipping hulls of brush entities
-  //
   function add_clip(ent, kind, dz, blocks_fit) {
     const rec = ents[ent];
     const sm = worldmodel.submodels[rec.model];
@@ -619,9 +593,7 @@ export function Nav_Build(worldmodel, opts = {}) {
     }
   }
 
-  //
   // sample floors
-  //
   const wmins = worldmodel.mins, wmaxs = worldmodel.maxs;
   const gx0 = Math.floor(wmins[0] / G) - 1, gy0 = Math.floor(wmins[1] / G) - 1;
   const gw = Math.floor(wmaxs[0] / G) + 2 - gx0,
@@ -780,9 +752,7 @@ export function Nav_Build(worldmodel, opts = {}) {
     node_flags[i] = f;
   }
 
-  //
   // entity marks on nodes
-  //
   function box_touches(i, mins, maxs, grow) {
     for (let k = 0; k < 3; k++) {
       const p = node_pos[i * 3 + k];
@@ -936,9 +906,7 @@ export function Nav_Build(worldmodel, opts = {}) {
     }
   }
 
-  //
   // links
-  //
   const lfrom = [], lto = [], lflags = [], lent = [], lcost = [];
   const pa = new Float32Array(3);
   let traces = 0;
@@ -1352,9 +1320,7 @@ export function Nav_Build(worldmodel, opts = {}) {
     }
   }
 
-  //
   // compact the links (CSR, sorted by from node, stable)
-  //
   const L = lfrom.length;
   const link_start = new Int32Array(N + 1);
   for (let i = 0; i < L; i++) {
@@ -1412,13 +1378,7 @@ function build_cells(graph, pcell) {
   graph.cell_nodes = nodes;
 }
 
-/*
-==============================================================================
-
-QUERIES
-
-==============================================================================
-*/
+// QUERIES
 
 const NEAREST_K = 8;
 const near_node = new Int32Array(NEAREST_K);
@@ -1455,15 +1415,11 @@ function node_visible(graph, p, i) {
     los_trace.fraction === 1;
 }
 
-/*
-==================
-Nav_NearestNode
-
-The node closest to p (a player origin; an item origin on the floor works
-too) within maxdist units, preferring nodes in line of sight and at the
-same height. -1 if there is none.
-==================
-*/
+/**
+ * The node closest to p (a player origin; an item origin on the floor works
+ * too) within maxdist units, preferring nodes in line of sight and at the
+ * same height. -1 if there is none.
+ */
 export function Nav_NearestNode(graph, p, maxdist = 256) {
   const G = graph.grid;
   const cx = Math.round(p[0] / G) - graph.cell_x0;
@@ -1534,15 +1490,11 @@ function heuristic(graph, a, b) {
   return Math.sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-/*
-==================
-Nav_FindPathNodes
-
-A* from node start to node goal. Returns graph.path (count, cost, node,
-pos as xyz triples, and flags: the link flags used to reach each waypoint)
-or null. graph.path is overwritten by the next query: copy what you keep.
-==================
-*/
+/**
+ * A* from node start to node goal. Returns graph.path (count, cost, node,
+ * pos as xyz triples, and flags: the link flags used to reach each waypoint)
+ * or null. graph.path is overwritten by the next query: copy what you keep.
+ */
 export function Nav_FindPathNodes(graph, start, goal) {
   if (
     start < 0 || goal < 0 || start >= graph.node_count ||
@@ -1652,14 +1604,10 @@ export function Nav_FindPathNodes(graph, start, goal) {
   return path;
 }
 
-/*
-==================
-Nav_FindPath
-
-A path from point from to point to (player origins), through the nodes
-nearest each. Returns graph.path (see Nav_FindPathNodes) or null.
-==================
-*/
+/**
+ * A path from point from to point to (player origins), through the nodes
+ * nearest each. Returns graph.path (see Nav_FindPathNodes) or null.
+ */
 export function Nav_FindPath(graph, from, to) {
   const a = Nav_NearestNode(graph, from);
   if (a < 0) {
@@ -1672,14 +1620,10 @@ export function Nav_FindPath(graph, from, to) {
   return Nav_FindPathNodes(graph, a, b);
 }
 
-/*
-==================
-Nav_Components
-
-Connected components with links taken as two-way; for diagnostics. Returns
-an Int32Array of component ids (allocates).
-==================
-*/
+/**
+ * Connected components with links taken as two-way; for diagnostics. Returns
+ * an Int32Array of component ids (allocates).
+ */
 export function Nav_Components(graph) {
   const N = graph.node_count;
   const parent = new Int32Array(N);

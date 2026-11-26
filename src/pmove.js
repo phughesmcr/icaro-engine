@@ -228,14 +228,10 @@ for (let i = 0; i < 6; i++) {
   box_hull.planes[i].normal[i >> 1] = 1;
 }
 
-/*
-===================
-PM_InitBoxHull
-
-Set up the planes and clipnodes so that the six floats of a bounding box
-can just be stored out and get a proper hull_t structure.
-===================
-*/
+/**
+ * Set up the planes and clipnodes so that the six floats of a bounding box
+ * can just be stored out and get a proper hull_t structure.
+ */
 export function PM_InitBoxHull() {
   for (let i = 0; i < 6; i++) {
     box_hull.clipnodes[i].planenum = i;
@@ -255,14 +251,10 @@ export function PM_InitBoxHull() {
   }
 }
 
-/*
-===================
-PM_HullForBox
-
-To keep everything totally uniform, bounding boxes are turned into small
-BSP trees instead of being compared directly.
-===================
-*/
+/**
+ * To keep everything totally uniform, bounding boxes are turned into small
+ * BSP trees instead of being compared directly.
+ */
 export function PM_HullForBox(mins, maxs) {
   box_hull.planes[0].dist = maxs[0];
   box_hull.planes[1].dist = mins[0];
@@ -280,22 +272,18 @@ export function PM_HullForBox(mins, maxs) {
   return box_hull;
 }
 
-/*
-==================
-Flattened hulls
-
-Not in QW. hull.clipnodes is an array of {planenum, children} objects and
-hull.planes an array of {normal, dist, type} objects, so walking a hull
-chases two pointers per node. The first time a hull is traced through, its
-tree is copied into typed arrays indexed by node number, with the plane
-resolved. The values are the same ones, so every distance comes out bit for
-bit as before. Brush models' clipnodes and planes are not changed once
-loaded; the box hull is the exception, and PM_HullForBox writes its
-distances into box_flat directly. (world.js does the same for the server's
-traces; pmove.js can't import it, as the cycle it is in with cl_pred.js
-fails with a TDZ error.)
-==================
-*/
+// Flattened hulls
+//
+// Not in QW. hull.clipnodes is an array of {planenum, children} objects and
+// hull.planes an array of {normal, dist, type} objects, so walking a hull
+// chases two pointers per node. The first time a hull is traced through, its
+// tree is copied into typed arrays indexed by node number, with the plane
+// resolved. The values are the same ones, so every distance comes out bit for
+// bit as before. Brush models' clipnodes and planes are not changed once
+// loaded; the box hull is the exception, and PM_HullForBox writes its
+// distances into box_flat directly. (world.js does the same for the server's
+// traces; pmove.js can't import it, as the cycle it is in with cl_pred.js
+// fails with a TDZ error.)
 class pm_hull_flat_t {
   constructor(count) {
     this.planes = null;
@@ -355,11 +343,7 @@ function pm_hull_flat(hull) {
   return f;
 }
 
-/*
-==================
-PM_HullPointContents
-==================
-*/
+// PM_HullPointContents
 function pm_hull_point_contents(f, firstclipnode, lastclipnode, num, p) {
   const p0 = p[0], p1 = p[1], p2 = p[2];
   const type = f.type, dist = f.dist, normal = f.normal;
@@ -403,11 +387,6 @@ export function PM_HullPointContents(hull, num, p) {
   );
 }
 
-/*
-==================
-PM_PointContents
-==================
-*/
 export function PM_PointContents(p) {
   if (pmove.numphysent === 0 || pmove.physents[0].model == null) {
     return CONTENTS_EMPTY;
@@ -417,14 +396,10 @@ export function PM_PointContents(p) {
   return PM_HullPointContents(hull, hull.firstclipnode, p);
 }
 
-/*
-==================
-PM_RecursiveHullCheck
-
-The C recurses for every branch; the cases that end in a tail call (both
-points on one side, passing the node) loop here instead.
-==================
-*/
+// PM_RecursiveHullCheck
+//
+// The C recurses for every branch; the cases that end in a tail call (both
+// points on one side, passing the node) loop here instead.
 function pm_recursive_hull_check(
   f,
   firstclipnode,
@@ -601,13 +576,7 @@ export function PM_RecursiveHullCheck(hull, num, p1f, p2f, p1, p2, trace) {
   );
 }
 
-/*
-================
-PM_TestPlayerPosition
-
-Returns false if the given player position is not valid (in solid)
-================
-*/
+/** Returns false if the given player position is not valid (in solid) */
 export function PM_TestPlayerPosition(pos) {
   for (let i = 0; i < pmove.numphysent; i++) {
     const pe = pmove.physents[i];
@@ -635,13 +604,7 @@ export function PM_TestPlayerPosition(pos) {
   return true;
 }
 
-/*
-================
-PM_PlayerMove
-
-Trace player from start to end, returns trace result
-================
-*/
+/** Trace player from start to end, returns trace result */
 export function PM_PlayerMove(start, end) {
   const total = _pm_move_total;
   total.allsolid = false;
@@ -728,18 +691,14 @@ export function PM_PlayerMove(start, end) {
   return total;
 }
 
-/*
-================
-PM_NQ_PointMove
-
-Point trace (zero-size box) through hull 0 of the BSP physents only.
-Client-side stand-in for NetQuake's SV_Move ( start, vec3_origin,
-vec3_origin, end, MOVE_NOMONSTERS, ent ) (WinQuake/world.c), which the
-server uses for the edge-friction probe in SV_UserFriction and for
-QuakeC traceline ( ..., TRUE, ... ) in CheckWaterJump. Non-BSP physents
-(player boxes) are skipped, as MOVE_NOMONSTERS skips non-SOLID_BSP edicts.
-================
-*/
+/**
+ * Point trace (zero-size box) through hull 0 of the BSP physents only.
+ * Client-side stand-in for NetQuake's SV_Move ( start, vec3_origin,
+ * vec3_origin, end, MOVE_NOMONSTERS, ent ) (WinQuake/world.c), which the
+ * server uses for the edge-friction probe in SV_UserFriction and for
+ * QuakeC traceline ( ..., TRUE, ... ) in CheckWaterJump. Non-BSP physents
+ * (player boxes) are skipped, as MOVE_NOMONSTERS skips non-SOLID_BSP edicts.
+ */
 export function PM_NQ_PointMove(start, end) {
   const total = _pm_point_total;
   total.allsolid = false;
@@ -810,14 +769,10 @@ export function PM_NQ_PointMove(start, end) {
   return total;
 }
 
-/*
-==================
-PM_ClipVelocity
-
-Slide off of the impacting object
-returns the blocked flags (1 = floor, 2 = step / wall)
-==================
-*/
+/**
+ * Slide off of the impacting object
+ * returns the blocked flags (1 = floor, 2 = step / wall)
+ */
 function PM_ClipVelocity(inv, normal, out, overbounce) {
   let blocked = 0;
   if (normal[2] > 0) {
@@ -840,13 +795,7 @@ function PM_ClipVelocity(inv, normal, out, overbounce) {
   return blocked;
 }
 
-/*
-============
-PM_FlyMove
-
-The basic solid body movement clip that slides along multiple planes
-============
-*/
+/** The basic solid body movement clip that slides along multiple planes */
 function PM_FlyMove() {
   const numbumps = 4;
   let blocked = 0;
@@ -957,13 +906,7 @@ function PM_FlyMove() {
   return blocked;
 }
 
-/*
-==================
-PM_Friction
-
-Handles both ground friction and water friction
-==================
-*/
+/** Handles both ground friction and water friction */
 function PM_Friction() {
   if (pmove.waterjumptime > 0) {
     return;
@@ -1019,11 +962,6 @@ function PM_Friction() {
   vel[2] = vel[2] * newspeed;
 }
 
-/*
-==============
-PM_Accelerate
-==============
-*/
 function PM_Accelerate(wishdir, wishspeed, accel) {
   if (pmove.dead) {
     return;
@@ -1048,11 +986,6 @@ function PM_Accelerate(wishdir, wishspeed, accel) {
   }
 }
 
-/*
-==============
-PM_AirAccelerate
-==============
-*/
 function PM_AirAccelerate(wishdir, wishspeed, accel) {
   if (pmove.dead) {
     return;
@@ -1082,11 +1015,6 @@ function PM_AirAccelerate(wishdir, wishspeed, accel) {
   }
 }
 
-/*
-===================
-PM_WaterMove
-===================
-*/
 function PM_WaterMove() {
   const wishvel = _pm_watermove_wishvel;
 
@@ -1135,13 +1063,7 @@ function PM_WaterMove() {
   PM_FlyMove();
 }
 
-/*
-===================
-PM_GroundMove
-
-Player is on ground, with no upwards velocity
-===================
-*/
+/** Player is on ground, with no upwards velocity */
 function PM_GroundMove() {
   pmove.velocity[2] = 0;
   if (
@@ -1226,11 +1148,6 @@ function PM_GroundMove() {
   }
 }
 
-/*
-===================
-PM_AirMove
-===================
-*/
 function PM_AirMove() {
   const fmove = pmove.cmd.forwardmove;
   const smove = pmove.cmd.sidemove;
@@ -1272,11 +1189,6 @@ function PM_AirMove() {
   }
 }
 
-/*
-=============
-PM_CatagorizePosition
-=============
-*/
 function PM_CatagorizePosition() {
   const point = _pm_catpos_point;
 
@@ -1336,11 +1248,6 @@ function PM_CatagorizePosition() {
   }
 }
 
-/*
-=============
-JumpButton
-=============
-*/
 function JumpButton() {
   if (pmove.dead) {
     pmove.oldbuttons |= BUTTON_JUMP; // don't jump again until released
@@ -1383,11 +1290,6 @@ function JumpButton() {
   pmove.oldbuttons |= BUTTON_JUMP; // don't jump again until released
 }
 
-/*
-=============
-CheckWaterJump
-=============
-*/
 function CheckWaterJump() {
   if (pmove.waterjumptime > 0) {
     return;
@@ -1426,15 +1328,11 @@ function CheckWaterJump() {
   pmove.oldbuttons |= BUTTON_JUMP; // don't jump again until released
 }
 
-/*
-=================
-NudgePosition
-
-If pmove.origin is in a solid position,
-try nudging slightly on all axis to
-allow for the cut precision of the net coordinates
-=================
-*/
+/**
+ * If pmove.origin is in a solid position,
+ * try nudging slightly on all axis to
+ * allow for the cut precision of the net coordinates
+ */
 function NudgePosition() {
   const base = _pm_nudge_base;
   VectorCopy(pmove.origin, base);
@@ -1461,11 +1359,6 @@ function NudgePosition() {
   VectorCopy(base, pmove.origin);
 }
 
-/*
-=============
-SpectatorMove
-=============
-*/
 function SpectatorMove() {
   // friction
   const speed = Length(pmove.velocity);
@@ -1528,27 +1421,21 @@ function SpectatorMove() {
   VectorMA(pmove.origin, frametime, pmove.velocity, pmove.origin);
 }
 
-/*
-==============================================================================
-
-NETQUAKE PHYSICS MODE
-
-The Icaro server simulates players with NetQuake physics (sv_user.js /
-sv_phys.js, ported from WinQuake sv_user.c / sv_phys.c) plus the id1
-QuakeC PlayerPreThink, not with QuakeWorld pmove. When pmove.nqphysics is
-set, PlayerMove runs this client-side copy of one NetQuake server frame
-for the player, so prediction agrees with the server:
-
-	SV_ClientThink    friction / acceleration, using last frame's
-	                  FL_ONGROUND and waterlevel
-	PlayerPreThink    QC WaterMove damping, CheckWaterJump, PlayerJump
-	SV_Physics_Client SV_CheckVelocity, SV_CheckWater, SV_AddGravity,
-	                  SV_WalkMove (or fly / noclip)
-
-What still cannot match client-side is listed in PM_NQ_PlayerMove.
-
-==============================================================================
-*/
+// NETQUAKE PHYSICS MODE
+//
+// The Icaro server simulates players with NetQuake physics (sv_user.js /
+// sv_phys.js, ported from WinQuake sv_user.c / sv_phys.c) plus the id1
+// QuakeC PlayerPreThink, not with QuakeWorld pmove. When pmove.nqphysics is
+// set, PlayerMove runs this client-side copy of one NetQuake server frame
+// for the player, so prediction agrees with the server:
+//
+// 	SV_ClientThink    friction / acceleration, using last frame's
+// 	                  FL_ONGROUND and waterlevel
+// 	PlayerPreThink    QC WaterMove damping, CheckWaterJump, PlayerJump
+// 	SV_Physics_Client SV_CheckVelocity, SV_CheckWater, SV_AddGravity,
+// 	                  SV_WalkMove (or fly / noclip)
+//
+// What still cannot match client-side is listed in PM_NQ_PlayerMove.
 
 const PITCH = 0;
 const YAW = 1;
@@ -1582,15 +1469,11 @@ const _nq_unstick_dir = new Float32Array(3);
 const _nq_into = new Float32Array(3);
 const _nq_side = new Float32Array(3);
 
-/*
-===============
-PM_NQ_CalcRoll
-
-V_CalcRoll (WinQuake view.c), which SV_ClientThink uses to roll the
-player's angles by up to 4 * cl_rollangle while strafing. The roll
-tilts the right vector, so it changes strafe acceleration slightly.
-===============
-*/
+/**
+ * V_CalcRoll (WinQuake view.c), which SV_ClientThink uses to roll the
+ * player's angles by up to 4 * cl_rollangle while strafing. The roll
+ * tilts the right vector, so it changes strafe acceleration slightly.
+ */
 function PM_NQ_CalcRoll(angles, velocity) {
   AngleVectors(angles, forward, right, up);
   let side = DotProduct(velocity, right);
@@ -1607,15 +1490,11 @@ function PM_NQ_CalcRoll(angles, velocity) {
   return side * sign;
 }
 
-/*
-==================
-PM_NQ_UserFriction
-
-SV_UserFriction (WinQuake sv_user.c). Unlike PM_Friction: 2D speed,
-edge probe is a point trace through hull 0, edge factor is the
-edgefriction cvar, no water branch (SV_WaterMove has its own).
-==================
-*/
+/**
+ * SV_UserFriction (WinQuake sv_user.c). Unlike PM_Friction: 2D speed,
+ * edge probe is a point trace through hull 0, edge factor is the
+ * edgefriction cvar, no water branch (SV_WaterMove has its own).
+ */
 function PM_NQ_UserFriction() {
   const vel = pmove.velocity;
 
@@ -1655,14 +1534,10 @@ function PM_NQ_UserFriction() {
   vel[2] = vel[2] * newspeed;
 }
 
-/*
-===================
-PM_NQ_WaterMove
-
-SV_WaterMove (WinQuake sv_user.c): full-pitch v_angle, sv_friction
-water drag, sv_accelerate. No step press-down (that is QW pmove only).
-===================
-*/
+/**
+ * SV_WaterMove (WinQuake sv_user.c): full-pitch v_angle, sv_friction
+ * water drag, sv_accelerate. No step press-down (that is QW pmove only).
+ */
 function PM_NQ_WaterMove() {
   const wishvel = _nq_wishvel;
 
@@ -1725,15 +1600,11 @@ function PM_NQ_WaterMove() {
   }
 }
 
-/*
-===================
-PM_NQ_AirMove
-
-SV_AirMove (WinQuake sv_user.c). The wish direction comes from
-ent->v.angles, whose pitch is -v_angle/3. Z is zeroed afterwards and the
-vector is not renormalised, so looking up or down slows the player.
-===================
-*/
+/**
+ * SV_AirMove (WinQuake sv_user.c). The wish direction comes from
+ * ent->v.angles, whose pitch is -v_angle/3. Z is zeroed afterwards and the
+ * vector is not renormalised, so looking up or down slows the player.
+ */
 function PM_NQ_AirMove() {
   AngleVectors(_nq_angles, forward, right, up);
 
@@ -1778,15 +1649,11 @@ function PM_NQ_AirMove() {
   }
 }
 
-/*
-===================
-PM_NQ_NoclipMove
-
-SV_NoclipMove (johnfitz, FitzQuake/Ironwail sv_user.c), used when the
-server's sv_altnoclip is set: fly where v_angle points, upmove doubled,
-capped at sv_maxspeed.
-===================
-*/
+/**
+ * SV_NoclipMove (johnfitz, FitzQuake/Ironwail sv_user.c), used when the
+ * server's sv_altnoclip is set: fly where v_angle points, upmove doubled,
+ * capped at sv_maxspeed.
+ */
 function PM_NQ_NoclipMove() {
   AngleVectors(pmove.angles, forward, right, up);
 
@@ -1804,14 +1671,10 @@ function PM_NQ_NoclipMove() {
   }
 }
 
-/*
-===================
-PM_NQ_ClientThink
-
-SV_ClientThink (WinQuake sv_user.c). pmove.angles is v_angle (the
-quantised angles the server read from clc_move).
-===================
-*/
+/**
+ * SV_ClientThink (WinQuake sv_user.c). pmove.angles is v_angle (the
+ * quantised angles the server read from clc_move).
+ */
 function PM_NQ_ClientThink() {
   // DropPunchAngle. The start value is the punchangle of the last
   // svc_clientdata; the QC may set a new one later, which is not predicted.
@@ -1862,15 +1725,11 @@ function PM_NQ_ClientThink() {
   PM_NQ_AirMove();
 }
 
-/*
-=============
-PM_NQ_CheckWaterJump
-
-id1 QuakeC CheckWaterJump (client.qc), called from PlayerPreThink when
-waterlevel == 2. Uses two traceline ( ..., TRUE, ... ) point traces where
-QW pmove uses point contents.
-=============
-*/
+/**
+ * id1 QuakeC CheckWaterJump (client.qc), called from PlayerPreThink when
+ * waterlevel == 2. Uses two traceline ( ..., TRUE, ... ) point traces where
+ * QW pmove uses point contents.
+ */
 function PM_NQ_CheckWaterJump() {
   // makevectors ( self.angles ); v_forward_z = 0; normalize
   AngleVectors(_nq_angles, forward, right, up);
@@ -1903,15 +1762,11 @@ function PM_NQ_CheckWaterJump() {
   }
 }
 
-/*
-=============
-PM_NQ_PlayerJump
-
-id1 QuakeC PlayerJump (client.qc). Runs after SV_ClientThink, so the jump
-frame gets ground friction and acceleration before the +270.
-FL_JUMPRELEASED is !( pmove.oldbuttons & BUTTON_JUMP ).
-=============
-*/
+/**
+ * id1 QuakeC PlayerJump (client.qc). Runs after SV_ClientThink, so the jump
+ * frame gets ground friction and acceleration before the +270.
+ * FL_JUMPRELEASED is !( pmove.oldbuttons & BUTTON_JUMP ).
+ */
 function PM_NQ_PlayerJump() {
   if (pmove.waterjumptime > 0) {
     return;
@@ -1941,14 +1796,10 @@ function PM_NQ_PlayerJump() {
   pmove.velocity[2] += 270;
 }
 
-/*
-=============
-PM_NQ_CheckWater
-
-SV_CheckWater (WinQuake sv_phys.c). Currents count as water, as in
-SV_PointContents. Returns true when waterlevel > 1.
-=============
-*/
+/**
+ * SV_CheckWater (WinQuake sv_phys.c). Currents count as water, as in
+ * SV_PointContents. Returns true when waterlevel > 1.
+ */
 function PM_NQ_CheckWater() {
   const point = _nq_point;
   point[0] = pmove.origin[0];
@@ -1986,16 +1837,12 @@ function PM_NQ_PointContents(p) {
   return cont;
 }
 
-/*
-============
-PM_NQ_FlyMove
-
-SV_FlyMove (WinQuake sv_phys.c). Differs from PM_FlyMove: only allsolid
-traps, original_velocity is refreshed after progress, a floor hit on a BSP
-physent sets FL_ONGROUND, and the last vertical-plane hit is saved for
-SV_WallFriction when savestep is true.
-============
-*/
+/**
+ * SV_FlyMove (WinQuake sv_phys.c). Differs from PM_FlyMove: only allsolid
+ * traps, original_velocity is refreshed after progress, a floor hit on a BSP
+ * physent sets FL_ONGROUND, and the last vertical-plane hit is saved for
+ * SV_WallFriction when savestep is true.
+ */
 function PM_NQ_FlyMove(time, savestep) {
   const numbumps = 4;
   let blocked = 0;
@@ -2111,14 +1958,10 @@ function PM_NQ_FlyMove(time, savestep) {
   return blocked;
 }
 
-/*
-============
-PM_NQ_PushEntity
-
-SV_PushEntity (WinQuake sv_phys.c) for the player: trace the hull by
-push and take the end position, even when the trace starts in solid.
-============
-*/
+/**
+ * SV_PushEntity (WinQuake sv_phys.c) for the player: trace the hull by
+ * push and take the end position, even when the trace starts in solid.
+ */
 function PM_NQ_PushEntity(push) {
   VectorAdd(pmove.origin, push, _nq_end);
   const trace = PM_PlayerMove(pmove.origin, _nq_end);
@@ -2126,14 +1969,10 @@ function PM_NQ_PushEntity(push) {
   return trace;
 }
 
-/*
-============
-PM_NQ_WallFriction
-
-SV_WallFriction (WinQuake sv_phys.c): extra friction when running into
-a wall, based on the full-pitch view angle.
-============
-*/
+/**
+ * SV_WallFriction (WinQuake sv_phys.c): extra friction when running into
+ * a wall, based on the full-pitch view angle.
+ */
 function PM_NQ_WallFriction() {
   AngleVectors(pmove.angles, forward, right, up);
   let d = DotProduct(_nq_steptrace_normal, forward);
@@ -2152,13 +1991,7 @@ function PM_NQ_WallFriction() {
   pmove.velocity[1] = _nq_side[1] * (1 + d);
 }
 
-/*
-=====================
-PM_NQ_TryUnstick
-
-SV_TryUnstick (WinQuake sv_phys.c)
-=====================
-*/
+/** SV_TryUnstick (WinQuake sv_phys.c) */
 function PM_NQ_TryUnstick(oldvel) {
   const oldorg = _nq_unstick_oldorg;
   const dir = _nq_unstick_dir;
@@ -2225,13 +2058,7 @@ function PM_NQ_TryUnstick(oldvel) {
   return 7; // still not moving
 }
 
-/*
-=====================
-PM_NQ_WalkMove
-
-SV_WalkMove (WinQuake sv_phys.c)
-=====================
-*/
+/** SV_WalkMove (WinQuake sv_phys.c) */
 function PM_NQ_WalkMove() {
   const oldorg = _nq_oldorg;
   const oldvel = _nq_oldvel;
@@ -2316,28 +2143,24 @@ function PM_NQ_WalkMove() {
   }
 }
 
-/*
-=============
-PM_NQ_PlayerMove
-
-One NetQuake server frame for the player, in server order (Host_ServerFrame:
-SV_RunClients, then SV_Physics). In: pmove.origin, velocity, angles (v_angle),
-cmd, onground, waterlevel / watertype (-1 = recompute), roll, movedir,
-waterjumptime, oldbuttons, movetype. Out: the same fields.
-
-Also in/out: teleporttime (seconds of teleport_time left) and punchangle.
-They come from svc_playerinfo PF_TELEPORT and svc_clientdata, and tick down
-here as they do on the server.
-
-Not modelled, because the client is never told the inputs:
-	- QC changes to punchangle or teleport_time made after the last update
-	- fixangle: the server sends it as svc_setangle, which sets the view
-	  angles the next commands carry; nothing is predicted for it
-	- SV_CheckStuck (NudgePosition handles coordinate rounding instead)
-	- touch / impact functions, triggers
-	- dead players: CL_PredictMove does not predict them
-=============
-*/
+/**
+ * One NetQuake server frame for the player, in server order (Host_ServerFrame:
+ * SV_RunClients, then SV_Physics). In: pmove.origin, velocity, angles (v_angle),
+ * cmd, onground, waterlevel / watertype (-1 = recompute), roll, movedir,
+ * waterjumptime, oldbuttons, movetype. Out: the same fields.
+ *
+ * Also in/out: teleporttime (seconds of teleport_time left) and punchangle.
+ * They come from svc_playerinfo PF_TELEPORT and svc_clientdata, and tick down
+ * here as they do on the server.
+ *
+ * Not modelled, because the client is never told the inputs:
+ * 	- QC changes to punchangle or teleport_time made after the last update
+ * 	- fixangle: the server sends it as svc_setangle, which sets the view
+ * 	  angles the next commands carry; nothing is predicted for it
+ * 	- SV_CheckStuck (NudgePosition handles coordinate rounding instead)
+ * 	- touch / impact functions, triggers
+ * 	- dead players: CL_PredictMove does not predict them
+ */
 function PM_NQ_PlayerMove() {
   if (pmove.movetype === PM_MOVETYPE_NOCLIP) {
     // SV_AirMove sets velocity to wishvel; SV_Physics_Client then
@@ -2369,14 +2192,10 @@ function PM_NQ_PlayerMove() {
     watertype = pmove.watertype;
   }
 
-  //
   // SV_RunClients -> SV_ClientThink
-  //
   PM_NQ_ClientThink();
 
-  //
   // SV_Physics_Client -> QC PlayerPreThink
-  //
 
   // QC WaterMove: extra water drag
   if (waterlevel !== 0 && !(pmove.waterjumptime > 0)) {
@@ -2394,9 +2213,7 @@ function PM_NQ_PlayerMove() {
     pmove.oldbuttons &= ~BUTTON_JUMP; // FL_JUMPRELEASED
   }
 
-  //
   // SV_Physics_Client
-  //
 
   // SV_CheckVelocity
   for (let i = 0; i < 3; i++) {
@@ -2423,15 +2240,11 @@ function PM_NQ_PlayerMove() {
   onground = pmove.onground ? 0 : -1;
 }
 
-/*
-=============
-PM_NQ_CheckGround
-
-Best guess at FL_ONGROUND for a state the server did not report it for
-(other players): standing on a BSP physent within one unit, and not
-moving up fast (the PM_CatagorizePosition test).
-=============
-*/
+/**
+ * Best guess at FL_ONGROUND for a state the server did not report it for
+ * (other players): standing on a BSP physent within one unit, and not
+ * moving up fast (the PM_CatagorizePosition test).
+ */
 export function PM_NQ_CheckGround(origin, velocity) {
   if (velocity[2] > 180) {
     return false;
@@ -2449,16 +2262,12 @@ export function PM_NQ_CheckGround(origin, velocity) {
   return tr.ent >= 0 && pmove.physents[tr.ent].model != null;
 }
 
-/*
-=============
-PlayerMove
-
-Returns with origin, angles, and velocity modified in place.
-
-Numtouch and touchindex[] will be set if any of the physents
-were contacted during the move.
-=============
-*/
+/**
+ * Returns with origin, angles, and velocity modified in place.
+ *
+ * Numtouch and touchindex[] will be set if any of the physents
+ * were contacted during the move.
+ */
 export function PlayerMove() {
   frametime = pmove.cmd.msec * 0.001;
   pmove.numtouch = 0;
@@ -2516,11 +2325,6 @@ export function PlayerMove() {
   PM_CatagorizePosition();
 }
 
-/*
-==============
-Pmove_Init
-==============
-*/
 export function Pmove_Init() {
   PM_InitBoxHull();
 }

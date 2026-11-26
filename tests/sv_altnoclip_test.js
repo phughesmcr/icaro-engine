@@ -45,9 +45,7 @@ function assertNear(actual, expected, epsilon, message) {
   }
 }
 
-//
 // Server side: SV_ClientThink then SV_Physics_Client's MOVETYPE_NOCLIP case
-//
 const svState = { time: 10, edicts: [], num_edicts: 1 };
 const hostClient = { cmd: { forwardmove: 0, sidemove: 0, upmove: 0 } };
 
@@ -83,9 +81,7 @@ function serverFrame(ent, viewangles, move, dt) {
   SV_Physics_Noclip(ent);
 }
 
-//
 // Client side: the same PlayerMove that CL_PredictUsercmd runs, in NetQuake mode
-//
 function clientFrame(origin, velocity, viewangles, move, dt) {
   pmove.origin.set(origin);
   pmove.velocity.set(velocity);

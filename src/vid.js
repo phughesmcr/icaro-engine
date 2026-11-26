@@ -5,15 +5,11 @@ import { Sys_Printf } from "./sys.js";
 import { Con_Printf } from "./console.js";
 import { Cvar_RegisterVariable } from "./cvar.js";
 
-//
 // vid.h constants
-//
 export const VID_CBITS = 6;
 export const VID_GRADES = 1 << VID_CBITS;
 
-//============================================================================
 // vrect_t
-//============================================================================
 
 export class vrect_t {
   constructor() {
@@ -25,9 +21,7 @@ export class vrect_t {
   }
 }
 
-//============================================================================
 // viddef_t -- global video state
-//============================================================================
 
 export class viddef_t {
   constructor() {
@@ -51,9 +45,7 @@ export class viddef_t {
   }
 }
 
-//============================================================================
 // Globals
-//============================================================================
 
 export const vid = new viddef_t();
 
@@ -65,19 +57,15 @@ export const d_8to24table = new Uint32Array(256);
 export const vid_menudrawfn = null;
 export const vid_menukeyfn = null;
 
-//============================================================================
 // Three.js renderer state (replaces raw GL context)
-//============================================================================
 
 export let renderer = null; // THREE.WebGLRenderer
 export let canvas = null; // HTMLCanvasElement
 
-//============================================================================
 // VID_SetPalette
 //
 // Called at startup and after any gamma correction.
 // Takes 256 entries of RGB byte triplets (768 bytes total).
-//============================================================================
 
 export function VID_SetPalette(palette) {
   // palette is a Uint8Array of 768 bytes (256 * 3 RGB)
@@ -103,11 +91,9 @@ export function VID_SetPalette(palette) {
   d_8to24table[255] &= 0xffffff;
 }
 
-//============================================================================
 // VID_ShiftPalette
 //
 // Called for bonus and pain flashes, and for underwater color changes.
-//============================================================================
 
 export function VID_ShiftPalette(palette) {
   // In the browser, palette shifts are handled by post-processing
@@ -116,7 +102,6 @@ export function VID_ShiftPalette(palette) {
   VID_SetPalette(palette);
 }
 
-//============================================================================
 // VID_GetPixelRatio
 //
 // Web-only deviation, no C equivalent. The device pixel ratio that every
@@ -126,7 +111,6 @@ export function VID_ShiftPalette(palette) {
 // and thermal cost. ?dpr=<number> sets it explicitly (clamped to 0.5..4) and
 // ?dpr=native removes the cap on any device. Taps are mapped in CSS pixels,
 // so they are unaffected. Desktop is not capped; DPR 2 displays are common.
-//============================================================================
 
 export const VID_TOUCH_DPR_CAP = 2;
 
@@ -210,7 +194,6 @@ export function VID_ResetPixelRatio() {
   _dprTouchPrimary = false;
 }
 
-//============================================================================
 // VID_ParseRenderScale
 //
 // Web-only, no C equivalent. Reads ?scale= from a URL query string: the
@@ -218,7 +201,6 @@ export function VID_ResetPixelRatio() {
 // browser then stretches to fill the page. 0.5 renders a quarter of the
 // pixels, for weak GPUs such as smart-TV browsers. Clamped to 0.25..1;
 // missing or invalid values give 1 (full resolution).
-//============================================================================
 
 // WebGL drawing-buffer pixels per 2D overlay pixel; set once by VID_Init.
 // R_SetupGL scales the view rectangle by it.
@@ -230,7 +212,6 @@ export function VID_ParseRenderScale(search) {
   return Math.min(1, Math.max(0.25, value));
 }
 
-//============================================================================
 // VID_Init
 //
 // Called at startup to set up translation tables.
@@ -238,7 +219,6 @@ export function VID_ParseRenderScale(search) {
 // so it must be copied off if the video driver will need it again.
 //
 // For browser: creates a canvas and initializes Three.js WebGLRenderer.
-//============================================================================
 
 export function VID_Init(palette, gammaparm = null) {
   Sys_Printf("VID_Init");
@@ -332,14 +312,12 @@ export function VID_Init(palette, gammaparm = null) {
   );
 }
 
-//============================================================================
 // VID_Resize
 //
 // Web-only, no C equivalent: the window 'resize' handler. While an XR
 // session is presenting, the headset owns the drawing buffer size, so
 // setSize/setPixelRatio are skipped; the sessionend listener calls this
 // again so canvas, vid and renderer agree afterwards.
-//============================================================================
 
 export function VID_Resize(r = renderer, c = canvas) {
   if (r === null || c === null) return;
@@ -361,11 +339,9 @@ export function VID_Resize(r = renderer, c = canvas) {
   r.setPixelRatio(VID_GetPixelRatio() * vid_renderscale);
 }
 
-//============================================================================
 // VID_Shutdown
 //
 // Called at shutdown.
-//============================================================================
 
 export function VID_Shutdown() {
   Sys_Printf("VID_Shutdown");
@@ -381,24 +357,20 @@ export function VID_Shutdown() {
   }
 }
 
-//============================================================================
 // VID_Update
 //
 // Flushes the given rectangles from the view buffer to the screen.
 // In Three.js, the actual rendering is handled by renderer.render() in
 // gl_rmain.js, so this is largely a no-op.
-//============================================================================
 
 export function VID_Update(_rects) {
   // Three.js handles buffer swaps internally via renderer.render()
 }
 
-//============================================================================
 // VID_SetMode
 //
 // Sets the mode; only used by the Quake engine for resetting to mode 0
 // (the base mode) on memory allocation failures.
-//============================================================================
 
 export function VID_SetMode(_modenum, palette) {
   // In browser, we only have one "mode" - the canvas size
@@ -411,19 +383,16 @@ export function VID_SetMode(_modenum, palette) {
   return 1; // success
 }
 
-//============================================================================
 // VID_HandlePause
 //
 // Called only on Win32, when pause happens, so the mouse can be released.
 // In browser, we use Pointer Lock API instead.
-//============================================================================
 
 export function VID_HandlePause(_pause) {
   // Browser: Pointer Lock API handles this naturally
   // When paused, we can exit pointer lock if desired
 }
 
-//============================================================================
 // Check_Gamma (gl_vidnt.c)
 //
 // GLQuake bakes a gamma curve into the palette once, at VID_Init:
@@ -432,7 +401,6 @@ export function VID_HandlePause(_pause) {
 // passed in, so vid.js needn't import common.js). The port takes the non-3Dfx
 // path. Like the C it rewrites the palette in place, so host_basepal
 // (Draw_Fill, 2D pics) sees the corrected colours too.
-//============================================================================
 
 let vid_gamma = 1.0;
 const _gamma_checked = new WeakSet(); // palettes already corrected
@@ -468,7 +436,6 @@ export function Check_Gamma(pal, gammaparm = null) {
   Check_Gamma_Palette(pal, vid_gamma);
 }
 
-//============================================================================
 // VID_UpdateGamma
 //
 // In GLQuake the gamma cvar does nothing: VID_ShiftPalette (gl_vidnt.c) is an
@@ -476,7 +443,6 @@ export function Check_Gamma(pal, gammaparm = null) {
 // the cvar working as a brightness control, as a tone-mapping exposure of
 // 1 / gamma. At the default gamma 1 the exposure is 1, which with
 // Check_Gamma and LIGHTMAP_INTENSITY (glquake.js) matches GLQuake's output.
-//============================================================================
 
 export function VID_GammaExposure(gamma) {
   if (!(gamma > 0)) gamma = 1.0;

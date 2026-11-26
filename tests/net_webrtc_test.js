@@ -100,16 +100,12 @@ rtc.RTC_SetTimeouts(TIMEOUTS);
 const ROOM = "ROOM1";
 const RTC_LEVEL = 1;
 
-/*
-=============
-Fake lobby
-
-Relays signals between the joiner (this tab's client role, id joinerId) and
-the host (this tab's host role, addressed by the room code), as the lobby
-will. With relay off it only records them, for tests that play the joiner
-by hand.
-=============
-*/
+// Fake lobby
+//
+// Relays signals between the joiner (this tab's client role, id joinerId) and
+// the host (this tab's host role, addressed by the room code), as the lobby
+// will. With relay off it only records them, for tests that play the joiner
+// by hand.
 function makeLobby({ joinerId = "joiner1", relay = true } = {}) {
   const lobby = {
     log: [],
@@ -127,12 +123,8 @@ function makeLobby({ joinerId = "joiner1", relay = true } = {}) {
   return lobby;
 }
 
-/*
-=============
-Host setup, as setupServer in net_websocket_test.js with the WebRTC driver
-in slot 1
-=============
-*/
+// Host setup, as setupServer in net_websocket_test.js with the WebRTC driver
+// in slot 1
 function setup({ maxclients = 2, sockets = 8 } = {}) {
   const saved = {
     maxclients: svs.maxclients,
@@ -258,12 +250,8 @@ async function connect(lobby = makeLobby()) {
   return { sock, serverSock, lobby };
 }
 
-/*
-=============
-A joiner played by hand: its own peer connection, offering through
-RTC_HandleSignal as the lobby would. The lobby must not relay.
-=============
-*/
+// A joiner played by hand: its own peer connection, offering through
+// RTC_HandleSignal as the lobby would. The lobby must not relay.
 async function rawJoiner(id, lobby) {
   const pc = new FakeRTCPeerConnection();
   const reliable = pc.createDataChannel("reliable", { ordered: true });
@@ -298,11 +286,7 @@ function helloBytes(version = net.WT_PROTOCOL_VERSION) {
   return hello;
 }
 
-/*
-=============
-Tests
-=============
-*/
+// Tests
 
 Deno.test("RTC: joiner and host handshake, signal, and exchange reliable and unreliable messages with acks", async () => {
   const teardown = setup();

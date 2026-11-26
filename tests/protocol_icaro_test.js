@@ -162,8 +162,6 @@ function copyInto(dst, src) {
   common.SZ_Write(dst, src.data.subarray(0, src.cursize), src.cursize);
 }
 
-//=============================================================================
-
 Deno.test("MSG_WriteCoord sends int32 eighths that read back past +-4096", () => {
   const cases = [
     0,
@@ -296,7 +294,6 @@ Deno.test("svc_spawnstatic and svc_spawnstaticsound read short indexes, frames a
   });
 });
 
-//=============================================================================
 // packet entities
 
 const NUMBERS = [1023, 1024, 8191, 9999, MAX_EDICTS - 1];
@@ -517,7 +514,6 @@ Deno.test("max_edicts is Ironwail's cvar, with its default and bounds", () => {
   assertEqual(MAX_EDICTS, 32000, "MAX_EDICTS");
 });
 
-//=============================================================================
 // sounds, clientdata and playerinfo
 
 Deno.test("svc_sound uses SND_LARGEENTITY and SND_LARGESOUND past 8191 and 255", () => {
@@ -784,8 +780,6 @@ Deno.test("svc_playerinfo carries short frames and PF_ALPHA", () => {
   }
 });
 
-//=============================================================================
-
 Deno.test("ENTALPHA_ENCODE / DECODE / TOSAVE match Ironwail", () => {
   assertEqual(ENTALPHA_ENCODE(0), ENTALPHA_DEFAULT, "encode 0");
   assertEqual(ENTALPHA_ENCODE(1), ENTALPHA_ONE, "encode 1");
@@ -802,7 +796,6 @@ Deno.test("ENTALPHA_ENCODE / DECODE / TOSAVE match Ironwail", () => {
   assertEqual(ENTALPHA_ENCODE(ENTALPHA_TOSAVE(128)), 128, "save round trip");
 });
 
-//=============================================================================
 // The shareware attract demo, recorded with NetQuake 15
 
 Deno.test("demo1.dem (protocol 15) parses message by message", async () => {

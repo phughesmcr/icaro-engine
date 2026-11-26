@@ -56,14 +56,10 @@ const pendingFetches = new Map();
 // (several with COM_SetLooseFileBasePaths: game directory first)
 let looseFileBasePaths = ["static/"];
 
-/*
-=================
-COM_LoadPackFile
-
-Takes an ArrayBuffer of the .pak file contents
-Returns a pack_t or null
-=================
-*/
+/**
+ * Takes an ArrayBuffer of the .pak file contents
+ * Returns a pack_t or null
+ */
 export function COM_LoadPackFile(filename, buffer) {
   if (!isPack(new Uint8Array(buffer))) {
     Sys_Error(filename + " is not a packfile");
@@ -82,16 +78,12 @@ export function COM_LoadPackFile(filename, buffer) {
   return pack;
 }
 
-/*
-=================
-COM_LoadPackDirectory
-
-The directory half of common.c COM_LoadPackFile: builds a pack_t from the
-directory's bytes alone, so a lazily opened pak (see COM_FetchPak) never
-needs the rest of the file in memory. The caller sets pack.data or
-pack.reader.
-=================
-*/
+/**
+ * The directory half of common.c COM_LoadPackFile: builds a pack_t from the
+ * directory's bytes alone, so a lazily opened pak (see COM_FetchPak) never
+ * needs the rest of the file in memory. The caller sets pack.data or
+ * pack.reader.
+ */
 function COM_LoadPackDirectory(filename, dir) {
   const dirlen = dir.byteLength;
   const view = new DataView(dir.buffer, dir.byteOffset, dirlen);
@@ -144,47 +136,35 @@ function COM_LoadPackDirectory(filename, dir) {
   return pack;
 }
 
-/*
-=================
-COM_AddGameDirectory
-
-Adds pak0.pak, pak1.pak... from dir (a URL or path, without a trailing
-slash), searched before everything added so far, as common.c does for
-<basedir>/rogue or hipnotic. Loose files in dir are looked up only if the
-caller also passes dir to COM_SetLooseFileBasePaths. Returns the number of paks added.
-=================
-*/
+/**
+ * Adds pak0.pak, pak1.pak... from dir (a URL or path, without a trailing
+ * slash), searched before everything added so far, as common.c does for
+ * <basedir>/rogue or hipnotic. Loose files in dir are looked up only if the
+ * caller also passes dir to COM_SetLooseFileBasePaths. Returns the number of paks added.
+ */
 export function COM_AddGameDirectory(dir, onProgress) {
   return COM_AddPakSequence(dir + "/pak0.pak", onProgress);
 }
 
-/*
-=================
-COM_AddPack
-
-Adds a loaded pack to the search path. Paks of one game directory share a
-path_id (COM_AddPakSequence passes it); a pack added on its own gets a new one.
-=================
-*/
+/**
+ * Adds a loaded pack to the search path. Paks of one game directory share a
+ * path_id (COM_AddPakSequence passes it); a pack added on its own gets a new one.
+ */
 export function COM_AddPack(pack, path_id = ++com_last_path_id) {
   com_searchpaths.unshift({ pack: pack, path: null, path_id: path_id });
 }
 
-/*
-=================
-COM_FindFile
-
-Searches through the path looking for a file.
-Returns { data: Uint8Array, size: number, path_id: number } or null. path_id
-is the QuakeSpasm one (see com_last_path_id); loose files, which are searched
-after every pak, have 0.
-
-Deliberately not ported: common.c refuses loose files whose name has a
-'/' or '\\' when !static_registered ("don't ever go beyond base"). This
-port ships the shareware pak0.pak with its deathmatch maps as loose
-static/maps/*.bsp files, so that check would refuse every one of them.
-=================
-*/
+/**
+ * Searches through the path looking for a file.
+ * Returns { data: Uint8Array, size: number, path_id: number } or null. path_id
+ * is the QuakeSpasm one (see com_last_path_id); loose files, which are searched
+ * after every pak, have 0.
+ *
+ * Deliberately not ported: common.c refuses loose files whose name has a
+ * '/' or '\\' when !static_registered ("don't ever go beyond base"). This
+ * port ships the shareware pak0.pak with its deathmatch maps as loose
+ * static/maps/*.bsp files, so that check would refuse every one of them.
+ */
 export function COM_FindFile(filename) {
   const search = filename.toLowerCase();
 
@@ -237,16 +217,12 @@ export function COM_FindFile(filename) {
   return null;
 }
 
-/*
-=================
-COM_FileExists
-
-Ironwail common.c: is filename in the search path, and in which game
-directory? Returns its path_id, or -1. Unlike COM_FindFile it counts a
-lazily opened pak's entries that are not fetched yet, and it does not look
-for loose files on the server.
-=================
-*/
+/**
+ * Ironwail common.c: is filename in the search path, and in which game
+ * directory? Returns its path_id, or -1. Unlike COM_FindFile it counts a
+ * lazily opened pak's entries that are not fetched yet, and it does not look
+ * for loose files on the server.
+ */
 export function COM_FileExists(filename) {
   const search = filename.toLowerCase();
   const found = COM_FindPackFile(search);
@@ -277,18 +253,14 @@ function COM_FindPackFile(search) {
   return null;
 }
 
-/*
-=================
-COM_ListFiles
-
-Not in id's common.c. Returns the sorted, unique base names (no directory, no
-extension) of the files directly in dir ('maps', or '' for the root) with the
-given extension, from the loaded packs and the preloaded loose files. Files
-of minsize bytes or fewer are skipped. Console tab completion uses it like
-Ironwail's ExtraMaps_Init (maps over 32k, so not the b_*.bsp item models) and
-DemoList_Init.
-=================
-*/
+/**
+ * Not in id's common.c. Returns the sorted, unique base names (no directory, no
+ * extension) of the files directly in dir ('maps', or '' for the root) with the
+ * given extension, from the loaded packs and the preloaded loose files. Files
+ * of minsize bytes or fewer are skipped. Console tab completion uses it like
+ * Ironwail's ExtraMaps_Init (maps over 32k, so not the b_*.bsp item models) and
+ * DemoList_Init.
+ */
 export function COM_ListFiles(dir, ext, minsize) {
   const prefix = dir.length > 0 ? dir.toLowerCase() + "/" : "";
   const suffix = "." + ext.toLowerCase();
@@ -317,45 +289,33 @@ export function COM_ListFiles(dir, ext, minsize) {
   return [...names].sort();
 }
 
-/*
-=================
-COM_SetLooseFileBasePath
-
-Sets the base path for on-demand loose file fetching.
-Browser: 'static/' (default, uses relative URLs like 'static/maps/foo.bsp')
-Deno: '/opt/icaro-engine/static/' (absolute filesystem path)
-=================
-*/
+/**
+ * Sets the base path for on-demand loose file fetching.
+ * Browser: 'static/' (default, uses relative URLs like 'static/maps/foo.bsp')
+ * Deno: '/opt/icaro-engine/static/' (absolute filesystem path)
+ */
 export function COM_SetLooseFileBasePath(basePath) {
   looseFileBasePaths = [basePath];
 }
 
-/*
-=================
-COM_SetLooseFileBasePaths
-
-Like COM_SetLooseFileBasePath, for several directories searched in order,
-as common.c COM_FindFile searches each game directory's loose files: the
-game directory (e.g. 'static/rerelease/mg1/') before id1's. Each path ends
-in '/'.
-=================
-*/
+/**
+ * Like COM_SetLooseFileBasePath, for several directories searched in order,
+ * as common.c COM_FindFile searches each game directory's loose files: the
+ * game directory (e.g. 'static/rerelease/mg1/') before id1's. Each path ends
+ * in '/'.
+ */
 export function COM_SetLooseFileBasePaths(basePaths) {
   looseFileBasePaths = basePaths.slice();
 }
 
-/*
-=================
-COM_EnsureFile
-
-Checks if a file is available in pak or virtualFiles.
-If not, attempts to fetch it on demand and cache it.
-Returns a Promise<boolean>.
-
-For maps/<name>.bsp it also fetches maps/<name>.lit (see COM_EnsureLitFile),
-without changing the result.
-=================
-*/
+/**
+ * Checks if a file is available in pak or virtualFiles.
+ * If not, attempts to fetch it on demand and cache it.
+ * Returns a Promise<boolean>.
+ *
+ * For maps/<name>.bsp it also fetches maps/<name>.lit (see COM_EnsureLitFile),
+ * without changing the result.
+ */
 export async function COM_EnsureFile(filename) {
   // The .lit fetch runs alongside the map's. Its failure is ignored (see
   // COM_EnsureLitFile), and the handler is attached now so that it cannot be
@@ -366,17 +326,13 @@ export async function COM_EnsureFile(filename) {
   return found;
 }
 
-/*
-=================
-COM_EnsureLitFile
-
-Not in id's common.c. Mod_LoadLighting (Ironwail) reads maps/<name>.lit
-synchronously when it loads maps/<name>.bsp, and lazily opened paks defer
-.lit entries, so fetch it along with the map. A .lit is looked for loose only
-when the map itself is not in a pak, so maps in paks cost no extra request.
-Failures are ignored: the map then loads with its mono lighting.
-=================
-*/
+/**
+ * Not in id's common.c. Mod_LoadLighting (Ironwail) reads maps/<name>.lit
+ * synchronously when it loads maps/<name>.bsp, and lazily opened paks defer
+ * .lit entries, so fetch it along with the map. A .lit is looked for loose only
+ * when the map itself is not in a pak, so maps in paks cost no extra request.
+ * Failures are ignored: the map then loads with its mono lighting.
+ */
 async function COM_EnsureLitFile(filename) {
   const search = filename.toLowerCase();
   if (!search.startsWith("maps/") || !search.endsWith(".bsp")) {
@@ -401,13 +357,7 @@ async function COM_EnsureLitFile(filename) {
   await COM_EnsureOneFile(litname);
 }
 
-/*
-=================
-COM_EnsureOneFile
-
-COM_EnsureFile for one file
-=================
-*/
+/** COM_EnsureFile for one file */
 async function COM_EnsureOneFile(filename) {
   // Already available in pak or virtualFiles?
   if (COM_FindFile(filename) !== null) {
@@ -452,15 +402,11 @@ async function COM_EnsureOneFile(filename) {
   return false;
 }
 
-/*
-=================
-COM_PreloadLooseFile
-
-Fetches a loose file from URL/path and adds it to virtualFiles.
-Used for custom maps not included in pak files.
-In Deno, reads from filesystem. In browser, uses fetch().
-=================
-*/
+/**
+ * Fetches a loose file from URL/path and adds it to virtualFiles.
+ * Used for custom maps not included in pak files.
+ * In Deno, reads from filesystem. In browser, uses fetch().
+ */
 export async function COM_PreloadLooseFile(filename, url) {
   try {
     let data;
@@ -491,14 +437,10 @@ export async function COM_PreloadLooseFile(filename, url) {
   }
 }
 
-/*
-=================
-COM_PreloadMaps
-
-Preloads loose map files from the static/maps/ directory.
-basePath is optional - used by Deno server to specify absolute path.
-=================
-*/
+/**
+ * Preloads loose map files from the static/maps/ directory.
+ * basePath is optional - used by Deno server to specify absolute path.
+ */
 export async function COM_PreloadMaps(mapList, basePath) {
   let loaded = 0;
 
@@ -521,14 +463,10 @@ export async function COM_PreloadMaps(mapList, basePath) {
   return loaded;
 }
 
-/*
-=================
-COM_LoadFile
-
-Loads a file from the pack system.
-Returns an ArrayBuffer of the file contents, or null if not found.
-=================
-*/
+/**
+ * Loads a file from the pack system.
+ * Returns an ArrayBuffer of the file contents, or null if not found.
+ */
 export function COM_LoadFile(filename) {
   const result = COM_FindFile(filename);
   if (!result) return null;
@@ -540,13 +478,7 @@ export function COM_LoadFile(filename) {
   return buf;
 }
 
-/*
-=================
-COM_LoadFileAsString
-
-Convenience: load a file and return it as a string
-=================
-*/
+/** Convenience: load a file and return it as a string */
 export function COM_LoadFileAsString(filename) {
   const result = COM_FindFile(filename);
   if (!result) return null;
@@ -566,22 +498,22 @@ function isPack(bytes) {
     bytes[3] === 0x4B;
 }
 
-/*
-Lazy paks (not in id's common.c, which reads entries from an open file
-handle). A pak bigger than com_lazypaksize, such as the 2021 rerelease's
-id1/pak0.pak (221 MB) or mg1/pak0.pak (497 MB), is not read whole: only its
-header and directory are, and entries are read through a pak_reader_t:
-
-	read( filepos, filelen )     Promise<Uint8Array>
-	readSync( filepos, filelen ) Uint8Array, or null when only async reads work
-
-Deno reads from disk with a seek, synchronously, so COM_FindFile works as
-before. The browser uses HTTP Range requests: at load it fetches every entry
-the engine reads synchronously (see COM_PakEntryIsDeferred), and the rest,
-mainly maps, when COM_EnsureFile asks for them (the map, changelevel and load
-commands and the client's world model already do). Smaller paks, including
-the shareware and registered id1 paks, still load whole.
-*/
+/**
+ * Lazy paks (not in id's common.c, which reads entries from an open file
+ * handle). A pak bigger than com_lazypaksize, such as the 2021 rerelease's
+ * id1/pak0.pak (221 MB) or mg1/pak0.pak (497 MB), is not read whole: only its
+ * header and directory are, and entries are read through a pak_reader_t:
+ *
+ * 	read( filepos, filelen )     Promise<Uint8Array>
+ * 	readSync( filepos, filelen ) Uint8Array, or null when only async reads work
+ *
+ * Deno reads from disk with a seek, synchronously, so COM_FindFile works as
+ * before. The browser uses HTTP Range requests: at load it fetches every entry
+ * the engine reads synchronously (see COM_PakEntryIsDeferred), and the rest,
+ * mainly maps, when COM_EnsureFile asks for them (the map, changelevel and load
+ * commands and the client's world model already do). Smaller paks, including
+ * the shareware and registered id1 paks, still load whole.
+ */
 export const COM_LAZY_PAK_SIZE = 64 * 1024 * 1024;
 let com_lazypaksize = COM_LAZY_PAK_SIZE;
 
@@ -611,28 +543,18 @@ const DEFERRED_EXTENSIONS = [
 ];
 const DEFERRED_DIRS = ["tactile/", "vault/", "archive/"];
 
-/*
-=================
-COM_SetLazyPakSize
-
-Sets the size above which COM_FetchPak opens a pak lazily (tests use it).
-=================
-*/
+/** Sets the size above which COM_FetchPak opens a pak lazily (tests use it). */
 export function COM_SetLazyPakSize(size) {
   com_lazypaksize = size;
 }
 
-/*
-=================
-COM_PakEntryIsDeferred
-
-True when a lazily opened pak's entry is fetched only on demand through
-COM_EnsureFile rather than at load: maps bigger than 32k (not the b_*.bsp
-item models, as in COM_ListFiles), the mapper texture wads in gfx/, .lit files
-(fetched with their map), and file types and directories the engine never
-reads.
-=================
-*/
+/**
+ * True when a lazily opened pak's entry is fetched only on demand through
+ * COM_EnsureFile rather than at load: maps bigger than 32k (not the b_*.bsp
+ * item models, as in COM_ListFiles), the mapper texture wads in gfx/, .lit files
+ * (fetched with their map), and file types and directories the engine never
+ * reads.
+ */
 export function COM_PakEntryIsDeferred(name, filelen) {
   if (name.startsWith("maps/") && name.endsWith(".bsp")) {
     return filelen > 32 * 1024;
@@ -698,15 +620,11 @@ function COM_RangeReader(url) {
   return { read: read, readSync: null };
 }
 
-/*
-=================
-COM_OpenLazyPack
-
-Builds a pack_t from header (the pak's first 12 bytes) and the directory read
-through reader. Without readSync, also fetches every entry that is not
-deferred, coalescing neighbours into few requests.
-=================
-*/
+/**
+ * Builds a pack_t from header (the pak's first 12 bytes) and the directory read
+ * through reader. Without readSync, also fetches every entry that is not
+ * deferred, coalescing neighbours into few requests.
+ */
 async function COM_OpenLazyPack(url, filename, reader, header, onProgress) {
   const view = new DataView(header.buffer, header.byteOffset, 12);
   const dirofs = view.getInt32(4, true);
@@ -772,22 +690,18 @@ async function COM_OpenLazyPack(url, filename, reader, header, onProgress) {
   return pack;
 }
 
-/*
-=================
-COM_FetchPak
-
-Fetches a .pak file and returns a Promise<pack_t>. A local path is read in
-Deno; an http(s) URL, or any URL in the browser, is fetched. A pak bigger
-than com_lazypaksize opens lazily (see COM_OpenLazyPack). In the browser
-that needs a server that honours Range requests: one that ignores them
-(python3 -m http.server does) answers the first, 12-byte request with the
-whole pak, which then loads whole as before.
-With optional set, a missing file (Deno NotFound, HTTP 404, or a body that
-is not a PACK, such as a web host's index.html fallback) returns null
-without a message, as COM_AddGameDirectory stops quietly at the first
-missing pakN.pak.
-=================
-*/
+/**
+ * Fetches a .pak file and returns a Promise<pack_t>. A local path is read in
+ * Deno; an http(s) URL, or any URL in the browser, is fetched. A pak bigger
+ * than com_lazypaksize opens lazily (see COM_OpenLazyPack). In the browser
+ * that needs a server that honours Range requests: one that ignores them
+ * (python3 -m http.server does) answers the first, 12-byte request with the
+ * whole pak, which then loads whole as before.
+ * With optional set, a missing file (Deno NotFound, HTTP 404, or a body that
+ * is not a PACK, such as a web host's index.html fallback) returns null
+ * without a message, as COM_AddGameDirectory stops quietly at the first
+ * missing pakN.pak.
+ */
 export async function COM_FetchPak(
   url,
   filename,
@@ -923,21 +837,17 @@ export async function COM_FetchPak(
   return COM_LoadPackFile(filename || url, buffer);
 }
 
-/*
-=================
-COM_AddPakSequence
-
-Loads pak0.pak, pak1.pak, ... from the directory of pak0Url and adds each
-one, stopping at the first missing file, as common.c COM_AddGameDirectory
-does. Later paks are searched first, so pak1 (registered) overrides pak0.
-pak0 is required; the rest are optional. Returns the number of paks added.
-Each name is tried in lower case, then upper case (PAK1.PAK as copied from
-a Windows install), since web servers and most file systems other than
-macOS's are case-sensitive. A URL that does not end in pak0.pak (in either
-case) is loaded on its own. onProgress runs from
-0 to 1 for each pak in turn, since the total size is not known in advance.
-=================
-*/
+/**
+ * Loads pak0.pak, pak1.pak, ... from the directory of pak0Url and adds each
+ * one, stopping at the first missing file, as common.c COM_AddGameDirectory
+ * does. Later paks are searched first, so pak1 (registered) overrides pak0.
+ * pak0 is required; the rest are optional. Returns the number of paks added.
+ * Each name is tried in lower case, then upper case (PAK1.PAK as copied from
+ * a Windows install), since web servers and most file systems other than
+ * macOS's are case-sensitive. A URL that does not end in pak0.pak (in either
+ * case) is loaded on its own. onProgress runs from
+ * 0 to 1 for each pak in turn, since the total size is not known in advance.
+ */
 export async function COM_AddPakSequence(pak0Url, onProgress) {
   const match = /^(.*?)pak0\.pak$/i.exec(pak0Url);
   if (match === null) {

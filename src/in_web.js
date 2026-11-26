@@ -104,14 +104,9 @@ import {
   xrInput,
 } from "./webxr.js";
 
-/*
-===========================================================================
-
-			BROWSER KEY MAPPING
-
-Maps DOM event.code / event.key values to Quake K_* constants.
-===========================================================================
-*/
+// BROWSER KEY MAPPING
+//
+// Maps DOM event.code / event.key values to Quake K_* constants.
 
 let codeToQuakeKey = {}; // built in IN_Init to avoid circular dep in Deno
 
@@ -133,13 +128,7 @@ const codeToUSChar = {
   Slash: "/",
 };
 
-/*
-===========================================================================
-
-			INPUT STATE
-
-===========================================================================
-*/
+// INPUT STATE
 
 // Mouse state (replaces DirectInput mouse in in_win.c)
 let mouse_x = 0;
@@ -331,33 +320,28 @@ function requestFullscreen() {
   Touch_RequestFullscreen();
 }
 
-/*
-===========================================================================
-
-			BROWSER BACK BUTTON (web-only)
-
-TV remotes, Android's back gesture, Alt+Left and the toolbar Back button
-would leave the page mid-game. After the first user gesture we mark the
-current history entry and push a guard entry on top of it. Back then lands
-on the marked entry: we press Escape (menu in game, back a level in menus,
-as the gamepad's B/Back buttons do) and go forward to the guard again.
-history.forward() restores the guard entry as it was, including any room
-URL that replaceState wrote into it (cl_main.js, menu.js). Its own popstate
-carries no marker and is ignored.
-
-Two marked entries sit under the guard, so a second Back that arrives before
-the asynchronous forward() lands (a double press, an auto-repeating remote)
-reaches the other marked entry instead of leaving the page. Three Backs
-before any forward() lands can still leave.
-
-Arming waits for a key, mouse button or touch because Chrome's Back button
-skips history entries pushed without user activation; gamepad presses,
-Escape and modifier keys don't count as activation, so where the browser
-reports navigator.userActivation we wait until it is active. The entries
-cannot be removed again, so IN_Shutdown only stops listening, and each page
-load arms once (a reload adds entries under the old ones).
-===========================================================================
-*/
+// BROWSER BACK BUTTON (web-only)
+//
+// TV remotes, Android's back gesture, Alt+Left and the toolbar Back button
+// would leave the page mid-game. After the first user gesture we mark the
+// current history entry and push a guard entry on top of it. Back then lands
+// on the marked entry: we press Escape (menu in game, back a level in menus,
+// as the gamepad's B/Back buttons do) and go forward to the guard again.
+// history.forward() restores the guard entry as it was, including any room
+// URL that replaceState wrote into it (cl_main.js, menu.js). Its own popstate
+// carries no marker and is ignored.
+//
+// Two marked entries sit under the guard, so a second Back that arrives before
+// the asynchronous forward() lands (a double press, an auto-repeating remote)
+// reaches the other marked entry instead of leaving the page. Three Backs
+// before any forward() lands can still leave.
+//
+// Arming waits for a key, mouse button or touch because Chrome's Back button
+// skips history entries pushed without user activation; gamepad presses,
+// Escape and modifier keys don't count as activation, so where the browser
+// reports navigator.userActivation we wait until it is active. The entries
+// cannot be removed again, so IN_Shutdown only stops listening, and each page
+// load arms once (a reload adds entries under the old ones).
 
 const BACK_GUARD_STATE = "icaro-back-guard";
 // A browser Back this soon after an Escape from the keyboard or a gamepad
@@ -449,15 +433,11 @@ function GP_GetPrimary() {
 const _gpMove = new Float32Array(2);
 const _gpLook = new Float32Array(2);
 
-/*
-================
-GP_ApplyDeadzone
-
-Ironwail in_sdl.c IN_ApplyDeadzone: a circular inner deadzone and a
-circular outer threshold. The magnitude is rescaled so the deadzone edge
-becomes 0 and 1 - outer_threshold becomes 1, then clamped at 1.
-================
-*/
+/**
+ * Ironwail in_sdl.c IN_ApplyDeadzone: a circular inner deadzone and a
+ * circular outer threshold. The magnitude is rescaled so the deadzone edge
+ * becomes 0 and 1 - outer_threshold becomes 1, then clamped at 1.
+ */
 function GP_ApplyDeadzone(out, x, y, deadzone, outer_threshold) {
   const magnitude = Math.sqrt(x * x + y * y);
 
@@ -479,14 +459,10 @@ function GP_ApplyDeadzone(out, x, y, deadzone, outer_threshold) {
   }
 }
 
-/*
-================
-GP_ApplyEasing
-
-Ironwail in_sdl.c IN_ApplyEasing: raises the magnitude (at most 1) to the
-given exponent, keeping the direction
-================
-*/
+/**
+ * Ironwail in_sdl.c IN_ApplyEasing: raises the magnitude (at most 1) to the
+ * given exponent, keeping the direction
+ */
 function GP_ApplyEasing(v, exponent) {
   const magnitude = Math.sqrt(v[0] * v[0] + v[1] * v[1]);
   if (magnitude === 0) return;
@@ -701,19 +677,8 @@ const xr_turnspeed = {
 
 let in_initialized = false;
 
-/*
-===========================================================================
+// STATE CLEARING (vid_win.c ClearAllStates / in_win.c IN_ClearStates)
 
-			STATE CLEARING (vid_win.c ClearAllStates / in_win.c IN_ClearStates)
-
-===========================================================================
-*/
-
-/*
-===================
-IN_ClearStates
-===================
-*/
 function IN_ClearStates() {
   mx_accum = 0;
   my_accum = 0;
@@ -722,15 +687,11 @@ function IN_ClearStates() {
   mouse_buttonstate = 0;
 }
 
-/*
-================
-IN_ClearAllStates
-
-Called when the page loses focus, is hidden, or loses pointer lock.
-vid_win.c ClearAllStates: send an up event for each key, to make sure
-the server clears them all, then clear key and mouse state.
-================
-*/
+/**
+ * Called when the page loses focus, is hidden, or loses pointer lock.
+ * vid_win.c ClearAllStates: send an up event for each key, to make sure
+ * the server clears them all, then clear key and mouse state.
+ */
 export function IN_ClearAllStates() {
   for (let i = 0; i < 256; i++) {
     Key_Event(i, false);
@@ -750,13 +711,7 @@ export function IN_ClearAllStates() {
   _gpPrev = null;
 }
 
-/*
-===========================================================================
-
-			BROWSER EVENT HANDLERS
-
-===========================================================================
-*/
+// BROWSER EVENT HANDLERS
 
 function mapBrowserKeyToQuake(event) {
   // First check code-based mapping (physical key location)
@@ -816,35 +771,35 @@ function isDevToolsShortcut(event) {
   return (event.ctrlKey && event.shiftKey) || (event.metaKey && event.altKey);
 }
 
-/*
-Which keys keep their browser behaviour.
-
-Always the browser's:
-- Escape (leaves pointer lock and fullscreen), F12 and the developer tools
-  shortcuts (Ctrl+Shift+I/J/C, Cmd+Opt+I/J/C).
-- Cmd/Meta shortcuts, except while pointer lock is held in game.
-- Ctrl/Alt chords on keys that map to nothing in Quake.
-
-Ctrl is +attack and Alt is +strafe by default, so a chord such as Ctrl+W, Ctrl+R
-or Alt+D is also a game key. Every chord is sent to the game. The browser's own
-action is suppressed only while the game owns the keyboard (key_dest is
-key_game and we hold pointer lock or fullscreen), so Ctrl+R or Ctrl+S cannot
-reload the page or open a dialog in the middle of a fight. In the menu, the
-console and with the mouse released the browser keeps its shortcuts (Ctrl+R,
-Ctrl+-, Ctrl+F...). Alt+Left and every other browser Back are not shortcuts
-we can cancel: once armed, the back button guard turns them into Escape (see
-IN_ArmBackGuard). Plain mapped keys (F1-F11, Tab, Space, Backspace,
-arrows, '/' and '\'' for Firefox quick find) are always the game's.
-
-Cannot be overridden by any page: Ctrl+W, Ctrl+T, Ctrl+N, Ctrl+Tab, Ctrl+Shift+W/T/N
-and Cmd+Q/W/T/N (reserved by Chrome, Firefox and Safari, and no keydown is
-delivered or preventDefault is ignored), Cmd+Tab, Alt+Tab, Alt+F4 and the OS
-shortcuts. Only the Keyboard Lock API can capture the first group, and Chrome
-and Edge allow it only while the page is fullscreen (Firefox and Safari have no
-keyboard lock). We request it for the keys we map, except Escape, when we hold
-pointer lock or fullscreen. Elsewhere a reserved shortcut takes focus away
-and the blur and visibility handlers release every key.
-*/
+/**
+ * Which keys keep their browser behaviour.
+ *
+ * Always the browser's:
+ * - Escape (leaves pointer lock and fullscreen), F12 and the developer tools
+ *   shortcuts (Ctrl+Shift+I/J/C, Cmd+Opt+I/J/C).
+ * - Cmd/Meta shortcuts, except while pointer lock is held in game.
+ * - Ctrl/Alt chords on keys that map to nothing in Quake.
+ *
+ * Ctrl is +attack and Alt is +strafe by default, so a chord such as Ctrl+W, Ctrl+R
+ * or Alt+D is also a game key. Every chord is sent to the game. The browser's own
+ * action is suppressed only while the game owns the keyboard (key_dest is
+ * key_game and we hold pointer lock or fullscreen), so Ctrl+R or Ctrl+S cannot
+ * reload the page or open a dialog in the middle of a fight. In the menu, the
+ * console and with the mouse released the browser keeps its shortcuts (Ctrl+R,
+ * Ctrl+-, Ctrl+F...). Alt+Left and every other browser Back are not shortcuts
+ * we can cancel: once armed, the back button guard turns them into Escape (see
+ * IN_ArmBackGuard). Plain mapped keys (F1-F11, Tab, Space, Backspace,
+ * arrows, '/' and '\'' for Firefox quick find) are always the game's.
+ *
+ * Cannot be overridden by any page: Ctrl+W, Ctrl+T, Ctrl+N, Ctrl+Tab, Ctrl+Shift+W/T/N
+ * and Cmd+Q/W/T/N (reserved by Chrome, Firefox and Safari, and no keydown is
+ * delivered or preventDefault is ignored), Cmd+Tab, Alt+Tab, Alt+F4 and the OS
+ * shortcuts. Only the Keyboard Lock API can capture the first group, and Chrome
+ * and Edge allow it only while the page is fullscreen (Firefox and Safari have no
+ * keyboard lock). We request it for the keys we map, except Escape, when we hold
+ * pointer lock or fullscreen. Elsewhere a reserved shortcut takes focus away
+ * and the blur and visibility handlers release every key.
+ */
 function gameOwnsKeyboard() {
   if (key_dest !== key_game) return false;
   if (pointerLocked) return true;
@@ -1284,13 +1239,7 @@ function IN_InitTouch() {
   Touch_SetMenuCallback(M_TouchInput, IN_GetMenuSurface);
 }
 
-/*
-===========
-IN_SetTouchMode
-
-Switch between touch controls and mouse/pointer-lock controls.
-===========
-*/
+/** Switch between touch controls and mouse/pointer-lock controls. */
 function IN_SetTouchMode(on) {
   if (on === touchMode) return;
 
@@ -1363,19 +1312,8 @@ function handleTouchEnd() {
   }
 }
 
-/*
-===========================================================================
+// PUBLIC API (matching in_win.c interface)
 
-			PUBLIC API (matching in_win.c interface)
-
-===========================================================================
-*/
-
-/*
-===========
-IN_Init
-===========
-*/
 export function IN_Init(element) {
   targetElement = element || document.body;
   eventWindow = typeof window !== "undefined" ? window : targetElement;
@@ -1529,11 +1467,6 @@ export function IN_Init(element) {
   Con_Printf("Browser input initialized\n");
 }
 
-/*
-===========
-IN_Shutdown
-===========
-*/
 export function IN_Shutdown() {
   if (!in_initialized) return;
 
@@ -1583,14 +1516,10 @@ export function IN_Shutdown() {
   updateKeyboardLock();
 }
 
-/*
-===========
-IN_Commands
-
-in_win.c reads joystick buttons here. The browser port polls XR controller
-buttons, which must work in menus too (IN_Move only runs once signed on).
-===========
-*/
+/**
+ * in_win.c reads joystick buttons here. The browser port polls XR controller
+ * buttons, which must work in menus too (IN_Move only runs once signed on).
+ */
 export function IN_Commands() {
   if (!in_initialized) return;
 
@@ -1613,14 +1542,10 @@ export function IN_Commands() {
   }
 }
 
-/*
-===========
-IN_XR_KeyEdge
-
-Press quakeKey when the button goes down; release the key that was pressed
-when it goes up.
-===========
-*/
+// IN_XR_KeyEdge
+//
+// Press quakeKey when the button goes down; release the key that was pressed
+// when it goes up.
 function IN_XR_KeyHeldByOther(slot, quakeKey) {
   for (const other in _xrKeys) {
     if (other !== slot && _xrKeys[other] === quakeKey) return true;
@@ -1648,18 +1573,14 @@ function IN_XR_StickDown(slot, value) {
   return _xrKeys[slot] !== 0 ? value > 0.3 : value > 0.6;
 }
 
-/*
-===========
-IN_XR_Buttons
-
-Game:    right trigger attack, left trigger / A jump, B next weapon,
-         X previous weapon, either grip +use, Y menu.
-Menu:    either stick navigates, trigger / A select, B / Y back.
-Demo:    trigger, A, B or Y opens the menu.
-Console: B / Y opens the menu.
-Exported for tests; IN_Commands calls it while XR is active.
-===========
-*/
+/**
+ * Game:    right trigger attack, left trigger / A jump, B next weapon,
+ *          X previous weapon, either grip +use, Y menu.
+ * Menu:    either stick navigates, trigger / A select, B / Y back.
+ * Demo:    trigger, A, B or Y opens the menu.
+ * Console: B / Y opens the menu.
+ * Exported for tests; IN_Commands calls it while XR is active.
+ */
 export function IN_XR_Buttons() {
   const inGame = key_dest === key_game && !cls.demoplayback;
   const inMenu = key_dest === key_menu;
@@ -1704,14 +1625,10 @@ export function IN_XR_Buttons() {
   IN_XR_KeyEdge("right", inMenu && IN_XR_StickDown("right", sx), K_RIGHTARROW);
 }
 
-/*
-===========
-IN_XR_ReleaseAll
-
-Release everything the XR controllers hold. Called when the XR session ends
-(webxr.js) and on focus loss.
-===========
-*/
+/**
+ * Release everything the XR controllers hold. Called when the XR session ends
+ * (webxr.js) and on focus loss.
+ */
 function IN_XR_ReleaseAll(sendKeyUps = true) {
   for (const slot in _xrKeys) {
     const held = _xrKeys[slot];
@@ -1733,24 +1650,15 @@ function IN_XR_ReleaseAll(sendKeyUps = true) {
   _xrSnapArmed = true;
 }
 
-/*
-===========
-IN_ForceCenterView
-===========
-*/
 function IN_ForceCenterView() {
   // cl.viewangles[PITCH] = 0 -- set by the caller
   // In browser, we just need to reset accumulated mouse
 }
 
-/*
-===========
-IN_MouseMove
-
-Called every frame to get mouse movement.
-Returns accumulated movement since last call.
-===========
-*/
+/**
+ * Called every frame to get mouse movement.
+ * Returns accumulated movement since last call.
+ */
 export function IN_MouseMove() {
   if (!mouseactive) {
     _mouseMove.mx = 0;
@@ -1784,14 +1692,10 @@ export function IN_MouseMove() {
   return _mouseMove;
 }
 
-/*
-===========
-IN_Move
-
-Process all input movement for the current frame.
-In the original, this called IN_MouseMove and IN_JoyMove.
-===========
-*/
+/**
+ * Process all input movement for the current frame.
+ * In the original, this called IN_MouseMove and IN_JoyMove.
+ */
 export function IN_Move(cmd) {
   const mouseMove = IN_MouseMove();
   const mx = mouseMove.mx;
@@ -1891,50 +1795,30 @@ function IN_XR_Move(cmd) {
   }
 }
 
-/*
-===========
-IN_IsPointerLocked
-
-Helper for browser-specific pointer lock state check
-===========
-*/
+/** Helper for browser-specific pointer lock state check */
 export function IN_IsPointerLocked() {
   return pointerLocked;
 }
 
-/*
-===========
-IN_RequestPointerLock
-
-Request pointer lock from a user gesture context (e.g. menu selection).
-Only applies with mouse controls; touch mode uses fullscreen instead.
-===========
-*/
+/**
+ * Request pointer lock from a user gesture context (e.g. menu selection).
+ * Only applies with mouse controls; touch mode uses fullscreen instead.
+ */
 export function IN_RequestPointerLock() {
   if (!touchMode) {
     requestPointerLock();
   }
 }
 
-/*
-===========
-IN_IsMobile
-
-Returns true while touch controls are in use
-===========
-*/
+/** Returns true while touch controls are in use */
 export function IN_IsMobile() {
   return touchMode;
 }
 
-/*
-===========
-IN_UpdateTouch
-
-Update touch control state based on key_dest.
-Should be called each frame.
-===========
-*/
+/**
+ * Update touch control state based on key_dest.
+ * Should be called each frame.
+ */
 export function IN_UpdateTouch() {
   if (!touchMode) return;
 

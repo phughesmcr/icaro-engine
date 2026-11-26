@@ -1,12 +1,8 @@
 // Ported from: WinQuake/world.c + world.h -- world query functions
 
-/*
-
-entities never clip against themselves, or their owner
-
-line of sight checks trace->crosscontent, but bullets don't
-
-*/
+// entities never clip against themselves, or their owner
+//
+// line of sight checks trace->crosscontent, but bullets don't
 
 import { Sys_Error } from "./sys.js";
 import { Host_Error } from "./host.js";
@@ -48,12 +44,10 @@ import { EDICT_TO_PROG, pr_global_struct, PROG_TO_EDICT } from "./progs.js";
 const _hullMidPool = [];
 for (let i = 0; i < 32; i++) _hullMidPool[i] = new Float32Array(3);
 
-//============================================================================
 // entvars_t slots read straight from an edict's typed arrays ( edict_t
 // _floatView / _intView ) by the walks below. The layout is fixed by
 // progdefs.h ( PROGHEADER_CRC ); progdefs.js has the same numbers in its
 // accessors.
-//============================================================================
 
 const EV_ABSMIN = 1;
 const EV_ABSMAX = 4;
@@ -63,9 +57,7 @@ const EV_SIZE = 39;
 const EV_TOUCH = 42;
 const EV_OWNER = 95;
 
-//============================================================================
 // world.h types
-//============================================================================
 
 export class plane_t {
   constructor() {
@@ -92,9 +84,7 @@ export const MOVE_NORMAL = 0;
 export const MOVE_NOMONSTERS = 1;
 export const MOVE_MISSILE = 2;
 
-//============================================================================
 // moveclip_t - internal structure for SV_Move
-//============================================================================
 
 class moveclip_t {
   constructor() {
@@ -112,13 +102,7 @@ class moveclip_t {
   }
 }
 
-/*
-===============================================================================
-
-HULL BOXES
-
-===============================================================================
-*/
+// HULL BOXES
 
 // box_hull and supporting structures for SV_HullForBox
 const box_hull = {
@@ -147,14 +131,10 @@ for (let i = 0; i < 6; i++) {
   };
 }
 
-/*
-===================
-SV_InitBoxHull
-
-Set up the planes and clipnodes so that the six floats of a bounding box
-can just be stored out and get a proper hull_t structure.
-===================
-*/
+/**
+ * Set up the planes and clipnodes so that the six floats of a bounding box
+ * can just be stored out and get a proper hull_t structure.
+ */
 export function SV_InitBoxHull() {
   box_hull.clipnodes = box_clipnodes;
   box_hull.planes = box_planes;
@@ -183,14 +163,10 @@ export function SV_InitBoxHull() {
   }
 }
 
-/*
-===================
-SV_HullForBox
-
-To keep everything totally uniform, bounding boxes are turned into small
-BSP trees instead of being compared directly.
-===================
-*/
+/**
+ * To keep everything totally uniform, bounding boxes are turned into small
+ * BSP trees instead of being compared directly.
+ */
 export function SV_HullForBox(mins, maxs) {
   box_planes[0].dist = maxs[0];
   box_planes[1].dist = mins[0];
@@ -209,16 +185,13 @@ export function SV_HullForBox(mins, maxs) {
   return box_hull;
 }
 
-/*
-================
-SV_HullForEntity
+// SV_HullForEntity
+//
+// Returns a hull that can be used for testing or clipping an object of mins/maxs
+// size.
+// Offset is filled in to contain the adjustment that must be added to the
+// testing object's origin to get a point to use with the returned hull.
 
-Returns a hull that can be used for testing or clipping an object of mins/maxs
-size.
-Offset is filled in to contain the adjustment that must be added to the
-testing object's origin to get a point to use with the returned hull.
-================
-*/
 // Scratch vectors for SV_HullForEntity (Golden Rule #4). SV_HullForBox
 // copies the bounds into box_planes, so reusing them across calls is safe.
 const hull_size = new Float32Array(3);
@@ -270,13 +243,7 @@ export function SV_HullForEntity(ent, mins, maxs, offset) {
   return hull;
 }
 
-/*
-===============================================================================
-
-ENTITY AREA CHECKING
-
-===============================================================================
-*/
+// ENTITY AREA CHECKING
 
 const AREA_DEPTH = 4;
 const AREA_NODES = 32;
@@ -298,11 +265,6 @@ for (let i = 0; i < AREA_NODES; i++) {
 
 let sv_numareanodes = 0;
 
-/*
-===============
-SV_CreateAreaNode
-===============
-*/
 function SV_CreateAreaNode(depth, mins, maxs) {
   const anode = sv_areanodes[sv_numareanodes];
   sv_numareanodes++;
@@ -345,11 +307,6 @@ function SV_CreateAreaNode(depth, mins, maxs) {
   return anode;
 }
 
-/*
-===============
-SV_ClearWorld
-===============
-*/
 export function SV_ClearWorld() {
   SV_InitBoxHull();
 
@@ -369,11 +326,6 @@ export function SV_ClearWorld() {
   }
 }
 
-/*
-===============
-SV_UnlinkEdict
-===============
-*/
 export function SV_UnlinkEdict(ent) {
   if (!ent.area.prev || ent.area.prev === ent.area) {
     return; // not linked in anywhere
@@ -383,15 +335,11 @@ export function SV_UnlinkEdict(ent) {
   ent.area.next = ent.area;
 }
 
-/*
-====================
-SV_AreaTriggerEdicts
-
-Not in C: Ironwail's (from Spike). Appends to touch_list the triggers at or
-below node that touch ent, without running QuakeC, so the area lists can't
-change under the walk. Mirrors the tests of C's SV_TouchLinks.
-====================
-*/
+/**
+ * Not in C: Ironwail's (from Spike). Appends to touch_list the triggers at or
+ * below node that touch ent, without running QuakeC, so the area lists can't
+ * change under the walk. Mirrors the tests of C's SV_TouchLinks.
+ */
 function SV_AreaTriggerEdicts(ent, node, listspace) {
   // the entvars are read straight from the edicts' typed arrays: this is the
   // walk every SV_LinkEdict makes, and the v.* accessors cost more than the tests
@@ -450,17 +398,13 @@ const touch_list = new Array(MAX_EDICTS).fill(null);
 let touch_count = 0;
 let touch_base = 0;
 
-/*
-====================
-SV_TouchLinks
-
-C walks the area node's trigger list while it runs QuakeC touch functions,
-which can unlink or relink triggers and corrupt the walk. Like Ironwail
-(ericw, from Spike), collect the touching triggers first, then check each one
-again before calling its touch function, since an earlier touch may have
-removed or moved it.
-====================
-*/
+/**
+ * C walks the area node's trigger list while it runs QuakeC touch functions,
+ * which can unlink or relink triggers and corrupt the walk. Like Ironwail
+ * (ericw, from Spike), collect the touching triggers first, then check each one
+ * again before calling its touch function, since an earlier touch may have
+ * removed or moved it.
+ */
 export function SV_TouchLinks(ent) {
   const old_base = touch_base;
   const start = touch_count;
@@ -509,28 +453,19 @@ export function SV_TouchLinks(ent) {
   }
 }
 
-/*
-===============
-SV_FindTouchedLeafs
-===============
-*/
 export function SV_FindTouchedLeafs(ent, node) {
   SV_FindTouchedLeafs_r(ent, node, ent.v.absmin, ent.v.absmax);
 }
 
-/*
-===============
-SV_LeafTree
-
-A flat copy of a world model's BSP tree: the plane of each node as doubles
-holding the values the plane objects hold ( normal x y z and dist, four per
-node ), its type and signbits, its two children ( a node number, or
-~leafIndex for a leaf ), and which leaves are solid. Walking it with the
-same arithmetic as the object tree gives the same answers without
-chasing node, plane and children objects. Not in C. Built on first use for
-each model, and null when the model's root is a leaf.
-===============
-*/
+// SV_LeafTree
+//
+// A flat copy of a world model's BSP tree: the plane of each node as doubles
+// holding the values the plane objects hold ( normal x y z and dist, four per
+// node ), its type and signbits, its two children ( a node number, or
+// ~leafIndex for a leaf ), and which leaves are solid. Walking it with the
+// same arithmetic as the object tree gives the same answers without
+// chasing node, plane and children objects. Not in C. Built on first use for
+// each model, and null when the model's root is a leaf.
 class leaftree_t {
   constructor(nodecount) {
     this.plane = new Float64Array(nodecount * 4);
@@ -705,11 +640,6 @@ function SV_FindTouchedLeafs_r(ent, node, absmin, absmax) {
   }
 }
 
-/*
-===============
-SV_LinkEdict
-===============
-*/
 export function SV_LinkEdict(ent, touch_triggers) {
   if (ent.area.prev && ent.area.prev !== ent.area) {
     SV_UnlinkEdict(ent); // unlink from old position
@@ -727,10 +657,8 @@ export function SV_LinkEdict(ent, touch_triggers) {
   VectorAdd(ent.v.origin, ent.v.mins, ent.v.absmin);
   VectorAdd(ent.v.origin, ent.v.maxs, ent.v.absmax);
 
-  //
   // to make items easier to pick up and allow them to be grabbed off
   // of shelves, the abs sizes are expanded
-  //
   if ((ent.v.flags | 0) & FL_ITEM) {
     ent.v.absmin[0] -= 15;
     ent.v.absmin[1] -= 15;
@@ -792,27 +720,17 @@ export function SV_LinkEdict(ent, touch_triggers) {
   }
 }
 
-/*
-===============================================================================
+// POINT TESTING IN HULLS
 
-POINT TESTING IN HULLS
-
-===============================================================================
-*/
-
-/*
-==================
-Flattened hulls
-
-hull.clipnodes is an array of {planenum, children} objects and hull.planes an
-array of {normal, dist, type} objects. Walking them chases two pointers per
-node. The first time a hull is traced through, its tree is copied into typed
-arrays indexed by node number, with the plane resolved. The values are the
-same ones, so every distance comes out bit for bit as before. Brush models'
-clipnodes and planes are not changed once loaded. The box hull is the exception:
-SV_HullForBox writes its distances into box_flat.dist directly.
-==================
-*/
+// Flattened hulls
+//
+// hull.clipnodes is an array of {planenum, children} objects and hull.planes an
+// array of {normal, dist, type} objects. Walking them chases two pointers per
+// node. The first time a hull is traced through, its tree is copied into typed
+// arrays indexed by node number, with the plane resolved. The values are the
+// same ones, so every distance comes out bit for bit as before. Brush models'
+// clipnodes and planes are not changed once loaded. The box hull is the exception:
+// SV_HullForBox writes its distances into box_flat.dist directly.
 class hull_flat_t {
   constructor(count) {
     this.planes = null;
@@ -867,11 +785,7 @@ function hull_flat(hull) {
   return f;
 }
 
-/*
-==================
-SV_HullPointContents
-==================
-*/
+// SV_HullPointContents
 function hull_point_contents(f, firstclipnode, lastclipnode, num, p) {
   const p0 = p[0], p1 = p[1], p2 = p[2];
   const type = f.type, dist = f.dist, normal = f.normal;
@@ -913,11 +827,6 @@ export function SV_HullPointContents(hull, num, p) {
   );
 }
 
-/*
-==================
-SV_PointContents
-==================
-*/
 export function SV_PointContents(p) {
   if (!sv.worldmodel || !sv.worldmodel.hulls) {
     return CONTENTS_EMPTY;
@@ -930,11 +839,6 @@ export function SV_PointContents(p) {
   return cont;
 }
 
-/*
-==================
-SV_TruePointContents
-==================
-*/
 export function SV_TruePointContents(p) {
   if (!sv.worldmodel || !sv.worldmodel.hulls) {
     return CONTENTS_EMPTY;
@@ -943,13 +847,7 @@ export function SV_TruePointContents(p) {
   return SV_HullPointContents(sv.worldmodel.hulls[0], 0, p);
 }
 
-/*
-============
-SV_TestEntityPosition
-
-This could be a lot more efficient...
-============
-*/
+/** This could be a lot more efficient... */
 export function SV_TestEntityPosition(ent) {
   const trace = SV_Move(
     ent.v.origin,
@@ -967,25 +865,15 @@ export function SV_TestEntityPosition(ent) {
   return null;
 }
 
-/*
-===============================================================================
-
-LINE TESTING IN HULLS
-
-===============================================================================
-*/
+// LINE TESTING IN HULLS
 
 // 1/32 epsilon to keep floating point happy
 const DIST_EPSILON = 0.03125;
 
-/*
-==================
-SV_RecursiveHullCheck
-
-The C recurses for every branch; the cases that end in a tail call (both
-points on one side, passing the node) loop here instead.
-==================
-*/
+// SV_RecursiveHullCheck
+//
+// The C recurses for every branch; the cases that end in a tail call (both
+// points on one side, passing the node) loop here instead.
 function hull_recursive_check(
   f,
   firstclipnode,
@@ -1021,9 +909,7 @@ function hull_recursive_check(
       Sys_Error("SV_RecursiveHullCheck: bad node number");
     }
 
-    //
     // find the point distances
-    //
     const ty = type[num];
     const pd = dist[num];
     let t1, t2;
@@ -1111,9 +997,7 @@ function hull_recursive_check(
       return false; // never got out of the solid area
     }
 
-    //==================
     // the other side of the node is solid, this is the impact point
-    //==================
     if (side === 0) {
       trace.plane.normal[0] = normal[num * 3];
       trace.plane.normal[1] = normal[num * 3 + 1];
@@ -1182,17 +1066,13 @@ export function SV_RecursiveHullCheck(
   );
 }
 
-/*
-==================
-SV_ClipMoveToEntity
-
-Handles selection or creation of a clipping hull, and offseting (and
-eventually rotation) of the end points
-
-C returns the trace_t by value. Here the caller passes the trace to fill
-in, so no trace_t is allocated per entity clipped (Golden Rule #4).
-==================
-*/
+// SV_ClipMoveToEntity
+//
+// Handles selection or creation of a clipping hull, and offseting (and
+// eventually rotation) of the end points
+//
+// C returns the trace_t by value. Here the caller passes the trace to fill
+// in, so no trace_t is allocated per entity clipped (Golden Rule #4).
 const clip_offset = new Float32Array(3);
 const clip_start_l = new Float32Array(3);
 const clip_end_l = new Float32Array(3);
@@ -1253,13 +1133,7 @@ function TraceCopy(src, dst) {
   dst.ent = src.ent;
 }
 
-/*
-====================
-SV_ClipToLinks
-
-Mins and maxs enclose the entire area swept by the move
-====================
-*/
+/** Mins and maxs enclose the entire area swept by the move */
 function SV_ClipToLinks(node, clip) {
   // entvars are read straight from the edicts' typed arrays, as in
   // SV_AreaTriggerEdicts
@@ -1394,11 +1268,6 @@ function SV_ClipToLinks(node, clip) {
   }
 }
 
-/*
-==================
-SV_MoveBounds
-==================
-*/
 function SV_MoveBounds(start, mins, maxs, end, boxmins, boxmaxs) {
   for (let i = 0; i < 3; i++) {
     if (end[i] > start[i]) {
@@ -1411,11 +1280,8 @@ function SV_MoveBounds(start, mins, maxs, end, boxmins, boxmaxs) {
   }
 }
 
-/*
-==================
-SV_Move
-==================
-*/
+// SV_Move
+
 // SV_Move never runs QuakeC, so one moveclip_t serves every call
 const sv_move_clip = new moveclip_t();
 
@@ -1425,15 +1291,11 @@ export function SV_Move(start, mins, maxs, end, type, passedict) {
   return SV_MoveInto(start, mins, maxs, end, type, passedict, new trace_t());
 }
 
-/*
-==================
-SV_MoveInto
-
-SV_Move filling in a trace_t the caller owns, for callers that finish with
-the trace before their next SV_Move and before anything that can run QuakeC,
-and so can reuse one scratch trace_t instead of allocating one per move.
-==================
-*/
+/**
+ * SV_Move filling in a trace_t the caller owns, for callers that finish with
+ * the trace before their next SV_Move and before anything that can run QuakeC,
+ * and so can reuse one scratch trace_t instead of allocating one per move.
+ */
 export function SV_MoveInto(start, mins, maxs, end, type, passedict, trace) {
   const clip = sv_move_clip;
 

@@ -208,33 +208,17 @@ let cl_last_ping_request = 0;
 // dlights and the rest of the NQ client (PRED-1).
 let cl_predtime = 0;
 
-/*
-=================
-CL_SetLatency
-
-Called when we receive server updates to estimate latency
-=================
-*/
+/** Called when we receive server updates to estimate latency */
 export function CL_SetLatency(latency) {
   cls_latency = latency;
 }
 
-/*
-=================
-CL_GetLatency
-
-Returns the current estimated latency in seconds
-=================
-*/
+/** Returns the current estimated latency in seconds */
 export function CL_GetLatency() {
   return cls_latency;
 }
 
-/*
-=================
-CL_GetOutgoingSequence / CL_GetIncomingSequence
-=================
-*/
+// CL_GetOutgoingSequence / CL_GetIncomingSequence
 export function CL_GetOutgoingSequence() {
   return outgoing_sequence;
 }
@@ -242,59 +226,35 @@ export function CL_GetIncomingSequence() {
   return incoming_sequence;
 }
 
-/*
-=================
-CL_SetValidSequence
-
-Called when we receive valid entity/player data from server.
-Set to 0 to invalidate (e.g., on error or disconnect).
-=================
-*/
+/**
+ * Called when we receive valid entity/player data from server.
+ * Set to 0 to invalidate (e.g., on error or disconnect).
+ */
 export function CL_SetValidSequence(seq) {
   validsequence = seq;
 }
 
-/*
-=================
-CL_GetValidSequence
-
-Returns the current validsequence value.
-=================
-*/
+/** Returns the current validsequence value. */
 export function CL_GetValidSequence() {
   return validsequence;
 }
 
-/*
-=================
-CL_GetFrame
-
-Access the prediction frame buffer (indexed by client outgoing_sequence).
-=================
-*/
+/** Access the prediction frame buffer (indexed by client outgoing_sequence). */
 export function CL_GetFrame(seq) {
   return frames[seq & UPDATE_MASK];
 }
 
-/*
-=================
-CL_GetEntityFrame
-
-Access the entity frame buffer (indexed by server_sequence).
-Separate from prediction frames to avoid namespace conflicts.
-=================
-*/
+/**
+ * Access the entity frame buffer (indexed by server_sequence).
+ * Separate from prediction frames to avoid namespace conflicts.
+ */
 export function CL_GetEntityFrame(seq) {
   return entity_frames[seq & UPDATE_MASK];
 }
 
-/*
-=================
-CL_GetServerSequence / CL_SetServerSequence
-
-Server frame sequence tracking for delta compression.
-=================
-*/
+// CL_GetServerSequence / CL_SetServerSequence
+//
+// Server frame sequence tracking for delta compression.
 export function CL_GetServerSequence() {
   return server_sequence;
 }
@@ -302,13 +262,7 @@ export function CL_SetServerSequence(seq) {
   server_sequence = seq;
 }
 
-/*
-=================
-CL_AcknowledgeCommand
-
-Called when server acknowledges a command
-=================
-*/
+/** Called when server acknowledges a command */
 export function CL_AcknowledgeCommand(sequence) {
   const newestSent = outgoing_sequence - 1;
   if (newestSent < 0) {
@@ -342,27 +296,23 @@ export function CL_AcknowledgeCommand(sequence) {
   }
 }
 
-/*
-=================
-CL_CalcPing
-
-QW/server/sv_main.c SV_CalcPing, measured on the client: the average round
-trip, in ms, of the commands in the frame window that the server
-acknowledged (receivedtime - senttime, as QW's CL_ParseClientdata computes
-latency). Our server only acks inside its sys_ticrate tick, so a sample
-includes the wait for that tick (up to one client send interval, since the
-ack names the newest command that arrived) and up to a client frame before
-the reply is read: input-to-response time, as QW's ping also counts the
-client's reply delay.
-
-The HUD can't use the server's NQ sample (SV_ReadClientMove's sv.time minus
-the echoed svc_time): on a dedicated server both are tick times, so every
-sample is 0 or 50 ms.
-
-Deviation: returns -1, not QW's 9999, when there is no sample, so the caller
-can fall back to STAT_PING (loopback and the guessed-ack path have none).
-=================
-*/
+/**
+ * QW/server/sv_main.c SV_CalcPing, measured on the client: the average round
+ * trip, in ms, of the commands in the frame window that the server
+ * acknowledged (receivedtime - senttime, as QW's CL_ParseClientdata computes
+ * latency). Our server only acks inside its sys_ticrate tick, so a sample
+ * includes the wait for that tick (up to one client send interval, since the
+ * ack names the newest command that arrived) and up to a client frame before
+ * the reply is read: input-to-response time, as QW's ping also counts the
+ * client's reply delay.
+ *
+ * The HUD can't use the server's NQ sample (SV_ReadClientMove's sv.time minus
+ * the echoed svc_time): on a dedicated server both are tick times, so every
+ * sample is 0 or 50 ms.
+ *
+ * Deviation: returns -1, not QW's 9999, when there is no sample, so the caller
+ * can fall back to STAT_PING (loopback and the guessed-ack path have none).
+ */
 export function CL_CalcPing() {
   let ping = 0;
   let count = 0;
@@ -389,16 +339,12 @@ export function CL_CalcPing() {
   return Math.round((ping / count) * 1000);
 }
 
-/*
-=================
-CL_GetDisplayPing
-
-The ping the HUD shows, in ms, or -1 if there is no client measurement.
-Refreshed from CL_CalcPing every two seconds, as QW's scoreboard refreshes
-its ping times (QW/client/sbar.c). Until the first sample it keeps trying
-every call.
-=================
-*/
+/**
+ * The ping the HUD shows, in ms, or -1 if there is no client measurement.
+ * Refreshed from CL_CalcPing every two seconds, as QW's scoreboard refreshes
+ * its ping times (QW/client/sbar.c). Until the first sample it keeps trying
+ * every call.
+ */
 export function CL_GetDisplayPing(now) {
   if (cl_displayping === -1 || now - cl_last_ping_request > 2) {
     cl_last_ping_request = now;
@@ -412,15 +358,11 @@ function _CL_SequenceGTE(sequence, baseline) {
   return ((sequence - baseline) | 0) >= 0;
 }
 
-/*
-=================
-CL_AcknowledgeTransportSequence
-
-Map a transport-level packet ack to the newest predicted command sent
-in a packet with sequence <= transport ack. `now` is the ack's arrival
-time (realtime; tests pass their own clock).
-=================
-*/
+/**
+ * Map a transport-level packet ack to the newest predicted command sent
+ * in a packet with sequence <= transport ack. `now` is the ack's arrival
+ * time (realtime; tests pass their own clock).
+ */
 export function CL_AcknowledgeTransportSequence(
   transportAckSequence,
   now = realtime,
@@ -456,16 +398,12 @@ export function CL_AcknowledgeTransportSequence(
   }
 }
 
-/*
-=================
-CL_FindAcknowledgedSequence
-
-Find which command sequence corresponds to the server update.
-When we receive a server update at `currentTime`, we acknowledge commands
-that were sent more than RTT ago.
-Returns the sequence number, or -1 if not found.
-=================
-*/
+/**
+ * Find which command sequence corresponds to the server update.
+ * When we receive a server update at `currentTime`, we acknowledge commands
+ * that were sent more than RTT ago.
+ * Returns the sequence number, or -1 if not found.
+ */
 export function CL_FindAcknowledgedSequence(currentTime) {
   // Conservative ack estimate:
   // 1) only consider commands old enough to have likely completed a round trip
@@ -536,13 +474,7 @@ export function CL_FindAcknowledgedSequence(currentTime) {
   return bestSeq;
 }
 
-/*
-=================
-CL_StoreCommand
-
-Store a command for prediction replay
-=================
-*/
+/** Store a command for prediction replay */
 export function CL_StoreCommand(cmd, senttime, netsequence = -1) {
   const sequence = outgoing_sequence;
   const framenum = outgoing_sequence & UPDATE_MASK;
@@ -580,25 +512,21 @@ const _predTo = new player_state_t();
 // Cached buffers for CL_PredictUsercmd split-command path (Golden Rule #4)
 const _splitTemp = [new player_state_t(), new player_state_t()];
 
-/*
-=================
-CL_SetUpPlayerPrediction
-
-Calculate predicted positions for all other players.
-Uses full physics prediction (CL_PredictUsercmd) when movement commands
-are available from svc_playerinfo, otherwise the server position.
-Ported from QuakeWorld cl_ents.c
-
-Every call starts from the server state (state_origin / state_velocity),
-so calling this more than once per frame doesn't compound the
-extrapolation. Other players are traced against the world and brush
-entities only, as in QW, where CL_PredictMove has restored numphysent
-before CL_SetUpPlayerPrediction(true) runs. The physents are built here,
-so the result does not depend on whatever the last CL_PredictMove left in
-pmove (it also includes the player being predicted), and it also works on
-a listen server, where CL_PredictMove never runs.
-=================
-*/
+/**
+ * Calculate predicted positions for all other players.
+ * Uses full physics prediction (CL_PredictUsercmd) when movement commands
+ * are available from svc_playerinfo, otherwise the server position.
+ * Ported from QuakeWorld cl_ents.c
+ *
+ * Every call starts from the server state (state_origin / state_velocity),
+ * so calling this more than once per frame doesn't compound the
+ * extrapolation. Other players are traced against the world and brush
+ * entities only, as in QW, where CL_PredictMove has restored numphysent
+ * before CL_SetUpPlayerPrediction(true) runs. The physents are built here,
+ * so the result does not depend on whatever the last CL_PredictMove left in
+ * pmove (it also includes the player being predicted), and it also works on
+ * a listen server, where CL_PredictMove never runs.
+ */
 export function CL_SetUpPlayerPrediction(dopred) {
   // Calculate player time - slightly ahead to compensate for latency
   let playertime = realtime - cls_latency + 0.02;
@@ -693,15 +621,11 @@ export function CL_SetUpPlayerPrediction(dopred) {
   }
 }
 
-/*
-=================
-CL_SetPhysentsWorld
-
-physents[0] = world, then the solid brush entities. QW does this in
-CL_SetSolidEntities, called once per parsed packet; the port rebuilds it
-for each user so stale player boxes are never left behind.
-=================
-*/
+/**
+ * physents[0] = world, then the solid brush entities. QW does this in
+ * CL_SetSolidEntities, called once per parsed packet; the port rebuilds it
+ * for each user so stale player boxes are never left behind.
+ */
 function CL_SetPhysentsWorld() {
   pmove.numphysent = 0;
 
@@ -716,25 +640,21 @@ function CL_SetPhysentsWorld() {
   CL_SetSolidEntities();
 }
 
-/*
-=================
-CL_SetSolidEntities
-
-Add solid entities (doors, platforms, lifts, monsters) as collision
-objects for prediction.
-Ported from QuakeWorld cl_ents.c
-
-QW guesses from the model (hull 1 has a non-zero headnode) because its
-server never sets U_SOLID. Here the server sends each entity's solidity
-with PE_SOLID (sv_main.js SV_SetStateSolid): PS_BSP for SOLID_BSP brush
-entities, which collide with the model's hulls as in QW, and PS_BOX with
-the entity's v.mins/v.maxs for SOLID_BBOX and SOLID_SLIDEBOX (monsters,
-exploding boxes). Corpses are SOLID_NOT, so they are not sent as solid.
-
-Brush entities go in first, so a crowd of monsters can't push a door or
-lift out of a full physents list.
-=================
-*/
+/**
+ * Add solid entities (doors, platforms, lifts, monsters) as collision
+ * objects for prediction.
+ * Ported from QuakeWorld cl_ents.c
+ *
+ * QW guesses from the model (hull 1 has a non-zero headnode) because its
+ * server never sets U_SOLID. Here the server sends each entity's solidity
+ * with PE_SOLID (sv_main.js SV_SetStateSolid): PS_BSP for SOLID_BSP brush
+ * entities, which collide with the model's hulls as in QW, and PS_BOX with
+ * the entity's v.mins/v.maxs for SOLID_BBOX and SOLID_SLIDEBOX (monsters,
+ * exploding boxes). Corpses are SOLID_NOT, so they are not sent as solid.
+ *
+ * Brush entities go in first, so a crowd of monsters can't push a door or
+ * lift out of a full physents list.
+ */
 function CL_SetSolidEntities() {
   if (validsequence === 0) {
     return;
@@ -801,27 +721,19 @@ function CL_SetSolidEntities() {
   }
 }
 
-/*
-=================
-CL_SetupPMove
-
-Set up pmove state for prediction of the local player: world, brush
-entities, then other players at their server positions.
-=================
-*/
+/**
+ * Set up pmove state for prediction of the local player: world, brush
+ * entities, then other players at their server positions.
+ */
 function CL_SetupPMove() {
   CL_SetPhysentsWorld();
 }
 
-/*
-=================
-CL_SetSolidPlayers
-
-Add other players as collision entities for prediction.
-Ported from QuakeWorld cl_ents.c. QW uses the positions from
-CL_SetUpPlayerPrediction(false), i.e. the server positions.
-=================
-*/
+/**
+ * Add other players as collision entities for prediction.
+ * Ported from QuakeWorld cl_ents.c. QW uses the positions from
+ * CL_SetUpPlayerPrediction(false), i.e. the server positions.
+ */
 function CL_SetSolidPlayers(playernum) {
   if (cl_solid_players.value === 0) {
     return;
@@ -862,14 +774,10 @@ function CL_SetSolidPlayers(playernum) {
   }
 }
 
-/*
-=================
-CL_GetPredictedPlayer
-
-Get the predicted position for a player (for rendering).
-Returns null if player is not active.
-=================
-*/
+/**
+ * Get the predicted position for a player (for rendering).
+ * Returns null if player is not active.
+ */
 export function CL_GetPredictedPlayer(playernum) {
   if (playernum < 0 || playernum >= MAX_CLIENTS) {
     return null;
@@ -883,14 +791,10 @@ export function CL_GetPredictedPlayer(playernum) {
   return pplayer;
 }
 
-/*
-=================
-CL_SetPlayerInfo
-
-Called from CL_ParsePlayerInfo to set player state from server.
-This stores the QuakeWorld-style player info for prediction.
-=================
-*/
+/**
+ * Called from CL_ParsePlayerInfo to set player state from server.
+ * This stores the QuakeWorld-style player info for prediction.
+ */
 export function CL_SetPlayerInfo(
   playernum,
   origin,
@@ -979,23 +883,19 @@ export function CL_SetPlayerInfo(
   }
 }
 
-/*
-==============
-CL_PredictUsercmd
-
-Predict the result of a single user command
-
-QW splits moves over 50 ms by recursing on halves (integer msec, so 255 ms
-runs as 8 x 31 ms). The port's recursion shared one split command and
-one temp state across levels, so deeper levels overwrote the outer
-level's msec. This runs the same steps iteratively with two scratch
-states. NetQuake mode splits only above 100 ms, the server's longest
-frame (Host_FilterTime clamps host_frametime to 0.1), and keeps
-fractional msec.
-
-dead defaults to the local player's health, as in QW.
-==============
-*/
+/**
+ * Predict the result of a single user command
+ *
+ * QW splits moves over 50 ms by recursing on halves (integer msec, so 255 ms
+ * runs as 8 x 31 ms). The port's recursion shared one split command and
+ * one temp state across levels, so deeper levels overwrote the outer
+ * level's msec. This runs the same steps iteratively with two scratch
+ * states. NetQuake mode splits only above 100 ms, the server's longest
+ * frame (Host_FilterTime clamps host_frametime to 0.1), and keeps
+ * fractional msec.
+ *
+ * dead defaults to the local player's health, as in QW.
+ */
 export function CL_PredictUsercmd(from, to, cmd, spectator, dead) {
   if (dead === undefined) {
     dead = cl.stats[STAT_HEALTH] <= 0;
@@ -1077,19 +977,15 @@ function CL_PredictUsercmdStep(from, to, cmd, msec, spectator, dead, nq) {
   }
 }
 
-/*
-==============
-CL_Movevars_f
-
-Console command handler for _movevars. The server sends this via svc_stufftext
-during signon to sync physics parameters for client-side prediction.
-Matches original QuakeWorld's movevars protocol (QW/server/sv_user.c:98-108).
-
-Optional extra arguments 11, 12 and 13 carry the NetQuake edgefriction,
-sv_maxvelocity and sv_altnoclip cvars for the NetQuake-physics mode;
-servers that don't send them leave the WinQuake defaults.
-==============
-*/
+/**
+ * Console command handler for _movevars. The server sends this via svc_stufftext
+ * during signon to sync physics parameters for client-side prediction.
+ * Matches original QuakeWorld's movevars protocol (QW/server/sv_user.c:98-108).
+ *
+ * Optional extra arguments 11, 12 and 13 carry the NetQuake edgefriction,
+ * sv_maxvelocity and sv_altnoclip cvars for the NetQuake-physics mode;
+ * servers that don't send them leave the WinQuake defaults.
+ */
 function CL_Movevars_f() {
   if (Cmd_Argc() < 11) {
     return;
@@ -1128,21 +1024,17 @@ const _partialcmd = {
 };
 const _partialstate = new player_state_t();
 
-/*
-==============
-CL_PredictPartialMove
-
-Renderer/network isolation (host.js): render frames run between the 72 Hz
-commands, and without this the view would stay on the last command's
-state until the next one. Not in QW, which sends a command every frame.
-
-Predicts from the newest command's state (last) for the game time that
-hasn't been sent yet (host_netaccum), with the newest command's moves and
-buttons and the angles the next command will send. The next command
-covers that same time, so the view runs on into it rather than snapping.
-With no time to predict, the state is the newest command's.
-==============
-*/
+/**
+ * Renderer/network isolation (host.js): render frames run between the 72 Hz
+ * commands, and without this the view would stay on the last command's
+ * state until the next one. Not in QW, which sends a command every frame.
+ *
+ * Predicts from the newest command's state (last) for the game time that
+ * hasn't been sent yet (host_netaccum), with the newest command's moves and
+ * buttons and the angles the next command will send. The next command
+ * covers that same time, so the view runs on into it rather than snapping.
+ * With no time to predict, the state is the newest command's.
+ */
 function CL_PredictPartialMove(last) {
   const msec = host_netaccum * 1000;
   if (msec <= 0) {
@@ -1164,13 +1056,9 @@ function CL_PredictPartialMove(last) {
   CL_PredictUsercmd(last.playerstate, _partialstate, cmd, false);
 }
 
-/*
-==============
-CL_PredictMove
-
-Main prediction function - called each frame to predict local player position
-==============
-*/
+/**
+ * Main prediction function - called each frame to predict local player position
+ */
 export function CL_PredictMove() {
   if (cl_pushlatency.value > 0) {
     cl_pushlatency.value = 0;
@@ -1316,14 +1204,10 @@ export function CL_PredictMove() {
   cl_prediction_active = true;
 }
 
-/*
-==============
-CL_SetServerState
-
-Called when we receive authoritative state from server
-Updates the acknowledged frame's player state
-==============
-*/
+/**
+ * Called when we receive authoritative state from server
+ * Updates the acknowledged frame's player state
+ */
 export function CL_SetServerState(origin, velocity, onground) {
   const frame = frames[incoming_sequence & UPDATE_MASK];
   VectorCopy(origin, frame.playerstate.origin);
@@ -1337,11 +1221,6 @@ export function CL_SetServerState(origin, velocity, onground) {
   has_server_state = true;
 }
 
-/*
-==============
-CL_InitPrediction
-==============
-*/
 export function CL_InitPrediction() {
   Cvar_RegisterVariable(cl_pushlatency);
   Cvar_RegisterVariable(cl_nopred);
@@ -1352,13 +1231,7 @@ export function CL_InitPrediction() {
   Pmove_Init();
 }
 
-/*
-==============
-CL_ResetPrediction
-
-Called on level change or disconnect
-==============
-*/
+/** Called on level change or disconnect */
 export function CL_ResetPrediction() {
   outgoing_sequence = 0;
   incoming_sequence = 0;

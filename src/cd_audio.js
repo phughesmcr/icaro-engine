@@ -12,13 +12,7 @@ import {
   S_SetCallbacks,
 } from "./snd_dma.js";
 
-/*
-==============================================================================
-
-			CD AUDIO STATE
-
-==============================================================================
-*/
+// CD AUDIO STATE
 
 const MAXIMUM_TRACKS = 100;
 
@@ -61,37 +55,23 @@ const missingURLs = new Set();
 const MUSIC_DIRNAME = "music";
 const MUSIC_EXTENSIONS = ["ogg", "mp3"];
 
-/*
-==============================================================================
+// EXTERNAL INTERFACE
 
-			EXTERNAL INTERFACE
-
-==============================================================================
-*/
-
-/*
-================
-CDAudio_SetTrackURLProvider
-
-Set a function that maps a track number to the URL of its music file, or to
-an ordered list of candidate URLs: CDAudio_Play tries each in turn until one
-loads (see CDAudio_TrackURLs).
-================
-*/
+/**
+ * Set a function that maps a track number to the URL of its music file, or to
+ * an ordered list of candidate URLs: CDAudio_Play tries each in turn until one
+ * loads (see CDAudio_TrackURLs).
+ */
 export function CDAudio_SetTrackURLProvider(fn) {
   _getTrackURL = fn;
 }
 
-/*
-================
-CDAudio_TrackURLs
-
-Candidate URLs for a track's CD rip, as QuakeSpasm/Ironwail's BGM_PlayCDtrack
-looks for music/trackNN.<ext>: game directories in search-path priority
-(the mission pack's before id1's), and within a directory ogg before mp3.
-gamedirs lists the directories highest priority first.
-================
-*/
+/**
+ * Candidate URLs for a track's CD rip, as QuakeSpasm/Ironwail's BGM_PlayCDtrack
+ * looks for music/trackNN.<ext>: game directories in search-path priority
+ * (the mission pack's before id1's), and within a directory ogg before mp3.
+ * gamedirs lists the directories highest priority first.
+ */
 export function CDAudio_TrackURLs(track, gamedirs) {
   const name = "track" + String(track).padStart(2, "0");
   const urls = [];
@@ -105,16 +85,12 @@ export function CDAudio_TrackURLs(track, gamedirs) {
   return urls;
 }
 
-/*
-================
-CDAudio_ApplyVolume
-
-Exactly one control sets the level. Routed through the gain node, that node
-does and the element stays at 1.0, so the two aren't multiplied and the
-element doesn't hold the volume from when it started. Unrouted (no
-AudioContext, or createMediaElementSource threw), the element volume does.
-================
-*/
+/**
+ * Exactly one control sets the level. Routed through the gain node, that node
+ * does and the element stays at 1.0, so the two aren't multiplied and the
+ * element doesn't hold the volume from when it started. Unrouted (no
+ * AudioContext, or createMediaElementSource threw), the element volume does.
+ */
 function CDAudio_ApplyVolume() {
   if (musicGainNode !== null) {
     musicGainNode.gain.value = bgmvolume.value;
@@ -126,16 +102,12 @@ function CDAudio_ApplyVolume() {
   }
 }
 
-/*
-================
-CDAudio_BlockSound / CDAudio_UnblockSound
-
-Web only; cd_win.c has no focus handling for CD. Hidden tabs suspend the
-AudioContext (S_BlockSound), which silences a routed element. An element
-that isn't routed would keep playing aloud, so it pauses and resumes with
-the same block and unblock.
-================
-*/
+// CDAudio_BlockSound / CDAudio_UnblockSound
+//
+// Web only; cd_win.c has no focus handling for CD. Hidden tabs suspend the
+// AudioContext (S_BlockSound), which silences a routed element. An element
+// that isn't routed would keep playing aloud, so it pauses and resumes with
+// the same block and unblock.
 function CDAudio_BlockSound() {
   soundBlocked = true;
 
@@ -169,16 +141,12 @@ function CDAudio_UnblockSound() {
   } catch { /* ignore */ }
 }
 
-/*
-================
-CDAudio_StartElement
-
-Calls play() on the music element. A refusal by the autoplay policy
-(NotAllowedError) arms a retry on the next user gesture. Other rejections
-(AbortError when src changes, NotSupportedError for a missing file) are left
-to the element's error event.
-================
-*/
+/**
+ * Calls play() on the music element. A refusal by the autoplay policy
+ * (NotAllowedError) arms a retry on the next user gesture. Other rejections
+ * (AbortError when src changes, NotSupportedError for a missing file) are left
+ * to the element's error event.
+ */
 function CDAudio_StartElement(attempt) {
   // An unrouted element would play aloud in a hidden tab: wait for unblock
   if (soundBlocked === true && musicGainNode === null) {
@@ -215,14 +183,10 @@ function CDAudio_StartElement(attempt) {
   });
 }
 
-/*
-================
-CDAudio_PlayURL
-
-Loads the first candidate URL not already known to be missing, and falls
-through to the next one when the element reports a load error.
-================
-*/
+/**
+ * Loads the first candidate URL not already known to be missing, and falls
+ * through to the next one when the element reports a load error.
+ */
 function CDAudio_PlayURL(urls, index, attempt) {
   while (index < urls.length && missingURLs.has(urls[index])) {
     index++;
@@ -262,14 +226,10 @@ function CDAudio_PlayURL(urls, index, attempt) {
   }
 }
 
-/*
-================
-CDAudio_GestureRetry
-
-Registered as the S_UnlockAudio callback, so it runs inside the user's
-gesture handler, where the browser allows play().
-================
-*/
+/**
+ * Registered as the S_UnlockAudio callback, so it runs inside the user's
+ * gesture handler, where the browser allows play().
+ */
 function CDAudio_GestureRetry() {
   if (!gestureRetry || !playing || musicElement === null) {
     return;
@@ -278,14 +238,10 @@ function CDAudio_GestureRetry() {
   CDAudio_StartElement(playAttempt);
 }
 
-/*
-================
-CDAudio_Play
-
-As in cd_win.c, a bad or missing track is rejected before the current track
-is stopped, so a map without a CD track (svc_cdtrack 0) keeps the music.
-================
-*/
+/**
+ * As in cd_win.c, a bad or missing track is rejected before the current track
+ * is stopped, so a map without a CD track (svc_cdtrack 0) keeps the music.
+ */
 export function CDAudio_Play(track, looping) {
   if (!initialized || !enabled) {
     return;
@@ -385,11 +341,6 @@ export function CDAudio_Play(track, looping) {
   }
 }
 
-/*
-================
-CDAudio_Stop
-================
-*/
 export function CDAudio_Stop() {
   if (!initialized || !enabled) {
     return;
@@ -418,11 +369,6 @@ export function CDAudio_Stop() {
   playing = false;
 }
 
-/*
-================
-CDAudio_Pause
-================
-*/
 export function CDAudio_Pause() {
   if (!initialized || !enabled) {
     return;
@@ -442,11 +388,6 @@ export function CDAudio_Pause() {
   playing = false;
 }
 
-/*
-================
-CDAudio_Resume
-================
-*/
 export function CDAudio_Resume() {
   if (!initialized || !enabled) {
     return;
@@ -465,11 +406,6 @@ export function CDAudio_Resume() {
   }
 }
 
-/*
-================
-CDAudio_Update
-================
-*/
 export function CDAudio_Update() {
   if (!initialized || !enabled) {
     return;
@@ -491,11 +427,6 @@ export function CDAudio_Update() {
   }
 }
 
-/*
-================
-CDAudio_Init
-================
-*/
 export function CDAudio_Init() {
   if (COM_CheckParm("-nocdaudio")) {
     return -1;
@@ -522,11 +453,6 @@ export function CDAudio_Init() {
   return 0;
 }
 
-/*
-================
-CDAudio_Shutdown
-================
-*/
 export function CDAudio_Shutdown() {
   if (!initialized) {
     return;
@@ -564,13 +490,7 @@ export function CDAudio_Shutdown() {
   initialized = false;
 }
 
-/*
-================
-CD_f
-
-Console command handler for "cd" command
-================
-*/
+/** Console command handler for "cd" command */
 function CD_f() {
   if (Cmd_Argc() < 2) {
     return;
