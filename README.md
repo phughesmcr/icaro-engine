@@ -7,7 +7,7 @@ A Three.js-based Quake engine port, forked from [three-quake](https://github.com
 Shareware `pak0.pak` included (Episode 1).  
 For the full game, copy `pak1.pak` from the `id1` folder of a registered copy of Quake to `static/pak1.pak` (lower case).
 The client and the room server load `pak0.pak`, `pak1.pak`, ... until one is missing.
-A pak over 64 MB (such as the 2021 rerelease's) is not downloaded whole: the client reads its directory and the files the engine needs at startup with HTTP Range requests, and fetches each map when it is first loaded. That needs a web server that honours Range; `python3 -m http.server` doesn't, so it sends the whole pak instead, which still works. The room server reads big paks from disk as needed.
+A pak over 64 MB (such as the 2021 rerelease's) is not downloaded whole: the client reads its directory and the files the engine needs at startup with HTTP Range requests, and fetches each map when it is first loaded. That needs a web server that honours Range, such as `deno task serve` (Deno's file server on http://localhost:8137/); `python3 -m http.server` doesn't, so it sends the whole pak instead, which still works. The room server reads big paks from disk as needed.
 Registered data must not be committed or deployed publicly; `.gitignore` excludes `static/pak1.pak`.
 
 #### Mission packs
@@ -31,7 +31,7 @@ On phones and tablets the game shows touch controls. Play in landscape.
 
 - **Left side:** a floating move stick ([nipplejs](https://github.com/yoannmoinet/nipplejs), loaded from jsDelivr). Push it to the edge to run.
 - **Right side:** drag to look. You can also drag on FIRE or JUMP to aim while holding them.
-- **Buttons:** FIRE, JUMP, next and previous weapon, and pause (which opens the menu).
+- **Buttons:** FIRE, JUMP, DOWN (swim down), next and previous weapon, and pause (which opens the menu). Hold the next-weapon button to open a weapon wheel, slide to a weapon and let go. Beside pause, SAVE and LOAD quick-save and quick-load in single player, CON opens the console, and CHAT types a message in multiplayer.
 - **Menus and console:** tap menu items directly. While a menu or the console is open, a bar at the top gives you Back and a keyboard button.
 - **Options → Touch controls:** look speed, gyro aiming, gyro speed, invert look, left-handed layout (swaps the sides and mirrors the buttons), button size and opacity, and vibration. Settings are saved as `touch_*` cvars, except Invert Look, which is `m_pitch`.
 - **Gyro aiming:** off by default. On iOS, the motion permission prompt appears the first time you tap after turning it on.

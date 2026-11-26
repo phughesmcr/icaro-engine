@@ -13,7 +13,8 @@
 # tools/check_container_image.sh (CI) fails if the image or the build context
 # holds any other .pak.
 
-# Deno 2.9.8, as in .tool-versions; bump both together. The digest pins the
+# Deno as pinned in .tool-versions; bump both together
+# (tests/deno_version_pin_test.js checks it). The digest pins the
 # multi-arch index (amd64 and arm64).
 FROM denoland/deno:debian-2.9.8@sha256:a0d88a7fcbd44f062cba2748e19df67d30290ad12aa203c7c1e0b12462c483f0
 

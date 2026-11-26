@@ -140,3 +140,75 @@ Deno.test( 'touch menus: Touch Controls page, slider taps and Setup rows', async
 	}
 
 } );
+
+Deno.test( 'touch taps on dense menus select first, then act; taps just outside a list snap to it', async () => {
+
+	const cvar = await import( '../src/cvar.js' );
+	const touch = await import( '../src/touch.js' );
+	const sound = await import( '../src/sound.js' );
+	const draw = await import( '../src/gl_draw.js' );
+
+	const hadWindow = 'window' in globalThis;
+	if ( ! hadWindow ) globalThis.window = { devicePixelRatio: 1 };
+	try {
+
+		cmd.Cbuf_Init();
+		cmd.Cmd_Init();
+		keys.Key_Init();
+		menu.M_Init();
+		if ( cvar.Cvar_FindVar( 'touch_sensitivity' ) === null ) touch.Touch_RegisterCvars();
+		if ( cvar.Cvar_FindVar( 'volume' ) === null ) cvar.Cvar_RegisterVariable( sound.volume );
+
+		const w = draw.Draw_GetVirtualWidth();
+		const h = draw.Draw_GetVirtualHeight();
+		const finger = ( vx, vy ) => menu.M_TouchInput( vx + ( w - 320 ) / 2, vy + ( h - 200 ) / 2, w, h, true );
+		const mouse = ( vx, vy ) => menu.M_TouchInput( vx + ( w - 320 ) / 2, vy + ( h - 200 ) / 2, w, h );
+		const cursor = () => menu.M_AgentState().cursor;
+
+		// Options (8-unit rows): a finger on row 14 moves the cursor only
+		cmd.Cmd_ExecuteString( 'menu_options' );
+		finger( 100, 32 + 14 * 8 + 4 );
+		assertEqual( menu.m_state, menu.m_options, 'first tap stays in Options' );
+		assertEqual( cursor(), 14, 'first tap moves the cursor' );
+		finger( 100, 32 + 14 * 8 + 4 );
+		assertEqual( menu.m_state, menu.m_touch, 'second tap on the cursor row opens Touch Controls' );
+
+		// A slider row: the first tap selects without changing the value
+		menu.M_Keydown( keys.K_ESCAPE );
+		const vol = sound.volume.value;
+		finger( 220, 32 + 8 * 8 + 4 );
+		assertEqual( cursor(), 8, 'slider row selected' );
+		assertEqual( sound.volume.value, vol, 'first tap leaves the slider alone' );
+		finger( 220, 32 + 8 * 8 + 4 );
+		assertEqual( sound.volume.value, 0, 'second tap sets it' );
+
+		// Mouse clicks still act at once (the hover has already moved the cursor)
+		mouse( 100, 32 + 14 * 8 + 4 );
+		assertEqual( menu.m_state, menu.m_touch, 'mouse click acts on the first click' );
+
+		// Snap: a finger just outside the Options list takes its nearest row
+		menu.M_Keydown( keys.K_ESCAPE );
+		const listEnd = 32 + 17 * 8; // OPTIONS_ITEMS rows of 8 units
+		assertEqual( menu.M_MenuRowAt( 100, 1000 ), - 1, 'far below the list is no row' );
+		assertEqual( menu.M_MenuRowAt( 100, 31, 4 ), 0, 'just above the list snaps to row 0' );
+		assertEqual( menu.M_MenuRowAt( 100, listEnd + 3, 4 ), 16, 'just below the list snaps to the last row' );
+		assertEqual( menu.M_MenuRowAt( 100, 31 ), - 1, 'without slack, no row' );
+		assertEqual( menu.M_MenuRowAt( 100, 27, 4 ), - 1, 'beyond the slack, no row' );
+		finger( 100, listEnd + 3 );
+		assertEqual( cursor(), 16, 'a finger just below the list selects the last row' );
+
+		// The 20-unit main menu acts on the first tap
+		cmd.Cmd_ExecuteString( 'menu_main' );
+		finger( 100, 31 );
+		assertEqual( menu.m_state, menu.m_main, 'no snap on the main menu' );
+		finger( 100, 32 + 1 * 20 + 10 );
+		assertEqual( menu.m_state, menu.m_multiplayer, 'main menu row 1 opens at once' );
+
+	} finally {
+
+		keys.set_key_dest( keys.key_game );
+		if ( ! hadWindow ) delete globalThis.window;
+
+	}
+
+} );

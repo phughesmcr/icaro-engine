@@ -15,21 +15,24 @@ The reference is [id-Software/Quake](https://github.com/id-Software/Quake).
 
 ## Get it
 
-Reuse an existing checkout if one is already in `$TMPDIR`:
+From the repository root (the worktree's, in a worktree), reuse the checkout
+in `.claude/cache/idquake` (gitignored) or clone it there:
 
 ```bash
-ls -d "$TMPDIR"/idquake/WinQuake 2>/dev/null || git clone --depth 1 https://github.com/id-Software/Quake.git "$TMPDIR/idquake"
+[ -d .claude/cache/idquake/WinQuake ] || git clone --depth 1 https://github.com/id-Software/Quake.git .claude/cache/idquake
 ```
 
-The clone needs network access to github.com. If the sandbox blocks it, rerun
-it outside the sandbox. If you can't fetch it at all, say that your comparison
-is from memory and mark those claims unverified.
+It lives in the project rather than `$TMPDIR` because `$TMPDIR` differs inside
+and outside the sandbox: a clone run outside it would be invisible to
+sandboxed commands. The clone needs network access to github.com. If the
+sandbox blocks it, rerun it outside the sandbox. If you can't fetch it at all,
+say that your comparison is from memory and mark those claims unverified.
 
 ## Compare
 
 1. Find the JS function and its C counterpart. Names match, and the JS file's
    header names its C source:
-   `rg -n "^\w.*\bSV_Physics_Toss\b" "$TMPDIR/idquake/WinQuake"`.
+   `rg -n "^\w.*\bSV_Physics_Toss\b" .claude/cache/idquake/WinQuake`.
 2. Read both in full, including the C macros and globals the function uses
    (`quakedef.h`, `progs.h`, `server.h`, `glquake.h`).
 3. Look for behavioural differences, not style differences. Common sources:
