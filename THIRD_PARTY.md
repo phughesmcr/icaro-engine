@@ -226,9 +226,9 @@ them.
 
 ## Servers, packages and tools
 
-Package versions are pinned in [deno.lock](deno.lock). None of these packages is
-in this repository or the client. `server/game_server.js` imports no npm
-package.
+npm and JSR package versions are pinned in [deno.lock](deno.lock). None of these
+packages is in this repository or the client. `server/game_server.js` imports no
+npm package.
 
 - **MCP TypeScript SDK: `@modelcontextprotocol/server` and
   `@modelcontextprotocol/core` 2.4.0.** Loaded by `server/agent_mcp.ts` only.
@@ -265,3 +265,12 @@ package.
   package its own (`/usr/share/doc/*/copyright` in the image). **Not
   confirmed:** the licences of the components built into the Deno binary.
   Source: [denoland/deno_docker](https://github.com/denoland/deno_docker).
+- **Gymnasium and NumPy, versions not pinned.** Python packages that only
+  [tools/gym/icaro_env.py](tools/gym/icaro_env.py) imports. Installing them
+  brings their own dependencies, which aren't listed here. Licences: Gymnasium
+  [MIT](https://github.com/Farama-Foundation/Gymnasium/blob/main/LICENSE), NumPy
+  [BSD-3-Clause](https://github.com/numpy/numpy/blob/main/LICENSE.txt), with
+  bundled parts under other permissive licences
+  ([package metadata](https://pypi.org/pypi/numpy/json)). Sources:
+  [Farama-Foundation/Gymnasium](https://github.com/Farama-Foundation/Gymnasium),
+  [numpy/numpy](https://github.com/numpy/numpy).
