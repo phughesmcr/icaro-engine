@@ -106,8 +106,10 @@
 
 					navigator.serviceWorker.register( 'sw.js' ).then( () => navigator.serviceWorker.ready ).then( ( reg ) => {
 
-						const urls = performance.getEntriesByType( 'resource' ).map( ( e ) => e.name );
-						reg.active.postMessage( { type: 'cache-urls', urls: [ location.href, ...urls ] } );
+						const urls = performance.getEntriesByType( 'resource' )
+							.filter( ( e ) => e.initiatorType !== 'audio' && e.initiatorType !== 'video' )
+							.map( ( e ) => e.name );
+						reg.active.postMessage( { type: 'cache-urls', urls } );
 
 					} ).catch( ( e ) => console.warn( 'Service worker not registered:', e ) );
 

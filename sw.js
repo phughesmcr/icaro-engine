@@ -22,7 +22,9 @@
 // fetched (main.js, src/*.js, three's files) and the worker caches those
 // too. No file list is kept here, so new modules need no change to this file.
 //
-// Bump CACHE_NAME to drop everything cached by an older worker.
+// Bump CACHE_NAME to drop everything cached by an older worker. Bump it
+// whenever static/pak0.pak changes: it is cache first under the same URL, so
+// players would otherwise keep the old copy.
 
 const CACHE_NAME = 'icaro-v1';
 const CACHE_PREFIX = 'icaro-';
@@ -42,6 +44,7 @@ const SHELL = [
 ];
 
 const PAK0_PATH = 'static/pak0.pak';
+const MEDIA_EXT = /\.(ogg|mp3|wav|flac|opus|m4a)$/i;
 const CDN_HOST = 'cdn.jsdelivr.net';
 // npm package with an exact version: /npm/three@0.183.0/...
 const CDN_PINNED = /^\/npm\/(@[^/]+\/)?[^/@]+@\d+\.\d+\.\d+\//;
@@ -152,16 +155,46 @@ async function SW_Immutable( request ) {
 
 }
 
+// Slow (not failed) network: after this long, a cached copy is served and
+// the fetch finishes in the background to refresh the cache. On a link that
+// hangs rather than fails, waiting for the browser's own timeout would hold
+// up every module. A load that crosses a deploy at that moment can mix
+// versions; the next launch is consistent again.
+let networkTimeoutMs = 5000;
+
 async function SW_Network( request ) {
 
 	const cache = await caches.open( CACHE_NAME );
 	const key = cacheKey( request );
 
-	try {
+	const network = fetch( request ).then( async ( response ) => {
 
-		const response = await fetch( request );
 		await putIfOk( cache, key, response.clone() );
 		return response;
+
+	} );
+
+	let timer;
+	const timeout = new Promise( ( resolve ) => {
+
+		timer = setTimeout( () => resolve( null ), networkTimeoutMs );
+
+	} );
+
+	try {
+
+		const first = await Promise.race( [ network, timeout ] );
+		if ( first !== null ) return first;
+
+		const cached = await cache.match( key );
+		if ( cached !== undefined ) {
+
+			network.catch( () => {} );
+			return cached;
+
+		}
+
+		return await network;
 
 	} catch {
 
@@ -175,6 +208,10 @@ async function SW_Network( request ) {
 		}
 
 		return offlineResponse();
+
+	} finally {
+
+		clearTimeout( timer );
 
 	}
 
@@ -222,6 +259,8 @@ async function SW_CacheURLs( urls ) {
 
 		const route = SW_Route( request );
 		if ( route !== 'network' && route !== 'immutable' ) continue;
+		// music the page streamed: media is read with Range and isn't cached
+		if ( MEDIA_EXT.test( new URL( request.url ).pathname ) ) continue;
 		if ( await cache.match( request.url ) !== undefined ) continue;
 
 		try {
@@ -301,3 +340,8 @@ self.addEventListener( 'message', ( event ) => {
 // For tests (tests/sw_test.js)
 self.SW_Route = SW_Route;
 self.SW_CACHE_NAME = CACHE_NAME;
+self.SW_SetNetworkTimeout = ( ms ) => {
+
+	networkTimeoutMs = ms;
+
+};

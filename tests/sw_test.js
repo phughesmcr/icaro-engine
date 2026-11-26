@@ -83,9 +83,24 @@ function makeNet( files ) {
 		const request = typeof input === 'string' ? new Request( input ) : input;
 		net.requests.push( { url: request.url, range: request.headers.get( 'range' ) } );
 		if ( ! net.online ) return Promise.reject( new TypeError( 'Failed to fetch' ) );
+		if ( net.hang ) return new Promise( ( resolve ) => net.waiting.push( () => resolve( net.answer( request ) ) ) );
+		return Promise.resolve( net.answer( request ) );
+
+	};
+	// hang: fetches wait until release() answers them
+	net.hang = false;
+	net.waiting = [];
+	net.release = () => {
+
+		net.hang = false;
+		for ( const go of net.waiting.splice( 0 ) ) go();
+
+	};
+	net.answer = ( request ) => {
+
 		const path = new URL( request.url ).pathname;
-		if ( ! Object.hasOwn( files, path ) ) return Promise.resolve( new Response( 'missing', { status: 404 } ) );
-		return Promise.resolve( new Response( files[ path ], { status: 200, headers: { 'content-length': String( files[ path ].length ) } } ) );
+		if ( ! Object.hasOwn( files, path ) ) return new Response( 'missing', { status: 404 } );
+		return new Response( files[ path ], { status: 200, headers: { 'content-length': String( files[ path ].length ) } } );
 
 	};
 	return net;
@@ -103,7 +118,7 @@ function loadWorker( files ) {
 		addEventListener: ( type, fn ) => listeners.set( type, fn ),
 	};
 	const caches = new FakeCaches();
-	const net = makeNet( files );
+	const net = makeNet( { ...files } ); // tests change files; keep FILES as written
 	new Function( 'self', 'caches', 'fetch', SW_SOURCE )( self, caches, net.fetch );
 
 	const extendable = () => {
@@ -285,5 +300,60 @@ Deno.test( 'sw: activate drops older icaro caches only', async () => {
 	const names = await w.caches.keys();
 	if ( names.includes( 'icaro-v0' ) ) fail( 'old cache kept' );
 	if ( ! names.includes( 'someone-else' ) ) fail( 'foreign cache deleted' );
+
+} );
+
+Deno.test( 'sw: pinned CDN modules are cache first; errors are not cached', async () => {
+
+	const w = loadWorker( FILES );
+	const three = 'https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.module.js';
+	w.net.files[ '/npm/three@0.183.0/build/three.module.js' ] = 'three';
+
+	let r = await w.fetch( new Request( three ) );
+	if ( await r.text() !== 'three' ) fail( 'first CDN fetch' );
+	w.net.online = false;
+	r = await w.fetch( new Request( three ) );
+	if ( await r.text() !== 'three' ) fail( 'offline CDN fetch from cache' );
+
+	w.net.online = true;
+	const missing = 'https://cdn.jsdelivr.net/npm/three@0.183.0/build/nope.js';
+	r = await w.fetch( new Request( missing ) );
+	if ( r.status !== 404 ) fail( 'missing CDN file status' );
+	const cache = await w.caches.open( w.self.SW_CACHE_NAME );
+	if ( cache.entries.has( missing ) ) fail( 'CDN 404 was cached' );
+
+} );
+
+Deno.test( 'sw: a hanging network falls back to the cached copy after the timeout', async () => {
+
+	const w = loadWorker( FILES );
+	await w.fetch( new Request( SCOPE + 'src/host.js' ) ); // cached now
+	w.self.SW_SetNetworkTimeout( 20 );
+
+	w.net.hang = true;
+	const r = await w.fetch( new Request( SCOPE + 'src/host.js' ) );
+	if ( await r.text() !== 'host' ) fail( 'hanging fetch should serve the cached copy' );
+
+	// Nothing cached: keep waiting for the network
+	let settled = false;
+	const pending = w.fetch( new Request( SCOPE + 'src/late.js' ) ).then( ( resp ) => {
+
+		settled = true;
+		return resp;
+
+	} );
+	await new Promise( ( resolve ) => setTimeout( resolve, 60 ) );
+	if ( settled ) fail( 'an uncached module must wait for the network' );
+	w.net.release();
+	if ( await ( await pending ).text() !== 'late' ) fail( 'late module after release' );
+
+} );
+
+Deno.test( 'sw: cache-urls skips streamed music', async () => {
+
+	const w = loadWorker( { ...FILES, '/game/static/music/track02.ogg': 'ogg' } );
+	await w.lifecycle( 'message', { data: { type: 'cache-urls', urls: [ SCOPE + 'static/music/track02.ogg' ] } } );
+	const cache = await w.caches.open( w.self.SW_CACHE_NAME );
+	if ( cache.entries.size !== 0 ) fail( 'music was cached' );
 
 } );
