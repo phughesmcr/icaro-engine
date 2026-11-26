@@ -429,11 +429,11 @@ only), and sessions in progress without a PR (stuffcmd trust: `cl_main`,
 Re-check with `gh pr list` before starting a step.
 
 1. **Checker and ratchet.** Add `tools/layer_graph.js` (the measuring script,
-   with the layer table above and the browser-only files tagged) and a test that
-   fails when a new violating edge appears, with today's 107 layer pairs and 40
-   browser-module pairs as its baseline, and that reports pairs that disappeared
-   so each later step lowers the baseline. Add the script to AGENTS.md's
-   `tools/` list. Conflicts: AGENTS.md (#245).
+   with the assignment above as its layer table and the browser-only files
+   tagged) and a test that fails when a new violating edge appears, with today's
+   107 layer pairs and 40 browser-module pairs as its baseline, and that reports
+   pairs that disappeared so each later step lowers the baseline. Add the script
+   to AGENTS.md's `tools/` list. Conflicts: AGENTS.md (#245).
 2. **Delete dead duplicates.** The unimported copies in `glquake.js` and the
    empty `render.js` stubs. Conflicts: none of the open PRs touch those two
    files; land after #253 in case it adds an importer.
@@ -511,7 +511,7 @@ Re-check with `gh pr list` before starting a step.
     then game), each made by a codemod that rewrites import specifiers and the
     text references to `src/` files. Files outside `src/` that name a file in
     `src/` (measured with `rg -l 'src/[a-z_0-9]+\.(js|ts)'`): `main.js`, the
-    `server/` entries, drivers, `turnstile.js` and `README.md`, every
+    `server/` entries, drivers, `turnstile.js` and `server/README.md`, every
     `tools/bench/` file, `tools/room_bench.js`, `tools/room_memory_probe.js`,
     `tools/nav/nav_build.js`, `tools/gym/icaro_env.py`,
     `tools/port_inventory.py`, `cloudflare/client/build.js`, its
@@ -525,12 +525,12 @@ Re-check with `gh pr list` before starting a step.
     but paths, so git's rename detection carries open PRs across: they merge
     `dev` and only import lines conflict. The codemod stays in `tools/` so an
     open PR can run it on its own new imports, as the style tiers' catch-up
-    recipe does. Paths that name the directory and not a file keep working: the
-    Dockerfile's `COPY src/`, `.dockerignore`'s `!src/`, `CLIENT_DIRS` in
-    `cloudflare/client/build.js`, the lint include in `deno.json`, `sw.js`. New
-    files created by steps 3–12 go straight into their final directory, so this
-    step only moves files that existed before. Conflicts: every open PR that
-    touches `src/`; pick a quiet moment.
+    recipe does. Paths that name the directory and not a file keep working:
+    `server/Dockerfile`'s `COPY src/ src/`, `.dockerignore`'s `!src/`,
+    `CLIENT_DIRS` in `cloudflare/client/build.js`, the lint include in
+    `deno.json`, `sw.js`. New files created by steps 3–12 go straight into their
+    final directory, so this step only moves files that existed before.
+    Conflicts: every open PR that touches `src/`; pick a quiet moment.
 15. **TypeScript**: `@ts-check` and typedefs, core leaves first.
 16. **Retire the shim** once the headless host and tests no longer need it (open
     question 5). Updates AGENTS.md's note on `server/browser_shim.js` and the
