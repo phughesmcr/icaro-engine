@@ -569,6 +569,17 @@ Deno.test("sw: a page claimed mid-load is network first until reloaded", async (
   await expectResponse(await again.fetch(range(), "first-visit"), 206, "0123");
 });
 
+Deno.test("sw: with a saved list, an uncontrolled page is noted before claim", async () => {
+  // e.g. registered again after ?sw=off, which leaves the caches
+  const w = loadWorker(MUSIC_FILES);
+  await w.lifecycle("activate"); // saves an empty list
+  w.windows.open = ["returned"];
+  await w.lifecycle("activate");
+  const spy = spyNetwork(w);
+  const got = await w.fetch(trackRequest("bytes=0-3"), "returned");
+  if (got !== spy.last) fail("not the network's own response");
+});
+
 Deno.test("sw: replacing a worker with no list claims the pages it controlled", async () => {
   const w = loadWorker(MUSIC_FILES);
   w.windows.open = ["old-worker-page"];
