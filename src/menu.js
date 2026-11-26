@@ -2291,13 +2291,31 @@ const touchItems = [
     max: 3,
     step: 0.25,
   },
-  { label: "           Gyro Aiming", cvar: "touch_gyro" },
+  {
+    label: "           Gyro Aiming",
+    cvar: "touch_gyro",
+    names: ["off", "always", "touching", "firing"],
+  },
   {
     label: "            Gyro Speed",
     cvar: "touch_gyro_sensitivity",
     min: 0.25,
     max: 3,
     step: 0.25,
+  },
+  {
+    label: "        Gyro Dead Zone",
+    cvar: "touch_gyro_deadzone",
+    min: 0,
+    max: 5,
+    step: 0.5,
+  },
+  {
+    label: "        Gyro Smoothing",
+    cvar: "touch_gyro_smooth",
+    min: 0,
+    max: 0.1,
+    step: 0.02,
   },
   {
     label: "           Invert Look",
@@ -2355,6 +2373,11 @@ function M_TouchItem_Adjust(item, dir) {
     M_TouchItem_SetFraction(item, (v - item.min) / (item.max - item.min));
   } else if (item.set) {
     item.set();
+  } else if (item.names !== undefined) {
+    // a choice: step through the names, wrapping
+    const n = item.names.length;
+    const v = Math.trunc(Cvar_VariableValue(item.cvar));
+    Cvar_SetValue(item.cvar, (((v + dir) % n) + n) % n);
   } else {
     Cvar_SetValue(item.cvar, Cvar_VariableValue(item.cvar) ? 0 : 1);
   }
@@ -2376,6 +2399,9 @@ function M_Touch_Draw() {
 
     if (M_TouchItem_IsSlider(item)) {
       M_DrawSlider(220, y, M_TouchItem_Fraction(item));
+    } else if (item.names !== undefined) {
+      const v = Math.trunc(Cvar_VariableValue(item.cvar));
+      M_Print(220, y, item.names[v] !== undefined ? item.names[v] : String(v));
     } else {
       M_DrawCheckbox(
         220,

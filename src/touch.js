@@ -44,12 +44,19 @@ import { Con_SetNotifyTop } from "./console.js";
 // CVARS (archived, set from the Touch Controls menu)
 
 export const touch_sensitivity = new cvar_t("touch_sensitivity", "1", true); // drag look speed
-export const touch_gyro = new cvar_t("touch_gyro", "0", true); // gyro aiming on/off
+// gyro aiming: 0 off, 1 always, 2 while a finger is aiming (the look area or a
+// hold button, so lifting it ratchets the view), 3 while FIRE is held
+export const touch_gyro = new cvar_t("touch_gyro", "0", true);
 export const touch_gyro_sensitivity = new cvar_t(
   "touch_gyro_sensitivity",
   "1",
   true,
 ); // 1 = real-world degrees
+// Degrees per second below which gyro input is scaled down (tightened) towards
+// zero, so hand tremor and sensor drift don't move the view; 0 = off
+export const touch_gyro_deadzone = new cvar_t("touch_gyro_deadzone", "0", true);
+// Gyro smoothing time constant in seconds; 0 = off
+export const touch_gyro_smooth = new cvar_t("touch_gyro_smooth", "0", true);
 export const touch_size = new cvar_t("touch_size", "1", true); // button scale
 export const touch_opacity = new cvar_t("touch_opacity", "0.6", true);
 export const touch_lefthanded = new cvar_t("touch_lefthanded", "0", true); // mirror the layout
@@ -59,6 +66,8 @@ export function Touch_RegisterCvars() {
   Cvar_RegisterVariable(touch_sensitivity);
   Cvar_RegisterVariable(touch_gyro);
   Cvar_RegisterVariable(touch_gyro_sensitivity);
+  Cvar_RegisterVariable(touch_gyro_deadzone);
+  Cvar_RegisterVariable(touch_gyro_smooth);
   Cvar_RegisterVariable(touch_size);
   Cvar_RegisterVariable(touch_opacity);
   Cvar_RegisterVariable(touch_lefthanded);
@@ -121,6 +130,7 @@ const _lookDelta = { yaw: 0, pitch: 0 };
 let gyroListening = false;
 let gyroPermission = "unknown"; // 'unknown' | 'pending' | 'granted' | 'denied'
 let gyroLastTime = -1;
+const gyroFilter = { x: 0, y: 0, outX: 0, outY: 0 }; // Gyro_Filter state
 
 // Layout inputs last applied (re-laid out when a cvar changes)
 let layoutKey = "";
@@ -1436,7 +1446,12 @@ function onDeviceMotion(e) {
 
   // Skip the first event after a pause instead of integrating the gap
   const dt = (t - last) / 1000;
-  if (dt <= 0 || dt > 0.25) return;
+  if (dt > 0.25) {
+    gyroFilter.x = 0; // and start smoothing afresh
+    gyroFilter.y = 0;
+    return;
+  }
+  if (dt <= 0) return;
 
   const angle = Gyro_ScreenAngle() * Math.PI / 180;
   const c = Math.cos(angle);
@@ -1447,9 +1462,75 @@ function onDeviceMotion(e) {
   const wy = r.beta * s + r.gamma * c;
   const wz = r.alpha;
 
+  if (
+    !Gyro_ModeActive(
+      touch_gyro.value,
+      Touch_Aiming(),
+      fireButton.touches.size > 0,
+    )
+  ) {
+    gyroFilter.x = 0;
+    gyroFilter.y = 0;
+    return;
+  }
+
+  Gyro_Filter(
+    gyroFilter,
+    wy + wz,
+    wx,
+    dt,
+    touch_gyro_deadzone.value,
+    touch_gyro_smooth.value,
+  );
   const k = touch_gyro_sensitivity.value * dt;
-  lookYaw += (wy + wz) * k; // counter-clockwise from above = turn left
-  lookPitch -= wx * k; // top edge towards the viewer (camera tilts up) = look up
+  lookYaw += gyroFilter.outX * k; // counter-clockwise from above = turn left
+  lookPitch -= gyroFilter.outY * k; // top edge towards the viewer (camera tilts up) = look up
+}
+
+/** A finger is aiming: on the look area or on a hold button (they aim too). */
+function Touch_Aiming() {
+  if (lookTouch !== null) return true;
+  for (const b of holdButtons) {
+    if (b.touches.size > 0) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether touch_gyro's mode turns the view now: 1 always, 2 while a finger is
+ * aiming, 3 while FIRE is held.
+ */
+export function Gyro_ModeActive(mode, aiming, firing) {
+  if (mode === 1) return true;
+  if (mode === 2) return aiming;
+  if (mode === 3) return firing;
+  return false;
+}
+
+/**
+ * Smooths and tightens one gyro sample (degrees per second, yaw and pitch
+ * rates) into f.outX / f.outY. Smoothing is an exponential moving average
+ * with time constant smooth (seconds). Below deadzone degrees per second the
+ * rate is scaled by speed / deadzone (JoyShockMapper's "tightening"), so slow
+ * drift fades out without a jump at the edge.
+ */
+export function Gyro_Filter(f, yaw, pitch, dt, deadzone, smooth) {
+  if (smooth > 0) {
+    const a = 1 - Math.exp(-dt / smooth);
+    f.x += (yaw - f.x) * a;
+    f.y += (pitch - f.y) * a;
+  } else {
+    f.x = yaw;
+    f.y = pitch;
+  }
+
+  let k = 1;
+  if (deadzone > 0) {
+    const speed = Math.hypot(f.x, f.y);
+    if (speed < deadzone) k = speed / deadzone;
+  }
+  f.outX = f.x * k;
+  f.outY = f.y * k;
 }
 
 function Gyro_ScreenAngle() {
@@ -1526,6 +1607,8 @@ function Gyro_Start() {
   if (gyroListening) return;
   gyroListening = true;
   gyroLastTime = -1;
+  gyroFilter.x = 0;
+  gyroFilter.y = 0;
   window.addEventListener("devicemotion", onDeviceMotion);
 }
 
