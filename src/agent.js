@@ -1995,11 +1995,42 @@ function Agent_MapOpen(a, b) {
  * level is loaded.
  */
 export function Agent_Map(size = MAP_DEFAULT_SIZE, truth = true) {
-  if (Agent_Ready() === false) return null;
+  const n = Agent_MapFill(size, truth);
+  if (n === 0) return null;
+  const centre = (n * n - 1) / 2;
+  const rows = [];
+  for (let r = 0; r < n; r++) {
+    let s = "";
+    for (let c = 0; c < n; c++) {
+      const i = r * n + c;
+      if (i === centre) s += "^";
+      else if ((map_state[i] & MAP_REACHED) === 0) s += " ";
+      else s += String.fromCharCode(map_glyph[i]);
+    }
+    rows.push(s.trimEnd());
+  }
+  return {
+    size: n,
+    cell: MAP_CELL,
+    yaw: Agent_AngleMod(Math.round(cl.viewangles[YAW])),
+    x: Math.round(map_me[0]),
+    y: Math.round(map_me[1]),
+    z: Math.round(map_me[2]),
+    rows,
+  };
+}
+
+/**
+ * Agent_Map's cells without the strings (the rl tier reads them): fills
+ * map_state and map_glyph for an n x n grid and returns n, or 0 before a
+ * level is loaded. A cell is drawn if MAP_REACHED is set in map_state.
+ */
+function Agent_MapFill(size, truth) {
+  if (Agent_Ready() === false) return 0;
   const me = cl_entities[cl.viewentity];
   const world = cl.worldmodel;
-  if (me === undefined || me === null || world === null) return null;
-  if (world.hulls === undefined) return null;
+  if (me === undefined || me === null || world === null) return 0;
+  if (world.hulls === undefined) return 0;
   let n = Number.isFinite(size) ? Math.floor(size) : MAP_DEFAULT_SIZE;
   n = Math.max(5, Math.min(MAP_MAX_SIZE, n));
   if ((n & 1) === 0) n++;
@@ -2181,27 +2212,7 @@ export function Agent_Map(size = MAP_DEFAULT_SIZE, truth = true) {
     if (map_glyph[i] === 77 || map_glyph[i] === 80) continue;
     map_glyph[i] = glyph;
   }
-
-  const rows = [];
-  for (let r = 0; r < n; r++) {
-    let s = "";
-    for (let c = 0; c < n; c++) {
-      const i = r * n + c;
-      if (i === centre) s += "^";
-      else if ((map_state[i] & MAP_REACHED) === 0) s += " ";
-      else s += String.fromCharCode(map_glyph[i]);
-    }
-    rows.push(s.trimEnd());
-  }
-  return {
-    size: n,
-    cell: MAP_CELL,
-    yaw: Agent_AngleMod(Math.round(yaw)),
-    x: Math.round(map_me[0]),
-    y: Math.round(map_me[1]),
-    z: Math.round(map_me[2]),
-    rows,
-  };
+  return n;
 }
 
 // The map as text: a header, then the rows with the blank rows above and
@@ -2755,9 +2766,9 @@ function Agent_RLFill(l) {
   }
 
   if (l.map > 0) {
-    const m = Agent_Map(l.map, l.truth);
-    if (m !== null) {
-      const n = l.map, centre = (n * n - 1) / 2;
+    const n = Agent_MapFill(l.map, l.truth);
+    if (n !== 0) {
+      const centre = (n * n - 1) / 2;
       for (let i = 0; i < n * n; i++) {
         o[p + i] = i === centre ?
           RL_MAP_GLYPHS.length - 1 :
@@ -2846,6 +2857,8 @@ async function Agent_RLStepNow(action, tics, opts) {
   let health = cl.stats[STAT_HEALTH];
   let kills = cl.stats[STAT_MONSTERS];
   let secrets = cl.stats[STAT_SECRETS];
+  // The level's end pays once: stepping on in intermission doesn't
+  const intermission = cl.intermission;
   let reward = 0;
   let why = "";
   let n = 0;
@@ -2859,7 +2872,7 @@ async function Agent_RLStepNow(action, tics, opts) {
       if (Agent_Loading()) await Agent_Settle();
       if (Agent_MapName() !== map) {
         why = "level changed";
-        reward += weight("exit");
+        if (intermission === 0) reward += weight("exit");
       } else why = "level restarted";
       break;
     }
@@ -2876,7 +2889,7 @@ async function Agent_RLStepNow(action, tics, opts) {
       why = "died";
     }
     health = st[STAT_HEALTH];
-    if (why === "" && cl.intermission !== 0) {
+    if (why === "" && cl.intermission !== 0 && intermission === 0) {
       reward += weight("exit");
       why = "level done";
     }

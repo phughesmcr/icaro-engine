@@ -19,6 +19,9 @@ import {
   RL_REWARD,
 } from "../src/agent.js";
 import { Cbuf_AddText } from "../src/cmd.js";
+import { EDICT_NUM, PR_GetString } from "../src/progs.js";
+import { sv } from "../src/server.js";
+import { SV_LinkEdict } from "../src/world.js";
 
 function assert(cond, message) {
   if (cond !== true) {
@@ -339,6 +342,48 @@ Deno.test({
 
     const w = await Agent_RLStep(NOOP, 2, { reward: { tic: -0.5 } });
     assert(w.reward === -1 && w.why === "", "tic weight: " + w.reward);
+  },
+});
+
+Deno.test({
+  name: "agent rl: the level's end is rewarded once, through intermission",
+  ...ENGINE_TEST,
+  fn: async () => {
+    await call("start", { map: "e1m1", skill: 1, seed: 1 });
+    await call("cmd", { text: "god" });
+    // Put the player in the exit's trigger (the server's copy)
+    let exit = null;
+    for (let e = 1; e < sv.num_edicts && exit === null; e++) {
+      const ed = EDICT_NUM(e);
+      if (
+        ed.free !== true &&
+        PR_GetString(ed.v.classname) === "trigger_changelevel"
+      ) {
+        exit = ed;
+      }
+    }
+    assert(exit !== null, "no trigger_changelevel on e1m1");
+    const player = EDICT_NUM(1);
+    for (let k = 0; k < 3; k++) {
+      player.v.origin[k] = (exit.v.absmin[k] + exit.v.absmax[k]) / 2;
+    }
+    SV_LinkEdict(player, true);
+
+    const reward = { exit: 3, tic: 0 };
+    let d = null;
+    for (let i = 0; i < 20 && (d === null || !d.terminated); i++) {
+      d = await Agent_RLStep(NOOP, 4, { reward });
+    }
+    assert(d.why === "level done", "the exit: " + d.why);
+    assert(d.reward === 3, "exit weight " + d.reward);
+    assert(d.obs[26] === 1, "intermission flag " + d.obs[26]);
+
+    // Stepping on in intermission, and leaving it, isn't paid again
+    const on = await Agent_RLStep(NOOP, 72 * 5, { reward });
+    assert(on.why === "" && on.reward === 0, "in intermission: " + on.reward);
+    const next = await Agent_RLStep([0, 0, 5, 2, 1, 0, 0, 0], 72, { reward });
+    assert(next.why === "level changed", "after intermission: " + next.why);
+    assert(next.reward === 0, "paid twice: " + next.reward);
   },
 });
 
