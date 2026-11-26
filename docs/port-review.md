@@ -1,36 +1,55 @@
 # Port fidelity review: Icaro Engine vs WinQuake / GLQuake
 
-Review of the JavaScript engine in `src/` against id Software's original C source, looking for places where the port **behaves** differently from the original (gameplay, rendering, sound, correctness).
+Review of the JavaScript engine in `src/` against id Software's original C
+source, looking for places where the port **behaves** differently from the
+original (gameplay, rendering, sound, correctness).
 
-| | |
-|---|---|
-| Date | 2026-11-23 |
-| Port revision | `dfef74a` (branch `dev`) |
+|                  |                                                                                                                                     |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Date             | 2026-11-23                                                                                                                          |
+| Port revision    | `dfef74a` (branch `dev`)                                                                                                            |
 | Reference source | [id-Software/Quake](https://github.com/id-Software/Quake) `bf4ac42` — `WinQuake/` (WinQuake + GLQuake `gl_*.c`), `QW/` (QuakeWorld) |
-| Renderer | Three.js r183 |
-| Test baseline | `deno test --allow-read --allow-net --allow-env tests/` → 36 passed, 0 failed |
+| Renderer         | Three.js r183                                                                                                                       |
+| Test baseline    | `deno test --allow-read --allow-net --allow-env tests/` → 36 passed, 0 failed                                                       |
 
 ## Method
 
-1. A script inventoried every C function, cvar and console command in the reference and checked for a same-named counterpart in `src/`.
-2. Reviewers, one per subsystem, compared the port function by function against the matching C file. They looked for integer truncation, signedness, float32 vs double, falsy-zero checks, aliasing, dropped branches and wrong constants.
-3. The model loaders were also checked empirically. A Deno script loaded every map, model and sprite in the shareware `pak0.pak` through the port and compared the results against C-equivalent computations.
-4. The lead reviewer opened both sides for every finding ranked medium or higher before including it.
+1. A script inventoried every C function, cvar and console command in the
+   reference and checked for a same-named counterpart in `src/`.
+2. Reviewers, one per subsystem, compared the port function by function against
+   the matching C file. They looked for integer truncation, signedness, float32
+   vs double, falsy-zero checks, aliasing, dropped branches and wrong constants.
+3. The model loaders were also checked empirically. A Deno script loaded every
+   map, model and sprite in the shareware `pak0.pak` through the port and
+   compared the results against C-equivalent computations.
+4. The lead reviewer opened both sides for every finding ranked medium or higher
+   before including it.
 
 Nothing was played in a browser. Severity is judged from the code.
 
 **Status legend**
 
-- **Verified**: the lead reviewer read both the JS and the C and confirmed the difference.
-- **Reported**: a subsystem reviewer read both sides; not independently re-checked.
+- **Verified**: the lead reviewer read both the JS and the C and confirmed the
+  difference.
+- **Reported**: a subsystem reviewer read both sides; not independently
+  re-checked.
 
-Line numbers refer to `dfef74a`. C references use function names, which are stable across copies of the source.
+Line numbers refer to `dfef74a`. C references use function names, which are
+stable across copies of the source.
 
 ## Fix status
 
-Every finding, and every residual the first round of fixes left, is fixed in `dev`: PRs #2 to #13 below are all merged. Two items are handled by documentation instead: the lobby's own permissions (#4) and two registered-content checks (section 7). Each PR's description has a per-item table.
+Every finding, and every residual the first round of fixes left, is fixed in
+`dev`: PRs #2 to #13 below are all merged. Two items are handled by
+documentation instead: the lobby's own permissions (#4) and two
+registered-content checks (section 7). Each PR's description has a per-item
+table.
 
-The test counts in the table were taken on each PR's own branch with `deno test --allow-read --allow-net --allow-env tests/`, before the PRs were merged. The sections below this one still describe the port as it was at `dfef74a`, including their line numbers. The exceptions are notes that cite a later PR, such as rows marked "fixed after this review".
+The test counts in the table were taken on each PR's own branch with
+`deno test --allow-read --allow-net --allow-env tests/`, before the PRs were
+merged. The sections below this one still describe the port as it was at
+`dfef74a`, including their line numbers. The exceptions are notes that cite a
+later PR, such as rows marked "fixed after this review".
 
 [#1]: https://github.com/phughesmcr/icaro-engine/pull/1
 [#2]: https://github.com/phughesmcr/icaro-engine/pull/2
@@ -46,24 +65,28 @@ The test counts in the table were taken on each PR's own branch with `deno test 
 [#12]: https://github.com/phughesmcr/icaro-engine/pull/12
 [#13]: https://github.com/phughesmcr/icaro-engine/pull/13
 
-| Findings | PR | Status |
-|---|---|---|
-| SP-7, MP-3, C-8 to C-14, C-20 to C-22 | [#2] | Fixed (55 tests pass) |
-| SP-1, SP-5, SP-6, SP-9, MP-1, MP-5 (server items), MOD-1 to MOD-4, C-19 | [#3] | Fixed (47 pass) |
-| SRV-1 to SRV-5 | [#4] | Fixed; the lobby's own permissions are documented rather than enforced (47 pass; 1 more test needs `--allow-run --allow-write`) |
-| SP-2, SP-3, SP-4, SP-8, MP-4, MP-5 (client half), MOD-5, C-1 to C-4, C-6, C-7, C-15 to C-18, IN-3 (view comfort) | [#5] | Fixed (41 pass) |
-| C-5 (mirrors) | [#11] | Fixed (48 pass); skipped in WebXR. The reflection pass has since run on a GPU on `start` |
-| PRED-1, PRED-3, PRED-4, PRED-5, IN-3 (movement angles) | [#6] | Fixed (50 pass); residuals fixed in #13 |
-| IN-1, IN-2, IN-3 (rest), IN-4, IN-5 | [#7] | Fixed (48 pass); residuals fixed in #12 |
-| NET-1 to NET-5, PRED-2 | [#8] | Fixed (59 pass); residuals fixed in #13 |
-| `WT_*` no-op stubs, `WT_Listen` failure, server README | [#9] | Fixed (71 pass) |
-| MP-2, MP-5 (`U_NOLERP`), solid monsters for prediction (`PE_SOLID`), movevars 11–12, player movetype, `COM_CheckRegistered`, menu episodes | [#10] | Fixed (76 pass) |
-| Input residuals: Ctrl/Alt chords, Keyboard Lock, `xr_turnspeed`, touch and XR tests; numpad keeps the WinQuake mapping, now tested | [#12] | Fixed (77 pass) |
-| Netcode residuals: teleport lock and `punchangle` prediction, `hasAck`, `delta_sequence` age check, entity starvation, moves as datagrams, lobby join reply | [#13] | Fixed (120 pass) |
+| Findings                                                                                                                                                    | PR    | Status                                                                                                                          |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------- |
+| SP-7, MP-3, C-8 to C-14, C-20 to C-22                                                                                                                       | [#2]  | Fixed (55 tests pass)                                                                                                           |
+| SP-1, SP-5, SP-6, SP-9, MP-1, MP-5 (server items), MOD-1 to MOD-4, C-19                                                                                     | [#3]  | Fixed (47 pass)                                                                                                                 |
+| SRV-1 to SRV-5                                                                                                                                              | [#4]  | Fixed; the lobby's own permissions are documented rather than enforced (47 pass; 1 more test needs `--allow-run --allow-write`) |
+| SP-2, SP-3, SP-4, SP-8, MP-4, MP-5 (client half), MOD-5, C-1 to C-4, C-6, C-7, C-15 to C-18, IN-3 (view comfort)                                            | [#5]  | Fixed (41 pass)                                                                                                                 |
+| C-5 (mirrors)                                                                                                                                               | [#11] | Fixed (48 pass); skipped in WebXR. The reflection pass has since run on a GPU on `start`                                        |
+| PRED-1, PRED-3, PRED-4, PRED-5, IN-3 (movement angles)                                                                                                      | [#6]  | Fixed (50 pass); residuals fixed in #13                                                                                         |
+| IN-1, IN-2, IN-3 (rest), IN-4, IN-5                                                                                                                         | [#7]  | Fixed (48 pass); residuals fixed in #12                                                                                         |
+| NET-1 to NET-5, PRED-2                                                                                                                                      | [#8]  | Fixed (59 pass); residuals fixed in #13                                                                                         |
+| `WT_*` no-op stubs, `WT_Listen` failure, server README                                                                                                      | [#9]  | Fixed (71 pass)                                                                                                                 |
+| MP-2, MP-5 (`U_NOLERP`), solid monsters for prediction (`PE_SOLID`), movevars 11–12, player movetype, `COM_CheckRegistered`, menu episodes                  | [#10] | Fixed (76 pass)                                                                                                                 |
+| Input residuals: Ctrl/Alt chords, Keyboard Lock, `xr_turnspeed`, touch and XR tests; numpad keeps the WinQuake mapping, now tested                          | [#12] | Fixed (77 pass)                                                                                                                 |
+| Netcode residuals: teleport lock and `punchangle` prediction, `hasAck`, `delta_sequence` age check, entity starvation, moves as datagrams, lobby join reply | [#13] | Fixed (120 pass)                                                                                                                |
 
-**Wire format:** #10 changed the packet-entity format without bumping `PROTOCOL_VERSION`, which had to stay 15 for the shipped demos, and #13 added a flag and a byte to `svc_playerinfo`. Later PRs changed it again, at version 15 until #140 gave the server its own version (the last item):
+**Wire format:** #10 changed the packet-entity format without bumping
+`PROTOCOL_VERSION`, which had to stay 15 for the shipped demos, and #13 added a
+flag and a byte to `svc_playerinfo`. Later PRs changed it again, at version 15
+until #140 gave the server its own version (the last item):
 
-- #42 sends `clc_move` view angles as 16-bit angles, as the FitzQuake protocol does.
+- #42 sends `clc_move` view angles as 16-bit angles, as the FitzQuake protocol
+  does.
 - #93 adds `sv_altnoclip` to the movevars the server sends for prediction.
 - #106 adds `svc_localsound` (56) from Ironwail and the 2021 rerelease.
 - #112 has the client read and ignore the rerelease's `svc_achievement` (52).
@@ -71,122 +94,287 @@ The test counts in the table were taken on each PR's own branch with `deno test 
   `PROTOCOL_ICARO` (1015, `src/protocol.js`), for the 2021 rerelease limits
   (`MAX_EDICTS` 32000, `MAX_MODELS` 4096, `MAX_SOUNDS` 2048), rather than
   Ironwail's 666 or 999 formats. Under it, coordinates are int32 eighths of a
-  unit; models are shorts in baselines, `svc_spawnstatic`, `svc_clientdata`
-  and `svc_playerinfo`; `svc_spawnstaticsound` sends a short; baselines and
-  statics send the frame as a short (Ironwail's `B_LARGEFRAME`) and end
-  with an alpha byte; and packet entities carry 15-bit entity numbers, a
-  short model, an alpha byte (`PE_ALPHA`) and the frame's high byte
-  (`PE_FRAME2`, Ironwail's `U_FRAME2`). `svc_clientdata` sends Ironwail's
-  `SU_EXTEND1` and `SU_EXTEND2` bytes with `SU_WEAPONFRAME2` and
-  `SU_WEAPONALPHA` only (the weapon model is already a short, and armor
-  and ammo stay bytes). `svc_playerinfo`, which Ironwail doesn't have,
-  sends the frame and weaponframe as shorts and the player's alpha with
-  `PF_ALPHA`. `svc_sound` and `svc_localsound` use Ironwail's
-  `SND_LARGEENTITY` and `SND_LARGESOUND` flags. The client still accepts
-  protocol 15 and reads it in the NetQuake form, so the attract demos play;
-  demos recorded by Icaro before this change (15 with packet entities) no
-  longer do. Ironwail's `max_edicts` cvar (default 16384, clamped to
-  256..32000) caps the server's edicts at map spawn; the edict arrays still
-  grow on demand up to it. Brush and alias models, the player and the view
-  model draw alpha (`src/gl_entalpha.js`); sprites ignore it except
-  `ENTALPHA_ZERO`, as in Ironwail. Deviations from Ironwail: `max_edicts`
-  is registered in `SV_Init` and has no "will not take effect until the
-  next map" callback, the view model and player alpha are read in the
-  same frame rather than from the previous frame's entity pass, and a map
-  with more submodels than `MAX_MODELS` stops with a `Host_Error` in
-  `SV_SpawnServer`. #145 added the frame shorts and `PE_FRAME2`, the
-  `SU_EXTEND` bytes, `PF_ALPHA`, `max_edicts` and alpha on everything but
-  brush models; #140 had the rest.
+  unit; models are shorts in baselines, `svc_spawnstatic`, `svc_clientdata` and
+  `svc_playerinfo`; `svc_spawnstaticsound` sends a short; baselines and statics
+  send the frame as a short (Ironwail's `B_LARGEFRAME`) and end with an alpha
+  byte; and packet entities carry 15-bit entity numbers, a short model, an alpha
+  byte (`PE_ALPHA`) and the frame's high byte (`PE_FRAME2`, Ironwail's
+  `U_FRAME2`). `svc_clientdata` sends Ironwail's `SU_EXTEND1` and `SU_EXTEND2`
+  bytes with `SU_WEAPONFRAME2` and `SU_WEAPONALPHA` only (the weapon model is
+  already a short, and armor and ammo stay bytes). `svc_playerinfo`, which
+  Ironwail doesn't have, sends the frame and weaponframe as shorts and the
+  player's alpha with `PF_ALPHA`. `svc_sound` and `svc_localsound` use
+  Ironwail's `SND_LARGEENTITY` and `SND_LARGESOUND` flags. The client still
+  accepts protocol 15 and reads it in the NetQuake form, so the attract demos
+  play; demos recorded by Icaro before this change (15 with packet entities) no
+  longer do. Ironwail's `max_edicts` cvar (default 16384, clamped to 256..32000)
+  caps the server's edicts at map spawn; the edict arrays still grow on demand
+  up to it. Brush and alias models, the player and the view model draw alpha
+  (`src/gl_entalpha.js`); sprites ignore it except `ENTALPHA_ZERO`, as in
+  Ironwail. Deviations from Ironwail: `max_edicts` is registered in `SV_Init`
+  and has no "will not take effect until the next map" callback, the view model
+  and player alpha are read in the same frame rather than from the previous
+  frame's entity pass, and a map with more submodels than `MAX_MODELS` stops
+  with a `Host_Error` in `SV_SpawnServer`. #145 added the frame shorts and
+  `PE_FRAME2`, the `SU_EXTEND` bytes, `PF_ALPHA`, `max_edicts` and alpha on
+  everything but brush models; #140 had the rest.
 
-Deploy the client and server together, and make sure clients don't keep a cached bundle from before these changes.
+Deploy the client and server together, and make sure clients don't keep a cached
+bundle from before these changes.
 
 ### Since the review
 
 Later PRs went beyond the findings above. PRs up to #33:
 
-- **Fidelity:** registered `pak1.pak` loading (#15), the lava rendering fix (#16), `timerefresh` (#23, #29), the sbar pickup flash (#24), geometric QuakeC string-table growth (#25), mission-pack support for `-rogue` and `-hipnotic` (#27), the GL cvars `gl_picmip`, `gl_max_size`, `gl_playermip`, `gl_cull` and `gl_finish` (#31), GLQuake brightness at gamma 1 and `-gamma` (#32), and `pointfile` plus sound blocking on focus loss (#33). `envmap` is deliberately not ported (#33).
-- **Tooling:** `deno task lint` reports no problems (#22, #30), and GitHub Actions CI runs the tests, lint and type checks on every PR and on pushes to `dev` and `main` (#30).
+- **Fidelity:** registered `pak1.pak` loading (#15), the lava rendering fix
+  (#16), `timerefresh` (#23, #29), the sbar pickup flash (#24), geometric QuakeC
+  string-table growth (#25), mission-pack support for `-rogue` and `-hipnotic`
+  (#27), the GL cvars `gl_picmip`, `gl_max_size`, `gl_playermip`, `gl_cull` and
+  `gl_finish` (#31), GLQuake brightness at gamma 1 and `-gamma` (#32), and
+  `pointfile` plus sound blocking on focus loss (#33). `envmap` is deliberately
+  not ported (#33).
+- **Tooling:** `deno task lint` reports no problems (#22, #30), and GitHub
+  Actions CI runs the tests, lint and type checks on every PR and on pushes to
+  `dev` and `main` (#30).
 
 PRs #34 to #114:
 
-- **Back to id's C:** the sbar `flashon` reset (#37), mirrors blended in gamma space and drawing the player (#38, #39), Help screens, Game Options frag and time limits, missing host commands and `host_speeds` (#58), underwater surface warp and the `gl_texturemode` command (#59), the sky texture size passed to `R_InitSky` (#98), and `ED_ParseGlobals`' return value (#103). #58 and #59 close the inventory's G1 to G4.
-- **Taken from QuakeSpasm and Ironwail:** these C source ports fix id bugs and add features, so this group departs from WinQuake on purpose (see section 7).
-  - Bug fixes: the QuakeC VM and builtins (#44, #61), server PVS, touch links and pushers (#45), BSP loading (#46), client fixes (#47, #62), sound (#48), model and lighting fixes (#63, #64, #102), input and WAV loading (#65), command, parse and savegame fixes (#68), coordinate and angle rounding (#42, #69), and static sounds combined per sfx (#92).
-  - Raised limits: maps and models (#46), client limits (#47), sound channels (#48), `MAX_DLIGHTS` 64 (#51), `MAX_PARTICLES` 16384 (#72).
-  - Features: console line editing and tab completion (#53), `r_lerpmodels` and `r_lerpmove` (#54, both off by default), menu mouse support, HUD cvars and underwater screen warp (#55), `host_maxfps` (#56), `v_gunkick` (#66), `gl_farclip` (#67), `gl_cshiftpercent_*` (#70), `cl_maxpitch`/`cl_minpitch` (#71), the `cvar` and alias commands (#73), `con_logcenterprint` (#75), fullbright alias pixels (#76), the gamepad radial deadzone (#77), `host_timescale` (#78, #100, #101), cheat-command arguments (#79), QuakeC extension builtins (#80, #106), all five sprite orientations (#81), the solo scoreboard (#82), `MF_HOLEY` skins (#83), pausing demos (#85), `nomonsters` (#86, #104), `in_rawmouse` (#87), `scr_sbarscale`, `scr_conscale` and `scr_menuscale` (#88, #105, #107), `sv_freezenonclients` (#90), liquid alpha (#91), `sv_altnoclip` (#93), `gl_texture_anisotropy` (#94), `cl_gun_fovscale` (#95), signon buffers (#96), shader water and sky warp (#97), and the `localsound` builtin (#106).
-- **Rendering and memory:** changed lightmap rows uploaded alone (#49), lightmap blocks grown on demand (#51), no per-frame allocation in the mirror pass (#57), and dlight PointLights removed under `gl_flashblend 0` (#99).
-- **Web and platform:** dropping the connection while a missing map downloads (#41), render scale and a fullscreen fallback for TV browsers (#43), browser Back as Escape (#52), yes/no prompts on gamepads and touch (#60), IPv6 and IPv4 listeners (#74), lazy Range-request loading of paks over 64 MB (#84), and an Advanced options menu (#109).
-- **2021 rerelease:** the rerelease layout with `?base=rerelease` and `-game` (#89), the `ex_CheckPlayerEXFlags` and `ex_walkpathtogoal` builtins (#111), `svc_achievement` (#112), the rerelease cvars with an embedded `default.cfg` (#113), and a deferred ctf `archive/` tree (#114). [`rerelease-gaps.md`](rerelease-gaps.md) (#110) lists what still blocks that content.
-- **Docs and tooling:** this fix status (#34), scoped test permissions and pinned CI tooling (#35), [`port-inventory.md`](port-inventory.md) (#36, #40, #108), and the README credits for Ironwail, QuakeSpasm and FitzQuake (#50).
+- **Back to id's C:** the sbar `flashon` reset (#37), mirrors blended in gamma
+  space and drawing the player (#38, #39), Help screens, Game Options frag and
+  time limits, missing host commands and `host_speeds` (#58), underwater surface
+  warp and the `gl_texturemode` command (#59), the sky texture size passed to
+  `R_InitSky` (#98), and `ED_ParseGlobals`' return value (#103). #58 and #59
+  close the inventory's G1 to G4.
+- **Taken from QuakeSpasm and Ironwail:** these C source ports fix id bugs and
+  add features, so this group departs from WinQuake on purpose (see section 7).
+  - Bug fixes: the QuakeC VM and builtins (#44, #61), server PVS, touch links
+    and pushers (#45), BSP loading (#46), client fixes (#47, #62), sound (#48),
+    model and lighting fixes (#63, #64, #102), input and WAV loading (#65),
+    command, parse and savegame fixes (#68), coordinate and angle rounding (#42,
+    #69), and static sounds combined per sfx (#92).
+  - Raised limits: maps and models (#46), client limits (#47), sound channels
+    (#48), `MAX_DLIGHTS` 64 (#51), `MAX_PARTICLES` 16384 (#72).
+  - Features: console line editing and tab completion (#53), `r_lerpmodels` and
+    `r_lerpmove` (#54, both off by default), menu mouse support, HUD cvars and
+    underwater screen warp (#55), `host_maxfps` (#56), `v_gunkick` (#66),
+    `gl_farclip` (#67), `gl_cshiftpercent_*` (#70), `cl_maxpitch`/`cl_minpitch`
+    (#71), the `cvar` and alias commands (#73), `con_logcenterprint` (#75),
+    fullbright alias pixels (#76), the gamepad radial deadzone (#77),
+    `host_timescale` (#78, #100, #101), cheat-command arguments (#79), QuakeC
+    extension builtins (#80, #106), all five sprite orientations (#81), the solo
+    scoreboard (#82), `MF_HOLEY` skins (#83), pausing demos (#85), `nomonsters`
+    (#86, #104), `in_rawmouse` (#87), `scr_sbarscale`, `scr_conscale` and
+    `scr_menuscale` (#88, #105, #107), `sv_freezenonclients` (#90), liquid alpha
+    (#91), `sv_altnoclip` (#93), `gl_texture_anisotropy` (#94),
+    `cl_gun_fovscale` (#95), signon buffers (#96), shader water and sky warp
+    (#97), and the `localsound` builtin (#106).
+- **Rendering and memory:** changed lightmap rows uploaded alone (#49), lightmap
+  blocks grown on demand (#51), no per-frame allocation in the mirror pass
+  (#57), and dlight PointLights removed under `gl_flashblend 0` (#99).
+- **Web and platform:** dropping the connection while a missing map downloads
+  (#41), render scale and a fullscreen fallback for TV browsers (#43), browser
+  Back as Escape (#52), yes/no prompts on gamepads and touch (#60), IPv6 and
+  IPv4 listeners (#74), lazy Range-request loading of paks over 64 MB (#84), and
+  an Advanced options menu (#109).
+- **2021 rerelease:** the rerelease layout with `?base=rerelease` and `-game`
+  (#89), the `ex_CheckPlayerEXFlags` and `ex_walkpathtogoal` builtins (#111),
+  `svc_achievement` (#112), the rerelease cvars with an embedded `default.cfg`
+  (#113), and a deferred ctf `archive/` tree (#114).
+  [`rerelease-gaps.md`](rerelease-gaps.md) (#110) lists what still blocks that
+  content.
+- **Docs and tooling:** this fix status (#34), scoped test permissions and
+  pinned CI tooling (#35), [`port-inventory.md`](port-inventory.md) (#36, #40,
+  #108), and the README credits for Ironwail, QuakeSpasm and FitzQuake (#50).
 
 PRs #115 to #140:
 
-- **Back to id's C:** the crosshair drawn at the centre of `scr_vrect`, off by default and archived (#123), the version string stamped onto the console background by `Draw_CharToConback` (#125), and the particle pool sized from `-particles` as `r_part.c` does (#127). These close the inventory's G5, G7 and the `-particles` part of G10.
-- **2021 rerelease:** each of these departs from WinQuake on purpose and has an entry in section 7. Localised `$key` strings (#124), BSP2 maps (#126), global fog and `r_skyfog` from Ironwail (#134), `.lit` coloured lighting (#137) and the alias-model tint from it (#139), and the server's own protocol, 1015, with the rerelease limits and entity alpha (#140; see "Wire format" above). The rest of the rerelease work is in the next list.
-- **Three.js rendering and memory:** one shared index attribute per alias model (#120), cached water and sky geometry disposed at map change (#121), alias materials cached by skin texture (#122), per-frame allocations removed (#129, #136), no per-instance sorting or frustum culling in world batches (#131), alias vertices relit only when the lighting changes (#132), no redundant background clear outside XR (#133), and the VR HUD drawn in its own pass with capped texture uploads (#135). [`threejs-review.md`](threejs-review.md) (#130, #138) is the review these came from.
-- **Menus:** the Advanced options pages were reorganised, with 39 player-facing cvar rows (#115) and Local game and Developer pages (#116); the Developer page is hidden in online games (#118).
-- **Docs:** this fix status up to #114 (#117), the rerelease gaps fixed by #111 to #114 (#119), and the mirror check by eye (#128).
+- **Back to id's C:** the crosshair drawn at the centre of `scr_vrect`, off by
+  default and archived (#123), the version string stamped onto the console
+  background by `Draw_CharToConback` (#125), and the particle pool sized from
+  `-particles` as `r_part.c` does (#127). These close the inventory's G5, G7 and
+  the `-particles` part of G10.
+- **2021 rerelease:** each of these departs from WinQuake on purpose and has an
+  entry in section 7. Localised `$key` strings (#124), BSP2 maps (#126), global
+  fog and `r_skyfog` from Ironwail (#134), `.lit` coloured lighting (#137) and
+  the alias-model tint from it (#139), and the server's own protocol, 1015, with
+  the rerelease limits and entity alpha (#140; see "Wire format" above). The
+  rest of the rerelease work is in the next list.
+- **Three.js rendering and memory:** one shared index attribute per alias model
+  (#120), cached water and sky geometry disposed at map change (#121), alias
+  materials cached by skin texture (#122), per-frame allocations removed (#129,
+  #136), no per-instance sorting or frustum culling in world batches (#131),
+  alias vertices relit only when the lighting changes (#132), no redundant
+  background clear outside XR (#133), and the VR HUD drawn in its own pass with
+  capped texture uploads (#135). [`threejs-review.md`](threejs-review.md) (#130,
+  #138) is the review these came from.
+- **Menus:** the Advanced options pages were reorganised, with 39 player-facing
+  cvar rows (#115) and Local game and Developer pages (#116); the Developer page
+  is hidden in online games (#118).
+- **Docs:** this fix status up to #114 (#117), the rerelease gaps fixed by #111
+  to #114 (#119), and the mirror check by eye (#128).
 
 PRs #141 to #146:
 
-- **2021 rerelease:** these finish the plan in [`rerelease-gaps.md`](rerelease-gaps.md), which now records how each gap was closed. Section 7 has an entry for each except #145, whose changes are under "Wire format" above. The PRs are: a no-op `vibrate` command (#142), the quad and pentagram dlights `EF_QEX_QUADLIGHT` and `EF_QEX_PENTALIGHT` (#143), skyboxes from the worldspawn `sky` key (#144), alpha for alias models, the player and the view model, with `U_FRAME2` and the `max_edicts` cvar (#145), and MD5 replacement models (#146). `vibrate` is a deliberate addition: neither id's Quake nor Ironwail has it, and the rerelease's own QuakeC that sends it is commented out.
+- **2021 rerelease:** these finish the plan in
+  [`rerelease-gaps.md`](rerelease-gaps.md), which now records how each gap was
+  closed. Section 7 has an entry for each except #145, whose changes are under
+  "Wire format" above. The PRs are: a no-op `vibrate` command (#142), the quad
+  and pentagram dlights `EF_QEX_QUADLIGHT` and `EF_QEX_PENTALIGHT` (#143),
+  skyboxes from the worldspawn `sky` key (#144), alpha for alias models, the
+  player and the view model, with `U_FRAME2` and the `max_edicts` cvar (#145),
+  and MD5 replacement models (#146). `vibrate` is a deliberate addition: neither
+  id's Quake nor Ironwail has it, and the rerelease's own QuakeC that sends it
+  is commented out.
 - **Docs:** this fix status up to #140 (#141).
 
 PRs #147 to #150:
 
-- **Back to id's C:** `Mod_CheckWaterVis` sizes each PVS row from the world's `visleafs` rather than its full leaf count, so maps no longer print `Mod_DecompressVis: output overrun` (#148). The C runs the check after the submodel loop has set `numleafs`; the port ran it before.
-- **Datagram size:** `MAX_DATAGRAM` is 4096, as FitzQuake and QuakeSpasm raise it, and a network client gets at most `DATAGRAM_MTU` (1400), read per client from the WebTransport session (#150). Section 7 has the entry. A live WebTransport session over loopback on mg1 `mge2m2` read a `maxDatagramSize` of 1421, so the client was allowed 1400 bytes. Over 70 teleports, 9 datagrams went above 1024 bytes (the largest 1,113) and all 9 arrived. No `packet overflow` was printed. A real network path was not tested.
-- **Three.js rendering:** world batches with no instance in the PVS are hidden, so Three.js no longer binds and draws empty batches on big BSP2 maps (#149).
+- **Back to id's C:** `Mod_CheckWaterVis` sizes each PVS row from the world's
+  `visleafs` rather than its full leaf count, so maps no longer print
+  `Mod_DecompressVis: output overrun` (#148). The C runs the check after the
+  submodel loop has set `numleafs`; the port ran it before.
+- **Datagram size:** `MAX_DATAGRAM` is 4096, as FitzQuake and QuakeSpasm raise
+  it, and a network client gets at most `DATAGRAM_MTU` (1400), read per client
+  from the WebTransport session (#150). Section 7 has the entry. A live
+  WebTransport session over loopback on mg1 `mge2m2` read a `maxDatagramSize` of
+  1421, so the client was allowed 1400 bytes. Over 70 teleports, 9 datagrams
+  went above 1024 bytes (the largest 1,113) and all 9 arrived. No
+  `packet overflow` was printed. A real network path was not tested.
+- **Three.js rendering:** world batches with no instance in the PVS are hidden,
+  so Three.js no longer binds and draws empty batches on big BSP2 maps (#149).
 - **Docs:** this fix status up to #146 (#147).
 
 PRs #151 to #156 (Part 3's findings):
 
-- **Docs:** this fix status up to #150 (#151), and Part 3 of this review, sections 13 to 18 (#152).
-- **Back to id's C:** BSP-1, `texturemins` stored as `int`, as in Ironwail, so lightmap origins no longer wrap on large BSP2 maps (#153). All 26 affected faces in the rerelease's `mg3` `map7` now get the right values, and no map in id1, hipnotic or rogue had a value out of range. CD-1, CD-2 and part of CD-3 (#154): `CDAudio_Stop` and `CDAudio_Play` follow `cd_win.c`'s order, the track is taken as a byte, and the `cd` subcommands are case-insensitive. CD-3's `close`, `eject`, volume and hidden-tab items are not fixed.
-- **Web multiplayer menus:** MENU-1, MENU-2 and MENU-3 (#155). `?server=` is validated by `Sys_ParseLobbyURL` and kept in the page URL, `connect` arguments are quoted safely, and Start Game has an in-flight guard that Escape cancels. MENU-4 is not fixed.
-- **WebXR rendering:** XR-1 and XR-2 (#156). In XR, `R_CullBox` culls with the eyes' frustum, not the body's, and the screen blends draw on a head-locked quad under the HUD. XR-3 is not fixed. No headset test was done; #156 lists the manual steps.
+- **Docs:** this fix status up to #150 (#151), and Part 3 of this review,
+  sections 13 to 18 (#152).
+- **Back to id's C:** BSP-1, `texturemins` stored as `int`, as in Ironwail, so
+  lightmap origins no longer wrap on large BSP2 maps (#153). All 26 affected
+  faces in the rerelease's `mg3` `map7` now get the right values, and no map in
+  id1, hipnotic or rogue had a value out of range. CD-1, CD-2 and part of CD-3
+  (#154): `CDAudio_Stop` and `CDAudio_Play` follow `cd_win.c`'s order, the track
+  is taken as a byte, and the `cd` subcommands are case-insensitive. CD-3's
+  `close`, `eject`, volume and hidden-tab items are not fixed.
+- **Web multiplayer menus:** MENU-1, MENU-2 and MENU-3 (#155). `?server=` is
+  validated by `Sys_ParseLobbyURL` and kept in the page URL, `connect` arguments
+  are quoted safely, and Start Game has an in-flight guard that Escape cancels.
+  MENU-4 is not fixed.
+- **WebXR rendering:** XR-1 and XR-2 (#156). In XR, `R_CullBox` culls with the
+  eyes' frustum, not the body's, and the screen blends draw on a head-locked
+  quad under the HUD. XR-3 is not fixed. No headset test was done; #156 lists
+  the manual steps.
 
 PRs #157 to #160 (Part 3's low-medium findings):
 
 - **Docs:** this fix status up to #156 (#157).
-- **Rendering:** TEX-1 and BSP-2 (#158). Under `gl_texsort 0`, changed lightmaps are uploaded again, so light styles and dynamic lights no longer freeze on the world; section 7 has the entry. `R_ParseWorldspawn` now gates the `r_wateralpha`-style cvars on `Mod_CheckWaterVis` and applies the worldspawn `_wateralpha`-style keys always, as Ironwail does. No browser check was done.
-- **Server:** PROTO-1 (#159). A network client whose datagram can't take `sv.datagram` whole now gets its first whole sound and particle messages instead of none; section 7 has the entry. On a full frame only about 54 bytes are left, so two or three messages survive, not all of them. `PROG_TO_EDICT` grows the edict array up to `max_edicts`, as `EDICT_NUM` does, so QuakeC reads a zeroed edict there, as in C. Not tested over a live connection.
-- **Web multiplayer menus:** MENU-4 (#160). Stale room-list replies are dropped, the cursor is clamped and malformed entries are skipped; `m_return_onerror` is cleared when a connect succeeds, as `net_dgrm.c` does; and Setup's Accept sends `name` only when it changed. The missing hostname row and the game options that do nothing online are not fixed: both now have a deviation comment, and sending the options needs a lobby protocol change. Not tested against a live lobby.
+- **Rendering:** TEX-1 and BSP-2 (#158). Under `gl_texsort 0`, changed lightmaps
+  are uploaded again, so light styles and dynamic lights no longer freeze on the
+  world; section 7 has the entry. `R_ParseWorldspawn` now gates the
+  `r_wateralpha`-style cvars on `Mod_CheckWaterVis` and applies the worldspawn
+  `_wateralpha`-style keys always, as Ironwail does. No browser check was done.
+- **Server:** PROTO-1 (#159). A network client whose datagram can't take
+  `sv.datagram` whole now gets its first whole sound and particle messages
+  instead of none; section 7 has the entry. On a full frame only about 54 bytes
+  are left, so two or three messages survive, not all of them. `PROG_TO_EDICT`
+  grows the edict array up to `max_edicts`, as `EDICT_NUM` does, so QuakeC reads
+  a zeroed edict there, as in C. Not tested over a live connection.
+- **Web multiplayer menus:** MENU-4 (#160). Stale room-list replies are dropped,
+  the cursor is clamped and malformed entries are skipped; `m_return_onerror` is
+  cleared when a connect succeeds, as `net_dgrm.c` does; and Setup's Accept
+  sends `name` only when it changed. The missing hostname row and the game
+  options that do nothing online are not fixed: both now have a deviation
+  comment, and sending the options needs a lobby protocol change. Not tested
+  against a live lobby.
 
 PRs #163 to #166 (Part 3's low findings):
 
-- **CD music:** the rest of CD-3 (#163). One control sets the music level: the gain node when the element is routed through Web Audio, with the element at full volume, or the element's own volume when it isn't, so the level is no longer applied twice. An unrouted element pauses while the tab is hidden, as the sound system does. `cd eject` stops the music first, as `cd_win.c` does. `cd close` has nothing to do without a tray. Not checked in a browser; #163 lists the manual steps.
+- **CD music:** the rest of CD-3 (#163). One control sets the music level: the
+  gain node when the element is routed through Web Audio, with the element at
+  full volume, or the element's own volume when it isn't, so the level is no
+  longer applied twice. An unrouted element pauses while the tab is hidden, as
+  the sound system does. `cd eject` stops the music first, as `cd_win.c` does.
+  `cd close` has nothing to do without a tray. Not checked in a browser; #163
+  lists the manual steps.
 - **Textures and WebXR:** TEX-2, TEX-3 and XR-3 (#164).
-  - `VID_SetPalette` clears only the alpha of palette index 255, as `gl_vidnt.c` does, so it keeps its colour (159, 91, 83). `GL_LoadTexture` in `gl_model.js` (#166) and the 2D paths in `gl_draw.js` carry that colour under transparent texels, as `GL_Upload8` does. (A dedicated server skips the conversion and keeps an empty texture, as it never draws.) The 2D pictures go through a canvas, which drops the colour under alpha 0, so only the 3D textures change on screen.
+  - `VID_SetPalette` clears only the alpha of palette index 255, as `gl_vidnt.c`
+    does, so it keeps its colour (159, 91, 83). `GL_LoadTexture` in
+    `gl_model.js` (#166) and the 2D paths in `gl_draw.js` carry that colour
+    under transparent texels, as `GL_Upload8` does. (A dedicated server skips
+    the conversion and keeps an empty texture, as it never draws.) The 2D
+    pictures go through a canvas, which drops the colour under alpha 0, so only
+    the 3D textures change on screen.
   - The sky's `GL_LINEAR` already matches `R_InitSky`, so it is unchanged.
-  - In XR, the window `resize` handler no longer resizes the renderer while a session is presenting, and it resyncs when the session ends. The rig ignores `cl.viewangles` pitch, which the headset supplies; section 7 has the entry. `r_origin`, the view leaf, `R_MarkLeaves` and `V_SetContentsColor` use the head's position from the previous frame, as C uses the camera's. That position is reset on a new map and on a jump of more than 128 units. The desktop path is unchanged.
+  - In XR, the window `resize` handler no longer resizes the renderer while a
+    session is presenting, and it resyncs when the session ends. The rig ignores
+    `cl.viewangles` pitch, which the headset supplies; section 7 has the entry.
+    `r_origin`, the view leaf, `R_MarkLeaves` and `V_SetContentsColor` use the
+    head's position from the previous frame, as C uses the camera's. That
+    position is reset on a new map and on a jump of more than 128 units. The
+    desktop path is unchanged.
   - No headset or browser check was done.
-- **Game options online:** MENU-4's last fixable item (#165). Start Game sends Game Type, Teamplay, Skill, Frag Limit and Time Limit with the room request. The lobby accepts only those five keys, as finite numbers truncated to integers and clamped to the menu's ranges (teamplay 0 to 6 with `-rogue`, else 0 to 2), and passes them to the room process as `-coop`, `-teamplay`, `-skill`, `-fraglimit` and `-timelimit`. The room sets the cvars before the map spawns. Not tested against a live lobby.
-- **Loaders and lighting:** BSP-3 and REND-1 (#166). `CalcSurfaceExtents` seeds with `FLT_MAX`, as Ironwail does; faces within id's old seeds get the same extents. `RecursiveLightPoint` and `R_AddDynamicLights` truncate their light-sample coordinates to integers, as the C's `int` variables do. The `MAX_MOD_KNOWN` comments now give Ironwail's 4096. `COM_EnsureFile` handles a failed `.lit` fetch, so it can't become an unhandled rejection. No browser check was done.
+- **Game options online:** MENU-4's last fixable item (#165). Start Game sends
+  Game Type, Teamplay, Skill, Frag Limit and Time Limit with the room request.
+  The lobby accepts only those five keys, as finite numbers truncated to
+  integers and clamped to the menu's ranges (teamplay 0 to 6 with `-rogue`, else
+  0 to 2), and passes them to the room process as `-coop`, `-teamplay`,
+  `-skill`, `-fraglimit` and `-timelimit`. The room sets the cvars before the
+  map spawns. Not tested against a live lobby.
+- **Loaders and lighting:** BSP-3 and REND-1 (#166). `CalcSurfaceExtents` seeds
+  with `FLT_MAX`, as Ironwail does; faces within id's old seeds get the same
+  extents. `RecursiveLightPoint` and `R_AddDynamicLights` truncate their
+  light-sample coordinates to integers, as the C's `int` variables do. The
+  `MAX_MOD_KNOWN` comments now give Ironwail's 4096. `COM_EnsureFile` handles a
+  failed `.lit` fetch, so it can't become an unhandled rejection. No browser
+  check was done.
 
-Recorded, not changed. Each of these matches the C, has no C counterpart, or can't be checked here:
+Recorded, not changed. Each of these matches the C, has no C counterpart, or
+can't be checked here:
 
-- TEX-3: Three.js re-uploads a texture to change its filter, mipmaps are built from linear colour, and skins are never freed, as in GLQuake.
+- TEX-3: Three.js re-uploads a texture to change its filter, mipmaps are built
+  from linear colour, and skins are never freed, as in GLQuake.
 - BSP-3: there are no bounds checks on corrupt maps; Ironwail has none either.
-- REND-1: the crosshair position and intermission rule are documented in `SCR_DrawCrosshair`, and no path changes the player material.
+- REND-1: the crosshair position and intermission rule are documented in
+  `SCR_DrawCrosshair`, and no path changes the player material.
 - CD-3: `cd close` (no tray).
-- XR-3: the HUD upload cost (not measured on a headset) and the view model without a tracked controller.
+- XR-3: the HUD upload cost (not measured on a headset) and the view model
+  without a tracked controller.
 - MENU-4: the Setup hostname row, because the browser can't host a server.
 
-With #163 to #166 merged, every Part 3 finding is fixed or recorded above. The combined tree passes 719 tests.
+With #163 to #166 merged, every Part 3 finding is fixed or recorded above. The
+combined tree passes 719 tests.
 
-At `a560a14` (`dev`, after #160), `deno task test` passes 700 tests. At `10e13c4` (after #156) it passed 684, at `055c52f` (after #150) it passed 661, including `tests/net_webtransport_server_test.ts`. At `3d1947b` (after #146) it passed 651, at `772379d` (after #140) it passed 611, and at `223a180` (after #114) 546.
+At `a560a14` (`dev`, after #160), `deno task test` passes 700 tests. At
+`10e13c4` (after #156) it passed 684, at `055c52f` (after #150) it passed 661,
+including `tests/net_webtransport_server_test.ts`. At `3d1947b` (after #146) it
+passed 651, at `772379d` (after #140) it passed 611, and at `223a180` (after
+#114) 546.
 
 ### Residuals and follow-ups
 
 What the PRs above leave open, on purpose or because it can't be checked here.
 
-- **Prediction ([#13]):** QuakeC changes to `punchangle` or `teleport_time` made after the last server update (for example firing on a predicted frame) are not predicted. `pausetime` is a QuakeC monster field the engine never reads, so there is nothing to mirror.
-- **Input ([#12]):** browsers reserve some shortcuts (Ctrl+W, Ctrl+T, Cmd+Q and others). Keyboard Lock captures them only in fullscreen on Chrome and Edge; Firefox and Safari have no Keyboard Lock.
-- **Transport ([#13]):** moves now travel as datagrams. The load test ran on one machine over loopback; `WT_SetClientOutboundDatagrams( false )` restores the reliable stream.
-- **Mirrors ([#11], #38, #39):** the reflection pass runs on a GPU without WebGL errors. The mirror texture is now blended over the reflection in gamma space, as GLQuake does (#38), and the reflection now includes the player (#39). Under client prediction the reflected player is drawn at the server's origin, so it trails the predicted camera by about one round trip. The maintainer has since checked the reflections by eye, and they look right. The mirror texture `window02_1` is in `start` and `e1m5` (shareware) and `e4m3` (registered), not e2m3 as this review first said.
-- **Lobby permissions ([#4]):** the lobby process's own Deno permissions are documented, not enforced.
-- **Registered content ([#10]):** `COM_FindFile`'s loose-file rule and the `WINDED` dedicated-server check are intentional deviations; see section 7.
+- **Prediction ([#13]):** QuakeC changes to `punchangle` or `teleport_time` made
+  after the last server update (for example firing on a predicted frame) are not
+  predicted. `pausetime` is a QuakeC monster field the engine never reads, so
+  there is nothing to mirror.
+- **Input ([#12]):** browsers reserve some shortcuts (Ctrl+W, Ctrl+T, Cmd+Q and
+  others). Keyboard Lock captures them only in fullscreen on Chrome and Edge;
+  Firefox and Safari have no Keyboard Lock.
+- **Transport ([#13]):** moves now travel as datagrams. The load test ran on one
+  machine over loopback; `WT_SetClientOutboundDatagrams( false )` restores the
+  reliable stream.
+- **Mirrors ([#11], #38, #39):** the reflection pass runs on a GPU without WebGL
+  errors. The mirror texture is now blended over the reflection in gamma space,
+  as GLQuake does (#38), and the reflection now includes the player (#39). Under
+  client prediction the reflected player is drawn at the server's origin, so it
+  trails the predicted camera by about one round trip. The maintainer has since
+  checked the reflections by eye, and they look right. The mirror texture
+  `window02_1` is in `start` and `e1m5` (shareware) and `e4m3` (registered), not
+  e2m3 as this review first said.
+- **Lobby permissions ([#4]):** the lobby process's own Deno permissions are
+  documented, not enforced.
+- **Registered content ([#10]):** `COM_FindFile`'s loose-file rule and the
+  `WINDED` dedicated-server check are intentional deviations; see section 7.
 
 ---
 
@@ -194,110 +382,170 @@ What the PRs above leave open, on purpose or because it can't be checked here.
 
 ### SP-1 · Dying restarts the level with a fresh inventory — **high**, Verified
 
-- **Port:** [`src/host_cmd.js:218`](../src/host_cmd.js) `Host_Restart_f` runs `Cbuf_AddText('map ' + mapname)`.
-- **C:** `host_cmd.c` `Host_Restart_f` calls `SV_SpawnServer(mapname)` directly. It also returns early during demo playback and for commands not typed locally.
-- **Why it matters:** the game code in `progs.dat` sends `restart` from `respawn()` whenever the player dies in single player. The string `restart\n` is present in `static/pak0.pak`.
+- **Port:** [`src/host_cmd.js:218`](../src/host_cmd.js) `Host_Restart_f` runs
+  `Cbuf_AddText('map ' + mapname)`.
+- **C:** `host_cmd.c` `Host_Restart_f` calls `SV_SpawnServer(mapname)` directly.
+  It also returns early during demo playback and for commands not typed locally.
+- **Why it matters:** the game code in `progs.dat` sends `restart` from
+  `respawn()` whenever the player dies in single player. The string `restart\n`
+  is present in `static/pak0.pak`.
 - **Mechanism:**
-  1. `Host_Map_f` calls `CL_Disconnect` and `Host_ShutdownServer`, and zeroes `svs.serverflags`.
+  1. `Host_Map_f` calls `CL_Disconnect` and `Host_ShutdownServer`, and zeroes
+     `svs.serverflags`.
   2. The client then reconnects through `SV_ConnectClient`.
   3. `SV_ConnectClient` runs `SetNewParms` because `sv.loadgame` is false.
 - **Effect:**
-  - After every death the player respawns with the shotgun, 100 health and no carried items. In the original you get the inventory you had when you entered the level.
+  - After every death the player respawns with the shotgun, 100 health and no
+    carried items. In the original you get the inventory you had when you
+    entered the level.
   - Collected runes are wiped, so the episode-completion state is lost.
-- **Fix direction:** port `Host_Restart_f` literally. Keep the `cls.demoplayback` and `cmd_source` guards, and call `SV_SpawnServer(sv.name)` so the clients' `spawn_parms` survive.
+- **Fix direction:** port `Host_Restart_f` literally. Keep the
+  `cls.demoplayback` and `cmd_source` guards, and call `SV_SpawnServer(sv.name)`
+  so the clients' `spawn_parms` survive.
 
 ### SP-2 · No muzzle-flash light for any player — **medium-high**, Verified
 
-- **Port:** [`src/cl_main.js:866`](../src/cl_main.js) `CL_LinkPlayers` handles only `EF_BRIGHTLIGHT` and `EF_DIMLIGHT`.
-  - `EF_MUZZLEFLASH` is only checked for packet entities (`:664`) and in the NetQuake relink loop (`:1070`).
-  - Both of those loops skip player slots. Nothing else in `src/` creates the light.
-- **C:** `cl_main.c` `CL_RelinkEntities` creates the muzzle-flash dynamic light for every entity, including `cl.viewentity`.
-- **Effect:** firing a weapon never lights the surroundings, in single player or for other players in deathmatch.
-- **Fix direction:** add the `EF_MUZZLEFLASH` light (radius 200 + rand&31, minlight 32, die +0.1, positioned forward of the player) to `CL_LinkPlayers`.
+- **Port:** [`src/cl_main.js:866`](../src/cl_main.js) `CL_LinkPlayers` handles
+  only `EF_BRIGHTLIGHT` and `EF_DIMLIGHT`.
+  - `EF_MUZZLEFLASH` is only checked for packet entities (`:664`) and in the
+    NetQuake relink loop (`:1070`).
+  - Both of those loops skip player slots. Nothing else in `src/` creates the
+    light.
+- **C:** `cl_main.c` `CL_RelinkEntities` creates the muzzle-flash dynamic light
+  for every entity, including `cl.viewentity`.
+- **Effect:** firing a weapon never lights the surroundings, in single player or
+  for other players in deathmatch.
+- **Fix direction:** add the `EF_MUZZLEFLASH` light (radius 200 + rand&31,
+  minlight 32, die +0.1, positioned forward of the player) to `CL_LinkPlayers`.
 
 ### SP-3 · Dynamic light brightness depends on lifetime, not radius — **medium-high**, Verified
 
 - **Port:** [`src/gl_rlight.js:177-186`](../src/gl_rlight.js)
 
   ```js
-  const timeLeft = Math.min( l.die - cl.time, 0.5 );
+  const timeLeft = Math.min(l.die - cl.time, 0.5);
   pointLight.intensity = 10000 * timeLeft;
   pointLight.distance = l.radius;
   ```
 
-- **C:** with the default `gl_flashblend 1`, GLQuake draws a corona of radius × 0.35 and does not light the world. With `gl_flashblend 0`, it adds `rad - dist` into the lightmaps.
+- **C:** with the default `gl_flashblend 1`, GLQuake draws a corona of radius ×
+  0.35 and does not light the world. With `gl_flashblend 0`, it adds
+  `rad - dist` into the lightmaps.
 - **Effect:**
-  - Per-frame lights get intensity about 10, which is effectively invisible. These include rockets and `EF_BRIGHTLIGHT`/`EF_DIMLIGHT` entities, created with `die = cl.time + 0.001` at `cl_main.js:649`, `:660` and `:882`.
-  - Explosions get 5000 (`cl_tent.js:202`), so lights with the same radius differ in brightness by up to 500×.
-- **Fix direction:** derive intensity from `l.radius` (and `minlight`), and use the remaining time only for the fade-out.
+  - Per-frame lights get intensity about 10, which is effectively invisible.
+    These include rockets and `EF_BRIGHTLIGHT`/`EF_DIMLIGHT` entities, created
+    with `die = cl.time + 0.001` at `cl_main.js:649`, `:660` and `:882`.
+  - Explosions get 5000 (`cl_tent.js:202`), so lights with the same radius
+    differ in brightness by up to 500×.
+- **Fix direction:** derive intensity from `l.radius` (and `minlight`), and use
+  the remaining time only for the fade-out.
 
 ### SP-4 · Damage kick and strafe roll use zeroed prediction state — **medium**, Verified
 
 - **Port:**
-  - [`src/view.js:389`](../src/view.js) and `:396` (`V_ParseDamage`) use `cl_simorg` and `cl_simangles`.
+  - [`src/view.js:389`](../src/view.js) and `:396` (`V_ParseDamage`) use
+    `cl_simorg` and `cl_simangles`.
   - `:739` (`V_CalcViewRoll`) uses `V_CalcRoll(cl_simangles, cl_simvel)`.
-- **C:** `view.c` uses `cl_entities[cl.viewentity].origin` and `.angles`, and `cl.velocity`.
+- **C:** `view.c` uses `cl_entities[cl.viewentity].origin` and `.angles`, and
+  `cl.velocity`.
 - **Mechanism:**
-  - `cl_simorg` and `cl_simangles` are only written inside `CL_PredictMove` (`cl_pred.js:860-927`).
-  - `CL_PredictMove` only runs when `!sv.active && !cls.demoplayback` (`cl_main.js:1190`).
+  - `cl_simorg` and `cl_simangles` are only written inside `CL_PredictMove`
+    (`cl_pred.js:860-927`).
+  - `CL_PredictMove` only runs when `!sv.active && !cls.demoplayback`
+    (`cl_main.js:1190`).
   - In single player and demo playback they therefore stay at (0, 0, 0).
-  - Other call sites in the same file already guard with `usePrediction` (`view.js:808`, `:856`).
+  - Other call sites in the same file already guard with `usePrediction`
+    (`view.js:808`, `:856`).
 - **Effect:**
-  - Damage kicks the view in an arbitrary direction, computed from the attacker's absolute position.
-  - Strafe roll depends on world-Y velocity instead of velocity relative to facing.
-- **Fix direction:** use the same `usePrediction ? cl_sim* : entity/cl` selection as `V_CalcRefdef`.
+  - Damage kicks the view in an arbitrary direction, computed from the
+    attacker's absolute position.
+  - Strafe roll depends on world-Y velocity instead of velocity relative to
+    facing.
+- **Fix direction:** use the same `usePrediction ? cl_sim* : entity/cl`
+  selection as `V_CalcRefdef`.
 
 ### SP-5 · Map-load "settle" frames run with the wrong time step — **medium**, Verified
 
-- **Port:** [`src/sv_main.js:1764`](../src/sv_main.js) calls `set_host_frametime(0.1)` and then `SV_Physics()` twice.
+- **Port:** [`src/sv_main.js:1764`](../src/sv_main.js) calls
+  `set_host_frametime(0.1)` and then `SV_Physics()` twice.
 - **Mechanism:**
   - `set_host_frametime` (`host.js:98`) only sets `host.js`'s own variable.
-  - `sv_phys.js` keeps its own `host_frametime` (`:186`). Only `SV_SetFrametime` updates it, once per host frame (`host.js:454`).
+  - `sv_phys.js` keeps its own `host_frametime` (`:186`). Only `SV_SetFrametime`
+    updates it, once per host frame (`host.js:454`).
   - `SV_Physics` advances `sv.time` by that local copy (`sv_phys.js:1626`).
-- **C:** `sv_main.c` `SV_SpawnServer` sets the shared global `host_frametime = 0.1`, and both settle frames advance time by 0.1 s.
+- **C:** `sv_main.c` `SV_SpawnServer` sets the shared global
+  `host_frametime = 0.1`, and both settle frames advance time by 0.1 s.
 - **Effect:**
-  - On the first map load the step is 0. On later loads it is the previous frame's step (about 0.014 s).
-  - Spawn-time thinks scheduled within 0.2 s don't run before `SV_CreateBaseline`. These include item `droptofloor`, door linking and `monster_start_go`.
-  - Baselines are therefore captured at unsettled origins, and game time starts about 0.2 s behind.
-- **Fix direction:** make `set_host_frametime` also call `SV_SetFrametime`, or have the settle frames call it directly.
+  - On the first map load the step is 0. On later loads it is the previous
+    frame's step (about 0.014 s).
+  - Spawn-time thinks scheduled within 0.2 s don't run before
+    `SV_CreateBaseline`. These include item `droptofloor`, door linking and
+    `monster_start_go`.
+  - Baselines are therefore captured at unsettled origins, and game time starts
+    about 0.2 s behind.
+- **Fix direction:** make `set_host_frametime` also call `SV_SetFrametime`, or
+  have the settle frames call it directly.
 
 ### SP-6 · `SV_WalkMove` can throw on an empty step trace — **medium (rare)**, Verified
 
-- **Port:** [`src/sv_phys.js:1218`](../src/sv_phys.js) sets `steptrace = {}` before the step-up `SV_FlyMove`. `:1237` then runs `if (clip & 2) SV_WallFriction(ent, steptrace)`.
-- **Mechanism:** `SV_FlyMove` only fills `steptrace` when it hits a vertical wall. Two paths return with bit 2 set but leave the trace untouched:
+- **Port:** [`src/sv_phys.js:1218`](../src/sv_phys.js) sets `steptrace = {}`
+  before the step-up `SV_FlyMove`. `:1237` then runs
+  `if (clip & 2) SV_WallFriction(ent, steptrace)`.
+- **Mechanism:** `SV_FlyMove` only fills `steptrace` when it hits a vertical
+  wall. Two paths return with bit 2 set but leave the trace untouched:
   - the all-solid return (3)
   - `SV_TryUnstick` returning 7
-- **C:** `steptrace` is a stack struct that still holds the first move's trace, so the original never faults.
-- **Effect:** in rare geometry, `SV_WallFriction` reads `trace.plane.normal` of `{}`, throws a TypeError and aborts the frame.
-- **Fix direction:** reuse one persistent trace object, as C does, or guard on `steptrace.plane`.
+- **C:** `steptrace` is a stack struct that still holds the first move's trace,
+  so the original never faults.
+- **Effect:** in rare geometry, `SV_WallFriction` reads `trace.plane.normal` of
+  `{}`, throws a TypeError and aborts the frame.
+- **Fix direction:** reuse one persistent trace object, as C does, or guard on
+  `steptrace.plane`.
 
 ### SP-7 · Sound channel selection and ambient spatialisation — **medium**, Verified
 
-- **Channel picking:** [`src/snd_dma.js:299`](../src/snd_dma.js) `SND_PickChannel`.
-  - The first empty and first finished channel are skipped with `continue`, so they never become `first_to_die`.
-  - `paintedtime` never advances, because `S_PaintChannels` has no callers. So `end - paintedtime` is the sound's total length, not the time remaining.
-  - C's `SND_PickChannel` picks the channel nearest completion, and empty channels (end = 0) win.
-- **Ambient channels:** [`src/snd_dma.js:751`](../src/snd_dma.js) `S_Update` spatialises channels starting at `i = 0`. C starts at `NUM_AMBIENTS`.
+- **Channel picking:** [`src/snd_dma.js:299`](../src/snd_dma.js)
+  `SND_PickChannel`.
+  - The first empty and first finished channel are skipped with `continue`, so
+    they never become `first_to_die`.
+  - `paintedtime` never advances, because `S_PaintChannels` has no callers. So
+    `end - paintedtime` is the sound's total length, not the time remaining.
+  - C's `SND_PickChannel` picks the channel nearest completion, and empty
+    channels (end = 0) win.
+- **Ambient channels:** [`src/snd_dma.js:751`](../src/snd_dma.js) `S_Update`
+  spatialises channels starting at `i = 0`. C starts at `NUM_AMBIENTS`.
 - **Effect:**
-  - When exactly one channel is free, or all 32 are busy, the port cuts off the shortest sound rather than the one about to finish.
-  - Water and wind ambience is treated as a point source at the map origin. It pans and can play up to 2× too loud.
-- **Fix direction:** prefer empty or finished channels, then pick the shortest time remaining. Start the spatialise loop at `NUM_AMBIENTS`.
+  - When exactly one channel is free, or all 32 are busy, the port cuts off the
+    shortest sound rather than the one about to finish.
+  - Water and wind ambience is treated as a point source at the map origin. It
+    pans and can play up to 2× too loud.
+- **Fix direction:** prefer empty or finished channels, then pick the shortest
+  time remaining. Start the spatialise loop at `NUM_AMBIENTS`.
 
 ### SP-8 · Demos recorded by the port likely play back without entities — **medium**, Verified (code path), not run
 
-- **Port:** [`src/cl_main.js:989`](../src/cl_main.js) has `usePacketEntities = CL_GetValidSequence() !== 0 && cls.demoplayback === false`.
+- **Port:** [`src/cl_main.js:989`](../src/cl_main.js) has
+  `usePacketEntities = CL_GetValidSequence() !== 0 && cls.demoplayback === false`.
 - **Mechanism:**
-  - Recording captures the live stream, which uses QuakeWorld-style `svc_packetentities` and `svc_playerinfo`.
-  - During playback the NetQuake relink path is forced. That path only knows entities set up by `CL_ParseUpdate`, which never arrives.
+  - Recording captures the live stream, which uses QuakeWorld-style
+    `svc_packetentities` and `svc_playerinfo`.
+  - During playback the NetQuake relink path is forced. That path only knows
+    entities set up by `CL_ParseUpdate`, which never arrives.
   - Original Quake demos are unaffected.
-- **Fix direction:** link packet entities during playback whenever the demo contains them.
+- **Fix direction:** link packet entities during playback whenever the demo
+  contains them.
 
 ### SP-9 · Freed entities are never unlinked from the world — **low-medium**, Verified
 
-- **Port:** [`src/pr_edict.js:150`](../src/pr_edict.js) `ED_Free` only runs `sv.SV_UnlinkEdict` if it exists. Nothing assigns it.
+- **Port:** [`src/pr_edict.js:150`](../src/pr_edict.js) `ED_Free` only runs
+  `sv.SV_UnlinkEdict` if it exists. Nothing assigns it.
 - **C:** `pr_edict.c` `ED_Free` calls `SV_UnlinkEdict(ed)` unconditionally.
-- **Effect:** removed entities (rockets, gibs, triggers) stay in the area-node lists until their slot is reused. Collision mostly ignores them because `ED_Free` sets them non-solid. The cost is extra list walking, plus a risk for any code that reads the lists without checking `solid`.
-- **Fix direction:** import `SV_UnlinkEdict` from `world.js` (or inject it at init) and call it.
+- **Effect:** removed entities (rockets, gibs, triggers) stay in the area-node
+  lists until their slot is reused. Collision mostly ignores them because
+  `ED_Free` sets them non-solid. The cost is extra list walking, plus a risk for
+  any code that reads the lists without checking `solid`.
+- **Fix direction:** import `SV_UnlinkEdict` from `world.js` (or inject it at
+  init) and call it.
 
 ---
 
@@ -306,45 +554,83 @@ What the PRs above leave open, on purpose or because it can't be checked here.
 ### MP-1 · Datagram overflow is fatal — **high impact, low-medium probability**, Verified
 
 - **Port:**
-  - The client datagram is `{ maxsize: MAX_DATAGRAM /*1024*/, allowoverflow: false }` ([`src/sv_main.js:1245`](../src/sv_main.js)). (Since then, `maxsize` is set per client by `SV_ClientDatagramSize`, and `MAX_DATAGRAM` is 4096; see section 7.)
-  - Entities are capped only by count (`:842`). `SV_WriteDelta`, `SV_EmitPacketEntities` and `SV_WritePlayersToClient` never check the remaining size.
-  - [`src/common.js:246`](../src/common.js) `SZ_GetSpace` then calls `Sys_Error('SZ_GetSpace: overflow without allowoverflow set')`.
-- **C:** `sv_main.c` `SV_WriteEntitiesToClient` stops with "packet overflow" when fewer than 16 bytes remain.
+  - The client datagram is
+    `{ maxsize: MAX_DATAGRAM /*1024*/, allowoverflow: false }`
+    ([`src/sv_main.js:1245`](../src/sv_main.js)). (Since then, `maxsize` is set
+    per client by `SV_ClientDatagramSize`, and `MAX_DATAGRAM` is 4096; see
+    section 7.)
+  - Entities are capped only by count (`:842`). `SV_WriteDelta`,
+    `SV_EmitPacketEntities` and `SV_WritePlayersToClient` never check the
+    remaining size.
+  - [`src/common.js:246`](../src/common.js) `SZ_GetSpace` then calls
+    `Sys_Error('SZ_GetSpace: overflow without allowoverflow set')`.
+- **C:** `sv_main.c` `SV_WriteEntitiesToClient` stops with "packet overflow"
+  when fewer than 16 bytes remain.
 - **Worst case:**
-  - About 56 fully changed entities overflow the 1024 bytes after fixed overhead.
+  - About 56 fully changed entities overflow the 1024 bytes after fixed
+    overhead.
   - With 16 players in view, about 50 entities are enough.
-  - This happens on full-update frames (first frame, after a flush, level start) in busy scenes.
-  - When the entities fill the buffer, the trailing `sv.datagram` copy (sounds, particles, temp entities) is also silently skipped.
-- **Fix direction:** add a size check before each entity and player write, and stop the packet gracefully.
+  - This happens on full-update frames (first frame, after a flush, level start)
+    in busy scenes.
+  - When the entities fill the buffer, the trailing `sv.datagram` copy (sounds,
+    particles, temp entities) is also silently skipped.
+- **Fix direction:** add a size check before each entity and player write, and
+  stop the packet gracefully.
 
 ### MP-2 · Hard cap of 64 entities per packet — **medium**, Verified
 
-- **Port:** [`src/sv_main.js:842`](../src/sv_main.js) has `if ( pack.num_entities >= MAX_PACKET_ENTITIES ) continue;`, where `MAX_PACKET_ENTITIES = 64`.
-- **C:** NetQuake has no count cap; its only limit is the byte-budget check above.
-- **Effect:** entities are visited in edict order, so in big fights the most recently spawned ones vanish: projectiles, gibs, the player's own rockets.
+- **Port:** [`src/sv_main.js:842`](../src/sv_main.js) has
+  `if ( pack.num_entities >= MAX_PACKET_ENTITIES ) continue;`, where
+  `MAX_PACKET_ENTITIES = 64`.
+- **C:** NetQuake has no count cap; its only limit is the byte-budget check
+  above.
+- **Effect:** entities are visited in edict order, so in big fights the most
+  recently spawned ones vanish: projectiles, gibs, the player's own rockets.
 
 ### MP-3 · Team chat is never team-only — **medium**, Verified
 
-- **Port:** [`src/console.js:173`](../src/console.js) `Con_MessageMode2_f` only sets `key_dest`. `team_message` (`src/keys.js:276`) is never assigned anywhere.
-- **C:** `console.c` sets `team_message = true` in `Con_MessageMode2_f` and `false` in `Con_MessageMode_f`.
+- **Port:** [`src/console.js:173`](../src/console.js) `Con_MessageMode2_f` only
+  sets `key_dest`. `team_message` (`src/keys.js:276`) is never assigned
+  anywhere.
+- **C:** `console.c` sets `team_message = true` in `Con_MessageMode2_f` and
+  `false` in `Con_MessageMode_f`.
 - **Effect:** `messagemode2` always sends `say`, never `say_team`.
 
 ### MP-4 · Other players' shirt and pants colours are never applied — **medium**, Reported
 
-- **Port:** `src/cl_main.js` `CL_LinkPlayers` (~`:909-917`) never sets `ent.colormap`.
+- **Port:** `src/cl_main.js` `CL_LinkPlayers` (~`:909-917`) never sets
+  `ent.colormap`.
 - **C:** `cl_parse.c` sets `ent->colormap = cl.scores[i-1].translations`.
 
 ### MP-5 · Other multiplayer divergences — **low to low-medium**, Reported
 
-- **`kill` with a local server:** [`src/host_cmd.js:562`](../src/host_cmd.js) `Host_Kill_f` re-executes the command locally with stale `host_client`/`sv_player` instead of forwarding it. With `maxclients > 1` it can kill the last-iterated client rather than the one who typed it.
-- **`bprint` to connecting clients:** [`src/pr_cmds.js:239`](../src/pr_cmds.js) `PF_bprint` writes to clients that are active but not yet spawned, and also echoes to the local console. C goes through `SV_BroadcastPrintf`, which requires `spawned`.
-- **Duplicate console lines:** `SV_BroadcastPrintf` (`src/host.js:868`) also prints locally, so pause and fraglimit messages appear twice on a listen server.
-- **`kick` reason:** [`src/host_cmd.js:769`](../src/host_cmd.js) `Host_Kick_f` includes the player's name in the kick reason.
-- **`status`:** [`src/host_cmd.js:86`](../src/host_cmd.js) `Host_Status_f` is a three-line stub with no client list and no forwarding to a remote server.
-- **Monster interpolation:** `U_NOLERP` / `MOVETYPE_STEP` is not carried by packet entities, so remote clients would interpolate step-moving monsters. There is no effect in single player. While PRED-1 stands, remote clients don't interpolate anything; this applies once PRED-1 is fixed.
-- **Slots re-entering the view:** an entity slot that re-enters the PVS or is reused within 64 sequences would interpolate from its stale position on remote clients. This only applies once PRED-1 is fixed.
-- **Origin deltas:** the delta threshold compares against the last acknowledged frame, not a fixed baseline. Drift below 0.1 unit per frame on an axis is never sent. This is QuakeWorld's own behaviour.
-- **Chase camera:** `chase_active 1` shows no player body, because `CL_LinkPlayers` always skips the view entity.
+- **`kill` with a local server:** [`src/host_cmd.js:562`](../src/host_cmd.js)
+  `Host_Kill_f` re-executes the command locally with stale
+  `host_client`/`sv_player` instead of forwarding it. With `maxclients > 1` it
+  can kill the last-iterated client rather than the one who typed it.
+- **`bprint` to connecting clients:** [`src/pr_cmds.js:239`](../src/pr_cmds.js)
+  `PF_bprint` writes to clients that are active but not yet spawned, and also
+  echoes to the local console. C goes through `SV_BroadcastPrintf`, which
+  requires `spawned`.
+- **Duplicate console lines:** `SV_BroadcastPrintf` (`src/host.js:868`) also
+  prints locally, so pause and fraglimit messages appear twice on a listen
+  server.
+- **`kick` reason:** [`src/host_cmd.js:769`](../src/host_cmd.js) `Host_Kick_f`
+  includes the player's name in the kick reason.
+- **`status`:** [`src/host_cmd.js:86`](../src/host_cmd.js) `Host_Status_f` is a
+  three-line stub with no client list and no forwarding to a remote server.
+- **Monster interpolation:** `U_NOLERP` / `MOVETYPE_STEP` is not carried by
+  packet entities, so remote clients would interpolate step-moving monsters.
+  There is no effect in single player. While PRED-1 stands, remote clients don't
+  interpolate anything; this applies once PRED-1 is fixed.
+- **Slots re-entering the view:** an entity slot that re-enters the PVS or is
+  reused within 64 sequences would interpolate from its stale position on remote
+  clients. This only applies once PRED-1 is fixed.
+- **Origin deltas:** the delta threshold compares against the last acknowledged
+  frame, not a fixed baseline. Drift below 0.1 unit per frame on an axis is
+  never sent. This is QuakeWorld's own behaviour.
+- **Chase camera:** `chase_active 1` shows no player body, because
+  `CL_LinkPlayers` always skips the view entity.
 
 ---
 
@@ -352,64 +638,77 @@ What the PRs above leave open, on purpose or because it can't be checked here.
 
 ### MOD-1 · `find()` with an empty string ends the game — **medium (mods)**, Verified
 
-- **Port:** [`src/pr_cmds.js:870`](../src/pr_cmds.js) `PF_Find` does `if ( ! s ) PR_RunError(...)`, and `if ( ! t ) continue;` for each entity.
-- **C:** `pr_cmds.c` `PF_Find` tests `char *` pointers there, and those are never NULL. The empty string is a valid search that matches entities with an empty field.
-- **Effect:** `find(world, targetname, self.target)` with an unset `target` raises a QuakeC program error, which ends the game.
+- **Port:** [`src/pr_cmds.js:870`](../src/pr_cmds.js) `PF_Find` does
+  `if ( ! s ) PR_RunError(...)`, and `if ( ! t ) continue;` for each entity.
+- **C:** `pr_cmds.c` `PF_Find` tests `char *` pointers there, and those are
+  never NULL. The empty string is a valid search that matches entities with an
+  empty field.
+- **Effect:** `find(world, targetname, self.target)` with an unset `target`
+  raises a QuakeC program error, which ends the game.
 
 ### MOD-2 · No `registered` cvar — **medium with retail pak**, Verified
 
-- `common.c` `COM_CheckRegistered` sets `registered 1` when `gfx/pop.lmp` exists. The port has neither the cvar nor the check.
+- `common.c` `COM_CheckRegistered` sets `registered 1` when `gfx/pop.lmp`
+  exists. The port has neither the cvar nor the check.
 - With the shipped shareware `pak0.pak` the behaviour is correct.
-- With a retail pak, the episode gates in `start.bsp` (`trigger_onlyregistered`) stay shut.
+- With a retail pak, the episode gates in `start.bsp` (`trigger_onlyregistered`)
+  stay shut.
 
 ### MOD-3 · Entity strings with bytes ≥ 0x80 are corrupted — **low-medium**, Reported
 
-- **Port:** [`src/pr_edict.js:742`](../src/pr_edict.js) `ED_NewString` encodes strings as UTF-8, but `PR_GetString` decodes them byte by byte as Latin-1.
-- **Effect:** coloured or gold text in entity fields reads back as two garbage characters per byte.
+- **Port:** [`src/pr_edict.js:742`](../src/pr_edict.js) `ED_NewString` encodes
+  strings as UTF-8, but `PR_GetString` decodes them byte by byte as Latin-1.
+- **Effect:** coloured or gold text in entity fields reads back as two garbage
+  characters per byte.
 
 ### MOD-4 · Smaller builtin differences — **low**, Reported
 
 - `PF_ftos` and `PF_vtos` drop the `%5.1f` padding.
-- `OP_NE_S` returns 1 instead of the raw `strcmp` value. Truthiness is unchanged.
+- `OP_NE_S` returns 1 instead of the raw `strcmp` value. Truthiness is
+  unchanged.
 - `PF_sound` dropped the range checks on volume, attenuation and channel.
-- `PR_GlobalString` is a stub, so runtime-error statement dumps show raw offsets.
+- `PR_GlobalString` is a stub, so runtime-error statement dumps show raw
+  offsets.
 
 ### MOD-5 · Model edge cases (loaders) — **low**, Reported (checked on all shareware assets)
 
-- `StripLength`/`FanLength` in `src/gl_mesh.js` keep scanning where C's `goto done` stops. This only matters for non-manifold meshes.
-- The seam offset (`skinwidth / 2`) and sprite `mins`/`maxs` use float division where C truncates to int. This only matters for odd sizes.
+- `StripLength`/`FanLength` in `src/gl_mesh.js` keep scanning where C's
+  `goto done` stops. This only matters for non-manifold meshes.
+- The seam offset (`skinwidth / 2`) and sprite `mins`/`maxs` use float division
+  where C truncates to int. This only matters for odd sizes.
 - The face `planenum` is read as unsigned where C uses a signed short.
 
-None of these change any shareware model. All 61 MDLs produced byte-identical display-list commands to a C-faithful implementation.
+None of these change any shareware model. All 61 MDLs produced byte-identical
+display-list commands to a C-faithful implementation.
 
 ---
 
 ## 4. Cosmetic and presentation differences
 
-| ID | Where | Difference | Status |
-|---|---|---|---|
-| C-1 | `src/gl_rmain.js:812` `R_DrawAliasModel` | Missing `progs/eyes.mdl` 2× scale under `gl_doubleeyes` (the cvar is registered but never read). | Fixed after this review: the cvar (console name `gl_doubleeys`, as in C) is read in `src/gl_mesh.js:1282` |
-| C-2 | `src/r_part.js:800` | Particles are 3-unit point sprites centred on the origin, with no `1 + dist*0.004` growth. Far particles look smaller and near ones about 2× larger than in GLQuake. | Reported (sizing verified) |
-| C-3 | `src/gl_rsurf.js` (~`:969`, `:1961`, `:1995`) | Water warp is driven by `cl.time`, not `realtime`, so it freezes when paused. | Reported |
-| C-4 | `src/gl_rsurf.js` (~`:1886`) | `r_fullbright` and `r_lightmap` have no effect; materials always apply the lightmap. | Reported |
-| C-5 | `src/gl_rmain.js:1309` `R_Mirror` | Mirrors aren't implemented, so the mirror surfaces (`window02_1`, in `start`, `e1m5` and `e4m3`; this row first said e2m3) show no reflection. The code documents this as a known gap. | Verified |
-| C-6 | `src/gl_draw.js:743` `Draw_ConsoleBackground` | The console is always opaque; GLQuake fades it to about 0.8 alpha at half height. | Reported |
-| C-7 | `src/view.js:765` `V_CalcIntermissionRefdef` | The intermission and finale camera follows the mouse (uses `cl.viewangles` instead of the entity angles). | Reported |
-| C-8 | `src/gl_screen.js:377` `SCR_SizeUp_f`/`SizeDown_f` | Edit `.value` directly, so viewsize changed with +/- isn't shown in the console or saved. | Reported |
-| C-9 | `src/sbar.js` (~`:820`) | No disc over the armour icon during invulnerability. | Reported |
-| C-10 | `src/sbar.js` (~`:368`) `Sbar_DrawNum` | Keeps the leftmost digits for values above 999, and draws the minus sign outside the digit cells. | Reported |
-| C-11 | `src/menu.js` (~`:711`) | "New Game" starts without the "Are you sure?" prompt. | Reported |
-| C-12 | `src/menu.js` (~`:1513`) | The Options menu lacks the CD Music Volume slider; the Keys menu lets you bind backtick. | Reported |
-| C-13 | `src/console.js` (~`:524`) `Con_DrawNotify` | No blinking cursor in chat input. | Reported |
-| C-14 | `src/console.js` (~`:102`) `Con_ToggleConsole_f` | Clears the input line but doesn't reset `key_linepos`, so the next command is lost. | Reported |
-| C-15 | `src/client.js:88` | `cshift.percent` is a double, not an int, so damage and bonus flashes fade at a slightly different, frame-rate-independent speed. | Reported |
-| C-16 | `src/cl_tent.js` | Ricochet sounds are evenly distributed; C plays `ric3` 50% of the time (`rand()&3`). | Reported |
-| C-17 | `src/cl_parse.js` `CL_ParseServerInfo` | The `\x02` highlight is dropped from the level-name banner. | Reported |
-| C-18 | `src/view.js:131` `V_CalcBob` | Weapon bob freezes while airborne in single player, and its phase isn't tied to `cl.time`. | Reported |
-| C-19 | `src/sv_user.js` (~`:141`) `SV_SetIdealPitch` | Uses fractional steps where C truncates to int, so very gentle ramps cause view pitch drift. | Reported |
-| C-20 | `src/snd_dma.js` (~`:1029`) | The gain/pan model (`max(l,r)/255` plus a StereoPanner) lacks C's per-side 255 clamp, so hard-panned sounds can be up to 6 dB louder. | Reported |
-| C-21 | `src/sound.js:162`, `src/snd_dma.js` `S_PlayVol` | The default `volume` is 0.4 instead of 0.7; `playvol x 0` plays at full volume. | Reported |
-| C-22 | `src/console.js` `_sprintf` | `%i` floors instead of truncating, and there's no `%x`. | Reported |
+| ID   | Where                                              | Difference                                                                                                                                                                             | Status                                                                                                    |
+| ---- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| C-1  | `src/gl_rmain.js:812` `R_DrawAliasModel`           | Missing `progs/eyes.mdl` 2× scale under `gl_doubleeyes` (the cvar is registered but never read).                                                                                       | Fixed after this review: the cvar (console name `gl_doubleeys`, as in C) is read in `src/gl_mesh.js:1282` |
+| C-2  | `src/r_part.js:800`                                | Particles are 3-unit point sprites centred on the origin, with no `1 + dist*0.004` growth. Far particles look smaller and near ones about 2× larger than in GLQuake.                   | Reported (sizing verified)                                                                                |
+| C-3  | `src/gl_rsurf.js` (~`:969`, `:1961`, `:1995`)      | Water warp is driven by `cl.time`, not `realtime`, so it freezes when paused.                                                                                                          | Reported                                                                                                  |
+| C-4  | `src/gl_rsurf.js` (~`:1886`)                       | `r_fullbright` and `r_lightmap` have no effect; materials always apply the lightmap.                                                                                                   | Reported                                                                                                  |
+| C-5  | `src/gl_rmain.js:1309` `R_Mirror`                  | Mirrors aren't implemented, so the mirror surfaces (`window02_1`, in `start`, `e1m5` and `e4m3`; this row first said e2m3) show no reflection. The code documents this as a known gap. | Verified                                                                                                  |
+| C-6  | `src/gl_draw.js:743` `Draw_ConsoleBackground`      | The console is always opaque; GLQuake fades it to about 0.8 alpha at half height.                                                                                                      | Reported                                                                                                  |
+| C-7  | `src/view.js:765` `V_CalcIntermissionRefdef`       | The intermission and finale camera follows the mouse (uses `cl.viewangles` instead of the entity angles).                                                                              | Reported                                                                                                  |
+| C-8  | `src/gl_screen.js:377` `SCR_SizeUp_f`/`SizeDown_f` | Edit `.value` directly, so viewsize changed with +/- isn't shown in the console or saved.                                                                                              | Reported                                                                                                  |
+| C-9  | `src/sbar.js` (~`:820`)                            | No disc over the armour icon during invulnerability.                                                                                                                                   | Reported                                                                                                  |
+| C-10 | `src/sbar.js` (~`:368`) `Sbar_DrawNum`             | Keeps the leftmost digits for values above 999, and draws the minus sign outside the digit cells.                                                                                      | Reported                                                                                                  |
+| C-11 | `src/menu.js` (~`:711`)                            | "New Game" starts without the "Are you sure?" prompt.                                                                                                                                  | Reported                                                                                                  |
+| C-12 | `src/menu.js` (~`:1513`)                           | The Options menu lacks the CD Music Volume slider; the Keys menu lets you bind backtick.                                                                                               | Reported                                                                                                  |
+| C-13 | `src/console.js` (~`:524`) `Con_DrawNotify`        | No blinking cursor in chat input.                                                                                                                                                      | Reported                                                                                                  |
+| C-14 | `src/console.js` (~`:102`) `Con_ToggleConsole_f`   | Clears the input line but doesn't reset `key_linepos`, so the next command is lost.                                                                                                    | Reported                                                                                                  |
+| C-15 | `src/client.js:88`                                 | `cshift.percent` is a double, not an int, so damage and bonus flashes fade at a slightly different, frame-rate-independent speed.                                                      | Reported                                                                                                  |
+| C-16 | `src/cl_tent.js`                                   | Ricochet sounds are evenly distributed; C plays `ric3` 50% of the time (`rand()&3`).                                                                                                   | Reported                                                                                                  |
+| C-17 | `src/cl_parse.js` `CL_ParseServerInfo`             | The `\x02` highlight is dropped from the level-name banner.                                                                                                                            | Reported                                                                                                  |
+| C-18 | `src/view.js:131` `V_CalcBob`                      | Weapon bob freezes while airborne in single player, and its phase isn't tied to `cl.time`.                                                                                             | Reported                                                                                                  |
+| C-19 | `src/sv_user.js` (~`:141`) `SV_SetIdealPitch`      | Uses fractional steps where C truncates to int, so very gentle ramps cause view pitch drift.                                                                                           | Reported                                                                                                  |
+| C-20 | `src/snd_dma.js` (~`:1029`)                        | The gain/pan model (`max(l,r)/255` plus a StereoPanner) lacks C's per-side 255 clamp, so hard-panned sounds can be up to 6 dB louder.                                                  | Reported                                                                                                  |
+| C-21 | `src/sound.js:162`, `src/snd_dma.js` `S_PlayVol`   | The default `volume` is 0.4 instead of 0.7; `playvol x 0` plays at full volume.                                                                                                        | Reported                                                                                                  |
+| C-22 | `src/console.js` `_sprintf`                        | `%i` floors instead of truncating, and there's no `%x`.                                                                                                                                | Reported                                                                                                  |
 
 ---
 
@@ -420,20 +719,25 @@ These were compared function by function and found faithful:
 - **QuakeC VM:**
   - every opcode in `PR_ExecuteProgram`
   - the builtin table (indices 0-78)
-  - all 92 global offsets and 105 entity-field slots, checked programmatically against `progdefs.q1`
+  - all 92 global offsets and 105 entity-field slots, checked programmatically
+    against `progdefs.q1`
   - the `ED_Alloc` 0.5 s reuse rule
 - **Physics and collision:**
-  - `SV_FlyMove`, `SV_PushMove`, `SV_WalkMove` (apart from SP-6), `SV_RecursiveHullCheck`, `SV_Move`, area-node linking
+  - `SV_FlyMove`, `SV_PushMove`, `SV_WalkMove` (apart from SP-6),
+    `SV_RecursiveHullCheck`, `SV_Move`, area-node linking
   - monster movement (`sv_move.c`)
   - friction and acceleration
-- **Map and model loading:** the BSP, MDL and SPR loaders, including surface extents with float32 rounding. These were confirmed empirically on all 21 shareware maps (42,398 faces), 61 models and 3 sprites.
+- **Map and model loading:** the BSP, MDL and SPR loaders, including surface
+  extents with float32 rounding. These were confirmed empirically on all 21
+  shareware maps (42,398 faces), 61 models and 3 sprites.
 - **Wire format:**
   - all original `svc_` messages are byte-identical
   - `MSG_Read*`/`MSG_Write*` rounding and wrap
   - `CL_ParseServerMessage`
   - the demo file format
 - **Core:**
-  - the `COM_Parse` tokenizer, `Cbuf`/`Cmd_TokenizeString`, cvars and `Q_atof`/`Q_atoi`
+  - the `COM_Parse` tokenizer, `Cbuf`/`Cmd_TokenizeString`, cvars and
+    `Q_atof`/`Q_atoi`
   - the CRC table
   - `mathlib`
   - `Host_FilterTime`
@@ -442,30 +746,46 @@ These were compared function by function and found faithful:
   - `R_BuildLightMap`
   - `R_MarkLights`/`R_PushDlights`
   - `R_TextureAnimation`
-  - the `anorms` and `anorm_dots` tables, and the `turbsin` table (diffed numerically)
+  - the `anorms` and `anorm_dots` tables, and the `turbsin` table (diffed
+    numerically)
 - **Particles:** every `r_part.c` effect function and the particle physics.
 
-Later PRs changed some of these on purpose: the `MSG_Write*` rounding, the wire format and the builtin table. See "Behaviour taken from QuakeSpasm and Ironwail" in section 7.
+Later PRs changed some of these on purpose: the `MSG_Write*` rounding, the wire
+format and the builtin table. See "Behaviour taken from QuakeSpasm and Ironwail"
+in section 7.
 
 ## 6. Claims checked and rejected
 
-- **`gl_doubleeys` is misspelled.** No: that is id's own spelling (`gl_rmain.c`). The real gap is C-1.
-- **Particles don't attenuate with distance.** No: the material uses `sizeAttenuation: true`. The real difference is C-2.
-- **`RecursiveLightPoint` samples the wrong lightmap texel.** No: the port uses `ds >> 4`, so only a negligible boundary case differs.
-- **Duplicate cvars in `screen.js` and `gl_screen.js` cause split state.** No: `screen.js` is dead code that nothing imports.
-- **`SND_PickChannel` steals channels even with 30 free.** No: only the first free slot is skipped (see SP-7).
-- **Dynamic lights are applied twice.** No: with `gl_flashblend 0` the PointLight path returns early, and `R_PushDlights` in `render.js` is an unused stub.
+- **`gl_doubleeys` is misspelled.** No: that is id's own spelling
+  (`gl_rmain.c`). The real gap is C-1.
+- **Particles don't attenuate with distance.** No: the material uses
+  `sizeAttenuation: true`. The real difference is C-2.
+- **`RecursiveLightPoint` samples the wrong lightmap texel.** No: the port uses
+  `ds >> 4`, so only a negligible boundary case differs.
+- **Duplicate cvars in `screen.js` and `gl_screen.js` cause split state.** No:
+  `screen.js` is dead code that nothing imports.
+- **`SND_PickChannel` steals channels even with 30 free.** No: only the first
+  free slot is skipped (see SP-7).
+- **Dynamic lights are applied twice.** No: with `gl_flashblend 0` the
+  PointLight path returns early, and `R_PushDlights` in `render.js` is an unused
+  stub.
 
 - **"Command acks never advance on WebTransport, so prediction is unusable."**
-  - Rejected for the current build: with `USE_CLIENT_OUTBOUND_DATAGRAMS = false`, client moves travel on the reliable lane, which the ack tracks.
+  - Rejected for the current build: with
+    `USE_CLIENT_OUTBOUND_DATAGRAMS = false`, client moves travel on the reliable
+    lane, which the ack tracks.
   - The bug is real but latent, so it is kept as PRED-2.
 
 ## 7. Intentional deviations (not bugs)
 
-- **Rendering:** Three.js rendering (Lambert world materials with lightmaps on `uv1`, fullbright emissive maps, the BatchedMesh world, the PointLight pool, CubeCamera, point-sprite particles, Hor+ FOV).
+- **Rendering:** Three.js rendering (Lambert world materials with lightmaps on
+  `uv1`, fullbright emissive maps, the BatchedMesh world, the PointLight pool,
+  CubeCamera, point-sprite particles, Hor+ FOV).
 - **Networking:**
   - WebTransport networking with lobby/room support.
-  - The QuakeWorld-style entity protocol (`svc_packetentities`, `svc_playerinfo`, `svc_serversequence`, `clc_delta`) and client-side prediction (`pmove.js`, `cl_pred.js`).
+  - The QuakeWorld-style entity protocol (`svc_packetentities`,
+    `svc_playerinfo`, `svc_serversequence`, `clc_delta`) and client-side
+    prediction (`pmove.js`, `cl_pred.js`).
 - **Platform replacements:**
   - Web Audio instead of DMA mixing; `snd_mix.js` is dead code.
   - localStorage for config and saves; fetch-based pak and map loading.
@@ -475,58 +795,173 @@ Later PRs changed some of these on purpose: the `MSG_Write*` rounding, the wire 
   - `CL_UpdateTEnts` loop variable.
   - `chase.c` trace initialisation.
   - Alias frame `bboxmax`.
-  - `Mod_FloodFillSkin` on every skin (except on a dedicated server, which never draws or remaps skins).
-- **Omitted platform features:** the DOS/Win32 platform code, serial/modem/IPX menus, the video mode menu, and `#ifdef QUAKE2` code.
+  - `Mod_FloodFillSkin` on every skin (except on a dedicated server, which never
+    draws or remaps skins).
+- **Omitted platform features:** the DOS/Win32 platform code, serial/modem/IPX
+  menus, the video mode menu, and `#ifdef QUAKE2` code.
 - **Registered-content checks kept looser on purpose** (decided in [#10]):
-  - `COM_FindFile`'s shareware rule that refuses loose files whose path contains `/` is not ported. The port ships its deathmatch maps as loose `static/maps/*.bsp` files next to the shareware pak, and the rule would refuse them.
-  - WinQuake's `#if WINDED` check in `COM_CheckRegistered`, which stops a dedicated server without the registered `gfx/pop.lmp`, is not ported. The Deno room server is a dedicated server that runs on the shareware pak by design.
-- **Behaviour taken from QuakeSpasm and Ironwail** (added after this review, #42 to #150): these C source ports fix bugs in id's code and raise its limits. The port takes some of their changes, so in these places it no longer matches WinQuake:
-  - `MSG_WriteCoord` and `MSG_WriteAngle` round with `Q_rint` (#69, #42), where WinQuake truncates. QW's `MSG_WriteAngle16` no longer drops the fraction of a degree before quantising (#42).
-  - The wire format changed at the same `PROTOCOL_VERSION` 15 until #140 moved the server to `PROTOCOL_ICARO` (1015); the client still reads 15 for demos. `clc_move` carries 16-bit angles (#42), the movevars include `sv_altnoclip` (#93), and `svc_localsound` is new (#106). See "Wire format" under the fix status.
-  - The QuakeC builtin table goes past index 78, with Ironwail's extension builtins (#80, #106) and two rerelease builtins (#111).
-  - Limits are higher than C's, for example `MAX_EDICTS` 32000 (#140; it was 1024), `MAX_DLIGHTS` 64 and `MAX_PARTICLES` 16384 (#45 to #48, #51, #72).
-  - BSP2 maps (#126): `Mod_LoadBrushModel` accepts Ironwail's `BSP2VERSION_BSP2`, with 32-bit edges, faces, marksurfaces, leafs, nodes and clipnodes, and no leaf limit. WinQuake loads only version 29. The rerelease's dopa, mg1 and mg3 maps and two id1 maps need it. BSP29 maps load as before; the older RMQ `2PSB` variant is still refused.
-  - 2021 rerelease localisation (#124): Ironwail's `LOC_*` loader reads `localization/loc_<language>.txt` (`language` cvar, default `auto`), and on the server `PF_VarString` and `PF_WriteString` resolve `$key` strings (`PF_VarString` also fills `{}` placeholders). With no such file (the shareware and original registered data) prints are unchanged. It differs from Ironwail in a few places, listed in the comment that opens the localisation section of `src/common.js`. The main ones: it doesn't read `QuakeEX.kpf`, a change to `language` takes effect at the next lookup, and a missing file is only a developer message.
-  - `.lit` coloured lighting (#137): `Mod_LoadLighting` reads `maps/<name>.lit` as Ironwail does (`QLIT` version 1, the right size, and from the map's own search path or a higher one), and the lightmaps, dynamic lights and `R_LightPoint` carry r, g and b as in QuakeSpasm. WinQuake has only mono lighting. Maps without a `.lit` (all the shareware and original registered data) keep one-byte lightmaps and render as before. Unlike Ironwail, mono data is not expanded to RGB, a dedicated server does not read the `.lit`, and there is no overbright. Alias models are tinted by `lightcolor` as in QuakeSpasm's `R_SetupAliasLighting`, but keep id's order and clamps, so maps without a `.lit` shade them exactly as before.
-  - Global fog (#134), which WinQuake and GLQuake lack: `src/gl_fog.js` ports Ironwail's `gl_fog.c` (the worldspawn `fog` key and the `fog` command, with timed fades) and the `r_skyfog` part of `gl_sky.c` (the worldspawn `skyfog` key, a flat mix of the sky towards the fog colour, default 0.5). The 2021 rerelease maps and QuakeC depend on it. Three.js draws it with `FogExp2` over the planar view depth at `density / 64`, as FitzQuake's `GL_EXP2` fog, where Ironwail uses the radial distance with a 0.85 correction. A map without fog leaves `scene.fog` null, so it renders as before. `svc_fog` and volumetric fog (a stub in Ironwail) are not ported.
-  - MD5 replacement models (#146): `r_enhancedmodels` (default 1, as in Ironwail) draws an `.md5mesh`/`.md5anim` beside an `.mdl` instead of it (`src/gl_md5.js`). Unlike Ironwail, the `.mdl` stays loaded for bounds and the server, each pose is skinned on the CPU and lit from the nearest of the 162 Quake normals, files with more than one mesh are skipped, and skins are read only as `.lmp`.
-  - Skyboxes (#144), which WinQuake and GLQuake lack: `src/gl_sky.js` ports Ironwail's `Sky_LoadSkyBox` and the skybox part of `Sky_NewMap` (the worldspawn `sky` key, with or without the leading `_`, plus `skyname` and `qlsky`) and the `sky` command. `src/image.js` ports QuakeSpasm's `Image_LoadTGA`. The faces `gfx/env/<name>{rt,bk,lf,ft,up,dn}.tga` become one cube map, and the sky surfaces sample it in the direction from the eye, as Ironwail's cubemap path (`R_DrawBrushModels_SkyCubemap`) does, with the same `r_skyfog` mix. A map without the key draws the scrolling sky as before. Unlike Ironwail: the faces are fetched on demand, so the scrolling sky shows until they arrive; only `.tga` is tried (not png, jpg, pcx or lmp); a set whose faces aren't all square and the same size keeps the scrolling sky (Ironwail draws six separate sides); a bad targa warns where QuakeSpasm calls `Sys_Error`; only the current box stays loaded; and `r_fastsky`, `r_skyalpha` and the `skywind` commands are not ported.
-  - The 2021 rerelease's coloured powerup glows (#143): as Ironwail, `EF_QEX_QUADLIGHT` (16) and `EF_QEX_PENTALIGHT` (32) give blue and red dlights, and `PR_FindSupportedEffects` lets the server send them and `EF_QEX_CANDLELIGHT` (64, no light) only for a progs that defines them, so other progs see id's effects byte. Dlights carry QuakeSpasm's `color`, applied to `.lit` lightmaps and the alias shade. With `gl_flashblend 1` (the default) the port's PointLights light in that colour; white dlights keep their `0xffaa44`, which stands in for GLQuake's orange flashblend corona.
-  - A no-op `vibrate` command (#142), which neither id's Quake nor Ironwail has. The rerelease's published QuakeC stuffs `vibrate tactile/<name>.bnvib` at sites that are all commented out, so it only keeps a mod that turns them back on from printing "Unknown command". It drives no gamepad haptics.
-  - Datagram size, as FitzQuake and QuakeSpasm: `MAX_DATAGRAM` (id: 1024) sizes the server's buffers and the local client's datagram, and a network client gets at most `DATAGRAM_MTU` (1400), so the 2021 rerelease maps stop printing `packet overflow` in single player. It is 4096 rather than QuakeSpasm's 32000 or more, because the loopback driver puts the datagram and a reliable message in one 8192-byte buffer and demos cap a message at `MAX_MSGLEN`. Unlike QuakeSpasm, a WebTransport client's limit is the session's `maxDatagramSize` less the 9-byte transport header, re-read every frame and clamped to 1024–1400, with 1024 when it is unknown (`SV_ClientDatagramSize`, `sock.maxdatagram`). `sv.reliable_datagram` keeps id's 1024 bytes, because it is appended to each client's 8000-byte reliable message, where an overflow drops the client.
-  - New cvars and commands that WinQuake lacks. `r_lerpmodels` and `r_lerpmove` default to 0, so id's unlerped animation stays the default.
-- **The port's own departures, with no C source port behind them** (#158, #159, #164):
-  - In WebXR the rig ignores the pitch in `cl.viewangles`, because the headset supplies pitch (#164). `svc_setangle`, `V_DriftPitch` and the chase camera can still set the desktop pitch, but in a headset that would tilt the world around the player.
-  - `R_BlendLightmaps` uploads changed lightmap blocks whatever `gl_texsort` is (#158). GLQuake returns early under `gl_texsort 0` because its `R_DrawSequentialPoly` uploads them itself; the port's doesn't bind lightmaps, so the upload stays in `R_BlendLightmaps`, at the same point in the frame.
-  - When `sv.datagram` doesn't fit a network client's datagram, `SV_CopyServerDatagram` copies the longest run of whole sound and particle messages from the start, where id drops all of them (#159). A datagram that fits is copied whole, as in id, so the loopback client and quiet frames are unchanged. QuakeC `MSG_BROADCAST` bytes between two messages are copied whole or not at all.
+  - `COM_FindFile`'s shareware rule that refuses loose files whose path contains
+    `/` is not ported. The port ships its deathmatch maps as loose
+    `static/maps/*.bsp` files next to the shareware pak, and the rule would
+    refuse them.
+  - WinQuake's `#if WINDED` check in `COM_CheckRegistered`, which stops a
+    dedicated server without the registered `gfx/pop.lmp`, is not ported. The
+    Deno room server is a dedicated server that runs on the shareware pak by
+    design.
+- **Behaviour taken from QuakeSpasm and Ironwail** (added after this review, #42
+  to #150): these C source ports fix bugs in id's code and raise its limits. The
+  port takes some of their changes, so in these places it no longer matches
+  WinQuake:
+  - `MSG_WriteCoord` and `MSG_WriteAngle` round with `Q_rint` (#69, #42), where
+    WinQuake truncates. QW's `MSG_WriteAngle16` no longer drops the fraction of
+    a degree before quantising (#42).
+  - The wire format changed at the same `PROTOCOL_VERSION` 15 until #140 moved
+    the server to `PROTOCOL_ICARO` (1015); the client still reads 15 for demos.
+    `clc_move` carries 16-bit angles (#42), the movevars include `sv_altnoclip`
+    (#93), and `svc_localsound` is new (#106). See "Wire format" under the fix
+    status.
+  - The QuakeC builtin table goes past index 78, with Ironwail's extension
+    builtins (#80, #106) and two rerelease builtins (#111).
+  - Limits are higher than C's, for example `MAX_EDICTS` 32000 (#140; it was
+    1024), `MAX_DLIGHTS` 64 and `MAX_PARTICLES` 16384 (#45 to #48, #51, #72).
+  - BSP2 maps (#126): `Mod_LoadBrushModel` accepts Ironwail's
+    `BSP2VERSION_BSP2`, with 32-bit edges, faces, marksurfaces, leafs, nodes and
+    clipnodes, and no leaf limit. WinQuake loads only version 29. The
+    rerelease's dopa, mg1 and mg3 maps and two id1 maps need it. BSP29 maps load
+    as before; the older RMQ `2PSB` variant is still refused.
+  - 2021 rerelease localisation (#124): Ironwail's `LOC_*` loader reads
+    `localization/loc_<language>.txt` (`language` cvar, default `auto`), and on
+    the server `PF_VarString` and `PF_WriteString` resolve `$key` strings
+    (`PF_VarString` also fills `{}` placeholders). With no such file (the
+    shareware and original registered data) prints are unchanged. It differs
+    from Ironwail in a few places, listed in the comment that opens the
+    localisation section of `src/common.js`. The main ones: it doesn't read
+    `QuakeEX.kpf`, a change to `language` takes effect at the next lookup, and a
+    missing file is only a developer message.
+  - `.lit` coloured lighting (#137): `Mod_LoadLighting` reads `maps/<name>.lit`
+    as Ironwail does (`QLIT` version 1, the right size, and from the map's own
+    search path or a higher one), and the lightmaps, dynamic lights and
+    `R_LightPoint` carry r, g and b as in QuakeSpasm. WinQuake has only mono
+    lighting. Maps without a `.lit` (all the shareware and original registered
+    data) keep one-byte lightmaps and render as before. Unlike Ironwail, mono
+    data is not expanded to RGB, a dedicated server does not read the `.lit`,
+    and there is no overbright. Alias models are tinted by `lightcolor` as in
+    QuakeSpasm's `R_SetupAliasLighting`, but keep id's order and clamps, so maps
+    without a `.lit` shade them exactly as before.
+  - Global fog (#134), which WinQuake and GLQuake lack: `src/gl_fog.js` ports
+    Ironwail's `gl_fog.c` (the worldspawn `fog` key and the `fog` command, with
+    timed fades) and the `r_skyfog` part of `gl_sky.c` (the worldspawn `skyfog`
+    key, a flat mix of the sky towards the fog colour, default 0.5). The 2021
+    rerelease maps and QuakeC depend on it. Three.js draws it with `FogExp2`
+    over the planar view depth at `density / 64`, as FitzQuake's `GL_EXP2` fog,
+    where Ironwail uses the radial distance with a 0.85 correction. A map
+    without fog leaves `scene.fog` null, so it renders as before. `svc_fog` and
+    volumetric fog (a stub in Ironwail) are not ported.
+  - MD5 replacement models (#146): `r_enhancedmodels` (default 1, as in
+    Ironwail) draws an `.md5mesh`/`.md5anim` beside an `.mdl` instead of it
+    (`src/gl_md5.js`). Unlike Ironwail, the `.mdl` stays loaded for bounds and
+    the server, each pose is skinned on the CPU and lit from the nearest of the
+    162 Quake normals, files with more than one mesh are skipped, and skins are
+    read only as `.lmp`.
+  - Skyboxes (#144), which WinQuake and GLQuake lack: `src/gl_sky.js` ports
+    Ironwail's `Sky_LoadSkyBox` and the skybox part of `Sky_NewMap` (the
+    worldspawn `sky` key, with or without the leading `_`, plus `skyname` and
+    `qlsky`) and the `sky` command. `src/image.js` ports QuakeSpasm's
+    `Image_LoadTGA`. The faces `gfx/env/<name>{rt,bk,lf,ft,up,dn}.tga` become
+    one cube map, and the sky surfaces sample it in the direction from the eye,
+    as Ironwail's cubemap path (`R_DrawBrushModels_SkyCubemap`) does, with the
+    same `r_skyfog` mix. A map without the key draws the scrolling sky as
+    before. Unlike Ironwail: the faces are fetched on demand, so the scrolling
+    sky shows until they arrive; only `.tga` is tried (not png, jpg, pcx or
+    lmp); a set whose faces aren't all square and the same size keeps the
+    scrolling sky (Ironwail draws six separate sides); a bad targa warns where
+    QuakeSpasm calls `Sys_Error`; only the current box stays loaded; and
+    `r_fastsky`, `r_skyalpha` and the `skywind` commands are not ported.
+  - The 2021 rerelease's coloured powerup glows (#143): as Ironwail,
+    `EF_QEX_QUADLIGHT` (16) and `EF_QEX_PENTALIGHT` (32) give blue and red
+    dlights, and `PR_FindSupportedEffects` lets the server send them and
+    `EF_QEX_CANDLELIGHT` (64, no light) only for a progs that defines them, so
+    other progs see id's effects byte. Dlights carry QuakeSpasm's `color`,
+    applied to `.lit` lightmaps and the alias shade. With `gl_flashblend 1` (the
+    default) the port's PointLights light in that colour; white dlights keep
+    their `0xffaa44`, which stands in for GLQuake's orange flashblend corona.
+  - A no-op `vibrate` command (#142), which neither id's Quake nor Ironwail has.
+    The rerelease's published QuakeC stuffs `vibrate tactile/<name>.bnvib` at
+    sites that are all commented out, so it only keeps a mod that turns them
+    back on from printing "Unknown command". It drives no gamepad haptics.
+  - Datagram size, as FitzQuake and QuakeSpasm: `MAX_DATAGRAM` (id: 1024) sizes
+    the server's buffers and the local client's datagram, and a network client
+    gets at most `DATAGRAM_MTU` (1400), so the 2021 rerelease maps stop printing
+    `packet overflow` in single player. It is 4096 rather than QuakeSpasm's
+    32000 or more, because the loopback driver puts the datagram and a reliable
+    message in one 8192-byte buffer and demos cap a message at `MAX_MSGLEN`.
+    Unlike QuakeSpasm, a WebTransport client's limit is the session's
+    `maxDatagramSize` less the 9-byte transport header, re-read every frame and
+    clamped to 1024–1400, with 1024 when it is unknown (`SV_ClientDatagramSize`,
+    `sock.maxdatagram`). `sv.reliable_datagram` keeps id's 1024 bytes, because
+    it is appended to each client's 8000-byte reliable message, where an
+    overflow drops the client.
+  - New cvars and commands that WinQuake lacks. `r_lerpmodels` and `r_lerpmove`
+    default to 0, so id's unlerped animation stays the default.
+- **The port's own departures, with no C source port behind them** (#158, #159,
+  #164):
+  - In WebXR the rig ignores the pitch in `cl.viewangles`, because the headset
+    supplies pitch (#164). `svc_setangle`, `V_DriftPitch` and the chase camera
+    can still set the desktop pitch, but in a headset that would tilt the world
+    around the player.
+  - `R_BlendLightmaps` uploads changed lightmap blocks whatever `gl_texsort` is
+    (#158). GLQuake returns early under `gl_texsort 0` because its
+    `R_DrawSequentialPoly` uploads them itself; the port's doesn't bind
+    lightmaps, so the upload stays in `R_BlendLightmaps`, at the same point in
+    the frame.
+  - When `sv.datagram` doesn't fit a network client's datagram,
+    `SV_CopyServerDatagram` copies the longest run of whole sound and particle
+    messages from the start, where id drops all of them (#159). A datagram that
+    fits is copied whole, as in id, so the loopback client and quiet frames are
+    unchanged. QuakeC `MSG_BROADCAST` bytes between two messages are copied
+    whole or not at all.
 
 ## 8. Not covered by this review
 
-Part 3 (sections 13 to 18) has since covered `cd_audio.js`, the web multiplayer menus, XR rendering and texture upload, and the ported engine code changed in #115 to #150. Still not covered:
+Part 3 (sections 13 to 18) has since covered `cd_audio.js`, the web multiplayer
+menus, XR rendering and texture upload, and the ported engine code changed in
+#115 to #150. Still not covered:
 
-- any live run: no browser session, no headset, no remote multiplayer session, no lobby or room server
-- a fresh fidelity pass over #34 to #114 (`dfef74a` to `223a180`); those PRs were reviewed one by one when they landed
-- the new web-only features of #115 to #150 beyond their effect on id's data: the MD5 skinning, the fog and skybox code, TGA loading, the localisation loader and `unicode_translit.js` were spot-checked against Ironwail, not compared line by line
-- `server/` and `src/net_webtransport.js` changes since Part 2, apart from the room calls the menus make
+- any live run: no browser session, no headset, no remote multiplayer session,
+  no lobby or room server
+- a fresh fidelity pass over #34 to #114 (`dfef74a` to `223a180`); those PRs
+  were reviewed one by one when they landed
+- the new web-only features of #115 to #150 beyond their effect on id's data:
+  the MD5 skinning, the fog and skybox code, TGA loading, the localisation
+  loader and `unicode_translit.js` were spot-checked against Ironwail, not
+  compared line by line
+- `server/` and `src/net_webtransport.js` changes since Part 2, apart from the
+  room calls the menus make
 
 ---
 
 # Part 2: QuakeWorld prediction, WebTransport, Deno server, touch and VR input
 
-These parts have no WinQuake counterpart, or only a QuakeWorld one, so they were reviewed for correctness and robustness as well as fidelity.
+These parts have no WinQuake counterpart, or only a QuakeWorld one, so they were
+reviewed for correctness and robustness as well as fidelity.
 
 ## Part 2 summary, most urgent first
 
-1. **SRV-1:** the lobby never learns room player counts, so every room is killed after 5-10 minutes, mid-game included.
-2. **NET-1:** simultaneous connects can make a room call `Sys_Error`, which exits the process and drops every player.
+1. **SRV-1:** the lobby never learns room player counts, so every room is killed
+   after 5-10 minutes, mid-game included.
+2. **NET-1:** simultaneous connects can make a room call `Sys_Error`, which
+   exits the process and drops every player.
 3. **NET-2, SRV-2:**
-   - There is no handshake, auth or rate limit, so one client can fill every room slot and every room.
+   - There is no handshake, auth or rate limit, so one client can fill every
+     room slot and every room.
    - `maxPlayers` isn't validated, so `1e9` exhausts the room's memory.
-4. **PRED-1:** client prediction overwrites `cl.time` with a different clock, which disables entity interpolation in remote play.
+4. **PRED-1:** client prediction overwrites `cl.time` with a different clock,
+   which disables entity interpolation in remote play.
 5. **IN-1:** keys stick after alt-tab or Cmd-Tab.
 6. **IN-2:** touchscreen laptops lose mouse look.
 7. **IN-3:** VR has no menu or HUD, and its movement disagrees with the server.
-8. **PRED-3, PRED-4, PRED-5:** systematic prediction errors from running QW pmove against NetQuake server physics.
+8. **PRED-3, PRED-4, PRED-5:** systematic prediction errors from running QW
+   pmove against NetQuake server physics.
 9. **Deployment:**
    - `denoPath` is hard-coded.
    - There is no `.gitignore` for the TLS key.
@@ -537,77 +972,120 @@ These parts have no WinQuake counterpart, or only a QuakeWorld one, so they were
 
 ### What matches the original
 
-`pmove.js` and `cl_pred.js` faithfully port QW `pmove.c`, `pmovetst.c` and `cl_pred.c`. All of these match line by line, with no wrong constants:
+`pmove.js` and `cl_pred.js` faithfully port QW `pmove.c`, `pmovetst.c` and
+`cl_pred.c`. All of these match line by line, with no wrong constants:
 
-- the movement and trace functions: `PM_FlyMove`, `PM_GroundMove`, the friction and acceleration functions, `PM_WaterMove`, `JumpButton`, `CheckWaterJump`, `PM_RecursiveHullCheck`, `PM_PlayerMove`
+- the movement and trace functions: `PM_FlyMove`, `PM_GroundMove`, the friction
+  and acceleration functions, `PM_WaterMove`, `JumpButton`, `CheckWaterJump`,
+  `PM_RecursiveHullCheck`, `PM_PlayerMove`
 - the `CL_PredictMove` time window
 - the `UPDATE_BACKUP` guard
 - the 128-unit teleport snap
 
 ### The real problem: two physics models
 
-The client predicts with QW pmove while the server simulates players with NetQuake physics (`sv_user.js`/`sv_phys.js`). With a reliable-stream ack and no `msec` in `clc_move`, prediction is necessarily approximate. The items below are the places where the two systematically disagree.
+The client predicts with QW pmove while the server simulates players with
+NetQuake physics (`sv_user.js`/`sv_phys.js`). With a reliable-stream ack and no
+`msec` in `clc_move`, prediction is necessarily approximate. The items below are
+the places where the two systematically disagree.
 
 ### PRED-1 · Prediction overwrites `cl.time` with a different clock — **high (remote play)**, Verified
 
 - **Mechanism:**
-  - `CL_PredictMove` sets `cl.time = realtime - latency` (`cl_pred.js:845`), which is client wall-clock time.
-  - `CL_LerpPoint` compares `cl.time` with `cl.mtime[]` (`cl_main.js:567`), which holds the server's map time.
-  - The two clocks are unrelated, so `frac` is always clamped and `cl.time` snaps to `mtime[0]` or `mtime[1]` (`:573`, `:583`).
-- **C:** in QW, both clocks are in the realtime domain. In NQ, `cl.time` stays in server time.
+  - `CL_PredictMove` sets `cl.time = realtime - latency` (`cl_pred.js:845`),
+    which is client wall-clock time.
+  - `CL_LerpPoint` compares `cl.time` with `cl.mtime[]` (`cl_main.js:567`),
+    which holds the server's map time.
+  - The two clocks are unrelated, so `frac` is always clamped and `cl.time`
+    snaps to `mtime[0]` or `mtime[1]` (`:573`, `:583`).
+- **C:** in QW, both clocks are in the realtime domain. In NQ, `cl.time` stays
+  in server time.
 - **Effect:**
-  - In remote play, monsters, doors, platforms and projectiles are never interpolated. With 20 Hz rooms that is visible stutter.
-  - Dynamic lights stamped with `die = cl.time + …` in the snapped (server) clock are decayed by `CL_DecayLights` (`host.js:578`) after `cl.time` is back on the client clock, so they may vanish at once or linger.
-- `cl.mtime[0]` comes from `svc_time` (`cl_parse.js:1283`), and the packet-entity linker uses `CL_LerpPoint`'s `frac` (`cl_main.js:956`), so this covers the QuakeWorld-style entity path too.
-  - Beams were already patched to use `cl.mtime` (`cl_tent.js:73`), which suggests this problem had been noticed before.
-- **Fix direction:** keep the prediction time in its own variable, as QW effectively does, and leave `cl.time` in server time.
+  - In remote play, monsters, doors, platforms and projectiles are never
+    interpolated. With 20 Hz rooms that is visible stutter.
+  - Dynamic lights stamped with `die = cl.time + …` in the snapped (server)
+    clock are decayed by `CL_DecayLights` (`host.js:578`) after `cl.time` is
+    back on the client clock, so they may vanish at once or linger.
+- `cl.mtime[0]` comes from `svc_time` (`cl_parse.js:1283`), and the
+  packet-entity linker uses `CL_LerpPoint`'s `frac` (`cl_main.js:956`), so this
+  covers the QuakeWorld-style entity path too.
+  - Beams were already patched to use `cl.mtime` (`cl_tent.js:73`), which
+    suggests this problem had been noticed before.
+- **Fix direction:** keep the prediction time in its own variable, as QW
+  effectively does, and leave `cl.time` in server time.
 
 ### PRED-2 · Command acks only work while moves use the reliable stream — **latent**, Verified
 
-- The acknowledgement each side puts in its packets is `sock.receiveSequence`, and only the reliable lane updates it (`net_webtransport.js:108`, server `:185`).
-- With `USE_CLIENT_OUTBOUND_DATAGRAMS = false` (current setting), `clc_move` goes over the reliable stream with a forced sequence header (`net_webtransport.js:1371`). The server echoes that sequence in its own headered packets, so acks advance.
+- The acknowledgement each side puts in its packets is `sock.receiveSequence`,
+  and only the reliable lane updates it (`net_webtransport.js:108`, server
+  `:185`).
+- With `USE_CLIENT_OUTBOUND_DATAGRAMS = false` (current setting), `clc_move`
+  goes over the reliable stream with a forced sequence header
+  (`net_webtransport.js:1371`). The server echoes that sequence in its own
+  headered packets, so acks advance.
 - If datagrams are switched on for client moves:
   - no move is ever acked;
   - every stored command is replayed;
-  - after 63 commands `CL_PredictMove` stops updating, and the view freezes on a stale `cl_simorg`.
-- The prediction reviewer reported this as a live critical bug. It is not live today, but it blocks the obvious latency fix (see NET-5).
-- **Fix direction:** acknowledge the unreliable lane too, or acknowledge the highest sequence received on either lane.
+  - after 63 commands `CL_PredictMove` stops updating, and the view freezes on a
+    stale `cl_simorg`.
+- The prediction reviewer reported this as a live critical bug. It is not live
+  today, but it blocks the obvious latency fix (see NET-5).
+- **Fix direction:** acknowledge the unreliable lane too, or acknowledge the
+  highest sequence received on either lane.
 
 ### PRED-3 · Movement physics mismatch between pmove and the NetQuake server — **medium**, Reported (code-read)
 
-| Situation | NetQuake server | pmove (client) | Result |
-|---|---|---|---|
-| Looking up or down | `AngleVectors(angles)` with pitch/3, Z zeroed, no renormalise | flattened and renormalised forward/right | server ~0.89× forward speed at 80° pitch, so rubber-banding |
-| Angles | 8-bit quantised, truncated to whole degrees | exact `cl.viewangles` | up to ~2.4° yaw error. **Fixed after this review (#42):** `clc_move` sends 16-bit angles without first dropping the fraction, and `CL_QuantizeAngle` (`src/cl_input.js`) quantises the predicted angles the same way |
-| Frame time | full `host_frametime`, last command per server frame | `msec = floor(frametime*1000)` | prediction travels 4-6% less |
-| Water | NQ friction ×4 and `SV_WaterMove` accel | QW `waterlevel`-scaled friction, projected accel, step press-down | different swim speed and deceleration |
-| Edges | point trace, `edgefriction` cvar | hull trace from feet, hard-coded 2 | differs near drops |
-| Walls | `SV_WallFriction` | none | prediction slides faster along walls |
-| Jump frame | friction and accel, then +270 | jump first, air accel capped at 30 | first jump frame differs |
-| Other | `sv_maxvelocity` clamp, teleport back-move lock, 2D friction speed | none / 3D speed | small divergences |
-| noclip / fly / dead | no gravity or collision / toss | always walk physics | constant rubber-banding in noclip and fly |
+| Situation           | NetQuake server                                                    | pmove (client)                                                    | Result                                                                                                                                                                                                               |
+| ------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Looking up or down  | `AngleVectors(angles)` with pitch/3, Z zeroed, no renormalise      | flattened and renormalised forward/right                          | server ~0.89× forward speed at 80° pitch, so rubber-banding                                                                                                                                                          |
+| Angles              | 8-bit quantised, truncated to whole degrees                        | exact `cl.viewangles`                                             | up to ~2.4° yaw error. **Fixed after this review (#42):** `clc_move` sends 16-bit angles without first dropping the fraction, and `CL_QuantizeAngle` (`src/cl_input.js`) quantises the predicted angles the same way |
+| Frame time          | full `host_frametime`, last command per server frame               | `msec = floor(frametime*1000)`                                    | prediction travels 4-6% less                                                                                                                                                                                         |
+| Water               | NQ friction ×4 and `SV_WaterMove` accel                            | QW `waterlevel`-scaled friction, projected accel, step press-down | different swim speed and deceleration                                                                                                                                                                                |
+| Edges               | point trace, `edgefriction` cvar                                   | hull trace from feet, hard-coded 2                                | differs near drops                                                                                                                                                                                                   |
+| Walls               | `SV_WallFriction`                                                  | none                                                              | prediction slides faster along walls                                                                                                                                                                                 |
+| Jump frame          | friction and accel, then +270                                      | jump first, air accel capped at 30                                | first jump frame differs                                                                                                                                                                                             |
+| Other               | `sv_maxvelocity` clamp, teleport back-move lock, 2D friction speed | none / 3D speed                                                   | small divergences                                                                                                                                                                                                    |
+| noclip / fly / dead | no gravity or collision / toss                                     | always walk physics                                               | constant rubber-banding in noclip and fly                                                                                                                                                                            |
 
-- **Movevars sent once:** they go out at signon only (`sv_main.js:297`), so mid-game `sv_gravity`/`sv_maxspeed` changes are never predicted. **Status: fixed after this review.** They still go out at signon (`sv_main.js:351`), and `SV_CheckMovevars` (`sv_main.js:417`) re-sends them when `sv_gravity`, `sv_stopspeed`, `sv_maxspeed`, `sv_accelerate`, `sv_friction`, `sv_edgefriction`, `sv_maxvelocity` or `sv_altnoclip` changes.
+- **Movevars sent once:** they go out at signon only (`sv_main.js:297`), so
+  mid-game `sv_gravity`/`sv_maxspeed` changes are never predicted. **Status:
+  fixed after this review.** They still go out at signon (`sv_main.js:351`), and
+  `SV_CheckMovevars` (`sv_main.js:417`) re-sends them when `sv_gravity`,
+  `sv_stopspeed`, `sv_maxspeed`, `sv_accelerate`, `sv_friction`,
+  `sv_edgefriction`, `sv_maxvelocity` or `sv_altnoclip` changes.
 - **XR:** sends controller aim angles but predicts with head angles (see IN-3).
 
 ### PRED-4 · Collision set differs from the server — **medium**, Reported
 
-- **Brush entities:** `CL_SetSolidEntities` treats every brush entity as solid, including box pickups (`SOLID_TRIGGER`) and `func_illusionary`. The player stops and snaps when walking into them. Monsters (`SOLID_SLIDEBOX`) are not physents, so walking into one rubber-bands.
-- **Overflow crash:** once 32 physents are in use, `CL_SetSolidPlayers` reads `pmove.physents[numphysent]` before its bounds check (`cl_pred.js:623` vs `:633`). Assigning to that undefined entry throws a TypeError.
+- **Brush entities:** `CL_SetSolidEntities` treats every brush entity as solid,
+  including box pickups (`SOLID_TRIGGER`) and `func_illusionary`. The player
+  stops and snaps when walking into them. Monsters (`SOLID_SLIDEBOX`) are not
+  physents, so walking into one rubber-bands.
+- **Overflow crash:** once 32 physents are in use, `CL_SetSolidPlayers` reads
+  `pmove.physents[numphysent]` before its bounds check (`cl_pred.js:623` vs
+  `:633`). Assigning to that undefined entry throws a TypeError.
 
 ### PRED-5 · Other players are extrapolated from already-extrapolated positions — **medium**, Reported
 
-- **Compounding extrapolation:** `CL_SetUpPlayerPrediction` writes the predicted origin back into `pplayer.origin` (`cl_pred.js:497-512`) and runs twice per frame. QW always starts from the server state. Players therefore race ahead between updates.
+- **Compounding extrapolation:** `CL_SetUpPlayerPrediction` writes the predicted
+  origin back into `pplayer.origin` (`cl_pred.js:497-512`) and runs twice per
+  frame. QW always starts from the server state. Players therefore race ahead
+  between updates.
 - **Stale and missing physents:**
-  - The physents list is the previous frame's and includes the player being predicted, so the player can start inside its own box.
+  - The physents list is the previous frame's and includes the player being
+    predicted, so the player can start inside its own box.
   - QW restores `numphysent` after this step; the port never does.
-  - On a listen-server host there are no physents at all, so remote players fall through the floor between updates.
-- **Long-command split:** splitting a command over 100 ms reuses shared buffers across the recursive call. The second half runs with the wrong `msec`.
-- **Stale state across maps:** `CL_ResetPrediction` leaves `waterjumptime`, `oldbuttons` and `onground` from the previous map.
+  - On a listen-server host there are no physents at all, so remote players fall
+    through the floor between updates.
+- **Long-command split:** splitting a command over 100 ms reuses shared buffers
+  across the recursive call. The second half runs with the wrong `msec`.
+- **Stale state across maps:** `CL_ResetPrediction` leaves `waterjumptime`,
+  `oldbuttons` and `onground` from the previous map.
 
 ## 10. WebTransport transport (`src/net_webtransport.js`, `server/net_webtransport_server.ts`)
 
-- **Tests:** both transport tests pass, but they only cover sequence handling in `WT_QGetMessage`. They don't cover:
+- **Tests:** both transport tests pass, but they only cover sequence handling in
+  `WT_QGetMessage`. They don't cover:
   - frame reassembly
   - sending
   - the connect, close and drop lifecycle
@@ -617,342 +1095,730 @@ The client predicts with QW pmove while the server simulates players with NetQua
 ### NET-1 · Simultaneous connects can crash the room process — **high**, Verified (logic)
 
 - **Mechanism:**
-  - The server driver gets a socket from `NET_NewQSocket` as soon as a session opens its first stream, and queues it in `pendingConnections` (`net_webtransport_server.ts:455-471`).
-  - `NET_NewQSocket` only checks `net_activeconnections` (`src/net_main.js:91`). That counter rises in `SV_CheckForNewClients`, once per frame, so pending sockets aren't counted.
+  - The server driver gets a socket from `NET_NewQSocket` as soon as a session
+    opens its first stream, and queues it in `pendingConnections`
+    (`net_webtransport_server.ts:455-471`).
+  - `NET_NewQSocket` only checks `net_activeconnections` (`src/net_main.js:91`).
+    That counter rises in `SV_CheckForNewClients`, once per frame, so pending
+    sockets aren't counted.
   - The pool has `maxclientslimit + 1` sockets.
-- **Effect:** if more sessions open in one frame than there are free client slots, `SV_CheckForNewClients` reaches `Sys_Error('Host_CheckForNewClients: no free clients')` (`src/sv_main.js:402`). On the server that is `Deno.exit(1)` (`server/sys_server.ts:9`), which drops every player in the room.
-- **Fix direction:** count pending sockets in the check, and reject gracefully instead of calling `Sys_Error`.
+- **Effect:** if more sessions open in one frame than there are free client
+  slots, `SV_CheckForNewClients` reaches
+  `Sys_Error('Host_CheckForNewClients: no free clients')`
+  (`src/sv_main.js:402`). On the server that is `Deno.exit(1)`
+  (`server/sys_server.ts:9`), which drops every player in the room.
+- **Fix direction:** count pending sockets in the check, and reject gracefully
+  instead of calling `Sys_Error`.
 
 ### NET-2 · No handshake, timeouts or limits on server sessions — **high (internet-facing)**, Verified (code)
 
-- **No connect/accept exchange:** any session that opens a stream and sends a byte gets a client slot, and the only reaper is `net_messagetimeout` (300 s). One client can hold every slot in a room indefinitely.
-- **No timers or caps:** the WebTransport upgrade and the first `streamReader.read()` (`:333-352`, `:424`) have neither. A session that never opens a stream is held forever.
-- **Clean end of stream ignored:** a reader that ends cleanly (`:503`, `:557`) leaves `conn.connected` true, so the dead client lingers until the 300 s timeout.
+- **No connect/accept exchange:** any session that opens a stream and sends a
+  byte gets a client slot, and the only reaper is `net_messagetimeout` (300 s).
+  One client can hold every slot in a room indefinitely.
+- **No timers or caps:** the WebTransport upgrade and the first
+  `streamReader.read()` (`:333-352`, `:424`) have neither. A session that never
+  opens a stream is held forever.
+- **Clean end of stream ignored:** a reader that ends cleanly (`:503`, `:557`)
+  leaves `conn.connected` true, so the dead client lingers until the 300 s
+  timeout.
 
 ### NET-3 · Client leaks sockets on failed connects — **medium**, Verified
 
 - **Unreleased resources on failure:**
-  - In the lobby-join path, `sock` and `transport` are scoped inside the `try`, so the `catch` (`net_webtransport.js:897-916`) frees neither.
-  - `_WT_ConnectDirect` has the same problem when datagrams are unavailable or the stream fails.
-- **Late completion after timeout:** `CL_Connect` abandons a connect after 30 s (`src/cl_main.js:283`) without cancelling it. A connect that completes later leaves an unowned socket and a ghost client on the server.
-- **Effect:** the client pool holds only 2-5 sockets, so a couple of failures make every later connect fail with "no free sockets" until reload.
+  - In the lobby-join path, `sock` and `transport` are scoped inside the `try`,
+    so the `catch` (`net_webtransport.js:897-916`) frees neither.
+  - `_WT_ConnectDirect` has the same problem when datagrams are unavailable or
+    the stream fails.
+- **Late completion after timeout:** `CL_Connect` abandons a connect after 30 s
+  (`src/cl_main.js:283`) without cancelling it. A connect that completes later
+  leaves an unowned socket and a ghost client on the server.
+- **Effect:** the client pool holds only 2-5 sockets, so a couple of failures
+  make every later connect fail with "no free sockets" until reload.
 
 ### NET-4 · Disconnect messages are lost — **low**, Verified (page-hide frame), Reported (rest)
 
-- **Page-hide frame:** the frame sent on page hide (`net_webtransport.js:161-166`) adds a "frame type" byte that the stream framing doesn't have. The server reads a length of 257 and waits forever, so `clc_disconnect` is never delivered.
-- **Close order:** `WT_Close` on both sides clears the write queue and closes the transport straight away. The `svc_disconnect`/kick reason, or `clc_disconnect`, that was just queued is usually never sent, so users see "lost connection" instead of the reason.
+- **Page-hide frame:** the frame sent on page hide
+  (`net_webtransport.js:161-166`) adds a "frame type" byte that the stream
+  framing doesn't have. The server reads a length of 257 and waits forever, so
+  `clc_disconnect` is never delivered.
+- **Close order:** `WT_Close` on both sides clears the write queue and closes
+  the transport straight away. The `svc_disconnect`/kick reason, or
+  `clc_disconnect`, that was just queued is usually never sent, so users see
+  "lost connection" instead of the reason.
 
 ### NET-5 · Throughput, backpressure and edge cases — **low to medium**, Reported
 
-- **One global datagram queue:** all server datagram sends go through a single single-flight queue (`:1023-1052`), so one stalled client delays every other client's entity updates.
+- **One global datagram queue:** all server datagram sends go through a single
+  single-flight queue (`:1023-1052`), so one stalled client delays every other
+  client's entity updates.
   - A write timeout permanently downgrades that client to reliable-only.
   - The 64-frame cap can then drop it.
-- **Unbounded client buffers:** the reliable writer has no backpressure or cap, and `pendingMessages` has no limit. A hidden tab keeps buffering every server packet until it is shown again.
-- **Moves on the reliable stream:** client moves go on the reliable stream (`USE_CLIENT_OUTBOUND_DATAGRAMS = false`), so one lost packet stalls all later moves. Each received message also costs a `setTimeout(0)` yield on the server, which caps intake at an unmeasured rate.
-- **Pending-queue drop:** a client whose pending queue passes 100 messages is dropped, for example while the server awaits a map load for more than about 1.4 s.
+- **Unbounded client buffers:** the reliable writer has no backpressure or cap,
+  and `pendingMessages` has no limit. A hidden tab keeps buffering every server
+  packet until it is shown again.
+- **Moves on the reliable stream:** client moves go on the reliable stream
+  (`USE_CLIENT_OUTBOUND_DATAGRAMS = false`), so one lost packet stalls all later
+  moves. Each received message also costs a `setTimeout(0)` yield on the server,
+  which caps intake at an unmeasured rate.
+- **Pending-queue drop:** a client whose pending queue passes 100 messages is
+  dropped, for example while the server awaits a map load for more than about
+  1.4 s.
 - **Oversized payloads:**
   - Server: a reliable frame over 8 KB is silently truncated.
-  - Client: a payload over 8 KB hits `Sys_Error` in `SZ_Write`, so a malicious server can crash the tab.
-- **Sequence sentinel:** `receiveSequence < 0` means "legacy, headerless", and it flips after 2³¹ packets (about 11 months at 72 Hz).
-- **Stale `wt.closed` handler:** it identifies the connection by its `QSocket` object, so with the pool's LIFO reuse it can free a newer connection's socket. Check `sock.driverdata === conn`.
+  - Client: a payload over 8 KB hits `Sys_Error` in `SZ_Write`, so a malicious
+    server can crash the tab.
+- **Sequence sentinel:** `receiveSequence < 0` means "legacy, headerless", and
+  it flips after 2³¹ packets (about 11 months at 72 Hz).
+- **Stale `wt.closed` handler:** it identifies the connection by its `QSocket`
+  object, so with the pool's LIFO reuse it can free a newer connection's socket.
+  Check `sock.driverdata === conn`.
 
 ## 11. Deno server (`server/`)
 
-Static review only; the lobby and room servers were not run (they need a TLS certificate and a QUIC listener). `deno check` passes for the live entry points (`lobby_server.js`, `game_server.js`, `room_process_manager.ts`).
+Static review only; the lobby and room servers were not run (they need a TLS
+certificate and a QUIC listener). `deno check` passes for the live entry points
+(`lobby_server.js`, `game_server.js`, `room_process_manager.ts`).
 
 ### SRV-1 · Lobby never learns player counts, so occupied rooms are killed — **high**, Verified
 
 - **Mechanism:**
-  - `room_process_manager.ts:234-258` parses each room's stdout for `[Heartbeat] ... players=N`, `Client ... connected` and `Client ... removed`.
-  - `game_server.js:48` sets `__ICARO_QUIET_LOGS`, and `src/sys.js:32-45` then drops any line that matches no allow-pattern. `[Heartbeat]` matches none (`game_server.js:310`).
-  - The connect and remove lines go through `Con_DPrintf`/`Con_Printf` (`src/sv_main.js:330`, `:1412`). `Con_Printf` returns before printing anything while `con_initialized` is false (`src/console.js:418`), and `game_server.js` never calls `Con_Init`.
+  - `room_process_manager.ts:234-258` parses each room's stdout for
+    `[Heartbeat] ... players=N`, `Client ... connected` and
+    `Client ... removed`.
+  - `game_server.js:48` sets `__ICARO_QUIET_LOGS`, and `src/sys.js:32-45` then
+    drops any line that matches no allow-pattern. `[Heartbeat]` matches none
+    (`game_server.js:310`).
+  - The connect and remove lines go through `Con_DPrintf`/`Con_Printf`
+    (`src/sv_main.js:330`, `:1412`). `Con_Printf` returns before printing
+    anything while `con_initialized` is false (`src/console.js:418`), and
+    `game_server.js` never calls `Con_Init`.
 - **Effect:**
-  - `room.playerCount` stays 0, so the lobby's five-minute sweep (`RoomManager_CleanupIdleRooms`, `room_process_manager.ts:469`) SIGTERMs every room older than five minutes, mid-game included.
+  - `room.playerCount` stays 0, so the lobby's five-minute sweep
+    (`RoomManager_CleanupIdleRooms`, `room_process_manager.ts:469`) SIGTERMs
+    every room older than five minutes, mid-game included.
   - "Room is full" never triggers, and the room list always shows 0 players.
-- **Fix direction:** allow-list `^\[Heartbeat\]`, or report counts on a dedicated channel rather than by scraping logs.
+- **Fix direction:** allow-list `^\[Heartbeat\]`, or report counts on a
+  dedicated channel rather than by scraping logs.
 
 ### SRV-2 · Unauthenticated room creation and unvalidated `maxPlayers` — **high**, Verified (code), not run
 
-- **Room creation:** `LOBBY_CREATE`, and `LOBBY_JOIN` on any unknown six-character id, spawn a Deno child process with no auth, rate limit or per-IP cap (`lobby_server.js:223-233`, `:270-278`). One client can fill all `MAX_ROOMS = 10` slots for 5-10 minutes at a time.
-- **`maxPlayers`:** `config.maxPlayers || 4` (`lobby_server.js:230`) is passed unchecked to the child's `-maxclients`. The child allocates that many `client_t` objects (`game_server.js:145`). `1e9` exhausts memory; a negative value or NaN gives a broken `svs.maxclients`. It is not clamped to Quake's 16.
-- **Map names** are sanitised (`[A-Za-z0-9_]`), so there is no path or flag injection.
+- **Room creation:** `LOBBY_CREATE`, and `LOBBY_JOIN` on any unknown
+  six-character id, spawn a Deno child process with no auth, rate limit or
+  per-IP cap (`lobby_server.js:223-233`, `:270-278`). One client can fill all
+  `MAX_ROOMS = 10` slots for 5-10 minutes at a time.
+- **`maxPlayers`:** `config.maxPlayers || 4` (`lobby_server.js:230`) is passed
+  unchecked to the child's `-maxclients`. The child allocates that many
+  `client_t` objects (`game_server.js:145`). `1e9` exhausts memory; a negative
+  value or NaN gives a broken `svs.maxclients`. It is not clamped to Quake's 16.
+- **Map names** are sanitised (`[A-Za-z0-9_]`), so there is no path or flag
+  injection.
 
 ### SRV-3 · Room-list framing overflows at 64 KB — **medium**, Verified
 
-- `sendFramedMessage` (`lobby_server.js:141-144`) writes a 2-byte length with no bounds check.
-- `hostName` is unbounded and unsanitised, so a room with a ~60 KB host name wraps the length field and corrupts `LOBBY_LIST` for every client while the room exists.
+- `sendFramedMessage` (`lobby_server.js:141-144`) writes a 2-byte length with no
+  bounds check.
+- `hostName` is unbounded and unsanitised, so a room with a ~60 KB host name
+  wraps the length field and corrupts `LOBBY_LIST` for every client while the
+  room exists.
 
 ### SRV-4 · Deployment defaults — **medium**, Verified
 
-- `denoPath` defaults to `/root/.deno/bin/deno` (`room_process_manager.ts:47`) and nothing overrides it, so room creation fails on any other host. `Deno.execPath()` would fix this.
-- There is no `.gitignore`, and the README has users generate `cert.pem` and `key.pem` inside `server/`. A `git add .` commits the TLS private key.
-- `--allow-run`, `--allow-read` and `--allow-net` are unscoped for the lobby and its children.
+- `denoPath` defaults to `/root/.deno/bin/deno` (`room_process_manager.ts:47`)
+  and nothing overrides it, so room creation fails on any other host.
+  `Deno.execPath()` would fix this.
+- There is no `.gitignore`, and the README has users generate `cert.pem` and
+  `key.pem` inside `server/`. A `git add .` commits the TLS private key.
+- `--allow-run`, `--allow-read` and `--allow-net` are unscoped for the lobby and
+  its children.
 - Stale entry points:
-  - The root `deno.json` `server` task points to a non-existent `game_server.js` at the repo root.
-  - `server/deno.json`'s `start`/`dev` tasks and its `exports` point to `main.ts`, which fails at import (`net_message` and `WT_SetRoomResolver` no longer exported).
+  - The root `deno.json` `server` task points to a non-existent `game_server.js`
+    at the repo root.
+  - `server/deno.json`'s `start`/`dev` tasks and its `exports` point to
+    `main.ts`, which fails at import (`net_message` and `WT_SetRoomResolver` no
+    longer exported).
 
 ### SRV-5 · Process lifecycle — **medium**, Reported
 
-- **Orphaned rooms:** only SIGTERM is handled. After a lobby crash or Ctrl-C the rooms keep ports 4434-4443, and the next lobby hands those ports out again. A room nobody joined never exits by itself.
-- **Stale exit handler:** a room's exit handler frees its port and id unconditionally (`room_process_manager.ts:294-297`). If a new room has already reused them, they are freed from under it.
+- **Orphaned rooms:** only SIGTERM is handled. After a lobby crash or Ctrl-C the
+  rooms keep ports 4434-4443, and the next lobby hands those ports out again. A
+  room nobody joined never exits by itself.
+- **Stale exit handler:** a room's exit handler frees its port and id
+  unconditionally (`room_process_manager.ts:294-297`). If a new room has already
+  reused them, they are freed from under it.
 - **Dead rooms reported as ready:**
-  - A missing map leaves `sv.active` false after the room has already announced "listening".
+  - A missing map leaves `sv.active` false after the room has already announced
+    "listening".
   - After a `Host_Error`, the room stays alive but never runs the game again.
 - **Logging:**
   - Most lobby log lines are filtered out by the quiet allowlist.
-  - `sys_server.ts` passes user text as a `String.replace` replacement string, so `$&`-style sequences get expanded.
-  - Stdout is decoded per chunk without `{stream: true}`, so lines split across chunks are mis-parsed.
-- **Dead options:** `WT_SetMapCallbacks` and `WT_SetMaxClientsCallback` are documented no-ops, so `game_server.js:243-260` (map change and the maxclients clamp) never runs.
+  - `sys_server.ts` passes user text as a `String.replace` replacement string,
+    so `$&`-style sequences get expanded.
+  - Stdout is decoded per chunk without `{stream: true}`, so lines split across
+    chunks are mis-parsed.
+- **Dead options:** `WT_SetMapCallbacks` and `WT_SetMaxClientsCallback` are
+  documented no-ops, so `game_server.js:243-260` (map change and the maxclients
+  clamp) never runs.
 
 ## 12. Keyboard, mouse, touch and WebXR input (`in_web.js`, `touch.js`, `webxr.js`)
 
-The mouse-look maths in `IN_MouseMove` matches `in_win.c` (`m_filter`, `sensitivity`, `m_yaw`/`m_pitch`, `lookstrafe`, pitch clamp), apart from the omitted `noclip_anglehack` branch. Nothing was tested on a device.
+The mouse-look maths in `IN_MouseMove` matches `in_win.c` (`m_filter`,
+`sensitivity`, `m_yaw`/`m_pitch`, `lookstrafe`, pitch clamp), apart from the
+omitted `noclip_anglehack` branch. Nothing was tested on a device.
 
 ### IN-1 · Keys stick after focus loss — **high**, Verified
 
 - **Missing handling:**
   - Nothing calls `Key_ClearStates` (`keys.js:943`).
-  - There is no `blur` listener, and `handleVisibilityChange` is an empty placeholder (`in_web.js:540`).
+  - There is no `blur` listener, and `handleVisibilityChange` is an empty
+    placeholder (`in_web.js:540`).
   - Losing pointer lock only clears `mouseactive`.
-  - `mouseup` is bound to the canvas only, so a button released outside it is never seen.
-- **C:** Win32 clears key and mouse state when the window loses focus (`Key_ClearStates`/`IN_ClearStates` in `vid_win.c:225` and `gl_vidnt.c:940`).
-- **Effect:** holding W or fire while alt-tabbing (or pressing Cmd-Tab, or Cmd+letter on macOS) leaves `+forward`/`+attack` latched.
-- **Compounding:** browser shortcuts are only suppressed for Tab, Space, F5, F11 and F12 (`in_web.js:361-373`). Ctrl+S, Ctrl+F and Ctrl+D still fire and steal focus, which is reachable with default bindings if Ctrl is `+attack`.
+  - `mouseup` is bound to the canvas only, so a button released outside it is
+    never seen.
+- **C:** Win32 clears key and mouse state when the window loses focus
+  (`Key_ClearStates`/`IN_ClearStates` in `vid_win.c:225` and `gl_vidnt.c:940`).
+- **Effect:** holding W or fire while alt-tabbing (or pressing Cmd-Tab, or
+  Cmd+letter on macOS) leaves `+forward`/`+attack` latched.
+- **Compounding:** browser shortcuts are only suppressed for Tab, Space, F5, F11
+  and F12 (`in_web.js:361-373`). Ctrl+S, Ctrl+F and Ctrl+D still fire and steal
+  focus, which is reachable with default bindings if Ctrl is `+attack`.
 
 ### IN-2 · Touchscreen laptops lose mouse look — **high (for those users)**, Verified
 
-`Touch_IsMobile` (`touch.js:60`) returns true for any device with `maxTouchPoints > 2`. That includes Windows and ChromeOS touchscreen laptops and iPad desktop mode. When it is true, pointer lock is never requested (`in_web.js:353`, `:459`, `:911`), so mouse users get the touch overlay and no mouse look.
+`Touch_IsMobile` (`touch.js:60`) returns true for any device with
+`maxTouchPoints > 2`. That includes Windows and ChromeOS touchscreen laptops and
+iPad desktop mode. When it is true, pointer lock is never requested
+(`in_web.js:353`, `:459`, `:911`), so mouse users get the touch overlay and no
+mouse look.
 
 ### IN-3 · WebXR integration — **medium-high**, Verified (code)
 
 - **Movement mismatch:**
-  - In XR, `CL_SendMove` sends the controller aim angles (`cl_input.js:380`), but stores `cl.viewangles` for prediction (`:423`).
+  - In XR, `CL_SendMove` sends the controller aim angles (`cl_input.js:380`),
+    but stores `cl.viewangles` for prediction (`:423`).
   - The NetQuake server moves the player along the angles it receives.
-  - So with prediction on, client and server apply forward/strafe in different directions, and the player rubber-bands.
-- **Latched triggers:** trigger state (`_xrPrevLeftTrigger`/`_xrPrevRightTrigger`, `in_web.js:860-875`) is never reset when the session ends. Leaving VR with a trigger held leaves `+attack`/`+jump` latched.
-- **No 2D UI in the headset:** menu, console and HUD are a DOM overlay canvas, and `R_PolyBlend` is skipped in XR. None of it is visible in the headset.
-- **Controls:** controllers map only to move, turn, jump and attack. There is no menu, weapon switch or `+use`.
-- **Menu and demo state ignored:** XR input is not gated on `key_dest` or demo playback.
-- **Comfort:** view bob, damage roll and strafe roll are applied to the XR rig, and turning is only smooth turning, at about 280°/s.
+  - So with prediction on, client and server apply forward/strafe in different
+    directions, and the player rubber-bands.
+- **Latched triggers:** trigger state
+  (`_xrPrevLeftTrigger`/`_xrPrevRightTrigger`, `in_web.js:860-875`) is never
+  reset when the session ends. Leaving VR with a trigger held leaves
+  `+attack`/`+jump` latched.
+- **No 2D UI in the headset:** menu, console and HUD are a DOM overlay canvas,
+  and `R_PolyBlend` is skipped in XR. None of it is visible in the headset.
+- **Controls:** controllers map only to move, turn, jump and attack. There is no
+  menu, weapon switch or `+use`.
+- **Menu and demo state ignored:** XR input is not gated on `key_dest` or demo
+  playback.
+- **Comfort:** view bob, damage roll and strafe roll are applied to the XR rig,
+  and turning is only smooth turning, at about 280°/s.
 
 ### IN-4 · Touch controls — **medium**, Verified (state handling), Reported (the rest)
 
-- **Latched buttons:** `Touch_Disable` (`touch.js`) removes the button listeners but never clears `in_attack`/`in_jump` state set at `:325`/`:331`. Holding FIRE while pausing leaves the player firing after resume.
+- **Latched buttons:** `Touch_Disable` (`touch.js`) removes the button listeners
+  but never clears `in_attack`/`in_jump` state set at `:325`/`:331`. Holding
+  FIRE while pausing leaves the player firing after resume.
 - **Wake lock:**
-  - It is never re-acquired after the tab is hidden, because the visibility handler is empty.
-  - The async request can leak a lock if the controls are disabled before it resolves.
-- **Joystick:** there is no deadzone, and full deflection equals walk speed. Backward uses `cl_forwardspeed`.
-- **Tap-to-jump:** advertised in the header comment but not implemented (`Touch_CheckJump` has no callers).
+  - It is never re-acquired after the tab is hidden, because the visibility
+    handler is empty.
+  - The async request can leak a lock if the controls are disabled before it
+    resolves.
+- **Joystick:** there is no deadzone, and full deflection equals walk speed.
+  Backward uses `cl_forwardspeed`.
+- **Tap-to-jump:** advertised in the header comment but not implemented
+  (`Touch_CheckJump` has no callers).
 - **Fullscreen:**
-  - It is requested only from canvas `touchstart`. The overlays swallow those touches, and `touchstart` is not a user activation in Chrome.
+  - It is requested only from canvas `touchstart`. The overlays swallow those
+    touches, and `touchstart` is not a user activation in Chrome.
   - `fullscreenActivated` is never reset after the user exits.
-- **Menu touch:** uses `e.touches[0]` instead of `changedTouches`, and has no drag (sliders).
+- **Menu touch:** uses `e.touches[0]` instead of `changedTouches`, and has no
+  drag (sliders).
 
 ### IN-5 · Keyboard mapping gaps — **low**, Reported
 
-- **Shifted punctuation can stick:** non-letter keys are mapped from `event.key`. A Shift-modified key (`:`) can be released as its unshifted form (`;`), leaving the shifted key down.
+- **Shifted punctuation can stick:** non-letter keys are mapped from
+  `event.key`. A Shift-modified key (`:`) can be released as its unshifted form
+  (`;`), leaving the shifted key down.
 - **Numpad:** there are no `K_KP_*` codes.
-- **Non-US layouts:** characters in the range 128-255 alias Quake's special key codes (e.g. `ÿ` = `K_PAUSE`).
-- **Mouse wheel:** it doesn't call `preventDefault`, so Ctrl+wheel zooms the page.
+- **Non-US layouts:** characters in the range 128-255 alias Quake's special key
+  codes (e.g. `ÿ` = `K_PAUSE`).
+- **Mouse wheel:** it doesn't call `preventDefault`, so Ctrl+wheel zooms the
+  page.
 
 ---
 
 # Part 3: Second pass: CD music, multiplayer menus, WebXR rendering, texture upload, and engine changes since #114
 
-| | |
-|---|---|
-| Date | 2026-11-25 |
-| Port revision | `055c52f` (`dev`, after #150) |
+|                  |                                                                                                                                                                                                    |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Date             | 2026-11-25                                                                                                                                                                                         |
+| Port revision    | `055c52f` (`dev`, after #150)                                                                                                                                                                      |
 | Reference source | id-Software/Quake `bf4ac42`; [Ironwail](https://github.com/andrei-drexler/ironwail) `3fa96fe` and [QuakeSpasm](https://github.com/sezero/quakespasm) `13f16f2` where the port says it follows them |
 
-This pass covers what section 8 left out (sections 13 to 16) and the ported engine code that changed in #115 to #150, from `223a180` to `055c52f` (section 17). The deliberate deviations in section 7 are not reported again. The web-only parts have no C counterpart, so they were reviewed for correctness and robustness, as Part 2 was.
+This pass covers what section 8 left out (sections 13 to 16) and the ported
+engine code that changed in #115 to #150, from `223a180` to `055c52f` (section
+17). The deliberate deviations in section 7 are not reported again. The web-only
+parts have no C counterpart, so they were reviewed for correctness and
+robustness, as Part 2 was.
 
-The method is the one Part 1 used. Reviewers, one per area, compared the port with the C, and the lead reviewer opened both sides for every finding ranked medium or higher. Verified and Reported mean what they mean in Part 1. Nothing was run in a browser, on a headset or over a network; severity is judged from the code. Line numbers refer to `055c52f`. C references give `file:line` in the source named in each finding.
+The method is the one Part 1 used. Reviewers, one per area, compared the port
+with the C, and the lead reviewer opened both sides for every finding ranked
+medium or higher. Verified and Reported mean what they mean in Part 1. Nothing
+was run in a browser, on a headset or over a network; severity is judged from
+the code. Line numbers refer to `055c52f`. C references give `file:line` in the
+source named in each finding.
 
 ## Part 3 summary, most urgent first
 
-1. **XR-1:** in VR the frustum follows the body, not the head, so sky, water, doors and torches vanish in chunks when the player turns their head.
-2. **MENU-1:** the `?server=` lobby address is dropped from the page URL after the first join, so later menu actions and every shared link go to `localhost:4433`.
-3. **XR-2:** no screen blends in VR: no damage flash, powerup tint or underwater colour.
-4. **MENU-2:** a crafted `?server=` link runs console commands as the page loads.
-5. **MENU-3:** Start Game can create two rooms, and a late reply pulls the player out of whatever they did next.
-6. **BSP-1:** lightmap origins wrap on large BSP2 maps; 26 faces in the rerelease's `mg3` `map7` are affected.
-7. **CD-1, CD-2:** a map without a CD track stops the music, where id keeps it playing, and a stopped track restarts on unpause.
-8. **Low-medium:** `gl_texsort 0` freezes lightmaps (TEX-1), liquid alpha is gated on vis the other way round from Ironwail (BSP-2), remote players lose all sounds and particles on a busy frame (PROTO-1), and the room list races (MENU-4).
+1. **XR-1:** in VR the frustum follows the body, not the head, so sky, water,
+   doors and torches vanish in chunks when the player turns their head.
+2. **MENU-1:** the `?server=` lobby address is dropped from the page URL after
+   the first join, so later menu actions and every shared link go to
+   `localhost:4433`.
+3. **XR-2:** no screen blends in VR: no damage flash, powerup tint or underwater
+   colour.
+4. **MENU-2:** a crafted `?server=` link runs console commands as the page
+   loads.
+5. **MENU-3:** Start Game can create two rooms, and a late reply pulls the
+   player out of whatever they did next.
+6. **BSP-1:** lightmap origins wrap on large BSP2 maps; 26 faces in the
+   rerelease's `mg3` `map7` are affected.
+7. **CD-1, CD-2:** a map without a CD track stops the music, where id keeps it
+   playing, and a stopped track restarts on unpause.
+8. **Low-medium:** `gl_texsort 0` freezes lightmaps (TEX-1), liquid alpha is
+   gated on vis the other way round from Ironwail (BSP-2), remote players lose
+   all sounds and particles on a busy frame (PROTO-1), and the room list races
+   (MENU-4).
 9. **Low:** the rest of sections 13 to 17.
 
-**Status:** items 1 to 8 are fixed in `dev`: 1 to 7 by #153 to #156, with CD-3 partly fixed, and 8 by #158 to #160. Item 9, the low findings, is fixed or recorded by #163 to #166. See "PRs #151 to #156", "PRs #157 to #160" and "PRs #163 to #166" in the fix status at the top. The sections below still describe the port at `055c52f`.
+**Status:** items 1 to 8 are fixed in `dev`: 1 to 7 by #153 to #156, with CD-3
+partly fixed, and 8 by #158 to #160. Item 9, the low findings, is fixed or
+recorded by #163 to #166. See "PRs #151 to #156", "PRs #157 to #160" and "PRs
+#163 to #166" in the fix status at the top. The sections below still describe
+the port at `055c52f`.
 
-Nothing in #115 to #150 changed what id's data does: BSP29 maps, mono lighting, protocol 15 demos and progs without the rerelease effects all take id's path (section 17).
+Nothing in #115 to #150 changed what id's data does: BSP29 maps, mono lighting,
+protocol 15 demos and progs without the rerelease effects all take id's path
+(section 17).
 
 ## 13. WebXR rendering (`src/webxr.js`, the XR branches in `src/gl_rmain.js`)
 
-IN-3's "no 2D UI in the headset" is fixed: `XR_RenderHUD` (`webxr.js:419`) draws the menu, console and HUD on a head-locked quad in its own scene after the world (`gl_rmain.js:1568`). The renderer still works out what to draw from the body's view, not the head's.
+IN-3's "no 2D UI in the headset" is fixed: `XR_RenderHUD` (`webxr.js:419`) draws
+the menu, console and HUD on a head-locked quad in its own scene after the world
+(`gl_rmain.js:1568`). The renderer still works out what to draw from the body's
+view, not the head's.
 
 ### XR-1 · The frustum follows the body, so sky, water, doors and torches vanish when the head turns — **high (in VR)**, Verified
 
 - **Port:**
-  - `R_SetupFrame` takes `vpn`, `vright` and `vup` from `r_refdef.viewangles` (`gl_rmain.js:296`), the body's angles. `R_SetFrustum` (`gl_rmain.js:241`) builds the four planes from them and from the window's `fov_x`/`fov_y`, and runs every frame (`:1471`).
-  - In XR only the rig and the Three.js eye cameras follow the headset (`gl_rmain.js:421-456`). `frustum[]` never does.
-  - `R_RecursiveWorldNode` calls `R_CullBox` (`gl_rmain.js:205`) on each node before it marks the leaf's surfaces and stores its efrags (`gl_rsurf.js:2085`, `:2095-2099`, `:2106`). `DrawTextureChains` draws the sky and water only from the chains those marks build (`gl_rsurf.js:2316-2342`). `R_DrawBrushModel` culls doors, lifts and buttons with the same frustum (`gl_rsurf.js:1824`).
-  - The opaque world batches are chosen by the PVS alone (`R_SetWorldBatchVisibility`), so walls and floors are unaffected.
-- **C:** `R_SetFrustum` (`gl_rmain.c:769`) and `R_CullBox` (`gl_rmain.c:111`), used at `gl_rsurf.c:1202` and `gl_rsurf.c:1107`. The frustum is the camera's, so it is right there.
-- **Effect:** a player who faces north and turns their head 60° or more, or looks down, sees sky and water surfaces outside the desktop frustum go missing (the XR background is black, `gl_rmain.js:1551`), along with doors, lifts, torches and flames. The cull is per BSP node, so they go in chunks. Aim and movement come from the controller, so the body and the head often point in different directions.
-- **Fix direction:** in XR, skip `R_CullBox` (an all-pass frustum) or build the planes from the union of the eye frusta. The PVS already bounds the work.
+  - `R_SetupFrame` takes `vpn`, `vright` and `vup` from `r_refdef.viewangles`
+    (`gl_rmain.js:296`), the body's angles. `R_SetFrustum` (`gl_rmain.js:241`)
+    builds the four planes from them and from the window's `fov_x`/`fov_y`, and
+    runs every frame (`:1471`).
+  - In XR only the rig and the Three.js eye cameras follow the headset
+    (`gl_rmain.js:421-456`). `frustum[]` never does.
+  - `R_RecursiveWorldNode` calls `R_CullBox` (`gl_rmain.js:205`) on each node
+    before it marks the leaf's surfaces and stores its efrags
+    (`gl_rsurf.js:2085`, `:2095-2099`, `:2106`). `DrawTextureChains` draws the
+    sky and water only from the chains those marks build
+    (`gl_rsurf.js:2316-2342`). `R_DrawBrushModel` culls doors, lifts and buttons
+    with the same frustum (`gl_rsurf.js:1824`).
+  - The opaque world batches are chosen by the PVS alone
+    (`R_SetWorldBatchVisibility`), so walls and floors are unaffected.
+- **C:** `R_SetFrustum` (`gl_rmain.c:769`) and `R_CullBox` (`gl_rmain.c:111`),
+  used at `gl_rsurf.c:1202` and `gl_rsurf.c:1107`. The frustum is the camera's,
+  so it is right there.
+- **Effect:** a player who faces north and turns their head 60° or more, or
+  looks down, sees sky and water surfaces outside the desktop frustum go missing
+  (the XR background is black, `gl_rmain.js:1551`), along with doors, lifts,
+  torches and flames. The cull is per BSP node, so they go in chunks. Aim and
+  movement come from the controller, so the body and the head often point in
+  different directions.
+- **Fix direction:** in XR, skip `R_CullBox` (an all-pass frustum) or build the
+  planes from the union of the eye frusta. The PVS already bounds the work.
 
 ### XR-2 · Screen blends are not drawn in VR — **medium-high**, Verified
 
-- **Port:** `R_RenderView` calls `R_PolyBlend` only outside XR (`gl_rmain.js:1560-1569`). `V_CalcBlend` still fills `v_blend`, but nothing in XR reads it.
-- **C:** `R_RenderView` calls `R_PolyBlend` (`gl_rmain.c:1151`), which draws `v_blend` over the whole view (`gl_rmain.c:718`).
-- **Effect:** in VR there is no red damage flash, no pickup flash, no quad, pentagram, ring or biosuit tint, and no water, slime or lava tint underwater. A player in lava gets no colour cue. Part 2 noted this under IN-3, and the fix for IN-3 (#7, #135) left it out.
-- **Fix direction:** draw `v_blend` as a head-locked quad larger than the eye frusta in the HUD scene, before the HUD quad.
+- **Port:** `R_RenderView` calls `R_PolyBlend` only outside XR
+  (`gl_rmain.js:1560-1569`). `V_CalcBlend` still fills `v_blend`, but nothing in
+  XR reads it.
+- **C:** `R_RenderView` calls `R_PolyBlend` (`gl_rmain.c:1151`), which draws
+  `v_blend` over the whole view (`gl_rmain.c:718`).
+- **Effect:** in VR there is no red damage flash, no pickup flash, no quad,
+  pentagram, ring or biosuit tint, and no water, slime or lava tint underwater.
+  A player in lava gets no colour cue. Part 2 noted this under IN-3, and the fix
+  for IN-3 (#7, #135) left it out.
+- **Fix direction:** draw `v_blend` as a head-locked quad larger than the eye
+  frusta in the HUD scene, before the HUD quad.
 
 ### XR-3 · Other XR rendering differences — **low to low-medium**, Reported
 
-- **PVS and contents from the body (low-medium):** `r_origin`, the view leaf, `R_MarkLeaves` and `V_SetContentsColor` use `r_refdef.vieworg` (`gl_rmain.js:294-305`), not the head. Leaning through a doorway into a leaf outside the body's PVS shows missing world, and a head under water gets no underwater contents until the body's eye is under too. C uses the camera (`R_SetupFrame`, `gl_rmain.c:810`). The pose is only known inside `render()`, so a fix would use the previous frame's pose.
-- **Rig pitch (low-medium):** the rig takes the pitch from `cl.viewangles` (`gl_rmain.js:409-448`), and the headset adds its own. XR input only turns yaw, but `V_DriftPitch` (`view.js:354`), `svc_setangle` and the chase camera can set pitch, which tilts the world around the player. Roll and punch are already removed in XR (`view.js:889-920`). Whether `idealpitch` is ever non-zero in XR was not checked.
-- **Resize during a session (low):** `vid.js:240-248` calls `renderer.setSize` and `setPixelRatio` on every `resize`, with no XR check, so after the session ends the canvas, `vid` and the renderer's size can disagree until the next resize.
-- **View model (low):** with no tracked controller the gun keeps the transform from `R_DrawAliasModel` and floats at the body (`gl_rmain.js:676-701`). The missing `glDepthRange` hack is deliberate (comment at `:699`).
-- **HUD cost (low):** `XR_UpdateHUD` uploads the window-sized overlay canvas at up to 30 Hz (`webxr.js:357-401`). Not measured on a headset.
+- **PVS and contents from the body (low-medium):** `r_origin`, the view leaf,
+  `R_MarkLeaves` and `V_SetContentsColor` use `r_refdef.vieworg`
+  (`gl_rmain.js:294-305`), not the head. Leaning through a doorway into a leaf
+  outside the body's PVS shows missing world, and a head under water gets no
+  underwater contents until the body's eye is under too. C uses the camera
+  (`R_SetupFrame`, `gl_rmain.c:810`). The pose is only known inside `render()`,
+  so a fix would use the previous frame's pose.
+- **Rig pitch (low-medium):** the rig takes the pitch from `cl.viewangles`
+  (`gl_rmain.js:409-448`), and the headset adds its own. XR input only turns
+  yaw, but `V_DriftPitch` (`view.js:354`), `svc_setangle` and the chase camera
+  can set pitch, which tilts the world around the player. Roll and punch are
+  already removed in XR (`view.js:889-920`). Whether `idealpitch` is ever
+  non-zero in XR was not checked.
+- **Resize during a session (low):** `vid.js:240-248` calls `renderer.setSize`
+  and `setPixelRatio` on every `resize`, with no XR check, so after the session
+  ends the canvas, `vid` and the renderer's size can disagree until the next
+  resize.
+- **View model (low):** with no tracked controller the gun keeps the transform
+  from `R_DrawAliasModel` and floats at the body (`gl_rmain.js:676-701`). The
+  missing `glDepthRange` hack is deliberate (comment at `:699`).
+- **HUD cost (low):** `XR_UpdateHUD` uploads the window-sized overlay canvas at
+  up to 30 Hz (`webxr.js:357-401`). Not measured on a headset.
 
 ## 14. Web multiplayer menus and links (`src/menu.js`, `src/sys.js`, `main.js`)
 
 ### MENU-1 · The lobby address is lost after the first join, so later menu actions and shared links go to localhost — **medium-high**, Verified
 
 - **Port:**
-  - The only way to name a lobby is the page's `?server=` parameter, read from `location` each time: the room list (`menu.js:115`), Join (`:1357`), Start Game (`:1643`) and the auto-join on load (`main.js:176`). Each falls back to `https://localhost:4433`.
-  - `Sys_PageURL` keeps only `room` and `game` (`sys.js:41-50`). Join and Start Game write it into the address bar before connecting (`menu.js:1366`, `:1664`), and so do `cl_main.js:244`, `:271`, `:345` and `net_webtransport.js:1271`.
-  - `_WT_ClearRoomFromUrl` (`net_webtransport.js:911-918`), called when a connect fails, drops every parameter, `game` included.
+  - The only way to name a lobby is the page's `?server=` parameter, read from
+    `location` each time: the room list (`menu.js:115`), Join (`:1357`), Start
+    Game (`:1643`) and the auto-join on load (`main.js:176`). Each falls back to
+    `https://localhost:4433`.
+  - `Sys_PageURL` keeps only `room` and `game` (`sys.js:41-50`). Join and Start
+    Game write it into the address bar before connecting (`menu.js:1366`,
+    `:1664`), and so do `cl_main.js:244`, `:271`, `:345` and
+    `net_webtransport.js:1271`.
+  - `_WT_ClearRoomFromUrl` (`net_webtransport.js:911-918`), called when a
+    connect fails, drops every parameter, `game` included.
 - **C:** no counterpart.
-- **Effect:** a player opens `?server=https://lobby.example:4433` and joins a room. From then on, Join Game, the room-list refresh and Start Game query `localhost:4433` and fail. The link in the address bar, which the code means to be shared, has no `server`, so whoever opens it auto-joins through localhost. After a failed connect a mission-pack player also loses `?game=`.
-- **Fix direction:** keep `server` (and `game`) in `Sys_PageURL`, have `_WT_ClearRoomFromUrl` use `Sys_PageURL( null )`, or resolve the lobby once at start-up.
+- **Effect:** a player opens `?server=https://lobby.example:4433` and joins a
+  room. From then on, Join Game, the room-list refresh and Start Game query
+  `localhost:4433` and fail. The link in the address bar, which the code means
+  to be shared, has no `server`, so whoever opens it auto-joins through
+  localhost. After a failed connect a mission-pack player also loses `?game=`.
+- **Fix direction:** keep `server` (and `game`) in `Sys_PageURL`, have
+  `_WT_ClearRoomFromUrl` use `Sys_PageURL( null )`, or resolve the lobby once at
+  start-up.
 
 ### MENU-2 · A crafted link runs console commands on page load — **medium**, Verified
 
-- **Port:** the auto-join builds `'connect "' + serverUrl + '?room=' + encodeURIComponent( roomId ) + '"'` with `serverUrl` taken raw from `?server=` (`main.js:176-178`). `URLSearchParams.get` decodes `%22` to `"`, which closes the quoted argument, and `Cbuf_Execute` splits on a `;` outside quotes (`cmd.js:146-152`) or on a newline. Start Game's fallback, `serverUrl + '?room=' + room.id` (`menu.js:1684`), is built the same way and also takes `room.id` unencoded from the lobby.
+- **Port:** the auto-join builds
+  `'connect "' + serverUrl + '?room=' + encodeURIComponent( roomId ) + '"'` with
+  `serverUrl` taken raw from `?server=` (`main.js:176-178`).
+  `URLSearchParams.get` decodes `%22` to `"`, which closes the quoted argument,
+  and `Cbuf_Execute` splits on a `;` outside quotes (`cmd.js:146-152`) or on a
+  newline. Start Game's fallback, `serverUrl + '?room=' + room.id`
+  (`menu.js:1684`), is built the same way and also takes `room.id` unencoded
+  from the lobby.
 - **C:** no counterpart. `connect` is typed by the player in C.
-- **Effect:** opening `?room=x&server=%22;bind%20w%20quit;%22` runs `bind w quit` with no click. Any console command can run, for example binds, cvars or `exec`, and `host_writeconfig` makes it last. The impact stays inside the engine.
-- **Fix direction:** build the URL with `new URL` and `searchParams.set`, as the Join path (`menu.js:1360-1362`) does, and refuse a server URL or room id that contains `"`, `;` or a control character.
+- **Effect:** opening `?room=x&server=%22;bind%20w%20quit;%22` runs
+  `bind w quit` with no click. Any console command can run, for example binds,
+  cvars or `exec`, and `host_writeconfig` makes it last. The impact stays inside
+  the engine.
+- **Fix direction:** build the URL with `new URL` and `searchParams.set`, as the
+  Join path (`menu.js:1360-1362`) does, and refuse a server URL or room id that
+  contains `"`, `;` or a control character.
 
 ### MENU-3 · Start Game has no in-flight guard, and a late reply takes over — **medium**, Verified
 
-- **Port:** Enter on Start Game calls `_WT_CreateRoom` (`menu.js:1647`), which opens a new transport each time (`net_webtransport.js:515`). There is no pending flag. The `.then` doesn't check that the menu is still open: it rewrites the URL, sets `key_dest` to the game, closes the menu and queues `connect` (`menu.js:1664-1688`). The failure paths only print to the console and end the plaque (`:1693-1699`). `await transport.ready` (`net_webtransport.js:548`) has no timeout of its own.
-- **C:** `M_GameOptions_Key` queues `listen 0`, `maxplayers` and `map` at once (`menu.c:2811-2829`), so there is no race.
-- **Effect:** pressing Enter twice creates two rooms, one of them orphaned. A player who presses Escape and starts a local game, or joins another room, is pulled into the first room when its reply arrives. A failed create ends the plaque and leaves the player back in the game view with the error only in the console.
-- **Fix direction:** a pending flag that ignores Enter, a token checked on reply (drop it if `m_state` changed), and the error shown through `m_return_reason`.
+- **Port:** Enter on Start Game calls `_WT_CreateRoom` (`menu.js:1647`), which
+  opens a new transport each time (`net_webtransport.js:515`). There is no
+  pending flag. The `.then` doesn't check that the menu is still open: it
+  rewrites the URL, sets `key_dest` to the game, closes the menu and queues
+  `connect` (`menu.js:1664-1688`). The failure paths only print to the console
+  and end the plaque (`:1693-1699`). `await transport.ready`
+  (`net_webtransport.js:548`) has no timeout of its own.
+- **C:** `M_GameOptions_Key` queues `listen 0`, `maxplayers` and `map` at once
+  (`menu.c:2811-2829`), so there is no race.
+- **Effect:** pressing Enter twice creates two rooms, one of them orphaned. A
+  player who presses Escape and starts a local game, or joins another room, is
+  pulled into the first room when its reply arrives. A failed create ends the
+  plaque and leaves the player back in the game view with the error only in the
+  console.
+- **Fix direction:** a pending flag that ignores Enter, a token checked on reply
+  (drop it if `m_state` changed), and the error shown through `m_return_reason`.
 
 ### MENU-4 · Other menu differences — **low to low-medium**, Reported
 
-- **Room list races (low-medium):** `M_FetchRooms` (`menu.js:100-134`) has no generation counter, and Space refreshes even while a fetch is running (`:1381-1383`). The first reply to finish clears "Searching…", a slower older reply overwrites a newer list, and the cursor is reset only when the menu opens (`:1237`), so a shorter list leaves it past the end. Entries aren't checked, so a `null` entry throws in `M_LanConfig_Draw` every frame.
-- **Return state (low):** `m_return_onerror` is set on Join (`menu.js:1369-1370`) but cleared only by `M_ConnectionError` and `M_Menu_LanConfig_f`, so a later failed `connect` from the console returns to a stale room list. Start Game never sets it.
-- **Game options (low):** the room request carries only the map, `maxPlayers` and host name (`menu.js:1647-1651`), so Game Type, Teamplay, Skill, Frag Limit and Time Limit do nothing online, though the menu still shows them. A comment at `:1456-1459` says so; the menu doesn't.
-- **Setup (low):** the hostname row is gone with no deviation comment (`NUM_SETUP_CMDS` 4), and Accept sends `name` every time (`:2872`) where C sends it only on a change (`menu.c:797-798`); `Host_Name_f` ignores an unchanged name. `name "<text>"` takes a `"` from the keyboard, as C does, so a name can end the quote.
+- **Room list races (low-medium):** `M_FetchRooms` (`menu.js:100-134`) has no
+  generation counter, and Space refreshes even while a fetch is running
+  (`:1381-1383`). The first reply to finish clears "Searching…", a slower older
+  reply overwrites a newer list, and the cursor is reset only when the menu
+  opens (`:1237`), so a shorter list leaves it past the end. Entries aren't
+  checked, so a `null` entry throws in `M_LanConfig_Draw` every frame.
+- **Return state (low):** `m_return_onerror` is set on Join
+  (`menu.js:1369-1370`) but cleared only by `M_ConnectionError` and
+  `M_Menu_LanConfig_f`, so a later failed `connect` from the console returns to
+  a stale room list. Start Game never sets it.
+- **Game options (low):** the room request carries only the map, `maxPlayers`
+  and host name (`menu.js:1647-1651`), so Game Type, Teamplay, Skill, Frag Limit
+  and Time Limit do nothing online, though the menu still shows them. A comment
+  at `:1456-1459` says so; the menu doesn't.
+- **Setup (low):** the hostname row is gone with no deviation comment
+  (`NUM_SETUP_CMDS` 4), and Accept sends `name` every time (`:2872`) where C
+  sends it only on a change (`menu.c:797-798`); `Host_Name_f` ignores an
+  unchanged name. `name "<text>"` takes a `"` from the keyboard, as C does, so a
+  name can end the quote.
 
 ## 15. CD music (`src/cd_audio.js`)
 
-`CDAudio_Pause`, `CDAudio_Resume`, `CDAudio_Init`, the `cd` subcommands that exist, the remap table, the `svc_cdtrack` demo `forcetrack` rule (`cl_parse.js:1687-1694`) and the `svc_setpause` wiring match the C. Loading is web-only: one reused `Audio` element, `trackNN` files from the game directories, retry after a user gesture when autoplay is blocked, and a counter that drops stale loads.
+`CDAudio_Pause`, `CDAudio_Resume`, `CDAudio_Init`, the `cd` subcommands that
+exist, the remap table, the `svc_cdtrack` demo `forcetrack` rule
+(`cl_parse.js:1687-1694`) and the `svc_setpause` wiring match the C. Loading is
+web-only: one reused `Audio` element, `trackNN` files from the game directories,
+retry after a user gesture when autoplay is blocked, and a counter that drops
+stale loads.
 
 ### CD-1 · `CDAudio_Stop` lets a stopped track come back on unpause — **medium**, Verified
 
-- **Port:** `CDAudio_Stop` (`cd_audio.js:346-369`) has no `if ( ! playing ) return` and sets `wasPlaying = playing` before `playing = false` (`:366`).
-- **C:** `CDAudio_Stop` returns when nothing is playing and sets `wasPlaying = false` (`cd_win.c:178-192`). Only `CDAudio_Pause` copies `playing` into `wasPlaying` (`cd_win.c:211`).
-- **Effect:** after `cd stop`, or after `CDAudio_Play` stops the old track itself (CD-2), pausing and unpausing the game calls `CDAudio_Resume` (`cl_parse.js:1655`), which sees `wasPlaying` and restarts the stopped track from the start. Stopping while paused clears `wasPlaying`, where C keeps it.
-- **Fix direction:** return early when not playing and set `wasPlaying = false`, as C does. Keep the `playAttempt` and `gestureRetry` reset before the early return, for a load still pending.
+- **Port:** `CDAudio_Stop` (`cd_audio.js:346-369`) has no
+  `if ( ! playing ) return` and sets `wasPlaying = playing` before
+  `playing = false` (`:366`).
+- **C:** `CDAudio_Stop` returns when nothing is playing and sets
+  `wasPlaying = false` (`cd_win.c:178-192`). Only `CDAudio_Pause` copies
+  `playing` into `wasPlaying` (`cd_win.c:211`).
+- **Effect:** after `cd stop`, or after `CDAudio_Play` stops the old track
+  itself (CD-2), pausing and unpausing the game calls `CDAudio_Resume`
+  (`cl_parse.js:1655`), which sees `wasPlaying` and restarts the stopped track
+  from the start. Stopping while paused clears `wasPlaying`, where C keeps it.
+- **Fix direction:** return early when not playing and set `wasPlaying = false`,
+  as C does. Keep the `playAttempt` and `gestureRetry` reset before the early
+  return, for a load still pending.
 
 ### CD-2 · `CDAudio_Play` stops the music before checking the track — **medium**, Verified
 
-- **Port:** `CDAudio_Play` remaps the track, stops the current one if it differs (`cd_audio.js:227-233`) and sets `playLooping` (`:235`), and only then rejects a bad track (`:237`).
-- **C:** `CDAudio_Play` rejects a bad track first (`cd_win.c:121-125`) and stops the current track only after the checks (`cd_win.c:153-158`). `playLooping` is set only on success (`cd_win.c:169`). `cd_linux.c` has the same order.
-- **Effect:** a map with `sounds` 0 sends `svc_cdtrack 0` (`sv_main.js:380-382`). In C the music from the previous map keeps playing; in the port it stops. Many custom maps have no `sounds` key. `cd play 0` and `cd play 999` also stop the music.
-- **Fix direction:** check the track first, then do the same-track return and the stop.
+- **Port:** `CDAudio_Play` remaps the track, stops the current one if it differs
+  (`cd_audio.js:227-233`) and sets `playLooping` (`:235`), and only then rejects
+  a bad track (`:237`).
+- **C:** `CDAudio_Play` rejects a bad track first (`cd_win.c:121-125`) and stops
+  the current track only after the checks (`cd_win.c:153-158`). `playLooping` is
+  set only on success (`cd_win.c:169`). `cd_linux.c` has the same order.
+- **Effect:** a map with `sounds` 0 sends `svc_cdtrack 0`
+  (`sv_main.js:380-382`). In C the music from the previous map keeps playing; in
+  the port it stops. Many custom maps have no `sounds` key. `cd play 0` and
+  `cd play 999` also stop the music.
+- **Fix direction:** check the track first, then do the same-track return and
+  the stop.
 
 ### CD-3 · Smaller CD differences — **low**, Verified (track range), Reported (the rest)
 
-- **Track range:** `track = remap[ track ]` on a `Uint8Array( 256 )` (`cd_audio.js:225`) is `undefined` for 256 or more or for a negative track, and `undefined < 1` is false, so the range check passes and `trackundefined` files are fetched. C takes a `byte` (`cd_win.c:103`), so the value wraps. `cd play 300` and a demo's `forcetrack` (`cl_demo.js:464-469`) can reach it. Masking with `& 0xff` restores C.
-- **Volume:** `musicElement.volume` is set once at play (`cd_audio.js:285`) and the element is then routed through a gain node (`:291-299`) that `CDAudio_Update` adjusts (`:453-460`). Whether the browser applies the element volume as well was not checked; if it does, the level is squared and stays at the start value.
-- **`cd` command:** subcommands are compared case-sensitively (`cd ON` does nothing; C uses `Q_strcasecmp`), `close` and `eject` are missing, and `cd info` prints "Not playing" while paused (`cd_audio.js:543-647`; C `cd_win.c:243-360`).
-- **Hidden tab:** the element keeps playing while the AudioContext is suspended on focus loss, and plays aloud if it wasn't routed through the context. C has no focus handling for CD, so this is web-only.
+- **Track range:** `track = remap[ track ]` on a `Uint8Array( 256 )`
+  (`cd_audio.js:225`) is `undefined` for 256 or more or for a negative track,
+  and `undefined < 1` is false, so the range check passes and `trackundefined`
+  files are fetched. C takes a `byte` (`cd_win.c:103`), so the value wraps.
+  `cd play 300` and a demo's `forcetrack` (`cl_demo.js:464-469`) can reach it.
+  Masking with `& 0xff` restores C.
+- **Volume:** `musicElement.volume` is set once at play (`cd_audio.js:285`) and
+  the element is then routed through a gain node (`:291-299`) that
+  `CDAudio_Update` adjusts (`:453-460`). Whether the browser applies the element
+  volume as well was not checked; if it does, the level is squared and stays at
+  the start value.
+- **`cd` command:** subcommands are compared case-sensitively (`cd ON` does
+  nothing; C uses `Q_strcasecmp`), `close` and `eject` are missing, and
+  `cd info` prints "Not playing" while paused (`cd_audio.js:543-647`; C
+  `cd_win.c:243-360`).
+- **Hidden tab:** the element keeps playing while the AudioContext is suspended
+  on focus loss, and plays aloud if it wasn't routed through the context. C has
+  no focus handling for CD, so this is web-only.
 
 ## 16. Texture upload (`src/gl_model.js`, `src/gl_draw.js`, `src/gl_rmisc.js`, `src/gl_warp.js`, `src/gl_rsurf.js`, `src/glquake.js`)
 
-These match `gl_draw.c` and `gl_rmisc.c`: `gl_picmip` and `gl_max_size` scaling (without the power-of-two round-up, documented at `glquake.js:344-347`), point resampling, which textures take `gl_texturemode`, index 255 transparent only for alpha textures, conchars 0 transparent, the player skin ranges, the sky layers and average colour, and full-row lightmap uploads (#49). Every texture is RGBA, so `unpackAlignment` doesn't matter. World, sky, fullbright and lightmap textures are disposed at map change.
+These match `gl_draw.c` and `gl_rmisc.c`: `gl_picmip` and `gl_max_size` scaling
+(without the power-of-two round-up, documented at `glquake.js:344-347`), point
+resampling, which textures take `gl_texturemode`, index 255 transparent only for
+alpha textures, conchars 0 transparent, the player skin ranges, the sky layers
+and average colour, and full-row lightmap uploads (#49). Every texture is RGBA,
+so `unpackAlignment` doesn't matter. World, sky, fullbright and lightmap
+textures are disposed at map change.
 
 ### TEX-1 · `gl_texsort 0` stops lightmap updates — **low-medium**, Verified
 
-- **Port:** `R_BlendLightmaps` returns when `gl_texsort` is 0 (`gl_rsurf.js:2492-2493`), and it is the only caller of `R_UploadLightmapRect` (`:2510`). The `gl_texsort 0` path, `R_DrawSequentialPoly`, only marks lightmaps modified.
-- **C:** `R_BlendLightmaps` also returns (`gl_rsurf.c:676-677`), but `R_DrawSequentialPoly` uploads the changed rows itself (`gl_rsurf.c:544-553`).
-- **Effect:** with Texture sort off in the Advanced menu (`menu_cvars.js:205`), light styles and dynamic lights stop changing on the world.
-- **Fix direction:** upload in the `gl_texsort 0` path as C does, or run the upload loop of `R_BlendLightmaps` whatever `gl_texsort` is.
+- **Port:** `R_BlendLightmaps` returns when `gl_texsort` is 0
+  (`gl_rsurf.js:2492-2493`), and it is the only caller of `R_UploadLightmapRect`
+  (`:2510`). The `gl_texsort 0` path, `R_DrawSequentialPoly`, only marks
+  lightmaps modified.
+- **C:** `R_BlendLightmaps` also returns (`gl_rsurf.c:676-677`), but
+  `R_DrawSequentialPoly` uploads the changed rows itself (`gl_rsurf.c:544-553`).
+- **Effect:** with Texture sort off in the Advanced menu (`menu_cvars.js:205`),
+  light styles and dynamic lights stop changing on the world.
+- **Fix direction:** upload in the `gl_texsort 0` path as C does, or run the
+  upload loop of `R_BlendLightmaps` whatever `gl_texsort` is.
 
 ### TEX-2 · Palette index 255 loses its colour — **low**, Verified
 
-- **Port:** `VID_SetPalette` sets `d_8to24table[ 255 ] = 0` (`vid.js:109-110`), so non-alpha textures that use index 255 (`gl_model.js:753`, `gl_warp.js:295`, `gl_draw.js:1146`, `r_part.js:938`) draw it black, and alpha textures carry black under their transparent texels.
-- **C:** `d_8to24table[255] &= 0xffffff` (`gl_vidnt.c:734`) clears only the alpha and keeps the palette colour (159, 91, 83).
-- **Effect:** rare: few textures in id's data use 255 outside alpha textures, and player colours are clamped to 13 (`host_cmd.js:712-714`), so the player translation never reaches it. Filtered and mipmapped alpha textures (sprites, `{` textures, `MF_HOLEY` skins) fringe towards black instead of brown.
-- **Fix direction:** keep the RGB and clear only the alpha. `gl_warp.js:339` and `:358-361` read alpha from the table and need the same rule.
+- **Port:** `VID_SetPalette` sets `d_8to24table[ 255 ] = 0` (`vid.js:109-110`),
+  so non-alpha textures that use index 255 (`gl_model.js:753`, `gl_warp.js:295`,
+  `gl_draw.js:1146`, `r_part.js:938`) draw it black, and alpha textures carry
+  black under their transparent texels.
+- **C:** `d_8to24table[255] &= 0xffffff` (`gl_vidnt.c:734`) clears only the
+  alpha and keeps the palette colour (159, 91, 83).
+- **Effect:** rare: few textures in id's data use 255 outside alpha textures,
+  and player colours are clamped to 13 (`host_cmd.js:712-714`), so the player
+  translation never reaches it. Filtered and mipmapped alpha textures (sprites,
+  `{` textures, `MF_HOLEY` skins) fringe towards black instead of brown.
+- **Fix direction:** keep the RGB and clear only the alpha. `gl_warp.js:339` and
+  `:358-361` read alpha from the table and need the same rule.
 
 ### TEX-3 · Other texture differences — **low**, Reported
 
-- **Re-upload on filter change:** `gl_texturemode` and anisotropy changes set `needsUpdate` on every texture (`glquake.js:503-510`, `gl_model.js:930-938`), a full re-upload where C only sets parameters (`Draw_TextureMode_f`, `gl_draw.c:352-360`). It is a one-off hitch.
-- **Sky filtering:** both sky layers hard-code `LinearFilter` (`gl_warp.js:322-328`, `:356-362`); C loads them through `GL_LoadTexture`, so they follow `gl_filter_max`.
-- **Mipmaps in linear light:** sRGB textures are mipmapped after decoding, where `GL_MipMap` averages the raw bytes (`gl_draw.c:945-965`), so distant textures are slightly brighter.
-- **Alias and MD5 skins** are never disposed (`gl_model.js:1220-1225`). GLQuake never frees textures either, so this matches the C; only a long session over many models grows.
+- **Re-upload on filter change:** `gl_texturemode` and anisotropy changes set
+  `needsUpdate` on every texture (`glquake.js:503-510`, `gl_model.js:930-938`),
+  a full re-upload where C only sets parameters (`Draw_TextureMode_f`,
+  `gl_draw.c:352-360`). It is a one-off hitch.
+- **Sky filtering:** both sky layers hard-code `LinearFilter`
+  (`gl_warp.js:322-328`, `:356-362`); C loads them through `GL_LoadTexture`, so
+  they follow `gl_filter_max`.
+- **Mipmaps in linear light:** sRGB textures are mipmapped after decoding, where
+  `GL_MipMap` averages the raw bytes (`gl_draw.c:945-965`), so distant textures
+  are slightly brighter.
+- **Alias and MD5 skins** are never disposed (`gl_model.js:1220-1225`). GLQuake
+  never frees textures either, so this matches the C; only a long session over
+  many models grows.
 
 ## 17. Engine changes in #115 to #150 (`223a180` to `055c52f`)
 
-Reviewers compared the ported functions whose bodies changed in these PRs with id's C, and spot-checked them against Ironwail or QuakeSpasm where the port says it follows them. Most of this range is deliberate deviations listed in section 7 (BSP2, `.lit`, fog, skyboxes, MD5, `PROTOCOL_ICARO`, the datagram size) or described under "Wire format" above (entity alpha), so the main check was that id's data still takes id's path.
+Reviewers compared the ported functions whose bodies changed in these PRs with
+id's C, and spot-checked them against Ironwail or QuakeSpasm where the port says
+it follows them. Most of this range is deliberate deviations listed in section 7
+(BSP2, `.lit`, fog, skyboxes, MD5, `PROTOCOL_ICARO`, the datagram size) or
+described under "Wire format" above (entity alpha), so the main check was that
+id's data still takes id's path.
 
 **What matches:**
 
-- **BSP29 through the BSP2 loaders:** every BSP29 branch of `Mod_LoadEdges`, `Mod_LoadFaces`, `Mod_LoadMarksurfaces`, `Mod_LoadLeafs`, `Mod_LoadNodes` and `Mod_LoadClipnodes` reads the same widths and signedness as id and as Ironwail's `_S` loaders. The BSP2 layouts and the version constant match Ironwail.
-- **Mono lighting:** with no `.lit`, `R_BuildLightMap`, `R_AddDynamicLights` and `R_LightPoint` run id's code, and white dlights take id's path.
-- **Protocol 15 demos:** baselines, statics, clientdata, sounds and static sounds read in the NetQuake form with 16-bit coords. Under 1015 every writer and reader agrees on field order and width, including `svc_temp_entity`, `svc_particle`, `svc_setangle`, the packet entities and `svc_playerinfo`.
-- **Effects and edicts:** a progs without the `EF_QEX_*` globals gets id's effects byte (`PR_FindSupportedEffects` is Ironwail's). `max_edicts` growth appends to the same array, so no reference goes stale.
-- **Rendering:** the crosshair (#123), `Draw_CharToConback` and the console version stamp (#125), and `-particles` (#127) match id. The alias lighting cache (#132) is keyed on everything that `R_DrawAliasModel` shades from, and entities with the default alpha take the same material path as before.
-- **#148 to #150:** `Mod_CheckWaterVis` matches Ironwail apart from its documented row size, `R_SetWorldBatchVisibility` hides only batches with no instance in the PVS, and `SV_SendClientDatagram` copies `sv.datagram` only when it fits, as id and QuakeSpasm do.
+- **BSP29 through the BSP2 loaders:** every BSP29 branch of `Mod_LoadEdges`,
+  `Mod_LoadFaces`, `Mod_LoadMarksurfaces`, `Mod_LoadLeafs`, `Mod_LoadNodes` and
+  `Mod_LoadClipnodes` reads the same widths and signedness as id and as
+  Ironwail's `_S` loaders. The BSP2 layouts and the version constant match
+  Ironwail.
+- **Mono lighting:** with no `.lit`, `R_BuildLightMap`, `R_AddDynamicLights` and
+  `R_LightPoint` run id's code, and white dlights take id's path.
+- **Protocol 15 demos:** baselines, statics, clientdata, sounds and static
+  sounds read in the NetQuake form with 16-bit coords. Under 1015 every writer
+  and reader agrees on field order and width, including `svc_temp_entity`,
+  `svc_particle`, `svc_setangle`, the packet entities and `svc_playerinfo`.
+- **Effects and edicts:** a progs without the `EF_QEX_*` globals gets id's
+  effects byte (`PR_FindSupportedEffects` is Ironwail's). `max_edicts` growth
+  appends to the same array, so no reference goes stale.
+- **Rendering:** the crosshair (#123), `Draw_CharToConback` and the console
+  version stamp (#125), and `-particles` (#127) match id. The alias lighting
+  cache (#132) is keyed on everything that `R_DrawAliasModel` shades from, and
+  entities with the default alpha take the same material path as before.
+- **#148 to #150:** `Mod_CheckWaterVis` matches Ironwail apart from its
+  documented row size, `R_SetWorldBatchVisibility` hides only batches with no
+  instance in the PVS, and `SV_SendClientDatagram` copies `sv.datagram` only
+  when it fits, as id and QuakeSpasm do.
 
 ### BSP-1 · Lightmap texture origins wrap on large BSP2 maps — **medium**, Verified (code and the rerelease data)
 
-- **Port:** `msurface_t.texturemins` is an `Int16Array` (`gl_model.js:282`), filled with `bmins * 16` in `CalcSurfaceExtents` (`gl_model.js:2028`). The lightmap coordinates (`gl_rsurf.js:2994`, `:3000`), `R_AddDynamicLights` (`gl_rsurf.js:1571-1572`) and `R_LightPoint` (`gl_rlight.js:478-482`) read it.
-- **C:** id keeps it `short` (`gl_model.h:134`). Ironwail, whose BSP2 loader the port follows, made it `int` (`gl_model.h:155`) and kept `extents` `short`.
-- **Effect:** a texture-space minimum outside ±32768 wraps by 65536. A script over the local rerelease data found 26 lightmapped faces (texture `mg_cliff1_1`) in `mg3`'s `maps/map7.bsp` that do, and none in id's maps or the mission packs. On those faces the lightmap is sampled from the wrong place, dynamic lights miss, and a model standing on one is lit wrongly. Not seen in a browser.
+- **Port:** `msurface_t.texturemins` is an `Int16Array` (`gl_model.js:282`),
+  filled with `bmins * 16` in `CalcSurfaceExtents` (`gl_model.js:2028`). The
+  lightmap coordinates (`gl_rsurf.js:2994`, `:3000`), `R_AddDynamicLights`
+  (`gl_rsurf.js:1571-1572`) and `R_LightPoint` (`gl_rlight.js:478-482`) read it.
+- **C:** id keeps it `short` (`gl_model.h:134`). Ironwail, whose BSP2 loader the
+  port follows, made it `int` (`gl_model.h:155`) and kept `extents` `short`.
+- **Effect:** a texture-space minimum outside ±32768 wraps by 65536. A script
+  over the local rerelease data found 26 lightmapped faces (texture
+  `mg_cliff1_1`) in `mg3`'s `maps/map7.bsp` that do, and none in id's maps or
+  the mission packs. On those faces the lightmap is sampled from the wrong
+  place, dynamic lights miss, and a model standing on one is lit wrongly. Not
+  seen in a browser.
 - **Fix direction:** make `texturemins` an `Int32Array`, as Ironwail does.
 
 ### BSP-2 · Liquid alpha is gated on the map's vis the other way round from Ironwail — **low-medium**, Verified
 
-- **Port:** `R_ParseWorldspawn` sets `map_wateralpha`, `map_lavaalpha`, `map_slimealpha` and `map_telealpha` from the cvars for every map (`gl_rsurf.js:555-558`) and applies the worldspawn `_wateralpha`-style keys only to liquids that `Mod_CheckWaterVis` found see-through (`gl_rsurf.js:583-590`).
-- **C:** Ironwail's `R_ParseWorldspawn` does the opposite: the cvar applies only to see-through liquids, and the keys apply always (`gl_rmisc.c:460-463`, `:488-499`). QuakeSpasm gates neither.
-- **Effect:** with `r_wateralpha` below 1, water on a map not vised for it turns translucent and shows the void behind it, which is what Ironwail's gate prevents. A mapper's `_wateralpha` key is ignored on such a map, where Ironwail honours it. The commit says the key gating was intended, but it matches neither port. The default `r_wateralpha` is 1, so default settings are unaffected.
-- **Fix direction:** gate the cvar values and apply the keys unconditionally, as Ironwail does, or document the choice in section 7.
+- **Port:** `R_ParseWorldspawn` sets `map_wateralpha`, `map_lavaalpha`,
+  `map_slimealpha` and `map_telealpha` from the cvars for every map
+  (`gl_rsurf.js:555-558`) and applies the worldspawn `_wateralpha`-style keys
+  only to liquids that `Mod_CheckWaterVis` found see-through
+  (`gl_rsurf.js:583-590`).
+- **C:** Ironwail's `R_ParseWorldspawn` does the opposite: the cvar applies only
+  to see-through liquids, and the keys apply always (`gl_rmisc.c:460-463`,
+  `:488-499`). QuakeSpasm gates neither.
+- **Effect:** with `r_wateralpha` below 1, water on a map not vised for it turns
+  translucent and shows the void behind it, which is what Ironwail's gate
+  prevents. A mapper's `_wateralpha` key is ignored on such a map, where
+  Ironwail honours it. The commit says the key gating was intended, but it
+  matches neither port. The default `r_wateralpha` is 1, so default settings are
+  unaffected.
+- **Fix direction:** gate the cvar values and apply the keys unconditionally, as
+  Ironwail does, or document the choice in section 7.
 
 ### BSP-3 · Smaller loader and lighting differences — **low**, Reported
 
-- **Extents seeds:** `CalcSurfaceExtents` seeds with id's `999999` and `-99999` (`gl_model.js:1994-1995`); Ironwail uses `FLT_MAX` (`gl_model.c:1177-1178`). A BSP2 face entirely beyond those values gets wrong extents. No shipped map comes close (the largest texture minimum found was 69280).
-- **Light sample truncation:** `R_LightPoint` keeps `s`, `t`, `ds` and `dt` as floats (`gl_rlight.js:475-482`), and `R_AddDynamicLights` keeps `sd` and `td` as floats (`gl_rsurf.js:1576-1587`); C declares them `int` (`r_light.c`, `gl_rsurf.c`). Edge tests and dlight falloff differ by under one luxel.
-- **Bounds checks:** leaf marksurface ranges and face plane and texinfo indices are not range-checked, so a corrupt map throws a `TypeError` instead of a `Host_Error`. Ironwail doesn't check these either.
-- **Comment:** `MAX_MOD_KNOWN` is described as "Ironwail's 2048" (`gl_model.js:675-678`, and `docs/rerelease-gaps.md`); Ironwail's is 4096 (`gl_model.c:51`). 2048 is enough for the rerelease.
+- **Extents seeds:** `CalcSurfaceExtents` seeds with id's `999999` and `-99999`
+  (`gl_model.js:1994-1995`); Ironwail uses `FLT_MAX` (`gl_model.c:1177-1178`). A
+  BSP2 face entirely beyond those values gets wrong extents. No shipped map
+  comes close (the largest texture minimum found was 69280).
+- **Light sample truncation:** `R_LightPoint` keeps `s`, `t`, `ds` and `dt` as
+  floats (`gl_rlight.js:475-482`), and `R_AddDynamicLights` keeps `sd` and `td`
+  as floats (`gl_rsurf.js:1576-1587`); C declares them `int` (`r_light.c`,
+  `gl_rsurf.c`). Edge tests and dlight falloff differ by under one luxel.
+- **Bounds checks:** leaf marksurface ranges and face plane and texinfo indices
+  are not range-checked, so a corrupt map throws a `TypeError` instead of a
+  `Host_Error`. Ironwail doesn't check these either.
+- **Comment:** `MAX_MOD_KNOWN` is described as "Ironwail's 2048"
+  (`gl_model.js:675-678`, and `docs/rerelease-gaps.md`); Ironwail's is 4096
+  (`gl_model.c:51`). 2048 is enough for the rerelease.
 
 ### PROTO-1 · Protocol and server differences — **low to low-medium**, Reported
 
-- **Datagram space (low-medium):** `SV_StartSound` and `SV_StartParticle` now let `sv.datagram` grow to about 4075 bytes (`sv_main.js:181`, `:232`), while a network client's datagram is at most 1400 and takes `sv.datagram` whole or not at all (`sv_main.js:1773`, `:1816`). This is id's rule (`sv_main.c:738-739`) and QuakeSpasm's (`sv_main.c:1026`, `:1038`), so it is not a regression. The port makes it more likely: a sound is 21 bytes and a particle 18 with 4-byte coords (id: 13 and 16), and the entity writers stop with 54 bytes free (`sv_main.js:1004`, `:1087`) where id leaves 16. On a busy frame a remote player then loses every sound and particle of that frame. Copying whole messages while they fit would keep the first ones.
-- **Edicts past the allocated array (low):** `PROG_TO_EDICT` (`progs.js:475`) doesn't grow the edict array as `EDICT_NUM` does, so a progs that reads a field of an edict number between the allocated count and `max_edicts` gets `PR_RunError( 'bad edict number' )` (`pr_exec.js:370`), where C reads a zeroed edict.
+- **Datagram space (low-medium):** `SV_StartSound` and `SV_StartParticle` now
+  let `sv.datagram` grow to about 4075 bytes (`sv_main.js:181`, `:232`), while a
+  network client's datagram is at most 1400 and takes `sv.datagram` whole or not
+  at all (`sv_main.js:1773`, `:1816`). This is id's rule (`sv_main.c:738-739`)
+  and QuakeSpasm's (`sv_main.c:1026`, `:1038`), so it is not a regression. The
+  port makes it more likely: a sound is 21 bytes and a particle 18 with 4-byte
+  coords (id: 13 and 16), and the entity writers stop with 54 bytes free
+  (`sv_main.js:1004`, `:1087`) where id leaves 16. On a busy frame a remote
+  player then loses every sound and particle of that frame. Copying whole
+  messages while they fit would keep the first ones.
+- **Edicts past the allocated array (low):** `PROG_TO_EDICT` (`progs.js:475`)
+  doesn't grow the edict array as `EDICT_NUM` does, so a progs that reads a
+  field of an edict number between the allocated count and `max_edicts` gets
+  `PR_RunError( 'bad edict number' )` (`pr_exec.js:370`), where C reads a zeroed
+  edict.
 
 ### REND-1 · Rendering details — **low**, Reported
 
-- **Crosshair:** the `+` is centred on the `scr_vrect` centre (4 pixels up and left of id's `gl_screen.c:906-907`) and is hidden in every intermission, where id hides it only in some. Both are documented in `SCR_DrawCrosshair` (`gl_screen.js:631-637`). `cl_crossx` and `cl_crossy` are registered but unread, as in GLQuake.
-- **Player material:** the per-entity player material is rebuilt only when the translated skin texture changes (`gl_mesh.js:938-963`), so its fullbright map and lighting flag are fixed at creation. No path that changes them was found.
-- **`.lit` fetch:** `COM_EnsureFile` starts the `.lit` fetch before awaiting the map and awaits it after (`pak.js:390`), so a throw from the `.lit` fetch while the map load is failing would be an unhandled rejection.
+- **Crosshair:** the `+` is centred on the `scr_vrect` centre (4 pixels up and
+  left of id's `gl_screen.c:906-907`) and is hidden in every intermission, where
+  id hides it only in some. Both are documented in `SCR_DrawCrosshair`
+  (`gl_screen.js:631-637`). `cl_crossx` and `cl_crossy` are registered but
+  unread, as in GLQuake.
+- **Player material:** the per-entity player material is rebuilt only when the
+  translated skin texture changes (`gl_mesh.js:938-963`), so its fullbright map
+  and lighting flag are fixed at creation. No path that changes them was found.
+- **`.lit` fetch:** `COM_EnsureFile` starts the `.lit` fetch before awaiting the
+  map and awaits it after (`pak.js:390`), so a throw from the `.lit` fetch while
+  the map load is failing would be an unhandled rejection.
 
 ## 18. Part 3: claims checked and rejected
 
-- **"#150's 4096-byte datagram can overflow the loopback buffer."** `Loop_SendMessage` calls `Sys_Error` when the pending datagram and a reliable message together pass 8192 bytes (`net_loop.js:207`). With a 4096-byte local datagram that takes a reliable message over 4088 bytes in the same frame to a spawned client, which nothing in the engine writes. Section 7 and `quakedef.js` document the choice.
-- **"#149 can hide world batches that should draw."** `R_MarkLeaves` keeps the main view's PVS for the mirror pass, as C does, and both XR eyes share it, so a hidden batch has no surface in any view this frame.
-- **"`r_drawworld` is never read."** id's GLQuake has no `r_drawworld` cvar; the port's is an unused addition.
-- **"The player translation reaches palette index 255."** `Host_Color_f` clamps colours to 13 (`host_cmd.js:712-714`), so the translated range never includes 255 (TEX-2).
-- **"`CDAudio_Update` differs from C."** C's `CDAudio_Update` turns `bgmvolume` into on or off because MCI has no volume; the port sets a gain. This is a web adaptation, not a bug.
-- **"Room joins can be redirected by a hostile `room.id`."** The Join path builds the URL with `searchParams.set`, which percent-encodes it. Only Start Game's fallback concatenates (MENU-2).
-- **"Loops over `MAX_MODELS` (now 4096) run every frame."** `R_CheckLightmapCvars` runs its loop only when `r_fullbright` changes, and the loop stops at the first empty precache slot.
-- **"The XR viewmodel needs id's depth hack."** Its absence is documented (`gl_rmain.js:699`).
+- **"#150's 4096-byte datagram can overflow the loopback buffer."**
+  `Loop_SendMessage` calls `Sys_Error` when the pending datagram and a reliable
+  message together pass 8192 bytes (`net_loop.js:207`). With a 4096-byte local
+  datagram that takes a reliable message over 4088 bytes in the same frame to a
+  spawned client, which nothing in the engine writes. Section 7 and
+  `quakedef.js` document the choice.
+- **"#149 can hide world batches that should draw."** `R_MarkLeaves` keeps the
+  main view's PVS for the mirror pass, as C does, and both XR eyes share it, so
+  a hidden batch has no surface in any view this frame.
+- **"`r_drawworld` is never read."** id's GLQuake has no `r_drawworld` cvar; the
+  port's is an unused addition.
+- **"The player translation reaches palette index 255."** `Host_Color_f` clamps
+  colours to 13 (`host_cmd.js:712-714`), so the translated range never includes
+  255 (TEX-2).
+- **"`CDAudio_Update` differs from C."** C's `CDAudio_Update` turns `bgmvolume`
+  into on or off because MCI has no volume; the port sets a gain. This is a web
+  adaptation, not a bug.
+- **"Room joins can be redirected by a hostile `room.id`."** The Join path
+  builds the URL with `searchParams.set`, which percent-encodes it. Only Start
+  Game's fallback concatenates (MENU-2).
+- **"Loops over `MAX_MODELS` (now 4096) run every frame."**
+  `R_CheckLightmapCvars` runs its loop only when `r_fullbright` changes, and the
+  loop stops at the first empty precache slot.
+- **"The XR viewmodel needs id's depth hack."** Its absence is documented
+  (`gl_rmain.js:699`).
 
 ---
 
@@ -966,8 +1832,12 @@ git clone --depth 1 https://github.com/id-Software/Quake.git /tmp/idquake
 deno task test
 ```
 
-The tests at `dfef74a` ran with `deno test --allow-read --allow-net --allow-env tests/`. The task now scopes permissions more narrowly (see `deno.json`).
+The tests at `dfef74a` ran with
+`deno test --allow-read --allow-net --allow-env tests/`. The task now scopes
+permissions more narrowly (see `deno.json`).
 
-Compare each `src/*.js` file with the C file named on its first line (`// Ported from: …`).
+Compare each `src/*.js` file with the C file named on its first line
+(`// Ported from: …`).
 
-See [`port-inventory.md`](port-inventory.md) for the item-by-item inventory of unported C functions, cvars and commands.
+See [`port-inventory.md`](port-inventory.md) for the item-by-item inventory of
+unported C functions, cvars and commands.
