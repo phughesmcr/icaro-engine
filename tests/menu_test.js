@@ -234,7 +234,7 @@ Deno.test("touch taps on dense menus select first, then act; taps just outside a
 
     // Snap: a finger just outside the Options list takes its nearest row
     menu.M_Keydown(keys.K_ESCAPE);
-    const listEnd = 32 + 17 * 8; // OPTIONS_ITEMS rows of 8 units
+    const listEnd = 32 + 18 * 8; // OPTIONS_ITEMS rows of 8 units
     assertEqual(
       menu.M_MenuRowAt(100, 1000),
       -1,
@@ -247,7 +247,7 @@ Deno.test("touch taps on dense menus select first, then act; taps just outside a
     );
     assertEqual(
       menu.M_MenuRowAt(100, listEnd + 3, 4),
-      16,
+      17,
       "just below the list snaps to the last row",
     );
     assertEqual(menu.M_MenuRowAt(100, 31), -1, "without slack, no row");
@@ -255,7 +255,7 @@ Deno.test("touch taps on dense menus select first, then act; taps just outside a
     finger(100, listEnd + 3);
     assertEqual(
       cursor(),
-      16,
+      17,
       "a finger just below the list selects the last row",
     );
 
