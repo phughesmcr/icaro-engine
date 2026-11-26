@@ -4,46 +4,20 @@
     {
       "name": "static",
       "runtimeExecutable": "deno",
-      "runtimeArgs": [
-        "task",
-        "serve"
-      ],
+      "runtimeArgs": ["task", "serve"],
       "port": 8137
     },
     {
       "name": "lobby",
       "runtimeExecutable": "deno",
-      "runtimeArgs": [
-        "task",
-        "lobby"
-      ],
+      "runtimeArgs": ["task", "lobby"],
       "port": 4433
     },
     {
       "name": "client-worker",
       "runtimeExecutable": "sh",
-      "runtimeArgs": [
-        "-c",
-        "cd cloudflare/client && npx --yes wrangler@4 dev --port 8788"
-      ],
+      "runtimeArgs": ["-c", "cd cloudflare/client && npx --yes wrangler@4 dev --port 8788"],
       "port": 8788
-    },
-    {
-      "name": "static-agentnext",
-      "runtimeExecutable": "deno",
-      "runtimeArgs": [
-        "run",
-        "--allow-net=127.0.0.1:8147",
-        "--allow-read=.",
-        "--allow-sys=networkInterfaces",
-        "jsr:@std/http@1.1.4/file-server",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "8147",
-        "--no-dotfiles"
-      ],
-      "port": 8147
     }
   ]
 }
