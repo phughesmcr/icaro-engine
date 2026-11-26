@@ -35,8 +35,8 @@ process per room. It was forked from mrdoob's three-quake.
   check and unpack; see `docs/librequake-content.md`). Some files port features
   from Ironwail or QuakeSpasm rather than id's C, and their headers cite it
   (`gl_fog.js`, `gl_sky.js`, `gl_md5.js`, `gl_entalpha.js`, `gl_screenwarp.js`,
-  `image.js`, `pr_sprintf.js`, `default_cfg.js`, `unicode_translit.js`). For
-  those, Ironwail's source is the reference.
+  `gl_gamma.js`, `image.js`, `pr_sprintf.js`, `default_cfg.js`,
+  `unicode_translit.js`). For those, Ironwail's source is the reference.
 - `main.js` and `index.html`: the browser entry. `index.html`'s import map loads
   `three` and `nipplejs` from jsDelivr, and zip.js (for LibreQuake's download)
   with an integrity hash; both `deno.json` files repeat the zip.js entry, and

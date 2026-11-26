@@ -108,7 +108,7 @@ core; its DOM code is browser-only).
 `net_websocket_server.ts`, `quic_listen.ts`, `client_address.ts`,
 `sys_server.ts`, and `browser_shim.js` until it is retired.
 
-**core/** (46):
+**core/** (47):
 
 - Files and data: `common` (split, step 12), `pak`, `wad`, `image`, `crc`,
   `zone`, `mathlib`, `unicode_translit`, `bspfile`, `anorm_dots`.
@@ -119,8 +119,8 @@ core; its DOM code is browser-only).
 - Sound: `sound`, `snd_dma`, `snd_mem`, `snd_mix`.
 - Models and renderer: `gl_model`, `gl_md5`, `render`, `glquake`, `gl_rmain`,
   `gl_rsurf`, `gl_warp`, `gl_sky`, `gl_fog`, `gl_rlight`, `gl_refrag`,
-  `gl_mesh`, `gl_draw`, `gl_rmisc`, `gl_entalpha`, `gl_screenwarp`, `gl_warmup`,
-  `gl_rmirror`, `r_part`, `vid_dynres`.
+  `gl_mesh`, `gl_draw`, `gl_rmisc`, `gl_entalpha`, `gl_screenwarp`, `gl_gamma`,
+  `gl_warmup`, `gl_rmirror`, `r_part`, `vid_dynres`.
 
 **games/quake/** (31):
 
@@ -194,8 +194,9 @@ They fall into the seams below; the step that cuts each is given in brackets.
   `SCR_UpdateScreen` from `gl_screen`; `gl_draw` imports `Sbar_Changed`. Both
   files already have a `*_SetExternals` function to carry these.
 - **G5, renderer calling the view** (step 7). `gl_rmain` imports `V_CalcBlend`
-  and `V_SetContentsColor` from `view` and `chase_active` from `chase`. Hooks,
-  set with the scene.
+  and `V_SetContentsColor` from `view` and `chase_active` from `chase`;
+  `gl_gamma` reads the `gamma` and `contrast` cvars from `view`. Hooks, set with
+  the scene.
 - **G6, engine services calling the game** (step 10). `cmd` imports the embedded
   `default_cfg` (which the game can register as a virtual file with
   `COM_AddVirtualFile` instead) and `clc_stringcmd` (for `Cmd_ForwardToServer`,
@@ -225,9 +226,9 @@ They fall into the seams below; the step that cuts each is given in brackets.
   and calls the mixer. QuakeSpasm's split applies: commands and cvars in core
   (`bgmusic.c`), playback in platform (`cd_sdl.c`).
 - **P4, video** (step 11). `vid` registers cvars and prints; `webxr` calls
-  `gl_draw`; `gl_contextloss` calls `gl_rsurf` and `gl_screenwarp` to rebuild
-  GPU state. The cvars move to core, the context-loss and XR reactions become
-  hooks the renderer sets.
+  `gl_draw`; `gl_contextloss` calls `gl_rsurf`, `gl_screenwarp` and `gl_gamma`
+  to rebuild GPU state. The cvars move to core, the context-loss and XR
+  reactions become hooks the renderer sets.
 - **P5, storage and files** (step 11). `userdata` imports `Cvar_WriteVariables`,
   `COM_AddVirtualFile`, `COM_SetUserPaks`, the key bindings and commands;
   `autosave` is already clean. Core files also touch browser globals: `cvar`
@@ -243,14 +244,14 @@ browser-specific platform files as their own tier (with the script's `--layers`
 option) finds 40 more pairs that break the third rule: core → browser 22, game →
 browser 18.
 
-- **Renderer → `vid` and `webxr`** (17 pairs): `gl_draw`, `gl_md5`, `gl_model`,
-  `gl_rlight`, `gl_rmain`, `gl_rmisc`, `gl_rsurf`, `gl_screenwarp`, `gl_warmup`,
-  `r_part`, `render` and `vid_dynres` read the `renderer` handle, `vid`,
-  `vrect_t`, the `d_8to24table` palette, the pixel ratio, and `isXRActive` and
-  the XR poses. The renderer is a WebGL renderer, so it will always need a WebGL
-  platform; the cut is to split `vid` into the neutral part (`vid`, `vrect_t`,
-  the palette) and the WebGL context, and to reach the XR state through hooks
-  (step 11, P4). `gl_model` is also part of S1.
+- **Renderer → `vid` and `webxr`** (19 pairs): `gl_draw`, `gl_gamma`, `gl_md5`,
+  `gl_model`, `gl_rlight`, `gl_rmain`, `gl_rmisc`, `gl_rsurf`, `gl_screenwarp`,
+  `gl_warmup`, `r_part`, `render` and `vid_dynres` read the `renderer` handle,
+  `vid`, `vrect_t`, the `d_8to24table` palette, the pixel ratio, and
+  `isXRActive` and the XR poses. The renderer is a WebGL renderer, so it will
+  always need a WebGL platform; the cut is to split `vid` into the neutral part
+  (`vid`, `vrect_t`, the palette) and the WebGL context, and to reach the XR
+  state through hooks (step 11, P4). `gl_model` is also part of S1.
 - **`net_main` → the browser drivers and `turnstile`** (5 pairs): besides the
   driver table it calls `WS_ToWebSocketURL`, `WT_CreateRoom`, `WS_CreateRoom`,
   `RTC_IsRoomAddress`, `RTCLobby_HostRoom` and `Turnstile_GetToken` to route
@@ -262,10 +263,9 @@ browser 18.
 - **Client → input and XR** (4 pairs): `cl_input` and `cl_main` call `IN_Move`,
   `cl_input` reads the XR aim, `agent` calls `IN_SetAgentDriven`. `IN_Move` is
   the C's `input.h` interface; it becomes a registered input driver (P2).
-- **The rest** (9 pairs): `cl_parse` → `cd_audio` (P3); `host_cmd` → `autosave`
+- **The rest** (8 pairs): `cl_parse` → `cd_audio` (P3); `host_cmd` → `autosave`
   and `cl_demo` → `userdata` (P5); `menu` → `touch` and `turnstile` (P2);
-  `gl_screen` → `gl_contextloss` and `vid` (P4); `view` → `vid` (gamma) and
-  `webxr` (P4).
+  `gl_screen` → `gl_contextloss` and `vid` (P4); `view` → `webxr` (P4).
 
 ### Cycles left inside each layer
 

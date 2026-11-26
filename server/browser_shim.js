@@ -43,6 +43,8 @@ export const LinearMipmapNearestFilter = 1007;
 export const LinearMipmapLinearFilter = 1008;
 export const RepeatWrapping = 1000;
 export const SRGBColorSpace = "srgb";
+export const LinearSRGBColorSpace = "srgb-linear";
+export const NoColorSpace = "";
 export const FrontSide = 0;
 export const BackSide = 1;
 export const DoubleSide = 2;
@@ -332,6 +334,14 @@ export class BufferGeometry {
   dispose() {}
 }
 
+// PlaneGeometry - gl_gamma.js's full-screen quad
+export class PlaneGeometry extends BufferGeometry {
+  constructor(width = 1, height = 1) {
+    super();
+    this.parameters = { width, height };
+  }
+}
+
 export class BufferAttribute {
   constructor(array, itemSize) {
     this.array = array;
@@ -541,6 +551,26 @@ export class Scene extends Object3D {
   }
 }
 
+// OrthographicCamera - gl_gamma.js's full-screen quad
+export class OrthographicCamera extends Object3D {
+  constructor(
+    left = -1,
+    right = 1,
+    top = 1,
+    bottom = -1,
+    near = 0.1,
+    far = 2000,
+  ) {
+    super();
+    this.left = left;
+    this.right = right;
+    this.top = top;
+    this.bottom = bottom;
+    this.near = near;
+    this.far = far;
+  }
+}
+
 export class PerspectiveCamera extends Object3D {
   constructor(fov = 50, aspect = 1, near = 0.1, far = 2000) {
     super();
@@ -681,5 +711,13 @@ export class Texture {
 export class CanvasTexture extends Texture {
   constructor() {
     super();
+  }
+}
+
+// FramebufferTexture - gl_gamma.js's copy of the view
+export class FramebufferTexture extends Texture {
+  constructor(width, height) {
+    super();
+    this.image = { width, height };
   }
 }

@@ -6,8 +6,11 @@
 //
 // Deviations: lines this port can't run are left out, since each would print
 // an error at every start:
-//   "contrast 1.2" and "scr_autoscale" (no such cvars here),
+//   "scr_autoscale" (no such cvar here),
 //   and the F11 zoom_in alias and bind (no togglezoom command here).
+// "contrast 1.2" is left out too: the gamma pass (gl_gamma.js) covers only
+// the 3D view, where QuakeSpasm's covers the HUD as well, so it would split
+// the two.
 
 export const default_cfg = "unbindall\n" +
   "bind ALT +strafe\n" +

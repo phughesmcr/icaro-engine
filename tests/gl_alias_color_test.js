@@ -86,12 +86,12 @@ function vertexColourCacheTest() {
   const colors = entity._aliasGeo.attributes.color.array;
   assertEqual(
     colors[0],
-    gl_mesh.GL_LinearLight(0.25),
+    Math.fround(gl_mesh.GL_AliasLight(0.25)),
     "vertex 0 lit by normal 0",
   );
   assertEqual(
     colors[3],
-    gl_mesh.GL_LinearLight(0.5),
+    Math.fround(gl_mesh.GL_AliasLight(0.5)),
     "vertex 1 lit by normal 1",
   );
 
@@ -100,26 +100,46 @@ function vertexColourCacheTest() {
   assertEqual(draw(dotsA, 0.8), true, "new shadelight rewrites");
   assertEqual(
     colors[0],
-    gl_mesh.GL_LinearLight(0.4),
+    Math.fround(gl_mesh.GL_AliasLight(0.4)),
     "vertex 0 at the new shadelight",
   );
 
   assertEqual(draw(dotsB, 0.8), true, "new shade table rewrites");
   assertEqual(
     colors[0],
-    gl_mesh.GL_LinearLight(0.8),
+    Math.fround(gl_mesh.GL_AliasLight(0.8)),
     "vertex 0 from the new table",
   );
 
   // .lit: each channel lit by its own shade; a change in one channel rewrites
   assertEqual(draw(dotsB, [0.8, 0.4, 0.2]), true, "tinted shade rewrites");
-  assertEqual(colors[0], gl_mesh.GL_LinearLight(0.8), "vertex 0 red");
-  assertEqual(colors[1], gl_mesh.GL_LinearLight(0.4), "vertex 0 green");
-  assertEqual(colors[2], gl_mesh.GL_LinearLight(0.2), "vertex 0 blue");
-  assertEqual(colors[4], gl_mesh.GL_LinearLight(0.2), "vertex 1 green");
+  assertEqual(
+    colors[0],
+    Math.fround(gl_mesh.GL_AliasLight(0.8)),
+    "vertex 0 red",
+  );
+  assertEqual(
+    colors[1],
+    Math.fround(gl_mesh.GL_AliasLight(0.4)),
+    "vertex 0 green",
+  );
+  assertEqual(
+    colors[2],
+    Math.fround(gl_mesh.GL_AliasLight(0.2)),
+    "vertex 0 blue",
+  );
+  assertEqual(
+    colors[4],
+    Math.fround(gl_mesh.GL_AliasLight(0.2)),
+    "vertex 1 green",
+  );
   assertEqual(draw(dotsB, [0.8, 0.4, 0.2]), false, "same tint: no rewrite");
   assertEqual(draw(dotsB, [0.8, 0.4, 0.3]), true, "new blue rewrites");
-  assertEqual(colors[2], gl_mesh.GL_LinearLight(0.3), "vertex 0 new blue");
+  assertEqual(
+    colors[2],
+    Math.fround(gl_mesh.GL_AliasLight(0.3)),
+    "vertex 0 new blue",
+  );
   assertEqual(draw(dotsB, 0.8), true, "back to mono rewrites");
 
   // A cleared entity cache (_clearEntityMeshCache) must relight the new buffer.
@@ -134,25 +154,16 @@ function vertexColourCacheTest() {
   assertEqual(draw(dotsB, 0.8), true, "overbright toggle rewrites");
   assertEqual(
     entity._aliasGeo.attributes.color.array[0],
-    gl_mesh.GL_LinearLight(0.8, true),
+    Math.fround(gl_mesh.GL_AliasLight(0.8, true)),
     "vertex 0 overbright",
   );
   assertEqual(draw(dotsB, 0.8), false, "same overbright: no rewrite");
 }
 
-Deno.test("GL_LinearLight doubles the clamped level for gl_overbright_models", () => {
-  const close = (a, b, m) => {
-    if (Math.abs(a - b) > 1e-6) throw new Error(`${m}: ${a} vs ${b}`);
-  };
-  // the table is GL's 8-bit vertex colour: 51 / 255 doubles to 102 / 255
-  close(
-    gl_mesh.GL_LinearLight(51 / 255, true),
-    gl_mesh.GL_LinearLight(102 / 255),
-    "doubles in display space",
-  );
-  // clamped to 1 first, then doubled: sRGB curve at 2
-  const two = Math.pow(2.055 / 1.055, 2.4);
-  close(gl_mesh.GL_LinearLight(1.8, true), two, "clamp then double");
-  assertEqual(gl_mesh.GL_LinearLight(-1, true), 0, "negative is dark");
-  assertEqual(gl_mesh.GL_LinearLight(1.8), 1, "without overbright clamps");
+Deno.test("GL_AliasLight doubles the clamped level for gl_overbright_models", () => {
+  // Ironwail's alias vertex shader: clamp to 1, then double (display space)
+  assertEqual(gl_mesh.GL_AliasLight(0.2, true), 0.4, "doubles");
+  assertEqual(gl_mesh.GL_AliasLight(1.8, true), 2, "clamp then double");
+  assertEqual(gl_mesh.GL_AliasLight(-1, true), 0, "negative is dark");
+  assertEqual(gl_mesh.GL_AliasLight(1.8), 1, "without overbright clamps");
 });

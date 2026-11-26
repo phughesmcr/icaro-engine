@@ -121,17 +121,17 @@ rg -il 'ironwail|quakespasm|fitzquake|johnfitz' src server main.js
   [mrdoob/three-quake](https://github.com/mrdoob/three-quake).
 - **Ironwail, Andrei Drexler and its other authors.** Fixes, limits and whole
   features: the headers of `gl_fog.js`, `gl_sky.js`, `gl_md5.js`,
-  `gl_entalpha.js`, `gl_screenwarp.js`, `image.js`, `pr_sprintf.js`,
-  `default_cfg.js` and `unicode_translit.js` cite it, as do comments elsewhere.
-  Licence:
+  `gl_entalpha.js`, `gl_screenwarp.js`, `gl_gamma.js`, `image.js`,
+  `pr_sprintf.js`, `default_cfg.js` and `unicode_translit.js` cite it, as do
+  comments elsewhere. Licence:
   [GPL version 2 or later](https://github.com/andrei-drexler/ironwail/blob/3fa96fe3a2119b17c7be4f7b747ea3e7c3c455aa/Quake/gl_fog.c#L1-L23)
   (file headers;
   [LICENSE.txt](https://github.com/andrei-drexler/ironwail/blob/3fa96fe3a2119b17c7be4f7b747ea3e7c3c455aa/LICENSE.txt)).
   Source: [andrei-drexler/ironwail](https://github.com/andrei-drexler/ironwail).
 - **QuakeSpasm, and FitzQuake before it.** `image.js` ports its TGA loader,
-  `default_cfg.js` carries its `default.cfg` (by way of Ironwail), and comments
-  elsewhere cite its changes and FitzQuake's (John Fitzgibbons), some of which
-  credit MarkV. Licence:
+  `gl_gamma.js` its gamma and contrast shader, `default_cfg.js` carries its
+  `default.cfg` (by way of Ironwail), and comments elsewhere cite its changes
+  and FitzQuake's (John Fitzgibbons), some of which credit MarkV. Licence:
   [GPL version 2 or later](https://github.com/sezero/quakespasm/blob/13f16f2b28f288ba29a0222c28bcf1e41d60cc5a/Quake/image.c#L1-L21)
   (file headers, which name FitzQuake's authors too). Source:
   [QuakeSpasm](https://sourceforge.net/projects/quakespasm/)
@@ -168,6 +168,8 @@ rg -il 'ironwail|quakespasm|fitzquake|johnfitz' src server main.js
 - **Three.js 0.183.0** (`three.module.js` and `three.core.js`). The renderer.
   Licence: [MIT](https://github.com/mrdoob/three.js/blob/r183/LICENSE). Source:
   [mrdoob/three.js](https://github.com/mrdoob/three.js/tree/r183).
+  `tests/three_r183_shaders.js` copies two of its fragment shaders for the
+  shader-patch tests.
 - **nipplejs 1.0.4.** The touch move stick. Licence:
   [MIT](https://github.com/yoannmoinet/nipplejs/blob/v1.0.4/LICENSE). Source:
   [yoannmoinet/nipplejs](https://github.com/yoannmoinet/nipplejs/tree/v1.0.4).
