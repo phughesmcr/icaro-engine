@@ -36,7 +36,10 @@ process per room. It was forked from mrdoob's three-quake.
   shim or the server and tests break. `server/headless_host.js` runs the
   whole game (host, local server and a loopback client) under Deno with no
   browser or rendering, for scripted play; its header says how to wait for
-  a level to load. `server/Dockerfile` builds the
+  a level to load. `server/agent_mcp.ts` is an MCP server (stdio) on top
+  of it that exposes `src/agent.js` as tools, so MCP clients can play
+  headless (`deno task agent-mcp`; its header gives the `claude mcp add`
+  line). `server/Dockerfile` builds the
   game-room image from an allowlist (`deno.json`, `server/`, `src/`,
   `static/pak0.pak`), with the root `.dockerignore` as a second guard; never
   widen either to registered data (see Game data).
@@ -77,7 +80,8 @@ process per room. It was forked from mrdoob's three-quake.
 - `docs/agent-interface.md`: research and plan for making the engine
   playable by LLM agents and RL (lockstep clock, text observations, macro
   actions, MCP/Gymnasium adapters). Phase 1 (`src/agent.js`) is built, and
-  so are headless play, seeded randomness and the navigation graph
+  so are headless play, the stdio MCP server, seeded randomness and the
+  navigation graph
   (`src/nav.js`, built offline by `tools/nav/nav_build.js`); its status
   section says what isn't. A snapshot.
 - `tools/`: `port_inventory.py` regenerates that inventory's raw tables
@@ -119,11 +123,14 @@ process per room. It was forked from mrdoob's three-quake.
   `deno test --allow-read --allow-write tests/<file>_test.js` (add the task's
   `--allow-env`/`--allow-run` for `server_lobby_test.js`). Narrow further with
   `--filter`.
-- `deno task check` type-checks `main.js`, the server entry points, the room
+- `deno task check` type-checks `main.js`, the server entry points (the
+  MCP server `server/agent_mcp.ts` included), the room
   process manager (`server/room_process_manager.ts`), the
   WebSocket server driver (`server/net_websocket_server.ts`) and the two
   TypeScript tests (`tests/net_webtransport_server_test.ts`,
   `tests/quic_listen_test.ts`).
+- `deno task agent-mcp` runs the agent MCP server on stdio (reads only
+  `static/`; no network).
 - `deno task lobby` and `deno task game` need `server/cert.pem` and
   `server/key.pem` (see `server/README.md`). Both are gitignored.
 - To run the client, serve the repo root with any static file server

@@ -23,7 +23,7 @@ import { M_AgentState, m_none, m_main, m_singleplayer, m_multiplayer, m_quit, m_
 import { Key_Event, key_dest, key_console, key_menu, key_message,
 	K_ENTER, K_ESCAPE, K_UPARROW, K_DOWNARROW, K_LEFTARROW, K_RIGHTARROW, K_TAB, K_BACKSPACE } from './keys.js';
 import { sv } from './server.js';
-import { PR_GetString } from './progs.js';
+import { PR_GetString, pr_globals_int } from './progs.js';
 import { SV_RecursiveHullCheck, trace_t } from './world.js';
 import { CL_ClampPitch } from './cl_input.js';
 
@@ -177,7 +177,7 @@ export function Agent_CleanText( txt ) {
 }
 
 // Console lines that are loading chatter, not game events
-const AGENT_NOISE = /^(meshing |Connecting to local|VERSION [0-9.]+ SERVER|Loading |execing |Unknown command "?(startdemos|demos)|couldn't exec|Client .* removed$)/;
+const AGENT_NOISE = /^(meshing |Connecting to local|VERSION [0-9.]+ SERVER|Loading |execing |Unknown command "?(startdemos|demos)|couldn't exec|Client .* removed$|[0-9]+ demo\(s\) in loop$|CL_ParseStartSoundPacket: sound_num [0-9]+ not precached$)/;
 
 function Agent_ConsoleHook( txt ) {
 
@@ -345,6 +345,11 @@ export function Agent_Detach() {
 }
 
 export function Agent_Mode() { return agent_mode; }
+
+// Tics stepped in lockstep since the first attach (map loads included). A
+// virtual clock built on it (server/agent_mcp.ts) advances exactly with the
+// game.
+export function Agent_Tics() { return agent_tics; }
 
 // main.js skips its own Host_Frame while this is true
 export function Agent_Lockstep() { return agent_mode === 'lockstep'; }
@@ -757,6 +762,9 @@ export function Agent_UIText() {
 function Agent_Weapon() {
 
 	const w = cl.stats[ STAT_ACTIVEWEAPON ];
+	// The server sends the weapon as a byte (SV_WriteClientdataToMessage),
+	// so the axe (4096) arrives as 0
+	if ( w === 0 && ( cl.items & IT_AXE ) !== 0 ) return 'axe';
 	for ( const [ bit, name ] of WEAPON_NAMES )
 		if ( w === bit ) return name;
 	return String( w );
@@ -1013,6 +1021,44 @@ export function Agent_Observe( opts = {} ) {
 	if ( ( ents.more ?? 0 ) > 0 ) s += '\n(+' + ents.more + ' farther)';
 	for ( const ev of events ) s += '\n' + ev;
 	return s;
+
+}
+
+const fnv = ( h, x ) => Math.imul( h ^ x, 16777619 ) >>> 0;
+const hash_time = new Float64Array( 1 );
+const hash_time_bits = new Int32Array( hash_time.buffer );
+
+/*
+==================
+Agent_StateHash
+
+FNV-1a over the local server's gameplay state (sv.time, the QuakeC globals
+and every field of every edict) and the client's stats, as 8 hex digits.
+Two runs from the same seed and actions give the same hash. '' without a
+local server.
+==================
+*/
+export function Agent_StateHash() {
+
+	if ( sv.active !== true ) return '';
+	hash_time[ 0 ] = sv.time;
+	let h = fnv( fnv( 0x811c9dc5, hash_time_bits[ 0 ] ), hash_time_bits[ 1 ] );
+	for ( let i = 0; i < pr_globals_int.length; i ++ )
+		h = fnv( h, pr_globals_int[ i ] );
+	for ( let e = 0; e < sv.num_edicts; e ++ ) {
+
+		const ent = sv.edicts[ e ];
+		h = fnv( h, ent.free === true ? 1 : 0 );
+		if ( ent.free === true ) continue;
+		const fields = ent._intView;
+		for ( let i = 0; i < fields.length; i ++ )
+			h = fnv( h, fields[ i ] );
+
+	}
+
+	for ( let i = 0; i < 32; i ++ )
+		h = fnv( h, cl.stats[ i ] );
+	return h.toString( 16 ).padStart( 8, '0' );
 
 }
 
