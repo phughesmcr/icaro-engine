@@ -159,7 +159,8 @@ process per room. It was forked from mrdoob's three-quake.
   its security headers; run `deno task client-build` first) and `lobby`
   (`deno task lobby`: port 4433, the client's default, with rooms on 4434–4443;
   it needs the certs). To drive it as an agent, open
-  `?agent=lockstep&map=e1m1&skill=1` and call `icaro.help()` in the page.
+  `?agent=lockstep&map=e1m1&skill=1`, press the intro page's Play button, and
+  call `icaro.help()` in the page.
 - CI (`.github/workflows/ci.yml`) runs on PRs to `dev` and `main` and on pushes
   to them: a check that no pak but `static/pak0.pak` is tracked, then
   `deno fmt --check`, test, lint and check, on the Deno version pinned in
