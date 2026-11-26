@@ -19,10 +19,10 @@
 // zod schemas below before a handler runs. A bad argument comes back as a
 // tool result with isError, and so does an error a handler throws.
 //
-// The game runs in lockstep: it advances only inside start, step, goto and attack, one
-// tic (1/72 s) at a time, so thinking time costs nothing. The SDK runs
-// requests concurrently, so tool calls are queued here and run one at a
-// time, in arrival order.
+// The game runs in lockstep: it advances only inside start, step, goto,
+// attack and rl_step, one tic (1/72 s) at a time, so thinking time costs
+// nothing. The SDK runs requests concurrently, so tool calls are queued here
+// and run one at a time, in arrival order.
 //
 // Determinism: start with a seed seeds the server's gameplay randomness
 // (Sys_SetRandomSeed) and replaces the clock with a virtual one that
