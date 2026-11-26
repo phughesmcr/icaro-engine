@@ -1,11 +1,12 @@
-// Navigation graph (src/nav.js) on the shareware e1m1: build time, paths
+// Navigation graph (src/nav.js) on the data's level map (GD_MAPS.level in
+// server/game_data.js; the expectations are e1m1's): build time, paths
 // from the player start to the exit and to items, and waypoint sanity.
 
 // nav.js first: it must load on its own, as the browser and tools use it
 const nav = await import("../src/nav.js");
-const { COM_AddPack, COM_LoadPackFile, COM_EnsureFile } = await import(
-  "../src/pak.js"
-);
+const { COM_EnsureFile } = await import("../src/pak.js");
+const { GD_MAPS } = await import("../server/game_data.js");
+const { TD_Mount } = await import("./test_data.js");
 const { COM_InitArgv } = await import("../src/common.js");
 const { Memory_Init } = await import("../src/zone.js");
 const { Mod_Init, Mod_ForName } = await import("../src/gl_model.js");
@@ -17,7 +18,10 @@ function assert(cond, message) {
   }
 }
 
-// e1m1's info_player_start, and items from its entity lump
+const MAP = GD_MAPS.level;
+const MAP_FILE = "maps/" + MAP + ".bsp";
+
+// The map's info_player_start, and items from its entity lump
 const START = [480, -352, 88];
 const ITEMS = {
   item_armor1: [688, 480, 80],
@@ -49,16 +53,13 @@ async function loadE1M1() {
     COM_InitArgv(["nav_test"]);
     Memory_Init();
     Mod_Init();
-    // pak0 on its own: COM_AddPakSequence would also add a local
-    // registered pak1.pak, and these expectations are for shareware
-    const pak = decodeURIComponent(
-      new URL("../static/pak0.pak", import.meta.url).pathname,
-    );
-    COM_AddPack(COM_LoadPackFile("pak0.pak", Deno.readFileSync(pak).buffer));
-    assert(await COM_EnsureFile("maps/e1m1.bsp") === true, "e1m1 present");
+    // the repository's data alone: a local registered pak1.pak beside the
+    // shareware pak0 isn't mounted, as these expectations are for its map
+    await TD_Mount();
+    assert(await COM_EnsureFile(MAP_FILE) === true, MAP + " present");
     cls.state = ca_dedicated; // no textures: as the Deno server loads maps
     try {
-      world = Mod_ForName("maps/e1m1.bsp", true);
+      world = Mod_ForName(MAP_FILE, true);
     } finally {
       cls.state = state;
     }
@@ -214,7 +215,7 @@ Deno.test("Nav_Build: e1m1 entities mark doors, plats, the teleporter and the ex
   );
   const exit = g.ents.find((e) => e.classname === "trigger_changelevel");
   assert(
-    exit !== undefined && exit.map === "e1m2" && exit.nodes > 0,
+    exit !== undefined && exit.map === GD_MAPS.next && exit.nodes > 0,
     "exit nodes",
   );
 

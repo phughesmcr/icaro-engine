@@ -1,5 +1,5 @@
 // Headless engine benchmark: map load, server physics + QuakeC, and hull
-// traces, on the shareware pak0.
+// traces, on the repository's data (server/game_data.js).
 //
 //   deno run --allow-read tools/bench/server_bench.js [-frames N] [-traces N] [-runs N] [-maps a,b] [-json]
 //       [-base rerelease] [-hipnotic | -rogue | -game <dir>] [-dedicated]
@@ -42,6 +42,12 @@ import { SV_Move } from "../../src/world.js";
 import { sv } from "../../src/server.js";
 import { Mod_Init, R_InitTextures } from "../../src/gl_model.js";
 import { ca_dedicated, cls } from "../../src/client.js";
+import {
+  GD_BASE_DIR,
+  GD_BENCH_MAPS,
+  GD_ID1_DIR,
+  GD_PAK_PATH,
+} from "../../server/game_data.js";
 
 const args = Deno.args;
 function arg(name, def) {
@@ -52,7 +58,7 @@ function arg(name, def) {
 const FRAMES = Number(arg("-frames", "2000"));
 const RUNS = Number(arg("-runs", "5"));
 const TRACES = Number(arg("-traces", "200000"));
-const MAPS = arg("-maps", "start,e1m1,e1m3,e1m6").split(",");
+const MAPS = arg("-maps", GD_BENCH_MAPS.server.join(",")).split(",");
 const JSON_OUT = args.includes("-json");
 // -dedicated sets cls.state = ca_dedicated as game_server.js does: no .lit or
 // MD5 replacement loading, so loads measure what the Deno server pays
@@ -64,8 +70,10 @@ const root = decodeURIComponent(
   new URL("../../static/", import.meta.url).pathname,
 );
 const BASE = arg("-base", null);
-const basedir = BASE !== null ? root + BASE + "/" : root;
-const pak0 = BASE !== null ? basedir + "id1/pak0.pak" : root + "pak0.pak";
+// without -base, the repository's data (server/game_data.js)
+const basedir = BASE !== null ? root + BASE + "/" : GD_BASE_DIR;
+const pak0 = BASE !== null ? basedir + "id1/pak0.pak" : GD_PAK_PATH;
+const id1dir = BASE !== null ? basedir + "id1/" : GD_ID1_DIR;
 const gameFlags = [];
 const gameDirs = [];
 for (const flag of ["-rogue", "-hipnotic"]) {
@@ -110,7 +118,7 @@ for (const dir of gameDirs) {
 LOC_Init();
 COM_SetLooseFileBasePaths([
   ...gameDirs.toReversed().map((d) => d + "/"),
-  ...(BASE !== null ? [basedir + "id1/"] : []),
+  ...(id1dir !== root ? [id1dir] : []),
   root,
 ]);
 

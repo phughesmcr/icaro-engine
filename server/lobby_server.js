@@ -53,13 +53,14 @@ import {
   RoomManager_SetConfig,
   RoomManager_ShutdownAll,
 } from "./room_process_manager.ts";
+import { GD_PAK } from "./game_data.js";
 
 // Server configuration
 const CONFIG = {
   port: 4433,
   certFile: "cert.pem",
   keyFile: "key.pem",
-  pakPath: "../static/pak0.pak",
+  pakPath: "../" + GD_PAK,
   denoPath: null, // null = Deno.execPath()
   gameFlags: [], // -rogue and/or -hipnotic, passed on to every room
   gameDir: null, // -game <dir>, passed on to every room

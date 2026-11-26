@@ -1,5 +1,7 @@
 // gl_draw.c Draw_TextureMode_f: the gl_texturemode console command.
 
+import { TD_Mount } from "./test_data.js";
+
 // Bootstrap the renderer's circular module graph in its safe order.
 await import("../src/gl_rsurf.js");
 
@@ -146,7 +148,7 @@ Deno.test("gl_texturemode ignores a bad filter name and the old 0/1 values", () 
 // gl_draw.c Draw_TextureMode_f walks every mipmapped texture, alias skins
 // included (Mod_LoadAllSkins uploads them with mipmap true).
 Deno.test("gl_texturemode re-filters a loaded alias model skin", async () => {
-  const pak = await import("../src/pak.js");
+  await import("../src/pak.js");
   const common = await import("../src/common.js");
   const gl_model = await import("../src/gl_model.js");
   const oldRegistry = glquake._allGameTextures.slice();
@@ -156,9 +158,7 @@ Deno.test("gl_texturemode re-filters a loaded alias model skin", async () => {
 
   try {
     glquake._allGameTextures.length = 0;
-    await pak.COM_AddPakSequence(
-      new URL("../static/pak0.pak", import.meta.url).pathname,
-    );
+    await TD_Mount();
     const player = gl_model.Mod_ForName("progs/player.mdl", true);
     const skin = [...player._threeTextures].find((t) =>
       t.name === "progs/player.mdl_0"

@@ -11,6 +11,7 @@ import {
   MODERN_META,
   MODERN_VERSION,
 } from "./agent_mcp_client.js";
+import { GD_MAPS } from "../server/game_data.js";
 
 function assert(cond, message) {
   if (cond !== true) {
@@ -221,12 +222,12 @@ Deno.test({
   name: "agent_mcp: calls run one at a time, in order",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: "e1m1", skill: 1 });
+    await call("start", { map: GD_MAPS.level, skill: 1 });
     await call("step", { tics: 50, ents: 0 });
     // Sent together: observe must wait for the new game. start does work
     // outside src/agent.js's own queue (the map check, the disconnect).
     const [started, seen] = await Promise.all([
-      call("start", { map: "e1m1", skill: 1 }),
+      call("start", { map: GD_MAPS.level, skill: 1 }),
       call("observe", { ents: 0 }),
     ]);
     assert(
@@ -273,7 +274,9 @@ Deno.test({
   name: "agent_mcp: a missing map fails at once and keeps the game",
   ...ENGINE_TEST,
   fn: async () => {
-    const before = footer(await call("start", { map: "e1m1", skill: 1 }));
+    const before = footer(
+      await call("start", { map: GD_MAPS.level, skill: 1 }),
+    );
     const t0 = performance.now();
     const r = await raw("start", { map: "e1m9x" });
     assert(
@@ -285,7 +288,7 @@ Deno.test({
       "took " + Math.round(performance.now() - t0) + " ms",
     );
     const after = await call("observe", { ents: 0 });
-    assert(after.startsWith("e1m1 "), "the game ended: " + after);
+    assert(after.startsWith(GD_MAPS.level + " "), "the game ended: " + after);
     assert(footer(after).tic === before.tic, "tics ran");
   },
 });
@@ -312,7 +315,9 @@ const ACTION_LOG = [
 async function playLog(seed) {
   // Leave buttons held in whatever game is running
   await call("step", { buttons: "moveright,attack", hold: true, tics: 0 });
-  const start = footer(await call("start", { map: "e1m1", skill: 1, seed }));
+  const start = footer(
+    await call("start", { map: GD_MAPS.level, skill: 1, seed }),
+  );
   let last = "";
   for (const [name, args] of ACTION_LOG) {
     last = await call(name, args);
@@ -354,7 +359,7 @@ Deno.test({
     assert(c.end.hash !== a.end.hash, "seed 99 matches seed 1234 at the end");
 
     // Unseeded: both hooks are off again
-    await call("start", { map: "e1m1", skill: 1 });
+    await call("start", { map: GD_MAPS.level, skill: 1 });
     // The virtual clock only moves with tics; the wall clock moves while we wait
     const c0 = Sys_FloatTime();
     await new Promise((r) => setTimeout(r, 20));

@@ -1,6 +1,8 @@
 // Port-inventory gap G7: gl_draw.c Draw_Init stamps "(gl 1.00) 1.09" onto
 // gfx/conback.lmp with Draw_CharToConback.
 
+import { TD_Mount } from "./test_data.js";
+
 await import("../src/gl_rsurf.js");
 
 const draw = await import("../src/gl_draw.js");
@@ -87,9 +89,7 @@ Deno.test("G7: the version string lands in the conback's bottom-right corner", (
 });
 
 Deno.test("G7: the shareware conback gets the version stamp and nothing else changes", async () => {
-  await pak.COM_AddPakSequence(
-    new URL("../static/pak0.pak", import.meta.url).pathname,
-  );
+  await TD_Mount();
   const gfx = pak.COM_FindFile("gfx.wad");
   wad.W_LoadWadFile(gfx.data.slice().buffer);
   const lump = wad.W_GetLumpName("conchars");
@@ -120,9 +120,7 @@ Deno.test("G7: the shareware conback gets the version stamp and nothing else cha
 });
 
 Deno.test("G7: Draw_Init stamps a copy of gfx/conback.lmp with the loaded conchars", async () => {
-  await pak.COM_AddPakSequence(
-    new URL("../static/pak0.pak", import.meta.url).pathname,
-  );
+  await TD_Mount();
   wad.W_LoadWadFile(pak.COM_FindFile("gfx.wad").data.slice().buffer);
   const cb = pak.COM_FindFile("gfx/conback.lmp");
   const before = cb.data.slice();

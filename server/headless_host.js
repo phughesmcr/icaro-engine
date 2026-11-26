@@ -5,11 +5,12 @@
 // client; this keeps the client and turns only its output off.
 //
 //   import { headless_init, headless_map, headless_frame } from './server/headless_host.js';
-//   await headless_init();                // mounts static/pak0.pak, runs Host_Init
-//   await headless_map('e1m1');           // resolves once the client has signed on
+//   await headless_init();                // mounts the repository's data, runs Host_Init
+//   await headless_map(GD_MAPS.level);    // resolves once the client has signed on
 //   for (let i = 0; i < 720; i++) headless_frame(); // 10 s of game time
 //
-// Other game data mounts before Host_Init, as common.c does, so a mission
+// The repository's data is set in game_data.js (GD_PAK, GD_MAPS). Other
+// game data mounts before Host_Init, as common.c does, so a mission
 // pack's gfx.wad is the one loaded:
 //
 //   await headless_init({ argv: ['-hipnotic'], pak_sequence: true });
@@ -35,7 +36,7 @@
 // Waiting for a level: the map, changelevel, load and connect commands fetch
 // a file that isn't mounted yet with COM_EnsureFile and re-issue themselves
 // when the promise resolves (host_cmd.js, cl_parse.js). A file in the mounted
-// pak is found at once, so a pak0 map signs on within a few frames, but the
+// pak is found at once, so such a map signs on within a few frames, but the
 // caller must still yield to the event loop between frames while a level
 // loads, or those promises never run. headless_map and headless_wait_signon
 // do that (a macrotask between frames) and give up after max_frames.
@@ -57,15 +58,12 @@ import { Host_Frame, host_framecount, Host_Init } from "../src/host.js";
 import { Cbuf_AddText } from "../src/cmd.js";
 import { SCR_SetExternals } from "../src/gl_screen.js";
 import { cls, SIGNONS } from "../src/client.js";
+import { GD_PAK_PATH, GD_PAK_SEQUENCE } from "./game_data.js";
 
 // One host frame at host_maxfps's default of 72. The margin keeps
 // _Host_FilterTime's "framerate is too high" test from rejecting a frame
 // whose summed realtime came out a rounding error short of 1/72.
 export const HEADLESS_FRAMETIME = 1 / 72 + 1e-9;
-
-const DEFAULT_PAK = decodeURIComponent(
-  new URL("../static/pak0.pak", import.meta.url).pathname,
-);
 
 const STATIC_DIR = decodeURIComponent(
   new URL("../static/", import.meta.url).pathname,
@@ -233,10 +231,10 @@ export function headless_search_paths(opts = {}) {
   const base = opts.base !== undefined ? _trimSlash(opts.base) : null;
   const pak = opts.pak !== undefined ?
     opts.pak :
-    (base !== null ? base + "/id1/pak0.pak" : DEFAULT_PAK);
+    (base !== null ? base + "/id1/pak0.pak" : GD_PAK_PATH);
   const pak_sequence = opts.pak_sequence !== undefined ?
     opts.pak_sequence :
-    base !== null;
+    (base !== null || (opts.pak === undefined && GD_PAK_SEQUENCE));
   const argv = ["quake", ...(opts.argv !== undefined ? opts.argv : [])];
   const basedir = base !== null ? base : _gameBaseDirectory(pak);
 
@@ -274,11 +272,12 @@ export function headless_search_paths(opts = {}) {
  * minus its demo loop) and turns the 3D view off. Resolves once the host is
  * ready for commands and frames.
  *
- * opts.pak: path of the pak to mount (default static/pak0.pak, the shareware
- *   episode, or <opts.base>/id1/pak0.pak). Only that file is mounted, so a
- *   local pak1.pak doesn't change what runs, unless opts.pak_sequence is true
- *   (then pak1.pak, pak2.pak... next to it are mounted too, as the browser
- *   does).
+ * opts.pak: path of the pak to mount (default game_data.js's GD_PAK, the
+ *   repository's data, or <opts.base>/id1/pak0.pak). Only that file is
+ *   mounted, so a local pak1.pak doesn't change what runs, unless
+ *   opts.pak_sequence is true (then pak1.pak, pak2.pak... next to it are
+ *   mounted too, as the browser does). It defaults to GD_PAK_SEQUENCE for
+ *   the default pak.
  * opts.base: a basedir holding id1/ and the game directories, such as
  *   'static/rerelease' (the 2021 rerelease's layout; main.js's ?base=). The
  *   pak then defaults to <base>/id1/pak0.pak, with pak_sequence defaulting to

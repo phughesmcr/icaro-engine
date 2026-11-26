@@ -1,6 +1,6 @@
 // Headless benchmark of the CPU side of world rendering: R_MarkLeaves, the
 // BSP walk (R_RecursiveWorldNode) and the PVS-to-batch visibility pass, on
-// pak0 maps. No GPU: BatchedMesh is replaced by a stub that counts
+// the repository's data (server/game_data.js). No GPU: BatchedMesh is replaced by a stub that counts
 // setVisibleAt calls.
 //
 //   deno run --allow-read tools/bench/world_bench.js [-iters N] [-runs N] [-maps a,b] [-json]
@@ -20,6 +20,11 @@ import { Mod_ForName, Mod_Init, R_InitTextures } from "../../src/gl_model.js";
 import { cl } from "../../src/client.js";
 import { r_origin, r_refdef, vpn, vright, vup } from "../../src/render.js";
 import { AngleVectors } from "../../src/mathlib.js";
+import {
+  GD_BENCH_MAPS,
+  GD_ID1_DIR,
+  GD_PAK_PATH,
+} from "../../server/game_data.js";
 
 const args = Deno.args;
 function arg(name, def) {
@@ -29,7 +34,7 @@ function arg(name, def) {
 
 const ITERS = Number(arg("-iters", "300"));
 const RUNS = Number(arg("-runs", "7"));
-const MAPS = arg("-maps", "start,e1m1,e1m3,e1m6,e2m3").split(",");
+const MAPS = arg("-maps", GD_BENCH_MAPS.world.join(",")).split(",");
 const JSON_OUT = args.includes("-json");
 
 const root = decodeURIComponent(
@@ -48,11 +53,11 @@ Cbuf_Init();
 Cmd_Init();
 Mod_Init();
 R_InitTextures();
-if (await COM_AddPakSequence(root + "pak0.pak") === 0) {
-  throw new Error("pak0.pak missing");
+if (await COM_AddPakSequence(GD_PAK_PATH) === 0) {
+  throw new Error(GD_PAK_PATH + " missing");
 }
 LOC_Init();
-COM_SetLooseFileBasePaths([root]);
+COM_SetLooseFileBasePaths([...(GD_ID1_DIR !== root ? [GD_ID1_DIR] : []), root]);
 
 function median(a) {
   const s = [...a].sort((x, y) => x - y);

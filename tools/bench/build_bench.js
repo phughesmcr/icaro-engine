@@ -19,6 +19,12 @@ import { COM_InitArgv, LOC_Init } from "../../src/common.js";
 import { Cbuf_Init, Cmd_Init } from "../../src/cmd.js";
 import { Memory_Init } from "../../src/zone.js";
 import { Mod_ForName, Mod_Init, R_InitTextures } from "../../src/gl_model.js";
+import {
+  GD_BASE_DIR,
+  GD_BENCH_MAPS,
+  GD_ID1_DIR,
+  GD_PAK_PATH,
+} from "../../server/game_data.js";
 
 const args = Deno.args;
 function arg(name, def) {
@@ -27,7 +33,7 @@ function arg(name, def) {
 }
 
 const RUNS = Number(arg("-runs", "5"));
-const MAPS = arg("-maps", "start,e1m1,e1m3,e1m6,e2m3").split(",");
+const MAPS = arg("-maps", GD_BENCH_MAPS.build.join(",")).split(",");
 const NOHASH = args.includes("-nohash"); // skip hashing in the timed loop (for profiling)
 const JSON_OUT = args.includes("-json");
 const BASE = arg("-base", null);
@@ -36,8 +42,10 @@ const GAME = arg("-game", null);
 const root = decodeURIComponent(
   new URL("../../static/", import.meta.url).pathname,
 );
-const basedir = BASE !== null ? root + BASE + "/" : root;
-const pak0 = BASE !== null ? basedir + "id1/pak0.pak" : root + "pak0.pak";
+// without -base, the repository's data (server/game_data.js)
+const basedir = BASE !== null ? root + BASE + "/" : GD_BASE_DIR;
+const pak0 = BASE !== null ? basedir + "id1/pak0.pak" : GD_PAK_PATH;
+const id1dir = BASE !== null ? basedir + "id1/" : GD_ID1_DIR;
 const gameFlags = [];
 const gameDirs = [];
 for (const flag of ["-rogue", "-hipnotic"]) {
@@ -79,7 +87,7 @@ LOC_Init();
 gl_rmain.R_Init();
 COM_SetLooseFileBasePaths([
   ...gameDirs.toReversed().map((d) => d + "/"),
-  ...(BASE !== null ? [basedir + "id1/"] : []),
+  ...(id1dir !== root ? [id1dir] : []),
   root,
 ]);
 

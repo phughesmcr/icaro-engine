@@ -1,4 +1,5 @@
-// Cold model-load benchmark: Mod_ForName on brush/alias/sprite models from pak0,
+// Cold model-load benchmark: Mod_ForName on brush/alias/sprite models from the
+// repository's data (server/game_data.js),
 // forcing a reload each run.
 //
 //   deno run --allow-read tools/bench/load_bench.js [-runs N]
@@ -17,6 +18,11 @@ import {
   Mod_Init,
   R_InitTextures,
 } from "../../src/gl_model.js";
+import {
+  GD_BENCH_MAPS,
+  GD_ID1_DIR,
+  GD_PAK_PATH,
+} from "../../server/game_data.js";
 
 const args = Deno.args;
 const i = args.indexOf("-runs");
@@ -33,14 +39,11 @@ Cbuf_Init();
 Cmd_Init();
 Mod_Init();
 R_InitTextures();
-await COM_AddPakSequence(root + "pak0.pak");
-COM_SetLooseFileBasePaths([root]);
+await COM_AddPakSequence(GD_PAK_PATH);
+COM_SetLooseFileBasePaths([...(GD_ID1_DIR !== root ? [GD_ID1_DIR] : []), root]);
 
 const names = [
-  "maps/start.bsp",
-  "maps/e1m1.bsp",
-  "maps/e1m3.bsp",
-  "maps/e1m6.bsp",
+  ...GD_BENCH_MAPS.load,
   "progs/player.mdl",
   "progs/soldier.mdl",
   "progs/ogre.mdl",

@@ -14,6 +14,7 @@ import { cl, cl_entities } from "../src/client.js";
 import { Agent_NavGraph } from "../src/agent.js";
 import { NAV_NODE_EXIT, NAV_NODE_TELEPORT } from "../src/nav.js";
 import { YAW } from "../src/quakedef.js";
+import { GD_MAPS } from "../server/game_data.js";
 
 function assert(cond, message) {
   if (cond !== true) {
@@ -55,7 +56,11 @@ Deno.test({
   name: "agent map: an n x n grid with you at the centre, off by default",
   ...ENGINE_TEST,
   fn: async () => {
-    const plain = await call("start", { map: "e1m1", skill: 1, seed: 1 });
+    const plain = await call("start", {
+      map: GD_MAPS.level,
+      skill: 1,
+      seed: 1,
+    });
     assert(!plain.includes("\nmap "), "no map unless asked:\n" + plain);
 
     const text = await call("observe", { map: 21, ents: 0 });
@@ -89,7 +94,7 @@ Deno.test({
   name: "agent map: observing doesn't change the game",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: "e1m1", skill: 1, seed: 1 });
+    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
     const before = Agent_StateHash();
     Agent_Map(MAP_MAX_SIZE);
     map_at(37, 21);
@@ -101,7 +106,7 @@ Deno.test({
   name: "agent map: turning left 90 degrees turns the grid right",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: "e1m1", skill: 1, seed: 1 });
+    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
     for (const yaw of [0, 90, 225]) {
       const a = map_at(yaw, 21);
       const b = map_at(yaw + 90, 21);
@@ -125,7 +130,7 @@ Deno.test({
   name: "agent map: a monster is drawn where the entity list says it is",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: "e1m1", skill: 1, seed: 1 });
+    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
     // walk until a monster is near and in view
     let monster = null;
     for (let i = 0; i < 4 && monster === null; i++) {
@@ -163,7 +168,7 @@ Deno.test({
   name: "agent map: truth names brush entities; without it they are walls",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: "e1m1", skill: 1, seed: 1 });
+    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
     // the first goto toward the armour stops by the bridge's button
     await call("goto", { pos: [688, 480, 80], ents: 0, stop_on_enemy: false });
     const button = Agent_Entities(64).find((e) => e.kind === "button");
@@ -202,7 +207,7 @@ Deno.test({
   name: "agent map: exits and teleporters are drawn only with truth",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: "e1m1", skill: 1, seed: 1 });
+    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
     for (
       const [flag, glyph] of [[NAV_NODE_EXIT, "E"], [NAV_NODE_TELEPORT, "T"]]
     ) {
@@ -218,7 +223,7 @@ Deno.test({
   name: "agent map: the start room, stairs down ahead, nothing behind the wall",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: "e1m1", skill: 1, seed: 1 });
+    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
     // you start facing yaw 90 at the top of the stairs down to the hall
     const m = map_at(90, 21);
     const R = 10;

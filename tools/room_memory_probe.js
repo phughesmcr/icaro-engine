@@ -10,8 +10,10 @@
 
 const lazy = Deno.args.includes("--lazy");
 const args = Deno.args.filter((a) => a !== "--lazy");
-const map = args[0] ?? "start";
-const pak = args[1] ?? "static/pak0.pak";
+// the repository's data by default (server/game_data.js)
+const { GD_MAPS, GD_PAK } = await import("../server/game_data.js");
+const map = args[0] ?? GD_MAPS.hub;
+const pak = args[1] ?? GD_PAK;
 const rows = [];
 const mb = (x) => +(x / 1048576).toFixed(1);
 

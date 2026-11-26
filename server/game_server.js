@@ -96,16 +96,17 @@ import {
   GAME_OPTION_RANGES,
   MAX_PLAYERS_LIMIT,
 } from "./room_process_manager.ts";
+import { GD_MAPS, GD_PAK } from "./game_data.js";
 
 // Server configuration
 export function createConfig() {
   return {
-    pakPath: "../static/pak0.pak",
+    pakPath: "../" + GD_PAK, // relative to server/, as before
     port: 4433,
     certFile: "cert.pem",
     keyFile: "key.pem",
     maxClients: 4,
-    defaultMap: "start",
+    defaultMap: GD_MAPS.hub,
     roomId: null, // Room ID if spawned by lobby server
     directMode: false, // Skip lobby protocol, accept connections directly
     idleTimeout: 300, // Seconds to wait before exiting when empty (room mode)

@@ -32,6 +32,7 @@ import { K_F11, K_F12, keybindings } from "../src/keys.js";
 import { in_attack } from "../src/cl_input.js";
 import { Fog_GetState } from "../src/gl_fog.js";
 import { sv } from "../src/server.js";
+import { GD_MAPS } from "../server/game_data.js";
 
 function assert(cond, message) {
   if (cond !== true) {
@@ -41,7 +42,7 @@ function assert(cond, message) {
 
 // Host_Init runs once per process; the tests share this host and run in order
 await headless_init();
-await headless_map("e1m1");
+await headless_map(GD_MAPS.level);
 
 function aliasExists(name) {
   for (let a = cmd_alias; a !== null; a = a.next) {

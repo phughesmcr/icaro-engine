@@ -26,6 +26,7 @@ import {
   Autosave_ParseMeta,
   Autosave_UrlBlocksOffer,
 } from "../src/autosave.js";
+import { GD_MAPS } from "../server/game_data.js";
 
 function assert(cond, message) {
   if (cond !== true) {
@@ -108,7 +109,7 @@ await headless_init();
 const SLOT_KEY = "quake_save_autosave";
 
 Deno.test("autosave: hiding a running game writes the reserved slot only", async () => {
-  await headless_map("e1m1");
+  await headless_map(GD_MAPS.level);
   for (let i = 0; i < 30; i++) headless_frame();
 
   localStorage.setItem("quake_save_s0", "player save");
@@ -126,10 +127,13 @@ Deno.test("autosave: hiding a running game writes the reserved slot only", async
     text.split("\n")[0] === "5",
     "save version line: " + text.split("\n")[0],
   );
-  assert(text.split("\n")[19] === "e1m1", "map line: " + text.split("\n")[19]);
+  assert(
+    text.split("\n")[19] === GD_MAPS.level,
+    "map line: " + text.split("\n")[19],
+  );
   assert(
     Autosave_ParseMeta(localStorage.getItem(AUTOSAVE_META_KEY), Date.now())
-      .map === "e1m1",
+      .map === GD_MAPS.level,
     "meta",
   );
 
@@ -148,7 +152,7 @@ Deno.test("autosave: coming back to the page keeps an autosave an earlier page w
   Host_AutosaveVisible(); // forget any write by an earlier test
   localStorage.setItem(
     AUTOSAVE_META_KEY,
-    Autosave_EncodeMeta(Date.now(), "e1m1"),
+    Autosave_EncodeMeta(Date.now(), GD_MAPS.level),
   );
   try {
     Host_AutosaveVisible();
@@ -162,7 +166,7 @@ Deno.test("autosave: coming back to the page keeps an autosave an earlier page w
 });
 
 Deno.test("autosave: a full localStorage writes nothing and leaves no meta", async () => {
-  await headless_map("e1m1");
+  await headless_map(GD_MAPS.level);
   for (let i = 0; i < 30; i++) headless_frame();
   Host_AutosaveVisible(); // a fresh moment for the duplicate guard
   localStorage.removeItem(SLOT_KEY);
@@ -265,7 +269,7 @@ Deno.test("autosave: refusals match save, without printing", () => {
 });
 
 Deno.test("autosave: the offer loads the autosave on yes and consumes it", async () => {
-  await headless_map("e1m1");
+  await headless_map(GD_MAPS.level);
   for (let i = 0; i < 30; i++) headless_frame();
   assert(Host_AutoSave() === true, "saved");
 
@@ -300,7 +304,7 @@ Deno.test("autosave: the offer loads the autosave on yes and consumes it", async
 
   await headless_wait_signon();
   assert(
-    sv.active === true && sv.name === "e1m1",
+    sv.active === true && sv.name === GD_MAPS.level,
     "autosave not loaded: " + sv.name,
   );
 });
@@ -308,7 +312,7 @@ Deno.test("autosave: the offer loads the autosave on yes and consumes it", async
 Deno.test("autosave: no on declines and map consumes", () => {
   localStorage.setItem(
     AUTOSAVE_META_KEY,
-    Autosave_EncodeMeta(Date.now(), "e1m1"),
+    Autosave_EncodeMeta(Date.now(), GD_MAPS.level),
   );
   cbufRun("disconnect");
   let offered = false;
@@ -326,9 +330,9 @@ Deno.test("autosave: no on declines and map consumes", () => {
 
   localStorage.setItem(
     AUTOSAVE_META_KEY,
-    Autosave_EncodeMeta(Date.now(), "e1m1"),
+    Autosave_EncodeMeta(Date.now(), GD_MAPS.level),
   );
-  cbufRun("map e1m1");
+  cbufRun("map " + GD_MAPS.level);
   assert(
     localStorage.getItem(AUTOSAVE_META_KEY) === null,
     "map did not consume",

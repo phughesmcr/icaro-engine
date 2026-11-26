@@ -25,6 +25,7 @@ import {
   Loop_SendUnreliableMessage,
 } from "../src/net_loop.js";
 import { svc_disconnect, svc_nop, svc_print } from "../src/protocol.js";
+import { GD_MAPS } from "../server/game_data.js";
 
 function assert(cond, message) {
   if (cond !== true) {
@@ -35,7 +36,7 @@ function assert(cond, message) {
 // Host_Init runs once per process, so the tests share this host and run in
 // order
 await headless_init();
-await headless_map("e1m1");
+await headless_map(GD_MAPS.level);
 
 function message(n, fill) {
   return { data: new Uint8Array(n).fill(fill), cursize: n };
