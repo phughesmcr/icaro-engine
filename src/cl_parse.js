@@ -65,6 +65,7 @@ import { R_TranslatePlayerSkin } from './gl_rmisc.js';
 // QuakeWorld model precache indices (set during CL_ParseServerInfo)
 export let cl_playerindex = -1;
 import { R_NewMap } from './gl_rmisc.js';
+import { R_WarmupStart } from './gl_warmup.js';
 import { R_ParseParticleEffect, R_AddEfrags, LERP_MOVESTEP, LERP_RESETANIM, LERP_RESETMOVE } from './render.js';
 import { Host_Error, Host_EndGame, realtime, sv } from './host.js';
 import { NET_SendMessage } from './net_main.js';
@@ -465,6 +466,7 @@ export function CL_ParseServerInfo() {
 	cl_entities[ 0 ].model = cl.worldmodel = cl.model_precache[ 1 ];
 
 	R_NewMap( cl );
+	R_WarmupStart( cl ); // web-only: compile the level's shaders behind the plaque
 
 	// Hunk_Check();
 

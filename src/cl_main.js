@@ -26,6 +26,7 @@ import { R_RocketTrail, R_RemoveEfrags, R_EntityParticles, r_lerpmodels, r_lerpm
 import { CL_InitTEnts, CL_UpdateTEnts } from './cl_tent.js';
 import { host_frametime, realtime, Host_Error, Host_ShutdownServer, Host_ClearMemory, sv } from './host.js';
 import { SCR_EndLoadingPlaque, SCR_BeginLoadingPlaque, SCR_CenterPrint } from './gl_screen.js';
+import { R_WarmupWhenReady, R_WarmupCancel } from './gl_warmup.js';
 import { S_StopAllSounds } from './snd_dma.js';
 import { M_ConnectionError, M_ShouldReturnOnError } from './menu.js';
 import { key_menu, set_key_dest } from './keys.js';
@@ -187,6 +188,8 @@ This is also called on Host_Error, so it shouldn't cause any errors
 =====================
 */
 export function CL_Disconnect() {
+
+	R_WarmupCancel(); // web-only: no held plaque callback outlives the connection
 
 	// Deviation (web-only, no C equivalent; see cl_reconnect.js): tell a lost
 	// connection (the transport died, NET_GetMessage/NET_Send* flagged the
@@ -480,7 +483,8 @@ export function CL_SignonReply() {
 			break;
 
 		case 4:
-			SCR_EndLoadingPlaque(); // allow normal screen updates
+			// web-only: wait (briefly) for the level's shaders to compile
+			R_WarmupWhenReady( SCR_EndLoadingPlaque ); // allow normal screen updates
 			break;
 
 	}
