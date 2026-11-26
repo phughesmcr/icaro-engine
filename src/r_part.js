@@ -861,6 +861,57 @@ export function R_MarkParticleUpload( attribute, count ) {
 
 /*
 ===============
+R_EnsureParticleMesh
+
+Web-only: the lazy creation of the Points mesh, moved out of R_DrawParticles
+unchanged so gl_warmup.js can reach the material before the first frame.
+===============
+*/
+function R_EnsureParticleMesh() {
+
+	if ( ! pointsGeometry ) {
+
+		pointsGeometry = new THREE.BufferGeometry();
+		const positionAttribute = new THREE.BufferAttribute( positionArray, 3 );
+		const colorAttribute = new THREE.BufferAttribute( colorArray, 3 );
+		if ( positionAttribute.setUsage !== undefined ) {
+
+			positionAttribute.setUsage( THREE.DynamicDrawUsage );
+			colorAttribute.setUsage( THREE.DynamicDrawUsage );
+
+		}
+
+		pointsGeometry.setAttribute( 'position', positionAttribute );
+		pointsGeometry.setAttribute( 'color', colorAttribute );
+
+		pointsMaterial = new THREE.PointsMaterial( {
+			size: PARTICLE_SIZE,
+			sizeAttenuation: true,
+			vertexColors: true,
+			depthWrite: false,
+			transparent: true,
+			map: particleTexture
+		} );
+		pointsMaterial.onBeforeCompile = R_PatchParticleShader;
+		pointsMaterial.customProgramCacheKey = () => 'quake-particles';
+
+		pointsMesh = new THREE.Points( pointsGeometry, pointsMaterial );
+		pointsMesh.frustumCulled = false;
+
+	}
+
+}
+
+// Web-only (gl_warmup.js): the material R_DrawParticles draws with
+export function R_GetParticleMaterial() {
+
+	R_EnsureParticleMesh();
+	return pointsMaterial;
+
+}
+
+/*
+===============
 R_DrawParticles
 ===============
 */
@@ -1035,36 +1086,7 @@ export function R_DrawParticles() {
 
 	}
 
-	if ( ! pointsGeometry ) {
-
-		pointsGeometry = new THREE.BufferGeometry();
-		const positionAttribute = new THREE.BufferAttribute( positionArray, 3 );
-		const colorAttribute = new THREE.BufferAttribute( colorArray, 3 );
-		if ( positionAttribute.setUsage !== undefined ) {
-
-			positionAttribute.setUsage( THREE.DynamicDrawUsage );
-			colorAttribute.setUsage( THREE.DynamicDrawUsage );
-
-		}
-
-		pointsGeometry.setAttribute( 'position', positionAttribute );
-		pointsGeometry.setAttribute( 'color', colorAttribute );
-
-		pointsMaterial = new THREE.PointsMaterial( {
-			size: PARTICLE_SIZE,
-			sizeAttenuation: true,
-			vertexColors: true,
-			depthWrite: false,
-			transparent: true,
-			map: particleTexture
-		} );
-		pointsMaterial.onBeforeCompile = R_PatchParticleShader;
-		pointsMaterial.customProgramCacheKey = () => 'quake-particles';
-
-		pointsMesh = new THREE.Points( pointsGeometry, pointsMaterial );
-		pointsMesh.frustumCulled = false;
-
-	}
+	R_EnsureParticleMesh();
 
 	// In XR mode, scene.scale = 1/XR_SCALE but PointsMaterial.size is not
 	// affected by parent scale. Divide size to match meter-space distances,
