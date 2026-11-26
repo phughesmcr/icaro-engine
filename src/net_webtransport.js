@@ -2,7 +2,7 @@
 // New module for browser-based WebTransport client connections
 
 import { Con_Printf, Con_DPrintf, SZ_Clear, SZ_Write } from './common.js';
-import { NET_NewQSocket, NET_LobbyVerifyError } from './net_main.js';
+import { NET_NewQSocket, NET_LobbyVerifyError, NET_QuietConnect, NET_WebSocketFallbackAvailable, NET_SetTransportUnreachable } from './net_main.js';
 import { Sys_PageURL } from './sys.js';
 import {
 	net_message,
@@ -940,6 +940,9 @@ function _WT_ClearRoomFromUrl() {
 // Return to the Join Game menu with a reason the player can read.
 function _WT_FailConnect( reason ) {
 
+	// Web-only: a silent reconnect attempt (cl_reconnect.js) reports for itself
+	if ( NET_QuietConnect() === true ) return null;
+
 	_WT_ClearRoomFromUrl();
 	set_key_dest( key_menu );
 	M_ConnectionError( reason );
@@ -950,10 +953,24 @@ function _WT_FailConnect( reason ) {
 // Generic failure: back to the main menu, as before.
 function _WT_FailConnectToMainMenu() {
 
+	if ( NET_QuietConnect() === true ) return null;
+
 	_WT_ClearRoomFromUrl();
 	M_Menu_Main_f();
 	set_key_dest( key_menu );
 	return null;
+
+}
+
+// Web-only (no C counterpart). Called when the transport never opened (QUIC
+// blocked or unreachable) and WebSocket is available: flags the failure so
+// NET_Connect retries over wss:// instead of this driver showing the menu.
+function _WT_DeferToWebSocket() {
+
+	if ( NET_WebSocketFallbackAvailable() === false ) return false;
+	Con_Printf( 'WebTransport could not open\n' );
+	NET_SetTransportUnreachable( true );
+	return true;
 
 }
 
@@ -1059,11 +1076,14 @@ The lobby exchange needs no qsocket.
 async function _WT_ConnectViaLobby( url, host, roomId, attempt ) {
 
 	let transport = null;
+	let opened = false; // transport.ready resolved
 
 	try {
 
 		transport = _WT_OpenTransport( url, attempt );
 		await attempt.wait( transport.ready );
+
+		opened = true;
 
 		Con_Printf( 'WebTransport connection established\n' );
 
@@ -1147,6 +1167,9 @@ async function _WT_ConnectViaLobby( url, host, roomId, attempt ) {
 		if ( transport !== null )
 			_WT_CloseTransport( transport, attempt );
 
+		if ( opened === false && _WT_DeferToWebSocket() === true )
+			return null;
+
 		if ( attempt.aborted === true ) {
 
 			Con_Printf( 'WebTransport connect timed out after %d seconds\n', WT_CONNECT_TIMEOUT_MS / 1000 );
@@ -1182,11 +1205,14 @@ async function _WT_ConnectDirect( url, originalHost, roomId, attempt ) {
 
 	let transport = null;
 	let conn = null;
+	let opened = false; // transport.ready resolved
 
 	try {
 
 		transport = _WT_OpenTransport( url, attempt );
 		await attempt.wait( transport.ready );
+
+		opened = true;
 
 		Con_Printf( 'WebTransport direct connection established\n' );
 
@@ -1303,6 +1329,9 @@ async function _WT_ConnectDirect( url, originalHost, roomId, attempt ) {
 			_WT_CloseConnection( conn );
 		else if ( transport !== null )
 			_WT_CloseTransport( transport, attempt );
+
+		if ( opened === false && _WT_DeferToWebSocket() === true )
+			return null;
 
 		if ( attempt.aborted === true ) {
 

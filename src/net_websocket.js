@@ -20,7 +20,7 @@
 // a dropped connection ends like any lost connection.
 
 import { Con_Printf, Con_DPrintf, SZ_Clear, SZ_Write } from './common.js';
-import { NET_NewQSocket, NET_LobbyVerifyError } from './net_main.js';
+import { NET_NewQSocket, NET_LobbyVerifyError, NET_QuietConnect } from './net_main.js';
 import { Sys_PageURL } from './sys.js';
 import {
 	net_message,
@@ -687,6 +687,9 @@ function _WS_ClearRoomFromUrl() {
 
 function _WS_FailConnect( reason ) {
 
+	// Web-only: a silent reconnect attempt (cl_reconnect.js) reports for itself
+	if ( NET_QuietConnect() === true ) return null;
+
 	_WS_ClearRoomFromUrl();
 	set_key_dest( key_menu );
 	M_ConnectionError( reason );
@@ -695,6 +698,8 @@ function _WS_FailConnect( reason ) {
 }
 
 function _WS_FailConnectToMainMenu() {
+
+	if ( NET_QuietConnect() === true ) return null;
 
 	_WS_ClearRoomFromUrl();
 	M_Menu_Main_f();
