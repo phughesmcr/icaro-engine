@@ -191,6 +191,18 @@ Deno.test({
     await start(1, true);
     const again = first(await call("goto", { pos: ARMOR, ents: 0 }));
     assert(again === met, again + " != " + met);
+
+    // Opted out, the same walk doesn't stop for it
+    await start(1, true);
+    const on = first(
+      await call("goto", { pos: ARMOR, ents: 0, stop_on_enemy: false }),
+    );
+    assert(!on.includes("new enemy"), on);
+
+    // A monster that is the goto's own target is never news
+    await start(1, true);
+    const to = first(await call("goto", { id, ents: 0, max_tics: 400 }));
+    assert(!to.includes("new enemy #" + id + " "), to);
   },
 });
 

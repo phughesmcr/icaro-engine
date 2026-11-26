@@ -1333,6 +1333,7 @@ const enemy_known = new Uint8Array(MAX_EDICTS);
 const enemy_model = new Map();
 const enemy_eye = new Float32Array(3);
 const enemy_at = new Float32Array(3);
+const enemy_best_at = new Float32Array(3); // centre of Agent_EnemyScan's result
 const SOLID_BSP = 4; // server.h
 let enemy_new = 0; // how many the last Agent_EnemyScan announced
 
@@ -1355,7 +1356,8 @@ function Agent_IsMonsterModel(ent) {
 // Whether the segment from a to b crosses the box of a brush entity in the
 // latest update (a closed door, a lift, a func_wall). Agent_LineOfSight traces
 // only the world. With a local server, brush entities that aren't solid
-// (func_illusionary) don't block. A box holding either end doesn't block.
+// (func_illusionary) don't block. A box holding either end doesn't block, so
+// a player standing inside a door's or lift's box sees through it.
 function Agent_BrushBlocks(a, b, truth) {
   for (let i = 1; i < cl.num_entities; i++) {
     const ent = cl_entities[i];
@@ -1437,6 +1439,7 @@ function Agent_EnemyScan(mark_only, skip, truth) {
     if (d < best_d) {
       best_d = d;
       best = i;
+      enemy_best_at.set(enemy_at);
     }
   }
   return best;
@@ -1444,22 +1447,20 @@ function Agent_EnemyScan(mark_only, skip, truth) {
 
 // The first line's reason for a new-enemy stop: the entity line of #num
 function Agent_EnemyReason(num, truth) {
-  const me = cl_entities[cl.viewentity];
-  const ent = cl_entities[num];
-  los_start[0] = me.origin[0];
-  los_start[1] = me.origin[1];
-  los_start[2] = me.origin[2] + 22;
-  const m = ent.model;
-  for (let k = 0; k < 3; k++) {
-    los_end[k] = ent.origin[k] + (m.mins[k] + m.maxs[k]) / 2;
-  }
+  los_start.set(enemy_eye); // Agent_Describe measures from los_start
   const ed = truth && sv.active === true ? Agent_Edict(num) : null;
   const hp = ed !== null && (ed.v.flags & FL_MONSTER) !== 0 ?
     Math.round(ed.v.health) :
     null;
   return "new enemy " +
     Agent_EntityLine(
-      Agent_Describe(num, Agent_ModelKind(ent), los_end, hp, true),
+      Agent_Describe(
+        num,
+        Agent_ModelKind(cl_entities[num]),
+        enemy_best_at,
+        hp,
+        true,
+      ),
     ) +
     (enemy_new > 1 ? " (+" + (enemy_new - 1) + " more)" : "") +
     ", stopped";
@@ -1594,6 +1595,14 @@ async function Agent_AttackNow(target, opts) {
           break;
         }
       }
+      // After the kill check, so a killing shot reads "killed"
+      if (stop_on_enemy && tics > 0) {
+        const foe = Agent_EnemyScan(false, target, truth);
+        if (foe !== 0) {
+          why = Agent_EnemyReason(foe, truth);
+          break;
+        }
+      }
       const ent = cl_entities[target];
       if (
         ent === undefined || ent === null || ent.model === null ||
@@ -1642,13 +1651,6 @@ async function Agent_AttackNow(target, opts) {
       if (cl.intermission !== 0) {
         why = "level done (intermission)";
         break;
-      }
-      if (stop_on_enemy) {
-        const foe = Agent_EnemyScan(false, target, truth);
-        if (foe !== 0) {
-          why = Agent_EnemyReason(foe, truth);
-          break;
-        }
       }
     }
   } finally {
