@@ -786,6 +786,29 @@ export function NET_CanHostInBrowser() {
   return _NET_DriverReady(net_rtcdriverlevel) && RTCLobby_CanHost();
 }
 
+/**
+ * Whether Start Game's Host on starts at "This browser", from its inputs:
+ * whether this browser can host, and the page's ?server= (null when absent)
+ * and whether the page is local (WS_PageIsLocal). Off localhost with no
+ * ?server=, the lobby is the Cloudflare one (cloudflare/lobby/), which can't
+ * start rooms on a server, so "Lobby server" would fail there. An empty
+ * ?server= counts as absent, as in NET_LobbyServer.
+ */
+export function NET_ChooseHostInBrowser(canHost, server, pageIsLocal) {
+  if (canHost === false) return false;
+  if (server !== null && server.length > 0) return false;
+  return pageIsLocal === false;
+}
+
+/** Start Game's first Host on choice: true for "This browser". */
+export function NET_DefaultHostInBrowser() {
+  return NET_ChooseHostInBrowser(
+    NET_CanHostInBrowser(),
+    _NET_PageParam("server"),
+    WS_PageIsLocal(),
+  );
+}
+
 export function NET_HostRoom(config, spawnCount, exitRules) {
   return RTCLobby_HostRoom(config, spawnCount, exitRules);
 }

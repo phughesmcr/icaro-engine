@@ -1,13 +1,20 @@
-// The browser client as static files on a Worker (see README.md). No script:
-// assets only. Run wrangler from this folder only, after
+// The browser client as static files on a Worker (see README.md). A script
+// runs for the page alone, to put a nonce in its policy (src/nonce.js); every
+// other file is served without it. Run wrangler from this folder only, after
 // `deno task client-build` has filled dist/ from the allowlist. From the
 // repository root, wrangler takes the whole repository for a static site,
 // registered game data included. Never point "directory" anywhere but dist/.
 {
   "name": "icaro-client",
   "compatibility_date": "2026-11-25",
+  // Outside dist/, so the script is never served as an asset
+  "main": "./src/worker.js",
   "assets": {
     "directory": "./dist",
+    "binding": "ASSETS",
+    // Only the page: a Worker request each, while asset requests stay free.
+    // /index.html redirects to / before this runs.
+    "run_worker_first": ["/"],
     // The page is one index.html with no client-side routes, and the engine's
     // loaders take a 404 as "not there"
     "not_found_handling": "none"

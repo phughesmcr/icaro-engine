@@ -213,9 +213,30 @@ export function VID_ResetPixelRatio() {
 // pixels, for weak GPUs such as smart-TV browsers. Clamped to 0.25..1;
 // missing or invalid values give 1 (full resolution).
 
-// WebGL drawing-buffer pixels per 2D overlay pixel; set once by VID_Init.
+// WebGL drawing-buffer pixels per 2D overlay pixel: ?scale= (set once by
+// VID_Init) times the dynamic resolution step (VID_SetDynamicScale).
 // R_SetupGL scales the view rectangle by it.
 export let vid_renderscale = 1;
+let vid_basescale = 1; // ?scale=
+
+/**
+ * Web-only, no C equivalent: sets the dynamic resolution step (src/
+ * vid_dynres.js), a fraction of ?scale=, and resizes the drawing buffer. The
+ * canvas's CSS size and the 2D overlay are unchanged.
+ */
+/** Tests only: a stub renderer and ?scale=, without VID_Init. */
+export function VID_SetTestRenderer(r, basescale) {
+  renderer = r;
+  vid_basescale = basescale;
+  vid_renderscale = basescale;
+}
+
+export function VID_SetDynamicScale(scale) {
+  vid_renderscale = vid_basescale * scale;
+  if (renderer === null) return;
+  if (renderer.xr != null && renderer.xr.isPresenting === true) return;
+  renderer.setPixelRatio(VID_GetPixelRatio() * vid_renderscale);
+}
 
 export function VID_ParseRenderScale(search) {
   const value = parseFloat(new URLSearchParams(search).get("scale"));
@@ -289,10 +310,11 @@ export function VID_Init(palette, gammaparm = null) {
   // Web-only: ?scale= renders the 3D view below screen resolution (see
   // VID_ParseRenderScale). The 2D overlay canvas in gl_draw.js keeps the
   // same VID_GetPixelRatio, so menus and the HUD stay sharp.
-  vid_renderscale = VID_ParseRenderScale(window.location.search);
+  vid_basescale = VID_ParseRenderScale(window.location.search);
+  vid_renderscale = vid_basescale;
   renderer.setSize(canvas.width, canvas.height);
   renderer.setPixelRatio(VID_GetPixelRatio() * vid_renderscale);
-  if (vid_renderscale < 1) canvas.style.imageRendering = "pixelated";
+  if (vid_basescale < 1) canvas.style.imageRendering = "pixelated";
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.autoClear = false; // we manage clearing ourselves, like Quake did
   renderer.sortObjects = false; // we sort manually via BSP front-to-back

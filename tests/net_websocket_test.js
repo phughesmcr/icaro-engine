@@ -1244,6 +1244,37 @@ Deno.test("WS: URL helpers", () => {
   }
 });
 
+Deno.test("NET: Start Game hosts in the browser by default on a public page", () => {
+  const choose = netMain.NET_ChooseHostInBrowser;
+  const PUBLIC = false, LOCAL = true;
+
+  assertEqual(
+    choose(true, null, PUBLIC),
+    true,
+    "public page with no ?server=: the Cloudflare lobby",
+  );
+  assertEqual(
+    choose(true, "", PUBLIC),
+    true,
+    "empty ?server= is absent",
+  );
+  assertEqual(
+    choose(true, null, LOCAL),
+    false,
+    "local page: the Deno lobby starts rooms",
+  );
+  assertEqual(
+    choose(true, "wss://mp.example/mp", PUBLIC),
+    false,
+    "?server= names a lobby that may start rooms",
+  );
+  assertEqual(
+    choose(false, null, PUBLIC),
+    false,
+    "can't host here",
+  );
+});
+
 Deno.test("NET: transport choice by page", () => {
   const choose = netMain.NET_ChooseWebSocket;
   const PUBLIC = false, LOCAL = true;

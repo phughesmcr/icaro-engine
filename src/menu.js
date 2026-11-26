@@ -140,6 +140,7 @@ let _NET_LobbyJoinURL = null;
 let _NET_RoomURL = null;
 let _NET_MultiplayerAvailable = null;
 let _NET_CanHostInBrowser = null;
+let _NET_DefaultHostInBrowser = null;
 let _NET_HostRoom = null;
 let _SCR_CenterPrint = null;
 let _cl_name = null;
@@ -260,6 +261,9 @@ const NUM_GAMEOPTIONS = 11;
 // Web addition: Start Game hosts the room in this browser over WebRTC
 // (src/net_rtclobby.js) instead of on the lobby server, listed or private
 let m_host_in_browser = false;
+// Host on takes the page's default (NET_DefaultHostInBrowser) the first time
+// Start Game opens, then keeps the player's choice
+let m_host_default_pending = true;
 let m_host_public = false;
 const M_HOST_HERE_REASON = "Hosting here needs a WebSocket lobby";
 
@@ -596,6 +600,9 @@ export function M_SetExternals(externals) {
   }
   if (externals.NET_CanHostInBrowser) {
     _NET_CanHostInBrowser = externals.NET_CanHostInBrowser;
+  }
+  if (externals.NET_DefaultHostInBrowser) {
+    _NET_DefaultHostInBrowser = externals.NET_DefaultHostInBrowser;
   }
   if (externals.NET_HostRoom) _NET_HostRoom = externals.NET_HostRoom;
   if (externals.SCR_CenterPrint) _SCR_CenterPrint = externals.SCR_CenterPrint;
@@ -1474,6 +1481,11 @@ function M_Menu_GameOptions_f() {
   if (maxplayers < 2) {
     maxplayers = svs.maxclientslimit;
   }
+
+  if (m_host_default_pending === true && _NET_DefaultHostInBrowser !== null) {
+    m_host_default_pending = false;
+    m_host_in_browser = _NET_DefaultHostInBrowser();
+  }
 }
 
 // Start Game sends Game Type, Teamplay, Skill, Frag Limit and Time Limit in
@@ -2116,7 +2128,7 @@ function M_AdjustSliders(dir) {
 
 // OPTIONS MENU
 
-const OPTIONS_ITEMS = 17;
+const OPTIONS_ITEMS = 18;
 let m_options_cursor = 0;
 
 function M_Menu_Options_f() {
@@ -2183,7 +2195,11 @@ function M_Options_Draw() {
   // Port addition: the main menu's fourth row is C's Help again, so the
   // credits screen (attribution and source link) is reached from here,
   // which mouse and touch players can use without the console.
-  M_Print(16, 160, "               Credits");
+  // Web-only: the Game data panel (src/userdata.js), where a player adds
+  // their own registered or mission-pack paks and moves saves and demos
+  M_Print(16, 160, "             Game data");
+
+  M_Print(16, 168, "               Credits");
 
   // cursor
   M_DrawCharacter(
@@ -2215,6 +2231,9 @@ function M_Options_Key(key) {
           M_Menu_Advanced_f();
           break;
         case 16:
+          Cbuf_AddText("menu_gamedata\n");
+          break;
+        case 17:
           M_Menu_Credits_f();
           break;
         case 2:
