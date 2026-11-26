@@ -79,6 +79,7 @@ step holds buttons for N tics, then releases them: buttons forward back moveleft
 Quake has no use key: walk into buttons and doors; shoot some buttons. "exit" entities are level exits: walk into them.
 goto {id} or goto {pos: [x, y, z]} walks there along the level's walk graph (doors, lifts, teleporters, drops and jumps included) and stops early when hurt; when blocked it names what blocks the way and how it opens (a key, a button #id, shoot it).
 turn_to {id} faces an entity (or {yaw} an absolute yaw) without advancing the game. attack {id} aims at it every tic and fires while it is in sight, until it is killed, gone, out of sight, you are out of ammo (or have only the axe and are out of reach), hurt to death, or max_tics; it doesn't move.
+goto and attack also stop when a monster comes into sight ("new enemy #id kind ..."): attack it, or call again with stop_on_enemy: false. Each monster stops only one call.
 cmd runs console commands (god, give, map e1m2, ...). key and menu drive the menus.`;
 
 const BUTTONS_DESC =
@@ -88,6 +89,9 @@ const BUTTONS_DESC =
 // it was written
 const int = (min: number, max: number) => z.number().int().min(min).max(max);
 const ents = int(0, 64).optional().describe("Entities to list (default 10)");
+const stop_on_enemy = z.boolean().optional().describe(
+  "Stop when a monster comes into sight that no goto or attack has reported yet (default true)",
+);
 const map = int(0, MAP_MAX_SIZE).optional().describe(
   "Add an ASCII map this many 32-unit cells across (odd; 21 is a good size; default 0, none)",
 );
@@ -139,6 +143,7 @@ const GOTO_ARGS = z.strictObject({
   stop_on_damage: z.boolean().optional().describe(
     "Stop when hurt (default true)",
   ),
+  stop_on_enemy,
   ents,
   map,
 });
@@ -158,6 +163,7 @@ const ATTACK_ARGS = z.strictObject({
     "Give up after this many tics (default " + ATTACK_DEFAULT_TICS +
       " = 10 s; at most " + ATTACK_MAX_TICS + ")",
   ),
+  stop_on_enemy,
   ents,
   map,
 });
@@ -333,7 +339,7 @@ export function agent_mcp_server(): McpServer {
     "goto",
     {
       description:
-        "Walks to an entity (#id from the observation) or a point along the level's walk graph, then returns the observation. The first line says how it ended: arrived, blocked (and by what), took damage, died, level changed, no path, or timeout.",
+        "Walks to an entity (#id from the observation) or a point along the level's walk graph, then returns the observation. The first line says how it ended: arrived, blocked (and by what), took damage, new enemy, died, level changed, no path, or timeout.",
       inputSchema: GOTO_ARGS,
       annotations: { ...LOCAL, idempotentHint: false },
     },
@@ -344,6 +350,7 @@ export function agent_mcp_server(): McpServer {
       return e.agent.Agent_Goto(args.id ?? args.pos, {
         max_tics: args.max_tics ?? GOTO_DEFAULT_TICS,
         stop_on_damage: args.stop_on_damage !== false,
+        stop_on_enemy: args.stop_on_enemy !== false,
         ents: args.ents ?? 10,
         map: args.map ?? 0,
       });
@@ -373,13 +380,14 @@ export function agent_mcp_server(): McpServer {
     "attack",
     {
       description:
-        "Aims at an entity (#id) every tic and fires while it is in sight, without moving, then returns the observation. The first line says how it ended: killed, gone, out of sight, out of ammo, out of reach (axe), died, level changed, or timeout.",
+        "Aims at an entity (#id) every tic and fires while it is in sight, without moving, then returns the observation. The first line says how it ended: killed, gone, out of sight, out of ammo, out of reach (axe), new enemy, died, level changed, or timeout.",
       inputSchema: ATTACK_ARGS,
       annotations: { ...LOCAL, idempotentHint: false },
     },
     tool((e, args: z.infer<typeof ATTACK_ARGS>) =>
       e.agent.Agent_Attack(args.id, {
         max_tics: args.max_tics ?? ATTACK_DEFAULT_TICS,
+        stop_on_enemy: args.stop_on_enemy !== false,
         ents: args.ents ?? 10,
         map: args.map ?? 0,
       })

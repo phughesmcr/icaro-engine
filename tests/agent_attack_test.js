@@ -128,8 +128,10 @@ Deno.test({
     }
 
     const list = await session.request("tools/list", {});
-    const schema = list.result.tools.find((t) => t.name === "attack")
-      .inputSchema.properties.max_tics;
+    const props = list.result.tools.find((t) => t.name === "attack")
+      .inputSchema.properties;
+    assert(props.stop_on_enemy?.type === "boolean", "no stop_on_enemy");
+    const schema = props.max_tics;
     assert(schema.maximum === ATTACK_MAX_TICS, "max_tics disagrees");
     assert(
       schema.description.includes("(default " + ATTACK_DEFAULT_TICS + " "),

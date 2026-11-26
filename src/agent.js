@@ -24,6 +24,7 @@ import {
   IT_SUIT,
   IT_SUPER_NAILGUN,
   IT_SUPER_SHOTGUN,
+  MAX_EDICTS,
   PITCH,
   STAT_ACTIVEWEAPON,
   STAT_AMMO,
@@ -401,6 +402,7 @@ function Agent_StatEvents() {
     );
     prev_map = map;
     Agent_NavBuild(); // a reload of the same map may differ in skill
+    Agent_EnemyReset();
   } else {
     const dh = st[STAT_HEALTH] - prev_stats[STAT_HEALTH];
     if (dh < 0) {
@@ -1107,8 +1109,9 @@ function Agent_GotoBlocked(k) {
 /**
  * Walks to an entity (#id, as in observations) or a point along the level's
  * walk graph (src/nav.js), one lockstep tic at a time. opts: { max_tics (30 s),
- * stop_on_damage (true), ents, map }. The first line of the result says how it
- * ended: arrived, blocked (with what to try), took damage, died, level
+ * stop_on_damage (true), stop_on_enemy (true), ents, map }. The first line of
+ * the result says how it ended: arrived, blocked (with what to try), took
+ * damage, new enemy (a monster came into sight: Agent_EnemyScan), died, level
  * changed, no path, or timeout. The observation follows.
  */
 export function Agent_Goto(target, opts = {}) {
@@ -1130,6 +1133,8 @@ async function Agent_GotoNow(target, opts) {
     ),
   );
   const stop_on_damage = opts.stop_on_damage !== false;
+  const stop_on_enemy = opts.stop_on_enemy !== false;
+  const truth = opts.truth !== false;
   const label = Agent_GotoTarget(target);
   const target_num = typeof target === "number" ? target : 0;
   const target_ed = target_num > 0 ? Agent_Edict(target_num) : null;
@@ -1148,6 +1153,8 @@ async function Agent_GotoNow(target, opts) {
   }
 
   if (Agent_GotoArrived()) return finish("arrived", 0);
+  // Monsters already in sight aren't news
+  if (stop_on_enemy) Agent_EnemyScan(true, target_num, truth);
 
   if (Agent_GotoPlan() === false) {
     return finish("no path from here (try another target)", 0);
@@ -1222,6 +1229,13 @@ async function Agent_GotoNow(target, opts) {
         break;
       }
       health = hp;
+      if (stop_on_enemy) {
+        const foe = Agent_EnemyScan(false, target_num, truth);
+        if (foe !== 0) {
+          why = Agent_EnemyReason(foe, truth);
+          break;
+        }
+      }
 
       Agent_PlayerOrigin(goto_me);
       if (goto_avoid.length > 0) Agent_GotoAvoidUpdate(); // a door opening while we walk counts
@@ -1309,6 +1323,149 @@ async function Agent_GotoNow(target, opts) {
   return finish(why, tics);
 }
 
+// NEW-ENEMY INTERRUPT
+
+// A monster counts as announced once a macro has seen it (in sight when the
+// macro began, or reported when it came into sight), so one that ducks in and
+// out of view at a corner stops only one macro. Cleared on each level event.
+const enemy_known = new Uint8Array(MAX_EDICTS);
+/** Model name -> whether its kind is a monster (cleared with enemy_known). */
+const enemy_model = new Map();
+const enemy_eye = new Float32Array(3);
+const enemy_at = new Float32Array(3);
+const enemy_best_at = new Float32Array(3); // centre of Agent_EnemyScan's result
+const SOLID_BSP = 4; // server.h
+let enemy_new = 0; // how many the last Agent_EnemyScan announced
+
+function Agent_EnemyReset() {
+  enemy_known.fill(0);
+  enemy_model.clear();
+}
+
+function Agent_IsMonsterModel(ent) {
+  const name = ent.model.name;
+  let is = enemy_model.get(name);
+  if (is === undefined) {
+    const kind = Agent_ModelKind(ent);
+    is = kind !== null && MONSTER_KINDS.has(kind);
+    enemy_model.set(name, is);
+  }
+  return is;
+}
+
+// Whether the segment from a to b crosses the box of a brush entity in the
+// latest update (a closed door, a lift, a func_wall). Agent_LineOfSight traces
+// only the world. With a local server, brush entities that aren't solid
+// (func_illusionary) don't block. A box holding either end doesn't block, so
+// a player standing inside a door's or lift's box sees through it.
+function Agent_BrushBlocks(a, b, truth) {
+  for (let i = 1; i < cl.num_entities; i++) {
+    const ent = cl_entities[i];
+    if (ent === undefined || ent === null || ent.model === null) continue;
+    if (ent.msgtime !== cl.mtime[0]) continue;
+    const m = ent.model;
+    if (m.name.charCodeAt(0) !== 42) continue; // '*': brush model
+    if (truth) {
+      const ed = Agent_Edict(i);
+      if (ed !== null && ed.v.solid !== SOLID_BSP) continue;
+    }
+    let t0 = 0, t1 = 1, inside_a = true, inside_b = true;
+    for (let k = 0; k < 3 && t0 <= t1; k++) {
+      const lo = ent.origin[k] + m.mins[k], hi = ent.origin[k] + m.maxs[k];
+      if (a[k] < lo || a[k] > hi) inside_a = false;
+      if (b[k] < lo || b[k] > hi) inside_b = false;
+      const d = b[k] - a[k];
+      if (Math.abs(d) < 1e-6) {
+        if (a[k] < lo || a[k] > hi) t1 = -1; // parallel and outside the slab
+        continue;
+      }
+      let n = (lo - a[k]) / d, f = (hi - a[k]) / d;
+      if (n > f) {
+        const s = n;
+        n = f;
+        f = s;
+      }
+      if (n > t0) t0 = n;
+      if (f < t1) t1 = f;
+    }
+    if (t0 <= t1 && inside_a === false && inside_b === false) return true;
+  }
+  return false;
+}
+
+/**
+ * Scans for live monsters in sight (in the client's latest update, with no
+ * world or brush entity between your eye and their centre) that no macro has
+ * announced yet, and marks them announced (enemy_new counts them). Returns
+ * the nearest such id, or 0.
+ * With mark_only, just marks the ones in sight (a macro's start). skip is an
+ * entity never reported (the macro's own target), or 0. With a local server
+ * and truth, corpses are skipped; without one a corpse looks like a monster.
+ */
+function Agent_EnemyScan(mark_only, skip, truth) {
+  const me = cl_entities[cl.viewentity];
+  if (me === undefined || me === null) return 0;
+  enemy_eye[0] = me.origin[0];
+  enemy_eye[1] = me.origin[1];
+  enemy_eye[2] = me.origin[2] + 22; // DEFAULT_VIEWHEIGHT, as Agent_Entities
+  const use_truth = truth && sv.active === true;
+  let best = 0, best_d = Infinity;
+  enemy_new = 0;
+  const n = Math.min(cl.num_entities, MAX_EDICTS);
+  for (let i = 1; i < n; i++) {
+    if (i === cl.viewentity || i === skip || enemy_known[i] !== 0) continue;
+    const ent = cl_entities[i];
+    if (ent === undefined || ent === null || ent.model === null) continue;
+    if (ent.msgtime !== cl.mtime[0]) continue; // not in view
+    if (Agent_IsMonsterModel(ent) === false) continue;
+    if (use_truth) {
+      const ed = Agent_Edict(i);
+      if (ed !== null && ed.v.health <= 0) continue; // corpse
+    }
+    const m = ent.model;
+    for (let k = 0; k < 3; k++) {
+      enemy_at[k] = ent.origin[k] + (m.mins[k] + m.maxs[k]) / 2;
+    }
+    if (Agent_LineOfSight(enemy_eye, enemy_at) === false) continue;
+    if (Agent_BrushBlocks(enemy_eye, enemy_at, use_truth)) continue;
+    enemy_known[i] = 1;
+    if (mark_only) continue;
+    enemy_new++;
+    const d = Math.hypot(
+      enemy_at[0] - enemy_eye[0],
+      enemy_at[1] - enemy_eye[1],
+      enemy_at[2] - enemy_eye[2],
+    );
+    if (d < best_d) {
+      best_d = d;
+      best = i;
+      enemy_best_at.set(enemy_at);
+    }
+  }
+  return best;
+}
+
+// The first line's reason for a new-enemy stop: the entity line of #num
+function Agent_EnemyReason(num, truth) {
+  los_start.set(enemy_eye); // Agent_Describe measures from los_start
+  const ed = truth && sv.active === true ? Agent_Edict(num) : null;
+  const hp = ed !== null && (ed.v.flags & FL_MONSTER) !== 0 ?
+    Math.round(ed.v.health) :
+    null;
+  return "new enemy " +
+    Agent_EntityLine(
+      Agent_Describe(
+        num,
+        Agent_ModelKind(cl_entities[num]),
+        enemy_best_at,
+        hp,
+        true,
+      ),
+    ) +
+    (enemy_new > 1 ? " (+" + (enemy_new - 1) + " more)" : "") +
+    ", stopped";
+}
+
 // TURN_TO AND ATTACK
 
 export const ATTACK_MAX_TICS = 72 * 60;
@@ -1383,8 +1540,9 @@ export function Agent_TurnTo(target, opts = {}) {
  * Aims at entity #id every tic and fires while it is in sight, until it dies
  * or one of the other endings (lockstep only). The first line of the result
  * says how it ended: killed, gone, out of sight, out of ammo, out of reach
- * (axe), died, level changed, level done, or timeout. opts: { max_tics
- * (10 s), ents, map }. With a local server "killed" reads the monster's
+ * (axe), new enemy (another monster came into sight), died, level changed,
+ * level done, or timeout. opts: { max_tics (10 s), stop_on_enemy (true), ents,
+ * map }. With a local server "killed" reads the monster's
  * health; without one, an entity that leaves the client's updates is
  * "gone". It doesn't move: goto first, or step between attacks.
  */
@@ -1413,6 +1571,9 @@ async function Agent_AttackNow(target, opts) {
     ),
   );
   const map = Agent_MapName();
+  const stop_on_enemy = opts.stop_on_enemy !== false;
+  const truth = opts.truth !== false;
+  if (stop_on_enemy) Agent_EnemyScan(true, target, truth);
   const finish = (why, tics) =>
     "attack #" + target + ": " + why + " (" + tics + " tics)\n" +
     Agent_Observe(opts);
@@ -1431,6 +1592,14 @@ async function Agent_AttackNow(target, opts) {
           ((ed.v.flags & FL_MONSTER) !== 0 && ed.v.health <= 0)
         ) {
           why = "killed";
+          break;
+        }
+      }
+      // After the kill check, so a killing shot reads "killed"
+      if (stop_on_enemy && tics > 0) {
+        const foe = Agent_EnemyScan(false, target, truth);
+        if (foe !== 0) {
+          why = Agent_EnemyReason(foe, truth);
           break;
         }
       }
@@ -2361,6 +2530,8 @@ Act:    await icaro.step({ buttons: 'forward,attack', yaw: 30, pitch: 0, impulse
 Walk:   await icaro.goto(12) or icaro.goto([x, y, z], { max_tics: 2160 })  // lockstep only
         walks to entity #12 or a point on the level's walk graph; the first line says
         how it ended: arrived, blocked by #id (and what opens it), took damage, no path...
+        goto and attack stop when a monster comes into sight: "new enemy #id kind ...";
+        { stop_on_enemy: false } walks on (each monster stops one macro, once).
 Fight:  icaro.turn_to(12) or icaro.turn_to({ yaw: 90 })  // face #12 or a yaw, at once
         await icaro.attack(12, { max_tics: 720 })  // lockstep: aim and fire until it ends;
         the first line says how: killed, gone, out of sight, out of ammo, died...
