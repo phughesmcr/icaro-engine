@@ -74,7 +74,7 @@ Deno.test({
     assert(Agent_Map(1000).size === MAP_MAX_SIZE, "capped");
 
     const list = await session.request("tools/list", {});
-    for (const name of ["step", "goto", "observe"]) {
+    for (const name of ["step", "goto", "turn_to", "attack", "observe"]) {
       const schema = list.result.tools.find((t) => t.name === name)
         .inputSchema.properties.map;
       assert(

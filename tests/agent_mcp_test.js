@@ -18,7 +18,17 @@ function assert(cond, message) {
   }
 }
 
-const TOOL_NAMES = ["start", "step", "goto", "observe", "cmd", "key", "menu"];
+const TOOL_NAMES = [
+  "start",
+  "step",
+  "goto",
+  "turn_to",
+  "attack",
+  "observe",
+  "cmd",
+  "key",
+  "menu",
+];
 
 // agent.js keeps a MessageChannel open for its yields, and the host runs
 // once per process, so the engine tests share it and skip the sanitizers
