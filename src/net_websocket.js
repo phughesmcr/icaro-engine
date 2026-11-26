@@ -20,7 +20,7 @@
 // a dropped connection ends like any lost connection.
 
 import { Con_Printf, Con_DPrintf, SZ_Clear, SZ_Write } from './common.js';
-import { NET_NewQSocket, NET_LobbyVerifyError } from './net_main.js';
+import { NET_NewQSocket, NET_LobbyVerifyError, NET_QuietConnect } from './net_main.js';
 import { Sys_PageURL } from './sys.js';
 import {
 	net_message,
@@ -467,6 +467,8 @@ class WSConnectAttempt {
 
 		this.aborted = false;
 		this.sockets = new Set();
+		// web-only: read once, so a later connect can't change how this one fails
+		this.quiet = NET_QuietConnect();
 		this._reject = null;
 		this.abortPromise = new Promise( ( _, reject ) => {
 
@@ -685,7 +687,11 @@ function _WS_ClearRoomFromUrl() {
 
 }
 
-function _WS_FailConnect( reason ) {
+function _WS_FailConnect( reason, quiet = NET_QuietConnect() ) {
+
+	// Web-only: a silent reconnect attempt (cl_reconnect.js) reports for itself.
+	// quiet is the attempt's, read when it started.
+	if ( quiet === true ) return null;
 
 	_WS_ClearRoomFromUrl();
 	set_key_dest( key_menu );
@@ -694,7 +700,9 @@ function _WS_FailConnect( reason ) {
 
 }
 
-function _WS_FailConnectToMainMenu() {
+function _WS_FailConnectToMainMenu( quiet = NET_QuietConnect() ) {
+
+	if ( quiet === true ) return null;
 
 	_WS_ClearRoomFromUrl();
 	M_Menu_Main_f();
@@ -789,12 +797,12 @@ async function _WS_ConnectViaLobby( url, host, roomId, attempt ) {
 		if ( attempt.aborted === true || error.message === 'Lobby request timed out' || error.message === 'Lobby connection timed out' ) {
 
 			Con_Printf( 'WebSocket connect timed out\n' );
-			return _WS_FailConnect( 'Connection timed out - server may be offline' );
+			return _WS_FailConnect( 'Connection timed out - server may be offline', attempt.quiet );
 
 		}
 
 		Con_Printf( 'WebSocket lobby join failed: ' + error.message + '\n' );
-		return _WS_FailConnectToMainMenu();
+		return _WS_FailConnectToMainMenu( attempt.quiet );
 
 	}
 
@@ -802,7 +810,7 @@ async function _WS_ConnectViaLobby( url, host, roomId, attempt ) {
 
 		const errMsg = _WS_LobbyErrorText( reply.data );
 		Con_Printf( 'Join failed: ' + errMsg + '\n' );
-		return _WS_FailConnect( errMsg );
+		return _WS_FailConnect( errMsg, attempt.quiet );
 
 	}
 
@@ -824,7 +832,7 @@ async function _WS_ConnectViaLobby( url, host, roomId, attempt ) {
 	if ( room === null || typeof room !== 'object' || typeof room.id !== 'string' || room.id.length === 0 ) {
 
 		Con_Printf( 'Lobby reply had no room\n' );
-		return _WS_FailConnect( 'Server sent an invalid room reply' );
+		return _WS_FailConnect( 'Server sent an invalid room reply', attempt.quiet );
 
 	}
 
@@ -878,7 +886,7 @@ async function _WS_ConnectDirect( url, originalHost, roomId, attempt ) {
 			Con_Printf( 'Server refused connection: ' + reason + '\n' );
 			_WS_CloseSocket( socket, attempt );
 			socket = null;
-			return _WS_FailConnect( reason );
+			return _WS_FailConnect( reason, attempt.quiet );
 
 		}
 
@@ -949,12 +957,12 @@ async function _WS_ConnectDirect( url, originalHost, roomId, attempt ) {
 		if ( attempt.aborted === true ) {
 
 			Con_Printf( 'WebSocket connect timed out after %d seconds\n', WS_CONNECT_TIMEOUT_MS / 1000 );
-			return _WS_FailConnect( 'Connection timed out - server may be offline' );
+			return _WS_FailConnect( 'Connection timed out - server may be offline', attempt.quiet );
 
 		}
 
 		Con_Printf( 'WebSocket direct connect failed: ' + error.message + '\n' );
-		return _WS_FailConnectToMainMenu();
+		return _WS_FailConnectToMainMenu( attempt.quiet );
 
 	}
 

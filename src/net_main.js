@@ -73,6 +73,19 @@ let net_wtdriverlevel = - 1;
 let net_wsdriverlevel = - 1;
 let net_rtcdriverlevel = - 1;
 
+// Web-only (no C counterpart). Set while the client re-runs a connect behind
+// the player's back (cl_reconnect.js): the drivers then skip the menu pages
+// they show on failure, because the caller retries or reports for itself.
+let net_quietconnect = false;
+export function NET_SetQuietConnect( quiet ) { net_quietconnect = quiet; }
+export function NET_QuietConnect() { return net_quietconnect; }
+
+// Web-only. The WebTransport driver sets this when it couldn't open its
+// transport at all (UDP blocked, no QUIC route) and left the failure for
+// NET_Connect to retry over WebSocket; NET_Connect clears it.
+let net_wt_unreachable = false;
+export function NET_SetTransportUnreachable( value ) { net_wt_unreachable = value; }
+
 let slistStartTime = 0;
 let slistLastShown = 0;
 
@@ -126,6 +139,7 @@ export function NET_NewQSocket( pendingConnections = 0 ) {
 	set_net_activeSockets( sock );
 
 	sock.disconnected = false;
+	sock.lost = false; // web-only: NET_GetMessage/NET_Send* saw the connection die
 	sock.connecttime = net_time;
 	sock.address = 'UNSET ADDRESS';
 	sock.driver = net_driverlevel;
@@ -433,6 +447,63 @@ const slistPollProcedure = new PollProcedure( null, 0.0, Slist_Poll );
 
 /*
 ===================
+NET_ConnectionDead
+
+Web-only (no C counterpart). A send that fails is a lost connection only when
+the driver has given up on it; a message too large fails without that.
+===================
+*/
+function NET_ConnectionDead( sock ) {
+
+	const conn = sock.driverdata;
+	return conn == null || conn.connected === false || ( conn.error !== undefined && conn.error !== null );
+
+}
+
+/*
+===================
+NET_WebSocketFallbackAvailable
+
+Web-only (no C counterpart). True when a failed WebTransport connect may be
+retried over WebSocket: the WebSocket driver is ready and the page didn't
+force WebTransport with ?transport=wt.
+===================
+*/
+export function NET_WebSocketFallbackAvailable() {
+
+	return _NET_DriverReady( net_wsdriverlevel ) && _NET_PageParam( 'transport' ) !== 'wt';
+
+}
+
+/*
+===================
+NET_WebSocketFallback
+
+Web-only (no C counterpart). WebTransport rides on QUIC (UDP), which some
+networks block. When the WebTransport driver reports it couldn't open its
+transport (not that the server refused the player), try the same address once
+over wss:// before giving up. NET_UseWebSocket only chooses a transport up
+front, so this is the only place a failed WebTransport falls back.
+===================
+*/
+function NET_WebSocketFallback( promise, host ) {
+
+	return promise.then( ( sock ) => {
+
+		if ( sock || net_wt_unreachable === false )
+			return sock;
+
+		net_wt_unreachable = false;
+		Con_Printf( 'WebTransport is unreachable, trying WebSocket...\n' );
+		set_net_driverlevel( net_wsdriverlevel );
+		return net_drivers[ net_wsdriverlevel ].Connect( WS_ToWebSocketURL( host ) );
+
+	} );
+
+}
+
+/*
+===================
 NET_Connect
 
 Connects to a host. For local connections, this is synchronous.
@@ -510,7 +581,10 @@ export function NET_Connect( host ) {
 
 		// Remote Connect is async, return the promise
 		// If it fails, the error will propagate - do NOT fallback to loopback
+		net_wt_unreachable = false;
 		const ret = net_drivers[ level ].Connect( useWebSocket ? WS_ToWebSocketURL( host ) : host );
+		if ( ret && useWebSocket === false && ret instanceof Promise )
+			return NET_WebSocketFallback( ret, host );
 		if ( ret ) return ret;
 
 		// The driver failed to start connection
@@ -952,11 +1026,17 @@ export function NET_GetMessage( sock ) {
 
 	const ret = net_drivers[ sock.driver ].QGetMessage( sock );
 
+	// Web-only: remember that the connection died, so CL_Disconnect can tell
+	// a lost connection (reconnect) from a deliberate disconnect.
+	if ( ret === - 1 )
+		sock.lost = true;
+
 	// see if this connection has timed out
 	if ( ret === 0 && sock.driver ) {
 
 		if ( net_time - sock.lastMessageTime > net_messagetimeout.value ) {
 
+			sock.lost = true;
 			NET_Close( sock );
 			return - 1;
 
@@ -1008,6 +1088,8 @@ export function NET_SendMessage( sock, data ) {
 
 	SetNetTime();
 	const r = net_drivers[ sock.driver ].QSendMessage( sock, data );
+	if ( r === - 1 && NET_ConnectionDead( sock ) === true )
+		sock.lost = true; // web-only, see NET_GetMessage
 
 	return r;
 
@@ -1032,6 +1114,8 @@ export function NET_SendUnreliableMessage( sock, data ) {
 
 	SetNetTime();
 	const r = net_drivers[ sock.driver ].SendUnreliableMessage( sock, data );
+	if ( r === - 1 && NET_ConnectionDead( sock ) === true )
+		sock.lost = true; // web-only, see NET_GetMessage
 
 	return r;
 

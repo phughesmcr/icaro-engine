@@ -33,6 +33,7 @@ feature PR (see AGENTS.md, Git workflow).
 - `agent-interface.md`: research and plan for making the engine playable by
   LLM agents and RL (lockstep clock, text observations, macro actions,
   MCP/Gymnasium adapters). Phase 1 (`src/agent.js`) is built, and so are
-  headless play, seeded randomness and the navigation graph (`src/nav.js`,
-  built offline by `tools/nav/nav_build.js`); its status section says what
+  headless play, the stdio MCP server, seeded randomness, the navigation
+  graph (`src/nav.js`, built offline by `tools/nav/nav_build.js` and at map
+  load in agent games) and the `goto` macro; its status section says what
   isn't. A snapshot.

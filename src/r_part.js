@@ -21,6 +21,25 @@ const ABSOLUTE_MIN_PARTICLES = 512; // no fewer than this no matter what's on th
 // r_part.c: the pool's size, MAX_PARTICLES unless -particles sets it
 export let r_numparticles = MAX_PARTICLES;
 
+// Web-only, no C equivalent: a runtime limit on live particles, at most the
+// pool's size (r_numparticles). R_SetParticleLimit sets it from the
+// r_particlecap cvar (gl_rmain.js, vid_quality presets). It only stops new
+// particles from being allocated; the pool is not resized.
+let particleLimit = Infinity;
+let particleLive = 0;
+
+export function R_SetParticleLimit( n ) {
+
+	particleLimit = n > 0 ? Math.max( ABSOLUTE_MIN_PARTICLES, n ) : Infinity;
+
+}
+
+export function R_GetParticleLimit() {
+
+	return Math.min( particleLimit, r_numparticles );
+
+}
+
 // Precomputed sRGB -> linear lookup table (256 entries)
 // Quake palette values are sRGB; Three.js expects vertex colors in linear space.
 const srgbToLinear = new Float32Array( 256 );
@@ -249,6 +268,7 @@ R_ClearParticles
 export function R_ClearParticles() {
 
 	activeList = - 1;
+	particleLive = 0;
 
 	freeList = 0;
 	for ( let i = 0; i < r_numparticles - 1; i ++ ) {
@@ -263,7 +283,8 @@ export function R_ClearParticles() {
 
 function allocParticle() {
 
-	if ( freeList === - 1 ) return - 1;
+	if ( freeList === - 1 || particleLive >= particleLimit ) return - 1;
+	particleLive ++;
 
 	const idx = freeList;
 	freeList = particleNext[ idx ];
@@ -894,6 +915,7 @@ export function R_DrawParticles() {
 		activeList = particleNext[ killIdx ];
 		particleNext[ killIdx ] = freeList;
 		freeList = killIdx;
+		particleLive --;
 
 	}
 
@@ -921,6 +943,7 @@ export function R_DrawParticles() {
 
 			particleNext[ idx ] = freeList;
 			freeList = idx;
+			particleLive --;
 			idx = nextIdx;
 			continue;
 

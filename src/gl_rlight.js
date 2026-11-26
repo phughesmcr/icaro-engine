@@ -229,6 +229,17 @@ Updates PointLights for all dynamic lights. Lights stay in scene
 and have their intensity updated each frame based on decaying radius.
 =============
 */
+// Web-only, no C equivalent: at most this many dlights become PointLights
+// (R_SetDlightLimit, from gl_rmain.js's gl_dlightcap). The lowest-numbered
+// active lights win; the rest are left out of the scene.
+let _dlightLimit = MAX_DLIGHTS;
+
+export function R_SetDlightLimit( n ) {
+
+	_dlightLimit = n;
+
+}
+
 export function R_RenderDlights( cl, scene ) {
 
 	if ( gl_flashblend.value === 0 ) {
@@ -243,6 +254,8 @@ export function R_RenderDlights( cl, scene ) {
 
 	r_dlightframecount = r_framecount + 1;
 
+	let rendered = 0;
+
 	for ( let i = 0; i < MAX_DLIGHTS; i ++ ) {
 
 		const l = cl_dlights[ i ];
@@ -252,9 +265,11 @@ export function R_RenderDlights( cl, scene ) {
 		// l->die < cl.time || !l->radius). A light whose radius doesn't
 		// reach past its minlight adds nothing in R_AddDynamicLights.
 		const isActive = l != null && l.die >= cl.time && l.radius > 0 &&
-			R_DlightDistance( l ) > 0;
+			R_DlightDistance( l ) > 0 && rendered < _dlightLimit;
 
 		if ( isActive ) {
+
+			rendered ++;
 
 			// Active - update properties (intensity and reach from the radius)
 			const pointLight = R_RenderDlight( l, i );
