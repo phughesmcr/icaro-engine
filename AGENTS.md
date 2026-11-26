@@ -219,6 +219,9 @@ process per room. It was forked from mrdoob's three-quake.
   player), and downloaded files. URL parameters may set only an explicit
   allowlist of safe settings, never commands that bind keys, define aliases, run
   other commands or scripts, connect somewhere or write files.
+- A remote host's `stuffcmd` text must pass an allowlist, and nothing it sets is
+  saved; only your own local server is trusted fully (not yet enforced; see
+  `docs/audit/README.md`, decision 2).
 
 ## Code style
 
@@ -231,6 +234,10 @@ process per room. It was forked from mrdoob's three-quake.
 - **Golden Rule #2**: use explicit null checks (`x !== null`), not falsy checks.
 - **Golden Rule #4**: don't allocate in per-frame or per-call hot paths.
   Pre-allocate module-level scratch buffers (`Float32Array(3)` vectors, etc.).
+- Use an established, maintained library where one fits (zip reading, for
+  example) rather than writing a new one. Pin it (`deno.lock`, or a versioned
+  import-map URL for the browser), check that its licence is compatible with
+  GPL-2.0, and list it in `THIRD_PARTY.md`.
 - Imports are relative and include the `.js`/`.ts` extension.
 - Tests use `Deno.test` and throw `Error` by hand (no assert library). Tests
   that change a cvar must restore it in `finally`. Browser globals are stubbed
@@ -258,9 +265,10 @@ process per room. It was forked from mrdoob's three-quake.
 
 [LibreQuake](https://github.com/lavenderdotpet/LibreQuake) is to become the
 project's standard content: use it for new features, tests, demos and
-screenshots where it can serve. It isn't in the repository yet; check its
-licence before committing any of it. Retail and rerelease data are for
-compatibility testing only.
+screenshots where it can serve. Players get it as a pinned release downloaded on
+first run, behind an introductory page so crawlers and bots never fetch pak
+data; it isn't committed. Retail and rerelease data are for compatibility
+testing only.
 
 `static/pak0.pak` is the shareware Episode 1 pak and is committed. Registered or
 commercial data (`static/pak1.pak`, and the mission packs in `static/hipnotic/`

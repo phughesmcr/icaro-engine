@@ -45,9 +45,10 @@ where it started, not a limit on how the code is written.
 
 ## Content
 
-LibreQuake is to become the standard content. Retail Quake and the rerelease are
-here for compatibility testing only and are never committed or served publicly
-(see AGENTS.md, Game data).
+LibreQuake is to become the standard content, downloaded on first run behind an
+introductory page. Retail Quake and the rerelease are here for compatibility
+testing only and are never committed or served publicly (see AGENTS.md, Game
+data).
 
 ## Fidelity
 
