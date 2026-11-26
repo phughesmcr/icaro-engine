@@ -240,9 +240,9 @@ export function isGameDirName(dir) {
  * common.c COM_InitFilesystem: <basedir>/rogue, then <basedir>/hipnotic, then
  * <basedir>/<-game dir>, after id1. When the -pak file is in a directory named
  * id1 (as in C, and the rerelease's rerelease/id1/pak0.pak), basedir is its
- * parent; otherwise it is the directory holding the -pak file, as for this
- * port's static/pak0.pak. Either separator is accepted so a Windows-style
- * path works too.
+ * parent (LibreQuake's static/librequake/id1/pak0.pak gives
+ * static/librequake/); otherwise it is the directory holding the -pak file.
+ * Either separator is accepted so a Windows-style path works too.
  */
 export function gameDirectories(pakPath, isRogue, isHipnotic, gameDir = null) {
   const basedir = gameBaseDirectory(pakPath);
@@ -494,7 +494,7 @@ async function Host_Init_Server() {
 
   // Load PAK file
   Sys_Printf("Loading game data...\n");
-  // pak0.pak plus any pak1.pak, pak2.pak... next to it (registered data)
+  // pak0.pak plus any pak1.pak, pak2.pak... next to it
   if (await COM_AddPakSequence(CONFIG.pakPath) === 0) {
     throw new Error("Failed to load " + CONFIG.pakPath);
   }

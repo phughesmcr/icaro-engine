@@ -497,15 +497,20 @@ const LQ_EPISODES = [
 ];
 
 // The levels and episodes (in the shapes of levels[] and episodes[]) of the
-// LibreQuake that is mounted, built once and null while it is not. Maps in
-// its paks are checked by name, so the lite release (the start map and
-// episode 0) offers only those. The deathmatch maps are loose files that the
-// search path can't list, so they are offered with the full release, which
-// is the one that has lq_e1m1.
+// LibreQuake that is mounted, or null while it is not. Maps in its paks are
+// checked by name, so the lite release (the start map and episode 0) offers
+// only those. The deathmatch maps are loose files that the search path can't
+// list, so they are offered with the full release, which is the one that has
+// lq_e1m1. Both answers are kept until the game options menu opens again
+// (M_Menu_GameOptions_f), since the menu draws ask every frame and
+// COM_FileExists walks every pak's directory.
 let m_lq = null;
+let m_lq_checked = false;
 
 function M_LibreQuake() {
-  if (m_lq !== null) return m_lq;
+  if (m_lq_checked) return m_lq;
+  m_lq_checked = true;
+  m_lq = null;
   if (COM_FileExists("maps/lq_e0m1.bsp") < 0) return null;
 
   const full = COM_FileExists("maps/lq_e1m1.bsp") >= 0;
@@ -1592,6 +1597,15 @@ function M_LanConfig_Join(roomId) {
 
 function M_Menu_GameOptions_f() {
   M_CancelCreateRoom();
+  m_lq_checked = false; // the mounted data may have changed (M_LibreQuake)
+  // so may the episode list: keep the selection inside it
+  const gameEpisodes = M_GameEpisodes();
+  if (startepisode >= gameEpisodes.length) {
+    startepisode = 0;
+    startlevel = 0;
+  } else if (startlevel >= gameEpisodes[startepisode].levels) {
+    startlevel = 0;
+  }
   m_return_reason = "";
   setKeyDest(key_menu);
   m_state = m_gameoptions;

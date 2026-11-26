@@ -50,9 +50,9 @@ cd cloudflare/client && npx wrangler deploy
 ```
 
 Each deploy uploads only files that changed. Players get the new version on
-their next load: `sw.js` fetches the page and code network-first, and caches
-`static/pak0.pak` (once the game first fetches it) until its `CACHE_NAME`
-changes.
+their next load: `sw.js` fetches the page and code network-first, and keeps its
+precache until its `CACHE_NAME` changes. No pak is deployed: LibreQuake and a
+player's own data live in the player's browser storage.
 
 LibreQuake's release zips are too big for static assets (25 MiB a file) and
 aren't deployed here. Serve `static/librequake/v0.09-beta/` some other way, or
@@ -130,10 +130,9 @@ cross-origin isolation headers are set or needed (the engine doesn't use
 `SharedArrayBuffer`), and adding `Cross-Origin-Embedder-Policy` would put the
 import map's jsDelivr modules at risk.
 
-Static assets ignore `Range` and answer with the whole file. `src/pak.js` takes
-that as "Range was ignored" and loads `pak0.pak` whole, which it needs anyway.
-Paks over 64 MiB (the rerelease's, LibreQuake's) need Range, but no pak is
-deployed.
+Static assets ignore `Range` and answer with the whole file. No pak is deployed
+here, so that matters only for whatever serves LibreQuake's zips (see above):
+its download needs Range.
 
 With the default `html_handling`, `/index.html` redirects to `/`. `sw.js`
 precaches both, so the cached `index.html` is a redirected response; only a
