@@ -289,6 +289,9 @@ Deno.test("LQ_Download explains a 404 and a file that runs long", async () => {
     err = e;
   }
   assert(err instanceof LQ_Error && err.kind === "hash", "overrun kind");
+  assert(bytes.length > LQ_PART_BYTES, "a part was stored before the overrun");
+  const left = await LQ_Parts(store, short);
+  assert(left.parts.length === 0, "an overrun keeps no parts");
 });
 
 Deno.test("LQ_Install checks the hash, unpacks, then writes the manifest", async () => {

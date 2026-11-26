@@ -119,6 +119,11 @@ Deno.test("COM_PakEntryIsDeferred: maps and unread rerelease files are deferred,
     false,
     "item model over 32k",
   );
+  assertEqual(
+    COM_PakEntryIsDeferred("maps/bigmap.bsp", 42004),
+    true,
+    "map over 32k that isn't an item model",
+  );
   assertEqual(COM_PakEntryIsDeferred("maps/e1m1.lit", 100), true, ".lit");
   assertEqual(
     COM_PakEntryIsDeferred("gfx/medieval.wad", 100),

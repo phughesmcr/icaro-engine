@@ -253,6 +253,11 @@ export async function LQ_Download(store, release, opts) {
         }
       }
       reader.cancel().catch(() => {});
+      // an overrun means the host serves another file: resuming would only
+      // overrun again, so start from nothing next time
+      if (e instanceof LQ_Error && e.kind === "hash") {
+        for (const part of parts) await store.remove(part.key);
+      }
       if (LQ_IsQuota(e)) {
         throw new LQ_Error(
           "quota",
@@ -314,7 +319,7 @@ export async function LQ_Extract(blob, release, store, zip, onProgress) {
       await store.put(key, data);
       keys.push(key);
       done += entry.uncompressedSize;
-      if (onProgress) onProgress(done, total);
+      if (onProgress !== undefined) onProgress(done, total);
     }
   } finally {
     await reader.close();

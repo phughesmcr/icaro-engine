@@ -351,6 +351,13 @@ export async function UD_MountPaks(store = undefined) {
     for (const { key } of items) {
       const isLq = key.startsWith(UD_LQ_PREFIX);
       if (isLq && lq === false) continue;
+      // the download's parts (librequake/download/) are never mounted
+      if (
+        key.startsWith("static/") === false &&
+        key.startsWith(DEMO_PREFIX) === false
+      ) {
+        continue;
+      }
       const blob = await store.get(key);
       if (blob === null) continue;
       if (key.startsWith(DEMO_PREFIX)) {

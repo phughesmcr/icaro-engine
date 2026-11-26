@@ -258,8 +258,8 @@ function COM_FindPackFile(search) {
  * extension) of the files directly in dir ('maps', or '' for the root) with the
  * given extension, from the loaded packs and the preloaded loose files. Files
  * of minsize bytes or fewer are skipped. Console tab completion uses it like
- * Ironwail's ExtraMaps_Init (maps over 32k, so not the b_*.bsp item models) and
- * DemoList_Init.
+ * Ironwail's ExtraMaps_Init (maps over 32k, so not id's b_*.bsp item models;
+ * LibreQuake's are up to 42k and are listed, as in Ironwail) and DemoList_Init.
  */
 export function COM_ListFiles(dir, ext, minsize) {
   const prefix = dir.length > 0 ? dir.toLowerCase() + "/" : "";
