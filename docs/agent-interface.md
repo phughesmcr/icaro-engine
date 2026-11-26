@@ -352,10 +352,11 @@ document it. A useful `goto` needs a graph. Options, in order:
 - **`window.icaro`**, browser.
   - Calls (as built): `help()` returns about 300 tokens of usage. Also
     `attach( mode )`, `detach()`, `mode()`, `new_game( map, skill )`,
-    `step( action, tics )`, `goto( target, opts )`, `observe( opts )`,
-    `cmd( text )`, `key( name )`, `menu( label )` and `screenshot( width )`.
-    Events come back inside each observation. Of the macro actions `goto`,
-    `turn_to` and `attack` are built (no `act`).
+    `step( action, tics )`, `goto( target, opts )`, `turn_to( target )`,
+    `attack( id, opts )`, `observe( opts )`, `cmd( text )`, `key( name )`,
+    `menu( label )` and `screenshot( width )`. Events come back inside each
+    observation. Of the macro actions `goto`, `turn_to` and `attack` are built
+    (no `act`).
   - Typical use: one `javascript_tool` call does `icaro.step(...)` and gets the
     next observation back, so each turn is one round trip.
   - URL flags (as built): `window.icaro` is always present. `?agent=lockstep` or

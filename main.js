@@ -23,6 +23,7 @@ import {
 } from "./src/cd_audio.js";
 import {
   Agent_Attach,
+  Agent_Attack,
   Agent_Command,
   Agent_Detach,
   Agent_Goto,
@@ -35,6 +36,7 @@ import {
   Agent_Observe,
   Agent_Screenshot,
   Agent_Step,
+  Agent_TurnTo,
 } from "./src/agent.js";
 
 const parms = {
@@ -88,6 +90,8 @@ function Agent_ExposeAPI() {
     new_game: (map = "e1m1", skill = 1) => Agent_NewGame(map, skill),
     step: (action = {}, tics = 1, opts = {}) => Agent_Step(action, tics, opts),
     goto: (target, opts = {}) => Agent_Goto(target, opts),
+    turn_to: (target, opts = {}) => Agent_TurnTo(target, opts),
+    attack: (target, opts = {}) => Agent_Attack(target, opts),
     observe: (opts = {}) => Agent_Observe(opts),
     cmd: (text) => Agent_Command(text),
     key: (name, count = 1) => Agent_Key(name, count),

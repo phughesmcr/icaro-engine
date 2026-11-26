@@ -1441,8 +1441,7 @@ async function Agent_AttackNow(target, opts) {
           break;
         }
 
-        const weapon = cl.stats[STAT_ACTIVEWEAPON];
-        if (weapon === IT_AXE) {
+        if (Agent_HoldsAxe()) {
           if (dist > ATTACK_AXE_REACH) {
             why = "out of reach (axe only: get within " + ATTACK_AXE_REACH +
               " units)";
@@ -1642,11 +1641,15 @@ export function Agent_UIText() {
   return "ui=game";
 }
 
+// The server sends the weapon as a byte (SV_WriteClientdataToMessage), so
+// the axe (4096) arrives as 0
+function Agent_HoldsAxe() {
+  return cl.stats[STAT_ACTIVEWEAPON] === 0 && (cl.items & IT_AXE) !== 0;
+}
+
 function Agent_Weapon() {
   const w = cl.stats[STAT_ACTIVEWEAPON];
-  // The server sends the weapon as a byte (SV_WriteClientdataToMessage),
-  // so the axe (4096) arrives as 0
-  if (w === 0 && (cl.items & IT_AXE) !== 0) return "axe";
+  if (Agent_HoldsAxe()) return "axe";
   for (const [bit, name] of WEAPON_NAMES) {
     if (w === bit) return name;
   }
@@ -1972,6 +1975,9 @@ Act:    await icaro.step({ buttons: 'forward,attack', yaw: 30, pitch: 0, impulse
 Walk:   await icaro.goto(12) or icaro.goto([x, y, z], { max_tics: 2160 })  // lockstep only
         walks to entity #12 or a point on the level's walk graph; the first line says
         how it ended: arrived, blocked by #id (and what opens it), took damage, no path...
+Fight:  icaro.turn_to(12) or icaro.turn_to({ yaw: 90 })  // face #12 or a yaw, at once
+        await icaro.attack(12, { max_tics: 720 })  // lockstep: aim and fire until it ends;
+        the first line says how: killed, gone, out of sight, out of ammo, died...
 Look:   icaro.observe()   // status line, ui, nearest entities, events since last call
         entity line: #id kind distance yawN [pitchN] [hidden] [hpN]
         yawN is the yaw change that faces it: step({ yaw: N }).

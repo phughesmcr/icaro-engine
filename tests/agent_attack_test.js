@@ -80,6 +80,11 @@ Deno.test({
       !Agent_Entities(64).some((e) => e.id === m.id && e.hp !== null),
       "it is still listed alive",
     );
+    // the attack button is let go (the client's stats lag a message)
+    await call("step", { tics: 2, ents: 0 });
+    const after = cl.stats[STAT_SHELLS];
+    await call("step", { tics: 72, ents: 0 });
+    assert(cl.stats[STAT_SHELLS] >= after, "still firing after the attack"); // its backpack may land on you
   },
 });
 
@@ -95,7 +100,7 @@ Deno.test({
     const shells = cl.stats[STAT_SHELLS];
     const text = first(await call("attack", { id: far.id, ents: 0 }));
     assert(
-      /: (out of sight|gone \(not in view\)) \(36 tics\)$/.test(text),
+      /: out of sight \(36 tics\)$/.test(text),
       text,
     );
     assert(cl.stats[STAT_SHELLS] === shells, "fired at a hidden target");
@@ -129,6 +134,22 @@ Deno.test({
     assert(
       schema.description.includes("(default " + ATTACK_DEFAULT_TICS + " "),
       "default disagrees: " + schema.description,
+    );
+  },
+});
+
+Deno.test({
+  name: "agent attack: out of shells, Quake's switch to the axe swings it",
+  ...ENGINE_TEST,
+  fn: async () => {
+    const m = await meet_monster();
+    await call("cmd", { text: "give s 0" });
+    const text = await call("attack", { id: m.id, ents: 0 });
+    assert(text.includes(" weapon=axe "), text);
+    assert(
+      /^attack #\d+: (killed|out of reach \(axe only: get within 80 units\)) \(\d+ tics\)$/
+        .test(first(text)),
+      text,
     );
   },
 });
