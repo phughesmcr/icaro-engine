@@ -1,7 +1,8 @@
 # Icaro Engine
 
-A Three.js-based Quake engine port, forked from
-[three-quake](https://github.com/mrdoob/three-quake).
+A Three.js-based web game engine that runs Quake, forked from
+[three-quake](https://github.com/mrdoob/three-quake). `docs/vision.md` gives the
+goals.
 
 ### Assets
 

@@ -1,11 +1,13 @@
 # AGENTS.md
 
-Icaro Engine is a function-by-function port of id Software's WinQuake/GLQuake
-(C) to JavaScript ES modules. The client renders with Three.js r183 in the
-browser. Multiplayer uses WebTransport (or WebSocket where WebTransport is
-missing or a Cloudflare Tunnel sits in front), with QuakeWorld-style client
-prediction, and runs on a Deno lobby server that starts one `game_server.js`
-process per room. It was forked from mrdoob's three-quake.
+Icaro Engine is a multi-platform web game engine that runs Quake: an engine that
+runs Quake, not only a Quake engine. `docs/vision.md` gives the goals. Its core
+is a function-by-function port of id Software's WinQuake/GLQuake (C) to
+JavaScript ES modules. The client renders with Three.js r183 in the browser.
+Multiplayer uses WebTransport (or WebSocket where WebTransport is missing or a
+Cloudflare Tunnel sits in front), with QuakeWorld-style client prediction, and
+runs on a Deno lobby server that starts one `game_server.js` process per room.
+It was forked from mrdoob's three-quake.
 
 ## Layout
 
@@ -160,28 +162,54 @@ process per room. It was forked from mrdoob's three-quake.
   `tests/fixtures/`, `.claude/` and `.vscode/` are excluded. A data table that
   reads better in rows gets a `// deno-fmt-ignore` line with a reason above it.
 
-## Port fidelity
+## Compatibility and fidelity
 
-- Restore the C behaviour; don't invent new behaviour. The reference is
-  [id-Software/Quake](https://github.com/id-Software/Quake): `WinQuake/` covers
-  WinQuake and GLQuake (`gl_*.c`), and `QW/` covers QuakeWorld. Note any
-  deliberate deviation in a comment and in the PR body.
-- Keep C names: functions (`SV_Physics`, `R_MarkLeaves`), globals, struct
-  fields, and **cvar/console names exactly as in Quake**. Players' configs and
-  QuakeC depend on them.
-- New ported files start with a header citing their C source, e.g.
-  `// Ported from: WinQuake/common.c`. A ported function keeps its C name. Where
-  the JS name differs, or one function covers several C ones, a comment names
-  the C function it mirrors.
+- Each layer of the engine has its own reference. Follow the one for the code
+  you touch:
+  - **Vanilla Quake** (id1, the mission packs, protocol 15, the QuakeC VM,
+    physics, GLQuake rendering): id's C,
+    [id-Software/Quake](https://github.com/id-Software/Quake). `WinQuake/`
+    covers WinQuake and GLQuake (`gl_*.c`), and `QW/` covers QuakeWorld.
+  - **Community standard** (protocols 666 and 999, BSP2, `.lit`, fog, skyboxes,
+    alpha, raised limits, the QuakeC extensions mods test for):
+    [QuakeSpasm](https://github.com/sezero/quakespasm) and
+    [Ironwail](https://github.com/andrei-drexler/ironwail). For extensions they
+    lack, [Quakespasm-Spiked](https://github.com/Shpoike/Quakespasm),
+    [FTEQW](https://github.com/fte-team/fteqw) and
+    [DarkPlaces](https://github.com/DarkPlacesEngine/DarkPlaces).
+  - **The 2021 rerelease (KEX)**: Ironwail.
+  - **Icaro's own features** (the web platform, netplay, input, the agent API, a
+    future Icaro-native standard): no reference. Design them, but don't let them
+    change how Quake content plays.
+- Within a layer, restore the reference's behaviour; don't invent new behaviour.
+  Note any deliberate deviation in a comment and in the PR body.
+- Keep the reference's names: functions (`SV_Physics`, `R_MarkLeaves`), globals,
+  struct fields, and **cvar/console names exactly as in Quake** or the port that
+  introduced them. Players' configs and QuakeC depend on them. A cvar or command
+  that is Icaro's own must not reuse a name any reference port uses for
+  something else.
+- New ported files start with a header citing their source, e.g.
+  `// Ported from: WinQuake/common.c` or `Ironwail Quake/gl_fog.c`. A ported
+  function keeps its C name. Where the JS name differs, or one function covers
+  several C ones, a comment names the C function it mirrors.
 - Before deleting code that looks dead or odd, check whether it mirrors the C.
   If it does, keep it with `// deno-lint-ignore <rule>` and a "mirrors the C"
   comment. Unused parameters often exist only to keep the C signature.
 - The server runs NetQuake physics (`sv_phys.js`, `sv_user.js`) and must stay
   NQ-faithful. The client predicts with QW `pmove` (`pmove.js`, `cl_pred.js`).
   Fix prediction mismatches on the client side.
-- Entity updates use QuakeWorld-style delta packet entities (`protocol.js`).
-  Client and server ship together, so a message-format change must update both
-  sides in the same PR.
+- Protocols: NetQuake 15, FitzQuake 666 and RMQ 999 are compatibility targets,
+  since mods write protocol messages from QuakeC and demos exist in all three.
+  Icaro's own netplay protocol (`PROTOCOL_ICARO` in `protocol.js`, with
+  QuakeWorld-style delta packet entities) is the base of a future Icaro-native
+  standard. Only Icaro clients and servers talk to each other: joining a native
+  engine's server is not a goal. Client and server ship together, so a
+  message-format change must update both sides in the same PR.
+- Anything a link, a host or a mod can feed the client is untrusted: URL
+  parameters, `stuffcmd` from a server (a browser-hosted room's host is a
+  player), and downloaded files. URL parameters may set only an explicit
+  allowlist of safe settings, never commands that bind keys, define aliases, run
+  other commands or scripts, connect somewhere or write files.
 
 ## Code style
 
@@ -218,6 +246,12 @@ process per room. It was forked from mrdoob's three-quake.
   server flags), not by importers.
 
 ## Game data
+
+[LibreQuake](https://github.com/lavenderdotpet/LibreQuake) is to become the
+project's standard content: use it for new features, tests, demos and
+screenshots where it can serve. It isn't in the repository yet; check its
+licence before committing any of it. Retail and rerelease data are for
+compatibility testing only.
 
 `static/pak0.pak` is the shareware Episode 1 pak and is committed. Registered or
 commercial data (`static/pak1.pak`, and the mission packs in `static/hipnotic/`
