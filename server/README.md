@@ -286,9 +286,9 @@ deno run '--allow-net=0.0.0.0:8080' --allow-read=static server/game_server.js -n
 - `quic_listen.ts` — Binds the dual-stack (`[::]` and `0.0.0.0`) QUIC endpoints for the lobby and rooms
 - `browser_shim.js` — Minimal `three` stubs mapped via `deno.json` for headless execution
 - `headless_host.js` — Runs the whole game (host, local server and a client over the loopback driver) under Deno with no browser, WebGL or audio, for scripted play; its header shows how to start a map and step frames
-- `agent_mcp.ts` — MCP server (stdio) for agents: plays headless through `headless_host.js` and exposes `../src/agent.js` as tools (`start`, `step`, `goto`, `observe`, `cmd`, `key`, `menu`); `start` takes a `seed` for reproducible runs. `deno task agent-mcp` from the repository root; the header gives the `claude mcp add` line
+- `agent_mcp.ts` — MCP server (stdio, on the official MCP TypeScript SDK, `@modelcontextprotocol/server`) for agents: plays headless through `headless_host.js` and exposes `../src/agent.js` as tools (`start`, `step`, `goto`, `observe`, `cmd`, `key`, `menu`); `start` takes a `seed` for reproducible runs. `deno task agent-mcp` from the repository root; the header gives the `claude mcp add` line
 - `sys_server.ts` — Deno system utilities and production log filtering (`__ICARO_QUIET_LOGS`)
-- `deno.json` — Maps `"three"` to `browser_shim.js` when running from `server/` (the root `deno.json` does the same from the repository root)
+- `deno.json` — Maps `"three"` to `browser_shim.js`, and the MCP SDK and zod for `agent_mcp.ts`, when running from `server/` (the root `deno.json` has the same map; keep the two in step). Its lockfile is the root `deno.lock`
 - `Dockerfile` — The game-room image (see [Container Image](#container-image))
 
 **Tests & utilities:**
@@ -297,7 +297,7 @@ deno run '--allow-net=0.0.0.0:8080' --allow-read=static server/game_server.js -n
 - `../tests/net_webtransport_server_lifecycle_test.js` and `../tests/net_webtransport_client_lifecycle_test.js` — Handshake, session-limit, timeout and close-path tests for both drivers, run against in-memory transports (`../tests/fake_webtransport.js`, `../tests/webtransport_test_env.js`)
 - `../tests/net_websocket_test.js` — WebSocket client and server drivers against each other over in-memory sockets (`../tests/fake_websocket.js`): handshake, rejects, acks, backpressure and close paths
 - `../tests/headless_client_test.js` — `headless_host.js` loads e1m1 from the shareware pak, signs the client on and steps frames
-- `../tests/agent_mcp_test.js` — `agent_mcp.ts`: JSON-RPC handling and stdio framing, and a seeded action log replayed to the same state hash
+- `../tests/agent_mcp_test.js` — `agent_mcp.ts` through the SDK's stdio entry over in-memory streams (`../tests/agent_mcp_client.js`): both protocol eras, tool schemas, stdio framing, calls running one at a time, and a seeded action log replayed to the same state hash
 - `../tests/agent_goto_test.js` — the `goto` tool and the walk graph built at map load, on e1m1: blocked by the bridge (naming its button), arriving, picking up an item, timeout, no path, damage, bad targets
 - `../tests/lobby_rtc_test.js` — `lobby_rtc.js`: hosting, listing, joining, who may signal whom, limits, pruning and restoring after hibernation
 - `../tests/cloudflare_lobby_test.js` — The Cloudflare lobby's Durable Object logic (`../cloudflare/lobby/src/lobby_core.js`) with a fake `ctx`

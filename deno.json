@@ -1,6 +1,9 @@
 {
 	"imports": {
-		"three": "./server/browser_shim.js"
+		"three": "./server/browser_shim.js",
+		"@modelcontextprotocol/server": "npm:@modelcontextprotocol/server@2.4.0",
+		"@modelcontextprotocol/server/stdio": "npm:@modelcontextprotocol/server@2.4.0/stdio",
+		"zod": "npm:zod@4.6.7"
 	},
 	"lint": {
 		"include": ["main.js", "src/", "server/", "tests/", "cloudflare/"],
