@@ -198,6 +198,27 @@ export const r_waterwarp = {
 };
 export const r_fullbright = { name: "r_fullbright", string: "0", value: 0 };
 export const r_lightmap = { name: "r_lightmap", string: "0", value: 0 };
+/**
+ * FitzQuake's overbright lighting (QuakeSpasm gl_rmain.c, registered in
+ * gl_rmisc.c R_Init). gl_overbright stores lightmaps at half scale, so light
+ * above GLQuake's 128-sample clamp survives, and doubles them in the world
+ * shader (gl_rsurf.js). gl_overbright_models doubles alias model light
+ * (gl_rmain.js R_SetupAliasLighting, gl_mesh.js). Both default to 1 and are
+ * archived, as in QuakeSpasm; 0 gives GLQuake's lighting. Ironwail keeps only
+ * gl_overbright_models and always overbrights the world.
+ */
+export const gl_overbright = {
+  name: "gl_overbright",
+  string: "1",
+  value: 1,
+  archive: true,
+};
+export const gl_overbright_models = {
+  name: "gl_overbright_models",
+  string: "1",
+  value: 1,
+  archive: true,
+};
 export const r_shadows = { name: "r_shadows", string: "0", value: 0 };
 export const r_mirroralpha = { name: "r_mirroralpha", string: "1", value: 1 };
 export const r_wateralpha = { name: "r_wateralpha", string: "1", value: 1 };

@@ -1,4 +1,5 @@
 // Ported from: WinQuake/gl_mesh.c -- triangle model functions (alias models)
+// gl_overbright_models: Ironwail Quake/gl_shaders.h (the alias shaders)
 
 import * as THREE from "three";
 import { Con_DPrintf, Con_Printf } from "./common.js";
@@ -8,6 +9,7 @@ import { GL_DrawMD5Frame } from "./gl_md5.js";
 import {
   gl_doubleeyes,
   gl_nocolors,
+  gl_overbright_models,
   GL_RegisterCullMaterial,
 } from "./glquake.js";
 import { r_avertexnormals } from "./anorm_dots.js";
@@ -763,6 +765,13 @@ export class AliasMaterial extends THREE.MeshBasicMaterial {
         );
     }
 
+    // QuakeSpasm and Ironwail clamp the lit skin to 1 before fog. Without
+    // gl_overbright_models nothing here goes over 1.
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <opaque_fragment>",
+      "outgoingLight = min( outgoingLight, vec3( 1.0 ) );\n\t#include <opaque_fragment>",
+    );
+
     if (this.fullbrightMap !== null && this.map !== null) {
       shader.uniforms.fullbrightMap = this._fullbrightUniform;
       shader.fragmentShader = "uniform sampler2D fullbrightMap;\n" +
@@ -995,18 +1004,24 @@ const _DEG2RAD = Math.PI / 180;
 // sRGB decode of a display-space light level, clamped as glColor3f clamps.
 // GL keeps vertex colours at 8 bits per channel, so a 256-entry table is
 // exact enough and keeps Math.pow out of the per-vertex loop.
+// gl_overbright_models doubles the clamped level in display space, as
+// Ironwail's alias vertex shader does (clamp, then ldexp by 1), and decodes
+// that with the sRGB curve extended past 1: Three's vertex colours are floats.
 const _linearLight = new Float32Array(256);
+const _linearLightOverbright = new Float32Array(256);
+function _decodeLight(l) {
+  return l <= 0.04045 ? l / 12.92 : Math.pow((l + 0.055) / 1.055, 2.4);
+}
 for (let i = 0; i < 256; i++) {
-  const l = i / 255;
-  _linearLight[i] = l <= 0.04045 ?
-    l / 12.92 :
-    Math.pow((l + 0.055) / 1.055, 2.4);
+  _linearLight[i] = _decodeLight(i / 255);
+  _linearLightOverbright[i] = _decodeLight(2 * i / 255);
 }
 
-export function GL_LinearLight(l) {
+export function GL_LinearLight(l, overbright = false) {
+  const table = overbright === true ? _linearLightOverbright : _linearLight;
   if (!(l > 0)) return 0;
-  if (l >= 1) return 1;
-  return _linearLight[(l * 255 + 0.5) | 0];
+  if (l >= 1) return table[255];
+  return table[(l * 255 + 0.5) | 0];
 }
 
 /**
@@ -1025,16 +1040,16 @@ function R_NewAliasColorAttribute(array) {
 // shadecolor: r, g and b of the shade (gl_rmain.js R_SetupAliasLighting,
 // QuakeSpasm's lightcolor), already scaled by 1/200.
 // One vertex's colour: dot times each channel of the shade, decoded to linear.
-function R_AliasSetVertexColor(colorArr, i, dot, r, g, b, mono) {
+function R_AliasSetVertexColor(colorArr, i, dot, r, g, b, mono, overbright) {
   if (mono) {
-    const l = GL_LinearLight(dot * r);
+    const l = GL_LinearLight(dot * r, overbright);
     colorArr[i * 3] = l;
     colorArr[i * 3 + 1] = l;
     colorArr[i * 3 + 2] = l;
   } else {
-    colorArr[i * 3] = GL_LinearLight(dot * r);
-    colorArr[i * 3 + 1] = GL_LinearLight(dot * g);
-    colorArr[i * 3 + 2] = GL_LinearLight(dot * b);
+    colorArr[i * 3] = GL_LinearLight(dot * r, overbright);
+    colorArr[i * 3 + 1] = GL_LinearLight(dot * g, overbright);
+    colorArr[i * 3 + 2] = GL_LinearLight(dot * b, overbright);
   }
 }
 
@@ -1128,8 +1143,10 @@ export function R_DrawAliasModel(entity, paliashdr, shadedots, shadecolor) {
   const shadeR = hasLighting ? shadecolor[0] : 0;
   const shadeG = hasLighting ? shadecolor[1] : 0;
   const shadeB = hasLighting ? shadecolor[2] : 0;
+  const overbright = gl_overbright_models.value !== 0;
   if (
     hasLighting && (
+      entity._aliasLitOverbright !== overbright ||
       entity._aliasLitDots !== shadedots ||
       entity._aliasLitR !== shadeR ||
       entity._aliasLitG !== shadeG ||
@@ -1139,6 +1156,7 @@ export function R_DrawAliasModel(entity, paliashdr, shadedots, shadecolor) {
       entity._aliasLitBlend !== lerpdata.blend
     )
   ) {
+    entity._aliasLitOverbright = overbright;
     entity._aliasLitDots = shadedots;
     entity._aliasLitR = shadeR;
     entity._aliasLitG = shadeG;
@@ -1158,7 +1176,16 @@ export function R_DrawAliasModel(entity, paliashdr, shadedots, shadecolor) {
         // Three multiplies vertex colours in linear space, so decode.
         // QS r_alias.c GL_DrawAliasFrame: shadedots * lightcolor
         const dot = shadedots[lni[i]];
-        R_AliasSetVertexColor(colorArr, i, dot, shadeR, shadeG, shadeB, mono);
+        R_AliasSetVertexColor(
+          colorArr,
+          i,
+          dot,
+          shadeR,
+          shadeG,
+          shadeB,
+          mono,
+          overbright,
+        );
       }
     } else {
       // QS r_alias.c GL_DrawAliasFrame: lerp the shading of the two poses
@@ -1167,7 +1194,16 @@ export function R_DrawAliasModel(entity, paliashdr, shadedots, shadecolor) {
       const iblend = 1.0 - blend;
       for (let i = 0; i < template.vertexCount; i++) {
         const dot = shadedots[lni1[i]] * iblend + shadedots[lni[i]] * blend;
-        R_AliasSetVertexColor(colorArr, i, dot, shadeR, shadeG, shadeB, mono);
+        R_AliasSetVertexColor(
+          colorArr,
+          i,
+          dot,
+          shadeR,
+          shadeG,
+          shadeB,
+          mono,
+          overbright,
+        );
       }
     }
 

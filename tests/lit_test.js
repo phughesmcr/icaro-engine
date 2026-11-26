@@ -320,9 +320,12 @@ function withLightmaps(litfile, surfaces, fn) {
   const oldNext = cl.model_precache[2];
   const oldWorldmodel = cl.worldmodel;
   const oldStyle = glquake.d_lightstylevalue[0];
+  const oldOverbright = glquake.gl_overbright.value;
 
   try {
     glquake.d_lightstylevalue[0] = 256;
+    // GLQuake's >> 7; the gl_overbright tests below set it to 1
+    glquake.gl_overbright.value = 0;
     const world = {
       name: "maps/__lit_world.bsp",
       litfile: litfile,
@@ -344,6 +347,7 @@ function withLightmaps(litfile, surfaces, fn) {
     cl.model_precache[2] = oldNext;
     cl.worldmodel = oldWorldmodel;
     gl_rsurf.GL_BuildLightmaps();
+    glquake.gl_overbright.value = oldOverbright;
     gl_rmain.set_r_framecount(oldFrame);
   }
 }
@@ -626,4 +630,105 @@ Deno.test("a mono map after a lit map goes back to one-byte lightmaps", () => {
       "luminance bytes",
     );
   });
+});
+
+// gl_overbright (QuakeSpasm r_brush.c R_BuildLightMap)
+
+Deno.test("R_LightmapByte: GLQuake shifts by 7, gl_overbright by 8", () => {
+  // 8.8 light: a sample times style 256
+  for (
+    const [sample, glq, ob] of [
+      [0, 0, 0],
+      [30, 60, 30],
+      [127, 254, 127],
+      [
+        128,
+        255,
+        128,
+      ],
+      [200, 255, 200],
+      [255, 255, 255],
+    ]
+  ) {
+    const t = sample * 256;
+    assertEqual(gl_rsurf.R_LightmapByte(t, false), 255 - glq, `glq ${sample}`);
+    assertEqual(gl_rsurf.R_LightmapByte(t, true), 255 - ob, `ob ${sample}`);
+  }
+  // styles and dlights add past one sample's 255: clamped either way
+  assertEqual(gl_rsurf.R_LightmapByte(600 * 256, true), 0, "ob clamps at 255");
+});
+
+Deno.test("gl_overbright keeps light above 128 and rebuilds on toggle", () => {
+  const rgb = makeSurface(
+    new Uint8Array([10, 50, 200, 0, 0, 0, 200, 1, 2, 3, 4, 5]),
+    true,
+  );
+  const mono = makeSurface(new Uint8Array([30, 0, 0, 200]), false);
+  const oldTexsort = glquake.gl_texsort.value;
+  withLightmaps(true, [rgb, mono], () => {
+    try {
+      glquake.gl_texsort.value = 1;
+      assertEqual(texel(rgb, 0, 0), "20,100,255", "glquake clamps blue");
+
+      glquake.gl_overbright.value = 1;
+      gl_rsurf.R_BlendLightmaps();
+      assertEqual(texel(rgb, 0, 0), "10,50,200", "half scale, blue kept");
+      assertEqual(texel(rgb, 0, 1), "200,1,2", "bright red kept");
+      assertEqual(texel(mono, 0, 0), "30,30,30", "mono half scale");
+      assertEqual(texel(mono, 1, 1), "200,200,200", "mono bright kept");
+
+      glquake.gl_overbright.value = 0;
+      gl_rsurf.R_BlendLightmaps();
+      assertEqual(texel(rgb, 0, 0), "20,100,255", "back to glquake");
+      assertEqual(texel(mono, 1, 1), "255,255,255", "mono clamped again");
+    } finally {
+      glquake.gl_overbright.value = 0;
+      gl_rsurf.R_BlendLightmaps();
+      glquake.gl_texsort.value = oldTexsort;
+    }
+  });
+});
+
+Deno.test("r_fullbright with gl_overbright fills at half so the shader shows x1", () => {
+  assertEqual(gl_rsurf.R_FullLight(false), 255 * 256, "glquake fill");
+  assertEqual(gl_rsurf.R_FullLight(true), 128 * 256, "overbright fill");
+  const rgb = makeSurface(
+    new Uint8Array([10, 50, 100, 0, 0, 0, 200, 1, 2, 3, 4, 5]),
+    true,
+  );
+  const mono = makeSurface(new Uint8Array([30, 0, 0, 0]), false);
+  const oldFullbright = glquake.r_fullbright.value;
+  const oldTexsort = glquake.gl_texsort.value;
+  withLightmaps(true, [rgb, mono], () => {
+    try {
+      glquake.gl_texsort.value = 1;
+      glquake.gl_overbright.value = 1;
+      glquake.r_fullbright.value = 1;
+      gl_rsurf.R_BlendLightmaps();
+      // 128 doubled by the shader is 256/255: texture x1 after its clamp
+      assertEqual(texel(rgb, 1, 1), "128,128,128", "fullbright rgb at half");
+      assertEqual(texel(mono, 0, 0), "128,128,128", "fullbright mono at half");
+    } finally {
+      glquake.r_fullbright.value = oldFullbright;
+      glquake.gl_overbright.value = 0;
+      gl_rsurf.R_BlendLightmaps();
+      glquake.gl_texsort.value = oldTexsort;
+    }
+  });
+});
+
+Deno.test("GL_BuildLightmaps builds at the current gl_overbright", () => {
+  const mono = makeSurface(new Uint8Array([30, 0, 0, 200]), false);
+  const old = glquake.gl_overbright.value;
+  try {
+    // withLightmaps pins 0, so set it inside and rebuild as a new map would
+    withLightmaps(false, [mono], () => {
+      glquake.gl_overbright.value = 1;
+      gl_rsurf.GL_BuildLightmaps();
+      assertEqual(texel(mono, 0, 0), "30,30,30", "built at half scale");
+      assertEqual(texel(mono, 1, 1), "200,200,200", "bright kept");
+    });
+  } finally {
+    glquake.gl_overbright.value = old;
+  }
 });

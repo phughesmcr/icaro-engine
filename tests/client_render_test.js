@@ -184,6 +184,45 @@ Deno.test("view effects use entity state when prediction is not running", () => 
   }
 });
 
+Deno.test("lightmap shader patch doubles the lightmap for gl_overbright", async () => {
+  const { R_PatchLightmapShader } = await import("../src/gl_rsurf.js");
+  const shader = {
+    uniforms: {},
+    fragmentShader: [
+      "uniform vec3 emissive;",
+      "void main() {",
+      "\t#include <lights_fragment_maps>",
+      "\tvec3 outgoingLight = vec3( 0.0 );",
+      "\t#include <opaque_fragment>",
+      "}",
+    ].join("\n"),
+  };
+
+  R_PatchLightmapShader(shader);
+
+  const fs = shader.fragmentShader;
+  assertEqual(shader.uniforms.quakeLightmapScale != null, true, "uniform");
+  assertEqual(
+    fs.includes("uniform float quakeLightmapScale;"),
+    true,
+    "declared",
+  );
+  // the scale applies to the display-space texel, after Three's lightmap
+  const mapsAt = fs.indexOf("#include <lights_fragment_maps>");
+  const scaleAt = fs.indexOf(
+    "sRGBTransferOETF( lightMapTexel ).rgb * quakeLightmapScale",
+  );
+  assertEqual(mapsAt !== -1 && scaleAt > mapsAt, true, "scale after maps");
+  assertEqual(
+    fs.includes("- lightMapIrradiance"),
+    true,
+    "replaces Three's lightmap irradiance",
+  );
+  const clampAt = fs.indexOf("min( outgoingLight, vec3( 1.0 ) )");
+  const opaqueAt = fs.indexOf("#include <opaque_fragment>");
+  assertEqual(clampAt !== -1 && clampAt < opaqueAt, true, "clamp before out");
+});
+
 Deno.test("lightmap shader patch adds the r_lightmap switch", async () => {
   const { R_PatchLightmapShader } = await import("../src/gl_rsurf.js");
   const shader = {
