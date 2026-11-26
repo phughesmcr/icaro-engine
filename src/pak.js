@@ -561,14 +561,15 @@ export function COM_SetLazyPakSize(size) {
 
 /**
  * True when a lazily opened pak's entry is fetched only on demand through
- * COM_EnsureFile rather than at load: maps bigger than 32k (not the b_*.bsp
- * item models, as in COM_ListFiles), the mapper texture wads in gfx/, .lit files
- * (fetched with their map), and file types and directories the engine never
- * reads.
+ * COM_EnsureFile rather than at load: maps bigger than 32k (as in
+ * COM_ListFiles) but never the b_*.bsp item models, which QuakeC precaches
+ * synchronously and LibreQuake's are up to 42k; the mapper texture wads in
+ * gfx/, .lit files (fetched with their map), and file types and directories
+ * the engine never reads.
  */
 export function COM_PakEntryIsDeferred(name, filelen) {
   if (name.startsWith("maps/") && name.endsWith(".bsp")) {
-    return filelen > 32 * 1024;
+    return filelen > 32 * 1024 && name.startsWith("maps/b_") === false;
   }
   if (name.startsWith("gfx/") && name.endsWith(".wad")) {
     return true;

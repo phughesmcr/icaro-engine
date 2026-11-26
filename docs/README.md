@@ -40,6 +40,9 @@ AGENTS.md, Git workflow).
   offline by `tools/nav/nav_build.js` and at map load in agent games), the
   `goto`, `turn_to` and `attack` macros and the ASCII `map` tier; its status
   section says what isn't. A snapshot.
+- `librequake-content.md`: LibreQuake as the browser's standard content: the
+  intro page and its gate, full or lite, resumable download and hash check,
+  quota, hosting the zips, and the CSP. Its status line says what is built.
 - `style-cleanup-plan.md`: plan to adopt `deno fmt` (two-space indent, 80
   columns) and collapse the C-style comment banners, with trial results, tiers,
   neutrality checks and how open PRs catch up. Its status line says which tiers

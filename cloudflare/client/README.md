@@ -26,14 +26,14 @@ per file (`static/pak0.pak` is 17.8 MiB) and 20,000 files per version.
 `build.js` copies only files git tracks, from `index.html`, `main.js`, `sw.js`,
 `manifest.webmanifest`, `LICENSE`, `src/` and `static/`. It fails if any of them
 is a pak other than `static/pak0.pak`, sits in a registered-data or music folder
-(`hipnotic`, `rogue`, `rerelease`, `id1`, `mg1`, `mg3`, `dopa`, `ctf`, `music`),
-or is a key, certificate, env file or dotfile, and if `static/pak0.pak` isn't
-the shareware pak (its SHA-256 is pinned in `build.js`). It then checks what
-landed in `dist/` against the same rules. It refuses to run while a client file
-has uncommitted changes, so a deploy is what `HEAD` holds; `--allow-dirty`
-overrides that for a test deploy. `tests/client_build_test.js` covers the rules
-and checks that every file `sw.js` precaches and `index.html` links is on the
-allowlist.
+(`hipnotic`, `rogue`, `rerelease`, `id1`, `mg1`, `mg3`, `dopa`, `ctf`,
+`librequake`, `music`), or is a key, certificate, env file or dotfile, and if
+`static/pak0.pak` isn't the shareware pak (its SHA-256 is pinned in `build.js`).
+It then checks what landed in `dist/` against the same rules. It refuses to run
+while a client file has uncommitted changes, so a deploy is what `HEAD` holds;
+`--allow-dirty` overrides that for a test deploy. `tests/client_build_test.js`
+covers the rules and checks that every file `sw.js` precaches and `index.html`
+links is on the allowlist.
 
 Registered data never reaches the Worker: `.gitignore` keeps it out of git, the
 build copies only tracked files, and the deny check runs twice. Never point
@@ -52,7 +52,15 @@ cd cloudflare/client && npx wrangler deploy
 
 Each deploy uploads only files that changed. Players get the new version on
 their next load: `sw.js` fetches the page and code network-first, and caches
-`static/pak0.pak` until its `CACHE_NAME` changes.
+`static/pak0.pak` (once the game first fetches it) until its `CACHE_NAME`
+changes.
+
+LibreQuake's release zips are too big for static assets (25 MiB a file) and
+aren't deployed here. Serve `static/librequake/v0.09-beta/` some other way, or
+change `LQ_DOWNLOAD_BASE` in `src/librequake.js`; see
+`docs/librequake-content.md`, Hosting. Until then the intro page's download
+button reports the download isn't available, and the shareware episode still
+plays.
 
 ### First deploy
 
@@ -92,7 +100,9 @@ response (`Client_Headers`):
   those hashes, so editing either script needs no other change. No framing
   (`frame-ancestors 'none'`), no plugins, no `<base>`. `connect-src` allows any
   `https:` or `wss:` host, since `?server=` may name any lobby. Inline styles
-  are allowed (the `<style>` block, touch controls).
+  are allowed (the `<style>` block, touch controls, the intro page).
+  LibreQuake's download needed no change: `connect-src` covers it and zip.js
+  comes through the import map (`docs/librequake-content.md`).
 - A nonce, on the page alone. Cloudflare's JavaScript Detections (on with Bot
   Fight Mode) injects an inline script into HTML that changes with every
   request, so no hash can cover it. When the policy's `script-src` holds a

@@ -381,7 +381,8 @@ document it. A useful `goto` needs a graph. Options, in order:
     next observation back, so each turn is one round trip.
   - URL flags (as built): `window.icaro` is always present. `?agent=lockstep` or
     `?agent=realtime` attaches at startup, and `?map=e1m1&skill=1` starts that
-    map instead of the intro demos.
+    map instead of the intro demos, once a person (or the agent) presses the
+    intro page's Play button (`src/intro.js`; no game data loads before it).
   - Discovery: serve a short `/agent.md` (or `llms.txt`), and link it from a
     `<meta>` tag and a visually hidden line in `index.html`, so an agent landing
     on the page can learn the API in one read.
