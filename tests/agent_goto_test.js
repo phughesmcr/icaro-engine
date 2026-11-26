@@ -4,6 +4,7 @@
 
 import { mcp_session } from "./agent_mcp_client.js";
 import {
+  Agent_Entities,
   Agent_Goto,
   Agent_NavGraph,
   GOTO_DEFAULT_TICS,
@@ -76,7 +77,9 @@ Deno.test({
   ...ENGINE_TEST,
   fn: async () => {
     await start(1, true);
-    const blocked = first(await call("goto", { pos: ARMOR, ents: 0 }));
+    const blocked = first(
+      await call("goto", { pos: ARMOR, ents: 0, stop_on_enemy: false }),
+    );
     assert(
       /^goto 688,480,80: blocked by #12 door .*opened by button #13/.test(
         blocked,
@@ -89,9 +92,15 @@ Deno.test({
       "no links avoided",
     );
 
-    const button = first(await call("goto", { id: 13, ents: 0 }));
+    const button = first(
+      await call("goto", { id: 13, ents: 0, stop_on_enemy: false }),
+    );
     assert(/^goto #13: arrived/.test(button), button);
-    const armor = await call("goto", { pos: ARMOR, ents: 0 });
+    const armor = await call("goto", {
+      pos: ARMOR,
+      ents: 0,
+      stop_on_enemy: false,
+    });
     assert(/^goto 688,480,80: arrived/.test(first(armor)), first(armor));
     assert(
       / armor=100\(green\) /.test(armor),
@@ -100,7 +109,9 @@ Deno.test({
     // The next goto sees the bridge has moved, and stops avoiding it
     assert(
       /: arrived \(0 tics\)/.test(
-        first(await call("goto", { pos: ARMOR, ents: 0 })),
+        first(
+          await call("goto", { pos: ARMOR, ents: 0, stop_on_enemy: false }),
+        ),
       ),
       "already there",
     );
@@ -116,8 +127,8 @@ Deno.test({
   ...ENGINE_TEST,
   fn: async () => {
     await start(1, true);
-    await call("goto", { id: 13, ents: 0 }); // the bridge button: the shells are across it
-    const t = await call("goto", { id: 108, ents: 0 });
+    await call("goto", { id: 13, ents: 0, stop_on_enemy: false }); // the bridge button: the shells are across it
+    const t = await call("goto", { id: 108, ents: 0, stop_on_enemy: false });
     assert(/^goto #108: arrived \(#108 is gone/.test(first(t)), first(t));
     assert(/ ammo=45 /.test(t), "picked up the shells: " + t.split("\n")[1]);
   },
@@ -138,7 +149,9 @@ Deno.test({
     assert(/: no path/.test(nowhere), nowhere);
 
     // Seed 1, no god: a grunt by the bridge shoots on the way
-    const hurt = first(await call("goto", { pos: ARMOR, ents: 0 }));
+    const hurt = first(
+      await call("goto", { pos: ARMOR, ents: 0, stop_on_enemy: false }),
+    );
     assert(/: took damage \(-[0-9]+ hp\), stopped/.test(hurt), hurt);
     const on = first(
       await call("goto", {
@@ -146,12 +159,38 @@ Deno.test({
         ents: 0,
         max_tics: 144,
         stop_on_damage: false,
+        stop_on_enemy: false,
       }),
     );
     assert(
       /: took damage/.test(on) === false,
       "stop_on_damage: false still stopped: " + on,
     );
+  },
+});
+
+Deno.test({
+  name: "agent goto: a monster coming into sight stops it, once per level",
+  ...ENGINE_TEST,
+  fn: async () => {
+    await start(1, true);
+    const NEW =
+      /^goto 688,480,80: new enemy #(\d+) grunt \d+u .*hp\d+, stopped/;
+    const met = first(await call("goto", { pos: ARMOR, ents: 0 }));
+    const m = met.match(NEW);
+    assert(m !== null, met);
+    const id = Number(m[1]);
+    const e = Agent_Entities(64).find((x) => x.id === id);
+    assert(e !== undefined && e.visible === true, "#" + id + " not in sight");
+
+    // Announced: the next goto walks on past it
+    const next = first(await call("goto", { pos: ARMOR, ents: 0 }));
+    assert(!next.includes("new enemy #" + id + " "), next);
+
+    // A new game forgets it
+    await start(1, true);
+    const again = first(await call("goto", { pos: ARMOR, ents: 0 }));
+    assert(again === met, again + " != " + met);
   },
 });
 
