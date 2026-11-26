@@ -72,8 +72,9 @@ through loopback, and it skips prediction and lerp under `sv.active` [code:
   and an open data channel only exempts a page from the stricter once-a-minute
   tier [docs]
   ([Chrome 88 throttling](https://developer.chrome.com/blog/timer-throttling-in-chrome-88)).
-- So in v1 the host keeps the tab visible. The host page asks for a Screen Wake
-  Lock, and shows a warning while hosting.
+- So in v1 the host keeps the tab visible. The design has the host page ask for
+  a Screen Wake Lock and show a warning while hosting. Neither is built; the
+  only wake lock is the one the touch controls take.
 
 **B. A Worker running the dedicated-room loop (later, if the spike allows it).**
 A second copy of the engine runs in a dedicated Worker, ticking at 20 Hz as
@@ -175,8 +176,9 @@ behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js` `NET_Init`].
     sequence and ack rules of the WebSocket driver [code: `src/net.js`].
   - The `ICARO` hello and the handshake reply go first, on the reliable channel,
     as `net_websocket.js` sends them.
-- **Datagram size:** set `sock.maxdatagram` to about 1,150 bytes.
-  `SV_ClientDatagramSize` clamps it to 1,024–1,400 [code].
+- **Datagram size:** set `sock.maxdatagram` to 1,191 bytes (1,200 less the
+  9-byte packet header). `SV_ClientDatagramSize` clamps it to 1,024–1,400
+  [code].
   - An unreliable message bigger than the path MTU (about 1,200 bytes of payload
     after DTLS and SCTP) gets fragmented. Losing one fragment then loses the
     whole message [unverified].
@@ -213,9 +215,11 @@ behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js` `NET_Init`].
 - **Shared state machine:** the lobby's logic goes in a plain module that both
   the DO and `server/lobby_server.js` import. The module handles room records,
   the room-code rules, `parseCreateConfig`, rate limits and the signal relay.
-  `deno task test` has no network, so pure functions are the only way this gets
-  tested in CI. The self-hosted lobby gains the same signalling for local
-  development.
+  (As built, that module is `server/lobby_rtc.js`; `parseCreateConfig`, for Deno
+  rooms, stayed in `server/lobby_server.js`, and the room checks both lobbies
+  use are in `server/room_config.js`.) `deno task test` has no network, so pure
+  functions are the only way this gets tested in CI. The self-hosted lobby gains
+  the same signalling for local development.
 - **Protocol:** it keeps the existing `[type u8][len u16le][payload]` frames and
   `LOBBY_LIST`, `LOBBY_JOIN`, `LOBBY_CREATE` (for Deno rooms) and
   `LOBBY_ROOMS`/`LOBBY_ERROR` [code: `server/lobby_server.js`], and adds:
@@ -224,8 +228,8 @@ behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js` `NET_Init`].
     heartbeat is more than 90 s old. `webSocketClose` doesn't always fire when a
     connection drops abruptly, and a hibernating DO can't notice a missed
     heartbeat by itself. So the DO prunes stale rooms whenever it handles a
-    `LIST` or `JOIN`, and sets an alarm only while rooms exist. Alarms wake the
-    DO and count as requests [unverified].
+    `LIST` or `JOIN`, and sets an alarm only while it has lobby sessions. Alarms
+    wake the DO and count as requests [unverified].
   - `LOBBY_SIGNAL`: `{ to, from, kind: offer | answer | candidate, data }`,
     relayed by peer id. The lobby never parses SDP.
   - `LOBBY_ICE`: the ICE server list for this client (see NAT traversal).
@@ -250,13 +254,15 @@ behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js` `NET_Init`].
   credentials per IP (`cloudflare/lobby/README.md`, "Abuse limits").
 
   Lobby sockets become long-lived for hosts and for joiners until they connect.
-  Today the client opens one socket per request [code: `src/net_websocket.js`
-  lobby helpers].
+  List and create requests still open one socket each [code:
+  `src/net_websocket.js` lobby helpers]; `src/net_rtclobby.js` holds the
+  long-lived ones.
 - **Room record:**
   `{ id, transport: 'rtc', map, maxPlayers, players,
   hostName, options }`. A
-  Deno room has `transport: 'ws'` or `'wt'`, and the client picks the driver by
-  `transport`.
+  Deno room's record has no `transport`: the client treats `transport: 'rtc'` as
+  browser-hosted and uses the page's own transport otherwise. An 8-character
+  room code also selects WebRTC (`NET_LobbyJoinURL`).
   - The DO lobby lists browser-hosted rooms. The Deno lobby lists its own rooms
     and, through the shared module, any browser-hosted rooms registered with it.
   - The two lobbies don't share a room table. A deployment points its
@@ -291,7 +297,7 @@ behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js` `NET_Init`].
   couldn't join, so STUN alone doesn't meet the mobile requirement.
 - **Privacy:** ICE candidates show peers each other's IP addresses. A _Hide my
   IP_ setting (`iceTransportPolicy: 'relay'`) would route that player through
-  TURN at the cost of relay bandwidth.
+  TURN at the cost of relay bandwidth. Not built.
 - **Bandwidth:** in a 4-player game with all 3 joiners relayed, each joiner
   moves about 3.5–4.8 KB/s at 20 Hz (1.3–2.6 KB/s down, 2.2 KB/s up, from the
   bench). That is 10.5–14.4 KB/s, or about 0.04–0.05 GB an hour, before DTLS,
@@ -399,8 +405,9 @@ Paste each run's _Copy results_ JSON into this section.
    `RTCPeerConnection`/`RTCDataChannel` pair (in the style of
    `tests/fake_webtransport.js`): handshake, sequencing, caps, close.
 3. **Listen-server rules:** `-listen` from `?listen=N`, the shared
-   `applyGameOptions`/`applyExitRules` (now `src/room_rules.js`), the C's
-   per-frame snapshot rate, and shutdown on errors and tab close.
+   `applyGameOptions`/`applyExitRules` (now `Room_ApplyGameOptions` and
+   `Room_ApplyExitRules` in `src/room_rules.js`), the C's per-frame snapshot
+   rate, and shutdown on errors and tab close.
 4. **The lobby module, its Deno use and the Durable Object:** the shared state
    machine with tests, `lobby_server.js` using it, and `cloudflare/` with the
    Worker, the DO and TURN credentials. Deploying it needs the maintainer's
@@ -415,23 +422,24 @@ Paste each run's _Copy results_ JSON into this section.
    once its map is up, heartbeats when its player count changes and every 30 s,
    and its room ends with `Host_ShutdownServer`) and Start Game's _Host on_ and
    _Listed_ rows and Join Game's _Room code_ field in `src/menu.js`. Hosting in
-   the browser needs a WebSocket lobby (`?server=wss://…`); the room's exit
-   rules are set only for it and reset when it ends. Players are capped at
-   `svs.maxclientslimit`, as for any listen server. Checked on 2026-11-26 in
-   Chromium (the Claude desktop app's browser), with tabs on one machine and the
-   Deno lobby on `ws://127.0.0.1`, so STUN only [measured]: a tab hosts a
-   private room, which isn't listed and which a second tab joins by its code; a
-   third joins from the shared `?room=` link; a public room is listed and joined
-   from the list; when the host disconnects its joiners are dropped and the
-   lobby lists no rooms. A joiner without the map downloads it and reconnects
-   (`CL_ParseServerInfo`'s lazy load), so the host sees one short-lived
-   connection before the real one. Background tabs there stop the game loop, so
-   a host or joiner in a background tab stalls until it is in front. Not
-   checked: TURN, the Cloudflare lobby, Turnstile (the widget before
-   `LOBBY_HOST` is unit-tested only), other browsers, two machines. Checked
-   again on 2026-11-26 the same way: a tab opened with `?listen=4` hosts from
-   Start Game, a second tab types the code into Join Game and connects over the
-   WebRTC driver (`rtc:<code>`), both players spawn, and each sees the other
+   the browser needs a WebSocket lobby, which a page that isn't local uses by
+   default (a local page with both drivers needs `?server=ws://…` or `wss://…`,
+   or `?transport=ws`); the room's exit rules are set only for it and reset when
+   it ends. Players are capped at `svs.maxclientslimit`, as for any listen
+   server. Checked on 2026-11-26 in Chromium (the Claude desktop app's browser),
+   with tabs on one machine and the Deno lobby on `ws://127.0.0.1`, so STUN only
+   [measured]: a tab hosts a private room, which isn't listed and which a second
+   tab joins by its code; a third joins from the shared `?room=` link; a public
+   room is listed and joined from the list; when the host disconnects its
+   joiners are dropped and the lobby lists no rooms. A joiner without the map
+   downloads it and reconnects (`CL_ParseServerInfo`'s lazy load), so the host
+   sees one short-lived connection before the real one. Background tabs there
+   stop the game loop, so a host or joiner in a background tab stalls until it
+   is in front. Not checked: TURN, the Cloudflare lobby, Turnstile (the widget
+   before `LOBBY_HOST` is unit-tested only), other browsers, two machines.
+   Checked again on 2026-11-26 the same way: a tab opened with `?listen=4` hosts
+   from Start Game, a second tab types the code into Join Game and connects over
+   the WebRTC driver (`rtc:<code>`), both players spawn, and each sees the other
    move (entity origins read in each tab, with the joiner moved next to the
    host, since the two spawned out of each other's view).
 6. **Later, depending on the spike:** B (server in a Worker), or C (a
@@ -478,7 +486,7 @@ Decided by the maintainer on 2026-11-25:
 - Deno desktop: WebRTC on the OS-webview backend, `Deno.listenDatagram` and QUIC
   in a desktop build, timer throttling in a hidden window, and the absence of
   WebRTC in Deno itself.
-- Whether 20 Hz snapshots to joiners, with the host's physics stepping at up to
-  72 Hz, feel right in play and keep joiners' prediction accurate.
+- Whether snapshots to joiners at the host's frame rate, up to 72 Hz (the 20 Hz
+  cap was not taken), feel right in play and keep joiners' prediction accurate.
 - The bandwidth estimates: they scale bench payload figures, with packet
   overhead guessed.

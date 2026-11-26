@@ -30,14 +30,16 @@ AGENTS.md, Git workflow).
   browser.
 - `mobile-roadmap.md`: mobile-friendliness review (controls, rendering, offline,
   lifecycle, networking, competitive landscape) with confirmed bugs and a ranked
-  roadmap; its status section lists the items built since. A snapshot; nothing
-  in it was tested on a device.
+  roadmap; its status section lists the items built since. A snapshot; the
+  review itself was not tested on a device, and the status section records a
+  later test on one phone.
 - `agent-interface.md`: research and plan for making the engine playable by LLM
   agents and RL (lockstep clock, text observations, macro actions, MCP/Gymnasium
   adapters). Phase 1 (`src/agent.js`) is built, and so are headless play, the
   stdio MCP server, seeded randomness, the navigation graph (`src/nav.js`, built
-  offline by `tools/nav/nav_build.js` and at map load in agent games) and the
-  `goto` macro; its status section says what isn't. A snapshot.
+  offline by `tools/nav/nav_build.js` and at map load in agent games), the
+  `goto`, `turn_to` and `attack` macros and the ASCII `map` tier; its status
+  section says what isn't. A snapshot.
 - `style-cleanup-plan.md`: plan to adopt `deno fmt` (two-space indent, 80
   columns) and collapse the C-style comment banners, with trial results, tiers,
   neutrality checks and how open PRs catch up. Its status line says which tiers

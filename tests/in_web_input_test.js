@@ -512,6 +512,131 @@ Deno.test("IN-4: Touch_Disable releases FIRE/JUMP; joystick deadzone and run thr
   });
 });
 
+Deno.test("touch: look curve scales with screen size and drag speed", () => {
+  const near = (a, b, m) =>
+    assertEqual(Math.abs(a - b) < 1e-9, true, `${m}: ${a} vs ${b}`);
+
+  // Phones (short side up to LOOK_SCREEN_REF) are unchanged; bigger screens
+  // turn as far per screen fraction
+  near(touch.Touch_LookScreenScale(844, 390), 1, "phone");
+  near(touch.Touch_LookScreenScale(932, 430), 1, "largest phone");
+  near(
+    touch.Touch_LookScreenScale(1180, 820),
+    820 / touch.LOOK_SCREEN_REF,
+    "tablet",
+  );
+  near(
+    touch.Touch_LookScreenScale(3840, 2160),
+    touch.LOOK_SCREEN_MAX,
+    "capped",
+  );
+
+  // Acceleration: off is 1; speed adds accel * speed / LOOK_ACCEL_SPEED,
+  // up to LOOK_ACCEL_MAX; a zero or missing gap counts as the shortest
+  near(touch.Touch_LookGain(100, 0, 0.01, 0), 1, "off");
+  near(touch.Touch_LookGain(3, 4, 0.01, 1), 1.5, "500 px/s at 1");
+  near(touch.Touch_LookGain(3, 4, 0.01, 2), 2, "500 px/s at 2");
+  near(touch.Touch_LookGain(500, 0, 0.01, 1), touch.LOOK_ACCEL_MAX, "capped");
+  near(touch.Touch_LookGain(4, 0, 0, 1), 2, "zero gap");
+  near(touch.Touch_LookGain(4, 0, undefined, 1), 2, "missing timestamp");
+
+  // Wired into drag look: a touch-first 1024x768 screen (a tablet), accel 1
+  const accel = touch.touch_look_accel.value;
+  const screenOn = touch.touch_look_screen.value;
+  withFakeDom(() => {
+    const saved = [windowTarget.innerWidth, windowTarget.innerHeight];
+    windowTarget.innerWidth = 1024;
+    windowTarget.innerHeight = 768;
+    const desktopMatch = globalThis.matchMedia;
+    Object.defineProperty(globalThis, "matchMedia", {
+      configurable: true,
+      value: (q) => ({ matches: q === "(pointer: coarse)" }),
+    });
+    try {
+      touch.touch_look_accel.value = 1;
+      touch.Touch_Init(document.body);
+      touch.Touch_Enable();
+      touch.Touch_GetLookDelta();
+      const look = byId("touch-look");
+      const sens = touch.touch_sensitivity.value;
+      look.fire(
+        "touchstart",
+        touchEvent("touchstart", 1, 300, 100, { timeStamp: 1000 }),
+      );
+      look.fire(
+        "touchmove",
+        touchEvent("touchmove", 1, 310, 100, { timeStamp: 1020 }),
+      );
+      const scale = 768 / touch.LOOK_SCREEN_REF;
+      const gain = 1 + (10 * scale / 0.02) / touch.LOOK_ACCEL_SPEED;
+      near(
+        touch.Touch_GetLookDelta().yaw,
+        -10 * scale * 0.4 * sens * gain,
+        "scaled and accelerated",
+      );
+      look.fire("touchend", touchEvent("touchend", 1, 310, 100));
+
+      // A drag from FIRE accelerates the same way
+      const fire = byId("touch-fire");
+      fire.fire(
+        "touchstart",
+        touchEvent("touchstart", 2, 100, 100, { timeStamp: 2000 }),
+      );
+      fire.fire(
+        "touchmove",
+        touchEvent("touchmove", 2, 110, 100, { timeStamp: 2020 }),
+      );
+      near(
+        touch.Touch_GetLookDelta().yaw,
+        -10 * scale * 0.4 * sens * gain,
+        "FIRE drag scaled and accelerated",
+      );
+      fire.fire("touchend", touchEvent("touchend", 2, 110, 100));
+
+      // touch_look_screen 0, accel 0: per pixel, as before
+      touch.touch_look_screen.value = 0;
+      touch.touch_look_accel.value = 0;
+      look.fire(
+        "touchstart",
+        touchEvent("touchstart", 3, 300, 100, { timeStamp: 3000 }),
+      );
+      look.fire(
+        "touchmove",
+        touchEvent("touchmove", 3, 310, 100, { timeStamp: 3020 }),
+      );
+      near(touch.Touch_GetLookDelta().yaw, -10 * 0.4 * sens, "per pixel");
+      look.fire("touchend", touchEvent("touchend", 3, 310, 100));
+
+      // A desktop touchscreen (a fine pointer too) isn't scaled
+      touch.touch_look_screen.value = 1;
+      Object.defineProperty(globalThis, "matchMedia", {
+        configurable: true,
+        value: desktopMatch,
+      });
+      look.fire(
+        "touchstart",
+        touchEvent("touchstart", 4, 300, 100, { timeStamp: 4000 }),
+      );
+      look.fire(
+        "touchmove",
+        touchEvent("touchmove", 4, 310, 100, { timeStamp: 4020 }),
+      );
+      near(touch.Touch_GetLookDelta().yaw, -10 * 0.4 * sens, "desktop");
+      look.fire("touchend", touchEvent("touchend", 4, 310, 100));
+      touch.Touch_Disable();
+    } finally {
+      Object.defineProperty(globalThis, "matchMedia", {
+        configurable: true,
+        value: desktopMatch,
+      });
+      touch.touch_look_screen.value = screenOn;
+      touch.touch_look_accel.value = accel;
+      windowTarget.innerWidth = saved[0];
+      windowTarget.innerHeight = saved[1];
+    }
+  });
+});
+
 Deno.test("touch: dragging from FIRE aims while it stays held; a second finger keeps it down", () => {
   withFakeDom(() => {
     touch.Touch_Init(document.body);
@@ -703,6 +828,150 @@ Deno.test("touch: gyro integrates rotationRate in screen axes", () => {
       if (desc) Object.defineProperty(globalThis, name, desc);
       else delete globalThis[name];
     }
+  }
+});
+
+Deno.test("touch: gyro modes turn the view only while aiming or firing", () => {
+  const savedScreen = Object.getOwnPropertyDescriptor(globalThis, "screen");
+  const savedDME = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "DeviceMotionEvent",
+  );
+  Object.defineProperty(globalThis, "screen", {
+    configurable: true,
+    value: { orientation: { angle: 0 } },
+  });
+  Object.defineProperty(globalThis, "DeviceMotionEvent", {
+    configurable: true,
+    value: function () {},
+  });
+  const setGyro = (v) => {
+    touch.touch_gyro.value = v;
+    touch.touch_gyro.string = String(v);
+  };
+
+  try {
+    withFakeDom(() => {
+      touch.Touch_Init(document.body);
+      setGyro(2);
+      touch.Touch_Enable();
+      touch.Touch_GetLookDelta();
+      let t = 1000;
+      // 20 degrees per second of yaw for 0.1 s: 2 degrees
+      const turn = () => {
+        t += 100;
+        windowTarget.fire("devicemotion", {
+          timeStamp: t,
+          rotationRate: { alpha: 0, beta: 0, gamma: 20 },
+        });
+        return touch.Touch_GetLookDelta().yaw;
+      };
+      const near = (a, b, m) =>
+        assertEqual(Math.abs(a - b) < 1e-9, true, `${m}: ${a}`);
+      turn(); // sets the clock
+
+      // 2, touching: only while a finger is on the look area or a hold button
+      near(turn(), 0, "touching mode, no finger");
+      const look = byId("touch-look");
+      look.fire("touchstart", touchEvent("touchstart", 1, 300, 100));
+      near(turn(), 2, "touching mode, finger on the look area");
+      look.fire("touchend", touchEvent("touchend", 1, 300, 100));
+      near(turn(), 0, "touching mode, finger lifted");
+      const jump = byId("touch-jump");
+      jump.fire("touchstart", touchEvent("touchstart", 2, 0, 0));
+      near(turn(), 2, "touching mode, finger on JUMP");
+      jump.fire("touchend", touchEvent("touchend", 2, 0, 0));
+
+      // 3, firing: only while FIRE is held
+      setGyro(3);
+      look.fire("touchstart", touchEvent("touchstart", 3, 300, 100));
+      near(turn(), 0, "firing mode, finger on the look area");
+      look.fire("touchend", touchEvent("touchend", 3, 300, 100));
+      const fire = byId("touch-fire");
+      fire.fire("touchstart", touchEvent("touchstart", 4, 0, 0));
+      near(turn(), 2, "firing mode, FIRE held");
+      fire.fire("touchend", touchEvent("touchend", 4, 0, 0));
+      near(turn(), 0, "firing mode, FIRE released");
+
+      // 1, always
+      setGyro(1);
+      near(turn(), 2, "always");
+
+      // Smoothing restarts from rest when the mode turns the gyro back on,
+      // and after a gap: a 0.1 s step at time constant 0.1 s turns
+      // 2 * (1 - 1/e)
+      const smooth = touch.touch_gyro_smooth.value;
+      try {
+        touch.touch_gyro_smooth.value = 0.1;
+        const smoothed = 2 * (1 - Math.exp(-1));
+        setGyro(3);
+        turn(); // inactive: the filter is cleared
+        setGyro(1);
+        near(turn(), smoothed, "smoothing starts from rest");
+        t += 1000; // a gap: skipped, and the filter is cleared
+        near(turn(), 0, "gap skipped");
+        near(turn(), smoothed, "smoothing starts from rest after a gap");
+      } finally {
+        touch.touch_gyro_smooth.value = smooth;
+      }
+
+      setGyro(0);
+      touch.Touch_Frame();
+      touch.Touch_Disable();
+    });
+  } finally {
+    setGyro(0);
+    for (
+      const [name, desc] of [["screen", savedScreen], [
+        "DeviceMotionEvent",
+        savedDME,
+      ]]
+    ) {
+      if (desc) Object.defineProperty(globalThis, name, desc);
+      else delete globalThis[name];
+    }
+  }
+});
+
+Deno.test("touch: gyro dead zone tightens slow rates and smoothing lags", () => {
+  const f = { x: 0, y: 0, outX: 0, outY: 0 };
+  const near = (a, b, m) =>
+    assertEqual(Math.abs(a - b) < 1e-9, true, `${m}: ${a} vs ${b}`);
+
+  // off: unchanged
+  touch.Gyro_Filter(f, 3, -4, 0.01, 0, 0);
+  near(f.outX, 3, "no filter yaw");
+  near(f.outY, -4, "no filter pitch");
+
+  // dead zone 10: speed 5 is scaled by 5 / 10, speed 20 passes
+  touch.Gyro_Filter(f, 3, -4, 0.01, 10, 0);
+  near(f.outX, 1.5, "tightened yaw");
+  near(f.outY, -2, "tightened pitch");
+  touch.Gyro_Filter(f, 12, -16, 0.01, 10, 0);
+  near(f.outX, 12, "fast yaw untouched");
+  near(f.outY, -16, "fast pitch untouched");
+
+  // smoothing: a step reaches 1 - 1/e of the way after one time constant
+  f.x = 0;
+  f.y = 0;
+  for (let i = 0; i < 5; i++) touch.Gyro_Filter(f, 10, 0, 0.01, 0, 0.05);
+  near(f.outX, 10 * (1 - Math.exp(-1)), "one time constant");
+
+  for (
+    const [mode, aiming, firing, want] of [
+      [0, true, true, false],
+      [1, false, false, true],
+      [2, true, false, true],
+      [2, false, true, false],
+      [3, true, false, false],
+      [3, false, true, true],
+    ]
+  ) {
+    assertEqual(
+      touch.Gyro_ModeActive(mode, aiming, firing),
+      want,
+      `mode ${mode} aiming ${aiming} firing ${firing}`,
+    );
   }
 });
 
