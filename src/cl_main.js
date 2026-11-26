@@ -3,7 +3,8 @@
 import { MAX_LIGHTSTYLES } from './quakedef.js';
 import { Con_Printf, Con_DPrintf, SZ_Alloc, SZ_Clear,
 	MSG_WriteByte, MSG_WriteString } from './common.js';
-import { NET_Connect, NET_SendMessage, NET_SendUnreliableMessage, NET_CanSendMessage, NET_Close } from './net_main.js';
+import { NET_Connect, NET_SendMessage, NET_SendUnreliableMessage, NET_CanSendMessage, NET_Close, NET_SetQuietConnect } from './net_main.js';
+import { CLR_Init, CLR_Connected, CLR_Cancel, CLR_CanReconnect, CLR_ConnectionLost } from './cl_reconnect.js';
 import { cvar_t, Cvar_RegisterVariable, Cvar_VariableValue } from './cvar.js';
 import { Cmd_AddCommand } from './cmd.js';
 import { Cbuf_InsertText } from './cmd.js';
@@ -24,7 +25,7 @@ import { R_RocketTrail, R_RemoveEfrags, R_EntityParticles, r_lerpmodels, r_lerpm
 	LERP_MOVESTEP, LERP_RESETANIM, LERP_RESETANIM2, LERP_RESETMOVE } from './render.js';
 import { CL_InitTEnts, CL_UpdateTEnts } from './cl_tent.js';
 import { host_frametime, realtime, Host_Error, Host_ShutdownServer, Host_ClearMemory, sv } from './host.js';
-import { SCR_EndLoadingPlaque, SCR_BeginLoadingPlaque } from './gl_screen.js';
+import { SCR_EndLoadingPlaque, SCR_BeginLoadingPlaque, SCR_CenterPrint } from './gl_screen.js';
 import { R_WarmupWhenReady, R_WarmupCancel } from './gl_warmup.js';
 import { S_StopAllSounds } from './snd_dma.js';
 import { M_ConnectionError, M_ShouldReturnOnError } from './menu.js';
@@ -190,6 +191,15 @@ export function CL_Disconnect() {
 
 	R_WarmupCancel(); // web-only: no held plaque callback outlives the connection
 
+	// Deviation (web-only, no C equivalent; see cl_reconnect.js): tell a lost
+	// connection (the transport died, NET_GetMessage/NET_Send* flagged the
+	// socket) from a deliberate disconnect. A lost one is retried; anything
+	// else (the disconnect command, a kick, a new connect, Host_Error on a live
+	// connection) forgets the session so nothing reconnects behind the player.
+	const lost = cls.state === ca_connected && cls.demoplayback === false
+		&& cls.netcon != null && cls.netcon.lost === true;
+	const wasConnected = cls.state === ca_connected;
+
 	// stop sounds (especially looping!)
 	S_StopAllSounds( true );
 
@@ -225,6 +235,18 @@ export function CL_Disconnect() {
 
 	}
 
+	if ( lost === true ) {
+
+		// Host_Error, which a lost connection used to reach, did this: a drop
+		// during a map change would otherwise hide the retries behind the
+		// loading plaque
+		SCR_EndLoadingPlaque();
+		CLR_ConnectionLost();
+
+	}
+	else if ( wasConnected === true )
+		CLR_Cancel();
+
 	cls.demoplayback = cls.timedemo = false;
 	cls.signon = 0;
 	// Deliberate deviation, from QuakeSpasm/Ironwail (cl_main.c
@@ -238,6 +260,7 @@ export function CL_Disconnect() {
 export function CL_Disconnect_f() {
 
 	CL_Disconnect();
+	CLR_Cancel(); // web-only: also covers a retry waiting after a lost connection
 	if ( sv.active )
 		Host_ShutdownServer( false );
 
@@ -258,15 +281,25 @@ Host should be either "local" or a net address to be passed on
 For remote connections, this handles async WebTransport connections.
 =====================
 */
-export async function CL_EstablishConnection( host ) {
+let cl_connect_id = 0; // web-only: generation of the latest CL_EstablishConnection
+
+export async function CL_EstablishConnection( host, quiet = false ) {
 
 	if ( cls.state === ca_dedicated )
-		return;
+		return false;
 
 	if ( cls.demoplayback )
-		return;
+		return false;
 
 	CL_Disconnect();
+
+	// Web-only: a connect the player asked for replaces any reconnect in
+	// progress. quiet is the reconnect's own retry (cl_reconnect.js): the
+	// drivers and this function then skip the menu pages shown on failure.
+	if ( quiet === false )
+		CLR_Cancel();
+	const connect_id = ++ cl_connect_id;
+	NET_SetQuietConnect( quiet );
 
 	// Clear room from browser URL when connecting to single player (local)
 	if ( host === 'local' && typeof window !== 'undefined' && window.location.search.includes( 'room=' ) ) {
@@ -274,6 +307,8 @@ export async function CL_EstablishConnection( host ) {
 		history.replaceState( null, '', Sys_PageURL( null ) );
 
 	}
+
+	let connected_sock = null;
 
 	try {
 
@@ -284,27 +319,57 @@ export async function CL_EstablishConnection( host ) {
 			// Async connection (WebTransport) with timeout
 			Con_Printf( 'Connecting to %s...\n', host );
 
-			// 30-second timeout for connection attempts
-			const CONNECTION_TIMEOUT_MS = 30000;
+			// 60-second timeout for connection attempts: the drivers' own timeouts
+			// are 25 s each, and a WebTransport that can't open is retried over
+			// WebSocket (NET_WebSocketFallback), so both must fit.
+			const CONNECTION_TIMEOUT_MS = 60000;
+			let timer = null;
+			let timedOut = false;
 			const timeoutPromise = new Promise( ( _, reject ) => {
 
-				setTimeout( () => reject( new Error( 'Connection timed out after 30 seconds' ) ), CONNECTION_TIMEOUT_MS );
+				timer = setTimeout( () => {
+
+					timedOut = true;
+					reject( new Error( 'Connection timed out after 60 seconds' ) );
+
+				}, CONNECTION_TIMEOUT_MS );
 
 			} );
 
-			cls.netcon = await Promise.race( [ result, timeoutPromise ] );
+			// Web-only: a driver connect that finishes after the timeout gave up
+			// on it would leave an open socket nobody reads; close it
+			result.then( ( sock ) => {
+
+				if ( timedOut === true && sock != null ) NET_Close( sock );
+
+			}, () => {} );
+
+			try {
+
+				connected_sock = await Promise.race( [ result, timeoutPromise ] );
+
+			} finally {
+
+				clearTimeout( timer );
+
+			}
 
 		} else {
 
 			// Sync connection (loopback)
-			cls.netcon = result;
+			connected_sock = result;
 
 		}
 
 	} catch ( error ) {
 
+		NET_SetQuietConnect( false );
+
 		// Connection failed with error
 		Con_Printf( 'CL_Connect: %s\n', error.message || 'connection failed' );
+
+		if ( quiet === true )
+			return false;
 
 		// Return to menu if we should
 		if ( M_ShouldReturnOnError() ) {
@@ -314,13 +379,28 @@ export async function CL_EstablishConnection( host ) {
 
 		}
 
-		return;
+		return false;
 
 	}
+
+	// Web-only: a newer connect started while this one waited; drop this one
+	if ( connect_id !== cl_connect_id ) {
+
+		if ( connected_sock != null ) NET_Close( connected_sock );
+		return false;
+
+	}
+
+	cls.netcon = connected_sock;
+
+	NET_SetQuietConnect( false );
 
 	if ( ! cls.netcon ) {
 
 		Con_Printf( 'CL_Connect: connect failed\n' );
+
+		if ( quiet === true )
+			return false;
 
 		// Return to menu if we should
 		if ( M_ShouldReturnOnError() ) {
@@ -330,7 +410,7 @@ export async function CL_EstablishConnection( host ) {
 
 		}
 
-		return;
+		return false;
 
 	}
 
@@ -360,6 +440,10 @@ export async function CL_EstablishConnection( host ) {
 	cls.demonum = - 1; // not in the demo loop now
 	cls.state = ca_connected;
 	cls.signon = 0; // need all the signon messages before playing
+
+	// Web-only: remember the address for cl_reconnect.js (remote servers only)
+	CLR_Connected( host );
+	return true;
 
 }
 
@@ -1418,8 +1502,21 @@ export function CL_ReadFromServer() {
 
 		ret = CL_GetMessage();
 
-		if ( ret === - 1 )
+		if ( ret === - 1 ) {
+
+			// Deviation (web-only, see cl_reconnect.js): a connection lost to a
+			// remote server (iOS froze the page, Wi-Fi to cellular) is retried
+			// instead of ending in Host_Error. CL_Disconnect starts the retries.
+			if ( cls.netcon != null && cls.netcon.lost === true && ! sv.active && ! cls.demoplayback && CLR_CanReconnect() === true ) {
+
+				CL_Disconnect();
+				return;
+
+			}
+
 			Host_Error( 'CL_ReadFromServer: lost server connection' );
+
+		}
 
 		if ( ! ret )
 			break;
@@ -1514,6 +1611,32 @@ CL_Init
 export function CL_Init() {
 
 	SZ_Alloc( cls.message, 1024 );
+
+	// Web-only: reconnect after a lost connection (cl_reconnect.js)
+	CLR_Init( {
+		connect: async ( host ) => {
+
+			const ok = await CL_EstablishConnection( host, true );
+			if ( ok === true )
+				SCR_BeginLoadingPlaque(); // as Host_Reconnect_f does after a connect
+			return ok;
+
+		},
+		canReconnect: () => ! sv.active && ! cls.demoplayback && cls.state !== ca_dedicated,
+		isHidden: () => typeof document !== 'undefined' && document.visibilityState === 'hidden',
+		print: ( str ) => Con_Printf( '%s', str ),
+		notify: ( str ) => SCR_CenterPrint( str ),
+		giveUp: ( reason ) => {
+
+			Con_Printf( '%s\n', reason );
+			M_ConnectionError( reason );
+			set_key_dest( key_menu );
+
+		},
+		now: () => Date.now(),
+		setTimer: ( fn, ms ) => setTimeout( fn, ms ),
+		clearTimer: ( id ) => clearTimeout( id )
+	} );
 
 	CL_InitInput();
 	CL_InitTEnts();

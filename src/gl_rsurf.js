@@ -2497,6 +2497,36 @@ export function R_UploadLightmapRect( i, theRect, r ) {
 
 }
 
+/*
+R_LightmapsContextRestored
+
+Web-only (see gl_contextloss.js). After a WebGL context restore every lightmap
+texture must be uploaded again from scratch. Three.js does that on its own
+from the texture's image data, but that data is only current for rows
+R_UploadLightmapRect has already converted: rows changed while the context
+was lost (animated styles, dynamic lights) are still waiting in
+lightmap_rectchange. Mark every block fully modified, so the next
+R_BlendLightmaps converts and uploads all of it, and bump each texture's
+version so the whole image is sent as a fresh texture.
+*/
+export function R_LightmapsContextRestored() {
+
+	for ( let i = 0; i < lightmap_count; i ++ ) {
+
+		lightmap_modified[ i ] = true;
+		const theRect = lightmap_rectchange[ i ];
+		theRect.l = 0;
+		theRect.t = 0;
+		theRect.w = BLOCK_WIDTH;
+		theRect.h = BLOCK_HEIGHT;
+
+		const tex = lightmapTextures[ i ];
+		if ( tex != null ) tex.needsUpdate = true;
+
+	}
+
+}
+
 export function R_BlendLightmaps() {
 
 	R_CheckLightmapCvars();

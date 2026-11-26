@@ -21,7 +21,7 @@ import { scr_viewsize, scr_con_current, SCR_ModalMessage, SCR_DrawYesNo, SCR_Yes
 import { v_gamma } from './view.js';
 import { gl_filter_max, GL_LINEAR } from './glquake.js';
 import { skill, coop, teamplay, svs } from './server.js';
-import { Touch_ExitFullscreen } from './touch.js';
+import { Touch_ExitFullscreen, Touch_MenuShown } from './touch.js';
 import { Draw_GetVirtualWidth, Draw_GetVirtualHeight, Draw_SetCanvasScale } from './gl_draw.js';
 import { SAVEGAME_COMMENT_LENGTH } from './quakedef.js';
 import { registered, standard_quake, rogue, hipnotic } from './common.js';
@@ -502,11 +502,17 @@ M_MenuCanvasScale
 
 Ironwail GL_SetCanvas( CANVAS_MENU ): CLAMP( 1, scr_menuscale, the most
 that fits 320x200 ), for Draw_SetCanvasScale. 0 is the automatic scale.
+
+Deviation (web-only, docs/mobile-roadmap.md B3): while the menu takes
+taps (Touch_MenuShown), the automatic scale is the most that fits rather
+than the whole-number UI scale. A 740x360 phone at DPR 2 gets 3.6
+instead of 3, so menu rows are a fifth taller under the finger.
 ================
 */
 function M_MenuCanvasScale() {
 
-	if ( ! ( scr_menuscale.value > 0 ) )
+	const touchFit = ! ( scr_menuscale.value > 0 );
+	if ( touchFit && ! Touch_MenuShown() )
 		return 0;
 
 	// scale 1: the virtual screen is the physical one
@@ -514,7 +520,7 @@ function M_MenuCanvasScale() {
 	const max = Math.min( Draw_GetVirtualWidth() / 320, Draw_GetVirtualHeight() / 200 );
 	Draw_SetCanvasScale( 0 );
 
-	const s = scr_menuscale.value;
+	const s = touchFit ? max : scr_menuscale.value;
 	return s < 1 ? 1 : ( s > max ? max : s );
 
 }
@@ -3811,11 +3817,17 @@ function M_ToMenuSpace( x, y, w, h ) {
 
 }
 
-// Row of an evenly spaced list under menu y, or -1
-function M_RowAt( vy, top, height, count ) {
+// Row of an evenly spaced list under menu y, or -1. Within slack units
+// above or below the list, the nearest end row.
+function M_RowAt( vy, top, height, count, slack = 0 ) {
 
-	if ( vy < top || vy >= top + count * height )
+	if ( count <= 0 )
 		return - 1;
+	const bottom = top + count * height;
+	if ( vy < top )
+		return vy >= top - slack ? 0 : - 1;
+	if ( vy >= bottom )
+		return vy < bottom + slack ? count - 1 : - 1;
 	return Math.floor( ( vy - top ) / height );
 
 }
@@ -3841,10 +3853,11 @@ const LAN_MAX_VISIBLE = 8; // rooms M_LanConfig_Draw shows
 M_MenuRowAt
 
 The cursor row of the current menu under a point in menu space, or -1.
-Rows are the values the menu's cursor takes.
+Rows are the values the menu's cursor takes. slack (menu units) lets a tap
+just above or below an evenly spaced list take its end row.
 ================
 */
-export function M_MenuRowAt( vx, vy ) {
+export function M_MenuRowAt( vx, vy, slack = 0 ) {
 
 	if ( vx < 0 || vx > 320 )
 		return - 1;
@@ -3852,23 +3865,23 @@ export function M_MenuRowAt( vx, vy ) {
 	switch ( m_state ) {
 
 		case m_main:
-			return M_RowAt( vy, 32, 20, M_InGame() ? MAIN_ITEMS + 1 : MAIN_ITEMS );
+			return M_RowAt( vy, 32, 20, M_InGame() ? MAIN_ITEMS + 1 : MAIN_ITEMS, slack );
 		case m_singleplayer:
-			return M_RowAt( vy, 32, 20, SINGLEPLAYER_ITEMS );
+			return M_RowAt( vy, 32, 20, SINGLEPLAYER_ITEMS, slack );
 		case m_load:
 		case m_save:
-			return M_RowAt( vy, 32, 8, MAX_SAVEGAMES );
+			return M_RowAt( vy, 32, 8, MAX_SAVEGAMES, slack );
 		case m_multiplayer:
-			return M_RowAt( vy, 32, 20, MULTIPLAYER_ITEMS );
+			return M_RowAt( vy, 32, 20, MULTIPLAYER_ITEMS, slack );
 		case m_options:
-			return M_RowAt( vy, 32, 8, OPTIONS_ITEMS );
+			return M_RowAt( vy, 32, 8, OPTIONS_ITEMS, slack );
 		case m_touch:
-			return M_RowAt( vy, TOUCH_TOP, 8, TOUCH_ITEMS );
+			return M_RowAt( vy, TOUCH_TOP, 8, TOUCH_ITEMS, slack );
 		case m_advanced:
-			return M_RowAt( vy, ADV_TOP, 8, adv_page_count );
+			return M_RowAt( vy, ADV_TOP, 8, adv_page_count, slack );
 		case m_advpage: {
 
-			const row = M_RowAt( vy, ADV_TOP, 8, Math.min( ADV_VIEWSIZE, adv_count - adv_scroll ) );
+			const row = M_RowAt( vy, ADV_TOP, 8, Math.min( ADV_VIEWSIZE, adv_count - adv_scroll ), slack );
 			return row < 0 ? - 1 : adv_scroll + row;
 
 		}
@@ -3878,7 +3891,7 @@ export function M_MenuRowAt( vx, vy ) {
 			return M_TableRowAt( vy, gameoptions_cursor_table, NUM_GAMEOPTIONS );
 		case m_keys: {
 
-			const row = M_RowAt( vy, KEYS_TOP, 8, Math.min( KEYS_VIEWSIZE, NUMCOMMANDS - m_keys_scroll ) );
+			const row = M_RowAt( vy, KEYS_TOP, 8, Math.min( KEYS_VIEWSIZE, NUMCOMMANDS - m_keys_scroll ), slack );
 			return row < 0 ? - 1 : m_keys_scroll + row;
 
 		}
@@ -3886,7 +3899,7 @@ export function M_MenuRowAt( vx, vy ) {
 
 			// Room list at y 52, 12px apart, scrolled as M_LanConfig_Draw does
 			const start = Math.max( 0, slist_cursor - LAN_MAX_VISIBLE + 1 );
-			const row = M_RowAt( vy, 52, 12, Math.min( LAN_MAX_VISIBLE, slist_rooms.length - start ) );
+			const row = M_RowAt( vy, 52, 12, Math.min( LAN_MAX_VISIBLE, slist_rooms.length - start ), slack );
 			return row < 0 ? - 1 : start + row;
 
 		}
@@ -4001,9 +4014,10 @@ M_TouchInput
 
 Touch tap (or, while SCR_ModalMessage is up, mouse click) on the menu.
 Converts element coordinates to the 320x200 menu space and selects there.
+fromTouch is true when touch.js passes a finger tap (see M_MenuClick).
 ================
 */
-export function M_TouchInput( touchX, touchY, screenWidth, screenHeight ) {
+export function M_TouchInput( touchX, touchY, screenWidth, screenHeight, fromTouch = false ) {
 
 	// If no menu is shown (e.g. during demo playback), show the menu
 	if ( m_state === m_none ) {
@@ -4036,7 +4050,7 @@ export function M_TouchInput( touchX, touchY, screenWidth, screenHeight ) {
 
 	}
 
-	M_MenuClick( vx, vy );
+	M_MenuClick( vx, vy, fromTouch === true );
 
 }
 
@@ -4044,10 +4058,10 @@ export function M_TouchInput( touchX, touchY, screenWidth, screenHeight ) {
 ================
 M_MenuClick
 
-A tap or MOUSE1 at a point in menu space
+A tap or MOUSE1 at a point in menu space. touch is true for a finger tap.
 ================
 */
-function M_MenuClick( vx, vy ) {
+function M_MenuClick( vx, vy, touch = false ) {
 
 	// Keys menu: the "more" rows above and below the list scroll it a page
 	// (touch has no wheel)
@@ -4098,7 +4112,18 @@ function M_MenuClick( vx, vy ) {
 
 	}
 
-	const row = M_MenuRowAt( vx, vy );
+	const row = M_MenuRowAt( vx, vy, touch && M_IsDenseList() ? TOUCH_ROW_SLACK : 0 );
+
+	// Deviation (web-only, docs/mobile-roadmap.md B3): the dense lists' rows
+	// are 8 to 12 menu units apart, about as wide as a fingertip on a phone,
+	// so a tap that lands on the neighbour must not act on it. A tap on
+	// another row only moves the cursor there; a tap on the cursor row acts.
+	if ( touch && row >= 0 && M_TouchSelectFirst( row ) ) {
+
+		if ( _S_LocalSound ) _S_LocalSound( 'misc/menu1.wav' );
+		return;
+
+	}
 
 	// Handle based on current menu state
 	switch ( m_state ) {
@@ -4240,6 +4265,78 @@ function M_MenuClick( vx, vy ) {
 			if ( row >= 0 )
 				M_AdvPage_Touch( vx, row );
 			break;
+
+	}
+
+}
+
+// Menu units a tap may land above or below a list and still take its end row
+const TOUCH_ROW_SLACK = 4;
+
+// Menus whose rows are under 20 units apart
+function M_IsDenseList() {
+
+	switch ( m_state ) {
+
+		case m_load:
+		case m_save:
+		case m_options:
+		case m_touch:
+		case m_advanced:
+		case m_advpage:
+		case m_keys:
+		case m_lanconfig:
+			return true;
+		default:
+			return false;
+
+	}
+
+}
+
+// For a tap on row of a dense list: if row is not the cursor row, move the
+// cursor there and return true (the tap is used up). Other menus, and taps
+// on the cursor row, return false. Not while the keys menu waits for a key
+// to bind, and not in a room list long enough to scroll: the list follows
+// the cursor, so the second tap would land on another room.
+function M_TouchSelectFirst( row ) {
+
+	if ( bind_grab )
+		return false;
+
+	switch ( m_state ) {
+
+		case m_load:
+		case m_save:
+			if ( row === load_cursor ) return false;
+			load_cursor = row;
+			return true;
+		case m_options:
+			if ( row === m_options_cursor ) return false;
+			m_options_cursor = row;
+			return true;
+		case m_touch:
+			if ( row === m_touch_cursor ) return false;
+			m_touch_cursor = row;
+			return true;
+		case m_advanced:
+			if ( row === m_advanced_cursor ) return false;
+			m_advanced_cursor = row;
+			return true;
+		case m_advpage:
+			if ( row === adv_cursor ) return false;
+			adv_cursor = row;
+			return true;
+		case m_keys:
+			if ( row === m_keys_cursor ) return false;
+			m_keys_cursor = row;
+			return true;
+		case m_lanconfig:
+			if ( row === slist_cursor || slist_rooms.length > LAN_MAX_VISIBLE ) return false;
+			slist_cursor = row;
+			return true;
+		default:
+			return false;
 
 	}
 

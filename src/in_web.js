@@ -25,6 +25,7 @@ import {
 import { V_StopPitchDrift } from './view.js';
 import { host_frametime } from './host.js';
 import { sv, svs } from './server.js';
+import { Host_AutoSave, Host_AutosaveVisible } from './host_cmd.js';
 import { PITCH, YAW } from './quakedef.js';
 import { movevars } from './pmove.js';
 import {
@@ -1298,11 +1299,24 @@ export function IN_SetAgentDriven( driven ) {
 
 }
 
+// Web-only deviation: save a single-player game into the reserved autosave
+// slot when the page is hidden or going away, so the next page load can offer
+// to continue (iOS discards background tabs). Host_AutoSave applies the same
+// refusals as `save` without printing, and writes synchronously. Not while an
+// agent drives the game.
+function handlePageHide() {
+
+	if ( in_agent_driven === false ) Host_AutoSave();
+
+}
+
 function handleVisibilityChange() {
 
 	if ( ! in_initialized ) return;
 
 	if ( document.visibilityState === 'hidden' ) {
+
+		handlePageHide();
 
 		IN_ClearAllStates();
 
@@ -1323,6 +1337,9 @@ function handleVisibilityChange() {
 		}
 
 	}
+
+	// Visible again with the page alive: the game in memory is the live one
+	if ( document.visibilityState !== 'hidden' ) Host_AutosaveVisible();
 
 	IN_SoundActivate( document.visibilityState !== 'hidden' );
 
@@ -1565,6 +1582,7 @@ export function IN_Init( element ) {
 	// Focus loss: release everything (vid_win.c AppActivate -> ClearAllStates)
 	eventWindow.addEventListener( 'blur', handleBlur );
 	document.addEventListener( 'visibilitychange', handleVisibilityChange );
+	eventWindow.addEventListener( 'pagehide', handlePageHide ); // web-only autosave
 
 	// Browser Back opens the menu once the user has interacted (web-only)
 	backGuardArmed = false;
@@ -1642,6 +1660,7 @@ export function IN_Shutdown() {
 	document.removeEventListener( 'pointerdown', handlePointerDown, true );
 	document.removeEventListener( 'pointermove', handlePointerMove, true );
 	document.removeEventListener( 'visibilitychange', handleVisibilityChange );
+	eventWindow.removeEventListener( 'pagehide', handlePageHide );
 
 	if ( pointerLocked && document.exitPointerLock ) {
 

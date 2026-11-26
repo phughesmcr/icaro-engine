@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { Sys_Printf } from './sys.js';
 import { Con_Printf } from './console.js';
+import { Cvar_RegisterVariable } from './cvar.js';
 
 //
 // vid.h constants
@@ -156,13 +157,36 @@ export function VID_ParsePixelRatio( search ) {
 
 }
 
-// Pure part of VID_GetPixelRatio. override is VID_ParsePixelRatio's result.
-export function VID_ComputePixelRatio( dpr, override, touchPrimary ) {
+// vid_dprcap (web-only, no Quake counterpart; set by the vid_quality presets
+// in gl_rmain.js): an upper bound for the pixel ratio on any device. 0, the
+// default, leaves the rules above alone (touch capped at VID_TOUCH_DPR_CAP,
+// desktop uncapped). Above 0 it replaces VID_TOUCH_DPR_CAP, so a player can
+// also raise a touch device's cap. ?dpr= still overrides it. It is applied
+// live: VID_CheckPixelRatio resizes the renderer when the value changes.
+export const vid_dprcap = { name: 'vid_dprcap', string: '0', value: 0, archive: true };
+let _appliedDprCap = 0;
+
+// Pure part of VID_GetPixelRatio. override is VID_ParsePixelRatio's result;
+// cap is vid_dprcap's value (0 = none).
+export function VID_ComputePixelRatio( dpr, override, touchPrimary, cap = 0 ) {
 
 	if ( typeof override === 'number' ) return override;
 	if ( ! ( dpr > 0 ) ) dpr = 1;
 	if ( override === 'native' ) return dpr;
+	if ( cap > 0 ) return Math.min( dpr, Math.max( cap, 0.5 ) );
 	return touchPrimary === true ? Math.min( dpr, VID_TOUCH_DPR_CAP ) : dpr;
+
+}
+
+// Applies a changed vid_dprcap: a 'resize' event reaches VID_Resize and
+// gl_draw's overlay canvas, which both re-read VID_GetPixelRatio. Called
+// once a frame; it only compares numbers.
+export function VID_CheckPixelRatio() {
+
+	if ( vid_dprcap.value === _appliedDprCap ) return;
+	_appliedDprCap = vid_dprcap.value;
+	if ( typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof Event === 'function' )
+		window.dispatchEvent( new Event( 'resize' ) );
 
 }
 
@@ -182,7 +206,7 @@ export function VID_GetPixelRatio() {
 
 	}
 
-	return VID_ComputePixelRatio( window.devicePixelRatio, _dprOverride, _dprTouchPrimary );
+	return VID_ComputePixelRatio( window.devicePixelRatio, _dprOverride, _dprTouchPrimary, vid_dprcap.value );
 
 }
 
@@ -229,6 +253,9 @@ export function VID_ParseRenderScale( search ) {
 export function VID_Init( palette, gammaparm = null ) {
 
 	Sys_Printf( 'VID_Init' );
+
+	Cvar_RegisterVariable( vid_dprcap );
+	_appliedDprCap = vid_dprcap.value;
 
 	// default video dimensions
 	vid.width = 640; // was 320 in software Quake
