@@ -116,9 +116,10 @@ export function RoomManager_SetConfig(config: {
   }
   if (config.wsEnabled !== undefined) wsEnabled = config.wsEnabled === true;
   if (config.gameDir !== undefined) {
-    gameDir = config.gameDir !== null && /^[A-Za-z0-9_-]+$/.test(config.gameDir)
-      ? config.gameDir
-      : null;
+    gameDir =
+      config.gameDir !== null && /^[A-Za-z0-9_-]+$/.test(config.gameDir) ?
+        config.gameDir :
+        null;
   }
 }
 
@@ -438,9 +439,9 @@ export async function RoomManager_CreateRoom(config: {
     // -game dir, where basedir is the pak's directory, or its parent when
     // that directory is id1
     const pakDir = dirname(absPak);
-    const basedir = basename(pakDir).toLowerCase() === "id1"
-      ? dirname(pakDir)
-      : pakDir;
+    const basedir = basename(pakDir).toLowerCase() === "id1" ?
+      dirname(pakDir) :
+      pakDir;
     const gameNames = gameFlags.map((f) => f.slice(1));
     if (gameDir !== null) gameNames.push(gameDir);
     const gameDirs = gameNames.map((name) => basedir + "/" + name);

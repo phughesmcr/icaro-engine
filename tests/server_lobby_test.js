@@ -912,9 +912,9 @@ function lobbyClient(ip) {
     replies,
     state,
     send(type, value) {
-      const data = typeof value === "string"
-        ? encoder.encode(value)
-        : encoder.encode(JSON.stringify(value ?? {}));
+      const data = typeof value === "string" ?
+        encoder.encode(value) :
+        encoder.encode(JSON.stringify(value ?? {}));
       pair.client.send(encodeFrame(type, data));
     },
   };
@@ -1031,9 +1031,9 @@ function withTurnstile(fn) {
   const fetchFn = (_url, init) => {
     const token = new URLSearchParams(init.body).get("response");
     calls.push(token);
-    const result = token === "good"
-      ? { success: true, action: "create_room", hostname: "anglezarke.games" }
-      : { success: false, "error-codes": ["invalid-input-response"] };
+    const result = token === "good" ?
+      { success: true, action: "create_room", hostname: "anglezarke.games" } :
+      { success: false, "error-codes": ["invalid-input-response"] };
     return Promise.resolve(new Response(JSON.stringify(result)));
   };
   Lobby_SetTurnstile({
