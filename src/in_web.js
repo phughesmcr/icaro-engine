@@ -2,8 +2,10 @@
 // Adapted for web: uses Pointer Lock API for mouse, DOM keyboard events
 
 import {
+  K_ABUTTON,
   K_ALT,
   K_BACKSPACE,
+  K_BBUTTON,
   K_CTRL,
   K_DEL,
   K_DOWNARROW,
@@ -25,25 +27,37 @@ import {
   K_HOME,
   K_INS,
   K_LEFTARROW,
+  K_LSHOULDER,
+  K_LTHUMB,
+  K_LTRIGGER,
   K_MOUSE1,
   K_MOUSE2,
   K_MOUSE3,
+  K_MOUSE4,
+  K_MOUSE5,
   K_MWHEELDOWN,
   K_MWHEELUP,
   K_PAUSE,
   K_PGDN,
   K_PGUP,
+  K_PRINTSCREEN,
   K_RIGHTARROW,
+  K_RSHOULDER,
+  K_RTHUMB,
+  K_RTRIGGER,
   K_SHIFT,
   K_SPACE,
   K_TAB,
   K_UPARROW,
+  K_XBUTTON,
+  K_YBUTTON,
   Key_ClearStates,
   key_dest,
   Key_Event,
   key_game,
   key_menu,
   Key_ModalActive,
+  keybindings,
 } from "./keys.js";
 import { Cvar_RegisterVariable } from "./cvar.js";
 import { Cbuf_AddText, Cmd_AddCommand } from "./cmd.js";
@@ -150,8 +164,9 @@ const _mouseMove = { mx: 0, my: 0 }; // returned by IN_MouseMove (no per-frame a
 
 let mouseactive = false;
 
-// Mouse buttons we have sent down (bit 0 = K_MOUSE1, 1 = K_MOUSE2, 2 = K_MOUSE3).
-// Replaces mouse_oldbuttonstate from in_win.c.
+// Mouse buttons we have sent down, one bit per browser button number
+// (MouseEvent.button: 0 K_MOUSE1, 1 K_MOUSE3, 2 K_MOUSE2, 3 K_MOUSE4,
+// 4 K_MOUSE5). Replaces mouse_oldbuttonstate from in_win.c.
 let mouse_buttonstate = 0;
 
 // Pointer lock state
@@ -239,20 +254,36 @@ let _xrSnapArmed = true;
 // Gamepad button edge detection (standard mapping)
 let _gpPrev = null;
 
+// The gamepad buttons GP_Poll reads, each with the Quake key it sent down
+// (0 while up) in _gpPrev
+const GP_BUTTONS = [
+  "a",
+  "b",
+  "x",
+  "y",
+  "lb",
+  "rb",
+  "lt",
+  "rt",
+  "back",
+  "start",
+  "ls",
+  "rs",
+  "du",
+  "dd",
+  "dl",
+  "dr",
+];
+
 function GP_ReleaseAll() {
   // If a controller disconnects mid-press, make sure nothing gets "stuck" down.
-  Key_Event(K_SPACE, false);
-  Key_Event(K_ENTER, false);
-  Key_Event(K_ESCAPE, false);
-  Key_Event(K_TAB, false);
-  Key_Event(K_SHIFT, false);
-  Key_Event(K_CTRL, false);
-  Key_Event(K_MOUSE1, false);
-  Key_Event("r".charCodeAt(0), false);
-  Key_Event(K_UPARROW, false);
-  Key_Event(K_DOWNARROW, false);
-  Key_Event(K_LEFTARROW, false);
-  Key_Event(K_RIGHTARROW, false);
+  for (const name of GP_BUTTONS) {
+    const sent = _gpPrev[name];
+    if (sent !== 0) {
+      _gpPrev[name] = 0;
+      Key_Event(sent, false);
+    }
+  }
 }
 
 function requestPointerLock() {
@@ -497,16 +528,35 @@ function GP_ButtonValue(gp, index) {
   return typeof b === "object" ? (b.value ?? (b.pressed ? 1 : 0)) : (b ? 1 : 0);
 }
 
+// Sends quakeKey down when the button goes down, and on release sends up
+// the key that went down, even if the mapping changed in between (a menu
+// opened while it was held)
 function GP_KeyEdge(quakeKey, isDown, prev, storeKey) {
-  if (quakeKey === 0) return;
-
-  const wasDown = prev[storeKey];
-  if (isDown !== wasDown) {
+  const sent = prev[storeKey];
+  if (isDown) {
+    if (sent !== 0 || quakeKey === 0) return;
     gamepadLastActive = true;
-    if (quakeKey === K_ESCAPE && isDown) lastEscapeTime = IN_Now();
-    Key_Event(quakeKey, isDown);
-    prev[storeKey] = isDown;
+    if (quakeKey === K_ESCAPE) lastEscapeTime = IN_Now();
+    prev[storeKey] = quakeKey;
+    Key_Event(quakeKey, true);
+  } else if (sent !== 0) {
+    gamepadLastActive = true;
+    prev[storeKey] = 0;
+    Key_Event(sent, false);
   }
+}
+
+/**
+ * The key a gamepad button sends in game: QuakeSpasm's controller key
+ * (IN_KeyForControllerButton in QuakeSpasm and Ironwail in_sdl.c), so
+ * configs can bind ABUTTON, LTRIGGER and the rest. Deviation: while that key
+ * is unbound the button sends the port's older keyboard key instead, so a
+ * config without gamepad binds (id1's default.cfg, saved configs) keeps
+ * A = jump, RT = fire and the others.
+ */
+function GP_GameKey(padKey, fallback) {
+  const binding = keybindings[padKey];
+  return binding !== null && binding.length > 0 ? padKey : fallback;
 }
 
 // Gamepad rumble: Ironwail in_sdl.c, the end of IN_Commands. The strength
@@ -573,7 +623,8 @@ function GP_UpdateRumble() {
 }
 
 function GP_Poll(cmd) {
-  const gp = GP_GetPrimary();
+  // QuakeSpasm in_sdl.c: joy_enable 0 ignores the controller
+  const gp = joy_enable.value !== 0 ? GP_GetPrimary() : null;
   if (!gp) {
     // The pad went away: the touch overlay comes back
     gamepadHidTouch = false;
@@ -584,52 +635,87 @@ function GP_Poll(cmd) {
   }
 
   if (_gpPrev == null || _gpPrev.index !== gp.index) {
-    _gpPrev = {
-      index: gp.index,
-      a: false,
-      b: false,
-      x: false,
-      y: false,
-      lb: false,
-      rb: false,
-      lt: false,
-      rt: false,
-      back: false,
-      start: false,
-      du: false,
-      dd: false,
-      dl: false,
-      dr: false,
-    };
+    if (_gpPrev != null) GP_ReleaseAll();
+    _gpPrev = { index: gp.index };
+    for (const name of GP_BUTTONS) _gpPrev[name] = 0;
   }
 
   // Menu navigation / global buttons
   // Standard mapping: 0 A, 1 B, 2 X, 3 Y, 4 LB, 5 RB, 6 LT, 7 RT, 8 Back, 9 Start,
   // 10 LS, 11 RS, 12-15 D-pad.
   const inMenu = key_dest === key_menu;
+  // In game the face buttons, shoulders, triggers and stick clicks send
+  // QuakeSpasm's controller keys (GP_GameKey). Menus, the console and
+  // SCR_ModalMessage keep the keyboard keys they navigate with.
+  const inGame = key_dest === key_game && !Key_ModalActive();
 
   // A: Enter in menu, Jump in game
-  GP_KeyEdge(inMenu ? K_ENTER : K_SPACE, GP_ButtonDown(gp, 0), _gpPrev, "a");
+  GP_KeyEdge(
+    inGame ? GP_GameKey(K_ABUTTON, K_SPACE) : (inMenu ? K_ENTER : K_SPACE),
+    GP_ButtonDown(gp, 0),
+    _gpPrev,
+    "a",
+  );
   // B: Escape
-  GP_KeyEdge(K_ESCAPE, GP_ButtonDown(gp, 1), _gpPrev, "b");
+  GP_KeyEdge(
+    inGame ? GP_GameKey(K_BBUTTON, K_ESCAPE) : K_ESCAPE,
+    GP_ButtonDown(gp, 1),
+    _gpPrev,
+    "b",
+  );
   // X: Reload (default 'r')
-  GP_KeyEdge("r".charCodeAt(0), GP_ButtonDown(gp, 2), _gpPrev, "x");
+  const keyR = "r".charCodeAt(0);
+  GP_KeyEdge(
+    inGame ? GP_GameKey(K_XBUTTON, keyR) : keyR,
+    GP_ButtonDown(gp, 2),
+    _gpPrev,
+    "x",
+  );
   // Y: Toggle score (default Tab)
-  GP_KeyEdge(K_TAB, GP_ButtonDown(gp, 3), _gpPrev, "y");
+  GP_KeyEdge(
+    inGame ? GP_GameKey(K_YBUTTON, K_TAB) : K_TAB,
+    GP_ButtonDown(gp, 3),
+    _gpPrev,
+    "y",
+  );
 
   // LB/RB: Shift/Ctrl (often bound to run/crouch in configs; harmless if unbound)
-  GP_KeyEdge(K_SHIFT, GP_ButtonDown(gp, 4), _gpPrev, "lb");
-  GP_KeyEdge(K_CTRL, GP_ButtonDown(gp, 5), _gpPrev, "rb");
+  GP_KeyEdge(
+    inGame ? GP_GameKey(K_LSHOULDER, K_SHIFT) : K_SHIFT,
+    GP_ButtonDown(gp, 4),
+    _gpPrev,
+    "lb",
+  );
+  GP_KeyEdge(
+    inGame ? GP_GameKey(K_RSHOULDER, K_CTRL) : K_CTRL,
+    GP_ButtonDown(gp, 5),
+    _gpPrev,
+    "rb",
+  );
 
   // Triggers: jump/attack (in-game), Enter/attack (menu)
   const ltDown = GP_ButtonValue(gp, 6) > 0.5;
   const rtDown = GP_ButtonValue(gp, 7) > 0.5;
-  GP_KeyEdge(inMenu ? K_ENTER : K_SPACE, ltDown, _gpPrev, "lt");
-  GP_KeyEdge(K_MOUSE1, rtDown, _gpPrev, "rt");
+  GP_KeyEdge(
+    inGame ? GP_GameKey(K_LTRIGGER, K_SPACE) : (inMenu ? K_ENTER : K_SPACE),
+    ltDown,
+    _gpPrev,
+    "lt",
+  );
+  GP_KeyEdge(
+    inGame ? GP_GameKey(K_RTRIGGER, K_MOUSE1) : K_MOUSE1,
+    rtDown,
+    _gpPrev,
+    "rt",
+  );
 
   // Back/Start: Escape
   GP_KeyEdge(K_ESCAPE, GP_ButtonDown(gp, 8), _gpPrev, "back");
   GP_KeyEdge(K_ESCAPE, GP_ButtonDown(gp, 9), _gpPrev, "start");
+
+  // Stick clicks: only their controller keys, in game
+  GP_KeyEdge(inGame ? K_LTHUMB : 0, GP_ButtonDown(gp, 10), _gpPrev, "ls");
+  GP_KeyEdge(inGame ? K_RTHUMB : 0, GP_ButtonDown(gp, 11), _gpPrev, "rs");
 
   // D-pad: arrow keys
   GP_KeyEdge(K_UPARROW, GP_ButtonDown(gp, 12), _gpPrev, "du");
@@ -734,6 +820,13 @@ const joy_exponent = {
 };
 const joy_exponent_move = {
   name: "joy_exponent_move",
+  string: "1",
+  value: 1,
+  archive: true,
+};
+// QuakeSpasm in_sdl.c (Ironwail dropped it): 0 ignores the gamepad
+const joy_enable = {
+  name: "joy_enable",
   string: "1",
   value: 1,
   archive: true,
@@ -1062,6 +1155,12 @@ function mouseButtonToKey(button) {
       return K_MOUSE2;
     case 1:
       return K_MOUSE3;
+    // QuakeSpasm in_sdl.c: SDL_BUTTON_X1 (back) is K_MOUSE4 and
+    // SDL_BUTTON_X2 (forward) K_MOUSE5
+    case 3:
+      return K_MOUSE4;
+    case 4:
+      return K_MOUSE5;
     default:
       return 0;
   }
@@ -1089,18 +1188,21 @@ function IN_MenuMousemove(event, button) {
 function handleMouseDown(event) {
   if (!in_initialized) return;
 
-  // Back/forward buttons would navigate away from the game
-  if (event.button === 3 || event.button === 4) {
-    event.preventDefault();
-    return;
-  }
-
   // Unlock audio on first user gesture
   S_UnlockAudio();
   gamepadLastActive = false;
 
   const qkey = mouseButtonToKey(event.button);
   if (qkey === 0) return;
+
+  // The back and forward buttons would navigate away from the game. They
+  // are only keys: no menu click, pointer lock or touch handling.
+  if (qkey === K_MOUSE4 || qkey === K_MOUSE5) {
+    event.preventDefault();
+    mouse_buttonstate |= 1 << event.button;
+    Key_Event(qkey, true);
+    return;
+  }
 
   // Ironwail: mouse buttons in menus are keys (MOUSE1 selects, MOUSE2
   // goes back, and both can be bound in Customize Controls). Ironwail's
@@ -1111,7 +1213,7 @@ function handleMouseDown(event) {
     key_dest === key_menu && !touchMode && !pointerLocked && !Key_ModalActive()
   ) {
     IN_MenuMousemove(event, true);
-    mouse_buttonstate |= 1 << (qkey - K_MOUSE1);
+    mouse_buttonstate |= 1 << event.button;
     Key_Event(qkey, true);
     return;
   }
@@ -1155,7 +1257,7 @@ function handleMouseDown(event) {
     }
   }
 
-  mouse_buttonstate |= 1 << (qkey - K_MOUSE1);
+  mouse_buttonstate |= 1 << event.button;
   Key_Event(qkey, true);
 }
 
@@ -1164,15 +1266,13 @@ function handleMouseUp(event) {
   if (!in_initialized) return;
   gamepadLastActive = false;
 
-  if (event.button === 3 || event.button === 4) {
-    event.preventDefault();
-    return;
-  }
-
   const qkey = mouseButtonToKey(event.button);
   if (qkey === 0) return;
 
-  const bit = 1 << (qkey - K_MOUSE1);
+  // Back and forward: see handleMouseDown
+  if (qkey === K_MOUSE4 || qkey === K_MOUSE5) event.preventDefault();
+
+  const bit = 1 << event.button;
   if ((mouse_buttonstate & bit) === 0) return; // went down in a menu, or before a clear
 
   mouse_buttonstate &= ~bit;
@@ -1448,6 +1548,9 @@ export function IN_Init(element) {
     Home: K_HOME,
     End: K_END,
     Pause: K_PAUSE,
+    // Ironwail's PRINTSCREEN. Browsers often send no keydown for it (Windows
+    // sends only the keyup), so a bind may never fire.
+    PrintScreen: K_PRINTSCREEN,
     // Numpad, exactly as WinQuake vid_win.c scantokey[] maps scancodes 0x47-0x53
     // (7/8/9 Home/Up/PgUp, 4/6 Left/Right, 1/2/3 End/Down/PgDn, 0 Ins, . Del),
     // 0x4A/0x4E/0x4C as '-', '+', '5', extended 0x1C as Enter, 0x35/0x37 as '/', '*'.
@@ -1482,6 +1585,7 @@ export function IN_Init(element) {
   Cvar_RegisterVariable(joy_exponent);
   Cvar_RegisterVariable(joy_exponent_move);
   Cvar_RegisterVariable(joy_rumble);
+  Cvar_RegisterVariable(joy_enable);
   Cvar_RegisterVariable(xr_snapturn);
   Cvar_RegisterVariable(xr_turnspeed);
   Touch_RegisterCvars();

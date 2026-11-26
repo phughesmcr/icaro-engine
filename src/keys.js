@@ -59,6 +59,10 @@ export const K_PGUP = 150;
 export const K_HOME = 151;
 export const K_END = 152;
 
+// Ironwail's key number (its keycode_t enum); QuakeSpasm has no PRINTSCREEN.
+// Icaro has no keypad codes, so 153-172 are free.
+export const K_PRINTSCREEN = 173;
+
 export const K_PAUSE = 255;
 
 // mouse buttons generate virtual keys
@@ -109,6 +113,24 @@ export const K_AUX32 = 238;
 // JACK: Intellimouse(c) Mouse Wheel Support
 export const K_MWHEELUP = 239;
 export const K_MWHEELDOWN = 240;
+
+// QuakeSpasm keys.h: thumb buttons
+export const K_MOUSE4 = 241;
+export const K_MOUSE5 = 242;
+
+// QuakeSpasm keys.h: SDL2 game controller keys. Ironwail has the same names
+// but renumbers its keys; these are QuakeSpasm's, which keep id's K_JOY and
+// K_AUX numbers.
+export const K_LTHUMB = 243;
+export const K_RTHUMB = 244;
+export const K_LSHOULDER = 245;
+export const K_RSHOULDER = 246;
+export const K_ABUTTON = 247;
+export const K_BBUTTON = 248;
+export const K_XBUTTON = 249;
+export const K_YBUTTON = 250;
+export const K_LTRIGGER = 251;
+export const K_RTRIGGER = 252;
 
 // KEY DESTINATION MODES
 
@@ -232,6 +254,10 @@ const keynames = [
   { name: "MOUSE1", keynum: K_MOUSE1 },
   { name: "MOUSE2", keynum: K_MOUSE2 },
   { name: "MOUSE3", keynum: K_MOUSE3 },
+  { name: "MOUSE4", keynum: K_MOUSE4 }, // QuakeSpasm
+  { name: "MOUSE5", keynum: K_MOUSE5 }, // QuakeSpasm
+
+  { name: "PRINTSCREEN", keynum: K_PRINTSCREEN }, // Ironwail
 
   { name: "JOY1", keynum: K_JOY1 },
   { name: "JOY2", keynum: K_JOY2 },
@@ -277,6 +303,19 @@ const keynames = [
   { name: "MWHEELDOWN", keynum: K_MWHEELDOWN },
 
   { name: "SEMICOLON", keynum: 59 }, // ';' - because a raw semicolon separates commands
+
+  // QuakeSpasm: game controller buttons. The d-pad sends the arrow keys, as
+  // in QuakeSpasm (Ironwail's DPAD_* names are not ported).
+  { name: "LTHUMB", keynum: K_LTHUMB },
+  { name: "RTHUMB", keynum: K_RTHUMB },
+  { name: "LSHOULDER", keynum: K_LSHOULDER },
+  { name: "RSHOULDER", keynum: K_RSHOULDER },
+  { name: "ABUTTON", keynum: K_ABUTTON },
+  { name: "BBUTTON", keynum: K_BBUTTON },
+  { name: "XBUTTON", keynum: K_XBUTTON },
+  { name: "YBUTTON", keynum: K_YBUTTON },
+  { name: "LTRIGGER", keynum: K_LTRIGGER },
+  { name: "RTRIGGER", keynum: K_RTRIGGER },
 ];
 
 // LINE TYPING INTO THE CONSOLE

@@ -35,6 +35,7 @@ import {
   Draw_SetCanvasScale,
   Draw_TileClear,
   GL_Set2D,
+  scr_conalpha,
 } from "./gl_draw.js";
 import {
   Cvar_RegisterVariable,
@@ -108,6 +109,14 @@ export const scr_sbarscale = {
 };
 export const scr_conscale = {
   name: "scr_conscale",
+  string: "0",
+  value: 0,
+  archive: true,
+};
+// FitzQuake/Ironwail CANVAS_CROSSHAIR scale. Deviation as for the two above:
+// Ironwail defaults it to 1; 0 here draws the crosshair at the UI scale.
+export const scr_crosshairscale = {
+  name: "scr_crosshairscale",
   string: "0",
   value: 0,
   archive: true,
@@ -581,6 +590,8 @@ export function SCR_Init() {
   Cvar_RegisterVariable(scr_sbaralpha);
   Cvar_RegisterVariable(scr_sbarscale);
   Cvar_RegisterVariable(scr_conscale);
+  Cvar_RegisterVariable(scr_crosshairscale);
+  Cvar_RegisterVariable(scr_conalpha); // Ironwail registers it in Draw_Init
   Cvar_RegisterVariable(scr_usekfont); // 2021 re-release
   R_WaterWarp_Init();
 
@@ -653,11 +664,26 @@ export function SCR_DrawCrosshair() {
     return;
   }
 
-  Draw_Character(
-    scr_vrect.x + Math.floor(scr_vrect.width / 2) - 4,
-    scr_vrect.y + Math.floor(scr_vrect.height / 2) - 4,
-    43,
-  ); // '+'
+  const cx = scr_vrect.x + Math.floor(scr_vrect.width / 2);
+  const cy = scr_vrect.y + Math.floor(scr_vrect.height / 2);
+
+  if (!(scr_crosshairscale.value > 0)) {
+    Draw_Character(cx - 4, cy - 4, 43); // '+'
+    return;
+  }
+
+  // Ironwail GL_SetCanvas (CANVAS_CROSSHAIR): the same centre, drawn on a
+  // canvas of scr_crosshairscale physical pixels per pixel. Deviation: the
+  // scale is clamped to width / 320, as the other canvas scales are here,
+  // not to Ironwail's 10.
+  const ui = Draw_GetUIScale();
+  const scale = Draw_GetCanvasScale(scr_crosshairscale.value);
+  Draw_SetCanvasScale(scr_crosshairscale.value);
+  try {
+    Draw_Character(cx * ui / scale - 4, cy * ui / scale - 4, 43);
+  } finally {
+    Draw_SetCanvasScale(0);
+  }
 }
 
 function SCR_DrawPause() {

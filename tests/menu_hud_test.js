@@ -100,6 +100,14 @@ Deno.test("hovering moves the cursor and MOUSE1 selects the hovered row", () => 
     menu.M_Keydown(keys.K_MOUSE2);
     assertEqual(menu.m_state, menu.m_main, "MOUSE2 goes back");
 
+    // Ironwail: the mouse back button (MOUSE4) goes back too; MOUSE5 does
+    // nothing
+    cmd.Cmd_ExecuteString("menu_multiplayer");
+    menu.M_Keydown(keys.K_MOUSE5);
+    assertEqual(menu.m_state, menu.m_multiplayer, "MOUSE5 does nothing");
+    menu.M_Keydown(keys.K_MOUSE4);
+    assertEqual(menu.m_state, menu.m_main, "MOUSE4 goes back");
+
     // A MOUSE1 without a mouse click (the gamepad's right trigger) doesn't
     // click where the mouse last was
     move(100, 32 + 2 * 20 + 10); // Options
