@@ -12,7 +12,8 @@ that points its `/mp/lobby` here lists only rooms hosted in browsers.
 ## Files
 
 - `wrangler.jsonc`: the Worker, its Durable Object binding (`LOBBY`) and the
-  SQLite migration the Free plan needs. No assets.
+  SQLite migration the Free plan needs, and the `/mp/lobby` route. No assets:
+  the game page is the client Worker's (`../client/`).
 - `src/worker.js`: routes `<prefix>/lobby` to the Durable Object and upgrades
   the WebSocket. Workers-only code.
 - `src/lobby_core.js`: the Durable Object's logic: hibernation-safe session
@@ -29,11 +30,15 @@ game data in `static/` included.
 cd cloudflare/lobby && npx wrangler deploy
 ```
 
-The Worker is then at `https://icaro-lobby.<account>.workers.dev/lobby`. Clients
-reach it as their lobby with `?server=wss://icaro-lobby.<account>.workers.dev`.
-To serve it at `/mp/lobby` on your own zone instead, add a route
-(`"routes": [ { "pattern": "example.com/mp/lobby*", "zone_name": "example.com" } ]`)
-or set one in the dashboard.
+The Worker is then at `https://icaro-lobby.<account>.workers.dev/lobby`, and at
+`https://quake.anglezarke.games/mp/lobby`, the lobby the game page there uses by
+default, through the route in `wrangler.jsonc`. Clients elsewhere reach it with
+`?server=wss://icaro-lobby.<account>.workers.dev`. For another zone, change the
+route's `pattern` and `zone_name`. The route needs a proxied DNS record for the
+hostname; the client Worker's Custom Domain (`../client/`) is one. While a
+Cloudflare Tunnel still serves that hostname, the route takes `/mp/lobby` from
+it as soon as it is deployed, and the Deno lobby behind the tunnel stops
+receiving lobby connections.
 
 ## TURN
 

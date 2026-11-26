@@ -51,9 +51,16 @@ process per room. It was forked from mrdoob's three-quake.
 - `cloudflare/lobby/`: the lobby Worker and Durable Object for rooms hosted in
   browsers, with TURN credentials and the Turnstile check (its README says how
   to deploy). `src/worker.js` imports `cloudflare:workers`, so tests run
-  `src/lobby_core.js` instead. Run wrangler only from that folder: from the
-  repository root it offers to upload the whole repository, registered data
+  `src/lobby_core.js` instead. Its route serves it at
+  `quake.anglezarke.games/mp/lobby`. Run wrangler only from that folder: from
+  the repository root it offers to upload the whole repository, registered data
   included.
+- `cloudflare/client/`: the Worker that serves the game page at
+  `quake.anglezarke.games` as static assets (no script). `build.js`
+  (`deno task client-build`) fills its gitignored `dist/` from an allowlist of
+  tracked files with a deny check for registered data, and wrangler deploys only
+  `dist/`; its README gives the deploy steps. `tests/client_build_test.js`
+  covers the rules.
 - `docs/`: design notes, reviews and research; `docs/README.md` says what each
   one covers. Most are snapshots taken at a past revision, so check their claims
   against the code before relying on them.
@@ -108,10 +115,14 @@ process per room. It was forked from mrdoob's three-quake.
 - `deno task check` type-checks `main.js`, the server entry points (the MCP
   server `server/agent_mcp.ts` included), the room process manager
   (`server/room_process_manager.ts`), the WebSocket server driver
-  (`server/net_websocket_server.ts`) and the two TypeScript tests
+  (`server/net_websocket_server.ts`), the client Worker's build script
+  (`cloudflare/client/build.js`) and the two TypeScript tests
   (`tests/net_webtransport_server_test.ts`, `tests/quic_listen_test.ts`).
 - `deno task agent-mcp` runs the agent MCP server on stdio (reads only
   `static/`; no network).
+- `deno task client-build` fills `cloudflare/client/dist/` for the client Worker
+  (runs `git`; refuses uncommitted client files unless given `--allow-dirty`).
+  Deploy with `cd cloudflare/client && npx wrangler deploy`.
 - `deno task lobby` and `deno task game` need `server/cert.pem` and
   `server/key.pem` (see `server/README.md`). Both are gitignored.
 - To run the client, `deno task serve` and open http://localhost:8137/. It is

@@ -221,9 +221,11 @@ choose otherwise:
 
 Without `?server=`, a WebSocket client on a `localhost` page uses
 `ws://127.0.0.1:4433` (`deno task lobby`); a page on any other host uses
-`wss://<that host>/mp` (or `ws://` for an `http:` page), which is the Cloudflare
-Tunnel layout below. These parameters are kept in the page URL when a room code
-is added, so a shared link joins over the same transport.
+`wss://<that host>/mp` (or `ws://` for an `http:` page): the Cloudflare Tunnel
+layout below, or the lobby Worker's `/mp/lobby` route (`../cloudflare/lobby/`)
+where the page is the client Worker (`../cloudflare/client/`). These parameters
+are kept in the page URL when a room code is added, so a shared link joins over
+the same transport.
 
 In the console, `connect ws://127.0.0.1:4433` reaches a standalone
 `game_server.js -wsport 4433`, and `connect wss://host/mp?room=ABC123` joins a
@@ -252,6 +254,11 @@ second) behind in acknowledging, and receivers deliver only the newest of
 consecutive queued unreliable messages.
 
 ### Cloudflare Tunnel
+
+This layout needs the machine running `cloudflared` to be on. For
+`quake.anglezarke.games`, the client Worker (`../cloudflare/client/`) and the
+lobby Worker's route replace it, with rooms hosted in browsers only; a Worker
+route on a tunnelled hostname runs before the tunnel.
 
 A Cloudflare Tunnel carries HTTP and WebSocket only, so players behind one use
 the WebSocket transport. Run the lobby with `-wsport` on the machine that runs

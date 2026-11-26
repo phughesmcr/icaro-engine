@@ -11,6 +11,17 @@
   },
   // SQLite-backed, the only kind the Free plan offers
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Lobby"] }],
+  // The game page's default lobby is /mp/lobby on its own host
+  // (WS_DefaultServer). This route is more specific than the client
+  // Worker's Custom Domain (cloudflare/client/), so it runs in front of it.
+  // workers.dev stays on for ?server=wss://icaro-lobby.<account>.workers.dev.
+  "routes": [
+    {
+      "pattern": "quake.anglezarke.games/mp/lobby*",
+      "zone_name": "anglezarke.games"
+    }
+  ],
+  "workers_dev": true,
   "vars": {
     // Turnstile on LOBBY_HOST (server/turnstile.js): the game page's
     // hostnames, never localhost here. The check is on only while the
