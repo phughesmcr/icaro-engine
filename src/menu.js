@@ -290,7 +290,7 @@ const levels = [
   { name: "e1m7", description: "The House of Chthon" },
   { name: "e1m8", description: "Ziggurat Vertigo" },
 
-  // Community deathmatch maps (freely distributable)
+  // Community deathmatch maps (each under its own terms: THIRD_PARTY.md)
   { name: "spinev2", description: "Spine v2 (Headshot)" }, // 9
   { name: "rapture1", description: "Imminent Boom (Danimal)" },
   { name: "naked5", description: "Kinky Afro (Gandhi)" },
