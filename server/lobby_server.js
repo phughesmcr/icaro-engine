@@ -21,9 +21,11 @@ import {
 	LOBBY_HEARTBEAT,
 	LOBBY_ROOMS,
 	LOBBY_ERROR,
+	LOBBY_VERIFY,
 	Lobby_WantsRtcRooms,
 	createRateLimiter,
 } from './lobby_rtc.js';
+import { Turnstile_Check, Turnstile_ConfigFrom, TURNSTILE_ACTION_CREATE_ROOM } from './turnstile.js';
 import {
 	RoomManager_SetConfig,
 	RoomManager_CreateRoom,
@@ -111,28 +113,59 @@ export { createRateLimiter };
 const perIpCreateLimiter = createRateLimiter( LIMITS.createsPerIpPerWindow, LIMITS.createWindowMs );
 const globalCreateLimiter = createRateLimiter( LIMITS.createsGlobalPerWindow, LIMITS.createWindowMs );
 
+const TOO_MANY_CREATES = 'Too many rooms created. Wait a minute and try again.';
+
 /**
  * Check every room-creation limit for client `ip`. Returns null if allowed
  * (and consumes rate-limit budget), else an error message for the client.
  * Budget is spent on every allowed attempt, including ones whose room then
- * fails to start: the spawn cost is paid either way.
+ * fails to start: the spawn cost is paid either way. ipBudgetTaken: the
+ * request already spent its per-IP budget (before Siteverify).
  */
-export function checkCreateAllowed( ip, now = Date.now() ) {
+export function checkCreateAllowed( ip, now = Date.now(), ipBudgetTaken = false ) {
 	if ( RoomManager_GetRoomCount() >= MAX_ROOMS ) {
 		return 'Server room limit reached (' + MAX_ROOMS + ' rooms). Try again later.';
 	}
 	if ( RoomManager_CountRoomsByOwner( ip ) >= LIMITS.maxRoomsPerIp ) {
 		return 'You already have ' + LIMITS.maxRoomsPerIp + ' rooms open. Close one first.';
 	}
-	if ( perIpCreateLimiter.canTake( ip, now ) === false ) {
-		return 'Too many rooms created. Wait a minute and try again.';
+	if ( ipBudgetTaken === false && perIpCreateLimiter.canTake( ip, now ) === false ) {
+		return TOO_MANY_CREATES;
 	}
 	if ( globalCreateLimiter.canTake( '*', now ) === false ) {
 		return 'Server is busy creating rooms. Try again shortly.';
 	}
-	perIpCreateLimiter.tryTake( ip, now );
+	if ( ipBudgetTaken === false ) perIpCreateLimiter.tryTake( ip, now );
 	globalCreateLimiter.tryTake( '*', now );
 	return null;
+}
+
+// Turnstile check on room creation (server/turnstile.js). Off (null) unless
+// main() finds TURNSTILE_SITEKEY; tests set it with Lobby_SetTurnstile.
+let turnstileConfig = null;
+let turnstileFetch = ( ...args ) => globalThis.fetch( ...args );
+
+/** Set the Turnstile settings (null turns the check off) and the fetch it uses. */
+export function Lobby_SetTurnstile( config, fetchFn = ( ...args ) => globalThis.fetch( ...args ) ) {
+	turnstileConfig = config;
+	turnstileFetch = fetchFn;
+}
+
+function Lobby_Turnstile( token, ip, action ) {
+	return Turnstile_Check( turnstileConfig, token, ip, action, turnstileFetch );
+}
+
+// The settings from the environment. Needs --allow-env for the three
+// TURNSTILE_* names; without it the check stays off.
+function Lobby_TurnstileConfigFromEnv() {
+	try {
+		return Turnstile_ConfigFrom( ( name ) => Deno.env.get( name ) );
+	} catch ( error ) {
+		// Without the permission the lobby can't tell whether a sitekey is
+		// set, so say plainly that rooms are unprotected
+		Sys_Printf( 'WARNING: Turnstile is OFF, room creation is unprotected: cannot read TURNSTILE_* (%s). Run with --allow-env=TURNSTILE_SITEKEY,TURNSTILE_SECRET,TURNSTILE_HOSTNAMES (deno task lobby does).\n', error.message );
+		return null;
+	}
 }
 
 /**
@@ -162,6 +195,8 @@ export function parseCreateConfig( data ) {
 	// Game Options menu rows: whitelisted and clamped; absent when not sent
 	const gameOptions = RoomManager_SanitizeGameOptions( config.options );
 	if ( gameOptions !== undefined ) parsed.gameOptions = gameOptions;
+	// Turnstile token (server/turnstile.js); not part of the room's config
+	if ( typeof config.turnstile === 'string' ) parsed.turnstile = config.turnstile;
 	return parsed;
 }
 
@@ -173,6 +208,7 @@ const ROOM_ID_PATTERN = /^[A-Z0-9]{6}$/;
 export const rtcLobby = new RtcLobby( {
 	isCodeTaken: ( code ) => RoomManager_HasRoom( code ),
 	limits: { ...RTC_LOBBY_LIMITS, maxSessions: 256, maxSessionsPerIp: 8 },
+	turnstile: ( token, ip, action ) => Lobby_Turnstile( token, ip, action ),
 } );
 // Session id -> socket, for the long-lived lobby sockets rtcLobby knows
 const rtcSockets = new Map();
@@ -310,6 +346,10 @@ function errorReply( message ) {
 	return { type: LOBBY_ERROR, data: new TextEncoder().encode( message ) };
 }
 
+function verifyReply( challenge ) {
+	return { type: LOBBY_VERIFY, data: new TextEncoder().encode( JSON.stringify( challenge ) ) };
+}
+
 function roomInfoReply( room ) {
 	return { type: LOBBY_ROOMS, data: new TextEncoder().encode( JSON.stringify( roomInfoFor( room ) ) ) };
 }
@@ -342,8 +382,30 @@ export async function handleLobbyRequest( msg, ip, address ) {
 				Sys_Printf( 'CREATE from %s rejected: %s\n', address, e.message );
 				return errorReply( e.message );
 			}
+			const { turnstile, ...roomConfig } = config;
+			config = roomConfig;
 
-			const denied = checkCreateAllowed( ip );
+			// A request with a token spends its per-IP budget before
+			// Siteverify sees it, so bad tokens can't make the lobby call
+			// Siteverify without bound. The global budget is spent only by
+			// verified requests, so bots can't starve everyone else.
+			let ipBudgetTaken = false;
+			if ( turnstileConfig !== null ) {
+				if ( typeof turnstile === 'string' && turnstile !== '' ) {
+					if ( perIpCreateLimiter.tryTake( ip ) === false ) {
+						Sys_Printf( 'CREATE from %s rejected: %s\n', address, TOO_MANY_CREATES );
+						return errorReply( TOO_MANY_CREATES );
+					}
+					ipBudgetTaken = true;
+				}
+				const gate = await Lobby_Turnstile( turnstile, ip, TURNSTILE_ACTION_CREATE_ROOM );
+				if ( gate !== null ) {
+					Sys_Printf( 'CREATE from %s: %s\n', address, gate.challenge !== undefined ? 'Turnstile token requested' : 'Turnstile token refused' );
+					return gate.challenge !== undefined ? verifyReply( gate.challenge ) : errorReply( gate.error );
+				}
+			}
+
+			const denied = checkCreateAllowed( ip, Date.now(), ipBudgetTaken );
 			if ( denied !== null ) {
 				Sys_Printf( 'CREATE from %s rejected: %s\n', address, denied );
 				return errorReply( denied );
@@ -374,10 +436,13 @@ export async function handleLobbyRequest( msg, ip, address ) {
 			let errorMsg = 'Room not found. The game may have ended.';
 
 			// A valid room id link to an expired room re-creates it, under
-			// the same limits as LOBBY_CREATE.
+			// the same limits as LOBBY_CREATE. A JOIN carries no Turnstile
+			// token, so with the check on, expired links stay expired.
 			if ( room === null && ROOM_ID_PATTERN.test( roomId ) && RoomManager_HasRoom( roomId ) ) {
 				// Another join is re-creating this room right now
 				errorMsg = 'Room is starting. Try again in a moment.';
+			} else if ( room === null && ROOM_ID_PATTERN.test( roomId ) && turnstileConfig !== null ) {
+				Sys_Printf( 'JOIN %s from %s: not re-creating an expired room without Turnstile\n', roomId, address );
 			} else if ( room === null && ROOM_ID_PATTERN.test( roomId ) ) {
 				const denied = checkCreateAllowed( ip );
 				if ( denied !== null ) {
@@ -1052,6 +1117,15 @@ async function main() {
 	} );
 
 	parseArgs();
+
+	Lobby_SetTurnstile( Lobby_TurnstileConfigFromEnv() );
+	if ( turnstileConfig === null ) {
+		Sys_Printf( 'Turnstile: off (no TURNSTILE_SITEKEY); rooms are created without a check\n' );
+	} else if ( turnstileConfig.secret === '' || turnstileConfig.hostnames.size === 0 ) {
+		Sys_Printf( 'Turnstile: TURNSTILE_SECRET or TURNSTILE_HOSTNAMES is missing; the challenge is sent but every token is refused\n' );
+	} else {
+		Sys_Printf( 'Turnstile: room creation needs a token from %s\n', [ ...turnstileConfig.hostnames ].join( ', ' ) );
+	}
 
 	// Kill room processes on shutdown. Room servers also exit by themselves
 	// when the lobby dies (their stdin pipe closes), which covers SIGKILL

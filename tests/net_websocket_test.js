@@ -885,6 +885,111 @@ Deno.test( 'WS: room list over the lobby socket', async () => {
 
 } );
 
+// A lobby that answers each request on its own socket with the next of
+// `replies` ([ type, body ]), recording the requests
+function scriptedLobby( replies ) {
+
+	const requests = [];
+	socketFactory = ( url ) => {
+
+		const pair = createFakeWebSocketPair( url );
+		pair.server.onmessage = ( event ) => {
+
+			const bytes = new Uint8Array( event.data );
+			requests.push( { type: bytes[ 0 ], body: JSON.parse( new TextDecoder().decode( bytes.subarray( 3 ) ) ) } );
+			const [ type, value ] = replies[ requests.length - 1 ];
+			const data = new TextEncoder().encode( JSON.stringify( value ) );
+			const reply = new Uint8Array( 3 + data.length );
+			reply[ 0 ] = type;
+			reply[ 1 ] = data.length & 0xff;
+			reply[ 2 ] = data.length >> 8;
+			reply.set( data, 3 );
+			pair.server.send( reply );
+
+		};
+		pair.client.open();
+		return pair.client;
+
+	};
+	return requests;
+
+}
+
+Deno.test( 'NET_CreateRoom: LOBBY_VERIFY gets a Turnstile token, then the create is sent again with it', async () => {
+
+	const challenge = { sitekey: 'sitekey', action: 'create_room' };
+	const requests = scriptedLobby( [ [ 0x86, challenge ], [ 0x81, { id: 'ROOM01', map: 'e1m1' } ] ] );
+	const asked = [];
+	netMain.NET_SetTurnstileTokenSource( ( sitekey, action ) => {
+
+		asked.push( sitekey + '/' + action );
+		return Promise.resolve( 'token-1' );
+
+	} );
+
+	try {
+
+		const { result: room } = await captureOutput( () => netMain.NET_CreateRoom( 'wss://quake.example/mp', { map: 'e1m1', maxPlayers: 4 } ) );
+		assertEqual( room.id, 'ROOM01', 'room created' );
+		assertEqual( asked.join( ',' ), 'sitekey/create_room', 'widget shown once for the challenge' );
+		assertEqual( requests.length, 2, 'two requests' );
+		assertEqual( requests[ 0 ].type, 0x03, 'LOBBY_CREATE' );
+		assertEqual( requests[ 0 ].body.turnstile, undefined, 'first without a token' );
+		assertEqual( requests[ 1 ].body.turnstile, 'token-1', 'second with the token' );
+		assertEqual( requests[ 1 ].body.maxPlayers, 4, 'same settings' );
+
+	} finally {
+
+		netMain.NET_SetTurnstileTokenSource( null );
+
+	}
+
+} );
+
+Deno.test( 'NET_CreateRoom: a lobby that asks again, or a cancelled widget, fails the create', async () => {
+
+	const challenge = { sitekey: 'sitekey', action: 'create_room' };
+	try {
+
+		scriptedLobby( [ [ 0x86, challenge ], [ 0x86, challenge ] ] );
+		netMain.NET_SetTurnstileTokenSource( () => Promise.resolve( 'token-1' ) );
+		let error = null;
+		await captureOutput( () => netMain.NET_CreateRoom( 'wss://quake.example/mp', {} ).catch( ( e ) => {
+
+			error = e;
+
+		} ) );
+		assertEqual( error?.message, 'Verification failed. Try again.', 'second challenge' );
+
+		const requests = scriptedLobby( [ [ 0x86, challenge ] ] );
+		netMain.NET_SetTurnstileTokenSource( () => Promise.reject( new Error( 'Verification cancelled' ) ) );
+		error = null;
+		await captureOutput( () => netMain.NET_CreateRoom( 'wss://quake.example/mp', {} ).catch( ( e ) => {
+
+			error = e;
+
+		} ) );
+		assertEqual( error?.message, 'Verification cancelled', 'cancelled' );
+		assertEqual( requests.length, 1, 'no second request' );
+
+		// A malformed challenge is an error, not a widget
+		scriptedLobby( [ [ 0x86, { sitekey: '' } ] ] );
+		error = null;
+		await captureOutput( () => netMain.NET_CreateRoom( 'wss://quake.example/mp', {} ).catch( ( e ) => {
+
+			error = e;
+
+		} ) );
+		assertEqual( error?.message, 'Invalid verification request from server', 'malformed' );
+
+	} finally {
+
+		netMain.NET_SetTurnstileTokenSource( null );
+
+	}
+
+} );
+
 Deno.test( 'WS: the connect deadline closes a socket that never opens', async () => {
 
 	client.WS_SetTimeouts( { connectMs: 150 } );

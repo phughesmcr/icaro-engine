@@ -19,7 +19,7 @@
 //
 // Frames are [type u8][len u16le][payload], as in server/lobby_server.js.
 // JSON payloads:
-//   LOBBY_HOST       { map, maxPlayers, hostName, options, public }
+//   LOBBY_HOST       { map, maxPlayers, hostName, options, public, turnstile }
 //   LOBBY_HEARTBEAT  { players }                 host only, every 30 s
 //   LOBBY_SIGNAL     { to, kind, data }          kind: offer | answer | candidate
 //   LOBBY_LIST       { rtc: true }               to list public rooms hosted in
@@ -29,10 +29,13 @@
 //   LOBBY_ROOMS          the room record, after LOBBY_HOST or LOBBY_JOIN
 //   LOBBY_ICE            RTCIceServer[] for this client, after LOBBY_ROOMS
 //   LOBBY_SIGNAL_RELAY   { from, kind, data }
+//   LOBBY_VERIFY         { sitekey, action }: send the request again with a
+//                        Turnstile token in `turnstile` (server/turnstile.js)
 //   LOBBY_ERROR          text
 // A joiner sees signals from the room under the code it addressed them to; a
 // host sees each joiner under a peer id the lobby made up.
 
+import { TURNSTILE_ACTION_CREATE_ROOM } from './turnstile.js';
 import {
 	DEFAULT_MAP,
 	Room_ClampMaxPlayers,
@@ -51,6 +54,7 @@ export const LOBBY_ROOMS = 0x81;
 export const LOBBY_ERROR = 0x82;
 export const LOBBY_ICE = 0x84;
 export const LOBBY_SIGNAL_RELAY = 0x85;
+export const LOBBY_VERIFY = 0x86;
 
 export const MAX_FRAME_PAYLOAD = 0xffff;
 
@@ -238,14 +242,18 @@ export class RtcLobby {
 	 * iceServers( ip, role ): RTCIceServer[] (or a Promise of one) for a
 	 * client that has just hosted or joined. isCodeTaken( code ): true if the
 	 * caller already uses a room code. randomBytes( n ): n random bytes.
+	 * turnstile( token, ip, action ): Turnstile_Check's answer for a
+	 * LOBBY_HOST's token (server/turnstile.js), or null for no check.
 	 */
 	constructor( {
 		iceServers = () => RTC_DEFAULT_ICE_SERVERS,
 		isCodeTaken = () => false,
 		randomBytes = ( n ) => crypto.getRandomValues( new Uint8Array( n ) ),
 		limits = RTC_LOBBY_LIMITS,
+		turnstile = null,
 	} = {} ) {
 		this.iceServers = iceServers;
+		this.turnstile = turnstile;
 		this.isCodeTaken = isCodeTaken;
 		this.randomBytes = randomBytes;
 		this.limits = limits;
@@ -452,13 +460,35 @@ export class RtcLobby {
 			if ( map === null ) return [ _error( s.sid, 'Invalid map name' ) ];
 		}
 
+		// A request with a token spends host budget before Siteverify sees
+		// it, so bad tokens can't make the lobby call Siteverify without
+		// bound. The checks below run after the await, so nothing changes
+		// between them and the room's creation.
+		let budgetTaken = false;
+		if ( this.turnstile !== null ) {
+			if ( typeof config.turnstile === 'string' && config.turnstile !== '' ) {
+				if ( this.hostLimiter.tryTake( s.ip, now ) === false ) {
+					return [ _error( s.sid, 'Too many rooms created. Wait a minute and try again.' ) ];
+				}
+				budgetTaken = true;
+			}
+			const gate = await this.turnstile( config.turnstile, s.ip, TURNSTILE_ACTION_CREATE_ROOM );
+			if ( gate !== null ) {
+				return [ gate.challenge !== undefined ? _frame( s.sid, LOBBY_VERIFY, gate.challenge ) : _error( s.sid, gate.error ) ];
+			}
+			// The socket closed, or another LOBBY_HOST on it won, while
+			// Siteverify answered
+			if ( this.sessions.get( s.sid ) !== s ) return [];
+			if ( s.role !== null ) return [ _error( s.sid, 'This connection already has a room' ) ];
+		}
+
 		if ( this.rooms.size >= this.limits.maxRooms ) {
 			return [ _error( s.sid, 'Room limit reached (' + this.limits.maxRooms + ' rooms). Try again later.' ) ];
 		}
 		if ( this._count( ( o ) => o.ip === s.ip && o.role === 'host' ) >= this.limits.maxHostsPerIp ) {
 			return [ _error( s.sid, 'You already host ' + this.limits.maxHostsPerIp + ' rooms. Close one first.' ) ];
 		}
-		if ( this.hostLimiter.tryTake( s.ip, now ) === false ) {
+		if ( budgetTaken === false && this.hostLimiter.tryTake( s.ip, now ) === false ) {
 			return [ _error( s.sid, 'Too many rooms created. Wait a minute and try again.' ) ];
 		}
 		const code = this._newRoomCode();

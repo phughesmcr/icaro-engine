@@ -246,6 +246,48 @@ Deno.test( 'Cloudflare lobby: TURN credentials from the TURN key, filtered; STUN
 
 } );
 
+Deno.test( 'Cloudflare lobby: with TURNSTILE_SITEKEY, LOBBY_HOST needs a token checked at Siteverify', async () => {
+
+	const env = { TURNSTILE_SITEKEY: 'sitekey', TURNSTILE_SECRET: 'secret', TURNSTILE_HOSTNAMES: 'anglezarke.games' };
+	const siteverify = [];
+	const fetch = ( url, init ) => {
+
+		const body = new URLSearchParams( init.body );
+		siteverify.push( { url, secret: body.get( 'secret' ), token: body.get( 'response' ), ip: body.get( 'remoteip' ) } );
+		const ok = body.get( 'response' ) === 'good';
+		return Promise.resolve( new Response( JSON.stringify( ok
+			? { success: true, action: 'create_room', hostname: 'anglezarke.games' }
+			: { success: false } ) ) );
+
+	};
+	const core = new LobbyCore( fakeCtx(), env, { fetch, now: () => 0 } );
+
+	const asked = await connect( core, '10.0.0.1' );
+	await core.message( asked, frame( LOBBY_HOST, {} ) );
+	assertEqual( asked.sent[ 0 ].type, 0x86, 'LOBBY_VERIFY' );
+	assertEqual( JSON.stringify( asked.sent[ 0 ].body ), '{"sitekey":"sitekey","action":"create_room"}', 'challenge' );
+	assertEqual( asked.closed.code, 1000, 'one request per socket until it hosts' );
+
+	const refused = await connect( core, '10.0.0.1' );
+	await core.message( refused, frame( LOBBY_HOST, { turnstile: 'bad' } ) );
+	assertEqual( refused.sent[ 0 ].body, 'Verification failed. Try again.', 'refused' );
+
+	const hostWs = await connect( core, '10.0.0.1' );
+	await core.message( hostWs, frame( LOBBY_HOST, { turnstile: 'good' } ) );
+	assertEqual( hostWs.sent[ 0 ].type, LOBBY_ROOMS, 'hosted' );
+	assertEqual( hostWs.closed, null, 'the host stays' );
+	assertEqual( siteverify.length, 2, 'Siteverify asked for each token' );
+	assertEqual( siteverify[ 1 ].secret, 'secret', 'the secret from env' );
+	assertEqual( siteverify[ 1 ].ip, '10.0.0.1', 'client IP' );
+
+	// Without the sitekey the check is off
+	const off = new LobbyCore( fakeCtx(), {}, { fetch, now: () => 0 } );
+	const plain = await connect( off, '10.0.0.1' );
+	await off.message( plain, frame( LOBBY_HOST, {} ) );
+	assertEqual( plain.sent[ 0 ].type, LOBBY_ROOMS, 'hosted without a token' );
+
+} );
+
 Deno.test( 'Cloudflare lobby: sockets per IP are capped', () => {
 
 	const core = new LobbyCore( fakeCtx(), {}, { now: () => 0 } );

@@ -238,7 +238,9 @@ driver, behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js`
   As built (`server/lobby_rtc.js`): `LOBBY_HOST` is 0x04, `LOBBY_SIGNAL`
   0x05 and `LOBBY_HEARTBEAT` 0x06; the lobby replies with `LOBBY_ICE`
   (0x84) after `LOBBY_ROOMS`, and relays signals as `LOBBY_SIGNAL_RELAY`
-  (0x85, `{ from, kind, data }`). Browser-hosted rooms have 8-character
+  (0x85, `{ from, kind, data }`). With Turnstile on, a `LOBBY_HOST` must
+  carry a `turnstile` token, and one without gets `LOBBY_VERIFY` (0x86,
+  `{ sitekey, action }`) instead (see "Turnstile" in `server/README.md`). Browser-hosted rooms have 8-character
   codes without 0, O, 1 or I, so they never collide with the Deno lobby's
   6-character codes, and an ended one's code doesn't make the Deno lobby
   re-create it. `LOBBY_LIST` lists them only when its payload is

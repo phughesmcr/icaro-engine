@@ -56,6 +56,7 @@ import {
 	RTC_CanSendMessage, RTC_CanSendUnreliableMessage, RTC_Close,
 	RTC_SetDriverLevel, RTC_IsRoomAddress
 } from './net_webrtc.js';
+import { Turnstile_GetToken } from './turnstile.js';
 
 import { MAX_SCOREBOARD } from './quakedef.js';
 
@@ -669,9 +670,82 @@ export function NET_QueryRooms( serverUrl ) {
 
 }
 
-export function NET_CreateRoom( serverUrl, config ) {
+function _NET_CreateRoomOnce( serverUrl, config ) {
 
 	return _NET_ServerUsesWebSocket( serverUrl ) ? WS_CreateRoom( serverUrl, config ) : WT_CreateRoom( serverUrl, config );
+
+}
+
+// Where NET_CreateRoom gets a Turnstile token; tests replace it
+let net_turnstile_token = Turnstile_GetToken;
+
+export function NET_SetTurnstileTokenSource( getToken ) {
+
+	net_turnstile_token = getToken !== null ? getToken : Turnstile_GetToken;
+
+}
+
+// A lobby that checks room creation answers a first request with
+// LOBBY_VERIFY (server/turnstile.js): show the widget, then ask once more
+// with its token.
+export async function NET_CreateRoom( serverUrl, config ) {
+
+	try {
+
+		return await _NET_CreateRoomOnce( serverUrl, config );
+
+	} catch ( error ) {
+
+		if ( error === null || typeof error !== 'object' || error.turnstile === undefined ) throw error;
+		const token = await net_turnstile_token( error.turnstile.sitekey, error.turnstile.action );
+
+		try {
+
+			return await _NET_CreateRoomOnce( serverUrl, { ...config, turnstile: token } );
+
+		} catch ( retryError ) {
+
+			// The lobby refused the token it asked for
+			if ( retryError !== null && typeof retryError === 'object' && retryError.turnstile !== undefined )
+				throw new Error( 'Verification failed. Try again.' );
+			throw retryError;
+
+		}
+
+	}
+
+}
+
+/*
+===================
+NET_LobbyVerifyError
+
+The error for a LOBBY_VERIFY reply to a room request: its `turnstile` is
+{ sitekey, action }, for NET_CreateRoom.
+===================
+*/
+export function NET_LobbyVerifyError( data ) {
+
+	let challenge = null;
+
+	try {
+
+		challenge = JSON.parse( new TextDecoder().decode( data ) );
+
+	} catch {
+
+		challenge = null;
+
+	}
+
+	if ( challenge === null || typeof challenge !== 'object'
+		|| typeof challenge.sitekey !== 'string' || challenge.sitekey === ''
+		|| typeof challenge.action !== 'string' || challenge.action === '' )
+		return new Error( 'Invalid verification request from server' );
+
+	const error = new Error( 'Verification required' );
+	error.turnstile = { sitekey: challenge.sitekey, action: challenge.action };
+	return error;
 
 }
 

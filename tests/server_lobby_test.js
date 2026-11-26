@@ -16,6 +16,7 @@ import {
 	handleLobbyRequest,
 	rtcLobby,
 	pruneRtcSessions,
+	Lobby_SetTurnstile,
 } from '../server/lobby_server.js';
 import { RTC_LOBBY_LIMITS } from '../server/lobby_rtc.js';
 import { WS_ClientAddress } from '../server/client_address.ts';
@@ -675,5 +676,69 @@ Deno.test( 'serveLobbySocket closes an unknown browser room\'s JOIN, and pruneRt
 		await waitUntil( () => host.pair.client.readyState === WS_CLOSED, 'silent host closed' );
 		assert.equal( rtcLobby.hasRoom( room.id ), false, 'room gone' );
 		assert.equal( rtcLobby.sessions.size, 0, 'no sessions' );
+	} );
+} );
+
+// Turnstile on, with a fake Siteverify that passes only the token 'good'
+function withTurnstile( fn ) {
+	const calls = [];
+	const fetchFn = ( _url, init ) => {
+		const token = new URLSearchParams( init.body ).get( 'response' );
+		calls.push( token );
+		const result = token === 'good'
+			? { success: true, action: 'create_room', hostname: 'anglezarke.games' }
+			: { success: false, 'error-codes': [ 'invalid-input-response' ] };
+		return Promise.resolve( new Response( JSON.stringify( result ) ) );
+	};
+	Lobby_SetTurnstile( { sitekey: 'sitekey', secret: 'secret', hostnames: new Set( [ 'anglezarke.games' ] ) }, fetchFn );
+	return captureConsoleLogAsync( () => fn( calls ) ).finally( () => Lobby_SetTurnstile( null ) );
+}
+
+const decodeReply = ( reply ) => new TextDecoder().decode( reply.data );
+
+Deno.test( 'parseCreateConfig keeps a Turnstile token apart from the room settings', () => {
+	assert.equal( parseCreateConfig( encoder.encode( JSON.stringify( { map: 'e1m1', turnstile: 'tok' } ) ) ).turnstile, 'tok' );
+	assert.equal( 'turnstile' in parseCreateConfig( encoder.encode( JSON.stringify( { map: 'e1m1' } ) ) ), false );
+} );
+
+Deno.test( 'LOBBY_CREATE with Turnstile: no token gets LOBBY_VERIFY; a refused token creates nothing', async () => {
+	await withTurnstile( async ( calls ) => {
+		const create = ( body, ip ) => handleLobbyRequest( { type: 0x03, data: encoder.encode( JSON.stringify( body ) ) }, ip, ip + ':1' );
+
+		const asked = await create( { map: 'e1m1' }, '10.1.0.1' );
+		assert.equal( asked.type, 0x86, 'LOBBY_VERIFY' );
+		assert.deepEqual( JSON.parse( decodeReply( asked ) ), { sitekey: 'sitekey', action: 'create_room' } );
+		assert.equal( calls.length, 0, 'no Siteverify call without a token' );
+
+		const refused = await create( { map: 'e1m1', turnstile: 'bad' }, '10.1.0.1' );
+		assert.equal( refused.type, 0x82, 'LOBBY_ERROR' );
+		assert.equal( decodeReply( refused ), 'Verification failed. Try again.' );
+		assert.deepEqual( calls, [ 'bad' ] );
+	} );
+} );
+
+Deno.test( 'LOBBY_CREATE with Turnstile: tokens spend the per-IP budget first, and only verified requests the global one', async () => {
+	await withTurnstile( async ( calls ) => {
+		const create = ( token, ip ) => handleLobbyRequest( { type: 0x03, data: encoder.encode( JSON.stringify( { turnstile: token } ) ) }, ip, ip + ':1' );
+		for ( let i = 0; i < LIMITS.createsPerIpPerWindow; i++ ) {
+			assert.equal( decodeReply( await create( 'bad', '10.1.0.2' ) ), 'Verification failed. Try again.' );
+		}
+		const over = await create( 'bad', '10.1.0.2' );
+		assert.equal( decodeReply( over ), 'Too many rooms created. Wait a minute and try again.' );
+		assert.equal( calls.length, LIMITS.createsPerIpPerWindow, 'no Siteverify call over the limit' );
+
+		// Bad tokens from many addresses leave the global budget alone
+		for ( let i = 0; i < LIMITS.createsGlobalPerWindow + 1; i++ ) await create( 'bad', '10.2.0.' + i );
+		assert.equal( checkCreateAllowed( '10.3.0.1', Date.now(), true ), null, 'global budget left' );
+	} );
+} );
+
+Deno.test( 'LOBBY_JOIN with Turnstile does not re-create an expired room', async () => {
+	await withTurnstile( async ( calls ) => {
+		const reply = await handleLobbyRequest( { type: 0x02, data: encoder.encode( 'ZQ9X7W' ) }, '10.1.0.4', '10.1.0.4:1' );
+		assert.equal( reply.type, 0x82, 'LOBBY_ERROR' );
+		assert.equal( decodeReply( reply ), 'Room not found. The game may have ended.' );
+		assert.equal( RoomManager_HasRoom( 'ZQ9X7W' ), false, 'nothing started' );
+		assert.equal( calls.length, 0 );
 	} );
 } );

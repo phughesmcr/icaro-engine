@@ -27,6 +27,7 @@ import { SAVEGAME_COMMENT_LENGTH } from './quakedef.js';
 import { registered, standard_quake, rogue, hipnotic } from './common.js';
 import { Sys_PageURL } from './sys.js';
 import { Room_ExitRuleValues } from './room_rules.js';
+import { Turnstile_Cancel } from './turnstile.js';
 
 /*
 ==============================================================================
@@ -1869,7 +1870,8 @@ function M_HostInBrowser( mapName ) {
 M_CancelCreateRoom
 
 Drop a Start Game room request in flight, so its reply is ignored. The lobby
-still creates the room; it is reaped when it stays empty.
+still creates the room; it is reaped when it stays empty. A Turnstile widget
+the request is waiting on is removed.
 ================
 */
 function M_CancelCreateRoom() {
@@ -1879,6 +1881,7 @@ function M_CancelCreateRoom() {
 
 	m_createroom_pending = false;
 	m_createroom_token ++;
+	Turnstile_Cancel();
 	if ( _SCR_EndLoadingPlaque ) _SCR_EndLoadingPlaque();
 
 }

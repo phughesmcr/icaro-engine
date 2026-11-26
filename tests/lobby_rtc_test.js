@@ -16,6 +16,7 @@ import {
 	LOBBY_ERROR,
 	LOBBY_ICE,
 	LOBBY_SIGNAL_RELAY,
+	LOBBY_VERIFY,
 	Lobby_EncodeFrame,
 	Lobby_DecodeFrame,
 	Lobby_WantsRtcRooms,
@@ -416,5 +417,99 @@ Deno.test( 'every frame on a host\'s socket is rate limited, and LOBBY_LIST is c
 	await host( lobby, 'h2', '10.0.0.2', { public: true } );
 	await host( lobby, 'h3', '10.0.0.3', { public: true } );
 	assertEqual( lobby.listRooms( 0 ).length, 2, 'at most maxListedRooms' );
+
+} );
+
+// A turnstile hook that records its calls and answers from verdict( token )
+function fakeTurnstile( verdict ) {
+
+	const calls = [];
+	const turnstile = ( token, ip, action ) => {
+
+		calls.push( { token, ip, action } );
+		return Promise.resolve( verdict( token ) );
+
+	};
+	return { turnstile, calls };
+
+}
+
+const CHALLENGE = { sitekey: 'sitekey', action: 'create_room' };
+
+function turnstileVerdict( token ) {
+
+	if ( token === undefined ) return { challenge: CHALLENGE };
+	return token === 'good' ? null : { error: 'Verification failed. Try again.' };
+
+}
+
+Deno.test( 'LOBBY_HOST with Turnstile: no token gets LOBBY_VERIFY, a good token hosts, a bad one is refused', async () => {
+
+	const { turnstile, calls } = fakeTurnstile( turnstileVerdict );
+	const lobby = makeLobby( { turnstile } );
+
+	lobby.open( 'h1', '10.0.0.1', 0 );
+	const asked = await lobby.handle( 'h1', LOBBY_HOST, json( { map: 'e1m1' } ), 0 );
+	assertEqual( asked.length, 1, 'one frame' );
+	assertEqual( asked[ 0 ].type, LOBBY_VERIFY, 'LOBBY_VERIFY' );
+	assertEqual( JSON.stringify( body( asked[ 0 ] ) ), JSON.stringify( CHALLENGE ), 'challenge' );
+	assertEqual( lobby.rooms.size, 0, 'no room yet' );
+	assertEqual( lobby.sessions.get( 'h1' ).role, null, 'still no role' );
+
+	lobby.open( 'h2', '10.0.0.1', 0 );
+	const refused = await lobby.handle( 'h2', LOBBY_HOST, json( { turnstile: 'bad' } ), 0 );
+	assertEqual( refused[ 0 ].type, LOBBY_ERROR, 'refused' );
+	assertEqual( body( refused[ 0 ] ), 'Verification failed. Try again.', 'refusal text' );
+	assertEqual( lobby.rooms.size, 0, 'no room' );
+
+	const { room } = await host( lobby, 'h3', '10.0.0.1', { map: 'e1m1', turnstile: 'good' } );
+	assert( RTC_ROOM_CODE_PATTERN.test( room.id ), 'hosted' );
+	assertEqual( room.turnstile, undefined, 'token not in the room record' );
+	assertEqual( calls.map( ( c ) => c.token ?? '-' ).join( ',' ), '-,bad,good', 'tokens checked' );
+	assertEqual( calls[ 2 ].ip, '10.0.0.1', 'client IP' );
+	assertEqual( calls[ 2 ].action, 'create_room', 'action' );
+
+} );
+
+Deno.test( 'LOBBY_HOST with Turnstile: each token spends host budget once, and a token-less request spends none', async () => {
+
+	const { turnstile, calls } = fakeTurnstile( turnstileVerdict );
+	const lobby = makeLobby( { turnstile, limits: { hostsPerIpPerWindow: 2, maxHostsPerIp: 5 } } );
+
+	for ( let i = 0; i < 5; i++ ) {
+
+		lobby.open( 'ask' + i, '10.0.0.2', 0 );
+		assertEqual( ( await lobby.handle( 'ask' + i, LOBBY_HOST, json( {} ), 0 ) )[ 0 ].type, LOBBY_VERIFY, 'challenge ' + i );
+
+	}
+
+	lobby.open( 'bad', '10.0.0.2', 0 );
+	await lobby.handle( 'bad', LOBBY_HOST, json( { turnstile: 'bad' } ), 0 );
+	await host( lobby, 'good', '10.0.0.2', { turnstile: 'good' } );
+
+	// One bad and one good token spent the budget of 2: the next is
+	// refused before Siteverify
+	lobby.open( 'over', '10.0.0.2', 0 );
+	const over = await lobby.handle( 'over', LOBBY_HOST, json( { turnstile: 'good' } ), 0 );
+	assertEqual( body( over[ 0 ] ), 'Too many rooms created. Wait a minute and try again.', 'rate limited' );
+	assertEqual( calls.length, 7, 'no Siteverify call over the limit' );
+
+} );
+
+Deno.test( 'LOBBY_HOST with Turnstile: a socket that closes while Siteverify answers gets no room', async () => {
+
+	let release = null;
+	const lobby = makeLobby( { turnstile: () => new Promise( ( resolve ) => {
+
+		release = resolve;
+
+	} ) } );
+
+	lobby.open( 'h1', '10.0.0.3', 0 );
+	const pending = lobby.handle( 'h1', LOBBY_HOST, json( { turnstile: 'good' } ), 0 );
+	lobby.close( 'h1' );
+	release( null );
+	assertEqual( ( await pending ).length, 0, 'no frames' );
+	assertEqual( lobby.rooms.size, 0, 'no room' );
 
 } );

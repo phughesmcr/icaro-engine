@@ -20,7 +20,7 @@
 // a dropped connection ends like any lost connection.
 
 import { Con_Printf, Con_DPrintf, SZ_Clear, SZ_Write } from './common.js';
-import { NET_NewQSocket } from './net_main.js';
+import { NET_NewQSocket, NET_LobbyVerifyError } from './net_main.js';
 import { Sys_PageURL } from './sys.js';
 import {
 	net_message,
@@ -80,6 +80,7 @@ const LOBBY_JOIN = 0x02;
 const LOBBY_CREATE = 0x03;
 const LOBBY_ROOMS = 0x81;
 const LOBBY_ERROR = 0x82;
+const LOBBY_VERIFY = 0x86;
 
 // Active connections
 const ws_connections = new Map(); // qsocket_t -> WebSocketConnection
@@ -641,6 +642,7 @@ export async function WS_CreateRoom( serverUrl, config ) {
 		const configData = new TextEncoder().encode( JSON.stringify( config ) );
 		const reply = await _WS_LobbyRequest( serverUrl, LOBBY_CREATE, configData, null );
 		if ( reply.type === LOBBY_ERROR ) throw new Error( _WS_LobbyErrorText( reply.data ) );
+		if ( reply.type === LOBBY_VERIFY ) throw NET_LobbyVerifyError( reply.data );
 		if ( reply.type !== LOBBY_ROOMS ) throw new Error( 'Unexpected response type: ' + reply.type );
 		if ( reply.data.length === 0 ) throw new Error( 'Server returned empty room response' );
 
