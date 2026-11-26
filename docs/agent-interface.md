@@ -25,9 +25,24 @@ Phase 1 is built: `src/agent.js`, exposed as `window.icaro` by `main.js`
 - With a local server, the entity list adds monster health, door, button and
   lift kinds, and the level's exits and teleporters. Secret triggers are left
   out as spoilers.
-- Not built yet: the `map`, `screen` (except `icaro.screenshot()`) and `rl`
-  tiers, macro actions other than `goto`, the render-skip flag, labels for the
-  options menu, and every adapter except `window.icaro` and the stdio MCP server
+- The `map` tier: `observe({ map: 21 })` (and the same option on `step` and
+  `goto`, and in the MCP tools) adds an ASCII grid of 32-unit cells, 5 to 41
+  across, turned freely with the view so the player is `^` at the centre facing
+  up (the grid is resampled, not snapped to 90 degrees). `Agent_Map()` returns
+  an object with the rows for programs. Floors come from the walk graph's cell
+  index (the node nearest the player's height: level, a ledge up to 64 units
+  above, or a drop down to 256), walls and liquids from hull 0 point contents,
+  and closed doors, lifts and `func_wall`s from the client's brush entity boxes.
+  Only cells a flood from the player's cell reaches (a hull 0 trace between
+  neighbours) are drawn, so rooms behind walls stay blank. Entities in the
+  latest update are glyphs (`M` monster, `i` item, ...). With a local server and
+  `truth`, brush entities get their kind (`D`, `L`, `B`; a secret door stays
+  `#`) and exits and teleporters are drawn; without it every brush entity is
+  `#`. A 41x41 map takes about 0.4 ms headless; the text form cuts blank rows
+  and columns. `tests/agent_map_test.js` covers it on e1m1.
+- Not built yet: the `screen` (except `icaro.screenshot()`) and `rl` tiers,
+  macro actions other than `goto`, the render-skip flag, labels for the options
+  menu, and every adapter except `window.icaro` and the stdio MCP server
   (below).
 
 Parts of phases 2 and 3 are built too (status checked at `dev` `4e95d06`):
@@ -37,17 +52,18 @@ Parts of phases 2 and 3 are built too (status checked at `dev` `4e95d06`):
   usage.
 - MCP server: `server/agent_mcp.ts` (stdio, `deno task agent-mcp`) runs the
   headless host in lockstep and exposes `start`, `step`, `goto`, `observe`,
-  `cmd`, `key` and `menu`. Each result is the text observation plus
-  `tic=N hash=H` (tics since `start`, and `Agent_StateHash`, a hash of the
-  server's edicts and the client's stats). `start` with a `seed` turns on both
-  determinism hooks below, with a virtual clock that advances one tic per frame;
-  without one they are off. It is built on the official MCP TypeScript SDK
-  (`@modelcontextprotocol/server` 2.4.0, pinned in `deno.lock`), whose
-  `serveStdio` serves both the initialize-based versions (2024-11-05 to
-  2025-11-25) and 2026-07-28. It has no Streamable HTTP transport, `act` or
-  `screenshot` yet; the SDK's `createMcpHandler` is the way to add HTTP.
-  `tests/agent_mcp_test.js` replays a seeded action log (moving, firing, a
-  console command) against the process's first game and gets the same hash.
+  `cmd`, `key` and `menu` (`step`, `goto` and `observe` take `map`). Each result
+  is the text observation plus `tic=N hash=H` (tics since `start`, and
+  `Agent_StateHash`, a hash of the server's edicts and the client's stats).
+  `start` with a `seed` turns on both determinism hooks below, with a virtual
+  clock that advances one tic per frame; without one they are off. It is built
+  on the official MCP TypeScript SDK (`@modelcontextprotocol/server` 2.4.0,
+  pinned in `deno.lock`), whose `serveStdio` serves both the initialize-based
+  versions (2024-11-05 to 2025-11-25) and 2026-07-28. It has no Streamable HTTP
+  transport, `act` or `screenshot` yet; the SDK's `createMcpHandler` is the way
+  to add HTTP. `tests/agent_mcp_test.js` replays a seeded action log (moving,
+  firing, a console command) against the process's first game and gets the same
+  hash.
 - Determinism: `Sys_SetRandomSeed` and `Sys_SetClockOverride` in `src/sys.js`
   seed the gameplay randomness and override the clock, both opt-in.
   `tests/determinism_test.js` checks them (#190).
@@ -55,28 +71,28 @@ Parts of phases 2 and 3 are built too (status checked at `dev` `4e95d06`):
   queries; `tools/nav/nav_build.js` builds graphs offline (#194). `src/agent.js`
   builds one on each level event while an agent is attached
   (`Agent_NavGraph()`), with the server's skill and deathmatch filters.
-- `goto( id | [x, y, z], { max_tics, stop_on_damage } )`: in `src/agent.js`
-  (`icaro.goto`, and the MCP `goto` tool), lockstep only. It follows the graph's
-  path one tic at a time: yaw toward the next waypoint, `forward` held, jump
-  tapped on jump links, swim up on swim links, standing still while a plat
-  rises. The first line of the result is one of `arrived` (an item by id also
-  arrives when it is picked up), `blocked by #id
-  <kind> at x,y,z (...)`,
-  `took damage (-N hp), stopped`, `died`, `level changed`,
-  `level done (intermission)`, `no path` or `timeout`. Stuck means 36 tics
-  without getting 8 units closer to the waypoint (144 on door and plat links);
-  goto hops, then replans, then reports blocked. A blocked report names a
-  monster in the way, or the graph's entity on the link with how it opens (a
-  key, `button #id`, shoot it), and the next goto avoids that entity's links
-  until it moves (or the level changes). Damage means a `svc_damage` message
-  (`cl.faceanimtime` moved) with a health drop, so megahealth wearing off
-  doesn't stop it. Not built: a new-enemy interrupt and realtime mode.
-  `tests/agent_goto_test.js` covers it on e1m1; a scripted e1m1 run with god and
-  notarget (goto the exit; on a block, press the named button or shoot the
-  monster) reached the far water rooms but not the exit. Stalls left: from
-  inside, the shoot-to-open secret door #50 doesn't open to shots, and door #65
-  is "opened by a trigger elsewhere" (its trigger isn't in the graph's
-  activators).
+- `goto( id | [x, y, z], { max_tics, stop_on_damage, ents, map } )`: in
+  `src/agent.js` (`icaro.goto`, and the MCP `goto` tool), lockstep only. It
+  follows the graph's path one tic at a time: yaw toward the next waypoint,
+  `forward` held, jump tapped on jump links, swim up on swim links, standing
+  still while a plat rises. The first line of the result is one of `arrived` (an
+  item by id also arrives when it is picked up),
+  `blocked by #id
+  <kind> at x,y,z (...)`, `took damage (-N hp), stopped`,
+  `died`, `level changed`, `level done (intermission)`, `no path` or `timeout`.
+  Stuck means 36 tics without getting 8 units closer to the waypoint (144 on
+  door and plat links); goto hops, then replans, then reports blocked. A blocked
+  report names a monster in the way, or the graph's entity on the link with how
+  it opens (a key, `button #id`, shoot it), and the next goto avoids that
+  entity's links until it moves (or the level changes). Damage means a
+  `svc_damage` message (`cl.faceanimtime` moved) with a health drop, so
+  megahealth wearing off doesn't stop it. Not built: a new-enemy interrupt and
+  realtime mode. `tests/agent_goto_test.js` covers it on e1m1; a scripted e1m1
+  run with god and notarget (goto the exit; on a block, press the named button
+  or shoot the monster) reached the far water rooms but not the exit. Stalls
+  left: from inside, the shoot-to-open secret door #50 doesn't open to shots,
+  and door #65 is "opened by a trigger elsewhere" (its trigger isn't in the
+  graph's activators).
 
 Confidence labels on outside claims: **[V]** read on a primary source, **[S]**
 secondary source or search summary, **[U]** unverified. Claims about this engine

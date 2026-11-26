@@ -71,7 +71,9 @@ Fixes merged into or opened against `dev` after the snapshot:
   stale comment. Not done from 15: `addUpdateRange` objects, brush entity group
   re-adds, shutdown disposal and `powerPreference`. For finding 9 it calls
   `setPixelRatio` after `setSize`, as `VID_Init` does, with no XR guard: while
-  XR is presenting, r183 ignores both calls.
+  XR is presenting, r183 ignores both calls. #164 later added a guard:
+  `VID_Resize` returns while XR is presenting, and a `sessionend` listener calls
+  it again.
 
 **Browser measurement (finding 2).** On the shareware pak in Chromium, a
 four-map cycle was repeated with `renderer.info.memory` read after each map.
@@ -106,12 +108,13 @@ missing or broken world, sky or viewmodel geometry.
   Overlay caching was not done: an open console made 679 to 1394 `drawImage`
   calls at about 0.4 ms of CPU, which doesn't justify it.
 
-**Finding 12, not done.** On e1m3 the world batches are in the scene at
-`R_NewMap`, but entity, water and particle meshes are added lazily by the
-per-frame render. Only four programs compiled, on the first two frames after
-signon (13 and 5 ms, on a warm page). `compileAsync` at `R_NewMap` would only
-pre-compile world materials that the first frame compiles anyway, not the
-mid-game compiles (dlight counts, first water or sky, new entity materials).
+**Finding 12, not done in that round** (#215 did it later, below). On e1m3 the
+world batches are in the scene at `R_NewMap`, but entity, water and particle
+meshes are added lazily by the per-frame render. Only four programs compiled, on
+the first two frames after signon (13 and 5 ms, on a warm page). `compileAsync`
+at `R_NewMap` would only pre-compile world materials that the first frame
+compiles anyway, not the mid-game compiles (dlight counts, first water or sky,
+new entity materials).
 
 **Finding 13, rest not done.** The regrown colour attribute is still replaced
 without freeing its buffer. It regrows only when an entity switches to a model
@@ -120,6 +123,26 @@ with more vertices, so the leak is bounded.
 Still open: the items above from 15 (`addUpdateRange` objects, brush entity
 group re-adds, shutdown disposal and `powerPreference`), uploading the XR HUD
 only on change (10), and the rest of 13. All were judged low value.
+
+Later work on `dev`, checked against the code at `c0ea1d7` (2026-11-26), not in
+a browser:
+
+- **#158** (merged): finding 16. `R_BlendLightmaps` (`src/gl_rsurf.js`) no
+  longer returns early with `gl_texsort 0`, so lightmaps update. TEX-1 in
+  `port-review.md` also disputes the finding's reading of C: there
+  `R_DrawSequentialPoly` uploads the changed rows itself. The C was not
+  rechecked for this note.
+- **#214** (merged): 15's context loss. `src/gl_contextloss.js` skips drawing
+  while the context is lost, and on restore rebuilds the lightmaps and
+  screenwarp and resets `depthRange`.
+- **#215** (merged): finding 12. `R_WarmupStart` (`src/gl_warmup.js`), called
+  after `R_NewMap` (`src/cl_parse.js:582`), runs `compileAsync` for the dlight
+  buckets, with stand-ins for water, sky, sprites and particles, and holds the
+  loading plaque for a capped time. Alias materials, the mirror pass and the
+  render-target passes are not warmed, and XR is skipped.
+- **#181** and **#212** (merged): finding 9's remark on full DPR. Touch-primary
+  devices are capped at 2, `?dpr=` overrides, and `vid_quality` presets can set
+  `vid_dprcap` (`src/vid.js` `VID_ComputePixelRatio`).
 
 ## Summary
 
@@ -136,18 +159,23 @@ only on change (10), and the rest of 13. All were judged low value.
 | 9  | Low-med | renderer | Resize handler never refreshes the pixel ratio                                                          | verified; fixed (#129)                                   |
 | 10 | Low-med | XR       | HUD texture re-uploaded every XR frame at window size times DPR                                         | reported; capped at 30 Hz (#135)                         |
 | 11 | Low-med | overlay  | Full-size Canvas2D overlay is cleared and redrawn every frame (one `drawImage` per glyph)               | measured; caching not justified, allocation fixed (#136) |
-| 12 | Low-med | renderer | No shader precompile at map load                                                                        | measured; not done (would not help)                      |
+| 12 | Low-med | renderer | No shader precompile at map load                                                                        | measured; not done then, added later (#215)              |
 | 13 | Low     | models   | Shadow geometry and regrown colour attribute replaced without `dispose()`                               | reported; partly fixed (#120)                            |
 | 14 | Low     | models   | Material cache makes 4 identical materials per non-animated skin                                        | verified; fixed (#122)                                   |
-| 15 | Low     | various  | Smaller items (see below)                                                                               | reported; mostly fixed (#129)                            |
-| 16 | Info    | world    | `gl_texsort 0` freezes lightmaps, but this is C-faithful                                                | verified against C                                       |
+| 15 | Low     | various  | Smaller items (see below)                                                                               | reported; mostly fixed (#129, context loss #214)         |
+| 16 | Info    | world    | `gl_texsort 0` freezes lightmaps, but this is C-faithful                                                | C reading disputed (TEX-1); port changed (#158)          |
 
 ## Findings
 
+The findings describe the code at `223a180`, and many have since been fixed (see
+the status above). Line numbers were re-mapped at `c0ea1d7` (2026-11-26) where
+the code is still there, though a fix may have changed it. A number marked
+`223a180` is to code that has since gone, as it stood at that revision.
+
 ### 1. Index buffer churn on every alias pose change (high)
 
-The code is at `src/gl_mesh.js:1163`, and the same pattern is in the shadow path
-at `src/gl_mesh.js:1371`.
+The code is at `src/gl_mesh.js:1163` at `223a180`, and the same pattern is in
+the shadow path at `src/gl_mesh.js:1371` at `223a180`.
 
 `geometry.setIndex( template.indices )` runs each time an entity's pose changes,
 about 10 times a second per animated entity. `template.indices` is a plain
@@ -172,13 +200,13 @@ and shadow geometries, and call `setIndex` only when `geometry.index` differs.
 
 The geometries are created in `src/gl_rsurf.js` `EmitWaterPolysQuake` and
 `EmitSkyPolysQuake`, and cached on the surface as `fa._waterGeoCache`,
-`_skyGeoCache` and `_skyGeoCache2` (about lines 965-1060).
+`_skyGeoCache` and `_skyGeoCache2` (from about lines 1028 and 1118).
 
 Some of these geometries are never disposed:
 
-- `R_CleanupWaterMeshes` (`gl_rsurf.js:2045-2056`) removes from the scene each
+- `R_CleanupWaterMeshes` (`gl_rsurf.js:2087-2094`) removes from the scene each
   water or sky mesh that was not drawn this frame.
-- `GL_BuildLightmaps` (`gl_rsurf.js:3141-3170`) disposes the batched meshes and
+- `GL_BuildLightmaps` (`gl_rsurf.js:3235-3270`) disposes the batched meshes and
   whatever is _still_ a child of `worldGroup`. So it frees only the water and
   sky meshes that are on screen at the moment the map changes.
 - r183 `WebGLGeometries` holds every rendered geometry in a plain object keyed
@@ -192,8 +220,8 @@ set in `GL_BuildLightmaps`.
 
 ### 3. Triple clear per frame (medium)
 
-The code involved is at `src/gl_rmain.js:1551`, `src/host.js:173` and
-`src/gl_rmain.js:510-526`.
+The code involved is at `src/gl_rmain.js:1551` at `223a180`, `src/host.js:259`
+and `src/gl_rmain.js:766-778`.
 
 `scene.background = new THREE.Color( 0x000000 )` is the cause. In r183
 `WebGLBackground.render`, a Color background sets `forceClear = true`, and it
@@ -226,18 +254,18 @@ the background while `renderer.xr.isPresenting`, or test in a headset.
 
 ### 4. VR HUD drawn under particles and translucent entities (medium, XR only)
 
-The HUD is set up in `src/webxr.js:388` and `:398`. The particle mesh is removed
-and re-added in `src/r_part.js:964` and `:1024`.
+The HUD is set up in `src/webxr.js:388` and `:398` at `223a180`. The particle
+mesh is removed and re-added in `src/r_part.js:904` and `:928`.
 
 `hudMesh.renderOrder = 10000` with `depthTest: false` is meant to draw last, but
-`vid.js:225` sets `renderer.sortObjects = false`. r183 sorts render lists only
+`vid.js:287` sets `renderer.sortObjects = false`. r183 sorts render lists only
 when `sortObjects === true`, so `renderOrder` is ignored and transparent objects
 draw in scene-child order.
 
 `r_part.js` removes `pointsMesh` whenever no particles are live and re-adds it,
 which puts it at the end of `scene.children`, after the HUD. Particles then
 blend over the HUD. Newly added translucent entity meshes do the same. The
-viewmodel's `renderOrder = 999` (`gl_rmain.js:720`) is also ignored.
+viewmodel's `renderOrder = 999` (`gl_rmain.js:987`) is also ignored.
 
 **Fix:** draw the HUD in its own small `Scene` with a second `renderer.render`
 at the end of `R_RenderView`, only while XR is presenting. Do not enable
@@ -245,8 +273,8 @@ at the end of `R_RenderView`, only while XR is presenting. Do not enable
 
 ### 5. Viewmodel material cloned every 100 ms (medium)
 
-The code is at `src/gl_rmain.js:709-713`, together with
-`src/gl_mesh.js:957-960`.
+The code is at `src/gl_rmain.js:709-713` at `223a180`, together with
+`src/gl_mesh.js:867-869`.
 
 With the default `r_lerpmodels 0`, the gun takes the clone path:
 `currententity._viewmodelMaterial = baseMaterial.clone()` whenever
@@ -254,7 +282,7 @@ With the default `r_lerpmodels 0`, the gun takes the clone path:
 
 - The alias material cache key includes `anim = floor( cl.time * 10 ) & 3` even
   for non-animated skins (finding 14).
-- `baseMaterial` is `mesh.material`, which `gl_mesh.js:1248` sets from
+- `baseMaterial` is `mesh.material`, which `gl_mesh.js:1230` sets from
   `R_GetAliasMaterial` each frame.
 - So `baseMaterial` cycles through 4 cached materials, and a new clone is made
   every 100 ms.
@@ -270,7 +298,7 @@ the churn by itself.
 
 ### 6. Per-vertex CPU lighting and colour upload per entity per frame (medium, unmeasured)
 
-The code is at `src/gl_mesh.js:1179-1216`.
+The code is at `src/gl_mesh.js:1124-1174`.
 
 Every alias entity loops over all its vertices each frame, doing a shade-table
 lookup and writing R=G=B into a `Float32Array`. It then sets
@@ -289,7 +317,7 @@ Shade values must stay as they are in C.
 
 ### 7. World `BatchedMesh` sorts every frame (medium, unmeasured)
 
-The code is at `src/gl_rsurf.js:2912` (`R_InitWorldBatch`).
+The code is at `src/gl_rsurf.js:3145` (`R_InitWorldBatch`).
 
 `batchedMesh.sortObjects` is never set, and its default in r183
 (`BatchedMesh.js:221`) is `true`. The renderer-level `sortObjects = false` does
@@ -323,7 +351,7 @@ Related observations:
 
 ### 8. `R_SetFrustum` allocations at fov other than 90 (medium)
 
-The code is at `src/gl_rmain.js:252-258`, which calls `src/mathlib.js`
+The code is at `src/gl_rmain.js:447-468`, which calls `src/mathlib.js`
 `RotatePointAroundVector` and `PerpendicularVector`.
 
 For any fov other than 90, `R_SetFrustum` calls `RotatePointAroundVector` 4
@@ -336,7 +364,7 @@ and the C signatures stay the same.
 
 ### 9. Resize ignores DPR changes (low-medium)
 
-The code is at `src/vid.js:233-247`.
+The code is at `src/vid.js:295-297` and `322-340`.
 
 `setPixelRatio` is called only once, at init. A browser zoom, or moving the
 window to a monitor with a different DPR, leaves the WebGL buffer at the old
@@ -359,12 +387,13 @@ The r183 manual's `responsive` page bears on this in two ways:
 
 ### 10. XR HUD texture upload every frame (low-medium)
 
-The code is at `src/webxr.js:327-360`.
+The code is at `src/webxr.js:430-476`.
 
 `XR_UpdateHUD` sets `hudTexture.needsUpdate` and calls `initTexture` every XR
 frame, at 72-120 Hz. That uploads the whole window-size times DPR overlay canvas
-each time. Line 345's `material.needsUpdate` on a map swap is also unnecessary:
-a map swap doesn't need a recompile, and only the null to non-null change does.
+each time. Line 345's (at `223a180`) `material.needsUpdate` on a map swap is
+also unnecessary: a map swap doesn't need a recompile, and only the null to
+non-null change does.
 
 **Fix:** upload only when the overlay was redrawn (finding 11's dirty flag), or
 at a capped rate, and size the canvas for the headset. This is the same idea as
@@ -373,7 +402,7 @@ changed.
 
 ### 11. Canvas2D overlay redrawn every frame (low-medium, unmeasured)
 
-The code is at `src/gl_draw.js:611-661`.
+The code is at `src/gl_draw.js:540-591`.
 
 `Draw_BeginFrame` clears the whole overlay every frame, and an open console
 issues about 2000 `drawImage` calls, one per glyph. MDN's "Optimizing canvas"
@@ -384,8 +413,8 @@ recommends three things:
 - layer canvases by how often they change
 
 Console rows and sbar pics are candidates for caching. Separately,
-`_calculateUIScale` (`gl_draw.js:111-135`) returns an unused object 5-8 times a
-frame.
+`_calculateUIScale` (`gl_draw.js:111-135` at `223a180`) returns an unused object
+5-8 times a frame.
 
 ### 12. No shader precompile at map load (low-medium)
 
@@ -403,16 +432,17 @@ exact r183 signature is unverified.
 
 These are in `src/gl_mesh.js`:
 
-- **Shadow geometry (1366-1374):** a new shadow `BufferGeometry` replaces the
-  old one when the vertex count changes, without `oldGeo.dispose()`.
-- **Colour attribute (1166-1170):** when the buffer is regrown, `setAttribute`
+- **Shadow geometry (1366-1374 at `223a180`):** a new shadow `BufferGeometry`
+  replaces the old one when the vertex count changes, without
+  `oldGeo.dispose()`.
+- **Colour attribute (1110-1117):** when the buffer is regrown, `setAttribute`
   replaces the old attribute, and its GL buffer is not removed.
 
 Both are bounded by model switches and swept partly at map change.
 
 ### 14. Four identical materials per non-animated skin (low)
 
-The code is at `src/gl_mesh.js:957-960`.
+The code is at `src/gl_mesh.js:867-869`.
 
 `anim` comes from `cl.time` whether or not the skin group is animated. C does
 `anim = (int)(cl.time*10) & 3` too (`gl_rmain.c:550`), but only to pick
@@ -425,26 +455,27 @@ of finding 5.
 
 ### 15. Smaller items (low)
 
-- **Polyblend tone mapping** (`src/gl_rmain.js:1307-1341`): the polyblend
-  `MeshBasicMaterial` is tone-mapped. When gamma is not 1, `toneMappingExposure`
-  scales the blend colour, whereas the warp and mirror handle this themselves.
-  Add `toneMapped: false`.
-- **Water transparency** (`src/gl_rsurf.js:597-603`): water materials are
-  `transparent: true` even in the opacity-1 bucket. Use
+- **Polyblend tone mapping** (`src/gl_rmain.js:1307-1341` at `223a180`): the
+  polyblend `MeshBasicMaterial` is tone-mapped. When gamma is not 1,
+  `toneMappingExposure` scales the blend colour, whereas the warp and mirror
+  handle this themselves. Add `toneMapped: false`.
+- **Water transparency** (`src/gl_rsurf.js:597-603` at `223a180`): water
+  materials are `transparent: true` even in the opacity-1 bucket. Use
   `transparent: opKey === 0`.
-- **Per-frame Set** (`src/gl_rsurf.js:2011`):
+- **Per-frame Set** (`src/gl_rsurf.js:2011` at `223a180`):
   `_waterMeshesThisFrame = new Set()` runs every frame. Allocate it once and
   call `.clear()`.
-- **Brush entity groups** (`src/gl_rsurf.js:2060-2080`): the groups are removed
-  from the scene and re-added every frame. Toggling `visible` would avoid the
-  `children` splices.
+- **Brush entity groups** (`src/gl_rsurf.js:2062-2068`, re-added at
+  `1889-1890`): the groups are removed from the scene and re-added every frame.
+  Toggling `visible` would avoid the `children` splices.
 - **Particle allocations:**
   - `R_RocketTrail` allocates two `Float32Array( 3 )` per trailing entity per
-    frame (`src/r_part.js:622-623`).
+    frame (`src/r_part.js:622-623` at `223a180`).
   - `R_MarkParticleUpload` pushes two `{ start, count }` objects per frame
     through `addUpdateRange`.
-- **Batch key** (`src/gl_rsurf.js:2999`, `3014`): `t._buildId = Math.random()`
-  is used as a batch key. Use a `Map` keyed by the texture or a counter.
+- **Batch key** (`src/gl_rsurf.js:3015` at `223a180`):
+  `t._buildId = Math.random()` is used as a batch key. Use a `Map` keyed by the
+  texture or a counter.
 - **Unfreed one-off resources at shutdown:** the mirror render target, the warp
   `FramebufferTexture`, the particle geometry, material and texture, and the
   shader materials have no dispose path. They are one-off, so this only matters
@@ -453,19 +484,19 @@ of finding 5.
   default is `'default'`).
 - **Context loss:** there is no app-level handling. r183 restores GPU resources
   itself, and the CPU texture data is kept, so this is low risk.
-- **Stale comment** (`src/gl_mesh.js:576-582`): the comment says alias data is
-  garbage-collected on map load. `Mod_ClearAll` keeps alias models, as C does,
-  so fix the comment, not the behaviour.
+- **Stale comment** (`src/gl_mesh.js:576-582` at `223a180`): the comment says
+  alias data is garbage-collected on map load. `Mod_ClearAll` keeps alias
+  models, as C does, so fix the comment, not the behaviour.
 
 ### 16. `gl_texsort 0` freezes lightmaps (info, C-faithful)
 
-The code is at `src/gl_rsurf.js:2235`.
+The code is at `src/gl_rsurf.js:2235` at `223a180`.
 
 The world reviewer reported this as a fidelity bug. It isn't. In C
 `R_DrawSequentialPoly`, the lightmap is uploaded with `glTexSubImage2D` only in
 the `gl_mtexable` branch. The non-multitexture branch never uploads, and
 `R_BlendLightmaps` returns early when `gl_texsort` is 0. The port has
-`gl_mtexable` false (`gl_rsurf.js:365`, `glquake.js:231`), so it matches C.
+`gl_mtexable` false (`gl_rsurf.js:466`, `glquake.js:178`), so it matches C.
 
 Changing it would be a deliberate deviation. That would only matter if
 `gl_texsort 0` is meant to be usable.
@@ -501,7 +532,8 @@ Changing it would be a deliberate deviation. That would only matter if
   render-target output. `copyFramebufferToTexture` is used correctly for r183.
 - **WebXR:** reference-space probing before `setSession`, `setAnimationLoop`, a
   manual rig `updateMatrixWorld` (needed in r183), and the mirror, warp and
-  polyblend passes gated off.
+  polyblend passes gated off. (Since #156, XR draws the screen blend with
+  `XR_PolyBlend` instead.)
 - **API currency:** no deprecated or removed r183 APIs were found
   (`outputEncoding`, `Geometry`, `WebGLMultisampleRenderTarget`). The migration
   guide was checked only partly.

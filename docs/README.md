@@ -9,18 +9,20 @@ AGENTS.md, Git workflow).
   snapshot.
 - `port-inventory.md`: every C function, cvar and command in the GLQuake build's
   files checked for a counterpart in the port, with the ranked list of gaps.
-  `tools/port_inventory.py` regenerates its raw tables.
+  `tools/port_inventory.py` regenerates its raw tables; the analysis around them
+  is only spot-updated.
 - `rerelease-gaps.md`: what blocked the 2021 rerelease content and how each item
   was done; every item is now done or not needed. A snapshot.
 - `threejs-review.md`: a review of the Three.js rendering code against r183,
   with the status of each finding. A snapshot.
 - `cloudflare-multiplayer.md`: research notes on hosting multiplayer behind
-  Cloudflare. Checked against `dev` when written; Cloudflare facts can change.
+  Cloudflare. Its claims about this repository were rechecked on 2026-11-26; the
+  Cloudflare facts were not, and can change.
 - `always-on-hosting.md`: hosting multiplayer without the home Mac (Containers,
   Durable Objects, VMs), with room memory/CPU/bandwidth measurements and the
   plan. Supersedes the recommendation in `cloudflare-multiplayer.md`, but its
-  own recommendation (Containers) was not built: the project went with
-  browser-hosted rooms instead. A snapshot.
+  own recommendation (Containers) was not built, though some steps of its plan
+  were: the project went with browser-hosted rooms instead. A snapshot.
 - `browser-hosted-rooms.md`: design for rooms hosted in a player's browser tab
   and joined over WebRTC, with a Durable Object lobby for signalling. Built
   through PR 5 (the menus); its status line says what has been checked in a

@@ -7,12 +7,15 @@ supersedes the recommendation in
 the home Mac), which still describes the transports and the options that need a
 home machine. Nothing was deployed and no account was created.
 
-> **Status (`dev` `4e95d06`):** the recommendation below (Containers) was not
-> built. The project took the "Rooms hosted in a player's browser" option from
+> **Status (`dev` `c0ea1d7`):** the recommendation below (Containers) was not
+> built, though steps 2–4 and 6 of its plan were. The project took the "Rooms
+> hosted in a player's browser" option from
 > [Other free options](#other-free-options-brief) instead: see
-> [browser-hosted-rooms.md](browser-hosted-rooms.md) for the design and
-> `cloudflare/lobby/` for the Worker and Durable Object lobby. Read the rest as
-> the research behind that choice.
+> [browser-hosted-rooms.md](browser-hosted-rooms.md) for the design,
+> `src/net_webrtc.js` and `src/net_rtclobby.js` for the client, and
+> `server/lobby_rtc.js` (used by the Deno lobby) and `cloudflare/lobby/` (the
+> Worker and Durable Object) for the signalling lobby. Read the rest as the
+> research behind that choice.
 
 Tags, as in that doc:
 
@@ -300,9 +303,9 @@ The lobby on its own, idle, uses about 35 MB RSS [measured].
   - Fly.io shared-cpu-1x 1 GB, $6.70 (iad) to $7.73 (fra); UDP needs a dedicated
     IPv4 at $2/month and a bind to `fly-global-services` [docs]
     ([pricing](https://docs.fly.io/about/pricing),
-    [UDP](https://docs.fly.io/networking/udp-and-tcp)). The QUIC listener binds
-    `[::]` today, so Fly's WebTransport needs a bind-address option
-    [unverified].
+    [UDP](https://docs.fly.io/networking/udp-and-tcp)). The QUIC listeners bind
+    only the wildcards `[::]` and `0.0.0.0` (`server/quic_listen.ts`), so Fly's
+    WebTransport needs a bind-address option [unverified].
   - Oracle Always Free is $0, but it reclaims instances whose 95th-percentile
     CPU stays under 20% for 7 days [docs]
     ([Oracle](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)),
@@ -360,7 +363,9 @@ in rooms, once listed here, is done; see "Level changes" above.)
    `static/pak0.pak`. Never `COPY static/` whole: registered and rerelease data
    must not reach Cloudflare's registry. Add a `.dockerignore` that excludes
    everything except the allowlist as a second guard, and a CI check that fails
-   if the image contains any other `.pak`.
+   if the image contains any other `.pak`. _Done: `server/Dockerfile`, the root
+   `.dockerignore` and `tools/check_container_image.sh`
+   (`deno task image-check`), which CI runs._
 3. **WebSocket-only rooms** (`server/game_server.js`): make the WebTransport
    listener optional (for example, skip it when no `-port`/`-cert` is given, or
    add `-nowt`), so a room starts without a certificate. Listen with
@@ -389,11 +394,17 @@ in rooms, once listed here, is done; see "Level changes" above.)
      container exits (the idle timeout), it removes the room.
    - `room_process_manager.ts` and the per-room port range aren't used there;
      keep them for the self-hosted lobby.
+
+   _Not built. `cloudflare/lobby/` is a lobby for browser-hosted rooms only: it
+   refuses `LOBBY_CREATE`. The room config checks (`server/room_config.js`) and
+   `createRateLimiter` (`server/lobby_rtc.js`) have since moved to shared
+   modules; `parseCreateConfig` is still in `lobby_server.js`._
 6. **Client transport default** (`src/net_main.js`, `NET_UseWebSocket`): off
    localhost and without `?server=`, the WebTransport default lobby is
    `https://localhost:4433`, which can't work on a public page. Use WebSocket
    there, so players don't need `?transport=ws`. Keep `?transport=wt` and
-   `?server=https://...` for a self-hosted lobby.
+   `?server=https://...` for a self-hosted lobby. _Done: `NET_ChooseWebSocket`
+   picks WebSocket off localhost when there is no `?server=` or `?transport=`._
 7. **Static site:** keep serving the client as today, or move it to Workers
    static assets. Either way, deploy from an allowlist, never the working tree
    (see the pak warning in
@@ -608,6 +619,10 @@ rooms, or rooms anyone can create.
 
 ### Work, now that the CPU test has passed
 
+At `dev` `c0ea1d7`, no room runs in a Durable Object, and steps 2–4 aren't built
+either. The Durable Object lobby in `cloudflare/lobby/` serves browser-hosted
+rooms, not the room slots of step 5.
+
 1. **Free-plan deploy (needs the maintainer's OK and their own
    `wrangler
    login`):** a Worker and one room DO running the bundled room,
@@ -634,7 +649,8 @@ fewer requests where messages are billed.
   a browser engine that accepts connections (it can't today), the game ending
   when the host leaves, and the host's tab having to stay in the foreground,
   since browsers throttle timers in background tabs [unverified]. It is the
-  largest change of all, but it has no server limits.
+  largest change of all, but it has no server limits. (This is the option since
+  built; see the status note at the top.)
 - **Render free:** 512 MB, 0.1 CPU, 750 hours a month. It sleeps after 15
   minutes without traffic (an open WebSocket counts as traffic) and takes about
   a minute to wake. Render "may restart the service at any time" [docs]
