@@ -20,6 +20,7 @@ import { Con_Printf, Con_DPrintf } from './common.js';
 import { Cvar_Set } from './cvar.js';
 import { sv, svs } from './server.js';
 import { RTC_SetSignaller, RTC_HandleSignal } from './net_webrtc.js';
+import { Turnstile_GetToken, Turnstile_Cancel } from './turnstile.js';
 
 // Frame types, as in server/lobby_rtc.js
 const LOBBY_JOIN = 0x02;
@@ -30,6 +31,7 @@ const LOBBY_ROOMS = 0x81;
 const LOBBY_ERROR = 0x82;
 const LOBBY_ICE = 0x84;
 const LOBBY_SIGNAL_RELAY = 0x85;
+const LOBBY_VERIFY = 0x86;
 
 // A browser-hosted room's code (server/lobby_rtc.js RTC_ROOM_CODE_PATTERN)
 export const RTCLOBBY_ROOM_CODE = /^[A-HJ-NP-Z2-9]{8}$/;
@@ -54,6 +56,16 @@ let join_session = null;       // a join in progress
 let join_token = 0;            // bumped by each join, so a superseded one gives way
 let host_armed = false;        // the hosted room's map has spawned
 let rules_set = false;         // the hosted room set noexit/samelevel
+let host_verifying = false;    // the host is waiting on the Turnstile widget
+
+// Where a host gets a Turnstile token (src/turnstile.js); tests replace it
+let rtclobby_turnstile_token = Turnstile_GetToken;
+
+export function RTCLobby_SetTurnstileTokenSource( getToken ) {
+
+	rtclobby_turnstile_token = getToken !== null ? getToken : Turnstile_GetToken;
+
+}
 
 /** Test hook: shorter timers. */
 export function RTCLobby_SetTimeouts( { requestMs, spawnMs, pollMs, heartbeatMs } = {} ) {
@@ -150,7 +162,9 @@ _RTCLobby_Request
 Open a lobby socket, send one LOBBY_HOST or LOBBY_JOIN, and resolve to the
 session once the lobby has replied with the room (LOBBY_ROOMS) and the ICE
 servers (LOBBY_ICE). The socket stays open for signals. Rejects with the
-lobby's LOBBY_ERROR text, or on a timeout or a closed socket.
+lobby's LOBBY_ERROR text, or on a timeout or a closed socket. A lobby that
+wants a Turnstile token first (LOBBY_VERIFY) rejects with an error whose
+`turnstile` is { sitekey, action }.
 =============
 */
 function _RTCLobby_Request( url, role, type, value ) {
@@ -173,13 +187,15 @@ function _RTCLobby_Request( url, role, type, value ) {
 		const session = { socket, role, code: null, room: null, iceServers: null, closed: false, ending: false, onLost: null };
 		let settled = false;
 
-		const fail = ( message ) => {
+		const fail = ( message, turnstile ) => {
 
 			if ( settled === true ) return;
 			settled = true;
 			clearTimeout( timer );
 			_RTCLobby_Close( session );
-			reject( _RTCLobby_Error( message ) );
+			const error = _RTCLobby_Error( message );
+			if ( turnstile !== undefined ) error.turnstile = turnstile;
+			reject( error );
 
 		};
 		const timer = setTimeout( () => fail( 'The lobby did not answer' ), RTCLOBBY_REQUEST_TIMEOUT_MS );
@@ -196,6 +212,21 @@ function _RTCLobby_Request( url, role, type, value ) {
 				if ( frame.type === LOBBY_ERROR ) {
 
 					fail( frame.value );
+
+				} else if ( frame.type === LOBBY_VERIFY ) {
+
+					const challenge = frame.value;
+					if ( challenge === null || typeof challenge !== 'object' ||
+						typeof challenge.sitekey !== 'string' || challenge.sitekey === '' ||
+						typeof challenge.action !== 'string' || challenge.action === '' ) {
+
+						fail( 'Invalid verification request from the lobby' );
+
+					} else {
+
+						fail( 'Verification required', { sitekey: challenge.sitekey, action: challenge.action } );
+
+					}
 
 				} else if ( frame.type === LOBBY_ROOMS && frame.value !== null && typeof frame.value.id === 'string' ) {
 
@@ -424,7 +455,7 @@ export async function RTCLobby_HostRoom( config, spawnCount, exitRules ) {
 	};
 	if ( config.options !== undefined ) request.options = config.options;
 
-	const session = await _RTCLobby_Request( url, 'host', LOBBY_HOST, request );
+	const session = await _RTCLobby_RequestHost( url, request, token );
 	if ( token !== host_token || host_armed === false ) {
 
 		// The server stopped while the lobby answered
@@ -462,7 +493,69 @@ export async function RTCLobby_HostRoom( config, spawnCount, exitRules ) {
 
 }
 
+/*
+=============
+_RTCLobby_RequestHost
+
+Send LOBBY_HOST. A lobby that checks room creation (server/turnstile.js)
+answers the first request with LOBBY_VERIFY: show the widget, then ask once
+more with its token, as NET_CreateRoom does for lobby rooms. token is the
+HostRoom's, to notice a cancel while the widget is up.
+=============
+*/
+async function _RTCLobby_RequestHost( url, request, token ) {
+
+	let challenge;
+	try {
+
+		return await _RTCLobby_Request( url, 'host', LOBBY_HOST, request );
+
+	} catch ( error ) {
+
+		if ( error.turnstile === undefined ) throw error;
+		challenge = error.turnstile;
+
+	}
+
+	if ( token !== host_token || host_armed === false ) throw _RTCLobby_Cancelled();
+
+	let verified;
+	host_verifying = true;
+	try {
+
+		verified = await rtclobby_turnstile_token( challenge.sitekey, challenge.action );
+
+	} catch ( error ) {
+
+		// The server stopping, or a newer Start Game, removes the widget
+		if ( token !== host_token || host_armed === false ) throw _RTCLobby_Cancelled();
+		throw _RTCLobby_Error( error instanceof Error ? error.message : String( error ) );
+
+	} finally {
+
+		host_verifying = false;
+
+	}
+
+	if ( token !== host_token || host_armed === false ) throw _RTCLobby_Cancelled();
+
+	try {
+
+		return await _RTCLobby_Request( url, 'host', LOBBY_HOST, { ...request, turnstile: verified } );
+
+	} catch ( error ) {
+
+		// The lobby refused the token it asked for
+		if ( error.turnstile !== undefined ) throw _RTCLobby_Error( 'Verification failed. Try again.' );
+		throw error;
+
+	}
+
+}
+
 function _RTCLobby_EndHost() {
+
+	if ( host_verifying === true ) Turnstile_Cancel();
 
 	if ( host_timer !== null ) {
 

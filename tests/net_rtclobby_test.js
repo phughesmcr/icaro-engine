@@ -13,7 +13,7 @@ const { sv, svs } = await import( '../src/server.js' );
 const { cvar_t, Cvar_FindVar, Cvar_RegisterVariable, Cvar_Set } = await import( '../src/cvar.js' );
 const {
 	RTCLobby_Init, RTCLobby_CanHost, RTCLobby_HostRoom, RTCLobby_ServerShutdown,
-	RTCLobby_SetTimeouts, RTCLobby_GetStateForTest, RTCLOBBY_ROOM_CODE
+	RTCLobby_SetTimeouts, RTCLobby_GetStateForTest, RTCLobby_SetTurnstileTokenSource, RTCLOBBY_ROOM_CODE
 } = await import( '../src/net_rtclobby.js' );
 const { RtcLobby, Lobby_DecodeFrame, Lobby_EncodeFrame } = await import( '../server/lobby_rtc.js' );
 const { FakeRTCPeerConnection } = await import( './fake_webrtc.js' );
@@ -98,9 +98,9 @@ The lobby, behind a WebSocket stub: each new WebSocket( url ) is the client
 end of a fake pair whose server end runs RtcLobby, as lobby_server.js does
 =============
 */
-function makeLobbyServer() {
+function makeLobbyServer( turnstile = null ) {
 
-	const lobby = new RtcLobby( { iceServers: () => [ { urls: 'stun:stun.example.test' } ] } );
+	const lobby = new RtcLobby( { iceServers: () => [ { urls: 'stun:stun.example.test' } ], turnstile } );
 	const sockets = new Map(); // session id -> server end
 	// delays: per new socket, in order, its message delay (ms)
 	const server = { lobby, sockets, opened: 0, delays: [] };
@@ -153,7 +153,7 @@ Host setup, as in net_webrtc_test.js: the WebRTC driver in slot 1, a
 listening server with free client slots
 =============
 */
-function setup( { maxclients = 2 } = {} ) {
+function setup( { maxclients = 2, turnstile = null } = {} ) {
 
 	const saved = {
 		maxclients: svs.maxclients,
@@ -200,7 +200,7 @@ function setup( { maxclients = 2 } = {} ) {
 	rtc.RTC_Listen( true );
 	FakeRTCPeerConnection.instances.length = 0;
 
-	const lobbyServer = makeLobbyServer();
+	const lobbyServer = makeLobbyServer( turnstile );
 	RTCLobby_Init( () => LOBBY_URL, () => true ); // net_main.js passes its "listening"
 	Cvar_Set( 'noexit', '0' );
 	Cvar_Set( 'samelevel', '0' );
@@ -538,6 +538,149 @@ Deno.test( 'RTC lobby: a registration the lobby never answers leaves the shutdow
 	} finally {
 
 		RTCLobby_SetTimeouts( { requestMs: 1000 } );
+		await teardown();
+
+	}
+
+} );
+
+// The lobby's Turnstile hook (server/turnstile.js's Turnstile_Check): a
+// request without a token gets the challenge, 'good' passes
+const CHALLENGE = { sitekey: 'sitekey', action: 'create_room' };
+function fakeTurnstile( calls ) {
+
+	return ( token ) => {
+
+		calls.push( token );
+		if ( token === undefined ) return Promise.resolve( { challenge: CHALLENGE } );
+		return Promise.resolve( token === 'good' ? null : { error: 'Verification failed. Try again.' } );
+
+	};
+
+}
+
+Deno.test( 'RTC lobby: a lobby that wants Turnstile gets a token from the widget, then lists the room', async () => {
+
+	const calls = [];
+	const widget = [];
+	const { lobbyServer, teardown } = setup( { turnstile: fakeTurnstile( calls ) } );
+	try {
+
+		RTCLobby_SetTurnstileTokenSource( ( sitekey, action ) => {
+
+			widget.push( sitekey + '/' + action );
+			return Promise.resolve( 'good' );
+
+		} );
+		const hosting = RTCLobby_HostRoom( { hostName: 'Tester', public: true }, svs.spawncount, false );
+		spawn( 'e1m2' );
+		const room = await hosting;
+		assert( RTCLOBBY_ROOM_CODE.test( room.id ), 'listed: ' + room.id );
+		assertEqual( widget.join( ',' ), 'sitekey/create_room', 'the widget got the challenge' );
+		assertEqual( calls.join( ',' ), ',good', 'asked without, then with the token' );
+		assertEqual( lobbyServer.opened, 2, 'a fresh socket for the second request' );
+		await waitFor( () => roles( lobbyServer.lobby ).length === 1, 1000, 'the first socket closes' );
+		RTCLobby_ServerShutdown();
+
+	} finally {
+
+		RTCLobby_SetTurnstileTokenSource( null );
+		await teardown();
+
+	}
+
+} );
+
+Deno.test( 'RTC lobby: a refused Turnstile token, or a failed widget, fails the host', async () => {
+
+	const { teardown } = setup( { turnstile: fakeTurnstile( [] ) } );
+	try {
+
+		RTCLobby_SetTurnstileTokenSource( () => Promise.resolve( 'bad' ) );
+		let error = null;
+		const refused = RTCLobby_HostRoom( { hostName: 'Tester' }, svs.spawncount, false ).catch( ( e ) => error = e );
+		spawn( 'e1m2' );
+		await refused;
+		assert( error !== null && error.message === 'Verification failed. Try again.', 'refused: ' + error?.message );
+		assert( error.cancelled !== true, 'a failure, not a cancel' );
+		RTCLobby_ServerShutdown();
+
+		RTCLobby_SetTurnstileTokenSource( () => Promise.reject( new Error( 'Verification cancelled' ) ) );
+		error = null;
+		const closed = RTCLobby_HostRoom( { hostName: 'Tester' }, svs.spawncount, false ).catch( ( e ) => error = e );
+		spawn( 'e1m2' );
+		await closed;
+		assert( error !== null && error.message === 'Verification cancelled' && error.cancelled !== true,
+			'widget closed: ' + error?.message );
+		RTCLobby_ServerShutdown();
+
+	} finally {
+
+		RTCLobby_SetTurnstileTokenSource( null );
+		await teardown();
+
+	}
+
+} );
+
+Deno.test( 'RTC lobby: the server stopping while the widget is up cancels the host and resets the rules', async () => {
+
+	const calls = [];
+	const { lobbyServer, teardown } = setup( { turnstile: fakeTurnstile( calls ) } );
+	try {
+
+		let answer = null;
+		RTCLobby_SetTurnstileTokenSource( () => new Promise( ( resolve ) => answer = resolve ) );
+		Cvar_Set( 'noexit', '1' );
+		Cvar_Set( 'samelevel', '1' );
+		let error = null;
+		const hosting = RTCLobby_HostRoom( { map: 'e1m2', hostName: 'Tester' }, svs.spawncount, true ).catch( ( e ) => error = e );
+		spawn( 'e1m2' );
+		await waitFor( () => answer !== null, 1000, 'the widget' );
+
+		RTCLobby_ServerShutdown();
+		assertEqual( Cvar_FindVar( 'noexit' ).value, 0, 'noexit reset' );
+		assertEqual( Cvar_FindVar( 'samelevel' ).value, 0, 'samelevel reset' );
+		answer( 'good' );
+		await hosting;
+		assert( error !== null && error.cancelled === true, 'cancelled: ' + error?.message );
+		assertEqual( lobbyServer.opened, 1, 'no second LOBBY_HOST' );
+		assertEqual( calls.length, 1, 'no token sent' );
+		assertEqual( lobbyServer.lobby.rooms.size, 0, 'no room' );
+
+	} finally {
+
+		RTCLobby_SetTurnstileTokenSource( null );
+		await teardown();
+
+	}
+
+} );
+
+Deno.test( 'RTC lobby: a malformed LOBBY_VERIFY fails the host without the widget', async () => {
+
+	const { lobbyServer, teardown } = setup( { turnstile: () => Promise.resolve( { challenge: { sitekey: '' } } ) } );
+	try {
+
+		let shown = false;
+		RTCLobby_SetTurnstileTokenSource( () => {
+
+			shown = true;
+			return Promise.resolve( 'good' );
+
+		} );
+		let error = null;
+		const hosting = RTCLobby_HostRoom( { hostName: 'Tester' }, svs.spawncount, false ).catch( ( e ) => error = e );
+		spawn( 'e1m2' );
+		await hosting;
+		assert( error !== null && error.message === 'Invalid verification request from the lobby', 'error: ' + error?.message );
+		assertEqual( shown, false, 'no widget' );
+		assertEqual( lobbyServer.opened, 1, 'one request' );
+		RTCLobby_ServerShutdown();
+
+	} finally {
+
+		RTCLobby_SetTurnstileTokenSource( null );
 		await teardown();
 
 	}

@@ -340,7 +340,7 @@ When it is on:
 - A `LOBBY_CREATE` without a `turnstile` field gets `LOBBY_VERIFY` (`0x86`), `{ "sitekey": ..., "action": "create_room" }`. The client (`src/net_main.js`, `src/turnstile.js`) shows the widget over the game and sends the request again with the token in `turnstile`. The lobby redeems it at Siteverify and creates the room only if Cloudflare reports success, the action `create_room` and one of `TURNSTILE_HOSTNAMES`. Tokens are single-use, so each room needs a new one.
 - A request with a token spends its per-IP creation budget before Siteverify sees it; the global budget is spent only by verified requests.
 - `LOBBY_JOIN` for an expired 6-character room code no longer re-creates the room, since a join carries no token. The player gets "Room not found".
-- `LOBBY_HOST` (a room hosted in a browser) needs a token the same way. No client hosts that way yet.
+- `LOBBY_HOST` (a room hosted in a browser) needs a token the same way. The hosting tab (`src/net_rtclobby.js`) shows the widget over its running game, then registers again with the token.
 
 Listing and joining live rooms need no token.
 

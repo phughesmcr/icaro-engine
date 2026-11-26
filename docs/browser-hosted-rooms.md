@@ -240,7 +240,9 @@ driver, behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js`
   (0x84) after `LOBBY_ROOMS`, and relays signals as `LOBBY_SIGNAL_RELAY`
   (0x85, `{ from, kind, data }`). With Turnstile on, a `LOBBY_HOST` must
   carry a `turnstile` token, and one without gets `LOBBY_VERIFY` (0x86,
-  `{ sitekey, action }`) instead (see "Turnstile" in `server/README.md`). Browser-hosted rooms have 8-character
+  `{ sitekey, action }`) instead (see "Turnstile" in `server/README.md`);
+  the hosting tab then shows the widget over its running game and sends
+  `LOBBY_HOST` again, with the token, on a new socket. Browser-hosted rooms have 8-character
   codes without 0, O, 1 or I, so they never collide with the Deno lobby's
   6-character codes, and an ended one's code doesn't make the Deno lobby
   re-create it. `LOBBY_LIST` lists them only when its payload is
@@ -434,7 +436,8 @@ Paste each run's *Copy results* JSON into this section.
    (`CL_ParseServerInfo`'s lazy load), so the host sees one short-lived
    connection before the real one. Background tabs there stop the game
    loop, so a host or joiner in a background tab stalls until it is in
-   front. Not checked: TURN, the Cloudflare lobby, other browsers, two
+   front. Not checked: TURN, the Cloudflare lobby, Turnstile (the
+   widget before `LOBBY_HOST` is unit-tested only), other browsers, two
    machines.
 6. **Later, depending on the spike:** B (server in a Worker), or C (a
    `deno desktop` host app).
