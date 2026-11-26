@@ -1446,7 +1446,12 @@ function onDeviceMotion(e) {
 
   // Skip the first event after a pause instead of integrating the gap
   const dt = (t - last) / 1000;
-  if (dt <= 0 || dt > 0.25) return;
+  if (dt > 0.25) {
+    gyroFilter.x = 0; // and start smoothing afresh
+    gyroFilter.y = 0;
+    return;
+  }
+  if (dt <= 0) return;
 
   const angle = Gyro_ScreenAngle() * Math.PI / 180;
   const c = Math.cos(angle);

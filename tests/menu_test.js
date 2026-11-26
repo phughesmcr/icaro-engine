@@ -117,6 +117,21 @@ Deno.test("touch menus: Touch Controls page, slider taps and Setup rows", async 
     tap(256, 52);
     near(touch.touch_sensitivity.value, 1.75, "middle snaps to a step");
 
+    // Gyro Aiming (row 1) is a choice: a tap steps it, wrapping, and
+    // left from off wraps to the last
+    const gyro = touch.touch_gyro.value;
+    try {
+      cvar.Cvar_SetValue("touch_gyro", 2);
+      tap(100, 48 + 8 + 4);
+      assertEqual(touch.touch_gyro.value, 3, "tap steps the choice");
+      tap(100, 48 + 8 + 4);
+      assertEqual(touch.touch_gyro.value, 0, "and wraps to off");
+      menu.M_Keydown(keys.K_LEFTARROW);
+      assertEqual(touch.touch_gyro.value, 3, "left from off wraps");
+    } finally {
+      cvar.Cvar_SetValue("touch_gyro", gyro);
+    }
+
     // Tapping a label steps a slider up and flips a toggle
     tap(100, 52);
     near(touch.touch_sensitivity.value, 2, "label tap steps up");

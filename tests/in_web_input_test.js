@@ -772,6 +772,24 @@ Deno.test("touch: gyro modes turn the view only while aiming or firing", () => {
       setGyro(1);
       near(turn(), 2, "always");
 
+      // Smoothing restarts from rest when the mode turns the gyro back on,
+      // and after a gap: a 0.1 s step at time constant 0.1 s turns
+      // 2 * (1 - 1/e)
+      const smooth = touch.touch_gyro_smooth.value;
+      try {
+        touch.touch_gyro_smooth.value = 0.1;
+        const smoothed = 2 * (1 - Math.exp(-1));
+        setGyro(3);
+        turn(); // inactive: the filter is cleared
+        setGyro(1);
+        near(turn(), smoothed, "smoothing starts from rest");
+        t += 1000; // a gap: skipped, and the filter is cleared
+        near(turn(), 0, "gap skipped");
+        near(turn(), smoothed, "smoothing starts from rest after a gap");
+      } finally {
+        touch.touch_gyro_smooth.value = smooth;
+      }
+
       setGyro(0);
       touch.Touch_Frame();
       touch.Touch_Disable();
