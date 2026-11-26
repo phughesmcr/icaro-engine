@@ -26,9 +26,9 @@ Phase 1 is built: `src/agent.js`, exposed as `window.icaro` by `main.js`
   lift kinds, and the level's exits and teleporters. Secret triggers are left
   out as spoilers.
 - Not built yet: the `map`, `screen` (except `icaro.screenshot()`) and `rl`
-  tiers, macro actions other than `goto`, the render-skip flag, labels for the
-  options menu, and every adapter except `window.icaro` and the stdio MCP server
-  (below).
+  tiers, the `use` macro and a new-enemy interrupt for the macros, the
+  render-skip flag, labels for the options menu, and every adapter except
+  `window.icaro` and the stdio MCP server (below).
 
 Parts of phases 2 and 3 are built too (status checked at `dev` `4e95d06`):
 
@@ -36,14 +36,14 @@ Parts of phases 2 and 3 are built too (status checked at `dev` `4e95d06`):
   loopback client under Deno with no rendering (#191). Its header gives the
   usage.
 - MCP server: `server/agent_mcp.ts` (stdio, `deno task agent-mcp`) runs the
-  headless host in lockstep and exposes `start`, `step`, `goto`, `observe`,
-  `cmd`, `key` and `menu`. Each result is the text observation plus
-  `tic=N hash=H` (tics since `start`, and `Agent_StateHash`, a hash of the
-  server's edicts and the client's stats). `start` with a `seed` turns on both
-  determinism hooks below, with a virtual clock that advances one tic per frame;
-  without one they are off. It is built on the official MCP TypeScript SDK
-  (`@modelcontextprotocol/server` 2.4.0, pinned in `deno.lock`), whose
-  `serveStdio` serves both the initialize-based versions (2024-11-05 to
+  headless host in lockstep and exposes `start`, `step`, `goto`, `turn_to`,
+  `attack`, `observe`, `cmd`, `key` and `menu`. Each result is the text
+  observation plus `tic=N hash=H` (tics since `start`, and `Agent_StateHash`, a
+  hash of the server's edicts and the client's stats). `start` with a `seed`
+  turns on both determinism hooks below, with a virtual clock that advances one
+  tic per frame; without one they are off. It is built on the official MCP
+  TypeScript SDK (`@modelcontextprotocol/server` 2.4.0, pinned in `deno.lock`),
+  whose `serveStdio` serves both the initialize-based versions (2024-11-05 to
   2025-11-25) and 2026-07-28. It has no Streamable HTTP transport, `act` or
   `screenshot` yet; the SDK's `createMcpHandler` is the way to add HTTP.
   `tests/agent_mcp_test.js` replays a seeded action log (moving, firing, a
@@ -51,6 +51,19 @@ Parts of phases 2 and 3 are built too (status checked at `dev` `4e95d06`):
 - Determinism: `Sys_SetRandomSeed` and `Sys_SetClockOverride` in `src/sys.js`
   seed the gameplay randomness and override the clock, both opt-in.
   `tests/determinism_test.js` checks them (#190).
+- `turn_to( id | { yaw } )` and `attack( id, { max_tics } )`: in `src/agent.js`
+  (`Agent_TurnTo`, `Agent_Attack`, and the MCP `turn_to` and `attack` tools).
+  Look changes in this API are immediate, so `turn_to` sets the view at once
+  (yaw and pitch at the entity's centre) and doesn't advance the game. `attack`
+  (lockstep only) aims at the target's centre every tic and holds fire while a
+  hull 0 trace from the eye reaches it. It doesn't move. The first line of the
+  result is `killed` (with a local server: the monster's health, or its edict
+  freed or gibbed), `gone (not in view)` (36 tics out of the client's updates),
+  `out of sight` (36 tics with no line of sight), `out of ammo`,
+  `out of reach (axe only ...)` (beyond 80 units with only the axe), `died`,
+  `level changed`, `level done (intermission)` or `timeout` (default 10 s). It
+  aims for the agent, so it is aim assistance; the benchmark profile that would
+  turn it off isn't built. `tests/agent_attack_test.js` covers both on e1m1.
 - Navigation: `src/nav.js` builds a walk graph from the BSP and answers A* path
   queries; `tools/nav/nav_build.js` builds graphs offline (#194). `src/agent.js`
   builds one on each level event while an agent is attached
@@ -341,8 +354,8 @@ document it. A useful `goto` needs a graph. Options, in order:
     `attach( mode )`, `detach()`, `mode()`, `new_game( map, skill )`,
     `step( action, tics )`, `goto( target, opts )`, `observe( opts )`,
     `cmd( text )`, `key( name )`, `menu( label )` and `screenshot( width )`.
-    Events come back inside each observation. Of the macro actions only `goto`
-    is built (no `act`).
+    Events come back inside each observation. Of the macro actions `goto`,
+    `turn_to` and `attack` are built (no `act`).
   - Typical use: one `javascript_tool` call does `icaro.step(...)` and gets the
     next observation back, so each turn is one round trip.
   - URL flags (as built): `window.icaro` is always present. `?agent=lockstep` or

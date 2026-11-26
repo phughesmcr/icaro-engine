@@ -19,7 +19,7 @@
 // zod schemas below before a handler runs. A bad argument comes back as a
 // tool result with isError, and so does an error a handler throws.
 //
-// The game runs in lockstep: it advances only inside start, step and goto, one
+// The game runs in lockstep: it advances only inside start, step, goto and attack, one
 // tic (1/72 s) at a time, so thinking time costs nothing. The SDK runs
 // requests concurrently, so tool calls are queued here and run one at a
 // time, in arrival order.
@@ -58,8 +58,13 @@ const CLOCK_BASE = 1;
 const GOTO_MAX_TICS = 8640;
 const GOTO_DEFAULT_TICS = 72 * 30;
 
+// attack's max_tics: ATTACK_MAX_TICS and ATTACK_DEFAULT_TICS in src/agent.js
+// (tests/agent_attack_test.js checks that they agree)
+const ATTACK_MAX_TICS = 4320;
+const ATTACK_DEFAULT_TICS = 72 * 10;
+
 const INSTRUCTIONS =
-  `Plays Quake (id1 shareware episode 1) headless. The game is frozen between calls and advances only in start, step and goto (72 tics = 1 s of game time).
+  `Plays Quake (id1 shareware episode 1) headless. The game is frozen between calls and advances only in start, step, goto and attack (72 tics = 1 s of game time).
 Start with start {map: "e1m1", skill: 1}. Each result is an observation:
 - a status line (map, time, hp, armor, weapon, ammo, keys, kills, secrets, pos, yaw, pitch);
 - entity lines "#id kind distance yawN [pitchN] [hidden] [hpN]": step with {yaw: N} to face one;
@@ -68,6 +73,7 @@ Start with start {map: "e1m1", skill: 1}. Each result is an observation:
 step holds buttons for N tics, then releases them: buttons forward back moveleft moveright left right lookup lookdown jump attack speed up down strafe use. yaw: degrees, + turns left. pitch: + looks down. face: absolute yaw. impulse 1-8 selects a weapon.
 Quake has no use key: walk into buttons and doors; shoot some buttons. "exit" entities are level exits: walk into them.
 goto {id} or goto {pos: [x, y, z]} walks there along the level's walk graph (doors, lifts, teleporters, drops and jumps included) and stops early when hurt; when blocked it names what blocks the way and how it opens (a key, a button #id, shoot it).
+turn_to {id} faces an entity (or {yaw} an absolute yaw) without advancing the game. attack {id} aims at it every tic and fires while it is in sight, until it is killed, gone, out of sight, you are out of ammo (or have only the axe and are out of reach), hurt to death, or max_tics; it doesn't move.
 cmd runs console commands (god, give, map e1m2, ...). key and menu drive the menus.`;
 
 const BUTTONS_DESC =
@@ -123,6 +129,23 @@ const GOTO_ARGS = z.strictObject({
   ),
   stop_on_damage: z.boolean().optional().describe(
     "Stop when hurt (default true)",
+  ),
+  ents,
+});
+
+const TURN_TO_ARGS = z.strictObject({
+  id: int(1, 65535).optional().describe(
+    "Entity number to face, as #id in the observation",
+  ),
+  yaw: z.number().optional().describe("An absolute yaw to face instead"),
+  ents,
+});
+
+const ATTACK_ARGS = z.strictObject({
+  id: int(1, 65535).describe("Entity number, as #id in the observation"),
+  max_tics: int(1, ATTACK_MAX_TICS).optional().describe(
+    "Give up after this many tics (default " + ATTACK_DEFAULT_TICS +
+      " = 10 s; at most " + ATTACK_MAX_TICS + ")",
   ),
   ents,
 });
@@ -310,6 +333,40 @@ export function agent_mcp_server(): McpServer {
         ents: args.ents ?? 10,
       });
     }),
+  );
+
+  server.registerTool(
+    "turn_to",
+    {
+      description:
+        "Faces an entity (#id, aiming at its centre) or an absolute yaw at once, without advancing the game, then returns the observation.",
+      inputSchema: TURN_TO_ARGS,
+      annotations: { ...LOCAL, idempotentHint: true },
+    },
+    tool((e, args: z.infer<typeof TURN_TO_ARGS>) => {
+      if (
+        (args.id === undefined) === (args.yaw === undefined)
+      ) throw new Error("turn_to takes id or yaw (one of them)");
+      return e.agent.Agent_TurnTo(args.id ?? { yaw: args.yaw }, {
+        ents: args.ents ?? 10,
+      });
+    }),
+  );
+
+  server.registerTool(
+    "attack",
+    {
+      description:
+        "Aims at an entity (#id) every tic and fires while it is in sight, without moving, then returns the observation. The first line says how it ended: killed, gone, out of sight, out of ammo, out of reach (axe), died, level changed, or timeout.",
+      inputSchema: ATTACK_ARGS,
+      annotations: { ...LOCAL, idempotentHint: false },
+    },
+    tool((e, args: z.infer<typeof ATTACK_ARGS>) =>
+      e.agent.Agent_Attack(args.id, {
+        max_tics: args.max_tics ?? ATTACK_DEFAULT_TICS,
+        ents: args.ents ?? 10,
+      })
+    ),
   );
 
   server.registerTool(

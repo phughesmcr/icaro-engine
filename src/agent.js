@@ -1296,6 +1296,189 @@ async function Agent_GotoNow(target, opts) {
   return finish(why, tics);
 }
 
+// TURN_TO AND ATTACK
+
+export const ATTACK_MAX_TICS = 72 * 60;
+export const ATTACK_DEFAULT_TICS = 72 * 10;
+const ATTACK_LOST_TICS = 36; // out of sight this long ends an attack
+const ATTACK_AXE_REACH = 80; // the axe's trace is 64 units from the eye
+
+const aim_eye = new Float32Array(3);
+const aim_at = new Float32Array(3);
+
+// The centre of entity num as the client sees it (aim_at); false if the
+// client has no model for it
+function Agent_AimPoint(num) {
+  const ent = cl_entities[num];
+  if (ent === undefined || ent === null || ent.model === null) return false;
+  // origin plus the middle of the model's bounds (a brush entity's too)
+  const m = ent.model;
+  for (let k = 0; k < 3; k++) {
+    aim_at[k] = ent.origin[k] + (m.mins[k] + m.maxs[k]) / 2;
+  }
+  return true;
+}
+
+// Points the view at aim_at from the eye; returns the distance
+function Agent_AimView() {
+  Agent_PlayerOrigin(aim_eye);
+  aim_eye[2] += 22; // DEFAULT_VIEWHEIGHT, as Agent_Entities
+  const dx = aim_at[0] - aim_eye[0];
+  const dy = aim_at[1] - aim_eye[1];
+  const dz = aim_at[2] - aim_eye[2];
+  const flat = Math.hypot(dx, dy);
+  if (flat > 0.5) {
+    cl.viewangles[YAW] = Agent_AngleMod(Math.atan2(dy, dx) * 180 / Math.PI);
+  }
+  // Quake pitch is positive looking down
+  cl.viewangles[PITCH] = -Math.atan2(dz, flat) * 180 / Math.PI;
+  CL_ClampPitch();
+  return Math.hypot(flat, dz);
+}
+
+/**
+ * Faces entity #id (yaw and pitch at its centre) or { yaw } (absolute), at once,
+ * and returns the observation without advancing the game: the new view goes
+ * to the server with the next step. Look changes in this API are immediate
+ * (step's yaw and face too), so there is nothing to close a loop on.
+ */
+export function Agent_TurnTo(target, opts = {}) {
+  if (Agent_Ready() === false) throw new Error("turn_to: no game running");
+  let label;
+  if (Number.isInteger(target) && target > 0) {
+    if (Agent_AimPoint(target) === false) {
+      throw new Error("turn_to: no entity #" + target);
+    }
+    Agent_AimView();
+    label = "#" + target;
+  } else if (
+    target !== null && typeof target === "object" &&
+    typeof target.yaw === "number" && Number.isFinite(target.yaw)
+  ) {
+    cl.viewangles[YAW] = Agent_AngleMod(target.yaw);
+    cl.viewangles[PITCH] = 0;
+    label = "yaw " + Math.round(cl.viewangles[YAW]);
+  } else {
+    throw new Error("turn_to: target must be an entity id (#N) or { yaw }");
+  }
+  return "turn_to " + label + ": yaw " +
+    Math.round(cl.viewangles[YAW]) + " pitch " +
+    Math.round(cl.viewangles[PITCH]) + "\n" + Agent_Observe(opts);
+}
+
+/**
+ * Aims at entity #id every tic and fires while it is in sight, until it dies
+ * or one of the other endings (lockstep only). The first line of the result
+ * says how it ended: killed, gone, out of sight, out of ammo, out of reach
+ * (axe), died, level changed, level done, or timeout. opts: { max_tics
+ * (10 s), ents, map }. With a local server "killed" reads the monster's
+ * health; without one, an entity that leaves the client's updates is
+ * "gone". It doesn't move: goto first, or step between attacks.
+ */
+export function Agent_Attack(target, opts = {}) {
+  return Agent_Serial(() => Agent_AttackNow(target, opts));
+}
+
+async function Agent_AttackNow(target, opts) {
+  if (agent_mode !== "lockstep") {
+    throw new Error('attack needs lockstep mode: attach("lockstep") first');
+  }
+  if (Agent_Loading()) await Agent_Settle();
+  if (Agent_Ready() === false) throw new Error("attack: no game running");
+  if (Number.isInteger(target) === false || target <= 0) {
+    throw new Error("attack: target must be an entity id (#N)");
+  }
+  if (target === cl.viewentity || Agent_AimPoint(target) === false) {
+    throw new Error("attack: no entity #" + target);
+  }
+
+  const max_tics = Math.max(
+    1,
+    Math.min(
+      ATTACK_MAX_TICS,
+      Math.floor(Number(opts.max_tics ?? ATTACK_DEFAULT_TICS) || 0),
+    ),
+  );
+  const map = Agent_MapName();
+  const finish = (why, tics) =>
+    "attack #" + target + ": " + why + " (" + tics + " tics)\n" +
+    Agent_Observe(opts);
+
+  let why = "timeout";
+  let tics = 0;
+  let unseen = 0;
+
+  try {
+    for (; tics < max_tics;) {
+      // Server truth: dead (health gone, or the edict freed or gibbed)
+      if (sv.active === true) {
+        const ed = Agent_Edict(target);
+        if (
+          ed === null || PR_GetString(ed.v.model) === "" ||
+          ((ed.v.flags & FL_MONSTER) !== 0 && ed.v.health <= 0)
+        ) {
+          why = "killed";
+          break;
+        }
+      }
+      const ent = cl_entities[target];
+      if (
+        ent === undefined || ent === null || ent.model === null ||
+        ent.msgtime !== cl.mtime[0]
+      ) {
+        if (++unseen > ATTACK_LOST_TICS) {
+          why = "gone (not in view)";
+          break;
+        }
+        Agent_HoldButton("attack", false);
+      } else {
+        Agent_AimPoint(target);
+        const dist = Agent_AimView();
+        const visible = Agent_LineOfSight(aim_eye, aim_at);
+        unseen = visible ? 0 : unseen + 1;
+        if (unseen > ATTACK_LOST_TICS) {
+          why = "out of sight";
+          break;
+        }
+
+        const weapon = cl.stats[STAT_ACTIVEWEAPON];
+        if (weapon === IT_AXE) {
+          if (dist > ATTACK_AXE_REACH) {
+            why = "out of reach (axe only: get within " + ATTACK_AXE_REACH +
+              " units)";
+            break;
+          }
+        } else if (cl.stats[STAT_AMMO] <= 0) {
+          why = "out of ammo";
+          break;
+        }
+        Agent_HoldButton("attack", visible);
+      }
+
+      Agent_Tic();
+      tics++;
+
+      if (Agent_Loading() || Agent_MapName() !== map) {
+        if (Agent_Loading()) await Agent_Settle();
+        why = "level changed";
+        break;
+      }
+      if (cl.stats[STAT_HEALTH] <= 0) {
+        why = "died";
+        break;
+      }
+      if (cl.intermission !== 0) {
+        why = "level done (intermission)";
+        break;
+      }
+    }
+  } finally {
+    Agent_ReleaseButtons();
+  }
+
+  return finish(why, tics);
+}
+
 const AGENT_LOAD_CMDS =
   /(^|[\s;])(map|changelevel|restart|load|connect|reconnect)(\s|;|$)/;
 
