@@ -1,10 +1,10 @@
 # Browser-hosted rooms over WebRTC (design)
 
 Design notes, 2026-11-25, against `dev` at `11e5cbd`. Status, 2026-11-26:
-the WebRTC driver, the listen-server rules and the lobby (Deno, and the
-Cloudflare Worker) are built and unit tested; nothing is deployed, the
-menus and the client's lobby signaller aren't built, and no browser has
-played a room end to end. The goal is free multiplayer that doesn't
+the WebRTC driver, the listen-server rules, the lobby (Deno, and the
+Cloudflare Worker, which the maintainer has deployed), the client's lobby
+signaller (`src/net_rtclobby.js`) and the menus are built and unit
+tested. See PR 5 below for what a browser has been checked for. The goal is free multiplayer that doesn't
 depend on the maintainer's Mac or a paid server, on desktop and mobile.
 One player's browser tab hosts the room, the way a NetQuake listen server
 does, and the other players join it directly over WebRTC.
@@ -43,8 +43,8 @@ Tags, as in [always-on-hosting.md](always-on-hosting.md):
 
 1. **Host:** chooses *Host game*. Their tab starts a listen server (`listen
    1`, `maxplayers N`, `map X`), opens a long-lived WebSocket to the lobby
-   DO, and registers the room. The lobby replies with a six-character room
-   code.
+   DO, and registers the room. The lobby replies with an eight-character
+   room code (lobby rooms keep six).
 2. **Joiner:** picks the room from the list, or types the code. Their tab
    asks the lobby for ICE servers, creates an `RTCPeerConnection` with two
    data channels, and sends its offer through the lobby. The lobby relays
@@ -414,7 +414,15 @@ Paste each run's *Copy results* JSON into this section.
    The Worker's rate limits live in memory and start again when the
    Durable Object leaves memory (see `cloudflare/lobby/README.md`).
 5. **Menus:** *Host in this browser*, *Join by code*, and a room list that
-   shows both kinds of room.
+   shows both kinds of room. Built as `src/net_rtclobby.js` (the driver's
+   signaller: a joiner's lobby socket lasts only until the host accepts
+   it; a host registers once its map is up, heartbeats when its player
+   count changes and every 30 s, and its room ends with
+   `Host_ShutdownServer`) and Start Game's *Host on* and *Listed* rows and
+   Join Game's *Room code* field in `src/menu.js`. Hosting in the browser
+   needs a WebSocket lobby (`?server=wss://…`); the room's exit rules are
+   set only for it and reset when it ends. Players are capped at
+   `svs.maxclientslimit`, as for any listen server.
 6. **Later, depending on the spike:** B (server in a Worker), or C (a
    `deno desktop` host app).
 

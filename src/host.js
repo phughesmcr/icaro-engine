@@ -20,7 +20,7 @@ import { PR_Init } from './pr_edict.js';
 import { Mod_Init, Mod_ClearAll, R_InitTextures } from './gl_model.js';
 import { NET_Init, NET_Poll, NET_Shutdown, NET_SendMessage, NET_CanSendMessage,
 	NET_GetMessage, NET_SendToAll, NET_QueryRooms, NET_CreateRoom, NET_LobbyServer,
-	NET_LobbyJoinURL, NET_RoomURL, NET_MultiplayerAvailable } from './net_main.js';
+	NET_LobbyJoinURL, NET_RoomURL, NET_MultiplayerAvailable, NET_CanHostInBrowser, NET_HostRoom } from './net_main.js';
 import { SV_Init, SV_CheckForNewClients, SV_ClearDatagram,
 	SV_SendClientMessages, SV_DropClient } from './sv_main.js';
 import { SV_RunClients } from './sv_user.js';
@@ -30,12 +30,13 @@ import { sv, svs, client_t,
 import { R_Init, D_FlushCaches } from './gl_rmisc.js';
 import { VID_Init, VID_Shutdown } from './vid.js';
 import { Draw_Init, Draw_Character, Draw_String, Draw_ConsoleBackground, Draw_SetExternals, Draw_PicFromWad, Draw_CachePic, Draw_Pic, Draw_SubPic, Draw_TransPic, Draw_TransPicTranslate, Draw_Fill, Draw_FadeScreen } from './gl_draw.js';
-import { SCR_Init, SCR_UpdateScreen, SCR_SetExternals, SCR_EndLoadingPlaque, SCR_BeginLoadingPlaque } from './gl_screen.js';
+import { SCR_Init, SCR_UpdateScreen, SCR_SetExternals, SCR_EndLoadingPlaque, SCR_BeginLoadingPlaque, SCR_CenterPrint } from './gl_screen.js';
 import { S_Init, S_Update, S_Shutdown, S_StopAllSounds, S_SetCallbacks } from './snd_dma.js';
 import { CDAudio_Init, CDAudio_Update, CDAudio_Shutdown } from './cd_audio.js';
 import { Sbar_Init, Sbar_SetExternals } from './sbar.js';
 import { CL_Init, CL_SendCmd, CL_ReadFromServer, CL_DecayLights, CL_Disconnect, CL_NextDemo, cl_name } from './cl_main.js';
 import { CL_AccumulateCmd } from './cl_input.js';
+import { RTCLobby_ServerShutdown } from './net_rtclobby.js';
 import { isXRActive } from './webxr.js';
 import { IN_Init, IN_Commands, IN_Shutdown, IN_UpdateTouch, IN_RequestPointerLock } from './in_web.js';
 import { cls, cl, SIGNONS, ca_connected } from './client.js';
@@ -431,6 +432,9 @@ export async function Host_Init( parms ) {
 		NET_LobbyJoinURL: NET_LobbyJoinURL,
 		NET_RoomURL: NET_RoomURL,
 		NET_MultiplayerAvailable: NET_MultiplayerAvailable,
+		NET_CanHostInBrowser: NET_CanHostInBrowser,
+		NET_HostRoom: NET_HostRoom,
+		SCR_CenterPrint: SCR_CenterPrint,
 		cl_name: cl_name,
 		Draw_TransPicTranslate: Draw_TransPicTranslate,
 		Draw_SubPic: Draw_SubPic
@@ -1151,6 +1155,9 @@ export function Host_ShutdownServer( crash ) {
 
 	// clear structures
 	Object.assign( sv, new ( sv.constructor )() );
+
+	// Web addition: a room hosted in this browser ends with its server
+	RTCLobby_ServerShutdown();
 
 }
 

@@ -26,6 +26,7 @@ import { Draw_GetVirtualWidth, Draw_GetVirtualHeight, Draw_SetCanvasScale } from
 import { SAVEGAME_COMMENT_LENGTH } from './quakedef.js';
 import { registered, standard_quake, rogue, hipnotic } from './common.js';
 import { Sys_PageURL } from './sys.js';
+import { Room_ExitRuleValues } from './room_rules.js';
 
 /*
 ==============================================================================
@@ -89,6 +90,10 @@ let slist_error = '';
 // Bumped by each fetch; a reply from an older fetch is dropped, so a slow
 // early reply can't replace a newer list or end "Searching..." early.
 let slist_generation = 0;
+// Web addition: a room code typed in Join Game, joined instead of the list's
+// selection when it isn't empty
+let slist_code = '';
+const SLIST_CODE_MAX = 8; // browser-hosted rooms' codes; lobby rooms' have 6
 
 // Lobby functions from net_main.js, injected via M_SetExternals. They pick
 // WebTransport or WebSocket and the lobby URL (?server= or a default).
@@ -98,6 +103,9 @@ let _NET_LobbyServer = null;
 let _NET_LobbyJoinURL = null;
 let _NET_RoomURL = null;
 let _NET_MultiplayerAvailable = null;
+let _NET_CanHostInBrowser = null;
+let _NET_HostRoom = null;
+let _SCR_CenterPrint = null;
 let _cl_name = null;
 
 /**
@@ -178,6 +186,17 @@ function M_ValidRooms( reply ) {
 
 		if ( room === null || typeof room !== 'object' ) continue;
 		if ( typeof room.id !== 'string' || typeof room.map !== 'string' ) continue;
+		if ( room.transport === 'rtc' ) {
+
+			// A room hosted in a browser (server/lobby_rtc.js) counts
+			// "players" and names its "hostName"
+			if ( Number.isFinite( room.players ) === false || Number.isFinite( room.maxPlayers ) === false ) continue;
+			valid.push( { id: room.id, map: room.map, playerCount: room.players, maxPlayers: room.maxPlayers,
+				name: typeof room.hostName === 'string' ? room.hostName : '', transport: 'rtc' } );
+			continue;
+
+		}
+
 		if ( Number.isFinite( room.playerCount ) === false || Number.isFinite( room.maxPlayers ) === false ) continue;
 		valid.push( room );
 
@@ -196,8 +215,14 @@ function M_ValidRooms( reply ) {
 */
 
 let gameoptions_cursor = 0;
-const gameoptions_cursor_table = [ 40, 56, 64, 72, 80, 88, 96, 112, 120 ];
-const NUM_GAMEOPTIONS = 9;
+// Web addition: the last two rows, Host on and Listed
+const gameoptions_cursor_table = [ 40, 56, 64, 72, 80, 88, 96, 112, 120, 136, 144 ];
+const NUM_GAMEOPTIONS = 11;
+// Web addition: Start Game hosts the room in this browser over WebRTC
+// (src/net_rtclobby.js) instead of on the lobby server, listed or private
+let m_host_in_browser = false;
+let m_host_public = false;
+const M_HOST_HERE_REASON = 'Hosting here needs a WebSocket lobby';
 
 let maxplayers = 4;
 let startepisode = 2; // Default to Deathmatch Arena
@@ -540,6 +565,9 @@ export function M_SetExternals( externals ) {
 	if ( externals.NET_LobbyJoinURL ) _NET_LobbyJoinURL = externals.NET_LobbyJoinURL;
 	if ( externals.NET_RoomURL ) _NET_RoomURL = externals.NET_RoomURL;
 	if ( externals.NET_MultiplayerAvailable ) _NET_MultiplayerAvailable = externals.NET_MultiplayerAvailable;
+	if ( externals.NET_CanHostInBrowser ) _NET_CanHostInBrowser = externals.NET_CanHostInBrowser;
+	if ( externals.NET_HostRoom ) _NET_HostRoom = externals.NET_HostRoom;
+	if ( externals.SCR_CenterPrint ) _SCR_CenterPrint = externals.SCR_CenterPrint;
 	if ( externals.cl_name ) _cl_name = externals.cl_name;
 	if ( externals.Draw_TransPicTranslate ) _Draw_TransPicTranslate = externals.Draw_TransPicTranslate;
 	if ( externals.Draw_SubPic ) _Draw_SubPic = externals.Draw_SubPic;
@@ -1312,6 +1340,7 @@ function M_Menu_LanConfig_f() {
 	m_entersound = true;
 
 	slist_cursor = 0;
+	slist_code = '';
 	m_return_onerror = false;
 	m_return_reason = '';
 
@@ -1371,6 +1400,12 @@ function M_LanConfig_Draw() {
 
 	}
 
+	// Web addition: join by code
+	M_Print( basex, 152, 'Room code:' );
+	M_PrintWhite( basex + 88, 152, slist_code );
+	if ( slist_code.length < SLIST_CODE_MAX )
+		M_DrawCharacter( basex + 88 + slist_code.length * 8, 152, 10 + ( ( Math.floor( _realtime_get() * 4 ) ) & 1 ) );
+
 	// Error message from connection attempt
 	if ( m_return_reason ) {
 
@@ -1413,58 +1448,102 @@ function M_LanConfig_Key( key ) {
 			break;
 
 		case K_ENTER:
-			if ( slist_rooms.length > 0 && slist_cursor < slist_rooms.length ) {
+			if ( slist_code.length > 0 ) {
 
-				const room = slist_rooms[ slist_cursor ];
-
-				// Don't allow joining full rooms
-				if ( room.playerCount >= room.maxPlayers ) {
-
-					if ( _S_LocalSound ) _S_LocalSound( 'misc/menu2.wav' );
-					m_return_reason = 'Room is full (' + room.playerCount + '/' + room.maxPlayers + ' players)';
-					break;
-
-				}
-
-				// Always join through the lobby using room ID.
-				// This avoids connecting to stale room-port data from an old room list.
-				// NET_LobbyJoinURL checks the lobby and encodes the id, so neither
-				// can end the quoted connect argument.
-				const connectUrl = _NET_LobbyServer !== null && _NET_LobbyJoinURL !== null
-					? _NET_LobbyJoinURL( _NET_LobbyServer(), room.id )
-					: null;
-				if ( connectUrl === null ) {
-
-					if ( _S_LocalSound ) _S_LocalSound( 'misc/menu2.wav' );
-					m_return_reason = M_BAD_LOBBY_REASON;
-					break;
-
-				}
-
-				// Join selected room
-				m_entersound = true;
-
-				// Update browser URL so user can share it
-				history.replaceState( null, '', Sys_PageURL( room.id ) );
-
-				// Set up error return
-				m_return_state = m_state;
-				m_return_onerror = true;
-
-				// Close menu and connect
-				setKeyDest( key_game );
-				m_state = m_none;
-				Cbuf_AddText( 'connect "' + connectUrl + '"\n' );
+				M_LanConfig_JoinCode();
+				break;
 
 			}
 
+			M_LanConfig_JoinSelected();
+			break;
+
+		case K_BACKSPACE:
+			if ( slist_code.length > 0 )
+				slist_code = slist_code.substring( 0, slist_code.length - 1 );
 			break;
 
 		case 32: // SPACE - refresh
 			M_FetchRooms();
 			break;
 
+		default:
+			// Web addition: letters and digits type a room code
+			if ( slist_code.length < SLIST_CODE_MAX && /^[0-9A-Za-z]$/.test( String.fromCharCode( key ) ) )
+				slist_code += String.fromCharCode( key ).toUpperCase();
+			break;
+
 	}
+
+}
+
+function M_LanConfig_JoinSelected() {
+
+	if ( slist_rooms.length === 0 || slist_cursor >= slist_rooms.length ) return;
+
+	const room = slist_rooms[ slist_cursor ];
+
+	// Don't allow joining full rooms
+	if ( room.playerCount >= room.maxPlayers ) {
+
+		if ( _S_LocalSound ) _S_LocalSound( 'misc/menu2.wav' );
+		m_return_reason = 'Room is full (' + room.playerCount + '/' + room.maxPlayers + ' players)';
+		return;
+
+	}
+
+	M_LanConfig_Join( room.id );
+
+}
+
+// Web addition: lobby rooms have 6-character codes and rooms hosted in
+// browsers 8 (server/lobby_rtc.js)
+function M_LanConfig_JoinCode() {
+
+	if ( slist_code.length !== 6 && slist_code.length !== 8 ) {
+
+		if ( _S_LocalSound ) _S_LocalSound( 'misc/menu2.wav' );
+		m_return_reason = 'A room code has 6 or 8 characters';
+		return;
+
+	}
+
+	M_LanConfig_Join( slist_code );
+
+}
+
+function M_LanConfig_Join( roomId ) {
+
+	// Always join through the lobby using room ID.
+	// This avoids connecting to stale room-port data from an old room list.
+	// NET_LobbyJoinURL checks the lobby and encodes the id, so neither
+	// can end the quoted connect argument. A browser-hosted room's code
+	// becomes an rtc: address for the WebRTC driver.
+	const connectUrl = _NET_LobbyServer !== null && _NET_LobbyJoinURL !== null
+		? _NET_LobbyJoinURL( _NET_LobbyServer(), roomId )
+		: null;
+	if ( connectUrl === null ) {
+
+		if ( _S_LocalSound ) _S_LocalSound( 'misc/menu2.wav' );
+		m_return_reason = M_BAD_LOBBY_REASON;
+		return;
+
+	}
+
+	// Join selected room
+	m_entersound = true;
+
+	// Update browser URL so user can share it
+	history.replaceState( null, '', Sys_PageURL( roomId ) );
+
+	// Set up error return
+	m_return_state = m_state;
+	m_return_onerror = true;
+
+	// Close menu and connect
+	setKeyDest( key_game );
+	m_state = m_none;
+	Cbuf_AddText( 'connect "' + connectUrl + '"\n' );
 
 }
 
@@ -1584,11 +1663,20 @@ function M_GameOptions_Draw() {
 	M_Print( 160, 120, level.description );
 	M_Print( 160, 128, level.name );
 
+	// Web addition: where the room runs, and whether the lobby lists it
+	M_Print( 0, 136, '          Host on' );
+	M_Print( 160, 136, m_host_in_browser ? 'This browser' : 'Lobby server' );
+	M_Print( 0, 144, '           Listed' );
+	if ( m_host_in_browser )
+		M_Print( 160, 144, m_host_public ? 'Public' : 'Private (code)' );
+	else
+		M_Print( 160, 144, 'Public' );
+
 	// Start Game's room request: progress, or why it failed
 	if ( m_createroom_pending === true )
-		M_PrintWhite( 0, 144, 'Creating room...' );
+		M_PrintWhite( 0, 160, 'Creating room...' );
 	else if ( m_return_reason )
-		M_PrintWhite( 0, 144, m_return_reason.substring( 0, 40 ) );
+		M_PrintWhite( 0, 160, m_return_reason.substring( 0, 40 ) );
 
 	// Cursor
 	M_DrawCharacter( 144, gameoptions_cursor_table[ gameoptions_cursor ], 12 + ( ( Math.floor( _realtime_get() * 4 ) ) & 1 ) );
@@ -1674,7 +1762,103 @@ function M_NetStart_Change( dir ) {
 			break;
 		}
 
+		case 9: // Web addition: Host on
+			if ( m_host_in_browser === false && M_CanHostInBrowser() === false ) {
+
+				m_return_reason = M_HOST_HERE_REASON;
+				break;
+
+			}
+
+			m_host_in_browser = ! m_host_in_browser;
+			m_return_reason = '';
+			break;
+
+		case 10: // Web addition: Listed (rooms on the lobby server always are)
+			if ( m_host_in_browser )
+				m_host_public = ! m_host_public;
+			break;
+
 	}
+
+}
+
+function M_CanHostInBrowser() {
+
+	return _NET_CanHostInBrowser !== null && _NET_HostRoom !== null && _NET_CanHostInBrowser() === true;
+
+}
+
+// The room options Start Game sends, from the menu's cvars
+function M_GameOptionValues() {
+
+	return {
+		coop: coop.value ? 1 : 0,
+		teamplay: Math.trunc( teamplay.value ),
+		skill: Math.trunc( skill.value ),
+		fraglimit: Math.trunc( Cvar_VariableValue( 'fraglimit' ) ),
+		timelimit: Math.trunc( Cvar_VariableValue( 'timelimit' ) )
+	};
+
+}
+
+/*
+================
+M_HostInBrowser
+
+Web addition: Start Game with Host on "This browser". Starts a listen server
+as menu.c's begin game does, with listen 1 and the room's exit rules
+(room_rules.js) before the map, then registers the room with the lobby once
+the map is up (src/net_rtclobby.js), which resets the exit rules when the
+room ends.
+================
+*/
+function M_HostInBrowser( mapName ) {
+
+	if ( M_CanHostInBrowser() === false ) {
+
+		m_return_reason = M_HOST_HERE_REASON;
+		return;
+
+	}
+
+	m_return_reason = '';
+	const options = M_GameOptionValues();
+	const rules = Room_ExitRuleValues( options );
+	const spawnCount = svs.spawncount;
+
+	if ( _sv.active )
+		Cbuf_AddText( 'disconnect\n' );
+
+	Cbuf_AddText( 'maxplayers ' + maxplayers + '\n' );
+	Cbuf_AddText( 'listen 1\n' );
+	Cbuf_AddText( 'noexit ' + rules.noexit + '\n' );
+	Cbuf_AddText( 'samelevel ' + rules.samelevel + '\n' );
+
+	if ( _SCR_BeginLoadingPlaque ) _SCR_BeginLoadingPlaque();
+
+	Cbuf_AddText( 'map ' + mapName + '\n' );
+
+	setKeyDest( key_game );
+	m_state = m_none;
+
+	_NET_HostRoom( {
+		map: mapName,
+		hostName: _cl_name ? _cl_name.string : 'Player',
+		public: m_host_public,
+		options
+	}, spawnCount, true ).then( ( room ) => {
+
+		Con_Printf( 'Room code: %s (%s)\n', room.id, room.public === true ? 'listed' : 'private' );
+		if ( _SCR_CenterPrint !== null ) _SCR_CenterPrint( 'Room code: ' + room.id );
+		// The address to share
+		history.replaceState( null, '', Sys_PageURL( room.id ) );
+
+	} ).catch( ( e ) => {
+
+		Con_Printf( 'Hosting failed: %s\n', e instanceof Error ? e.message : String( e ) );
+
+	} );
 
 }
 
@@ -1771,6 +1955,13 @@ function M_GameOptions_Key( key ) {
 				// Begin game - create room on server first
 				const mapName = M_StartLevel().name;
 
+				if ( m_host_in_browser === true ) {
+
+					M_HostInBrowser( mapName );
+					return;
+
+				}
+
 				// Create room on the lobby server and connect as client
 				if ( _NET_CreateRoom !== null ) {
 
@@ -1801,13 +1992,7 @@ function M_GameOptions_Key( key ) {
 						map: mapName,
 						maxPlayers: maxplayers,
 						hostName: _cl_name ? _cl_name.string : 'Player',
-						options: {
-							coop: coop.value ? 1 : 0,
-							teamplay: Math.trunc( teamplay.value ),
-							skill: Math.trunc( skill.value ),
-							fraglimit: Math.trunc( Cvar_VariableValue( 'fraglimit' ) ),
-							timelimit: Math.trunc( Cvar_VariableValue( 'timelimit' ) )
-						}
+						options: M_GameOptionValues()
 					} ).then( ( room ) => {
 
 						if ( M_CreateRoomCurrent( token ) === false ) {
@@ -4003,7 +4188,7 @@ function M_MenuClick( vx, vy ) {
 			if ( row >= 0 ) {
 
 				slist_cursor = row;
-				M_LanConfig_Key( K_ENTER );
+				M_LanConfig_JoinSelected();
 
 			}
 

@@ -16,7 +16,7 @@ import { OFS_PARM0, OFS_PARM1, OFS_PARM2, OFS_PARM3 } from '../src/pr_comp.js';
 import { pr_functions, pr_globals_float, pr_globals_int, EDICT_TO_PROG } from '../src/progs.js';
 import { SV_Init, SV_SpawnServer, SV_ClearDatagram } from '../src/sv_main.js';
 import { SV_Physics, SV_SetFrametime } from '../src/sv_phys.js';
-import { sv, FL_MONSTER } from '../src/server.js';
+import { sv, svs, FL_MONSTER } from '../src/server.js';
 import { Mod_Init, R_InitTextures } from '../src/gl_model.js';
 import { Sys_Random, Sys_SetRandomSeed, Sys_FloatTime, Sys_DoubleTime, Sys_SetClockOverride } from '../src/sys.js';
 
@@ -149,8 +149,11 @@ async function runSeeded( seed ) {
 		skill.value = 1; skill.string = '1';
 
 		Sys_SetRandomSeed( seed );
+		const spawns = svs.spawncount;
 		SV_SpawnServer( 'e1m1' );
 		assert( sv.active === true, 'could not spawn e1m1' );
+		// net_rtclobby.js tells a spawn by it
+		assert( svs.spawncount === spawns + 1, 'spawncount counts the spawn' );
 
 		SV_SetFrametime( 0.1 );
 		// let monsters drop to the floor and start their idle think

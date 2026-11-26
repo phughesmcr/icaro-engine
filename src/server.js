@@ -33,6 +33,10 @@ export class server_static_t {
 		this.clients = null; // Array of client_t [maxclients]
 		this.serverflags = 0; // episode completion information
 		this.changelevel_issued = false; // cleared when at SV_SpawnServer
+		// QW/server/server.h: servers spawned since start. NetQuake has no
+		// such count; src/net_rtclobby.js uses it to tell its room's map
+		// from a server that was already running.
+		this.spawncount = 0;
 
 	}
 
