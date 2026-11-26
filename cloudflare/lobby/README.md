@@ -56,6 +56,13 @@ or joined one, within the lobby's rate limits. They last 6 hours
 (`TURN_TTL_SECONDS` overrides that), since a relay can't be refreshed once
 they expire. If minting fails, clients get STUN only.
 
+The rate limits (rooms hosted, joins and missed joins per IP per minute,
+frames per socket) live in the Durable Object's memory. When it hibernates
+and leaves memory, they start again from nothing, so a client that pauses
+between bursts can get past them. The caps on open sockets, rooms and
+joiners per IP hold, since they count live sockets. If that matters, add a
+Cloudflare rate-limiting rule on the route as well.
+
 ## Check the bundle without deploying
 
 ```bash

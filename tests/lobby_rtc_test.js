@@ -367,3 +367,54 @@ Deno.test( 'signals and heartbeats are rate limited per socket', async () => {
 	assertEqual( next.length, 1, 'relayed again after the window' );
 
 } );
+
+Deno.test( 'LOBBY_JOIN: joiners still signalling count toward a full room, and joins are rate limited per IP', async () => {
+
+	const lobby = makeLobby();
+	const room = ( await host( lobby, 'h1', '10.0.0.1', { maxPlayers: 3 } ) ).room;
+	assertEqual( ( await join( lobby, 'j1', '10.0.0.2', room.id ) )[ 0 ].type, LOBBY_ROOMS, 'first joiner' );
+	assertEqual( ( await join( lobby, 'j2', '10.0.0.3', room.id ) )[ 0 ].type, LOBBY_ROOMS, 'second joiner' );
+	const full = await join( lobby, 'j3', '10.0.0.4', room.id );
+	assertEqual( body( full[ 0 ] ), 'Room is full (1/3 players)', 'host plus two pending joiners fill it' );
+	lobby.close( 'j1' );
+	assertEqual( ( await join( lobby, 'j4', '10.0.0.4', room.id ) )[ 0 ].type, LOBBY_ROOMS, 'a slot again once a joiner goes' );
+
+	// Each successful JOIN may mint TURN credentials, so they are limited too
+	const minted = [];
+	const small = makeLobby( {
+		limits: { joinsPerIpPerWindow: 2 },
+		iceServers: ( _ip, role ) => {
+
+			minted.push( role );
+			return RTC_DEFAULT_ICE_SERVERS;
+
+		},
+	} );
+	const code = ( await host( small, 'h', '10.0.0.1' ) ).room.id;
+	for ( let i = 0; i < 2; i++ ) {
+
+		assertEqual( ( await join( small, 'k' + i, '10.0.0.9', code ) )[ 0 ].type, LOBBY_ROOMS, 'join ' + i );
+		small.close( 'k' + i );
+
+	}
+	const blocked = await join( small, 'k9', '10.0.0.9', code );
+	assertEqual( body( blocked[ 0 ] ), 'Too many joins. Wait a minute and try again.', 'third join in the window' );
+	assertEqual( minted.join( ',' ), 'host,joiner,joiner', 'no credentials for the refused join' );
+	const later = await join( small, 'k10', '10.0.0.9', code, RTC_LOBBY_LIMITS.joinWindowMs );
+	assertEqual( later[ 0 ].type, LOBBY_ROOMS, 'allowed after the window' );
+
+} );
+
+Deno.test( 'every frame on a host\'s socket is rate limited, and LOBBY_LIST is capped', async () => {
+
+	const lobby = makeLobby( { limits: { messagesPerSessionPerWindow: 2, maxListedRooms: 2 } } );
+	await host( lobby, 'h1', '10.0.0.1', { public: true } );
+	assertEqual( await lobby.handle( 'h1', LOBBY_LIST, new Uint8Array( 0 ), 0 ), null, 'LIST is the caller\'s' );
+	assertEqual( await lobby.handle( 'h1', 0x7f, new Uint8Array( 0 ), 0 ), null, 'unknown type is the caller\'s' );
+	assertEqual( ( await lobby.handle( 'h1', LOBBY_LIST, new Uint8Array( 0 ), 0 ) ).length, 0, 'over the limit: no reply' );
+
+	await host( lobby, 'h2', '10.0.0.2', { public: true } );
+	await host( lobby, 'h3', '10.0.0.3', { public: true } );
+	assertEqual( lobby.listRooms( 0 ).length, 2, 'at most maxListedRooms' );
+
+} );

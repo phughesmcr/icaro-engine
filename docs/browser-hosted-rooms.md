@@ -1,7 +1,10 @@
 # Browser-hosted rooms over WebRTC (design)
 
-Design notes, 2026-11-25, against `dev` at `11e5cbd`. Nothing here is
-built, deployed or tested yet. The goal is free multiplayer that doesn't
+Design notes, 2026-11-25, against `dev` at `11e5cbd`. Status, 2026-11-26:
+the WebRTC driver, the listen-server rules and the lobby (Deno, and the
+Cloudflare Worker) are built and unit tested; nothing is deployed, the
+menus and the client's lobby signaller aren't built, and no browser has
+played a room end to end. The goal is free multiplayer that doesn't
 depend on the maintainer's Mac or a paid server, on desktop and mobile.
 One player's browser tab hosts the room, the way a NetQuake listen server
 does, and the other players join it directly over WebRTC.
@@ -408,6 +411,8 @@ Paste each run's *Copy results* JSON into this section.
    state machine with tests, `lobby_server.js` using it, and `cloudflare/`
    with the Worker, the DO and TURN credentials. Deploying it needs the
    maintainer's Cloudflare account; the Free plan is enough.
+   The Worker's rate limits live in memory and start again when the
+   Durable Object leaves memory (see `cloudflare/lobby/README.md`).
 5. **Menus:** *Host in this browser*, *Join by code*, and a room list that
    shows both kinds of room.
 6. **Later, depending on the spike:** B (server in a Worker), or C (a

@@ -77,13 +77,16 @@ export const RTC_LOBBY_LIMITS = {
 	hostWindowMs: 60 * 1000,
 	joinMissesPerIpPerWindow: 20,     // JOINs for unknown room codes per IP per window
 	joinMissWindowMs: 60 * 1000,
-	messagesPerSessionPerWindow: 400, // Signals and heartbeats per socket per window
+	joinsPerIpPerWindow: 10,          // JOINs that found a room, per IP per window
+	joinWindowMs: 60 * 1000,          // (each one may mint TURN credentials)
+	messagesPerSessionPerWindow: 400, // Frames per host's or joiner's socket per window
 	messageWindowMs: 10 * 1000,
 	maxRequestBytes: 4096,            // Any request but LOBBY_SIGNAL
 	maxSignalBytes: 16 * 1024,        // LOBBY_SIGNAL (an offer's SDP)
 	heartbeatTimeoutMs: 90 * 1000,    // A host silent this long has gone
 	joinerLifetimeMs: 2 * 60 * 1000,  // A joiner has this long to connect
 	requestTimeoutMs: 10 * 1000,      // A socket that hasn't hosted or joined
+	maxListedRooms: 100,              // Public rooms in one LOBBY_LIST reply
 };
 
 const SIGNAL_KINDS = new Set( [ 'offer', 'answer', 'candidate' ] );
@@ -118,23 +121,36 @@ export function Lobby_DecodeFrame( bytes ) {
 
 /**
  * Sliding-window rate limiter keyed by string (client IP, or '*' for global).
+ * Its hits live in memory only: a Durable Object that leaves memory starts
+ * again with none.
  */
 export function createRateLimiter( limit, windowMs ) {
 	const hits = new Map();
+	let lastSweep = -Infinity;
 
-	function prune( now ) {
-		for ( const [ key, times ] of hits ) {
-			while ( times.length > 0 && now - times[ 0 ] >= windowMs ) times.shift();
-			if ( times.length === 0 ) hits.delete( key );
-		}
+	// Drop the key's hits older than the window, and the key once it has none
+	function expire( key, times, now ) {
+		let n = 0;
+		while ( n < times.length && now - times[ n ] >= windowMs ) n++;
+		if ( n > 0 ) times.splice( 0, n );
+		if ( times.length === 0 ) hits.delete( key );
+	}
+
+	// Walk every key at most once per window, so a check doesn't cost O(keys)
+	function sweep( now ) {
+		if ( now - lastSweep < windowMs ) return;
+		lastSweep = now;
+		for ( const [ key, times ] of hits ) expire( key, times, now );
 	}
 
 	return {
 		// True if `key` may act now (does not record a hit)
 		canTake( key, now = Date.now() ) {
-			prune( now );
+			sweep( now );
 			const times = hits.get( key );
-			return times === undefined || times.length < limit;
+			if ( times === undefined ) return true;
+			expire( key, times, now );
+			return times.length < limit;
 		},
 		// True if `key` may act now (and records the hit)
 		tryTake( key, now = Date.now() ) {
@@ -238,6 +254,7 @@ export class RtcLobby {
 		this.peers = new Map();    // peer id -> joiner session
 		this.hostLimiter = createRateLimiter( limits.hostsPerIpPerWindow, limits.hostWindowMs );
 		this.joinMissLimiter = createRateLimiter( limits.joinMissesPerIpPerWindow, limits.joinMissWindowMs );
+		this.joinLimiter = createRateLimiter( limits.joinsPerIpPerWindow, limits.joinWindowMs );
 		this.messageLimiter = createRateLimiter( limits.messagesPerSessionPerWindow, limits.messageWindowMs );
 	}
 
@@ -341,11 +358,15 @@ export class RtcLobby {
 		return gone;
 	}
 
-	/** Public rooms hosted in browsers, as LOBBY_LIST shows them. */
+	/**
+	 * Public rooms hosted in browsers, as LOBBY_LIST shows them: at most
+	 * maxListedRooms, so the reply fits in one frame.
+	 */
 	listRooms( now ) {
 		this.prune( now );
 		const rooms = [];
 		for ( const host of this.rooms.values() ) {
+			if ( rooms.length >= this.limits.maxListedRooms ) break;
 			if ( host.room.public === true ) rooms.push( _roomRecord( host.room ) );
 		}
 		return rooms;
@@ -355,11 +376,13 @@ export class RtcLobby {
 	 * One request on session `sid`. Resolves to the frames to send, each
 	 * { to: session id, type, data }, or null if the request isn't one this
 	 * lobby handles (LOBBY_LIST, LOBBY_CREATE, and LOBBY_JOIN for a code that
-	 * isn't a browser-hosted room's): the caller answers those itself.
+	 * isn't a browser-hosted room's): the caller answers those itself. A
+	 * host's or joiner's socket that sends too fast gets no reply.
 	 */
 	async handle( sid, type, data, now ) {
 		const s = this.sessions.get( sid );
 		if ( s === undefined ) return [];
+		if ( s.role !== null && this.messageLimiter.tryTake( sid, now ) === false ) return [];
 		if ( data.length > this.maxRequestBytes( type ) ) return [ _error( sid, 'Request too large' ) ];
 
 		switch ( type ) {
@@ -368,7 +391,7 @@ export class RtcLobby {
 			case LOBBY_JOIN:
 				return await this._join( s, data, now );
 			case LOBBY_SIGNAL:
-				return this._signal( s, data, now );
+				return this._signal( s, data );
 			case LOBBY_HEARTBEAT:
 				return this._heartbeat( s, data, now );
 			default:
@@ -424,7 +447,7 @@ export class RtcLobby {
 		if ( config === null ) return [ _error( s.sid, 'Invalid room config' ) ];
 
 		let map = DEFAULT_MAP;
-		if ( config.map != null && config.map !== '' ) {
+		if ( config.map !== undefined && config.map !== null && config.map !== '' ) {
 			map = Room_SanitizeMapName( config.map );
 			if ( map === null ) return [ _error( s.sid, 'Invalid map name' ) ];
 		}
@@ -474,11 +497,17 @@ export class RtcLobby {
 			return [ _error( s.sid, 'Room not found. The game may have ended.' ) ];
 		}
 		if ( s.role !== null ) return [ _error( s.sid, 'This connection already has a room' ) ];
-		if ( host.room.players >= host.room.maxPlayers ) {
+		// Joiners still signalling count too: the host's heartbeat doesn't
+		// know them yet
+		const pending = this._count( ( o ) => o.joined === code );
+		if ( host.room.players + pending >= host.room.maxPlayers ) {
 			return [ _error( s.sid, 'Room is full (' + host.room.players + '/' + host.room.maxPlayers + ' players)' ) ];
 		}
 		if ( this._count( ( o ) => o.ip === s.ip && o.role === 'joiner' ) >= this.limits.maxJoinersPerIp ) {
 			return [ _error( s.sid, 'Too many joins in progress. Try again shortly.' ) ];
+		}
+		if ( this.joinLimiter.tryTake( s.ip, now ) === false ) {
+			return [ _error( s.sid, 'Too many joins. Wait a minute and try again.' ) ];
 		}
 		const peerId = this._newPeerId();
 		if ( peerId === null ) return [ _error( s.sid, 'Unable to join right now. Please try again.' ) ];
@@ -492,9 +521,8 @@ export class RtcLobby {
 		return [ _frame( s.sid, LOBBY_ROOMS, _roomRecord( host.room ) ), await this._iceFrame( s, 'joiner' ) ];
 	}
 
-	_signal( s, data, now ) {
+	_signal( s, data ) {
 		if ( s.role === null ) return [ _error( s.sid, 'Host or join a room first' ) ];
-		if ( this.messageLimiter.tryTake( s.sid, now ) === false ) return [];
 		const signal = _parseJson( data );
 		if ( signal === null || typeof signal.to !== 'string' || SIGNAL_KINDS.has( signal.kind ) === false ) return [];
 		const payload = signal.data === undefined ? null : signal.data;
@@ -515,11 +543,10 @@ export class RtcLobby {
 
 	_heartbeat( s, data, now ) {
 		if ( s.role !== 'host' ) return [];
-		if ( this.messageLimiter.tryTake( s.sid, now ) === false ) return [];
 		const beat = _parseJson( data );
 		s.room.lastHeartbeat = now;
 		if ( beat !== null && typeof beat.players === 'number' && Number.isFinite( beat.players ) ) {
-			s.room.players = Math.max( 0, Math.min( s.room.maxPlayers, Math.trunc( beat.players ) ) ) + 0;
+			s.room.players = Math.max( 0, Math.min( s.room.maxPlayers, Math.trunc( beat.players ) ) );
 		}
 		return [];
 	}

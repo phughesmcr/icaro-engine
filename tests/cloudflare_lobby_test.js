@@ -254,3 +254,18 @@ Deno.test( 'Cloudflare lobby: sockets per IP are capped', () => {
 	assertEqual( core.canAccept( '10.0.0.2' ), true, 'other IPs' );
 
 } );
+
+Deno.test( 'Cloudflare lobby: LIST and CREATE on a host\'s socket are refused and rate limited', async () => {
+
+	const core = new LobbyCore( fakeCtx(), {}, { now: () => 0 } );
+	const hostWs = await connect( core, '10.0.0.1' );
+	await core.message( hostWs, frame( LOBBY_HOST, { public: true } ) );
+	await core.message( hostWs, frame( LOBBY_LIST, { rtc: true } ) );
+	assertEqual( hostWs.sent[ 2 ].body, 'Not available on this connection', 'LIST refused' );
+	await core.message( hostWs, frame( LOBBY_CREATE, {} ) );
+	assertEqual( hostWs.sent[ 3 ].body, 'Not available on this connection', 'CREATE refused' );
+	for ( let i = 0; i < RTC_LOBBY_LIMITS.messagesPerSessionPerWindow; i++ ) await core.message( hostWs, frame( LOBBY_LIST ) );
+	assertEqual( hostWs.sent.length, RTC_LOBBY_LIMITS.messagesPerSessionPerWindow + 2, 'replies stop at the limit' );
+	assertEqual( hostWs.closed, null, 'the host stays' );
+
+} );

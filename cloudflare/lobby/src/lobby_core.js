@@ -84,16 +84,21 @@ export class LobbyCore {
 		}
 
 		const now = this.now();
-		if ( frame.type === LOBBY_LIST ) {
+		// A host's or joiner's socket sends everything through handle(),
+		// which rate limits it; LIST and CREATE belong to one-request sockets
+		const longLived = this.lobby.isLongLived( sid );
+		if ( frame.type === LOBBY_LIST && longLived === false ) {
 			const rooms = Lobby_WantsRtcRooms( frame.data ) ? this.lobby.listRooms( now ) : [];
 			this._send( sid, LOBBY_ROOMS, _encoder.encode( JSON.stringify( rooms ) ) );
-		} else if ( frame.type === LOBBY_CREATE ) {
+		} else if ( frame.type === LOBBY_CREATE && longLived === false ) {
 			this._send( sid, LOBBY_ERROR, _encoder.encode( 'This lobby can\'t start rooms. Host one in your browser instead.' ) );
 		} else {
 			const frames = await this.lobby.handle( sid, frame.type, frame.data, now );
 			if ( frames === null ) {
-				// LOBBY_JOIN for a code that isn't a browser-hosted room's
-				this._send( sid, LOBBY_ERROR, _encoder.encode( 'Room not found. The game may have ended.' ) );
+				// LOBBY_JOIN for a code that isn't a browser-hosted room's,
+				// or LIST or CREATE on a host's or joiner's socket
+				const message = longLived ? 'Not available on this connection' : 'Room not found. The game may have ended.';
+				this._send( sid, LOBBY_ERROR, _encoder.encode( message ) );
 			} else {
 				for ( const out of frames ) this._send( out.to, out.type, out.data );
 			}

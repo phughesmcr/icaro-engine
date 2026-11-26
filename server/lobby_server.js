@@ -551,8 +551,9 @@ async function acceptConnections( listener ) {
 //
 // For browsers without WebTransport and for HTTP-only proxies such as a
 // Cloudflare Tunnel, everything goes through this one TCP port:
-//   <prefix>/lobby       one lobby request per socket: a [type][len][data]
-//                        frame each way, one WebSocket message each
+//   <prefix>/lobby       [type][len][data] frames, one WebSocket message
+//                        each: one request per socket, except that a
+//                        browser room's host or joiner keeps its socket
 //   <prefix>/room/<ID>   a game connection, proxied to the room's own
 //                        WebSocket listener on 127.0.0.1:<room port>
 // Any prefix works (the tunnel's /mp, or none), since only the path's tail
