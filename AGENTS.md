@@ -210,7 +210,9 @@ commercial data (`static/pak1.pak`, and the mission packs in `static/hipnotic/`
 and `static/rogue/`, and the 2021 rerelease in `static/rerelease/`,
 `static/id1/` and `static/{mg1,mg3,dopa,ctf}/`) must **never** be committed or
 deployed publicly; `.gitignore` covers those paths and every `.pak` but
-`static/pak0.pak`, and CI fails if another pak is tracked. The client loads a
+`static/pak0.pak`, and CI fails if another pak is tracked. `.gitignore` also
+covers `static/music/`, a player's CD rips, which `sw.js` caches on the player's
+device for offline play (no other `music/` folder is cached). The client loads a
 mission pack with `?game=hipnotic` or `?game=rogue`, a rerelease add-on with
 `?game=mg1` (etc.), and the rerelease layout with `?base=rerelease`; the servers
 take `-hipnotic`, `-rogue` or `-game <dir>`. If the data isn't present, test

@@ -144,7 +144,8 @@
 	<script>
 		// Web-only: sw.js caches the game for offline play and instant repeat
 		// launches. Once the page has loaded, it is told which files the page
-		// fetched before the worker was in control (main.js, src/, three).
+		// fetched before the worker was in control (main.js, src/, three,
+		// music).
 		// ?sw=off unregisters it, for development.
 		if ( 'serviceWorker' in navigator && window.isSecureContext ) {
 
@@ -158,9 +159,7 @@
 
 					navigator.serviceWorker.register( 'sw.js' ).then( () => navigator.serviceWorker.ready ).then( ( reg ) => {
 
-						const urls = performance.getEntriesByType( 'resource' )
-							.filter( ( e ) => e.initiatorType !== 'audio' && e.initiatorType !== 'video' )
-							.map( ( e ) => e.name );
+						const urls = performance.getEntriesByType( 'resource' ).map( ( e ) => e.name );
 						reg.active.postMessage( { type: 'cache-urls', urls } );
 
 					} ).catch( ( e ) => console.warn( 'Service worker not registered:', e ) );
