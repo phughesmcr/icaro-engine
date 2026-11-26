@@ -144,7 +144,7 @@ Done on `refactor/fmt-prep`:
    stay one per line anyway.
 4. `tools/fmt_ast_check.js <base-ref> [<file>...]` compares each changed
    `.js`/`.ts` file's syntax tree with its version at `<base-ref>`, using
-   `@babel/parser` 8.1.3 (pinned in the `deno.json` import map). It ignores
+   `@babel/parser` 8.1.3 (pinned in `deno.lock`). It ignores
    positions, comments, raw text and redundant parentheses, and accepts:
    - a block holding one statement and that statement on its own
      (`useBraces`). That includes a lone `if`: the trees are already

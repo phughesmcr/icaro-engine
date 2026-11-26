@@ -36,8 +36,10 @@ process per room. It was forked from mrdoob's three-quake.
   shim or the server and tests break. `server/deno.json` repeats the root
   import map for scripts run from `server/` and editors; keep the two in
   step. The only npm packages are the MCP SDK and zod, for
-  `server/agent_mcp.ts`, pinned in the root `deno.lock`; the engine,
-  servers and room image import none. `server/headless_host.js` runs the
+  `server/agent_mcp.ts`, and `@babel/parser`, for
+  `tools/fmt_ast_check.js` (imported by full `npm:` specifier, not through
+  the import map), all pinned in the root `deno.lock`; the engine, servers
+  and room image import none. `server/headless_host.js` runs the
   whole game (host, local server and a loopback client) under Deno with no
   browser or rendering, for scripted play; its header says how to wait for
   a level to load. `server/agent_mcp.ts` is an MCP server (stdio, on the
@@ -66,6 +68,10 @@ process per room. It was forked from mrdoob's three-quake.
   `do_cpu_probe/` is a throwaway Cloudflare Worker that measures the Free
   plan's Durable Object limits; `probe.js` gives the deploy steps, which
   need the maintainer's account. Not linted or run in CI.
+  `fmt_ast_check.js` compares each changed file's syntax tree with its
+  version at a git ref, to show that a formatting change (see
+  `docs/style-cleanup-plan.md`) changed nothing else; its header gives the
+  command and what it accepts. Not linted or run in CI.
   `check_container_image.sh` (`deno task image-check`, needs Docker)
   fails if the game-room image or its build context holds any `.pak` but
   `static/pak0.pak`, or TLS or env files, then starts a room in the image;

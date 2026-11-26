@@ -21,7 +21,9 @@
 //
 // Exit status: 0 when every file matches, 1 when any differs or fails to parse.
 
-import { parse } from '@babel/parser';
+// A full specifier, not the import map: server/deno.json repeats that map
+// and only tools/ needs this package
+import { parse } from 'npm:@babel/parser@8.1.3';
 
 // Keys that hold layout, not meaning
 const SKIP = new Set( [ 'start', 'end', 'loc', 'range', 'extra', 'comments',
