@@ -84,14 +84,36 @@ function mountFixtures() {
   if (mounted) return;
   mounted = true;
 
-  const files = [
+  addPack("zz_loc.pak", [
     ["localization/loc_zztest.txt", fixtureBytes(FIXTURE_LINES)],
     [
       "localization/loc_zzother.txt",
       fixtureBytes(['qc_item_health = "Other {0}"']),
     ],
     ["localization/loc_zzempty.txt", fixtureBytes(["// nothing here"])],
-  ];
+    // KEX layout: the base pak ships a placeholder _mod file for mods to
+    // override; a later pak (the mod's) replaces it
+    [
+      "localization/loc_zzmod.txt",
+      fixtureBytes(['qc_base = "Base"', 'qc_shared = "From base"']),
+    ],
+    [
+      "localization/loc_zzmod_mod.txt",
+      fixtureBytes(['zz_placeholder_mod = "Placeholder"']),
+    ],
+  ]);
+  addPack("zz_mod.pak", [
+    [
+      "localization/loc_zzmod_mod.txt",
+      // no trailing newline, as the rerelease's placeholder has none
+      new TextEncoder().encode(
+        'qc_shared = "From mod"\nqc_new = "Mod only"\nqc_new = "Second"',
+      ),
+    ],
+  ]);
+}
+
+function addPack(filename, files) {
   let size = 0;
   for (const [, data] of files) size += data.length;
   const data = new Uint8Array(size);
@@ -103,7 +125,7 @@ function mountFixtures() {
     pos += bytes.length;
   }
 
-  COM_AddPack({ filename: "zz_loc.pak", files: dir, data: data.buffer });
+  COM_AddPack({ filename, files: dir, data: data.buffer });
 }
 
 // Loads the fixture through LOC_Init; returns a restore function
@@ -425,6 +447,46 @@ Deno.test('Changing "language" reloads the strings at the next lookup', () => {
       true,
       "empty file reported",
     );
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("LOC_Load adds the mod's loc_<language>_mod.txt to the base strings", () => {
+  const restore = useLanguage("zzmod");
+
+  try {
+    const get = common.LOC_GetRawString;
+    assertEqual(get("$qc_base"), "Base", "base strings kept");
+    assertEqual(get("$qc_shared"), "From mod", "the mod's string wins");
+    assertEqual(get("$qc_new"), "Mod only", "first duplicate in the mod wins");
+    assertEqual(
+      get("$zz_placeholder_mod"),
+      null,
+      "the later pak's _mod file replaces the placeholder",
+    );
+    assertEqual(
+      printed.some((s) =>
+        s.includes("Loaded 3 strings from 'localization/loc_zzmod_mod.txt'")
+      ),
+      true,
+      "mod file load reported",
+    );
+
+    // a language with no _mod file keeps only its base strings
+    Cvar_Set("language", "zzother");
+    assertEqual(get("$qc_new"), null, "mod strings dropped on change");
+    assertEqual(get("$qc_item_health"), "Other {0}", "other language");
+    assertEqual(
+      dprinted.some((s) =>
+        s.includes("Couldn't load 'localization/loc_zzother_mod.txt'")
+      ),
+      true,
+      "missing _mod file is a developer message only",
+    );
+
+    Cvar_Set("language", "zzmod");
+    assertEqual(get("$qc_shared"), "From mod", "reloaded with the language");
   } finally {
     restore();
   }
