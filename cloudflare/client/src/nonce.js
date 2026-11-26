@@ -34,10 +34,14 @@ export function Client_AddScriptNonce(csp, nonce) {
 }
 
 /**
- * The page's response with a fresh nonce in its policy. Anything that isn't
- * HTML with a script-src policy (a redirect, a 304, a 404) passes through.
+ * The page's response with a fresh nonce in its policy. Anything but a 200
+ * HTML response with a script-src policy passes through: a redirect, a 404,
+ * and a 304 above all, whose headers the browser would merge into its cached
+ * page while keeping the body, so a new nonce there would no longer match the
+ * one Cloudflare put on the cached page's scripts.
  */
 export function Client_WithNonce(response, nonce = Client_NewNonce()) {
+  if (response.status !== 200) return response;
   const type = response.headers.get("Content-Type");
   const csp = response.headers.get("Content-Security-Policy");
   if (type === null || type.startsWith("text/html") === false) return response;

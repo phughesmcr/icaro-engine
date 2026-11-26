@@ -94,6 +94,19 @@ Deno.test("client nonce: only HTML with a policy is changed", async () => {
   });
   assertEqual(Client_WithNonce(script, "n"), script, "not HTML: as is");
 
+  const revalidated = new Response(null, {
+    status: 304,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Security-Policy": CSP,
+    },
+  });
+  assertEqual(
+    Client_WithNonce(revalidated, "n"),
+    revalidated,
+    "304: as is, so the cached page keeps its nonce",
+  );
+
   const bare = page({ "Content-Type": "text/html" });
   assertEqual(Client_WithNonce(bare, "n"), bare, "no policy: as is");
 });
