@@ -51,6 +51,7 @@ let host_session = null;       // the hosted room's lobby session
 let host_token = 0;            // bumped to cancel a HostRoom in progress
 let host_timer = null;
 let join_session = null;       // a join in progress
+let join_token = 0;            // bumped by each join, so a superseded one gives way
 let host_armed = false;        // the hosted room's map has spawned
 let rules_set = false;         // the hosted room set noexit/samelevel
 
@@ -261,8 +262,16 @@ const rtclobby_signaller = {
 
 		_RTCLobby_Close( join_session );
 		join_session = null;
+		const token = ++ join_token;
 
 		const session = await _RTCLobby_Request( url, 'joiner', LOBBY_JOIN, code );
+		if ( token !== join_token ) {
+
+			// A newer connect started while the lobby answered this one
+			_RTCLobby_Close( session );
+			throw _RTCLobby_Error( 'Superseded by a newer connect' );
+
+		}
 		session.code = code;
 		join_session = session;
 		return session;
@@ -371,7 +380,9 @@ export async function RTCLobby_HostRoom( config, spawnCount, exitRules ) {
 		if ( token !== host_token ) throw _RTCLobby_Error( 'Hosting was cancelled' );
 		if ( Date.now() > deadline ) {
 
-			if ( sv.active !== true ) _RTCLobby_ResetRules();
+			// The room never registered, so its end won't reset the rules:
+			// whatever runs now is an ordinary game
+			_RTCLobby_ResetRules();
 			throw _RTCLobby_Error( 'The game did not start' );
 
 		}

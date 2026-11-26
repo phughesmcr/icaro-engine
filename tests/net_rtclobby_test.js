@@ -102,11 +102,12 @@ function makeLobbyServer() {
 
 	const lobby = new RtcLobby( { iceServers: () => [ { urls: 'stun:stun.example.test' } ] } );
 	const sockets = new Map(); // session id -> server end
-	const server = { lobby, sockets, opened: 0 };
+	// delays: per new socket, in order, its message delay (ms)
+	const server = { lobby, sockets, opened: 0, delays: [] };
 
 	globalThis.WebSocket = function ( url ) {
 
-		const { client, server: end } = createFakeWebSocketPair( url );
+		const { client, server: end } = createFakeWebSocketPair( url, server.delays.shift() ?? 1 );
 		const sid = 's' + ( ++ server.opened );
 		sockets.set( sid, end );
 		lobby.open( sid, '10.0.0.' + server.opened, Date.now() );
@@ -450,9 +451,52 @@ Deno.test( 'RTC lobby: a map that never spawns gives up and resets the rules', a
 		assert( error !== null && error.message === 'The game did not start', 'gave up: ' + error );
 		assertEqual( Cvar_FindVar( 'noexit' ).value, 0, 'noexit reset' );
 
+		// The map spawned but the server never took players (maxplayers 1):
+		// the rules still go, since no room end will reset them
+		svs.maxclients = 1;
+		Cvar_Set( 'noexit', '1' );
+		error = null;
+		const hosting = RTCLobby_HostRoom( { hostName: 'Tester' }, svs.spawncount, true ).catch( ( e ) => error = e );
+		spawn();
+		await hosting;
+		assert( error !== null && error.message === 'The game did not start', 'gave up again: ' + error );
+		assertEqual( Cvar_FindVar( 'noexit' ).value, 0, 'noexit reset with the server up' );
+
 	} finally {
 
 		RTCLobby_SetTimeouts( { spawnMs: 1000 } );
+		await teardown();
+
+	}
+
+} );
+
+Deno.test( 'RTC lobby: a join whose lobby answers after a newer one gives way to it', async () => {
+
+	const { lobbyServer, teardown } = setup();
+	try {
+
+		const hosting = RTCLobby_HostRoom( { hostName: 'Tester' }, svs.spawncount, false );
+		spawn();
+		const room = await hosting;
+
+		// The first join's lobby socket is slow, the second's quick
+		lobbyServer.delays.push( 40, 1 );
+		const first = captureOutput( () => rtc.RTC_Connect( 'rtc:' + room.id ) );
+		await delay( 5 );
+		const sock = await rtc.RTC_Connect( 'rtc:' + room.id );
+		assert( sock !== null, 'the second connect succeeded' );
+		const { result, output } = await first;
+		assertEqual( result, null, 'the first gave way' );
+		assert( output.includes( 'WebRTC:' ) === false, 'no error for the first: ' + output );
+		assertEqual( svCheckForNewClients().length, 1, 'host accepted one joiner' );
+		await waitFor( () => RTCLobby_GetStateForTest().join === null && roles( lobbyServer.lobby ).length === 1,
+			1000, 'both joiners\' lobby sockets closed' );
+
+		RTCLobby_ServerShutdown();
+
+	} finally {
+
 		await teardown();
 
 	}

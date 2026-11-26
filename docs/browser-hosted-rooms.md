@@ -328,10 +328,11 @@ driver, behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js`
     shared module and call them from the host path before `map`. The room
     defaults aren't marked as a deviation from the C in `game_server.js`
     today; mark them there when they move.
-- **Menu:** Start Game sends every game to `_NET_CreateRoom` today. The local
-  `listen`/`maxplayers`/`map` path runs only when no lobby exists [code:
-  `src/menu.js:1769–1893`]. Add *Host in this browser* next to it, and a
-  *Join by code* row. `_NET_MultiplayerAvailable` should count WebRTC.
+- **Menu:** Start Game sent every game to `_NET_CreateRoom`; the local
+  `listen`/`maxplayers`/`map` path ran only when no lobby existed. PR 5
+  added the *Host on* and *Listed* rows (`M_HostInBrowser` in
+  `src/menu.js`) and Join Game's *Room code* field. Still to do:
+  `_NET_MultiplayerAvailable` should count WebRTC.
 - **Ending the game:** when the host quits or hits `Host_Error`, call
   `Host_ShutdownServer( true )`, so joiners get `svc_disconnect`. Then close
   the lobby socket, which removes the room.
