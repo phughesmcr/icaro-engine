@@ -532,7 +532,8 @@ Changing it would be a deliberate deviation. That would only matter if
   render-target output. `copyFramebufferToTexture` is used correctly for r183.
 - **WebXR:** reference-space probing before `setSession`, `setAnimationLoop`, a
   manual rig `updateMatrixWorld` (needed in r183), and the mirror, warp and
-  polyblend passes gated off.
+  polyblend passes gated off. (Since #156, XR draws the screen blend with
+  `XR_PolyBlend` instead.)
 - **API currency:** no deprecated or removed r183 APIs were found
   (`outputEncoding`, `Geometry`, `WebGLMultisampleRenderTarget`). The migration
   guide was checked only partly.
