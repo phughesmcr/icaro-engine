@@ -25,27 +25,30 @@ Phase 1 is built: `src/agent.js`, exposed as `window.icaro` by `main.js`
 - With a local server, the entity list adds monster health, door, button and
   lift kinds, and the level's exits and teleporters. Secret triggers are left
   out as spoilers.
-- The `map` tier: `observe({ map: 21 })` (and the same option on `step` and
-  `goto`, and in the MCP tools) adds an ASCII grid of 32-unit cells, 5 to 41
-  across, turned freely with the view so the player is `^` at the centre facing
-  up (the grid is resampled, not snapped to 90 degrees). `Agent_Map()` returns
-  an object with the rows for programs. Floors come from the walk graph's cell
-  index (the node nearest the player's height: level, a ledge up to 64 units
-  above, or a drop down to 256), walls and liquids from hull 0 point contents,
-  and closed doors, lifts and `func_wall`s from the client's brush entity boxes.
-  Only cells a flood from the player's cell reaches (a hull 0 trace between
-  neighbours) are drawn, so rooms behind walls stay blank. Entities in the
-  latest update are glyphs (`M` monster, `i` item, ...). With a local server and
-  `truth`, brush entities get their kind (`D`, `L`, `B`; a secret door stays
-  `#`) and exits and teleporters are drawn; without it every brush entity is
-  `#`. A 41x41 map takes about 0.4 ms headless; the text form cuts blank rows
-  and columns. `tests/agent_map_test.js` covers it on e1m1.
+- The `map` tier: `observe({ map: 21 })` (also an option of `step`, `goto`,
+  `turn_to` and `attack`, and of those MCP tools and `observe`) adds an ASCII
+  grid of 32-unit cells, 5 to 41 across, turned freely with the view so the
+  player is `^` at the centre facing up (the grid is resampled, not snapped to
+  90 degrees). `Agent_Map()` returns an object with the rows for programs.
+  Floors come from the walk graph's cell index (the node nearest the player's
+  height: level, a ledge up to 64 units above, or a drop down to 256), walls and
+  liquids from hull 0 point contents, and closed doors, lifts and `func_wall`s
+  from the client's brush entity boxes. Only cells a flood from the player's
+  cell reaches (a hull 0 trace between neighbours) are drawn, so rooms behind
+  walls stay blank. Entities in the latest update are glyphs (`M` monster, `i`
+  item, ...). With a local server and `truth`, brush entities get their kind
+  (`D`, `L`, `B`; a secret door stays `#`) and exits and teleporters are drawn;
+  without it every brush entity is `#`. A 41x41 map takes about 0.4 ms headless;
+  the text form cuts blank rows and columns. `tests/agent_map_test.js` covers it
+  on e1m1.
 - Not built yet: the `screen` (except `icaro.screenshot()`) and `rl` tiers, the
   `use` macro and a new-enemy interrupt for the macros, the render-skip flag,
-  labels for the options menu, and every adapter except `window.icaro` and the
-  stdio MCP server (below).
+  labels for the options menu, `/agent.md` or `llms.txt` and its `<meta>` link
+  (only the hidden line in `index.html` exists), and every adapter except
+  `window.icaro` and the stdio MCP server (below).
 
-Parts of phases 2 and 3 are built too (status checked at `dev` `4e95d06`):
+Parts of phases 2 and 3 are built too (status checked against the code at `dev`
+`8474098`; measurements not rerun):
 
 - Headless play: `server/headless_host.js` runs the host, a local server and a
   loopback client under Deno with no rendering (#191). Its header gives the
@@ -67,19 +70,20 @@ Parts of phases 2 and 3 are built too (status checked at `dev` `4e95d06`):
 - Determinism: `Sys_SetRandomSeed` and `Sys_SetClockOverride` in `src/sys.js`
   seed the gameplay randomness and override the clock, both opt-in.
   `tests/determinism_test.js` checks them (#190).
-- `turn_to( id | { yaw } )` and `attack( id, { max_tics } )`: in `src/agent.js`
-  (`Agent_TurnTo`, `Agent_Attack`, and the MCP `turn_to` and `attack` tools).
-  Look changes in this API are immediate, so `turn_to` sets the view at once
-  (yaw and pitch at the entity's centre) and doesn't advance the game. `attack`
-  (lockstep only) aims at the target's centre every tic and holds fire while a
-  hull 0 trace from the eye reaches it. It doesn't move. The first line of the
-  result is `killed` (with a local server: the monster's health, or its edict
-  freed or gibbed), `gone (not in view)` (36 tics out of the client's updates),
-  `out of sight` (36 tics with no line of sight), `out of ammo`,
-  `out of reach (axe only ...)` (beyond 80 units with only the axe), `died`,
-  `level changed`, `level done (intermission)` or `timeout` (default 10 s). It
-  aims for the agent, so it is aim assistance; the benchmark profile that would
-  turn it off isn't built. `tests/agent_attack_test.js` covers both on e1m1.
+- `turn_to( id | { yaw }, { ents, map } )` and
+  `attack( id, { max_tics, ents, map } )`: in `src/agent.js` (`Agent_TurnTo`,
+  `Agent_Attack`, and the MCP `turn_to` and `attack` tools). Look changes in
+  this API are immediate, so `turn_to` sets the view at once (yaw and pitch at
+  the entity's centre) and doesn't advance the game. `attack` (lockstep only)
+  aims at the target's centre every tic and holds fire while a hull 0 trace from
+  the eye reaches it. It doesn't move. The first line of the result is `killed`
+  (with a local server: the monster's health, or its edict freed or gibbed),
+  `gone (not in view)` (36 tics out of the client's updates), `out of sight` (36
+  tics with no line of sight), `out of ammo`, `out of reach (axe only ...)`
+  (beyond 80 units with only the axe), `died`, `level changed`,
+  `level done (intermission)` or `timeout` (default 10 s). It aims for the
+  agent, so it is aim assistance; the benchmark profile that would turn it off
+  isn't built. `tests/agent_attack_test.js` covers both on e1m1.
 - Navigation: `src/nav.js` builds a walk graph from the BSP and answers A* path
   queries; `tools/nav/nav_build.js` builds graphs offline (#194). `src/agent.js`
   builds one on each level event while an agent is attached
@@ -292,7 +296,7 @@ and skip rereading.
 | `ents`   | nearest N entities, egocentric: id, kind, distance, bearing L/R, up/down, visible flag, hp if known                                                                                                | ~5 to 10 tokens each   | `cl_entities` and `cl.model_precache` names, plus a line-of-sight trace                    |
 | `events` | damage taken (from `svc_damage`), pickups, centerprints (`SCR_CenterPrint`, `src/gl_screen.js:149`), console and notify lines (`Con_Printf`, `src/console.js:407`), deaths and kills, level change | varies                 | ring buffer with a cursor                                                                  |
 | `map`    | egocentric ASCII grid (for example 21x21 cells of 32 units, player at centre and facing up), with walls from hull traces and entity glyphs                                                         | ~150 to 250 tokens     | world model hull traces (`SV_Move`, `src/world.js:1444`, or pmove traces)                  |
-| `ui`     | current menu name, items as text, cursor; console visible or not; last N console lines                                                                                                             | ~30 tokens             | `m_state` (`src/menu.js:62`), plus a cursor getter (none exists yet)                       |
+| `ui`     | current menu name, items as text, cursor; console visible or not; last N console lines                                                                                                             | ~30 tokens             | `m_state` (`src/menu.js:62`), plus the cursor getter `M_AgentState` (`src/menu.js`)        |
 | `screen` | PNG or JPEG of the composited 3D canvas and 2D overlay at a chosen size                                                                                                                            | ~100 tokens at 320x240 | read back right after render, since there is no `preserveDrawingBuffer` (`src/vid.js:211`) |
 | `rl`     | typed arrays: RGB, depth, per-pixel entity-id labels, automap                                                                                                                                      | binary                 | render targets. None exist yet; `gl_rmirror.js` already uses a depth render target         |
 
@@ -366,13 +370,12 @@ document it. A useful `goto` needs a graph. Options, in order:
 ### Adapters
 
 - **`window.icaro`**, browser.
-  - Calls (as built): `help()` returns about 300 tokens of usage. Also
-    `attach( mode )`, `detach()`, `mode()`, `new_game( map, skill )`,
-    `step( action, tics )`, `goto( target, opts )`, `turn_to( target )`,
-    `attack( id, opts )`, `observe( opts )`, `cmd( text )`, `key( name )`,
-    `menu( label )` and `screenshot( width )`. Events come back inside each
-    observation. Of the macro actions `goto`, `turn_to` and `attack` are built
-    (no `act`).
+  - Calls (as built): `help()` returns the usage text. Also `attach( mode )`,
+    `detach()`, `mode()`, `new_game( map, skill )`, `step( action, tics )`,
+    `goto( target, opts )`, `turn_to( target )`, `attack( id, opts )`,
+    `observe( opts )`, `cmd( text )`, `key( name )`, `menu( label )` and
+    `screenshot( width )`. Events come back inside each observation. Of the
+    macro actions `goto`, `turn_to` and `attack` are built (no `act`).
   - Typical use: one `javascript_tool` call does `icaro.step(...)` and gets the
     next observation back, so each turn is one round trip.
   - URL flags (as built): `window.icaro` is always present. `?agent=lockstep` or
@@ -459,5 +462,5 @@ document it. A useful `goto` needs a graph. Options, in order:
 - Is the rerelease `.nav` format worth reverse-engineering, given the generated
   graph is needed anyway?
 - What does Claude actually do best with: `ents` text, the ASCII `map`, or a
-  small screenshot? Measure task success and tokens per level on e1m1 once phase
-  1 exists. That is the one number nobody has published.
+  small screenshot? Measure task success and tokens per level on e1m1 now that
+  phase 1 exists. That is the one number nobody has published.

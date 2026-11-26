@@ -356,7 +356,8 @@ All (a):
   - the 19 `joy*` cvars and `joyadvancedupdate`: replaced by the Gamepad API in
     `src/in_web.js`, with six of Ironwail's tuning cvars instead
     (`joy_deadzone_move`/`_look`, `joy_outer_threshold_move`/`_look`,
-    `joy_exponent` and `joy_exponent_move`, `src/in_web.js:627-657`).
+    `joy_exponent` and `joy_exponent_move`) and its rumble strength cvar,
+    `joy_rumble` (`src/in_web.js:703-745`, at `8474098`).
   - `in_rawmouse` (web-only, off by default) asks pointer lock for
     `unadjustedMovement`, i.e. mouse input without OS acceleration.
   - `m_filter` is ported.

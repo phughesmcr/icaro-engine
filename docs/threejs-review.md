@@ -168,9 +168,10 @@ a browser:
 ## Findings
 
 The findings describe the code at `223a180`, and many have since been fixed (see
-the status above). Line numbers were re-mapped at `c0ea1d7` (2026-11-26) where
-the code is still there, though a fix may have changed it. A number marked
-`223a180` is to code that has since gone, as it stood at that revision.
+the status above). Line numbers were re-mapped at `c0ea1d7` (2026-11-26), and
+those that moved since at `8474098`, where the code is still there, though a fix
+may have changed it. A number marked `223a180` is to code that has since gone,
+as it stood at that revision.
 
 ### 1. Index buffer churn on every alias pose change (high)
 
@@ -258,7 +259,7 @@ The HUD is set up in `src/webxr.js:388` and `:398` at `223a180`. The particle
 mesh is removed and re-added in `src/r_part.js:904` and `:928`.
 
 `hudMesh.renderOrder = 10000` with `depthTest: false` is meant to draw last, but
-`vid.js:287` sets `renderer.sortObjects = false`. r183 sorts render lists only
+`vid.js:298` sets `renderer.sortObjects = false`. r183 sorts render lists only
 when `sortObjects === true`, so `renderOrder` is ignored and transparent objects
 draw in scene-child order.
 
@@ -364,7 +365,7 @@ and the C signatures stay the same.
 
 ### 9. Resize ignores DPR changes (low-medium)
 
-The code is at `src/vid.js:295-297` and `322-340`.
+The code is at `src/vid.js:306-308` and `333-351`.
 
 `setPixelRatio` is called only once, at init. A browser zoom, or moving the
 window to a monitor with a different DPR, leaves the WebGL buffer at the old
