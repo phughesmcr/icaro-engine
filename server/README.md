@@ -136,6 +136,7 @@ Both `--allow-net` grants are needed in every case: a missing grant fails startu
 ## Connecting from Browser
 
 - **Multiplayer menu (lobby mode):** Queries `lobby_server.js` on port `4433` to list, create, or join rooms, then connects directly to the assigned room's `game_server.js` port (`4434`–`4443`). A WebSocket client instead connects to the lobby's `<prefix>/room/<id>` path, which the lobby proxies to the room, so only the lobby's port needs to be reachable. Joining a valid 6-character shared room code for an expired room re-creates it, subject to the same limits as creating a room.
+- **Rooms hosted in browsers:** the WebSocket lobby also serves the lobby side of rooms that a player's tab hosts over WebRTC (`lobby_rtc.js`, shared with `cloudflare/lobby/`): a host registers with `LOBBY_HOST` and keeps its lobby socket open, joiners `LOBBY_JOIN` its 8-character code, and the lobby relays their signals. The lobby gives these clients STUN only; TURN credentials come from the Cloudflare lobby. The client's WebRTC driver is `src/net_webrtc.js`, but no signaller connects it to the lobby yet (see `docs/browser-hosted-rooms.md`).
 - **Direct console connection:** In the Icaro Engine console, connect directly to a `game_server.js` instance:
 
 ```text
@@ -272,6 +273,8 @@ deno run '--allow-net=0.0.0.0:8080' --allow-read=static server/game_server.js -n
 **Live server:**
 
 - `lobby_server.js` — WebTransport (and, with `-wsport`, WebSocket) lobby server for room listing, creation, and joining; proxies WebSocket game connections to rooms
+- `lobby_rtc.js` — The lobby side of rooms hosted in browsers: room table, joins, WebRTC signal relay and their limits. Pure, so `../cloudflare/lobby/` runs it too
+- `room_config.js` — Room-config checks (max players, map and host names, game options), shared by the room manager and `lobby_rtc.js`
 - `room_process_manager.ts` — Spawns, monitors, and cleans up isolated `game_server.js` room processes (ports `4434`–`4443`)
 - `game_server.js` — Dedicated game server running the full Quake VM, physics, and protocol from `../src/`
 - `net_webtransport_server.ts` — Deno WebTransport server network driver
@@ -290,6 +293,8 @@ deno run '--allow-net=0.0.0.0:8080' --allow-read=static server/game_server.js -n
 - `../tests/net_webtransport_server_lifecycle_test.js` and `../tests/net_webtransport_client_lifecycle_test.js` — Handshake, session-limit, timeout and close-path tests for both drivers, run against in-memory transports (`../tests/fake_webtransport.js`, `../tests/webtransport_test_env.js`)
 - `../tests/net_websocket_test.js` — WebSocket client and server drivers against each other over in-memory sockets (`../tests/fake_websocket.js`): handshake, rejects, acks, backpressure and close paths
 - `../tests/headless_client_test.js` — `headless_host.js` loads e1m1 from the shareware pak, signs the client on and steps frames
+- `../tests/lobby_rtc_test.js` — `lobby_rtc.js`: hosting, listing, joining, who may signal whom, limits, pruning and restoring after hibernation
+- `../tests/cloudflare_lobby_test.js` — The Cloudflare lobby's Durable Object logic (`../cloudflare/lobby/src/lobby_core.js`) with a fake `ctx`
 - `../tests/quic_listen_test.ts` — IPv6/IPv4 bind fallback tests for `quic_listen.ts`
 - `../tests/server_lobby_test.js` — Lobby and room-manager tests (`deno task test` from the repository root). The room-process tests need run access to `tests/fixtures/fake_room_server.sh`, write access and the `FAKE_ROOM_*` env vars (the task grants them), and are skipped without them.
 

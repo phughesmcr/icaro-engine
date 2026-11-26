@@ -1,7 +1,10 @@
 # Browser-hosted rooms over WebRTC (design)
 
-Design notes, 2026-11-25, against `dev` at `11e5cbd`. Nothing here is
-built, deployed or tested yet. The goal is free multiplayer that doesn't
+Design notes, 2026-11-25, against `dev` at `11e5cbd`. Status, 2026-11-26:
+the WebRTC driver, the listen-server rules and the lobby (Deno, and the
+Cloudflare Worker) are built and unit tested; nothing is deployed, the
+menus and the client's lobby signaller aren't built, and no browser has
+played a room end to end. The goal is free multiplayer that doesn't
 depend on the maintainer's Mac or a paid server, on desktop and mobile.
 One player's browser tab hosts the room, the way a NetQuake listen server
 does, and the other players join it directly over WebRTC.
@@ -144,7 +147,9 @@ then means relocating the driver, not rewriting it.
   1.3 KB/s (4 players) to 7.3 KB/s (16 players) per client at 20 Hz, 7
   joiners would take at most 30–180 KB/s [estimate]. That is an upper
   bound: delta packets shrink when sent more often.
-- **Proposed deviation:** send datagrams to non-`LOCAL` sockets no more than
+- **Decided (2026-11-25): keep the C's per-frame rate.** The proposal below
+  was not taken; it stays here for the record.
+- **Proposed deviation (not taken):** send datagrams to non-`LOCAL` sockets no more than
   every `sys_ticrate` seconds (50 ms), and send the host's own client every
   frame. Joiners would then get updates at the rate a dedicated room sends
   them, the case the client's prediction and ping readout were built for
@@ -229,6 +234,19 @@ driver, behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js`
     relayed by peer id. The lobby never parses SDP.
   - `LOBBY_ICE`: the ICE server list for this client (see NAT traversal).
   - `LOBBY_HEARTBEAT` from the host, carrying the player count, every 30 s.
+
+  As built (`server/lobby_rtc.js`): `LOBBY_HOST` is 0x04, `LOBBY_SIGNAL`
+  0x05 and `LOBBY_HEARTBEAT` 0x06; the lobby replies with `LOBBY_ICE`
+  (0x84) after `LOBBY_ROOMS`, and relays signals as `LOBBY_SIGNAL_RELAY`
+  (0x85, `{ from, kind, data }`). Browser-hosted rooms have 8-character
+  codes without 0, O, 1 or I, so they never collide with the Deno lobby's
+  6-character codes, and an ended one's code doesn't make the Deno lobby
+  re-create it. `LOBBY_LIST` lists them only when its payload is
+  `{ "rtc": true }`, since older clients would look for a port. A joiner
+  may signal only the room it joined, a host only that room's joiners, and
+  failed joins of browser-room codes are rate limited per IP. ICE servers
+  (and TURN credentials) go only to a client that has just hosted or
+  joined.
 
   Lobby sockets become long-lived for hosts and for joiners until they
   connect. Today the client opens one socket per request [code:
@@ -386,12 +404,15 @@ Paste each run's *Copy results* JSON into this section.
    `RTCPeerConnection`/`RTCDataChannel` pair (in the style of
    `tests/fake_webtransport.js`): handshake, sequencing, caps, close.
 3. **Listen-server rules:** `-listen` from `?listen=N`, the shared
-   `applyGameOptions`/`applyExitRules`, 20 Hz datagrams to remote sockets,
+   `applyGameOptions`/`applyExitRules` (now `src/room_rules.js`), the C's
+   per-frame snapshot rate,
    and shutdown on errors and tab close.
 4. **The lobby module, its Deno use and the Durable Object:** the shared
    state machine with tests, `lobby_server.js` using it, and `cloudflare/`
    with the Worker, the DO and TURN credentials. Deploying it needs the
    maintainer's Cloudflare account; the Free plan is enough.
+   The Worker's rate limits live in memory and start again when the
+   Durable Object leaves memory (see `cloudflare/lobby/README.md`).
 5. **Menus:** *Host in this browser*, *Join by code*, and a room list that
    shows both kinds of room.
 6. **Later, depending on the spike:** B (server in a Worker), or C (a
@@ -410,12 +431,10 @@ Decided by the maintainer on 2026-11-25:
   including a billing method if it asks for one. The lobby Worker holds the
   key's token as a secret; no agent creates keys or accounts.
 
-Still open:
-
-- **Room listing:** a public list of browser-hosted rooms, or codes only
-  (private by default, nothing to moderate)?
-- **Snapshot rate:** the 20 Hz cap for joiners proposed above, or the C's
-  per-frame rate?
+- **Snapshot rate:** joiners get the C's per-frame rate, with no 20 Hz cap.
+- **Room listing:** the host chooses. A room is private by default, joinable
+  only by its code; a public one is listed with its host name, which the
+  lobby sanitizes and caps at 32 bytes.
 
 ## Not verified
 
