@@ -26,6 +26,8 @@ const {
 const { RtcLobby, Lobby_DecodeFrame, Lobby_EncodeFrame } = await import(
   "../server/lobby_rtc.js"
 );
+const clr = await import("../src/cl_reconnect.js");
+const keys = await import("../src/keys.js");
 const { FakeRTCPeerConnection } = await import("./fake_webrtc.js");
 const { createFakeWebSocketPair, OPEN } = await import("./fake_websocket.js");
 
@@ -253,6 +255,87 @@ function svCheckForNewClients() {
   return accepted;
 }
 
+// Host a room from this tab and join it, as the first test does by hand
+async function hostAndJoin() {
+  const hosting = RTCLobby_HostRoom(
+    { hostName: "Tester" },
+    svs.spawncount,
+    false,
+  );
+  spawn();
+  const room = await hosting;
+  const address = "rtc:" + room.id;
+  const sock = await rtc.RTC_Connect(address);
+  assert(sock !== null, "joiner connected");
+  const [serverSock] = svCheckForNewClients();
+  assert(serverSock !== undefined, "host accepted the joiner");
+  return { room, address, sock, serverSock };
+}
+
+// The reconnect controller (src/cl_reconnect.js) with a connect that runs the
+// driver quietly, as CL_EstablishConnection( host, true ) does, and timers the
+// test fires by hand
+function makeReconnect() {
+  const env = { timers: [], nextId: 1, giveUps: [], socks: [] };
+  clr.CLR_Init({
+    connect: async (host) => {
+      netMain.NET_SetQuietConnect(true);
+      const pending = rtc.RTC_Connect(host); // reads the flag at once
+      netMain.NET_SetQuietConnect(false);
+      const sock = await pending;
+      if (sock !== null) env.socks.push(sock);
+      return sock !== null;
+    },
+    canReconnect: () => true,
+    isHidden: () => false,
+    print: () => {},
+    notify: () => {},
+    giveUp: (reason) => env.giveUps.push(reason),
+    now: () => 0,
+    setTimer: (fn, _ms) => {
+      const id = env.nextId++;
+      env.timers.push({ id, fn });
+      return id;
+    },
+    clearTimer: (id) => {
+      env.timers = env.timers.filter((t) => t.id !== id);
+    },
+  });
+  env.fire = async () => {
+    const t = env.timers.shift();
+    if (t === undefined) throw new Error("no retry scheduled");
+    await t.fn();
+  };
+  return env;
+}
+
+// The joiner's side of a dropped connection, as CL_ReadFromServer and
+// CL_Disconnect see it: NET_GetMessage flags the socket lost, the socket is
+// closed, and the reconnect starts
+async function joinerLosesConnection(sock) {
+  await waitFor(
+    () => sock.driverdata.dead === true,
+    1000,
+    "the joiner sees the drop",
+  );
+  net.net_drivers[1].QGetMessage = rtc.RTC_QGetMessage;
+  assertEqual(netMain.NET_GetMessage(sock), -1, "the read fails");
+  assertEqual(sock.lost, true, "flagged lost, not a deliberate disconnect");
+  rtc.RTC_Close(sock);
+  netMain.NET_FreeQSocket(sock);
+  assertEqual(clr.CLR_ConnectionLost(), true, "a reconnect starts");
+}
+
+// What SV_DropClient does for the host's side of a dead joiner
+function hostDropsClient(serverSock) {
+  rtc.RTC_Close(serverSock);
+  netMain.NET_FreeQSocket(serverSock);
+  const client = svs.clients.find((c) => c.netconnection === serverSock);
+  client.active = false;
+  client.netconnection = null;
+  net.set_net_activeconnections(net.net_activeconnections - 1);
+}
+
 // Tests
 
 Deno.test("RTC lobby: host a room once the map is up, join it by code, heartbeat and end it", async () => {
@@ -340,6 +423,112 @@ Deno.test("RTC lobby: a lobby error ends the join and closes its socket", async 
     );
     assertEqual(RTCLobby_GetStateForTest().join, null, "no join session");
   } finally {
+    await teardown();
+  }
+});
+
+Deno.test("RTC lobby: a joiner whose connection drops reconnects to the room by code", async () => {
+  const { lobbyServer, teardown } = setup();
+  const env = makeReconnect();
+  keys.set_key_dest(keys.key_game);
+  try {
+    const { address, sock, serverSock } = await hostAndJoin();
+    clr.CLR_Connected(address);
+
+    // The joiner's data channel closes under it
+    sock.driverdata.reliable.close();
+    await joinerLosesConnection(sock);
+    await waitFor(
+      () => serverSock.driverdata.dead === true,
+      1000,
+      "the host sees the drop",
+    );
+    hostDropsClient(serverSock);
+
+    await env.fire();
+    assertEqual(env.socks.length, 1, "the retry connected");
+    assertEqual(env.socks[0].address, address, "to the same room");
+    assertEqual(clr.CLR_Phase(), "idle", "reconnected");
+    assertEqual(clr.CLR_HasSession(), true, "still worth restoring");
+    assertEqual(svCheckForNewClients().length, 1, "the host took it back");
+    assertEqual(env.giveUps.length, 0, "no give up");
+    await waitFor(
+      () => roles(lobbyServer.lobby).join() === "host",
+      1000,
+      "the joiner leaves the lobby again",
+    );
+  } finally {
+    clr.CLR_Cancel();
+    await teardown();
+  }
+});
+
+Deno.test("RTC lobby: a reconnect to a room whose host left gives up at once, without the menu", async () => {
+  const { lobbyServer, teardown } = setup();
+  const env = makeReconnect();
+  keys.set_key_dest(keys.key_game);
+  try {
+    const { room, address, sock, serverSock } = await hostAndJoin();
+    clr.CLR_Connected(address);
+
+    // The host's tab goes: its room leaves the lobby and its peers close
+    RTCLobby_ServerShutdown();
+    hostDropsClient(serverSock);
+    await waitFor(
+      () => lobbyServer.lobby.hasRoom(room.id) === false,
+      1000,
+      "room removed",
+    );
+    await joinerLosesConnection(sock);
+
+    const { output } = await captureOutput(() => env.fire());
+    assert(
+      output.includes("Room not found"),
+      "lobby's reason logged: " + output,
+    );
+    assertEqual(
+      env.giveUps.join("|"),
+      "The host has left the room",
+      "one give up, saying why",
+    );
+    assertEqual(env.timers.length, 0, "no further retry");
+    assertEqual(clr.CLR_HasSession(), false, "session forgotten");
+    assertEqual(env.socks.length, 0, "never connected");
+    assertEqual(keys.key_dest, keys.key_game, "the driver showed no menu");
+  } finally {
+    clr.CLR_Cancel();
+    keys.set_key_dest(keys.key_game);
+    await teardown();
+  }
+});
+
+Deno.test("RTC lobby: a reconnect the lobby turns away as full keeps retrying", async () => {
+  const { lobbyServer, teardown } = setup();
+  const env = makeReconnect();
+  keys.set_key_dest(keys.key_game);
+  try {
+    svs.clients[0].active = true; // the host's own player: one slot left
+    const { room, address, sock } = await hostAndJoin();
+    clr.CLR_Connected(address);
+    await waitFor(
+      () => lobbyServer.lobby.rooms.get(room.id).room.players === 2,
+      1000,
+      "the lobby counts the joiner",
+    );
+
+    // The host hasn't dropped the old client yet, so its slot is taken
+    sock.driverdata.reliable.close();
+    await joinerLosesConnection(sock);
+
+    const { output } = await captureOutput(() => env.fire());
+    assert(output.includes("Room is full"), "lobby's reason logged: " + output);
+    assertEqual(env.giveUps.length, 0, "not given up");
+    assertEqual(clr.CLR_Phase(), "waiting", "another retry scheduled");
+    assertEqual(env.timers.length, 1, "one timer");
+    assertEqual(keys.key_dest, keys.key_game, "the driver showed no menu");
+  } finally {
+    clr.CLR_Cancel();
+    keys.set_key_dest(keys.key_game);
     await teardown();
   }
 });

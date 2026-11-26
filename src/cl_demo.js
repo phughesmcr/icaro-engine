@@ -23,6 +23,7 @@ import { CL_Disconnect } from "./cl_main.js";
 import { Host_Error, host_framecount, realtime } from "./host.js";
 import { NET_GetMessage } from "./net_main.js";
 import { COM_FindFile } from "./pak.js";
+import { UD_KeepDemo } from "./userdata.js";
 
 // DEMO CODE
 //
@@ -253,7 +254,11 @@ export function CL_Stop_f() {
 
   // download the demo file
   if (demo_buffer != null && demo_buffer_pos > 0) {
-    const blob = new Blob([demo_buffer.slice(0, demo_buffer_pos)], {
+    const data = demo_buffer.slice(0, demo_buffer_pos);
+    // web-only: also keep it in the browser's storage, so playdemo and the
+    // Game data panel find it (src/userdata.js)
+    UD_KeepDemo(demo_name, data);
+    const blob = new Blob([data], {
       type: "application/octet-stream",
     });
     const url = URL.createObjectURL(blob);

@@ -35,11 +35,12 @@ Nothing was played in a browser. Severity is judged from the code.
   re-checked.
 
 The review's line numbers were taken at `dfef74a`. References to the port's code
-have since been moved to its lines at `c0ea1d7`. Most findings are fixed by now,
-so such a line can show the fixed code, which may not match the description. A
-reference marked "at `dfef74a`" (Part 3: "at `055c52f`") is to code that has
-since been removed or rewritten, and gives its line at that revision. C
-references use function names, which are stable across copies of the source.
+have since been moved to its lines at `c0ea1d7`, and those that moved after that
+to their lines at `8474098`. Most findings are fixed by now, so such a line can
+show the fixed code, which may not match the description. A reference marked "at
+`dfef74a`" (Part 3: "at `055c52f`") is to code that has since been removed or
+rewritten, and gives its line at that revision. C references use function names,
+which are stable across copies of the source.
 
 ## Fix status
 
@@ -510,7 +511,7 @@ What the PRs above leave open, on purpose or because it can't be checked here.
 
 ### SP-7 · Sound channel selection and ambient spatialisation — **medium**, Verified
 
-- **Channel picking:** [`src/snd_dma.js:328`](../src/snd_dma.js)
+- **Channel picking:** [`src/snd_dma.js:400`](../src/snd_dma.js)
   `SND_PickChannel`.
   - The first empty and first finished channel are skipped with `continue`, so
     they never become `first_to_die`.
@@ -664,7 +665,7 @@ What the PRs above leave open, on purpose or because it can't be checked here.
 
 ### MOD-3 · Entity strings with bytes ≥ 0x80 are corrupted — **low-medium**, Reported
 
-- **Port:** [`src/pr_edict.js:664`](../src/pr_edict.js) `ED_NewString` encodes
+- **Port:** [`src/pr_edict.js:663`](../src/pr_edict.js) `ED_NewString` encodes
   strings as UTF-8, but `PR_GetString` decodes them byte by byte as Latin-1.
 - **Effect:** coloured or gold text in entity fields reads back as two garbage
   characters per byte.
@@ -714,7 +715,7 @@ display-list commands to a C-faithful implementation.
 | C-17 | `src/cl_parse.js` `CL_ParseServerInfo`                     | The `\x02` highlight is dropped from the level-name banner.                                                                                                                            | Reported                                                                                                  |
 | C-18 | `src/view.js:205` `V_CalcBob`                              | Weapon bob freezes while airborne in single player, and its phase isn't tied to `cl.time`.                                                                                             | Reported                                                                                                  |
 | C-19 | `src/sv_user.js` (~`:167`) `SV_SetIdealPitch`              | Uses fractional steps where C truncates to int, so very gentle ramps cause view pitch drift.                                                                                           | Reported                                                                                                  |
-| C-20 | `src/snd_dma.js` (~`:980`)                                 | The gain/pan model (`max(l,r)/255` plus a StereoPanner) lacks C's per-side 255 clamp, so hard-panned sounds can be up to 6 dB louder.                                                  | Reported                                                                                                  |
+| C-20 | `src/snd_dma.js` (~`:1052`)                                | The gain/pan model (`max(l,r)/255` plus a StereoPanner) lacks C's per-side 255 clamp, so hard-panned sounds can be up to 6 dB louder.                                                  | Reported                                                                                                  |
 | C-21 | `src/sound.js:129`, `src/snd_dma.js` `S_PlayVol`           | The default `volume` is 0.4 instead of 0.7; `playvol x 0` plays at full volume.                                                                                                        | Reported                                                                                                  |
 | C-22 | `src/console.js` `_sprintf`                                | `%i` floors instead of truncating, and there's no `%x`.                                                                                                                                | Reported                                                                                                  |
 
@@ -1294,7 +1295,7 @@ omitted `noclip_anglehack` branch. Nothing was tested on a device.
 
 ### IN-2 · Touchscreen laptops lose mouse look — **high (for those users)**, Verified
 
-`Touch_IsMobile` (`touch.js:267`) returns true for any device with
+`Touch_IsMobile` (`touch.js:266`) returns true for any device with
 `maxTouchPoints > 2`. That includes Windows and ChromeOS touchscreen laptops and
 iPad desktop mode. When it is true, pointer lock is never requested
 (`in_web.js:353`, `:459`, `:911`, at `dfef74a`), so mouse users get the touch
@@ -1475,7 +1476,7 @@ view, not the head's.
   can set pitch, which tilts the world around the player. Roll and punch are
   already removed in XR (`view.js:772-796`). Whether `idealpitch` is ever
   non-zero in XR was not checked.
-- **Resize during a session (low):** `vid.js:331-339` calls `renderer.setSize`
+- **Resize during a session (low):** `vid.js:342-350` calls `renderer.setSize`
   and `setPixelRatio` on every `resize`, with no XR check, so after the session
   ends the canvas, `vid` and the renderer's size can disagree until the next
   resize.

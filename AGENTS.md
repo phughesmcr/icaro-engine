@@ -18,13 +18,17 @@ process per room. It was forked from mrdoob's three-quake.
   lobby rooms and browser-hosted ones), `pak.js`, `menu_cvars.js`, `agent.js`
   (the agent API, `window.icaro`; see `docs/agent-interface.md`), `turnstile.js`
   (the Turnstile widget shown before creating a room), `pwa_launch.js` (what the
-  installed app does when launched again while open). Some files port features
-  from Ironwail or QuakeSpasm rather than id's C, and their headers cite it
-  (`gl_fog.js`, `gl_sky.js`, `gl_md5.js`, `gl_entalpha.js`, `gl_screenwarp.js`,
-  `image.js`, `pr_sprintf.js`, `default_cfg.js`, `unicode_translit.js`). For
-  those, Ironwail's source is the reference.
+  installed app does when launched again while open), `nav.js` (the walk graph
+  behind the agent's `goto` and `map`). Some files port features from Ironwail
+  or QuakeSpasm rather than id's C, and their headers cite it (`gl_fog.js`,
+  `gl_sky.js`, `gl_md5.js`, `gl_entalpha.js`, `gl_screenwarp.js`, `image.js`,
+  `pr_sprintf.js`, `default_cfg.js`, `unicode_translit.js`). For those,
+  Ironwail's source is the reference.
 - `main.js` and `index.html`: the browser entry. `index.html`'s import map loads
-  `three` and `nipplejs` from jsDelivr. Assets are in `static/`.
+  `three` and `nipplejs` from jsDelivr. Assets are in `static/`. `sw.js` is the
+  service worker (offline play and caching; see its header), and
+  `manifest.webmanifest` the install metadata, with its screenshots in
+  `static/screenshots/`.
 - `server/`: `lobby_server.js`, `game_server.js` and the WebTransport and
   WebSocket server drivers (`.ts`). `lobby_rtc.js` is the lobby for rooms hosted
   in browsers (room table and WebRTC signal relay) and `room_config.js` the
@@ -67,29 +71,31 @@ process per room. It was forked from mrdoob's three-quake.
 - `docs/`: design notes, reviews and research; `docs/README.md` says what each
   one covers. Most are snapshots taken at a past revision, so check their claims
   against the code before relying on them.
-- `tools/`: `port_inventory.py` regenerates the raw tables of
-  `docs/port-inventory.md` (Python, standard library only; not linted or run in
-  CI). `room_bench.js` (with `room_bench_preload.js`) load-tests one room with
-  headless WebSocket bots, and `room_memory_probe.js` measures a room's memory
-  by init stage; their headers give the commands. `webrtc_spike/` is a static
-  page that answers the WebRTC questions in `docs/browser-hosted-rooms.md`; its
-  `index.html` says how to run it. `do_cpu_probe/` is a throwaway Cloudflare
-  Worker that measures the Free plan's Durable Object limits; `probe.js` gives
-  the deploy steps, which need the maintainer's account. Not linted or run in
-  CI. `make_splash.py` draws the iOS launch images in `static/splash/` from
-  `static/icon.png` and writes their tags into `index.html` (Python, standard
-  library only; not linted or run in CI, but `tests/manifest_test.js` checks its
-  output). `fmt_ast_check.js` compares each changed file's syntax tree with its
-  version at a git ref, to show that a formatting change (see
-  `docs/style-cleanup-plan.md`) changed nothing else; its header gives the
-  command and what it accepts. Not linted or run in CI. `collapse_banners.js`
-  turned the C-style comment banners into doc comments and `//` lines (tier 2 of
-  the plan); the plan's catch-up steps for an open PR run it again.
-  `--verify <ref>` checks that no comment text was lost but the name lines of
-  the banners it deleted. Not linted or run in CI. `check_container_image.sh`
-  (`deno task image-check`, needs Docker) fails if the game-room image or its
-  build context holds any `.pak` but `static/pak0.pak`, or TLS or env files,
-  then starts a room in the image; CI runs it.
+- `tools/`: `nav/nav_build.js` builds the agent's walk graphs offline (its
+  header gives the command; not linted or run in CI). `port_inventory.py`
+  regenerates the raw tables of `docs/port-inventory.md` (Python, standard
+  library only; not linted or run in CI). `room_bench.js` (with
+  `room_bench_preload.js`) load-tests one room with headless WebSocket bots, and
+  `room_memory_probe.js` measures a room's memory by init stage; their headers
+  give the commands. `webrtc_spike/` is a static page that answers the WebRTC
+  questions in `docs/browser-hosted-rooms.md`; its `index.html` says how to run
+  it. `do_cpu_probe/` is a throwaway Cloudflare Worker that measures the Free
+  plan's Durable Object limits; `probe.js` gives the deploy steps, which need
+  the maintainer's account. Not linted or run in CI. `make_splash.py` draws the
+  iOS launch images in `static/splash/` from `static/icon.png` and writes their
+  tags into `index.html` (Python, standard library only; not linted or run in
+  CI, but `tests/manifest_test.js` checks its output). `fmt_ast_check.js`
+  compares each changed file's syntax tree with its version at a git ref, to
+  show that a formatting change (see `docs/style-cleanup-plan.md`) changed
+  nothing else; its header gives the command and what it accepts. Not linted or
+  run in CI. `collapse_banners.js` turned the C-style comment banners into doc
+  comments and `//` lines (tier 2 of the plan); the plan's catch-up steps for an
+  open PR run it again. `--verify <ref>` checks that no comment text was lost
+  but the name lines of the banners it deleted. Not linted or run in CI.
+  `check_container_image.sh` (`deno task image-check`, needs Docker) fails if
+  the game-room image or its build context holds any `.pak` but
+  `static/pak0.pak`, or TLS or env files, then starts a room in the image; CI
+  runs it.
 - `tools/bench/`: headless Deno benchmarks (not linted or run in CI). They use
   pak0 by default; the server, build, model and net benchmarks also take
   `-base rerelease` (and, except model, the game flags) to run on the gitignored
@@ -159,8 +165,9 @@ process per room. It was forked from mrdoob's three-quake.
 - `deno fmt` sets the layout (settings in root `deno.json`): run it before
   committing. CI runs `deno fmt --check`, and `deno task ci` runs it first.
   Markdown is formatted too (wrapped at 80 columns). HTML, CSS, SVG, `static/`,
-  `tests/fixtures/`, `.claude/` and `.vscode/` are excluded. A data table that
-  reads better in rows gets a `// deno-fmt-ignore` line with a reason above it.
+  `tests/fixtures/`, `cloudflare/client/dist/`, `.claude/` and `.vscode/` are
+  excluded. A data table that reads better in rows gets a `// deno-fmt-ignore`
+  line with a reason above it.
 
 ## Port fidelity
 

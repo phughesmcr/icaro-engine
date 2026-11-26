@@ -67,8 +67,16 @@ On phones and tablets the game shows touch controls. Play in landscape.
   look, left-handed layout (swaps the sides and mirrors the buttons), button
   size and opacity, and vibration. Settings are saved as `touch_*` cvars, except
   Invert Look, which is `m_pitch`.
+- **Edit Layout** (in Options → Touch controls, or the `touch_editlayout`
+  command): drag, resize and hide the buttons, and add buttons that run any
+  console command (`+attack` is held while pressed). Layouts are saved on the
+  device as named profiles; `touch_layout <name>` switches to one.
 - **Gyro aiming:** off by default. On iOS, the motion permission prompt appears
   the first time you tap after turning it on.
+- **Aim assist** (Options → Touch controls): sets how wide the autoaim cone is
+  in a game this browser runs (single player, or a game you host), through
+  `sv_aim`. The lowest level turns autoaim off and the middle one is Quake's
+  own. It has no effect in an online lobby room.
 - **Fullscreen on iPhone:** use Safari's _Add to Home Screen_. iOS doesn't allow
   fullscreen in a browser tab, but the installed app runs fullscreen.
 
