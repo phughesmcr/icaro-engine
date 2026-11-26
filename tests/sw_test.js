@@ -512,18 +512,24 @@ function spyNetwork(w) {
   return spy;
 }
 
+// A browser's network response has a URL, and clone() keeps it
+function withURL(response, url) {
+  return Object.defineProperties(response, {
+    url: { value: url },
+    clone: {
+      value: () => withURL(Response.prototype.clone.call(response), url),
+    },
+  });
+}
+
 Deno.test("sw: a streamed track is passed on as the worker's own Response", async () => {
   // Chromium can't mix the network's response with ones cut from the cache
   const w = loadWorker(MUSIC_FILES);
-  let streamed = null;
   const answer = w.net.answer;
-  w.net.answer = (request) => {
-    const response = answer(request);
-    if (request.headers.has("range")) streamed = response;
-    return response;
-  };
-  const got = await w.fetch(trackRequest("bytes=0-"));
-  if (got === streamed) fail("the network's response was passed through");
+  w.net.answer = (request) => withURL(answer(request), request.url);
+  const got = await w.fetch(trackRequest("bytes=0-3"));
+  if (got.url !== "") fail("the network's response was passed through");
+  await expectResponse(got, 206, "0123");
 });
 
 Deno.test("sw: a page claimed mid-load is network first until reloaded", async () => {
