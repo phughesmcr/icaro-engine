@@ -80,6 +80,9 @@ process per room. It was forked from mrdoob's three-quake.
   so are headless play, seeded randomness and the navigation graph
   (`src/nav.js`, built offline by `tools/nav/nav_build.js`); its status
   section says what isn't. A snapshot.
+- `docs/style-cleanup-plan.md`: a plan, not yet carried out, to remove the
+  blank lines that pad blocks and to collapse the C-style comment banners,
+  with measurements, tiers, neutrality checks and sequencing with open PRs.
 - `tools/`: `port_inventory.py` regenerates that inventory's raw tables
   (Python, standard library only; not linted or run in CI).
   `room_bench.js` (with `room_bench_preload.js`) load-tests one room with
