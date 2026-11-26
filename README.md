@@ -7,7 +7,7 @@ A Three.js-based Quake engine port, forked from [three-quake](https://github.com
 Shareware `pak0.pak` included (Episode 1).  
 For the full game, copy `pak1.pak` from the `id1` folder of a registered copy of Quake to `static/pak1.pak` (lower case).
 The client and the room server load `pak0.pak`, `pak1.pak`, ... until one is missing.
-A pak over 64 MB (such as the 2021 rerelease's) is not downloaded whole: the client reads its directory and the files the engine needs at startup with HTTP Range requests, and fetches each map when it is first loaded. That needs a web server that honours Range; `python3 -m http.server` doesn't, so it sends the whole pak instead, which still works. The room server reads big paks from disk as needed.
+A pak over 64 MB (such as the 2021 rerelease's) is not downloaded whole: the client reads its directory and the files the engine needs at startup with HTTP Range requests, and fetches each map when it is first loaded. That needs a web server that honours Range, such as `deno task serve` (Deno's file server on http://localhost:8137/); `python3 -m http.server` doesn't, so it sends the whole pak instead, which still works. The room server reads big paks from disk as needed.
 Registered data must not be committed or deployed publicly; `.gitignore` excludes `static/pak1.pak`.
 
 #### Mission packs

@@ -23,10 +23,14 @@ node_modules/
 coverage/
 .claude/worktrees/
 .claude/settings.local.json
+# The quake-c-reference skill's id-Software/Quake checkout
+.claude/cache/
 
-# Registered Quake data: must never be committed or deployed publicly
-static/pak1.pak
-static/PAK1.PAK
+# Registered Quake data: must never be committed or deployed publicly.
+# Any pak, in any case and folder, except the shareware one (as in
+# .dockerignore; CI fails if another pak is tracked).
+*.[pP][aA][kK]
+!/static/pak0.pak
 static/hipnotic/
 static/rogue/
 # 2021 rerelease data (?base=rerelease) and its add-ons; id1/ for a C-style layout
