@@ -806,6 +806,8 @@ export let hipnotic = false;
 //============================================================================
 
 // this graphic needs to be in the pak file to use registered features
+// A table kept in rows: deno fmt would give each entry its own line
+// deno-fmt-ignore
 const pop = new Uint16Array( [
 	0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
 	0x0000, 0x0000, 0x6600, 0x0000, 0x0000, 0x0000, 0x6600, 0x0000,

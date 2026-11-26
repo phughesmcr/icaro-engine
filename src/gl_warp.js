@@ -26,6 +26,8 @@ export function GL_Warp_SetLoadmodel( m ) {
 
 // speed up sin calculations - Ed
 // Ported from gl_warp_sin.h
+// A table kept in rows: deno fmt would give each entry its own line
+// deno-fmt-ignore
 export const turbsin = new Float32Array( [
 	0, 0.19633, 0.392541, 0.588517, 0.784137, 0.979285, 1.17384, 1.3677,
 	1.56072, 1.75281, 1.94384, 2.1337, 2.32228, 2.50945, 2.69512, 2.87916,
