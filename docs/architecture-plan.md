@@ -9,15 +9,15 @@ that pulls the renderer into the dedicated server, the duplicated state to
 resolve, where TypeScript and a bundle step fit, and a sequence of PR-sized
 steps.
 
-Snapshot: measured on `dev` at bbcb183 (2026-11-26) with a throwaway
+Snapshot: measured on `dev` at 694b2cc (2026-11-26) with a throwaway
 import-graph script that step 1 lands as `tools/layer_graph.js`. The script
 parses every module in `src/`, `main.js` and `server/` with `@babel/parser` and
 counts unique (importer, imported, kind) pairs; `import type` is ignored and
-re-exports count. The audit's numbers (`docs/audit/architecture.md`, PR #251,
-measured at 2798ac9 with another method) differ slightly; where they disagree,
-this doc's are the current ones. The script is not in the repository until step
-1 lands it; until then these numbers are a snapshot, and after it, re-run it
-before relying on one.
+re-exports count. The audit's numbers (`docs/audit/architecture.md` on PR #251,
+not yet merged, measured at 2798ac9 with another method) differ slightly; where
+they disagree, this doc's are the current ones. The script is not in the
+repository until step 1 lands it; until then these numbers are a snapshot, and
+after it, re-run it before relying on one.
 
 It follows the agreed direction in the audit (decision 6, "three layers") and
 the revised rules of PR #245: code may be restructured, but behaviour stays, and
@@ -370,12 +370,13 @@ The script found 170 names exported by more than one `src/` file. By kind:
   Collapsing them is optional (the audit's A3 says leave the pattern); if done,
   it goes one name per commit with the bench checksums checked, and a test first
   that the copies agree after a frame.
-- **`Con_Printf` twice**: `common.js` has a forwarder (33 importers) that calls
-  the real one in `console.js` (11) through `_realConPrintf`, so leaf modules
+- **`Con_Printf` twice**: `common.js` has a forwarder (34 importers) that calls
+  the real one in `console.js` (12) through `_realConPrintf`, so leaf modules
   can print without importing the console. It becomes the `sys.js` print hook in
   step 12.
-- **`net_message`** in `common.js` is a `let` set by `COM_SetNetMessage` from
-  `net.js`'s `const`. It goes with the `MSG_*` functions in step 12.
+- **`net_message`** in `common.js` is a `let` that `NET_Init` (`net_main.js`)
+  sets with `COM_SetNetMessage` to `net.js`'s `const`. It goes with the `MSG_*`
+  functions in step 12, and `NET_Init` changes with it.
 - **Constants that differ**: `PLANE_ANYZ` is 5 in `bspfile.js` (as in the C) and
   3 in `gl_rmain.js`, which uses it for the frustum planes. Every reader of a
   plane's `type` found tests `type < 3` (`BoxOnPlaneSide`, `gl_refrag`) or
@@ -423,10 +424,10 @@ Conflicts are with the PRs open when this was written: #255 (QuakeC builtins:
 `cmd`, `pr_cmds`, `pr_edict`, `sv_user`), #253 (fence textures: `browser_shim`,
 `gl_entalpha`, `gl_model`, `gl_rsurf`), #252 (headless game directories:
 `headless_host`), #249 (centerprint and localization: `common`, `gl_screen`),
-#246 (screen tier: `main.js`, `agent_mcp.ts`, `agent.js`), #245 and #251 (docs
-only), and sessions in progress without a PR (stuffcmd trust: `cl_main`,
-`cl_parse`, `cmd`, `cvar`, `net_loop`; protocol design: likely `protocol.js`).
-Re-check with `gh pr list` before starting a step.
+#258 (stufftext allowlist: `cl_main`, `cl_parse`, `cmd`, `cvar`, `net_loop`),
+#259 (bundled maps: `menu`, `pak`, `server/room_config.js`, `server/README.md`),
+and the docs-only #245, #251, #256 (the protocol design, which will lead to
+`protocol.js` work) and #257. Re-check with `gh pr list` before starting a step.
 
 1. **Checker and ratchet.** Add `tools/layer_graph.js` (the measuring script,
    with the assignment above as its layer table and the browser-only files
@@ -444,7 +445,7 @@ Re-check with `gh pr list` before starting a step.
    `NET_Init`. The direct calls `net_main` makes to route connects and create
    rooms become driver-table entries or hooks. Edits `net_main`, the browser
    drivers, `main.js`, and `headless_host.js` if it needs a driver. Conflicts:
-   `main.js` (#246), `headless_host.js` (#252) if touched.
+   `headless_host.js` (#252) if touched.
 4. **Screen metrics, menus and roll angle** (S4, S6, G4): `keys` and `console`
    reach `menu`, `gl_screen` and `gl_draw` through their existing
    `*_SetExternals`; `gl_draw` reaches `Sbar_Changed` the same way; `sv_main`
@@ -458,19 +459,19 @@ Re-check with `gh pr list` before starting a step.
    Browser-only modules). Adds a test that `game_server.js`'s module graph
    contains no `three` file. Edits `host`, `host_cmd`, `main.js`,
    `headless_host.js`. Browser check required. Conflicts: `headless_host.js`
-   (#252), `main.js` (#246).
+   (#252).
 7. **Render scene** (G1, G5, the duplicate classes). Edits the renderer files in
    G1 (`gl_rmain`, `gl_rsurf`, `gl_rlight`, `gl_fog`, `gl_mesh`, `gl_rmisc`,
    `gl_warmup`, `gl_refrag`, `gl_model`, `r_part`), `snd_dma`, `client`,
    `render`, `view`, `chase`, and the client code that fills the scene. Browser
    check required. Conflicts: `gl_model.js`, `gl_rsurf.js` (#253); `cl_main.js`
-   (stuffcmd trust) if the scene is filled there.
+   (#258) if the scene is filled there.
 8. **Header constants** (G2). Constants move to core, the game headers re-export
    them for game code, and the core importers change their import lines:
    `gl_draw`, `gl_entalpha`, `gl_rlight`, `gl_rmain`, `gl_rsurf`, `mathlib`,
    `net`, `net_main`, `pr_edict`, `progs`, `render`. Conflicts:
    `gl_entalpha.js`, `gl_rsurf.js` (#253), `pr_edict.js` (#255), `protocol.js`
-   (the protocol-design work): mechanical, so it can rebase on any of them.
+   (work following #256): mechanical, so it can rebase on any of them.
 9. **QuakeC profile** (G3, `pr_exec`'s `ss_active` included). Edits `pr_edict`,
    `progs`, `pr_exec`, `pr_cmds`, `progdefs`, `server`, `sv_main`, `world`.
    Conflicts: `pr_edict.js`, `pr_cmds.js` (#255): land after #255.
@@ -478,23 +479,23 @@ Re-check with `gh pr list` before starting a step.
     `Cmd_ForwardToServer` to the client, `net_main`/`net_loop` reading server
     state through hooks, `Host_Error` reached from `gl_model` through a hook.
     Edits `cmd`, `cl_main`, `net_main`, `net_loop`, `gl_model`, `host`.
-    Conflicts: `cmd.js` (#255, stuffcmd trust), `cl_main.js` and `net_loop.js`
-    (stuffcmd trust), `gl_model.js` (#253).
+    Conflicts: `cmd.js` (#255, #258), `cl_main.js` and `net_loop.js` (#258),
+    `gl_model.js` (#253).
 11. **Platform splits**, one PR each. Phone and browser checks required (touch,
     gyro, audio unlock, context loss, XR where a headset is at hand).
     - P1 net (after step 3): `net`, `net_main`, the browser drivers, `menu`,
-      `keys`, `cl_reconnect`, the server drivers, `lobby_server.js`. No open PR.
+      `keys`, `cl_reconnect`, the server drivers, `lobby_server.js`. Conflicts:
+      `menu.js` (#259).
     - P2 input: `in_web`, `touch`, `touch_editor`, `cl_input`, `cl_main`,
-      `agent`, `menu`, `host`. Conflicts: `cl_main.js` (stuffcmd trust),
-      `agent.js` (#246).
-    - P3 audio: `cd_audio`, `cl_parse`, `host`. Conflicts: `cl_parse.js`
-      (stuffcmd trust).
+      `agent`, `menu`, `host`. Conflicts: `cl_main.js` (#258), `menu.js` (#259).
+    - P3 audio: `cd_audio`, `cl_parse`, `host`. Conflicts: `cl_parse.js` (#258).
     - P4 video: `vid`, `webxr`, `gl_contextloss`, `gl_screen`, `view` and the
       renderer files that read `vid` or XR state. Conflicts: `gl_screen.js`
       (#249), `gl_rsurf.js` (#253).
     - P5 storage: `userdata`, `autosave`, `host_cmd`, `cl_demo`, and the browser
       globals in `cvar`, `keys`, `console`, `common`, `gl_draw`, `pak`,
-      `snd_dma`. Conflicts: `cvar.js` (stuffcmd trust), `common.js` (#249).
+      `snd_dma`. Conflicts: `cvar.js` (#258), `common.js` (#249), `pak.js`
+      (#259).
 12. **Split `common.js`** into the audit's `msg.js`, `sz.js`, `com_args.js` and
     `com_file.js`, with `LOC_*` in its own module and `Con_Printf` going through
     the `sys.js` print hook, which breaks the `cmd`/`common`/`cvar`/`pak` cycle.
@@ -502,8 +503,7 @@ Re-check with `gh pr list` before starting a step.
     during the step; its 49 importers move to the new modules in a separate,
     codemod-made PR (as in step 14), because moving them here would conflict
     with every open PR that touches `src/`. Conflicts: `common.js` (#249),
-    `cmd.js` (#255, stuffcmd trust), `cvar.js` (stuffcmd trust): land after
-    #249.
+    `cmd.js` (#255, #258), `cvar.js` (#258), `pak.js` (#259): land after #249.
 13. **Optional: collapse the injected copies** in `sv_phys`, `sv_user`,
     `sv_move` and `progs` (see Duplicated state). Edits those and `host`,
     `server`. Conflicts: `sv_user.js` (#255).
@@ -517,7 +517,7 @@ Re-check with `gh pr list` before starting a step.
     `tools/port_inventory.py`, `cloudflare/client/build.js`, its
     `wrangler.jsonc` and `README.md`, `cloudflare/lobby/wrangler.jsonc` and
     `README.md`, `.claude/hooks/lint-delta.sh`, `.vscode/settings.json` and
-    AGENTS.md; and in `tests/`, 978 references, including the source reads in
+    AGENTS.md; and in `tests/`, 1090 matches, including the source reads in
     `tests/pr_exec_ops_test.js` (`new URL("../src/pr_exec.js", ...)`) and
     `tests/menu_advanced_test.js`. `docs/` is left alone: its files are
     snapshots. The same PR updates AGENTS.md's Layout section, and the checker

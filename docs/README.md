@@ -48,4 +48,4 @@ AGENTS.md, Git workflow).
   game layers with downward imports only: the file-by-file assignment, the edges
   that break the rule, the cut that keeps the renderer out of the dedicated
   server, duplicated state, TypeScript and bundling, and PR-sized steps.
-  Measured on `dev` at bbcb183; a snapshot.
+  Measured on `dev` at 694b2cc; a snapshot.
