@@ -4,6 +4,9 @@ const gl_rmain = await import( '../src/gl_rmain.js' );
 const { cl } = await import( '../src/client.js' );
 const loss = await import( '../src/gl_contextloss.js' );
 const screenwarp = await import( '../src/gl_screenwarp.js' );
+const gl_screen = await import( '../src/gl_screen.js' );
+const console_ = await import( '../src/console.js' );
+const cmd = await import( '../src/cmd.js' );
 
 function assertEqual( actual, expected, message ) {
 
@@ -160,5 +163,62 @@ Deno.test( 'GL_ContextLoss_Init ignores a missing renderer and a canvas without 
 Deno.test( 'R_WarpContextRestored is safe before the warp exists', () => {
 
 	screenwarp.R_WarpContextRestored();
+
+} );
+
+Deno.test( 'SCR_UpdateScreen draws nothing while the context is lost', () => {
+
+	const hadWindow = 'window' in globalThis;
+	if ( ! hadWindow )
+		globalThis.window = { location: { search: '' }, innerWidth: 640, innerHeight: 480, devicePixelRatio: 1 };
+
+	cmd.Cbuf_Init();
+	cmd.Cmd_Init();
+	console_.Con_Init();
+	gl_screen.SCR_Init();
+
+	let begun = 0;
+	gl_screen.SCR_SetExternals( { GL_BeginRendering() {
+
+		begun ++;
+
+	} } );
+
+	const warn = console.warn;
+	console.warn = () => {};
+
+	try {
+
+		const canvas = makeCanvas();
+		loss.GL_ContextLoss_Reset();
+		loss.GL_ContextLoss_Init( { domElement: canvas, getContext() {
+
+			return null;
+
+		} } );
+
+		canvas.fire( 'webglcontextlost' );
+		gl_screen.SCR_UpdateScreen();
+		assertEqual( begun, 0, 'no GL_BeginRendering while lost' );
+
+		canvas.fire( 'webglcontextrestored' );
+		try {
+
+			gl_screen.SCR_UpdateScreen();
+
+		} catch ( _e ) {
+
+			// the rest of the frame may need a full engine; only the gate matters
+		}
+
+		assertEqual( begun, 1, 'the frame starts again once restored' );
+
+	} finally {
+
+		console.warn = warn;
+		loss.GL_ContextLoss_Reset();
+		if ( ! hadWindow ) delete globalThis.window;
+
+	}
 
 } );
