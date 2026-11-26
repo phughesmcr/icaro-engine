@@ -36,6 +36,11 @@ const LOBBY_VERIFY = 0x86;
 // A browser-hosted room's code (server/lobby_rtc.js RTC_ROOM_CODE_PATTERN)
 export const RTCLOBBY_ROOM_CODE = /^[A-HJ-NP-Z2-9]{8}$/;
 
+// How the lobby's LOBBY_ERROR for a missing room begins (server/lobby_rtc.js
+// _join and _signal): the room's host has left, so a reconnect to it gives up
+// (net_webrtc.js). tests/net_rtclobby_test.js checks it against the lobby.
+export const RTCLOBBY_ROOM_GONE = "Room not found";
+
 // STUN only, until the lobby sends its list
 const RTCLOBBY_DEFAULT_ICE_SERVERS = [{
   urls: ["stun:stun.cloudflare.com:3478"],
@@ -168,13 +173,14 @@ function _RTCLobby_Request(url, role, type, value) {
     };
     let settled = false;
 
-    const fail = (message, turnstile) => {
+    const fail = (message, turnstile, roomGone = false) => {
       if (settled === true) return;
       settled = true;
       clearTimeout(timer);
       _RTCLobby_Close(session);
       const error = _RTCLobby_Error(message);
       if (turnstile !== undefined) error.turnstile = turnstile;
+      if (roomGone === true) error.roomGone = true;
       reject(error);
     };
     const timer = setTimeout(
@@ -190,7 +196,11 @@ function _RTCLobby_Request(url, role, type, value) {
 
       if (settled === false) {
         if (frame.type === LOBBY_ERROR) {
-          fail(frame.value);
+          fail(
+            frame.value,
+            undefined,
+            role === "joiner" && frame.value.startsWith(RTCLOBBY_ROOM_GONE),
+          );
         } else if (frame.type === LOBBY_VERIFY) {
           const challenge = frame.value;
           if (
