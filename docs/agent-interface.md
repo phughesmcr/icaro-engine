@@ -296,7 +296,7 @@ and skip rereading.
 | `ents`   | nearest N entities, egocentric: id, kind, distance, bearing L/R, up/down, visible flag, hp if known                                                                                                | ~5 to 10 tokens each   | `cl_entities` and `cl.model_precache` names, plus a line-of-sight trace                    |
 | `events` | damage taken (from `svc_damage`), pickups, centerprints (`SCR_CenterPrint`, `src/gl_screen.js:149`), console and notify lines (`Con_Printf`, `src/console.js:407`), deaths and kills, level change | varies                 | ring buffer with a cursor                                                                  |
 | `map`    | egocentric ASCII grid (for example 21x21 cells of 32 units, player at centre and facing up), with walls from hull traces and entity glyphs                                                         | ~150 to 250 tokens     | world model hull traces (`SV_Move`, `src/world.js:1444`, or pmove traces)                  |
-| `ui`     | current menu name, items as text, cursor; console visible or not; last N console lines                                                                                                             | ~30 tokens             | `m_state` (`src/menu.js:62`), plus the cursor getter `M_AgentState` (`src/menu.js`)        |
+| `ui`     | current menu name, items as text, cursor; console visible or not; last N console lines                                                                                                             | ~30 tokens             | `m_state` (`src/menu.js:105`), plus the cursor getter `M_AgentState` (`src/menu.js`)       |
 | `screen` | PNG or JPEG of the composited 3D canvas and 2D overlay at a chosen size                                                                                                                            | ~100 tokens at 320x240 | read back right after render, since there is no `preserveDrawingBuffer` (`src/vid.js:211`) |
 | `rl`     | typed arrays: RGB, depth, per-pixel entity-id labels, automap                                                                                                                                      | binary                 | render targets. None exist yet; `gl_rmirror.js` already uses a depth render target         |
 
@@ -371,11 +371,12 @@ document it. A useful `goto` needs a graph. Options, in order:
 
 - **`window.icaro`**, browser.
   - Calls (as built): `help()` returns the usage text. Also `attach( mode )`,
-    `detach()`, `mode()`, `new_game( map, skill )`, `step( action, tics )`,
-    `goto( target, opts )`, `turn_to( target )`, `attack( id, opts )`,
-    `observe( opts )`, `cmd( text )`, `key( name )`, `menu( label )` and
-    `screenshot( width )`. Events come back inside each observation. Of the
-    macro actions `goto`, `turn_to` and `attack` are built (no `act`).
+    `detach()`, `mode()`, `new_game( map, skill )`,
+    `step( action, tics, opts )`, `goto( target, opts )`,
+    `turn_to( target, opts )`, `attack( id, opts )`, `observe( opts )`,
+    `cmd( text )`, `key( name )`, `menu( label )` and `screenshot( width )`.
+    Events come back inside each observation. Of the macro actions `goto`,
+    `turn_to` and `attack` are built (no `act`).
   - Typical use: one `javascript_tool` call does `icaro.step(...)` and gets the
     next observation back, so each turn is one round trip.
   - URL flags (as built): `window.icaro` is always present. `?agent=lockstep` or
