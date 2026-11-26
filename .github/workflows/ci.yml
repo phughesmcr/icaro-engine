@@ -38,6 +38,10 @@ jobs:
             exit 1
           fi
 
+      # deno.json's fmt block sets the layout; run `deno fmt` before committing.
+      - name: Format
+        run: deno fmt --check
+
       # Tests read static/pak0.pak (shareware, committed).
       - name: Test
         run: deno task test

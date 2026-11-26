@@ -1,6 +1,7 @@
 # Style cleanup plan
 
-Status: tier 0 done on `refactor/fmt-prep`; tiers 1–4 not started. Measured on `dev` at b8f46e7 (2026-11-26),
+Status: tier 0 done (#217); tier 1 on `refactor/deno-fmt`; tiers 2–4 not
+started. Measured on `dev` at b8f46e7 (2026-11-26),
 after #205–#215 merged.
 
 Decisions made: adopt `deno fmt` with the settings below, collapse comment
