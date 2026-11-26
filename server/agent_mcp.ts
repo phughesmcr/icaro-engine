@@ -79,7 +79,8 @@ step holds buttons for N tics, then releases them: buttons forward back moveleft
 Quake has no use key: walk into buttons and doors; shoot some buttons. "exit" entities are level exits: walk into them.
 goto {id} or goto {pos: [x, y, z]} walks there along the level's walk graph (doors, lifts, teleporters, drops and jumps included) and stops early when hurt; when blocked it names what blocks the way and how it opens (a key, a button #id, shoot it).
 turn_to {id} faces an entity (or {yaw} an absolute yaw) without advancing the game. attack {id} aims at it every tic and fires while it is in sight, until it is killed, gone, out of sight, you are out of ammo (or have only the axe and are out of reach), hurt to death, or max_tics; it doesn't move.
-cmd runs console commands (god, give, map e1m2, ...). key and menu drive the menus.`;
+cmd runs console commands (god, give, map e1m2, ...). key and menu drive the menus.
+screenshot has no pixels here (no renderer headless): it says so. Read the observation's text instead.`;
 
 const BUTTONS_DESC =
   "Buttons held for the step, comma separated: forward back moveleft moveright left right lookup lookdown jump attack speed up down strafe use";
@@ -93,6 +94,14 @@ const map = int(0, MAP_MAX_SIZE).optional().describe(
 );
 
 // Tool argument schemas. Strict: an unknown argument is an error.
+
+// The screen tier needs WebGL, which the headless host doesn't have
+const SCREENSHOT_HEADLESS =
+  "screenshot: not available headless: this server has no renderer, so no pixels. Play in a browser (?agent=lockstep) for icaro.screenshot(width), a JPEG data URL, and icaro.screen_rgba(width, height), RGBA bytes; here, the observation's text, entity lines and map describe the view.";
+
+const SCREENSHOT_ARGS = z.strictObject({
+  width: int(32, 1920).optional().describe("Image width in pixels"),
+});
 const START_ARGS = z.strictObject({
   map: z.string().regex(/^[A-Za-z0-9_]+$/).optional().describe(
     "Map name, e.g. e1m1 (default) or start",
@@ -441,6 +450,19 @@ export function agent_mcp_server(): McpServer {
     tool((e, args: z.infer<typeof MENU_ARGS>) =>
       e.agent.Agent_MenuSelect(args.label)
     ),
+  );
+
+  server.registerTool(
+    "screenshot",
+    {
+      description:
+        "An image of the view. Not available here: this server plays headless, with no renderer, so it always returns an error. In a browser, icaro.screenshot() and icaro.screen_rgba() give the pixels.",
+      inputSchema: SCREENSHOT_ARGS,
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    tool(() => {
+      throw new Error(SCREENSHOT_HEADLESS);
+    }),
   );
 
   return server;
