@@ -121,13 +121,13 @@ Deno.test("touch menus: Touch Controls page, slider taps and Setup rows", async 
     tap(100, 52);
     near(touch.touch_sensitivity.value, 2, "label tap steps up");
     const lefty = touch.touch_lefthanded.value;
-    tap(100, 48 + 4 * 8 + 4);
+    tap(100, 48 + 6 * 8 + 4);
     assertEqual(
       touch.touch_lefthanded.value,
       lefty ? 0 : 1,
       "Left-Handed toggles",
     );
-    tap(100, 48 + 4 * 8 + 4);
+    tap(100, 48 + 6 * 8 + 4);
 
     // Escape goes back to Options; a tap on the Sound Volume slider (row 8) sets it
     menu.M_Keydown(keys.K_ESCAPE);

@@ -706,6 +706,132 @@ Deno.test("touch: gyro integrates rotationRate in screen axes", () => {
   }
 });
 
+Deno.test("touch: gyro modes turn the view only while aiming or firing", () => {
+  const savedScreen = Object.getOwnPropertyDescriptor(globalThis, "screen");
+  const savedDME = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "DeviceMotionEvent",
+  );
+  Object.defineProperty(globalThis, "screen", {
+    configurable: true,
+    value: { orientation: { angle: 0 } },
+  });
+  Object.defineProperty(globalThis, "DeviceMotionEvent", {
+    configurable: true,
+    value: function () {},
+  });
+  const setGyro = (v) => {
+    touch.touch_gyro.value = v;
+    touch.touch_gyro.string = String(v);
+  };
+
+  try {
+    withFakeDom(() => {
+      touch.Touch_Init(document.body);
+      setGyro(2);
+      touch.Touch_Enable();
+      touch.Touch_GetLookDelta();
+      let t = 1000;
+      // 20 degrees per second of yaw for 0.1 s: 2 degrees
+      const turn = () => {
+        t += 100;
+        windowTarget.fire("devicemotion", {
+          timeStamp: t,
+          rotationRate: { alpha: 0, beta: 0, gamma: 20 },
+        });
+        return touch.Touch_GetLookDelta().yaw;
+      };
+      const near = (a, b, m) =>
+        assertEqual(Math.abs(a - b) < 1e-9, true, `${m}: ${a}`);
+      turn(); // sets the clock
+
+      // 2, touching: only while a finger is on the look area or a hold button
+      near(turn(), 0, "touching mode, no finger");
+      const look = byId("touch-look");
+      look.fire("touchstart", touchEvent("touchstart", 1, 300, 100));
+      near(turn(), 2, "touching mode, finger on the look area");
+      look.fire("touchend", touchEvent("touchend", 1, 300, 100));
+      near(turn(), 0, "touching mode, finger lifted");
+      const jump = byId("touch-jump");
+      jump.fire("touchstart", touchEvent("touchstart", 2, 0, 0));
+      near(turn(), 2, "touching mode, finger on JUMP");
+      jump.fire("touchend", touchEvent("touchend", 2, 0, 0));
+
+      // 3, firing: only while FIRE is held
+      setGyro(3);
+      look.fire("touchstart", touchEvent("touchstart", 3, 300, 100));
+      near(turn(), 0, "firing mode, finger on the look area");
+      look.fire("touchend", touchEvent("touchend", 3, 300, 100));
+      const fire = byId("touch-fire");
+      fire.fire("touchstart", touchEvent("touchstart", 4, 0, 0));
+      near(turn(), 2, "firing mode, FIRE held");
+      fire.fire("touchend", touchEvent("touchend", 4, 0, 0));
+      near(turn(), 0, "firing mode, FIRE released");
+
+      // 1, always
+      setGyro(1);
+      near(turn(), 2, "always");
+
+      setGyro(0);
+      touch.Touch_Frame();
+      touch.Touch_Disable();
+    });
+  } finally {
+    setGyro(0);
+    for (
+      const [name, desc] of [["screen", savedScreen], [
+        "DeviceMotionEvent",
+        savedDME,
+      ]]
+    ) {
+      if (desc) Object.defineProperty(globalThis, name, desc);
+      else delete globalThis[name];
+    }
+  }
+});
+
+Deno.test("touch: gyro dead zone tightens slow rates and smoothing lags", () => {
+  const f = { x: 0, y: 0, outX: 0, outY: 0 };
+  const near = (a, b, m) =>
+    assertEqual(Math.abs(a - b) < 1e-9, true, `${m}: ${a} vs ${b}`);
+
+  // off: unchanged
+  touch.Gyro_Filter(f, 3, -4, 0.01, 0, 0);
+  near(f.outX, 3, "no filter yaw");
+  near(f.outY, -4, "no filter pitch");
+
+  // dead zone 10: speed 5 is scaled by 5 / 10, speed 20 passes
+  touch.Gyro_Filter(f, 3, -4, 0.01, 10, 0);
+  near(f.outX, 1.5, "tightened yaw");
+  near(f.outY, -2, "tightened pitch");
+  touch.Gyro_Filter(f, 12, -16, 0.01, 10, 0);
+  near(f.outX, 12, "fast yaw untouched");
+  near(f.outY, -16, "fast pitch untouched");
+
+  // smoothing: a step reaches 1 - 1/e of the way after one time constant
+  f.x = 0;
+  f.y = 0;
+  for (let i = 0; i < 5; i++) touch.Gyro_Filter(f, 10, 0, 0.01, 0, 0.05);
+  near(f.outX, 10 * (1 - Math.exp(-1)), "one time constant");
+
+  for (
+    const [mode, aiming, firing, want] of [
+      [0, true, true, false],
+      [1, false, false, true],
+      [2, true, false, true],
+      [2, false, true, false],
+      [3, true, false, false],
+      [3, false, true, true],
+    ]
+  ) {
+    assertEqual(
+      touch.Gyro_ModeActive(mode, aiming, firing),
+      want,
+      `mode ${mode} aiming ${aiming} firing ${firing}`,
+    );
+  }
+});
+
 Deno.test("touch: iOS motion permission is asked once, from a menu tap", async () => {
   const savedScreen = Object.getOwnPropertyDescriptor(globalThis, "screen");
   const savedDME = Object.getOwnPropertyDescriptor(
