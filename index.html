@@ -79,12 +79,20 @@
 	<div id="loading">
 		<div id="loading-bar"><div id="loading-progress"></div></div>
 	</div>
+	<!-- The integrity hashes cover every CDN module the page loads
+	(three.module.js imports three.core.js). A version bump must update them:
+	curl -s <url> | openssl dgst -sha384 -binary | base64 -->
 	<script type="importmap">
 	{
 		"imports": {
 			"three": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.module.js",
 			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/",
 			"nipplejs": "https://cdn.jsdelivr.net/npm/nipplejs@1.0.4/dist/index.mjs"
+		},
+		"integrity": {
+			"https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.module.js": "sha384-tDnOBR4yGB9V87jI7t3/bA2vGgtDUaOU+poekPUUnV7O3yEhLb4f+gRAXEd6eoCN",
+			"https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.core.js": "sha384-bO4ODxwQgwSn05egB/vbceihrp4tn6jmJzx7oZDy/EVWd0imIgGkvccDH3k6HXdL",
+			"https://cdn.jsdelivr.net/npm/nipplejs@1.0.4/dist/index.mjs": "sha384-sP4d3WUC5/Oxigc4oCfGQM7mexU2cPqIkKIHEQmtgwScM0pBDsiaD34E2XbTvnC8"
 		}
 	}
 	</script>

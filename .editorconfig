@@ -10,3 +10,20 @@ indent_style = tab
 [*.{yml,yaml,md}]
 indent_style = space
 indent_size = 2
+
+# Markdown ends a line with two spaces for a hard break (README.md)
+[*.md]
+trim_trailing_whitespace = false
+
+# These server drivers are indented with two spaces (server/ keeps its own
+# formatting)
+[server/{client_address,net_websocket_server,net_webtransport_server,quic_listen}.ts]
+indent_style = space
+indent_size = 2
+
+# Third-party map readmes: kept byte-for-byte (CRLF, see .gitattributes)
+[static/maps/*.txt]
+charset = unset
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset

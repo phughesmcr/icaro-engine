@@ -46,42 +46,11 @@ process per room. It was forked from mrdoob's three-quake.
   `src/lobby_core.js` instead. Run wrangler only from that folder: from the
   repository root it offers to upload the whole repository, registered
   data included.
-- `docs/port-review.md`: a fidelity review of the port against the C source.
-  It is a snapshot taken at a past revision, so check its claims against the
-  code before relying on them.
-- `docs/port-inventory.md`: every C function, cvar and command in the
-  GLQuake build's files checked for a counterpart in the port, with the
-  ranked list of gaps.
-- `docs/rerelease-gaps.md`: what blocked the 2021 rerelease content and
-  how each item was done; every item is now done or not needed. It is a
-  snapshot too.
-- `docs/threejs-review.md`: a review of the Three.js rendering code against
-  r183, with the status of each finding. A snapshot.
-- `docs/cloudflare-multiplayer.md`: research notes on hosting multiplayer
-  behind Cloudflare. Checked against `dev` when written; Cloudflare facts
-  can change.
-- `docs/always-on-hosting.md`: hosting multiplayer without the home Mac
-  (Containers, Durable Objects, VMs), with room memory/CPU/bandwidth
-  measurements and the plan. Supersedes the recommendation in
-  `cloudflare-multiplayer.md`, but its own recommendation (Containers) was
-  not built: the project went with browser-hosted rooms instead. A
-  snapshot.
-- `docs/browser-hosted-rooms.md`: design for rooms hosted in a player's
-  browser tab and joined over WebRTC, with a Durable Object lobby for
-  signalling. Built through PR 5 (the menus); its status line says what
-  has been checked in a browser.
-- `docs/mobile-roadmap.md`: mobile-friendliness review (controls, rendering,
-  offline, lifecycle, networking, competitive landscape) with confirmed bugs
-  and a ranked roadmap; its status section lists the items built since. A
-  snapshot; nothing in it was tested on a device.
-- `docs/agent-interface.md`: research and plan for making the engine
-  playable by LLM agents and RL (lockstep clock, text observations, macro
-  actions, MCP/Gymnasium adapters). Phase 1 (`src/agent.js`) is built, and
-  so are headless play, seeded randomness and the navigation graph
-  (`src/nav.js`, built offline by `tools/nav/nav_build.js`); its status
-  section says what isn't. A snapshot.
-- `tools/`: `port_inventory.py` regenerates that inventory's raw tables
-  (Python, standard library only; not linted or run in CI).
+- `docs/`: design notes, reviews and research; `docs/README.md` says what
+  each one covers. Most are snapshots taken at a past revision, so check
+  their claims against the code before relying on them.
+- `tools/`: `port_inventory.py` regenerates the raw tables of
+  `docs/port-inventory.md` (Python, standard library only; not linted or run in CI).
   `room_bench.js` (with `room_bench_preload.js`) load-tests one room with
   headless WebSocket bots, and `room_memory_probe.js` measures a room's
   memory by init stage; their headers give the commands. `webrtc_spike/` is
@@ -133,10 +102,12 @@ process per room. It was forked from mrdoob's three-quake.
   with rooms on 4434–4443; it needs the certs). To drive it as an
   agent, open `?agent=lockstep&map=e1m1&skill=1` and call `icaro.help()`
   in the page.
-- CI (`.github/workflows/ci.yml`) runs on PRs to `dev` and `main`: test, lint
-  and check, on the Deno version pinned in `.tool-versions`, and, in a second
-  job, `tools/check_container_image.sh`. The Dockerfile pins the same Deno
-  version: bump both together. Actions are
+- CI (`.github/workflows/ci.yml`) runs on PRs to `dev` and `main` and on
+  pushes to them: a check that no pak but `static/pak0.pak` is tracked, then
+  test, lint and check, on the Deno version pinned in `.tool-versions`, and,
+  in a second job, `tools/check_container_image.sh`. The Dockerfile pins the
+  same Deno version: bump both together (`tests/deno_version_pin_test.js`
+  fails if they differ). Actions are
   pinned by SHA and Dependabot bumps them weekly. Tests cover logic only:
   rendering, audio and touch changes need a browser check. If you didn't do
   one, say so.
@@ -149,8 +120,9 @@ process per room. It was forked from mrdoob's three-quake.
 - Unused parameters kept for C-signature parity get a `_` prefix
   (`Z_Free( _ptr )`). Use a line-level `// deno-lint-ignore no-unused-vars`
   with a reason only for C-parity state that has no reader in the port.
-- Never run `deno fmt` without `--check`. The code doesn't follow its style, so
-  it would rewrite every file.
+- `deno fmt` is off: `deno.json` excludes every file, because the code
+  doesn't follow its style and it would rewrite every file. Don't remove the
+  exclusion.
 
 ## Port fidelity
 
@@ -212,7 +184,9 @@ process per room. It was forked from mrdoob's three-quake.
 or commercial data (`static/pak1.pak`, and the mission packs in
 `static/hipnotic/` and `static/rogue/`, and the 2021 rerelease in
 `static/rerelease/`, `static/id1/` and `static/{mg1,mg3,dopa,ctf}/`) must
-**never** be committed or deployed publicly; `.gitignore` covers those paths.
+**never** be committed or deployed publicly; `.gitignore` covers those paths
+and every `.pak` but `static/pak0.pak`, and CI fails if another pak is
+tracked.
 The client loads a mission pack with `?game=hipnotic` or `?game=rogue`, a
 rerelease add-on with `?game=mg1` (etc.), and the rerelease layout with
 `?base=rerelease`; the servers take `-hipnotic`, `-rogue` or `-game <dir>`.

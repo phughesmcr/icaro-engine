@@ -60,7 +60,7 @@ for f in "${files[@]}"; do
 	rel=${f#"$root"/}
 	case "$rel" in
 		/*) continue ;; # outside this repo
-		static/* | docs/* | tests/fixtures/* | .claude/*) continue ;;
+		static/* | docs/* | tests/fixtures/* | tools/* | .claude/*) continue ;; # not linted (deno.json)
 		*.js | *.mjs) ext=js ;;
 		*.ts) ext=ts ;;
 		*) continue ;;

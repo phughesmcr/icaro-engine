@@ -16,8 +16,11 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # Deno is pinned in .tool-versions: a newer Deno can add recommended lint
       # rules and fail CI with no code change. Bump deliberately.
@@ -25,6 +28,15 @@ jobs:
         with:
           deno-version-file: .tool-versions
           cache: true
+
+      # Registered and rerelease data must never be committed: the shareware
+      # static/pak0.pak is the only pak the repository may track.
+      - name: No registered data
+        run: |
+          if git ls-files -z | tr '\0' '\n' | grep -i '\.pak$' | grep -vx 'static/pak0.pak'; then
+            echo "::error::Only static/pak0.pak may be committed"
+            exit 1
+          fi
 
       # Tests read static/pak0.pak (shareware, committed).
       - name: Test
@@ -41,8 +53,11 @@ jobs:
   # an image. Docker is preinstalled on the runner. Nothing is pushed.
   container-image:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Check the game-room image
         run: sh tools/check_container_image.sh
