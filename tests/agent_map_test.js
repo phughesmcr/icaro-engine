@@ -10,7 +10,9 @@ import {
   MAP_DEFAULT_SIZE,
   MAP_MAX_SIZE,
 } from "../src/agent.js";
-import { cl } from "../src/client.js";
+import { cl, cl_entities } from "../src/client.js";
+import { Agent_NavGraph } from "../src/agent.js";
+import { NAV_NODE_EXIT, NAV_NODE_TELEPORT } from "../src/nav.js";
 import { YAW } from "../src/quakedef.js";
 
 function assert(cond, message) {
@@ -172,6 +174,71 @@ Deno.test({
     for (let a = 0; a < 360; a += 45) {
       const m = map_at(yaw + a, MAP_MAX_SIZE, false).rows.join("\n");
       assert(!/[EDLBT]/.test(m), "yaw " + (yaw + a) + ":\n" + m);
+    }
+  },
+});
+
+// The map as if you stood at a walk graph node with this flag, without
+// moving the game (the client's copy of your origin is put back)
+function map_at_node(flag, truth) {
+  const g = Agent_NavGraph();
+  const k = g.node_flags.findIndex((f) => (f & flag) !== 0);
+  assert(k !== -1, "no node with flag " + flag);
+  const me = cl_entities[cl.viewentity].origin;
+  const saved = [me[0], me[1], me[2]];
+  try {
+    me[0] = g.node_pos[k * 3];
+    me[1] = g.node_pos[k * 3 + 1];
+    me[2] = g.node_pos[k * 3 + 2];
+    return Agent_Map(9, truth).rows.join("\n");
+  } finally {
+    me[0] = saved[0];
+    me[1] = saved[1];
+    me[2] = saved[2];
+  }
+}
+
+Deno.test({
+  name: "agent map: exits and teleporters are drawn only with truth",
+  ...ENGINE_TEST,
+  fn: async () => {
+    await call("start", { map: "e1m1", skill: 1, seed: 1 });
+    for (
+      const [flag, glyph] of [[NAV_NODE_EXIT, "E"], [NAV_NODE_TELEPORT, "T"]]
+    ) {
+      const truth = map_at_node(flag, true);
+      assert(truth.includes(glyph), glyph + " with truth:\n" + truth);
+      const blind = map_at_node(flag, false);
+      assert(!blind.includes(glyph), glyph + " without truth:\n" + blind);
+    }
+  },
+});
+
+Deno.test({
+  name: "agent map: the start room, stairs down ahead, nothing behind the wall",
+  ...ENGINE_TEST,
+  fn: async () => {
+    await call("start", { map: "e1m1", skill: 1, seed: 1 });
+    // you start facing yaw 90 at the top of the stairs down to the hall
+    const m = map_at(90, 21);
+    const R = 10;
+    assert(
+      cell(m, R + 1, R) === ".",
+      "floor at your feet:\n" + m.rows.join("\n"),
+    );
+    for (let r = R - 10; r <= R - 7; r++) {
+      assert(
+        cell(m, r, R) === "-",
+        "lower floor ahead, row " + r + ":\n" + m.rows.join("\n"),
+      );
+    }
+    // the wall behind you is drawn, and nothing past it
+    assert(m.rows[R + 3].includes("#"), "wall behind:\n" + m.rows.join("\n"));
+    for (let r = R + 4; r < 21; r++) {
+      assert(
+        m.rows[r] === "",
+        "row " + r + " past the wall:\n" + m.rows.join("\n"),
+      );
     }
   },
 });

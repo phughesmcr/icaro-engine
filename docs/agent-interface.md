@@ -29,17 +29,17 @@ Phase 1 is built: `src/agent.js`, exposed as `window.icaro` by `main.js`
   `goto`, and in the MCP tools) adds an ASCII grid of 32-unit cells, 5 to 41
   across, turned freely with the view so the player is `^` at the centre facing
   up (the grid is resampled, not snapped to 90 degrees). `Agent_Map()` returns
-  it as rows for programs. Floors come from the walk graph's cell index (the
-  node nearest the player's height: level, a ledge up to 64 units above, or a
-  drop down to 256), walls and liquids from hull 0 point contents, and closed
-  doors, lifts and `func_wall`s from the client's brush entity boxes. Only cells
-  a flood from the player's cell reaches (a hull 0 trace between neighbours) are
-  drawn, so rooms behind walls stay blank. Entities in the latest update are
-  glyphs (`M` monster, `i` item, ...). With a local server and `truth`, brush
-  entities get their kind (`D`, `L`, `B`; a secret door stays `#`) and exits and
-  teleporters are drawn; without it every brush entity is `#`. A 41x41 map takes
-  about 0.4 ms headless; the text form cuts blank rows and columns.
-  `tests/agent_map_test.js` covers it on e1m1.
+  an object with the rows for programs. Floors come from the walk graph's cell
+  index (the node nearest the player's height: level, a ledge up to 64 units
+  above, or a drop down to 256), walls and liquids from hull 0 point contents,
+  and closed doors, lifts and `func_wall`s from the client's brush entity boxes.
+  Only cells a flood from the player's cell reaches (a hull 0 trace between
+  neighbours) are drawn, so rooms behind walls stay blank. Entities in the
+  latest update are glyphs (`M` monster, `i` item, ...). With a local server and
+  `truth`, brush entities get their kind (`D`, `L`, `B`; a secret door stays
+  `#`) and exits and teleporters are drawn; without it every brush entity is
+  `#`. A 41x41 map takes about 0.4 ms headless; the text form cuts blank rows
+  and columns. `tests/agent_map_test.js` covers it on e1m1.
 - Not built yet: the `screen` (except `icaro.screenshot()`) and `rl` tiers,
   macro actions other than `goto`, the render-skip flag, labels for the options
   menu, and every adapter except `window.icaro` and the stdio MCP server
@@ -71,28 +71,28 @@ Parts of phases 2 and 3 are built too (status checked at `dev` `4e95d06`):
   queries; `tools/nav/nav_build.js` builds graphs offline (#194). `src/agent.js`
   builds one on each level event while an agent is attached
   (`Agent_NavGraph()`), with the server's skill and deathmatch filters.
-- `goto( id | [x, y, z], { max_tics, stop_on_damage } )`: in `src/agent.js`
-  (`icaro.goto`, and the MCP `goto` tool), lockstep only. It follows the graph's
-  path one tic at a time: yaw toward the next waypoint, `forward` held, jump
-  tapped on jump links, swim up on swim links, standing still while a plat
-  rises. The first line of the result is one of `arrived` (an item by id also
-  arrives when it is picked up), `blocked by #id
-  <kind> at x,y,z (...)`,
-  `took damage (-N hp), stopped`, `died`, `level changed`,
-  `level done (intermission)`, `no path` or `timeout`. Stuck means 36 tics
-  without getting 8 units closer to the waypoint (144 on door and plat links);
-  goto hops, then replans, then reports blocked. A blocked report names a
-  monster in the way, or the graph's entity on the link with how it opens (a
-  key, `button #id`, shoot it), and the next goto avoids that entity's links
-  until it moves (or the level changes). Damage means a `svc_damage` message
-  (`cl.faceanimtime` moved) with a health drop, so megahealth wearing off
-  doesn't stop it. Not built: a new-enemy interrupt and realtime mode.
-  `tests/agent_goto_test.js` covers it on e1m1; a scripted e1m1 run with god and
-  notarget (goto the exit; on a block, press the named button or shoot the
-  monster) reached the far water rooms but not the exit. Stalls left: from
-  inside, the shoot-to-open secret door #50 doesn't open to shots, and door #65
-  is "opened by a trigger elsewhere" (its trigger isn't in the graph's
-  activators).
+- `goto( id | [x, y, z], { max_tics, stop_on_damage, ents, map } )`: in
+  `src/agent.js` (`icaro.goto`, and the MCP `goto` tool), lockstep only. It
+  follows the graph's path one tic at a time: yaw toward the next waypoint,
+  `forward` held, jump tapped on jump links, swim up on swim links, standing
+  still while a plat rises. The first line of the result is one of `arrived` (an
+  item by id also arrives when it is picked up),
+  `blocked by #id
+  <kind> at x,y,z (...)`, `took damage (-N hp), stopped`,
+  `died`, `level changed`, `level done (intermission)`, `no path` or `timeout`.
+  Stuck means 36 tics without getting 8 units closer to the waypoint (144 on
+  door and plat links); goto hops, then replans, then reports blocked. A blocked
+  report names a monster in the way, or the graph's entity on the link with how
+  it opens (a key, `button #id`, shoot it), and the next goto avoids that
+  entity's links until it moves (or the level changes). Damage means a
+  `svc_damage` message (`cl.faceanimtime` moved) with a health drop, so
+  megahealth wearing off doesn't stop it. Not built: a new-enemy interrupt and
+  realtime mode. `tests/agent_goto_test.js` covers it on e1m1; a scripted e1m1
+  run with god and notarget (goto the exit; on a block, press the named button
+  or shoot the monster) reached the far water rooms but not the exit. Stalls
+  left: from inside, the shoot-to-open secret door #50 doesn't open to shots,
+  and door #65 is "opened by a trigger elsewhere" (its trigger isn't in the
+  graph's activators).
 
 Confidence labels on outside claims: **[V]** read on a primary source, **[S]**
 secondary source or search summary, **[U]** unverified. Claims about this engine

@@ -1107,7 +1107,7 @@ function Agent_GotoBlocked(k) {
 /**
  * Walks to an entity (#id, as in observations) or a point along the level's
  * walk graph (src/nav.js), one lockstep tic at a time. opts: { max_tics (30 s),
- * stop_on_damage (true), ents }. The first line of the result says how it
+ * stop_on_damage (true), ents, map }. The first line of the result says how it
  * ended: arrived, blocked (with what to try), took damage, died, level
  * changed, no path, or timeout. The observation follows.
  */
