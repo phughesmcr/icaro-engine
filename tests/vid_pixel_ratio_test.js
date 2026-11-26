@@ -63,14 +63,13 @@ function withWindow(win, fn) {
   }
 }
 
-function media(coarse, fine) {
-  return (q) => ({
-    matches: q === "(pointer: coarse)" ?
-      coarse :
-      q === "(any-pointer: fine)" ?
-      fine :
-      false,
-  });
+function media(coarse, fine, hover = false) {
+  const matches = {
+    "(pointer: coarse)": coarse,
+    "(any-pointer: fine)": fine,
+    "(any-hover: hover)": hover,
+  };
+  return (q) => ({ matches: matches[q] === true });
 }
 
 Deno.test("VID_GetPixelRatio detects touch-primary devices", () => {
@@ -91,9 +90,25 @@ Deno.test("VID_GetPixelRatio detects touch-primary devices", () => {
   withWindow({
     devicePixelRatio: 3,
     location: { search: "" },
-    matchMedia: media(true, true),
+    matchMedia: media(true, true, true),
   }, () => {
     assertEqual(VID_GetPixelRatio(), 3, "touch laptop with a mouse");
+  });
+  // hover alone, with no fine pointer, is still a phone
+  withWindow({
+    devicePixelRatio: 3,
+    location: { search: "" },
+    matchMedia: media(true, false, true),
+  }, () => {
+    assertEqual(VID_GetPixelRatio(), 2, "coarse and hover only");
+  });
+  // measured on a Galaxy S25 Ultra: the stylus is fine but can't hover
+  withWindow({
+    devicePixelRatio: 3.5,
+    location: { search: "" },
+    matchMedia: media(true, true, false),
+  }, () => {
+    assertEqual(VID_GetPixelRatio(), 2, "phone with a stylus");
   });
   withWindow({ devicePixelRatio: 3 }, () => {
     assertEqual(VID_GetPixelRatio(), 3, "no matchMedia or location");

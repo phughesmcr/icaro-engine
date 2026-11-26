@@ -105,14 +105,26 @@ export function VID_ShiftPalette(palette) {
 // VID_GetPixelRatio
 //
 // Web-only deviation, no C equivalent. The device pixel ratio that every
-// canvas size and UI scale is derived from. On touch-primary devices (coarse
-// primary pointer, no fine pointer) it is capped at VID_TOUCH_DPR_CAP: a DPR-3
+// canvas size and UI scale is derived from. On touch-primary devices (see
+// VID_IsTouchPrimary) it is capped at VID_TOUCH_DPR_CAP: a DPR-3
 // phone would otherwise fill about 3M pixels per frame, the biggest battery
 // and thermal cost. ?dpr=<number> sets it explicitly (clamped to 0.5..4) and
 // ?dpr=native removes the cap on any device. Taps are mapped in CSS pixels,
 // so they are unaffected. Desktop is not capped; DPR 2 displays are common.
 
 export const VID_TOUCH_DPR_CAP = 2;
+
+/**
+ * True on touch-first devices: the primary pointer is coarse, and no mouse or
+ * trackpad is attached. A fine pointer alone doesn't count as one: a phone
+ * with a stylus (Galaxy S25 Ultra) reports one, but nothing there can hover.
+ * match(query) is window.matchMedia(query).
+ */
+export function VID_IsTouchPrimary(match) {
+  return match("(pointer: coarse)").matches === true &&
+    !(match("(any-pointer: fine)").matches === true &&
+      match("(any-hover: hover)").matches === true);
+}
 
 // Returns the ?dpr= override: a number, 'native', or null when absent/invalid.
 export function VID_ParsePixelRatio(search) {
@@ -176,8 +188,7 @@ export function VID_GetPixelRatio() {
         "",
     );
     _dprTouchPrimary = typeof window.matchMedia === "function" &&
-      window.matchMedia("(pointer: coarse)").matches === true &&
-      window.matchMedia("(any-pointer: fine)").matches !== true;
+      VID_IsTouchPrimary((query) => window.matchMedia(query));
   }
 
   return VID_ComputePixelRatio(
