@@ -67,11 +67,12 @@ process per room. It was forked from mrdoob's three-quake.
   MCP server (stdio, on the official MCP TypeScript SDK) on top of it that
   exposes `src/agent.js` as tools, so MCP clients can play headless
   (`deno task agent-mcp`; its header gives the `claude mcp add` line).
-  `server/Dockerfile` builds the game-room image from an allowlist (`deno.json`,
-  `deno.lock`, `server/`, `src/`, `tools/fetch_data.js`), with the root
-  `.dockerignore` as a second guard; a build stage runs `deno task fetch-data`
-  and the image keeps only LibreQuake's two paks and loose maps. Never widen
-  either allowlist to a pak or registered data (see Game data).
+  `server/Dockerfile` builds the game-room image from an allowlist, with the
+  root `.dockerignore` (`deno.json`, `deno.lock`, `server/`, `src/`,
+  `tools/fetch_data.js`) as a second guard: a first stage runs
+  `deno task fetch-data`, and the image gets only `deno.json`, `server/`, `src/`
+  and LibreQuake's two paks and loose maps. Never widen either allowlist to a
+  pak or registered data (see Game data).
 - `cloudflare/lobby/`: the lobby Worker and Durable Object for rooms hosted in
   browsers, with TURN credentials and the Turnstile check (its README says how
   to deploy). `src/worker.js` imports `cloudflare:workers`, so tests run

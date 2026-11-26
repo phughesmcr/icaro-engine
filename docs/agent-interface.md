@@ -204,8 +204,9 @@ Build one engine-side core, `src/agent.js`, and put thin adapters on it.
 
 ## Measured here
 
-These were run in this app's browser pane on `localhost`, shareware pak0, with
-the page's existing `window.cl`/`cls`/`sv` debug globals.
+These were run in this app's browser pane on `localhost`, on id's shareware pak0
+(which the repository shipped then, so the maps are id1's), with the page's
+existing `window.cl`/`cls`/`sv` debug globals.
 
 - **Accessibility tree is empty.** `read_page` on the running game returned
   "(empty page)". An agent that reads the page structure sees nothing, so it is
@@ -525,5 +526,5 @@ document it. A useful `goto` needs a graph. Options, in order:
 - Is the rerelease `.nav` format worth reverse-engineering, given the generated
   graph is needed anyway?
 - What does Claude actually do best with: `ents` text, the ASCII `map`, or a
-  small screenshot? Measure task success and tokens per level on e1m1 now that
-  phase 1 exists. That is the one number nobody has published.
+  small screenshot? Measure task success and tokens per level on lq_e1m1 now
+  that phase 1 exists. That is the one number nobody has published.
