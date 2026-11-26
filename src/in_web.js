@@ -95,7 +95,14 @@ import {
 } from "./touch.js";
 import { M_MouseButton, M_Mousemove, M_TouchInput } from "./menu.js";
 import { Draw_GetOverlayCanvas } from "./gl_draw.js";
-import { S_BlockSound, S_UnblockSound, S_UnlockAudio } from "./snd_dma.js";
+import {
+  S_BlockSound,
+  S_GetHiFreqLevel,
+  S_GetLoFreqLevel,
+  S_UnblockSound,
+  S_UnlockAudio,
+  S_UpdateLevels,
+} from "./snd_dma.js";
 import {
   isXRActive,
   XR_PollInput,
@@ -199,6 +206,9 @@ let touchMode = false;
 // overlay hidden (IN_UpdateTouch re-enables it every frame otherwise) until
 // the next touch pointerdown. Web-only; there is no C counterpart.
 let gamepadHidTouch = false;
+// Ironwail in_sdl.c lastactivetype === KD_GAMEPAD: the pad was the last
+// device used, so it may rumble
+let gamepadLastActive = false;
 
 // Meta Quest — disables pointer lock and fullscreen
 let isQuest = false;
@@ -489,10 +499,74 @@ function GP_KeyEdge(quakeKey, isDown, prev, storeKey) {
 
   const wasDown = prev[storeKey];
   if (isDown !== wasDown) {
+    if (isDown) gamepadLastActive = true;
     if (quakeKey === K_ESCAPE && isDown) lastEscapeTime = IN_Now();
     Key_Event(quakeKey, isDown);
     prev[storeKey] = isDown;
   }
+}
+
+// Gamepad rumble: Ironwail in_sdl.c, the end of IN_Commands. The strength
+// follows how loud the sound is (snd_dma.js S_UpdateLevels). Web-only
+// differences: it goes through the Gamepad API's vibrationActuator (absent in
+// some browsers, where nothing happens), and is sent at most every
+// RUMBLE_INTERVAL_MS rather than every frame. Ironwail's joy_always_active
+// is not ported.
+const RUMBLE_DURATION_MS = 100; // SDL_GameControllerRumble( ..., 100 )
+const RUMBLE_INTERVAL_MS = 50;
+const _rumbleEffect = {
+  startDelay: 0,
+  duration: RUMBLE_DURATION_MS,
+  strongMagnitude: 0, // the low-frequency motor
+  weakMagnitude: 0, // the high-frequency motor
+};
+let rumbleLastTime = -Infinity;
+let rumbleActuator = null; // set while an effect may still be playing
+
+function GP_ClampedFraction(value, min, max) {
+  return Math.min(1, Math.max(0, (value - min) / (max - min)));
+}
+
+function GP_IgnoreRumbleError() {}
+
+function GP_StopRumble() {
+  if (rumbleActuator === null) return;
+  // reset() is missing in some browsers; the effect then ends by itself
+  rumbleActuator.reset?.()?.catch(GP_IgnoreRumbleError);
+  rumbleActuator = null;
+}
+
+function GP_UpdateRumble() {
+  if (joy_rumble.value <= 0 || !gamepadLastActive) {
+    GP_StopRumble();
+    return;
+  }
+
+  // every frame, so the envelopes see all the samples
+  S_UpdateLevels();
+
+  const time = IN_Now();
+  if (time - rumbleLastTime < RUMBLE_INTERVAL_MS) return;
+
+  const actuator = GP_GetPrimary()?.vibrationActuator;
+  if (actuator == null || typeof actuator.playEffect !== "function") return;
+
+  const strength = Math.min(1, joy_rumble.value);
+  const lofreq = GP_ClampedFraction(S_GetLoFreqLevel(), 0.067, 0.45);
+  let hifreq = GP_ClampedFraction(S_GetHiFreqLevel(), 0.061, 0.45);
+  hifreq *= hifreq;
+  if (lofreq === 0 && hifreq === 0) {
+    GP_StopRumble();
+    return;
+  }
+
+  rumbleLastTime = time;
+  rumbleActuator = actuator;
+  _rumbleEffect.strongMagnitude = lofreq * strength;
+  _rumbleEffect.weakMagnitude = hifreq * strength;
+  // rejects when the pad has no dual-rumble motors
+  actuator.playEffect("dual-rumble", _rumbleEffect)
+    ?.catch(GP_IgnoreRumbleError);
 }
 
 function GP_Poll(cmd) {
@@ -500,6 +574,7 @@ function GP_Poll(cmd) {
   if (!gp) {
     // The pad went away: the touch overlay comes back
     gamepadHidTouch = false;
+    gamepadLastActive = false;
     if (_gpPrev != null) GP_ReleaseAll();
     _gpPrev = null;
     return;
@@ -585,11 +660,11 @@ function GP_Poll(cmd) {
   const rx = _gpLook[0];
   const ry = _gpLook[1];
 
+  const stickMoved = lx !== 0 || ly !== 0 || rx !== 0 || ry !== 0;
+  if (stickMoved) gamepadLastActive = true;
+
   // Real pad input (past the deadzone) while the touch overlay is up hides it
-  if (
-    touchMode && !gamepadHidTouch &&
-    (lx !== 0 || ly !== 0 || rx !== 0 || ry !== 0)
-  ) {
+  if (touchMode && !gamepadHidTouch && stickMoved) {
     gamepadHidTouch = true;
     Touch_ReleaseButtons();
     Touch_Disable();
@@ -660,6 +735,13 @@ const joy_exponent_move = {
   value: 1,
   archive: true,
 };
+// Ironwail's name and default: rumble strength, 0 (off) to 1
+const joy_rumble = {
+  name: "joy_rumble",
+  string: "0.3",
+  value: 0.3,
+  archive: true,
+};
 // XR turning: 0 = smooth turn with the right stick, otherwise snap by this many degrees
 const xr_snapturn = {
   name: "xr_snapturn",
@@ -709,6 +791,9 @@ export function IN_ClearAllStates() {
 
   // The gamepad edge state now matches "everything up"
   _gpPrev = null;
+
+  // the frame loop that would update the rumble may be about to stop
+  GP_StopRumble();
 }
 
 // BROWSER EVENT HANDLERS
@@ -866,6 +951,7 @@ function handleKeyDown(event) {
 
   // Unlock audio on first user gesture
   S_UnlockAudio();
+  gamepadLastActive = false;
 
   // macOS does not send keyup for keys released while Cmd is held, so
   // anything down when Cmd goes down could stick. Cmd is not a Quake key.
@@ -948,6 +1034,7 @@ function handleKeyUp(event) {
 
 function handleMouseMove(event) {
   if (!in_initialized) return;
+  if (event.movementX || event.movementY) gamepadLastActive = false;
 
   // Ironwail in_sdl.c: SDL_MOUSEMOTION calls M_Mousemove in menus. The
   // cursor is free there (IN_Commands drops pointer lock), so pass its
@@ -1007,6 +1094,7 @@ function handleMouseDown(event) {
 
   // Unlock audio on first user gesture
   S_UnlockAudio();
+  gamepadLastActive = false;
 
   const qkey = mouseButtonToKey(event.button);
   if (qkey === 0) return;
@@ -1272,6 +1360,7 @@ function handlePointerDown(event) {
 
   if (event.pointerType === "touch" || event.pointerType === "pen") {
     gamepadHidTouch = false;
+    gamepadLastActive = false;
     IN_SetTouchMode(true);
   } else if (event.pointerType === "mouse") {
     IN_SetTouchMode(false);
@@ -1387,6 +1476,7 @@ export function IN_Init(element) {
   Cvar_RegisterVariable(joy_outer_threshold_move);
   Cvar_RegisterVariable(joy_exponent);
   Cvar_RegisterVariable(joy_exponent_move);
+  Cvar_RegisterVariable(joy_rumble);
   Cvar_RegisterVariable(xr_snapturn);
   Cvar_RegisterVariable(xr_turnspeed);
   Touch_RegisterCvars();
@@ -1540,6 +1630,8 @@ export function IN_Commands() {
     XR_UpdateHUD();
     IN_XR_Buttons();
   }
+
+  GP_UpdateRumble();
 }
 
 // IN_XR_KeyEdge

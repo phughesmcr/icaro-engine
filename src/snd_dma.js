@@ -40,6 +40,8 @@ import { Mod_PointInLeaf } from "./gl_model.js";
 
 let audioContext = null;
 let masterGain = null;
+// Level meter for gamepad rumble, created on first use (S_UpdateLevels)
+let levelAnalyser = null;
 
 // Known sounds cache
 const known_sfx = [];
@@ -167,6 +169,8 @@ export function S_Shutdown() {
   }
 
   masterGain = null;
+  levelAnalyser = null;
+  S_ClearFilteredLevels();
   num_sfx = 0;
 }
 
@@ -268,6 +272,73 @@ export function S_UnblockSound() {
   if (snd_blocked <= 0) {
     _onUnblockSound();
   }
+}
+
+// Output level meter: Ironwail snd_mix.c S_UpdateLevels. Ironwail drives
+// gamepad rumble from how loud the mix is. The C runs it over the paintbuffer;
+// there is no software mixer here, so an AnalyserNode reads what masterGain
+// sends out (sound effects only, mixed down to mono). The coefficients are
+// per sample, so the envelopes follow the device rate.
+const LEVEL_FFT_SIZE = 4096; // ~85 ms at 48 kHz, several frames
+const _levelSamples = new Float32Array(LEVEL_FFT_SIZE);
+let levelLastTime = 0;
+let snd_lofreqlevel = 0;
+let snd_hifreqlevel = 0;
+
+/**
+ * Brings the two level envelopes up to date with the audio played since the
+ * last call. The levels are 0 while nothing can be heard.
+ */
+export function S_UpdateLevels() {
+  if (
+    audioContext === null || masterGain === null ||
+    audioContext.state !== "running" || volume.value <= 0
+  ) {
+    S_ClearFilteredLevels();
+    return;
+  }
+
+  if (levelAnalyser === null) {
+    if (typeof audioContext.createAnalyser !== "function") return;
+    levelAnalyser = audioContext.createAnalyser();
+    levelAnalyser.fftSize = LEVEL_FFT_SIZE;
+    masterGain.connect(levelAnalyser);
+    levelLastTime = audioContext.currentTime;
+    return;
+  }
+
+  const now = audioContext.currentTime;
+  const count = Math.min(
+    LEVEL_FFT_SIZE,
+    Math.round((now - levelLastTime) * audioContext.sampleRate),
+  );
+  if (count <= 0) return; // no new samples yet
+  levelLastTime = now;
+
+  levelAnalyser.getFloatTimeDomainData(_levelSamples);
+
+  // The C divides the volume back out, so rumble doesn't follow it
+  const scale = 0.5 / Math.min(volume.value, 1);
+  // the newest samples are at the end of the buffer
+  for (let i = LEVEL_FFT_SIZE - count; i < LEVEL_FFT_SIZE; i++) {
+    // |left| + |right| in the C, twice the mono sample here
+    const sample = Math.abs(_levelSamples[i]) * 2 * scale;
+    snd_lofreqlevel += (sample - snd_lofreqlevel) * 1e-3;
+    snd_hifreqlevel += (sample - snd_hifreqlevel) * 1e-2;
+  }
+}
+
+export function S_GetLoFreqLevel() {
+  return snd_lofreqlevel;
+}
+
+export function S_GetHiFreqLevel() {
+  return snd_hifreqlevel;
+}
+
+export function S_ClearFilteredLevels() {
+  snd_lofreqlevel = 0;
+  snd_hifreqlevel = 0;
 }
 
 function S_FindName(name) {
