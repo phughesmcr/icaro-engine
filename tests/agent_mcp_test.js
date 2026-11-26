@@ -30,6 +30,7 @@ const TOOL_NAMES = [
   "cmd",
   "key",
   "menu",
+  "screenshot",
 ];
 
 // agent.js keeps a MessageChannel open for its yields, and the host runs

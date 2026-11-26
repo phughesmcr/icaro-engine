@@ -3075,6 +3075,48 @@ async function Agent_RLStepNow(action, tics, opts) {
   };
 }
 
+// SCREEN TIER
+
+// Browser only: the headless host has no renderer, so these need the page's
+// WebGL canvas (and the 2D overlay canvas: HUD, menus, console)
+export const SCREEN_MIN = 16;
+export const SCREEN_MAX = 1920;
+
+/** The canvas the screen tier draws into, reused across calls */
+let screen_canvas = null;
+let screen_ctx = null;
+
+// A size in pixels, clamped, or def when it isn't a number
+function Agent_ScreenClamp(size, def) {
+  if (!Number.isFinite(size)) return def;
+  return Math.max(SCREEN_MIN, Math.min(SCREEN_MAX, Math.floor(size)));
+}
+
+// Draws the current view (3D canvas, then the overlay unless null) scaled to
+// w x h into the reused canvas, and returns its context
+function Agent_ScreenDraw(gl_canvas, overlay_canvas, w, h) {
+  SCR_UpdateScreen(); // draw now, so the WebGL buffer is still readable
+  if (screen_canvas === null) {
+    screen_canvas = gl_canvas.ownerDocument.createElement("canvas");
+    screen_ctx = screen_canvas.getContext("2d", { willReadFrequently: true });
+  }
+  if (screen_canvas.width !== w) screen_canvas.width = w;
+  if (screen_canvas.height !== h) screen_canvas.height = h;
+  screen_ctx.drawImage(gl_canvas, 0, 0, w, h);
+  if (overlay_canvas !== null) {
+    screen_ctx.drawImage(overlay_canvas, 0, 0, w, h);
+  }
+  return screen_ctx;
+}
+
+// The height that keeps the view's aspect at width w, clamped like a width
+function Agent_ScreenHeight(gl_canvas, w) {
+  return Agent_ScreenClamp(
+    Math.round(w * gl_canvas.height / gl_canvas.width),
+    w,
+  );
+}
+
 /**
  * Draws the current view (3D canvas and 2D overlay) into a small image and
  * returns a data URL. In a browser with its own screenshot tool, that tool is
@@ -3088,18 +3130,35 @@ export function Agent_Screenshot(
   type = "image/jpeg",
   quality = 0.7,
 ) {
-  SCR_UpdateScreen(); // draw now, so the WebGL buffer is still readable
-  const w = Number.isFinite(width) ?
-    Math.max(32, Math.min(1920, Math.floor(width))) :
-    320;
-  const h = Math.round(w * gl_canvas.height / gl_canvas.width);
-  const c = gl_canvas.ownerDocument.createElement("canvas");
-  c.width = w;
-  c.height = h;
-  const ctx = c.getContext("2d");
-  ctx.drawImage(gl_canvas, 0, 0, w, h);
-  if (overlay_canvas !== null) ctx.drawImage(overlay_canvas, 0, 0, w, h);
-  return c.toDataURL(type, quality);
+  const w = Math.max(32, Agent_ScreenClamp(width, 320));
+  Agent_ScreenDraw(
+    gl_canvas,
+    overlay_canvas,
+    w,
+    Agent_ScreenHeight(gl_canvas, w),
+  );
+  return screen_canvas.toDataURL(type, quality);
+}
+
+/**
+ * The screen tier's pixels for RL programs: the current view (3D canvas, then
+ * the 2D overlay unless overlay_canvas is null) scaled to width x height
+ * (height 0 keeps the view's aspect), as { width, height, data }, where data
+ * is RGBA bytes, row by row from the top left (ImageData's layout). Each call
+ * returns a new array (getImageData allocates it).
+ */
+export function Agent_ScreenRGBA(
+  gl_canvas,
+  overlay_canvas,
+  width = 84,
+  height = 0,
+) {
+  const w = Agent_ScreenClamp(width, 84);
+  const h = Number.isFinite(height) && height > 0 ?
+    Agent_ScreenClamp(height, 84) :
+    Agent_ScreenHeight(gl_canvas, w);
+  const ctx = Agent_ScreenDraw(gl_canvas, overlay_canvas, w, h);
+  return { width: w, height: h, data: ctx.getImageData(0, 0, w, h).data };
 }
 
 export const AGENT_HELP = `Icaro Engine (Quake) agent API: window.icaro
@@ -3133,6 +3192,8 @@ Map:    icaro.observe({ map: 21 })  // also the opts of step, goto, turn_to and 
 Menus:  icaro.key('down'|'up'|'enter'|'escape'|'y'|...), icaro.menu('Single Player')
 Console: await icaro.cmd('god')   // returns what it printed (lockstep, in game: runs one tic)
 Image:  use your browser's own screenshot tool (icaro.screenshot() returns a data URL)
+Pixels: icaro.screen_rgba(84, 0, true)  // { width, height, data }: RGBA bytes of the view at
+        that width (height 0 keeps the aspect); false leaves out the HUD, menus and console
 Options: icaro.observe({ ents: 20, map: 21, format: 'json', truth: false })
 RL:     icaro.rl_spec({ ents: 16, rays: 32, map: 0 })  // fixed-size vector layout and action space
         await icaro.rl_step([1, 0, 5, 2, 0, 0, 1, 0], 4)  // -> { obs, reward, terminated, why }
