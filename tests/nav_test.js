@@ -3,7 +3,7 @@
 
 // nav.js first: it must load on its own, as the browser and tools use it
 const nav = await import( '../src/nav.js' );
-const { COM_AddPakSequence, COM_EnsureFile } = await import( '../src/pak.js' );
+const { COM_AddPack, COM_LoadPackFile, COM_EnsureFile } = await import( '../src/pak.js' );
 const { COM_InitArgv } = await import( '../src/common.js' );
 const { Memory_Init } = await import( '../src/zone.js' );
 const { Mod_Init, Mod_ForName } = await import( '../src/gl_model.js' );
@@ -55,8 +55,10 @@ async function loadE1M1() {
 		COM_InitArgv( [ 'nav_test' ] );
 		Memory_Init();
 		Mod_Init();
+		// pak0 on its own: COM_AddPakSequence would also add a local
+		// registered pak1.pak, and these expectations are for shareware
 		const pak = decodeURIComponent( new URL( '../static/pak0.pak', import.meta.url ).pathname );
-		assert( await COM_AddPakSequence( pak ) === 1, 'pak0.pak added' );
+		COM_AddPack( COM_LoadPackFile( 'pak0.pak', Deno.readFileSync( pak ).buffer ) );
 		assert( await COM_EnsureFile( 'maps/e1m1.bsp' ) === true, 'e1m1 present' );
 		cls.state = ca_dedicated;	// no textures: as the Deno server loads maps
 		try {
