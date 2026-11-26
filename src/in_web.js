@@ -95,6 +95,7 @@ import {
 } from "./touch.js";
 import { M_MouseButton, M_Mousemove, M_TouchInput } from "./menu.js";
 import { Draw_GetOverlayCanvas } from "./gl_draw.js";
+import { TE_Init } from "./touch_editor.js";
 import {
   S_BlockSound,
   S_GetHiFreqLevel,
@@ -1487,6 +1488,7 @@ export function IN_Init(element) {
 
   // Register commands
   Cmd_AddCommand("force_centerview", IN_ForceCenterView);
+  TE_Init(); // touch_editlayout, touch_layout (web-only)
 
   // Set up event listeners
   document.addEventListener("keydown", handleKeyDown);

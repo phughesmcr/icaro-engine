@@ -67,6 +67,10 @@ On phones and tablets the game shows touch controls. Play in landscape.
   look, left-handed layout (swaps the sides and mirrors the buttons), button
   size and opacity, and vibration. Settings are saved as `touch_*` cvars, except
   Invert Look, which is `m_pitch`.
+- **Edit Layout** (in Options → Touch controls, or the `touch_editlayout`
+  command): drag, resize and hide the buttons, and add buttons that run any
+  console command (`+attack` is held while pressed). Layouts are saved on the
+  device as named profiles; `touch_layout <name>` switches to one.
 - **Gyro aiming:** off by default. On iOS, the motion permission prompt appears
   the first time you tap after turning it on.
 - **Fullscreen on iPhone:** use Safari's _Add to Home Screen_. iOS doesn't allow

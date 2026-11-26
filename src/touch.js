@@ -40,6 +40,16 @@ import { VID_IsTouchPrimary } from "./vid.js";
 import { Cvar_RegisterVariable, cvar_t } from "./cvar.js";
 import { Cbuf_AddText } from "./cmd.js";
 import { Con_SetNotifyTop } from "./console.js";
+import {
+  TL_Active,
+  TL_BindDown,
+  TL_BindUp,
+  TL_Button,
+  TL_CUSTOM_KEY_BASE,
+  TL_Hidden,
+  TL_MOVABLE,
+  tl_version,
+} from "./touch_layout.js";
 
 // CVARS (archived, set from the Touch Controls menu)
 
@@ -153,6 +163,12 @@ const gyroFilter = { x: 0, y: 0, outX: 0, outY: 0 }; // Gyro_Filter state
 
 // Layout inputs last applied (re-laid out when a cvar changes)
 let layoutKey = "";
+let layoutVersion = -1; // touch_layout.js's tl_version last applied
+let stickScale = -1; // touch_size and opacity the stick was built for
+let stickOpacity = -1;
+let stickMirror = false; // touch_lefthanded the stick was built for
+let editing = false; // touch_editor.js is open: show every button, take no input
+const _tlButton = { cx: 0, cy: 0, size: 0, hidden: false }; // TL_Button's out
 
 // UI elements
 let overlay = null;
@@ -257,6 +273,11 @@ const chatButton = {
 };
 const barButtons = [saveButton, loadButton, consoleButton, chatButton];
 tapButtons.push(...barButtons);
+
+// The player's own buttons (touch_layout.js profiles), web-only: each runs a
+// command like a key binding, a +command held while the finger stays on it.
+// Rebuilt by Touch_SyncCustom when the profile changes.
+const customButtons = [];
 
 // Weapon wheel (web-only: held WPN▶ opens it, the impulses it sends are the
 // C ones, impulse 1-8)
@@ -479,24 +500,36 @@ function Touch_Layout() {
   lookArea.style[near] = "0";
   lookArea.style[far] = "";
 
-  // Circle centred (cx, cy) px from the near and bottom edges
-  const place = (el, cx, cy, size) => {
+  // The viewport, to keep every button on screen whatever size of screen the
+  // profile was made on
+  const vw = typeof window !== "undefined" && window.innerWidth > 0 ?
+    window.innerWidth :
+    0;
+  const vh = typeof window !== "undefined" && window.innerHeight > 0 ?
+    window.innerHeight :
+    0;
+
+  // Circle centred (cx, cy) px from the near and bottom edges. Hidden ones
+  // show faintly while the layout editor is open, so they can be brought back.
+  const place = (el, cx, cy, size, hidden) => {
     const s = size * scale;
+    let x = cx * scale;
+    let y = cy * scale;
+    if (vw > 0) x = Math.min(Math.max(x, s / 2), Math.max(vw - s / 2, s / 2));
+    if (vh > 0) y = Math.min(Math.max(y, s / 2), Math.max(vh - s / 2, s / 2));
+    el.style.display = hidden && !editing ? "none" : "flex";
     el.style.width = s + "px";
     el.style.height = s + "px";
-    el.style[near] = `calc(${inset(near)} + ${cx * scale - s / 2}px)`;
+    el.style[near] = `calc(${inset(near)} + ${x - s / 2}px)`;
     el.style[far] = "";
-    el.style.bottom = `calc(${inset("bottom")} + ${cy * scale - s / 2}px)`;
-    el.style.fontSize = Math.round(13 * scale) + "px";
-    el.style.opacity = String(opacity);
+    el.style.bottom = `calc(${inset("bottom")} + ${y - s / 2}px)`;
+    el.style.fontSize = Math.round(13 * scale * Math.min(size / 56, 1.5)) +
+      "px";
+    el.style.opacity = String(hidden ? opacity * 0.35 : opacity);
+    el.style.borderStyle = hidden ? "dashed" : "solid";
   };
 
-  place(fireButton.el, 100, 112, 88);
-  place(jumpButton.el, 48, 48, 64);
-  place(weaponNextButton.el, 96, 206, 56);
-  place(weaponPrevButton.el, 168, 176, 44);
-  place(downButton.el, 148, 40, 44); // clear of FIRE (its bottom edge is 68)
-
+  // Set the border before place() picks its style
   for (const b of holdButtons) {
     b.el.style.border = `2px solid rgba(${b.color}, 0.8)`;
     Touch_SetButtonPressed(b, b.touches.size > 0);
@@ -505,6 +538,34 @@ function Touch_Layout() {
   for (const b of tapButtons) {
     b.el.style.border = "2px solid rgba(255, 255, 255, 0.5)";
     b.el.style.background = "rgba(0, 0, 0, 0.25)";
+  }
+
+  // The built-in buttons, from the active layout profile (touch_layout.js)
+  layoutVersion = tl_version;
+  for (const d of TL_MOVABLE) {
+    const b = Touch_ButtonById(d.id);
+    if (b === null) continue;
+    TL_Button(d.id, _tlButton);
+    place(b.el, _tlButton.cx, _tlButton.cy, _tlButton.size, _tlButton.hidden);
+    // A hold button hidden while held lets go (no touchend will come)
+    if (
+      _tlButton.hidden && !editing && b.touches !== undefined &&
+      b.touches.size > 0
+    ) {
+      Touch_ReleaseHold(b);
+    }
+  }
+
+  Touch_SyncCustom();
+  const custom = TL_Active().custom;
+  for (let i = 0; i < customButtons.length; i++) {
+    const b = customButtons[i];
+    const c = custom[i];
+    b.el.style.border = "2px solid rgba(255, 210, 110, 0.7)";
+    if (b.touches.size === 0) b.el.style.background = "rgba(0, 0, 0, 0.25)";
+    place(b.el, c.cx, c.cy, c.size, c.hidden);
+    // A button hidden while held lets go
+    if (c.hidden && !editing) Touch_ReleaseCustom(b);
   }
 
   Touch_LayoutBar();
@@ -522,8 +583,12 @@ function Touch_Layout() {
   pauseButton.style.opacity = String(opacity);
   Touch_UpdateNotifyTop();
 
-  // The stick size is a nipplejs option: rebuild it
-  if (stickManager !== null) {
+  // The stick size is a nipplejs option, and its zone moved if the layout
+  // was mirrored: rebuild it when either changes
+  if (
+    stickManager !== null &&
+    (scale !== stickScale || opacity !== stickOpacity || mirror !== stickMirror)
+  ) {
     Stick_Destroy();
     Stick_Create();
   }
@@ -551,7 +616,7 @@ function Touch_LayoutBar() {
   const far = touch_lefthanded.value !== 0 ? "right" : "left";
   let x = 12 + 40 * size + 8; // past the menu button
   let shown = 0;
-  for (const b of barButtons) if (barVisible[b.bar] !== false) shown++;
+  for (const b of barButtons) if (Touch_BarShown(b)) shown++;
   const width =
     typeof window !== "undefined" && typeof window.innerWidth === "number" ?
       window.innerWidth :
@@ -561,12 +626,13 @@ function Touch_LayoutBar() {
   const h = 32 * scale;
 
   for (const b of barButtons) {
-    if (barVisible[b.bar] === false) {
+    if (!Touch_BarShown(b)) {
       b.el.style.display = "none";
       continue;
     }
 
     b.el.style.display = "flex";
+    b.el.style.borderStyle = TL_Hidden(b.id) ? "dashed" : "solid";
     b.el.style.borderRadius = "8px";
     b.el.style.width = w + "px";
     b.el.style.height = h + "px";
@@ -575,10 +641,17 @@ function Touch_LayoutBar() {
     b.el.style[far === "left" ? "right" : "left"] = "";
     b.el.style.bottom = "";
     b.el.style.fontSize = Math.round(11 * scale) + "px";
-    b.el.style.opacity = String(opacity);
+    b.el.style.opacity = String(TL_Hidden(b.id) ? opacity * 0.35 : opacity);
     x += w + 6;
   }
   Touch_UpdateNotifyTop();
+}
+
+// A bar button shows when the game wants it and the layout doesn't hide it.
+// The layout editor shows all four, so each can be hidden or brought back.
+function Touch_BarShown(b) {
+  if (editing) return true;
+  return barVisible[b.bar] !== false && !TL_Hidden(b.id);
 }
 
 // Tell the console how far down the top buttons reach, so the notify lines
@@ -1409,6 +1482,10 @@ function Stick_Create() {
   if (nipplejs === null || moveZone === null || stickManager !== null) return;
 
   const scale = Math.min(Math.max(touch_size.value || 1, 0.5), 2);
+  const opacity = Math.min(Math.max(touch_opacity.value, 0.1), 1);
+  stickScale = scale;
+  stickOpacity = opacity;
+  stickMirror = touch_lefthanded.value !== 0;
   stickManager = nipplejs.create({
     zone: moveZone,
     mode: "dynamic",
@@ -1416,7 +1493,7 @@ function Stick_Create() {
     color: "white",
     fadeTime: 120,
     multitouch: false,
-    restOpacity: Math.min(Math.max(touch_opacity.value, 0.1), 1),
+    restOpacity: opacity,
   });
 
   // nipplejs 1.x passes one event object; 0.x passed ( event, data )
@@ -1481,6 +1558,7 @@ function Touch_ResetJoystick() {
  */
 export function Touch_ReleaseButtons() {
   for (const b of holdButtons) Touch_ReleaseHold(b);
+  for (const b of customButtons) Touch_ReleaseCustom(b);
   Touch_WheelClose();
   Touch_ResetJoystick();
   lookTouch = null;
@@ -1696,7 +1774,7 @@ export function Touch_Frame() {
 
   const key = touch_size.string + "|" + touch_opacity.string + "|" +
     touch_lefthanded.string;
-  if (key !== layoutKey) Touch_Layout();
+  if (key !== layoutKey || tl_version !== layoutVersion) Touch_Layout();
 
   if ((touch_gyro.value !== 0) !== gyroListening) Gyro_Update(false);
 
@@ -1940,7 +2018,7 @@ export function Touch_Disable() {
   if (!initialized || !enabled) return;
 
   enabled = false;
-  overlay.style.display = "none";
+  overlay.style.display = editing ? "block" : "none";
   Touch_SetPlayingClass(false);
   Con_SetNotifyTop(0);
   Touch_UpdatePortraitPrompt();
@@ -2043,4 +2121,164 @@ export function Touch_HideSysBar() {
 export function Touch_SetMenuCallback(callback, getSurface) {
   menuTouchCallback = callback;
   menuSurfaceGetter = getSurface || null;
+}
+
+// LAYOUT PROFILES AND CUSTOM BUTTONS
+//
+// Web-only. touch_layout.js keeps the profiles; touch_editor.js edits them
+// through the functions below.
+
+/** The built-in button (hold or tap) with element id id, or null */
+function Touch_ButtonById(id) {
+  switch (id) {
+    case "touch-fire":
+      return fireButton;
+    case "touch-jump":
+      return jumpButton;
+    case "touch-weapon-next":
+      return weaponNextButton;
+    case "touch-weapon-prev":
+      return weaponPrevButton;
+    case "touch-movedown":
+      return downButton;
+  }
+  return null;
+}
+
+function onCustomTouchStart(b, e) {
+  e.preventDefault();
+  if (!enabled || editing) return;
+  S_UnlockAudio();
+
+  for (const touch of e.changedTouches) {
+    if (b.touches.size === 0) {
+      b.held = true;
+      if (b.down !== "") Cbuf_AddText(b.down);
+      b.el.style.background = "rgba(255, 210, 110, 0.35)";
+      haptic(8);
+    }
+    b.touches.add(touch.identifier);
+  }
+}
+
+function onCustomTouchEnd(b, e) {
+  e.preventDefault();
+  for (const touch of e.changedTouches) b.touches.delete(touch.identifier);
+  if (b.touches.size === 0) Touch_ReleaseCustom(b);
+  onGameTouchEnd(e);
+}
+
+/** Lets go of a custom button: runs its -command if it was held */
+function Touch_ReleaseCustom(b) {
+  b.touches.clear();
+  if (b.el !== null) b.el.style.background = "rgba(0, 0, 0, 0.25)";
+  if (!b.held) return;
+  b.held = false;
+  if (b.up !== "") Cbuf_AddText(b.up);
+}
+
+/**
+ * Makes customButtons match the active profile: one element each, with its
+ * label and the commands it runs. A button whose command changed lets go
+ * first, so a +command is never left down.
+ */
+function Touch_SyncCustom() {
+  if (overlay === null) return;
+  const custom = TL_Active().custom;
+
+  while (customButtons.length > custom.length) {
+    const b = customButtons.pop();
+    Touch_ReleaseCustom(b);
+    b.el.remove();
+  }
+
+  while (customButtons.length < custom.length) {
+    const i = customButtons.length;
+    const b = {
+      id: "touch-custom-" + (i + 1),
+      el: makeDiv("touch-custom-" + (i + 1), BUTTON_CSS),
+      key: TL_CUSTOM_KEY_BASE + i + 1,
+      command: "",
+      down: "",
+      up: "",
+      held: false,
+      touches: new Set(),
+    };
+    b.el.addEventListener("touchstart", (e) => onCustomTouchStart(b, e), {
+      passive: false,
+    });
+    b.el.addEventListener("touchend", (e) => onCustomTouchEnd(b, e), {
+      passive: false,
+    });
+    b.el.addEventListener("touchcancel", (e) => onCustomTouchEnd(b, e), {
+      passive: false,
+    });
+    b.el.addEventListener("touchmove", (e) => e.preventDefault(), {
+      passive: false,
+    });
+    overlay.insertBefore(b.el, wheelEl);
+    customButtons.push(b);
+  }
+
+  for (let i = 0; i < custom.length; i++) {
+    const b = customButtons[i];
+    const c = custom[i];
+    if (b.command !== c.command) {
+      Touch_ReleaseCustom(b);
+      b.command = c.command;
+      b.down = TL_BindDown(c.command, b.key);
+      b.up = TL_BindUp(c.command, b.key);
+    }
+    const label = c.label !== "" ? c.label : String(i + 1);
+    if (b.el.textContent !== label) b.el.textContent = label;
+  }
+}
+
+/** Lays the controls out again now (the layout editor, after a change) */
+export function Touch_Relayout() {
+  Touch_Layout();
+}
+
+/** True once the touch controls exist (the layout editor needs them) */
+export function Touch_IsInitialized() {
+  return initialized;
+}
+
+/** touch_size as Touch_Layout uses it, and whether the layout is mirrored */
+export function Touch_LayoutScale() {
+  return Math.min(Math.max(touch_size.value || 1, 0.5), 2);
+}
+
+export function Touch_LayoutMirrored() {
+  return touch_lefthanded.value !== 0;
+}
+
+/**
+ * The layout editor is open (or closed): show the controls, every button
+ * included, and let go of anything held. The controls take no input while it
+ * is open. On close the overlay goes back to what Touch_Enable/Disable set.
+ */
+export function Touch_SetEditing(on) {
+  if (!initialized || editing === on) return;
+  editing = on;
+  Touch_ReleaseButtons();
+  overlay.style.display = editing || enabled ? "block" : "none";
+  Touch_Layout();
+}
+
+/**
+ * The buttons the layout editor can pick, as { id, el, custom } (custom: the
+ * index in the profile's custom list, or -1). Fills and returns out.
+ */
+export function Touch_EditTargets(out) {
+  out.length = 0;
+  for (const b of barButtons) out.push({ id: b.id, el: b.el, custom: -1 });
+  for (const d of TL_MOVABLE) {
+    const b = Touch_ButtonById(d.id);
+    if (b !== null) out.push({ id: d.id, el: b.el, custom: -1 });
+  }
+  for (let i = 0; i < customButtons.length; i++) {
+    out.push({ id: customButtons[i].id, el: customButtons[i].el, custom: i });
+  }
+  return out;
 }

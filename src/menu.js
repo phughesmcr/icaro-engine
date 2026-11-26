@@ -2345,6 +2345,12 @@ const touchItems = [
     max: 1,
     step: 0.1,
   },
+  // Web-only: opens the layout editor (touch_editor.js)
+  {
+    label: "           Edit Layout",
+    set: () => Cbuf_AddText("touch_editlayout\n"),
+    link: true,
+  },
   { label: "             Vibration", cvar: "touch_haptics" },
 ];
 const TOUCH_ITEMS = touchItems.length;
@@ -2416,6 +2422,7 @@ function M_Touch_Draw() {
       const v = Math.trunc(Cvar_VariableValue(item.cvar));
       M_Print(220, y, item.names[v] !== undefined ? item.names[v] : String(v));
     } else {
+      if (item.link === true) continue; // opens something: no value
       M_DrawCheckbox(
         220,
         y,
@@ -2449,9 +2456,12 @@ function M_Touch_Key(key) {
       m_touch_cursor = (m_touch_cursor + 1) % TOUCH_ITEMS;
       break;
     case K_LEFTARROW:
+      // Arrows don't open a link row; Enter does (as in M_Options_Key)
+      if (touchItems[m_touch_cursor].link === true) break;
       M_TouchItem_Adjust(touchItems[m_touch_cursor], -1);
       break;
     case K_RIGHTARROW:
+      if (touchItems[m_touch_cursor].link === true) break;
       M_TouchItem_Adjust(touchItems[m_touch_cursor], 1);
       break;
   }
