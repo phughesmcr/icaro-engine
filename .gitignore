@@ -48,3 +48,7 @@ static/music/
 .dev.vars
 # The client Worker's build output (deno task client-build)
 cloudflare/client/dist/
+
+*.dem
+*.zip
+*.sav

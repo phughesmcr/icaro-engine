@@ -25,12 +25,45 @@ reading code only) or **browser** (needs a browser or device to confirm).
   community maps in `static/maps/`. Also 418 deathmatch and coop spawns with 4
   players, save and load on 41 maps, every attract demo, record and replay on 10
   sets, and every `trigger_changelevel`. No crash and no blocker.
-- **Not run: LibreQuake, Quoth, Arcane Dimensions, Copper.** None of them is in
-  `static/`, which holds retail id1, the mission packs, the rerelease and the
-  community maps. `compat-runtime.md` lists what a test of each needs.
+- **Run later, headless, on PR #252's `headless_host`:** LibreQuake v0.09-beta
+  (`full.zip`), Quoth 2.2 (with the 2.1 patch) and Arcane Dimensions 1.80p1, all
+  gitignored under `static/`. Results are in the next section. Copper was not
+  run.
 - **Not run: anything in a browser.** Rendering, audio, input, storage, real
   multi-client play and real networks are unverified. "No blockers" is a
   headless result.
+
+## LibreQuake, Quoth and Arcane Dimensions
+
+Each map was started at skill 1 with a loopback client and run for 10 seconds of
+game time, one host per content set unless noted. **run**
+
+- **Every message over 8000 bytes fails: one fix unblocks AD and a LibreQuake
+  demo.** Icaro keeps id's `MAX_MSGLEN` of 8000 (`src/quakedef.js:18`) and
+  `NET_MAXMESSAGE` of 8192 (`src/net.js:10`); QuakeSpasm uses 64000 and 65536.
+  - AD: all 21 of its maps tried after `start` fail to sign on with
+    `SZ_GetSpace: overflow`, because the precache list in `SV_SendServerinfo`
+    (`src/sv_main.js`) doesn't fit. With the two limits raised in a scratch
+    copy, all 25 AD maps tried (each in its own process) load and run clean.
+  - LibreQuake: `demo2.dem` stops at once with `Demo message > MAX_MSGLEN` (one
+    message is 9748 bytes); with the limits raised it plays.
+- **LibreQuake's `demo3.dem` is protocol 999** (flags 130: int32 coordinates,
+  short angles) and fails with `Server returned version 999`. `demo1` (protocol
+  15) plays. The standard content's attract loop needs the 999 reader.
+- **LibreQuake maps: clean.** 39 of 41 single-player maps (`start`, `lq_e0`–
+  `lq_e4`, `lq_end`, `dev`) and all 13 `lqdm` maps plus 4 starts in deathmatch.
+  The two failures, `lq_e2m8` and `lq_e3m8`, don't exist in v0.09. `lq_e3m4`
+  prints a non-fatal `OBJECT ERROR` from its own data (a `monster_movetarget`
+  with no `targetname`).
+- **LibreQuake's configs use commands Icaro lacks.** `default.cfg` and
+  `default_$generic.cfg` call `set`, `if` and `serverinfo` (FTE and DarkPlaces),
+  bind QuakeSpasm's `MOUSE5` and gamepad key names (`ABUTTON`, `LTRIGGER`...),
+  and set about 25 cvars Icaro doesn't have (`scr_conalpha`, `contrast`,
+  `r_particles`, `cl_alwaysrun`, `gl_texturemode_hud`...). Nothing fails, but
+  those settings and binds are lost.
+- **Quoth: clean.** The pak ships only test and example maps; 11 of 12 load and
+  run. `kellbase1_fan` has no `info_player_start` (a test map). Quoth's real
+  content is third-party maps, which weren't run.
 
 ## Correction: why 666 and 999 matter
 
@@ -99,10 +132,11 @@ days, L a week or more.
   (`opts.game_dirs`), so mission packs and mods can be scripted and tested
   through MCP. Today it mounts one pak. S, **run**. Overlaps #237, #243, #244,
   #246.
-- Get LibreQuake, Quoth and AD into `static/` (gitignored) and run the same
-  headless sweep on them. LibreQuake's attract demos matter most: if they are
-  666 or 999, the standard content can't boot until the client reads those
-  protocols.
+- Raise `MAX_MSGLEN` to 64000 and `NET_MAXMESSAGE` to 65536, as QuakeSpasm does,
+  through every net driver and the signon buffers. Unblocks every AD map and
+  LibreQuake's `demo2`. S–M, **run**.
+- The 999 reader comes first among the demo readers: LibreQuake's `demo3` needs
+  it.
 - An allocation gate: a test that runs `Host_Frame` many times and fails if a
   frame allocates. The architecture audit's hot-path counts are a grep, not
   measurements. M, **read**.
