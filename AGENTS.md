@@ -16,7 +16,8 @@ process per room. It was forked from mrdoob's three-quake.
   `docs/browser-hosted-rooms.md`), `room_rules.js` (game rules shared by
   lobby rooms and browser-hosted ones), `pak.js`, `menu_cvars.js`,
   `agent.js` (the agent API,
-  `window.icaro`; see `docs/agent-interface.md`). Some files port features
+  `window.icaro`; see `docs/agent-interface.md`), `turnstile.js` (the
+  Turnstile widget shown before creating a room). Some files port features
   from Ironwail or QuakeSpasm rather than id's C, and their headers cite it
   (`gl_fog.js`, `gl_sky.js`, `gl_md5.js`, `gl_entalpha.js`,
   `gl_screenwarp.js`, `image.js`, `pr_sprintf.js`, `default_cfg.js`,
@@ -26,8 +27,10 @@ process per room. It was forked from mrdoob's three-quake.
 - `server/`: `lobby_server.js`, `game_server.js` and the WebTransport and
   WebSocket server drivers (`.ts`). `lobby_rtc.js` is the lobby for rooms
   hosted in browsers (room table and WebRTC signal relay) and
-  `room_config.js` the room-config checks; both are pure, so the Cloudflare
-  lobby imports them too. Under Deno, `three` maps to `server/browser_shim.js` (root
+  `room_config.js` the room-config checks, and `turnstile.js` checks a
+  Turnstile token with Siteverify before a room is created (see
+  `server/README.md`); all three are pure, so the Cloudflare lobby imports
+  them too. Under Deno, `three` maps to `server/browser_shim.js` (root
   `deno.json`). If `src/` starts using a new Three.js export, add it to the
   shim or the server and tests break. `server/headless_host.js` runs the
   whole game (host, local server and a loopback client) under Deno with no
@@ -37,7 +40,7 @@ process per room. It was forked from mrdoob's three-quake.
   `static/pak0.pak`), with the root `.dockerignore` as a second guard; never
   widen either to registered data (see Game data).
 - `cloudflare/lobby/`: the lobby Worker and Durable Object for rooms hosted
-  in browsers, with TURN credentials (its README says how to deploy).
+  in browsers, with TURN credentials and the Turnstile check (its README says how to deploy).
   `src/worker.js` imports `cloudflare:workers`, so tests run
   `src/lobby_core.js` instead. Run wrangler only from that folder: from the
   repository root it offers to upload the whole repository, registered

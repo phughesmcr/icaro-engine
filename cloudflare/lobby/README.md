@@ -63,6 +63,24 @@ between bursts can get past them. The caps on open sockets, rooms and
 joiners per IP hold, since they count live sockets. If that matters, add a
 Cloudflare rate-limiting rule on the route as well.
 
+## Turnstile
+
+With the `TURNSTILE_SITEKEY` secret stored, a `LOBBY_HOST` needs a Turnstile token (`server/turnstile.js`, and "Turnstile" in `server/README.md`). `wrangler.jsonc` sets `TURNSTILE_HOSTNAMES`, the game page's hostnames (not the Worker's). Until `TURNSTILE_SECRET` is stored too, every `LOBBY_HOST` token is refused, so no room can be hosted. Store both from the Cloudflare dashboard's widget settings, with an installed Wrangler rather than `npx`, since the commands handle secrets:
+
+```bash
+cd cloudflare/lobby && wrangler secret put TURNSTILE_SITEKEY
+```
+
+```bash
+cd cloudflare/lobby && wrangler secret put TURNSTILE_SECRET
+```
+
+The sitekey isn't secret (every visitor's browser gets it); it is stored as one only to keep it out of the repository. To turn the check off, delete it:
+
+```bash
+cd cloudflare/lobby && wrangler secret delete TURNSTILE_SITEKEY
+```
+
 ## Check the bundle without deploying
 
 ```bash
