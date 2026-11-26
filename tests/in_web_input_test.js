@@ -397,6 +397,21 @@ Deno.test("IN-1/IN-5: browser default actions", () => {
   });
 });
 
+Deno.test("a phone with a stylus counts as touch-first, a tablet with a trackpad doesn't", () => {
+  withFakeDom(() => {
+    const attached = new Set(["(pointer: coarse)", "(any-pointer: fine)"]);
+    // withFakeDom restores the real one
+    Object.defineProperty(globalThis, "matchMedia", {
+      configurable: true,
+      value: (q) => ({ matches: attached.has(q) }),
+    });
+    assertEqual(touch.Touch_IsMobile(), true, "stylus phone");
+
+    attached.add("(any-hover: hover)");
+    assertEqual(touch.Touch_IsMobile(), false, "trackpad");
+  });
+});
+
 Deno.test("IN-2: touchscreen laptop starts with the mouse and switches per pointer", () => {
   withFakeDom((dom) => {
     assertEqual(

@@ -36,6 +36,7 @@ import {
   STAT_SHELLS,
 } from "./quakedef.js";
 import { S_UnlockAudio } from "./snd_dma.js";
+import { VID_IsTouchPrimary } from "./vid.js";
 import { Cvar_RegisterVariable, cvar_t } from "./cvar.js";
 import { Cbuf_AddText } from "./cmd.js";
 
@@ -253,15 +254,13 @@ let quickSaveExists = false;
 let quickSaveChecked = 0;
 
 /**
- * True on touch-first devices: the primary pointer is coarse and there is no
- * fine pointer (mouse, trackpad) at all. Touchscreen laptops and tablets with a
- * trackpad return false; in_web.js switches to touch controls when they are
- * actually touched.
+ * True on touch-first devices (VID_IsTouchPrimary). Touchscreen laptops and
+ * tablets with a trackpad return false; in_web.js switches to touch controls
+ * when they are actually touched.
  */
 export function Touch_IsMobile() {
   if (typeof matchMedia === "function") {
-    return matchMedia("(pointer: coarse)").matches &&
-      !matchMedia("(any-pointer: fine)").matches;
+    return VID_IsTouchPrimary((query) => matchMedia(query));
   }
 
   if (typeof navigator === "undefined") return false;
