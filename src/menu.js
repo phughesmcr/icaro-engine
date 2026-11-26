@@ -2285,6 +2285,14 @@ const touchItems = [
     get: () => m_pitch.value < 0,
     set: () => Cvar_SetValue("m_pitch", -m_pitch.value),
   },
+  { label: "      Look Screen-Size", cvar: "touch_look_screen" },
+  {
+    label: "     Look Acceleration",
+    cvar: "touch_look_accel",
+    min: 0,
+    max: 2,
+    step: 0.25,
+  },
   { label: "           Left-Handed", cvar: "touch_lefthanded" },
   {
     label: "           Button Size",

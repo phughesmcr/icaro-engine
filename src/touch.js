@@ -54,6 +54,11 @@ export const touch_size = new cvar_t("touch_size", "1", true); // button scale
 export const touch_opacity = new cvar_t("touch_opacity", "0.6", true);
 export const touch_lefthanded = new cvar_t("touch_lefthanded", "0", true); // mirror the layout
 export const touch_haptics = new cvar_t("touch_haptics", "1", true); // vibrate on button press (Android)
+// 1: drag look turns as far per screen fraction on a tablet as on a phone
+// (see Touch_LookScreenScale); 0: per pixel, the same on every screen
+export const touch_look_screen = new cvar_t("touch_look_screen", "1", true);
+// Drag look acceleration: fast flicks turn further than slow drags; 0 = off
+export const touch_look_accel = new cvar_t("touch_look_accel", "0", true);
 
 export function Touch_RegisterCvars() {
   Cvar_RegisterVariable(touch_sensitivity);
@@ -63,11 +68,21 @@ export function Touch_RegisterCvars() {
   Cvar_RegisterVariable(touch_opacity);
   Cvar_RegisterVariable(touch_lefthanded);
   Cvar_RegisterVariable(touch_haptics);
+  Cvar_RegisterVariable(touch_look_screen);
+  Cvar_RegisterVariable(touch_look_accel);
 }
 
 // Degrees of view rotation per CSS pixel of drag at touch_sensitivity 1
 // (the same speed as before touch_sensitivity existed)
 const LOOK_DEGREES_PER_PX = 0.4;
+// Short side, in CSS pixels, of the largest phone screens: drag look is scaled
+// up by short side / this on bigger screens, and never scaled down
+export const LOOK_SCREEN_REF = 430;
+// Drag speed (reference pixels per second) at which touch_look_accel 1
+// doubles the turn, and the largest gain it can reach
+export const LOOK_ACCEL_SPEED = 1000;
+export const LOOK_ACCEL_MAX = 4;
+const LOOK_MIN_DT = 0.004; // seconds: touch events closer than this are batched
 
 // STATE
 
@@ -92,7 +107,7 @@ let stickManager = null;
 
 // Look area (drag to look)
 let lookTouch = null;
-const lastLookPos = { x: 0, y: 0 };
+const lastLookPos = { x: 0, y: 0, t: 0 };
 
 // Menu touch (tap to select, drag to send arrow keys)
 const MENU_DRAG_STEP = 24; // px of drag per arrow key
@@ -938,8 +953,35 @@ function haptic(ms) {
   navigator.vibrate(ms);
 }
 
-function addLook(dx, dy) {
-  const k = LOOK_DEGREES_PER_PX * touch_sensitivity.value;
+/**
+ * How much more each pixel of drag turns on this screen: 1 on a phone, more
+ * on a tablet, so the same fraction of the screen turns as far.
+ */
+export function Touch_LookScreenScale(width, height) {
+  const side = Math.min(width, height);
+  return side > LOOK_SCREEN_REF ? side / LOOK_SCREEN_REF : 1;
+}
+
+/**
+ * The acceleration gain for a drag of (dx, dy) reference pixels over dt
+ * seconds: 1 + accel * speed / LOOK_ACCEL_SPEED, at most LOOK_ACCEL_MAX.
+ */
+export function Touch_LookGain(dx, dy, dt, accel) {
+  if (accel <= 0) return 1;
+  // (a missing timestamp counts as the shortest gap)
+  const speed = Math.hypot(dx, dy) / (dt > LOOK_MIN_DT ? dt : LOOK_MIN_DT);
+  return Math.min(1 + accel * speed / LOOK_ACCEL_SPEED, LOOK_ACCEL_MAX);
+}
+
+/** Turns the view for a drag of (dx, dy) CSS pixels over dt seconds. */
+function addLook(dx, dy, dt) {
+  if (touch_look_screen.value !== 0 && typeof window !== "undefined") {
+    const scale = Touch_LookScreenScale(window.innerWidth, window.innerHeight);
+    dx *= scale;
+    dy *= scale;
+  }
+  const k = LOOK_DEGREES_PER_PX * touch_sensitivity.value *
+    Touch_LookGain(dx, dy, dt, touch_look_accel.value);
   lookYaw -= dx * k;
   lookPitch += dy * k;
 }
@@ -953,6 +995,7 @@ function onLookTouchStart(e) {
     lookTouch = touch.identifier;
     lastLookPos.x = touch.clientX;
     lastLookPos.y = touch.clientY;
+    lastLookPos.t = e.timeStamp;
   }
 }
 
@@ -964,9 +1007,14 @@ function onLookTouchMove(e) {
     null;
   if (touch === null) return;
 
-  addLook(touch.clientX - lastLookPos.x, touch.clientY - lastLookPos.y);
+  addLook(
+    touch.clientX - lastLookPos.x,
+    touch.clientY - lastLookPos.y,
+    (e.timeStamp - lastLookPos.t) / 1000,
+  );
   lastLookPos.x = touch.clientX;
   lastLookPos.y = touch.clientY;
+  lastLookPos.t = e.timeStamp;
 }
 
 function onLookTouchEnd(e) {
@@ -998,7 +1046,11 @@ function onHoldTouchStart(b, e) {
     }
 
     b.touches.add(touch.identifier);
-    b.lastPos.set(touch.identifier, { x: touch.clientX, y: touch.clientY });
+    b.lastPos.set(touch.identifier, {
+      x: touch.clientX,
+      y: touch.clientY,
+      t: e.timeStamp,
+    });
   }
 }
 
@@ -1008,9 +1060,14 @@ function onHoldTouchMove(b, e) {
   for (const touch of e.changedTouches) {
     const last = b.lastPos.get(touch.identifier);
     if (last === undefined) continue;
-    addLook(touch.clientX - last.x, touch.clientY - last.y);
+    addLook(
+      touch.clientX - last.x,
+      touch.clientY - last.y,
+      (e.timeStamp - last.t) / 1000,
+    );
     last.x = touch.clientX;
     last.y = touch.clientY;
+    last.t = e.timeStamp;
   }
 }
 
