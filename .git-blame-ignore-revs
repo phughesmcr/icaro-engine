@@ -9,3 +9,6 @@
 
 # Collapse the C-style comment banners (tier 2)
 e7ca7ef56631a868fa0fd66bd0f17ba6ddc6f81d
+
+# Format the Markdown with deno fmt (tier 3)
+a4843f9a8f24bb91cf761b902ff180a6808f9f39
