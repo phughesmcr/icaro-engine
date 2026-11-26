@@ -2013,8 +2013,8 @@ export function R_DlightBucket( count ) {
 // Web-only: gl_dlightcap (no Quake counterpart; a vid_quality preset sets
 // it) caps how many dlights are drawn and so the largest bucket above: the
 // value rounded up to 4, 8, 16, 32 or 64. Fewer buckets mean fewer shader
-// program sets and a shorter per-pixel light loop. gl_warmup.js asks for it
-// to compile only the buckets that can occur.
+// program sets and a shorter per-pixel light loop. R_DlightBucketCap is
+// exported for a shader warm-up to use.
 export const gl_dlightcap = { name: 'gl_dlightcap', string: '64', value: 64, archive: true };
 
 export function R_DlightBucketCap() {
@@ -2039,8 +2039,8 @@ export const vid_quality = { name: 'vid_quality', string: '3', value: 3, archive
 export const r_particlecap = { name: 'r_particlecap', string: '0', value: 0, archive: true };
 
 export const VID_QUALITY_PRESETS = [
-	[ 1, 30, 4, 2048, 1 ], // 0: battery
-	[ 1.5, 60, 8, 8192, 2 ], // 1: balanced
+	[ 1, 30, 4, 2048, 1 ], // 0: saver
+	[ 1.5, 60, 8, 8192, 2 ], // 1: medium
 	[ 0, 72, 64, 0, 4 ] // 2: high (the engine's defaults, plus anisotropy)
 ];
 

@@ -4,6 +4,12 @@
 await import( '../src/gl_rsurf.js' ); // load the renderer graph first (import cycle)
 const { VID_ComputePixelRatio, vid_dprcap, VID_CheckPixelRatio } = await import( '../src/vid.js' );
 const gl_rmain = await import( '../src/gl_rmain.js' );
+const THREE = await import( 'three' );
+const glquake = await import( '../src/glquake.js' );
+const gl_rlight = await import( '../src/gl_rlight.js' );
+const r_part = await import( '../src/r_part.js' );
+const { cl, cl_dlights } = await import( '../src/client.js' );
+const { r_origin } = await import( '../src/render.js' );
 const { Cvar_RegisterVariable, Cvar_FindVar, Cvar_Set } = await import( '../src/cvar.js' );
 const { R_SetParticleLimit, R_GetParticleLimit, r_numparticles } = await import( '../src/r_part.js' );
 const { advancedPages } = await import( '../src/menu_cvars.js' );
@@ -204,5 +210,176 @@ Deno.test( 'the Graphics menu page lists the preset and the resolution cap', () 
 	for ( const cvar of [ 'vid_quality', 'vid_dprcap' ] )
 		if ( graphics.items.find( ( i ) => i.cvar === cvar ) === undefined )
 			throw new Error( 'missing ' + cvar );
+
+} );
+
+Deno.test( 'a saved vid_quality is adopted at the first check without writing its cvars', () => {
+
+	withSavedCvars( () => {
+
+		const oldWindow = globalThis.window;
+		globalThis.window = { dispatchEvent: () => true };
+		try {
+
+			// config.cfg has run: a saved preset and hand-tuned values
+			Cvar_Set( 'vid_quality', '0' );
+			Cvar_Set( 'host_maxfps', '72' );
+			Cvar_Set( 'gl_dlightcap', '32' );
+			Cvar_Set( 'r_particlecap', '4096' );
+			gl_rmain.R_ResetQuality();
+
+			gl_rmain.R_CheckQuality(); // first frame
+			assertEqual( Cvar_FindVar( 'host_maxfps' ).value, 72, 'maxfps kept' );
+			assertEqual( Cvar_FindVar( 'gl_dlightcap' ).value, 32, 'dlightcap kept' );
+			assertEqual( Cvar_FindVar( 'r_particlecap' ).value, 4096, 'particlecap kept' );
+			assertEqual( R_GetParticleLimit(), 4096, 'the live particle limit follows the cvar' );
+
+			gl_rmain.R_CheckQuality();
+			assertEqual( Cvar_FindVar( 'host_maxfps' ).value, 72, 'still kept' );
+
+			Cvar_Set( 'vid_quality', '1' );
+			gl_rmain.R_CheckQuality();
+			assertEqual( Cvar_FindVar( 'host_maxfps' ).value, 60, 'a later change applies' );
+
+		} finally {
+
+			R_SetParticleLimit( 0 );
+			if ( oldWindow === undefined ) delete globalThis.window; else globalThis.window = oldWindow;
+
+		}
+
+	} );
+
+} );
+
+Deno.test( 'particle live count follows the limit, dying particles and R_ClearParticles', () => {
+
+	const oldTime = cl.time;
+	const oldOldtime = cl.oldtime;
+	const oldTextures = glquake._allGameTextures.slice();
+	const scene = new THREE.Scene();
+	const org = new Float32Array( 3 );
+
+	// Each explosion asks for 1024 particles; returns how many are drawn
+	function explodeAndDraw( explosions, time ) {
+
+		cl.time = time;
+		cl.oldtime = time;
+		for ( let i = 0; i < explosions; i ++ ) r_part.R_ParticleExplosion( org );
+		r_part.R_DrawParticles();
+		return scene.children.length > 0 ? scene.children[ 0 ].geometry.drawRange.count : 0;
+
+	}
+
+	try {
+
+		r_part.R_InitParticles();
+		r_part.R_SetParticleExternals( { scene: scene } );
+
+		R_SetParticleLimit( 2048 );
+		assertEqual( explodeAndDraw( 5, 10 ), 2048, 'allocation stops at the limit' );
+
+		// the particles die; the free paths in R_DrawParticles give the count back
+		r_part.R_DrawParticles(); // same time: nothing dies, nothing allocates
+		cl.time = 100;
+		cl.oldtime = 100;
+		r_part.R_DrawParticles();
+		assertEqual( scene.children.length, 0, 'all dead, mesh removed' );
+		assertEqual( explodeAndDraw( 5, 100 ), 2048, 'room again after they died' );
+
+		// R_ClearParticles resets the count, with no draw in between
+		r_part.R_ClearParticles();
+		assertEqual( explodeAndDraw( 1, 100 ), 1024, 'allocation resumes after a clear' );
+
+		// raising the limit lets more in, lowering stops new ones only
+		R_SetParticleLimit( 3072 );
+		assertEqual( explodeAndDraw( 5, 100 ), 3072, 'raised limit' );
+		R_SetParticleLimit( 512 );
+		assertEqual( explodeAndDraw( 1, 100 ), 3072, 'lowered limit allocates nothing, keeps the live ones' );
+
+	} finally {
+
+		R_SetParticleLimit( 0 );
+		r_part.R_ClearParticles();
+		r_part.R_DrawParticles();
+		cl.time = oldTime;
+		cl.oldtime = oldOldtime;
+		glquake._allGameTextures.splice(
+			0, glquake._allGameTextures.length, ...oldTextures
+		);
+
+	}
+
+} );
+
+Deno.test( 'R_RenderDlights adds at most the dlight cap of PointLights, live', () => {
+
+	const oldFlashblend = glquake.gl_flashblend.value;
+	const oldTime = cl.time;
+	const oldOrigin = new Float32Array( r_origin );
+	const oldLights = cl_dlights.map( ( light ) => ( {
+		die: light.die,
+		radius: light.radius,
+		minlight: light.minlight,
+		origin: new Float32Array( light.origin )
+	} ) );
+	const scene = new THREE.Scene();
+
+	try {
+
+		glquake.gl_flashblend.value = 1;
+		cl.time = 10;
+		r_origin.set( [ 1000, 1000, 1000 ] );
+		for ( const light of cl_dlights ) {
+
+			light.die = 0;
+			light.radius = 0;
+
+		}
+
+		for ( let i = 0; i < 6; i ++ ) {
+
+			cl_dlights[ i ].origin.fill( 0 );
+			cl_dlights[ i ].radius = 200;
+			cl_dlights[ i ].minlight = 32;
+			cl_dlights[ i ].die = 20;
+
+		}
+
+		const count = () => scene.children.filter( ( c ) => c instanceof THREE.PointLight ).length;
+
+		gl_rlight.R_SetDlightLimit( 64 );
+		gl_rlight.R_RenderDlights( cl, scene );
+		assertEqual( count(), 6, 'cap above the count: all drawn' );
+
+		gl_rlight.R_SetDlightLimit( 4 );
+		gl_rlight.R_RenderDlights( cl, scene );
+		assertEqual( count(), 4, 'cap below the count: min( N, cap )' );
+
+		gl_rlight.R_SetDlightLimit( 2 );
+		gl_rlight.R_RenderDlights( cl, scene );
+		assertEqual( count(), 2, 'shrinking the cap removes the extras' );
+
+		gl_rlight.R_SetDlightLimit( 64 );
+		gl_rlight.R_RenderDlights( cl, scene );
+		assertEqual( count(), 6, 'growing it brings them back' );
+
+	} finally {
+
+		gl_rlight.R_SetDlightLimit( 64 );
+		glquake.gl_flashblend.value = oldFlashblend;
+		cl.time = oldTime;
+		r_origin.set( oldOrigin );
+		cl_dlights.forEach( ( light, i ) => {
+
+			light.die = oldLights[ i ].die;
+			light.radius = oldLights[ i ].radius;
+			light.minlight = oldLights[ i ].minlight;
+			light.origin.set( oldLights[ i ].origin );
+
+		} );
+		gl_rlight.R_RemoveDlights();
+
+	}
 
 } );
