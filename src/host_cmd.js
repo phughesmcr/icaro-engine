@@ -1554,7 +1554,9 @@ recover if it is discarded later than this (autosave.js rules).
 */
 export function Host_AutosaveVisible() {
 
-	Autosave_Consume();
+	// Only the autosave this page wrote: one left by an earlier page waits
+	// for the Continue offer, even if the player switches tabs first
+	if ( autosave_last_name !== '' ) Autosave_Consume();
 	autosave_last_name = '';
 	autosave_last_time = - 1;
 
@@ -1576,6 +1578,8 @@ export function Host_MaybeOfferContinue() {
 
 	offer_frames ++;
 
+	if ( web_autosave.value === 0 ) return true; // autosave is off: offer nothing
+
 	let saveExists = false;
 	try {
 
@@ -1591,7 +1595,7 @@ export function Host_MaybeOfferContinue() {
 		now: Date.now(),
 		metaText: Autosave_ReadMeta(),
 		saveExists: saveExists,
-		connected: sv.active === true || cls.state === ca_connected,
+		connected: sv.active === true || ( cls.state === ca_connected && cls.demoplayback !== true ), // a title demo is not a game
 		dedicated: cls.state === ca_dedicated,
 		modalActive: Key_ModalActive(),
 		ready: offer_frames > 3 // the config and the title demo have started

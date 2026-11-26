@@ -3,7 +3,7 @@
 // save slot round trip on the headless host.
 
 import { headless_init, headless_map, headless_wait_signon, headless_frame } from '../server/headless_host.js';
-import { cls, cl } from '../src/client.js';
+import { cls, cl, ca_connected } from '../src/client.js';
 import { sv, svs } from '../src/server.js';
 import { Cbuf_AddText } from '../src/cmd.js';
 import { Cvar_SetValue, Cvar_FindVar } from '../src/cvar.js';
@@ -95,6 +95,51 @@ Deno.test( 'autosave: hiding a running game writes the reserved slot only', asyn
 	// the player came back: the live game is the one to keep
 	Host_AutosaveVisible();
 	assert( localStorage.getItem( AUTOSAVE_META_KEY ) === null, 'meta not consumed on visible' );
+
+} );
+
+Deno.test( 'autosave: coming back to the page keeps an autosave an earlier page wrote', () => {
+
+	Host_AutosaveVisible(); // forget any write by an earlier test
+	localStorage.setItem( AUTOSAVE_META_KEY, Autosave_EncodeMeta( Date.now(), 'e1m1' ) );
+	try {
+
+		Host_AutosaveVisible();
+		assert( localStorage.getItem( AUTOSAVE_META_KEY ) !== null, 'an earlier page\'s autosave was consumed' );
+
+	} finally {
+
+		localStorage.removeItem( AUTOSAVE_META_KEY );
+
+	}
+
+} );
+
+Deno.test( 'autosave: a full localStorage writes nothing and leaves no meta', async () => {
+
+	await headless_map( 'e1m1' );
+	for ( let i = 0; i < 30; i ++ ) headless_frame();
+	Host_AutosaveVisible(); // a fresh moment for the duplicate guard
+	localStorage.removeItem( SLOT_KEY );
+	localStorage.removeItem( AUTOSAVE_META_KEY );
+
+	// headless_init's localStorage is a plain in-memory object, so its
+	// setItem can be swapped (on a real Storage this would store a key)
+	const setItem = localStorage.setItem;
+	localStorage.setItem = () => { throw new DOMException( 'full', 'QuotaExceededError' ); };
+	let saved;
+	try {
+
+		saved = Host_AutoSave();
+
+	} finally {
+
+		localStorage.setItem = setItem;
+
+	}
+	assert( saved === false, 'reported a save that failed' );
+	assert( localStorage.getItem( SLOT_KEY ) === null, 'slot written' );
+	assert( localStorage.getItem( AUTOSAVE_META_KEY ) === null, 'meta written with no save behind it' );
 
 } );
 
@@ -221,14 +266,28 @@ Deno.test( 'autosave: the offer loads the autosave on yes and consumes it', asyn
 	cbufRun( 'disconnect' );
 	assert( sv.active === false, 'server still active' );
 
+	// the browser plays the title demo behind the main menu: not a game, so
+	// the offer still comes
+	const state = cls.state;
+	cls.state = ca_connected;
+	cls.demoplayback = true;
 	let offered = false;
-	for ( let i = 0; i < 10 && offered === false; i ++ ) {
+	try {
 
-		offered = Host_MaybeOfferContinue();
+		for ( let i = 0; i < 10 && offered === false; i ++ ) {
+
+			offered = Host_MaybeOfferContinue();
+
+		}
+
+	} finally {
+
+		cls.state = state;
+		cls.demoplayback = false;
 
 	}
 
-	assert( offered === true && Key_ModalActive() === true, 'no prompt' );
+	assert( offered === true && Key_ModalActive() === true, 'no prompt over the title demo' );
 
 	Key_Event( 'y'.charCodeAt( 0 ), true );
 	Key_Event( 'y'.charCodeAt( 0 ), false );
