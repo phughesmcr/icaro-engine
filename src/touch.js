@@ -1,8 +1,10 @@
 // Touch controls for mobile devices
 //
 // In game: a floating move stick on the left (nipplejs), drag-to-look on the
-// right, FIRE and JUMP buttons that also aim while held, weapon next/prev and
-// a menu button. Optional gyro aiming. Mirrored with touch_lefthanded.
+// right, FIRE and JUMP buttons that also aim while held, DOWN (swim down),
+// weapon next/prev (hold WPN▶ for a weapon wheel) and a menu button, with a
+// row of SAVE, LOAD, CON and CHAT beside it. Optional gyro aiming. Mirrored
+// with touch_lefthanded.
 // In menus and the console: tap-to-select, drag for arrow keys, and a small
 // bar with Back and an on-screen keyboard button.
 
@@ -458,20 +460,34 @@ function Touch_Layout() {
 Touch_LayoutBar
 
 The row of small buttons (SAVE, LOAD, CON, CHAT) to the inside of the menu
-button, in the top corner on the stick side. Hidden ones leave no gap. In
-portrait the row is 4 x 50 px plus the menu button, which fits 320 px.
+button, in the top corner on the stick side. Hidden ones leave no gap. The
+row shrinks below touch_size when it would run off a narrow screen.
 =================
 */
+// The bar's button scale: touch_size, shrunk so `count` buttons starting
+// `start` px in fit `width` with a 12 px margin, but never below 0.5
+export function Touch_BarScale( size, start, width, count ) {
+
+	if ( count <= 0 || width <= 0 ) return size;
+	const fit = ( width - start - 12 - 6 * ( count - 1 ) ) / ( 44 * count );
+	return Math.max( Math.min( size, fit ), 0.5 );
+
+}
+
 function Touch_LayoutBar() {
 
 	if ( overlay === null ) return;
 
-	const scale = Math.min( Math.max( touch_size.value || 1, 0.5 ), 2 );
+	const size = Math.min( Math.max( touch_size.value || 1, 0.5 ), 2 );
 	const opacity = Math.min( Math.max( touch_opacity.value, 0.1 ), 1 );
 	const far = touch_lefthanded.value !== 0 ? 'right' : 'left';
+	let x = 12 + 40 * size + 8; // past the menu button
+	let shown = 0;
+	for ( const b of barButtons ) if ( barVisible[ b.bar ] !== false ) shown ++;
+	const width = typeof window !== 'undefined' && typeof window.innerWidth === 'number' ? window.innerWidth : 0;
+	const scale = Touch_BarScale( size, x, width, shown );
 	const w = 44 * scale;
 	const h = 32 * scale;
-	let x = 12 + 40 * scale + 8; // past the menu button
 
 	for ( const b of barButtons ) {
 
@@ -605,6 +621,14 @@ function Touch_UpdatePortraitPrompt() {
 
 	const portrait = typeof window !== 'undefined' && window.innerHeight > window.innerWidth;
 	portraitPrompt.style.display = ( enabled === true && portrait === true && portraitDismissed === false ) ? 'flex' : 'none';
+
+}
+
+// The portrait prompt and the button bar depend on the window size
+function Touch_OnResize() {
+
+	Touch_UpdatePortraitPrompt();
+	Touch_LayoutBar();
 
 }
 
@@ -1272,6 +1296,7 @@ function onWheelTouchEnd( e ) {
 function onWheelTouchCancel( e ) {
 
 	e.preventDefault();
+	if ( findTouch( e.changedTouches, wheelTouch ) === null ) return;
 	Touch_WheelClose();
 
 }
@@ -1930,8 +1955,8 @@ export function Touch_Init( container ) {
 
 	if ( typeof window !== 'undefined' ) {
 
-		window.addEventListener( 'resize', Touch_UpdatePortraitPrompt );
-		window.addEventListener( 'orientationchange', Touch_UpdatePortraitPrompt );
+		window.addEventListener( 'resize', Touch_OnResize );
+		window.addEventListener( 'orientationchange', Touch_OnResize );
 
 	}
 

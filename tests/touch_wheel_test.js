@@ -108,9 +108,25 @@ Deno.test( 'buttons: quick save and load need a local single-player game', () =>
 
 } );
 
+Deno.test( 'buttons: the bar shrinks to fit a narrow screen', () => {
+
+	// touch_size 2 on a 320 px portrait screen: four buttons from x = 100
+	const s = touch.Touch_BarScale( 2, 100, 320, 4 );
+	if ( ! ( s < 2 && s >= 0.5 ) ) throw new Error( `scale ${s}` );
+	const end = 100 + 4 * 44 * s + 3 * 6;
+	if ( end > 320 - 12 + 1e-9 ) throw new Error( `row ends at ${end}` );
+
+	assertEqual( touch.Touch_BarScale( 1, 60, 844, 4 ), 1, 'room to spare keeps touch_size' );
+	assertEqual( touch.Touch_BarScale( 1, 60, 100, 4 ), 0.5, 'never below 0.5' );
+	assertEqual( touch.Touch_BarScale( 1.5, 60, 320, 0 ), 1.5, 'nothing shown' );
+	assertEqual( touch.Touch_BarScale( 1.5, 60, 0, 4 ), 1.5, 'no window' );
+
+} );
+
 // DOM-level: tap versus hold on WPN▶
 const cmd = await import( '../src/cmd.js' );
 const client = await import( '../src/client.js' );
+const cl_input = await import( '../src/cl_input.js' );
 
 function makeEl() {
 
@@ -210,6 +226,58 @@ Deno.test( 'wheel: tap cycles; hold, slide and release sends the slot; release o
 		wpn.fire( 'touchend', ev( 'touchend', 528, 328 ) );
 		run();
 		assertEqual( impulses.length, 0, 'release at the centre cancels' );
+
+		// A second finger cancelled on WPN▶ leaves the first finger's wheel open
+		const ev2 = ( type, id, x, y ) => ( { type, changedTouches: [ { identifier: id, clientX: x, clientY: y } ], targetTouches: [], preventDefault() {} } );
+		wpn.fire( 'touchstart', ev( 'touchstart', 528, 328 ) );
+		await wait( 360 );
+		wpn.fire( 'touchstart', ev2( 'touchstart', 9, 540, 340 ) );
+		wpn.fire( 'touchcancel', ev2( 'touchcancel', 9, 540, 340 ) );
+		wpn.fire( 'touchmove', ev( 'touchmove', 528 - 92, 328 ) );
+		wpn.fire( 'touchend', ev( 'touchend', 528 - 92, 328 ) );
+		run();
+		assertEqual( impulses.join( ',' ), '7', 'other finger cancelled: the wheel still selects' );
+
+		// The wheel's own finger cancelled: no impulse
+		impulses.length = 0;
+		wpn.fire( 'touchstart', ev( 'touchstart', 528, 328 ) );
+		await wait( 360 );
+		wpn.fire( 'touchmove', ev( 'touchmove', 528 - 92, 328 ) );
+		wpn.fire( 'touchcancel', ev( 'touchcancel', 528 - 92, 328 ) );
+		wpn.fire( 'touchend', ev( 'touchend', 528 - 92, 328 ) );
+		run();
+		assertEqual( impulses.length, 0, 'cancel sends nothing' );
+
+		// Releasing all buttons (focus loss, menu) with the wheel open: no
+		// impulse, and the pending hold timer is cleared too
+		wpn.fire( 'touchstart', ev( 'touchstart', 528, 328 ) );
+		await wait( 360 );
+		wpn.fire( 'touchmove', ev( 'touchmove', 528 - 92, 328 ) );
+		touch.Touch_ReleaseButtons();
+		wpn.fire( 'touchend', ev( 'touchend', 528 - 92, 328 ) );
+		wpn.fire( 'touchstart', ev( 'touchstart', 528, 328 ) );
+		touch.Touch_ReleaseButtons();
+		await wait( 360 );
+		wpn.fire( 'touchend', ev( 'touchend', 528, 328 ) );
+		run();
+		assertEqual( impulses.length, 0, 'release-all closes the wheel and its timer' );
+
+		// DOWN holds +movedown while touched and lets go on touchend,
+		// touchcancel and release-all
+		const down = all.find( ( e ) => e.textContent === 'DOWN' );
+		if ( down === undefined ) throw new Error( 'DOWN button not created' );
+		cl_input.in_down.state = 0;
+		down.fire( 'touchstart', ev( 'touchstart', 140, 40 ) );
+		assertEqual( cl_input.in_down.state & 1, 1, 'DOWN held' );
+		down.fire( 'touchend', ev( 'touchend', 140, 40 ) );
+		assertEqual( cl_input.in_down.state & 1, 0, 'DOWN let go on touchend' );
+		down.fire( 'touchstart', ev( 'touchstart', 140, 40 ) );
+		down.fire( 'touchcancel', ev( 'touchcancel', 140, 40 ) );
+		assertEqual( cl_input.in_down.state & 1, 0, 'DOWN let go on touchcancel' );
+		down.fire( 'touchstart', ev( 'touchstart', 140, 40 ) );
+		touch.Touch_ReleaseButtons();
+		assertEqual( cl_input.in_down.state & 1, 0, 'DOWN let go on release-all' );
+		cl_input.in_down.state = 0;
 
 		touch.Touch_Disable();
 
