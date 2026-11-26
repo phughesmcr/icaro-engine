@@ -1,5 +1,6 @@
 // Ported from: WinQuake/gl_rmain.c -- main GL renderer
 // + WinQuake/glquake.h -- GL definitions
+// gl_overbright_models: Ironwail Quake/r_alias.c (R_SetupAliasLighting)
 
 import * as THREE from "three";
 import { Sys_FloatTime } from "./sys.js";
@@ -120,6 +121,7 @@ import {
   gl_keeptjunctions,
   gl_max_size,
   gl_nocolors,
+  gl_overbright_models,
   gl_playermip,
   gl_polyblend,
   GL_RegisterCullMaterial,
@@ -1155,13 +1157,18 @@ function R_ShadeColorFloor(shadelight, floor) {
  * models (QuakeSpasm r_alias.c R_SetupAliasLighting). Leaves the shade in
  * shadecolor and returns the shadedots row, or null with no client.
  *
- * Deliberate deviation from QuakeSpasm: id's order and clamps are kept (the
- * gun's 24 before the dlights, ambient 128 and ambient + shade 192, players' 8
- * after the clamp, the flame names rather than MOD_FBRIGHTHACK). QuakeSpasm's
- * would change maps without a .lit. Each channel follows the scalar instead:
- * dlights (white in id) add to all three, a floor lifts all three alike, and the
- * clamp scales them. Without a .lit every channel equals shadelight at each step,
- * so the shade is exactly id's.
+ * With gl_overbright_models 0 this is id's order and clamps (the gun's 24
+ * before the dlights, ambient 128 and ambient + shade 192, players' 8 after
+ * the clamp, the flame names rather than MOD_FBRIGHTHACK), a deliberate
+ * deviation from QuakeSpasm's order. Each channel follows the scalar: dlights
+ * (white in id) add to all three, a floor lifts all three alike, and the clamp
+ * scales them. Without a .lit every channel equals shadelight at each step, so
+ * the shade is exactly id's.
+ *
+ * gl_overbright_models (on by default, as in QuakeSpasm) swaps id's clamps for
+ * QuakeSpasm's: the three channels may sum to 288 (96 each), the flame hack is
+ * skipped, and gl_mesh.js doubles the shade after clamping it to 1 (QuakeSpasm
+ * and Ironwail r_alias.c R_SetupAliasLighting and the alias shader).
  */
 export function R_SetupAliasLighting(e) {
   if (!cl || !e.origin) return null;
@@ -1196,17 +1203,32 @@ export function R_SetupAliasLighting(e) {
     }
   }
 
-  // clamp lighting so it doesn't overbright as much
-  if (ambientlight > 128) {
-    ambientlight = 128;
-  }
-  if (ambientlight + shadelight > 192) {
-    // shadelight > 64 here. Dividing first keeps a mono channel exact.
-    const clamped = 192 - ambientlight;
-    shadecolor[0] = clamped * (shadecolor[0] / shadelight);
-    shadecolor[1] = clamped * (shadecolor[1] / shadelight);
-    shadecolor[2] = clamped * (shadecolor[2] / shadelight);
-    shadelight = clamped;
+  const overbright = gl_overbright_models.value !== 0;
+  if (overbright) {
+    // QuakeSpasm/Ironwail r_alias.c: clamp lighting so it doesn't overbright
+    // as much (96). It takes the place of id's two clamps; gl_mesh.js then
+    // doubles the shade.
+    const sum = shadecolor[0] + shadecolor[1] + shadecolor[2];
+    if (sum > 288) {
+      const scale = 288 / sum;
+      shadecolor[0] *= scale;
+      shadecolor[1] *= scale;
+      shadecolor[2] *= scale;
+      shadelight *= scale;
+    }
+  } else {
+    // clamp lighting so it doesn't overbright as much
+    if (ambientlight > 128) {
+      ambientlight = 128;
+    }
+    if (ambientlight + shadelight > 192) {
+      // shadelight > 64 here. Dividing first keeps a mono channel exact.
+      const clamped = 192 - ambientlight;
+      shadecolor[0] = clamped * (shadecolor[0] / shadelight);
+      shadecolor[1] = clamped * (shadecolor[1] / shadelight);
+      shadecolor[2] = clamped * (shadecolor[2] / shadelight);
+      shadelight = clamped;
+    }
   }
 
   // ZOID: never allow players to go totally black
@@ -1220,10 +1242,13 @@ export function R_SetupAliasLighting(e) {
     }
   }
 
-  // HACK HACK HACK -- no fullbright colors, so make torches full light
+  // HACK HACK HACK -- no fullbright colors, so make torches full light.
+  // QuakeSpasm and Ironwail skip it with gl_overbright_models, as the
+  // fullbright pixels light the flames.
   const clmodel = e.model;
   if (
-    clmodel.name === "progs/flame2.mdl" || clmodel.name === "progs/flame.mdl"
+    overbright === false &&
+    (clmodel.name === "progs/flame2.mdl" || clmodel.name === "progs/flame.mdl")
   ) {
     ambientlight = shadelight = 256;
     shadecolor[0] = shadecolor[1] = shadecolor[2] = 256;

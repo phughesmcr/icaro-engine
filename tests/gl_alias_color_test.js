@@ -5,6 +5,7 @@
 await import("../src/gl_rsurf.js");
 
 const gl_mesh = await import("../src/gl_mesh.js");
+const glquake = await import("../src/glquake.js");
 
 function assertEqual(actual, expected, message) {
   if (actual !== expected) {
@@ -54,6 +55,16 @@ function buildEntity() {
 }
 
 Deno.test("R_DrawAliasModel updates vertex colours only when the lighting changes", () => {
+  const oldOverbright = glquake.gl_overbright_models.value;
+  glquake.gl_overbright_models.value = 0;
+  try {
+    vertexColourCacheTest();
+  } finally {
+    glquake.gl_overbright_models.value = oldOverbright;
+  }
+});
+
+function vertexColourCacheTest() {
   const paliashdr = buildHeader();
   const entity = buildEntity();
   const dotsA = new Float32Array([0.5, 1.0]);
@@ -116,4 +127,32 @@ Deno.test("R_DrawAliasModel updates vertex colours only when the lighting change
   entity._aliasColorArray = null;
   entity._aliasMesh = null;
   assertEqual(draw(dotsB, 0.8), true, "rebuilt geometry is relit");
+
+  // gl_overbright_models: a toggle relights the same shade, doubled after
+  // the clamp to 1
+  glquake.gl_overbright_models.value = 1;
+  assertEqual(draw(dotsB, 0.8), true, "overbright toggle rewrites");
+  assertEqual(
+    entity._aliasGeo.attributes.color.array[0],
+    gl_mesh.GL_LinearLight(0.8, true),
+    "vertex 0 overbright",
+  );
+  assertEqual(draw(dotsB, 0.8), false, "same overbright: no rewrite");
+}
+
+Deno.test("GL_LinearLight doubles the clamped level for gl_overbright_models", () => {
+  const close = (a, b, m) => {
+    if (Math.abs(a - b) > 1e-6) throw new Error(`${m}: ${a} vs ${b}`);
+  };
+  // the table is GL's 8-bit vertex colour: 51 / 255 doubles to 102 / 255
+  close(
+    gl_mesh.GL_LinearLight(51 / 255, true),
+    gl_mesh.GL_LinearLight(102 / 255),
+    "doubles in display space",
+  );
+  // clamped to 1 first, then doubled: sRGB curve at 2
+  const two = Math.pow(2.055 / 1.055, 2.4);
+  close(gl_mesh.GL_LinearLight(1.8, true), two, "clamp then double");
+  assertEqual(gl_mesh.GL_LinearLight(-1, true), 0, "negative is dark");
+  assertEqual(gl_mesh.GL_LinearLight(1.8), 1, "without overbright clamps");
 });

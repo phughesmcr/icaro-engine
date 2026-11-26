@@ -65,10 +65,11 @@ function aliasEntity(name = "progs/test.mdl") {
 // Runs fn with the given world, view entity, player count and dlights
 // ({ origin, radius }), restoring the client state afterwards.
 function withClient(
-  { world, viewent = null, maxclients = 1, dlights = [] },
+  { world, viewent = null, maxclients = 1, dlights = [], overbright = 0 },
   fn,
 ) {
   const saved = {
+    overbright: glquake.gl_overbright_models.value,
     worldmodel: cl.worldmodel,
     viewent: cl.viewent,
     maxclients: cl.maxclients,
@@ -81,6 +82,8 @@ function withClient(
     die: d.die,
   }));
   try {
+    // id's clamps unless a test asks for gl_overbright_models
+    glquake.gl_overbright_models.value = overbright;
     cl.worldmodel = world;
     cl.viewent = viewent;
     cl.maxclients = maxclients;
@@ -95,6 +98,7 @@ function withClient(
     });
     fn();
   } finally {
+    glquake.gl_overbright_models.value = saved.overbright;
     cl.worldmodel = saved.worldmodel;
     cl.viewent = saved.viewent;
     cl.maxclients = saved.maxclients;
@@ -288,5 +292,37 @@ Deno.test("R_SetupAliasLighting: floors and dlights lift every channel alike", (
     assertEqual(c[0], 256 / 200, "flame r");
     assertEqual(c[1], 256 / 200, "flame g");
     assertEqual(c[2], 256 / 200, "flame b");
+  });
+});
+
+Deno.test("R_SetupAliasLighting: gl_overbright_models clamps the sum at 288 and lights torches", () => {
+  // under 96 a channel: id's shade, unclamped
+  withClient({ world: floor([60]), overbright: 1 }, () => {
+    const { c } = shade(aliasEntity());
+    assertEqual(c[0], 60 / 200, "dim r");
+    assertEqual(c[2], 60 / 200, "dim b");
+  });
+
+  // mono 200: QuakeSpasm scales the sum 600 to 288 (96 each), where id gives
+  // 192 - 128 = 64
+  withClient({ world: floor([200]), overbright: 1 }, () => {
+    const { c } = shade(aliasEntity());
+    assertClose(c[0], 96 / 200, "bright r");
+    assertClose(c[1], 96 / 200, "bright g");
+  });
+
+  // a coloured shade keeps its hue
+  withClient({ world: floor([240, 90, 30]), overbright: 1 }, () => {
+    const { c } = shade(aliasEntity());
+    const k = 288 / 360;
+    assertClose(c[0], 240 * k / 200, "hue r");
+    assertClose(c[1], 90 * k / 200, "hue g");
+    assertClose(c[2], 30 * k / 200, "hue b");
+  });
+
+  // no flame hack: the torch is lit as any model, its fullbrights do the rest
+  withClient({ world: floor([60]), overbright: 1 }, () => {
+    const { c } = shade(aliasEntity("progs/flame.mdl"));
+    assertEqual(c[0], 60 / 200, "flame lit normally");
   });
 });

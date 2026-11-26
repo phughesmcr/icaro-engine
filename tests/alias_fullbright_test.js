@@ -164,6 +164,10 @@ Deno.test("alias materials draw the fullbright mask and keep it when cloned", ()
     false,
     "no lerp without r_lerpmodels",
   );
+  // the lit skin is clamped before the fullbright pixels are mixed in
+  const clampAt = shader.fragmentShader.indexOf("min( outgoingLight");
+  const maskAt = shader.fragmentShader.indexOf("fullbrightMap, vMapUv");
+  assertEqual(clampAt !== -1 && clampAt < maskAt, true, "clamp before mask");
 
   // gl_rmain.js clones the view model's material for its depth hack.
   // Material.copy doesn't copy an instance's onBeforeCompile, so the hooks
@@ -195,10 +199,11 @@ Deno.test("alias materials draw the fullbright mask and keep it when cloned", ()
     fragmentShader: "#include <opaque_fragment>",
   };
   plainMaterial.onBeforeCompile(plainShader);
+  // only the clamp to 1 that gl_overbright_models needs (QuakeSpasm, Ironwail)
   assertEqual(
     plainShader.fragmentShader,
-    "#include <opaque_fragment>",
-    "plain shader untouched",
+    "outgoingLight = min( outgoingLight, vec3( 1.0 ) );\n\t#include <opaque_fragment>",
+    "plain shader only clamped",
   );
   if (
     plainMaterial.customProgramCacheKey() === material.customProgramCacheKey()
