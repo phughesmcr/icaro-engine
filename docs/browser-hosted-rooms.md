@@ -316,24 +316,23 @@ behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js` `NET_Init`].
     without the flag.
 - **Exit and game rules:**
   - `game_server.js` applies `noexit`/`samelevel` and the game options before
-    spawning (`applyGameOptions`, `applyExitRules`) [code]. A deathmatch room
-    keeps its map: exits kill, and an intermission reloads the same map. The
-    browser menu sets neither, so a browser-hosted deathmatch would keep the C's
-    listen-server defaults and change level when anyone touched an exit.
-  - To make the two kinds of room behave alike, move both functions into a
-    shared module and call them from the host path before `map`. The room
-    defaults aren't marked as a deviation from the C in `game_server.js` today;
-    mark them there when they move.
+    spawning [code]. A deathmatch room keeps its map: exits kill, and an
+    intermission reloads the same map.
+  - Done in PR 3: both functions moved to `src/room_rules.js`, which marks the
+    room defaults as a deviation from the C. `M_HostInBrowser` sets the same
+    exit rules (`Room_ExitRuleValues`) before `map` [code].
 - **Menu:** Start Game sent every game to `_NET_CreateRoom`; the local
   `listen`/`maxplayers`/`map` path ran only when no lobby existed. PR 5 added
   the _Host on_ and _Listed_ rows (`M_HostInBrowser` in `src/menu.js`) and Join
-  Game's _Room code_ field. Still to do: `_NET_MultiplayerAvailable` should
-  count WebRTC.
-- **Ending the game:** when the host quits or hits `Host_Error`, call
-  `Host_ShutdownServer( true )`, so joiners get `svc_disconnect`. Then close the
-  lobby socket, which removes the room.
-- **Tab closing:** `pagehide` should send the disconnects and close the lobby
-  socket, as the WebSocket driver already does for its own sockets [code].
+  Game's _Room code_ field. `NET_MultiplayerAvailable` counts the WebRTC driver
+  too (`tests/net_multiplayer_available_test.js`).
+- **Ending the game:** when the host quits or hits `Host_Error`,
+  `Host_ShutdownServer( false )` runs, as in the C, so joiners get
+  `svc_disconnect`. Then `RTCLobby_ServerShutdown` closes the lobby socket,
+  which removes the room [code].
+- **Tab closing:** `pagehide` (`Host_PageHide`) sends the disconnects without
+  waiting and closes the lobby socket, as the WebSocket driver does for its own
+  sockets [code].
   - `pagehide` also fires when a phone switches apps and when a page enters the
     back-forward cache, not only on close.
   - Data sent then may not flush.
@@ -365,15 +364,15 @@ Test 3 decides between A and B, and the other browsers confirm mobile joining.
 **Chromium 156, in the Claude desktop app's browser pane, macOS, 2026-11-25**
 [measured]:
 
-| Test                                        | Result                                                                                                                                                                                                                                      |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. Unreliable channel                       | Opens; both sides report `ordered: false`, `maxRetransmits: 0`. `sctp.maxMessageSize` is 262,144 on both peers.                                                                                                                             |
-| 2. Paced sends, 1,000–16,000 bytes          | 300 of 300 at every size.                                                                                                                                                                                                                   |
-| 2. Burst of 300                             | All delivered except 281 of 300 at 4,000 bytes, in one run. The cause isn't established (`bufferedAmount` wasn't recorded); a local buffer overrun is the likely one [unverified]. The host driver should cap queued bytes per peer anyway. |
-| 3. Hidden page                              | Not run. The pane keeps a background tab visible (`visibilityState` stays `visible`), so it can't test throttling.                                                                                                                          |
-| 4a. Transfer a channel created here         | Works; it opens in the Worker.                                                                                                                                                                                                              |
-| 4b. Transfer a channel from `ondatachannel` | Works; it opens in the Worker.                                                                                                                                                                                                              |
-| 4c. Import map in a module Worker           | Not honoured. The bare specifier fails to load, and the same import by relative path loads.                                                                                                                                                 |
+| Test                                        | Result                                                                                                                                                                                                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Unreliable channel                       | Opens; both sides report `ordered: false`, `maxRetransmits: 0`. `sctp.maxMessageSize` is 262,144 on both peers.                                                                                                                                         |
+| 2. Paced sends, 1,000–16,000 bytes          | 300 of 300 at every size.                                                                                                                                                                                                                               |
+| 2. Burst of 300                             | All delivered except 281 of 300 at 4,000 bytes, in one run. The cause isn't established (`bufferedAmount` wasn't recorded); a local buffer overrun is the likely one [unverified]. The driver now caps queued bytes per channel (`RTC_MAX_*_BUFFERED`). |
+| 3. Hidden page                              | Not run. The pane keeps a background tab visible (`visibilityState` stays `visible`), so it can't test throttling.                                                                                                                                      |
+| 4a. Transfer a channel created here         | Works; it opens in the Worker.                                                                                                                                                                                                                          |
+| 4b. Transfer a channel from `ondatachannel` | Works; it opens in the Worker.                                                                                                                                                                                                                          |
+| 4c. Import map in a module Worker           | Not honoured. The bare specifier fails to load, and the same import by relative path loads.                                                                                                                                                             |
 
 So option B needs a bundle with `three` resolved at build time.
 
@@ -425,7 +424,12 @@ Paste each run's _Copy results_ JSON into this section.
    connection before the real one. Background tabs there stop the game loop, so
    a host or joiner in a background tab stalls until it is in front. Not
    checked: TURN, the Cloudflare lobby, Turnstile (the widget before
-   `LOBBY_HOST` is unit-tested only), other browsers, two machines.
+   `LOBBY_HOST` is unit-tested only), other browsers, two machines. Checked
+   again on 2026-11-26 the same way: a tab opened with `?listen=4` hosts from
+   Start Game, a second tab types the code into Join Game and connects over the
+   WebRTC driver (`rtc:<code>`), both players spawn, and each sees the other
+   move (entity origins read in each tab, with the joiner moved next to the
+   host, since the two spawned out of each other's view).
 6. **Later, depending on the spike:** B (server in a Worker), or C (a
    `deno desktop` host app).
 
@@ -465,8 +469,8 @@ Decided by the maintainer on 2026-11-25:
   module Workers outside Chromium.
 - Whether TURN needs a billing method on file.
 - Current rates of connections needing TURN, especially on mobile data.
-- The C's `-listen` handling restored as described, and whether every
-  single-player start path runs `maxplayers 1`.
+- Whether every single-player start path runs `maxplayers 1` (the menu's new
+  game does; `-listen` itself is covered by `tests/listen_server_test.js`).
 - Deno desktop: WebRTC on the OS-webview backend, `Deno.listenDatagram` and QUIC
   in a desktop build, timer throttling in a hidden window, and the absence of
   WebRTC in Deno itself.

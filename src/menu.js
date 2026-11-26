@@ -159,7 +159,7 @@ async function M_FetchRooms() {
   ) {
     slist_fetching = false;
     alert(
-      "Multiplayer requires a browser with WebTransport or WebSocket support.",
+      "Multiplayer requires a browser with WebTransport, WebSocket or WebRTC support.",
     );
     M_Menu_Main_f();
     return;
@@ -1889,7 +1889,7 @@ function M_GameOptions_Key(key) {
             _NET_MultiplayerAvailable() === false
           ) {
             alert(
-              "Multiplayer requires a browser with WebTransport or WebSocket support.",
+              "Multiplayer requires a browser with WebTransport, WebSocket or WebRTC support.",
             );
             M_Menu_Main_f();
             return;
