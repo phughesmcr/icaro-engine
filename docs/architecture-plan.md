@@ -13,18 +13,19 @@ Snapshot: measured on `dev` at 694b2cc (2026-11-26) with a throwaway
 import-graph script that step 1 lands as `tools/layer_graph.js`. The script
 parses every module in `src/`, `main.js` and `server/` with `@babel/parser` and
 counts unique (importer, imported, kind) pairs; `import type` is ignored and
-re-exports count. The audit's numbers (`docs/audit/architecture.md` on PR #251,
-not yet merged, measured at 2798ac9 with another method) differ slightly; where
-they disagree, this doc's are the current ones. The script is not in the
-repository until step 1 lands it; until then these numbers are a snapshot, and
-after it, re-run it before relying on one.
+re-exports count. The audit's numbers (`docs/audit/architecture.md`, measured at
+2798ac9 with another method) differ slightly; where they disagree, this doc's
+are the current ones. The script is not in the repository until step 1 lands it;
+until then these numbers are a snapshot, and after it, re-run it before relying
+on one.
 
-It follows the agreed direction in the audit (decision 6, "three layers") and
-the revised rules of PR #245: code may be restructured, but behaviour stays, and
-so do the names content depends on: cvar and console command names, QuakeC
-builtins and fields. It fits `docs/style-cleanup-plan.md`: tiers 0–3 are done,
-and tier 4 (C idioms, fixed file by file when a PR already edits the file) never
-rides in a move or split commit.
+It follows the agreed direction in the audit (`docs/audit/README.md`, decision
+6, "three layers") and the rules in AGENTS.md's "Compatibility and fidelity"
+section (#245): code may be restructured, but behaviour stays, and so do the
+names content depends on: cvar and console command names, QuakeC builtins and
+fields. It fits `docs/style-cleanup-plan.md`: tiers 0–3 are done, and tier 4 (C
+idioms, fixed file by file when a PR already edits the file) never rides in a
+move or split commit.
 
 ## Target
 
@@ -426,15 +427,15 @@ Conflicts are with the PRs open when this was written: #255 (QuakeC builtins:
 `headless_host`), #249 (centerprint and localization: `common`, `gl_screen`),
 #258 (stufftext allowlist: `cl_main`, `cl_parse`, `cmd`, `cvar`, `net_loop`),
 #259 (bundled maps: `menu`, `pak`, `server/room_config.js`, `server/README.md`),
-and the docs-only #245, #251, #256 (the protocol design, which will lead to
-`protocol.js` work) and #257. Re-check with `gh pr list` before starting a step.
+and the docs-only #257. `docs/protocol-design.md` (#256, merged) will lead to
+`protocol.js` work. Re-check with `gh pr list` before starting a step.
 
 1. **Checker and ratchet.** Add `tools/layer_graph.js` (the measuring script,
    with the assignment above as its layer table and the browser-only files
    tagged) and a test that fails when a new violating edge appears, with today's
    107 layer pairs and 40 browser-module pairs as its baseline, and that reports
    pairs that disappeared so each later step lowers the baseline. Add the script
-   to AGENTS.md's `tools/` list. Conflicts: AGENTS.md (#245).
+   to AGENTS.md's `tools/` list. Conflicts: none open.
 2. **Delete dead duplicates.** The unimported copies in `glquake.js` and the
    empty `render.js` stubs. Conflicts: none of the open PRs touch those two
    files; land after #253 in case it adds an importer.
@@ -471,7 +472,8 @@ and the docs-only #245, #251, #256 (the protocol design, which will lead to
    `gl_draw`, `gl_entalpha`, `gl_rlight`, `gl_rmain`, `gl_rsurf`, `mathlib`,
    `net`, `net_main`, `pr_edict`, `progs`, `render`. Conflicts:
    `gl_entalpha.js`, `gl_rsurf.js` (#253), `pr_edict.js` (#255), `protocol.js`
-   (work following #256): mechanical, so it can rebase on any of them.
+   (the work following `docs/protocol-design.md`): mechanical, so it can rebase
+   on any of them.
 9. **QuakeC profile** (G3, `pr_exec`'s `ss_active` included). Edits `pr_edict`,
    `progs`, `pr_exec`, `pr_cmds`, `progdefs`, `server`, `sv_main`, `world`.
    Conflicts: `pr_edict.js`, `pr_cmds.js` (#255): land after #255.
