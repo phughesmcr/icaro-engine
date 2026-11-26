@@ -17,7 +17,8 @@ process per room. It was forked from mrdoob's three-quake.
   signaller: hosting and joining by code), `room_rules.js` (game rules shared by
   lobby rooms and browser-hosted ones), `pak.js`, `menu_cvars.js`, `agent.js`
   (the agent API, `window.icaro`; see `docs/agent-interface.md`), `turnstile.js`
-  (the Turnstile widget shown before creating a room). Some files port features
+  (the Turnstile widget shown before creating a room), `pwa_launch.js` (what the
+  installed app does when launched again while open). Some files port features
   from Ironwail or QuakeSpasm rather than id's C, and their headers cite it
   (`gl_fog.js`, `gl_sky.js`, `gl_md5.js`, `gl_entalpha.js`, `gl_screenwarp.js`,
   `image.js`, `pr_sprintf.js`, `default_cfg.js`, `unicode_translit.js`). For
@@ -65,7 +66,10 @@ process per room. It was forked from mrdoob's three-quake.
   `index.html` says how to run it. `do_cpu_probe/` is a throwaway Cloudflare
   Worker that measures the Free plan's Durable Object limits; `probe.js` gives
   the deploy steps, which need the maintainer's account. Not linted or run in
-  CI. `fmt_ast_check.js` compares each changed file's syntax tree with its
+  CI. `make_splash.py` draws the iOS launch images in `static/splash/` from
+  `static/icon.png` and writes their tags into `index.html` (Python, standard
+  library only; not linted or run in CI, but `tests/manifest_test.js` checks its
+  output). `fmt_ast_check.js` compares each changed file's syntax tree with its
   version at a git ref, to show that a formatting change (see
   `docs/style-cleanup-plan.md`) changed nothing else; its header gives the
   command and what it accepts. Not linted or run in CI. `collapse_banners.js`
