@@ -39,6 +39,7 @@ import { S_UnlockAudio } from "./snd_dma.js";
 import { VID_IsTouchPrimary } from "./vid.js";
 import { Cvar_RegisterVariable, cvar_t } from "./cvar.js";
 import { Cbuf_AddText } from "./cmd.js";
+import { Con_SetNotifyTop } from "./console.js";
 
 // CVARS (archived, set from the Touch Controls menu)
 
@@ -490,6 +491,7 @@ function Touch_Layout() {
   pauseButton.style.background = "rgba(0, 0, 0, 0.3)";
   pauseButton.style.border = "1px solid rgba(255, 255, 255, 0.5)";
   pauseButton.style.opacity = String(opacity);
+  Touch_UpdateNotifyTop();
 
   // The stick size is a nipplejs option: rebuild it
   if (stickManager !== null) {
@@ -547,6 +549,26 @@ function Touch_LayoutBar() {
     b.el.style.opacity = String(opacity);
     x += w + 6;
   }
+  Touch_UpdateNotifyTop();
+}
+
+// Tell the console how far down the top buttons reach, so the notify lines
+// (pickup messages) start below them. Nothing covers the top when the game
+// controls are hidden.
+function Touch_UpdateNotifyTop() {
+  if (
+    enabled === false || pauseButton === null ||
+    typeof pauseButton.getBoundingClientRect !== "function"
+  ) {
+    Con_SetNotifyTop(0);
+    return;
+  }
+  let bottom = pauseButton.getBoundingClientRect().bottom;
+  for (const b of barButtons) {
+    if (b.el.style.display === "none") continue;
+    bottom = Math.max(bottom, b.el.getBoundingClientRect().bottom);
+  }
+  Con_SetNotifyTop(bottom > 0 ? bottom + 4 : 0);
 }
 
 function Touch_SetButtonPressed(b, pressed) {
@@ -673,7 +695,7 @@ function Touch_CreateSysBar(container) {
     `
 		position: fixed;
 		top: calc(env(safe-area-inset-top, 0px) + 10px);
-		left: calc(env(safe-area-inset-left, 0px) + 10px);
+		right: calc(env(safe-area-inset-right, 0px) + 10px);
 		display: none;
 		gap: 8px;
 		z-index: 201;
@@ -1742,6 +1764,8 @@ export function Touch_Enable() {
 
   enabled = true;
   overlay.style.display = "block";
+  Touch_SetPlayingClass(true);
+  Touch_UpdateNotifyTop();
   Touch_HideSysBar();
   Touch_UpdatePortraitPrompt();
 
@@ -1765,6 +1789,8 @@ export function Touch_Disable() {
 
   enabled = false;
   overlay.style.display = "none";
+  Touch_SetPlayingClass(false);
+  Con_SetNotifyTop(0);
   Touch_UpdatePortraitPrompt();
 
   for (const l of gameListeners) l.el.removeEventListener(l.type, l.fn);
@@ -1779,6 +1805,18 @@ export function Touch_Disable() {
 
   // Release FIRE/JUMP (their touchend will never arrive), reset the stick
   Touch_ReleaseButtons();
+}
+
+// body.touch-playing hides the ENTER VR button (index.html), which would
+// cover the status bar in portrait
+function Touch_SetPlayingClass(on) {
+  if (typeof document === "undefined") return;
+  const body = document.body;
+  // Tests stub document.body without classList
+  if (body === null || body === undefined || body.classList === undefined) {
+    return;
+  }
+  body.classList.toggle("touch-playing", on);
 }
 
 export function Touch_IsEnabled() {

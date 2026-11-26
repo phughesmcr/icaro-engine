@@ -740,6 +740,7 @@ function _createEnterButton() {
 
     // Large enough to hit with a controller's laser pointer
     _enterButton = document.createElement("button");
+    _enterButton.id = "xr-enter"; // hidden by body.touch-playing (index.html)
     _enterButton.textContent = "ENTER VR";
     _enterButton.style.cssText = `
 			position: fixed;

@@ -85,6 +85,12 @@
 			width: 100%;
 			height: 100%;
 		}
+
+		/* The touch game controls are up: ENTER VR would cover the status bar */
+		body.touch-playing #xr-enter {
+			display: none;
+		}
+
 		#loading {
 			position: fixed;
 			top: 0;
