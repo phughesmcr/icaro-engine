@@ -15,7 +15,9 @@ parses every module in `src/`, `main.js` and `server/` with `@babel/parser` and
 counts unique (importer, imported, kind) pairs; `import type` is ignored and
 re-exports count. The audit's numbers (`docs/audit/architecture.md`, PR #251,
 measured at 2798ac9 with another method) differ slightly; where they disagree,
-this doc's are the current ones. Re-run the script before relying on a number.
+this doc's are the current ones. The script is not in the repository until step
+1 lands it; until then these numbers are a snapshot, and after it, re-run it
+before relying on one.
 
 It follows the agreed direction in the audit (decision 6, "three layers") and
 the revised rules of PR #245: code may be restructured, but behaviour stays, and
@@ -45,12 +47,15 @@ Rules:
   in this plan should leave them no larger.
 - Upcalls (a lower layer calling a higher one) go through hooks the entry point
   or a higher layer sets: the existing `*_SetExternals` and `*_SetCallbacks`
-  functions (12 of them; `host.js` makes 7 of the calls), or a driver table as
+  functions (12 of them; `host.js` makes 8 of the calls), or a driver table as
   in the C's `net_win.c`. No new mechanism is needed.
-- Core imports only target-neutral platform modules. The target-specific ones
-  (`platform/browser/*`, `platform/deno/*`) are imported by entry points, which
-  register them. That is what lets the dedicated server and the browser load the
-  same core without `server/browser_shim.js`.
+- Core and game import only target-neutral platform modules. The target-specific
+  ones (`platform/browser/*`, `platform/deno/*`) are imported by entry points,
+  which register them. That is what lets the dedicated server and the browser
+  load the same core without `server/browser_shim.js`. The C does this at link
+  time (`vid.h` with `vid_win.c` or `vid_x.c`, `input.h` with `in_win.c`); the
+  port does it with registration. Today 40 pairs break this rule, counted
+  separately from the 107 below (see Browser-only modules).
 - Platform code that today registers cvars, prints to the console or opens menus
   does it through a front end one layer up that owns the cvars and commands; the
   platform module gets plain values and calls hooks. The C has the same split in
@@ -230,6 +235,37 @@ They fall into the seams below; the step that cuts each is given in brackets.
   `snd_dma` (window). These go behind platform functions so that core runs the
   same in the browser, Deno and the desktop build.
 
+### Browser-only modules imported by core and the game
+
+The 107 count treats every import of a platform module as legal. Counting the
+browser-specific platform files as their own tier (with the script's `--layers`
+option) finds 40 more pairs that break the third rule: core → browser 22, game →
+browser 18.
+
+- **Renderer → `vid` and `webxr`** (17 pairs): `gl_draw`, `gl_md5`, `gl_model`,
+  `gl_rlight`, `gl_rmain`, `gl_rmisc`, `gl_rsurf`, `gl_screenwarp`, `gl_warmup`,
+  `r_part`, `render` and `vid_dynres` read the `renderer` handle, `vid`,
+  `vrect_t`, the `d_8to24table` palette, the pixel ratio, and `isXRActive` and
+  the XR poses. The renderer is a WebGL renderer, so it will always need a WebGL
+  platform; the cut is to split `vid` into the neutral part (`vid`, `vrect_t`,
+  the palette) and the WebGL context, and to reach the XR state through hooks
+  (step 11, P4). `gl_model` is also part of S1.
+- **`net_main` → the browser drivers and `turnstile`** (5 pairs): besides the
+  driver table it calls `WS_ToWebSocketURL`, `WT_CreateRoom`, `WS_CreateRoom`,
+  `RTC_IsRoomAddress`, `RTCLobby_HostRoom` and `Turnstile_GetToken` to route
+  connects and room creation. These become driver-table entries or hooks (step
+  3).
+- **`host` → `vid`, `in_web`, `cd_audio`, `webxr`, `net_rtclobby`** (5 pairs):
+  the client half of `Host_Init`/`Host_Frame`, which moves to the client host
+  module (step 6); that module gets the browser modules from the browser entry.
+- **Client → input and XR** (4 pairs): `cl_input` and `cl_main` call `IN_Move`,
+  `cl_input` reads the XR aim, `agent` calls `IN_SetAgentDriven`. `IN_Move` is
+  the C's `input.h` interface; it becomes a registered input driver (P2).
+- **The rest** (9 pairs): `cl_parse` → `cd_audio` (P3); `host_cmd` → `autosave`
+  and `cl_demo` → `userdata` (P5); `menu` → `touch` and `turnstile` (P2);
+  `gl_screen` → `gl_contextloss` and `vid` (P4); `view` → `vid` (gamma) and
+  `webxr` (P4).
+
 ### Cycles left inside each layer
 
 If every violating edge were cut, these cycles would remain, all inside one
@@ -341,9 +377,10 @@ The script found 170 names exported by more than one `src/` file. By kind:
 - **`net_message`** in `common.js` is a `let` set by `COM_SetNetMessage` from
   `net.js`'s `const`. It goes with the `MSG_*` functions in step 12.
 - **Constants that differ**: `PLANE_ANYZ` is 5 in `bspfile.js` (as in the C) and
-  3 in `gl_rmain.js`, which uses it for frustum planes. `BoxOnPlaneSide` only
-  tests `type < 3`, so both give the same result; use the C value (open question
-  8).
+  3 in `gl_rmain.js`, which uses it for the frustum planes. Every reader of a
+  plane's `type` found tests `type < 3` (`BoxOnPlaneSide`, `gl_refrag`) or
+  switches on `PLANE_X`/`Y`/`Z` with a default, so both values give the same
+  result; use the C value (open question 8).
 - **Same-value constants** (97): `CONTENTS_*` in `bspfile` and `sv_phys`,
   `FL_*`, `MOVETYPE_*` and `SOLID_*` in `server` and `sv_phys`, `SURF_*`,
   `clc_*`, `EF_*`, `AMBIENT_*`, `PLANE_*`. Harmless; each step that touches one
@@ -373,10 +410,10 @@ The script found 170 names exported by more than one `src/` file. By kind:
 Every step must: keep `deno task ci` green; leave the checksums and hashes of
 `tools/bench/server_bench.js`, `build_bench.js`, `model_bench.js` and
 `net_bench.js` unchanged (run before and after on the same machine); lower or
-keep the violation count `tools/layer_graph.js` reports (from step 1 a test
-fails if it rises); and change no cvar, command, builtin or field name. Steps
-that touch a module inside the 52-module cycle can change the order modules
-evaluate in, which shows up only as a TDZ error ("Cannot access before
+keep the two violation counts `tools/layer_graph.js` reports (from step 1 a test
+fails if either rises); and change no cvar, command, builtin or field name.
+Steps that touch a module inside the 52-module cycle can change the order
+modules evaluate in, which shows up only as a TDZ error ("Cannot access before
 initialization") in the entry point that loads them in that order, so they also
 need a browser load: `deno task serve`, play e1m1, open the menu, play a demo,
 and connect to a browser-hosted room. The headless tests cover the server's
@@ -392,67 +429,112 @@ only), and sessions in progress without a PR (stuffcmd trust: `cl_main`,
 Re-check with `gh pr list` before starting a step.
 
 1. **Checker and ratchet.** Add `tools/layer_graph.js` (the measuring script,
-   with the layer table above) and a test that fails when a new violating edge
-   appears, with the current 107 pairs as its baseline, and reports pairs that
-   disappeared so each later step lowers the baseline. Conflicts: none.
+   with the layer table above and the browser-only files tagged) and a test that
+   fails when a new violating edge appears, with today's 107 layer pairs and 40
+   browser-module pairs as its baseline, and that reports pairs that disappeared
+   so each later step lowers the baseline. Add the script to AGENTS.md's
+   `tools/` list. Conflicts: AGENTS.md (#245).
 2. **Delete dead duplicates.** The unimported copies in `glquake.js` and the
    empty `render.js` stubs. Conflicts: none of the open PRs touch those two
-   files; land after #253 if it adds an importer.
-3. **Net driver table to the entry points** (S5). `NET_Init` keeps loopback in
-   slot 0; the browser drivers are registered by the browser entry instead of
-   being imported by `net_main.js`, as `game_server.js` already fills its own
-   slots after `NET_Init`. Conflicts: `main.js` (#246).
+   files; land after #253 in case it adds an importer.
+3. **Net driver table to the entry points** (S5, and the `net_main` row of
+   Browser-only modules). `NET_Init` keeps loopback in slot 0; the browser
+   drivers are registered by the browser entry instead of being imported by
+   `net_main.js`, as `game_server.js` already fills its own slots after
+   `NET_Init`. The direct calls `net_main` makes to route connects and create
+   rooms become driver-table entries or hooks. Edits `net_main`, the browser
+   drivers, `main.js`, and `headless_host.js` if it needs a driver. Conflicts:
+   `main.js` (#246), `headless_host.js` (#252) if touched.
 4. **Screen metrics, menus and roll angle** (S4, S6, G4): `keys` and `console`
    reach `menu`, `gl_screen` and `gl_draw` through their existing
    `*_SetExternals`; `gl_draw` reaches `Sbar_Changed` the same way; `sv_main`
-   stops importing `view`. Browser check required. Conflicts: none open.
+   stops importing `view`. Edits `keys`, `console`, `gl_draw`, `host`,
+   `sv_main`, `view`. Browser check required. Conflicts: none open.
 5. **Model loader hooks** (S1), and the live `GL_LoadTexture` moved to
-   `gl_draw.js`. Conflicts: `gl_model.js`, `browser_shim.js` (#253): land after
-   #253.
-6. **Client host module and host commands** (S2, S3). Adds a test that
-   `game_server.js`'s module graph contains no `three` file. Browser check
-   required. Conflicts: `headless_host.js` (#252), `main.js` (#246).
-7. **Render scene** (G1, G5, the duplicate classes). Browser check required.
-   Conflicts: `gl_rsurf.js`, `gl_entalpha.js` (#253).
-8. **Header constants** (G2). Constants move to core and the game headers
-   re-export them. Conflicts: `protocol.js` (the protocol-design work):
-   coordinate or land first, as it is mechanical.
-9. **QuakeC profile** (G3). Conflicts: `pr_edict.js`, `pr_cmds.js` (#255): land
-   after #255.
+   `gl_draw.js`. Edits `gl_model`, `gl_draw`, `gl_warp`, `gl_mesh`, `gl_md5`,
+   `glquake`, `render`, `browser_shim`. Conflicts: `gl_model.js`,
+   `browser_shim.js` (#253): land after #253.
+6. **Client host module and host commands** (S2, S3, and the `host` row of
+   Browser-only modules). Adds a test that `game_server.js`'s module graph
+   contains no `three` file. Edits `host`, `host_cmd`, `main.js`,
+   `headless_host.js`. Browser check required. Conflicts: `headless_host.js`
+   (#252), `main.js` (#246).
+7. **Render scene** (G1, G5, the duplicate classes). Edits the renderer files in
+   G1 (`gl_rmain`, `gl_rsurf`, `gl_rlight`, `gl_fog`, `gl_mesh`, `gl_rmisc`,
+   `gl_warmup`, `gl_refrag`, `gl_model`, `r_part`), `snd_dma`, `client`,
+   `render`, `view`, `chase`, and the client code that fills the scene. Browser
+   check required. Conflicts: `gl_model.js`, `gl_rsurf.js` (#253); `cl_main.js`
+   (stuffcmd trust) if the scene is filled there.
+8. **Header constants** (G2). Constants move to core, the game headers re-export
+   them for game code, and the core importers change their import lines:
+   `gl_draw`, `gl_entalpha`, `gl_rlight`, `gl_rmain`, `gl_rsurf`, `mathlib`,
+   `net`, `net_main`, `pr_edict`, `progs`, `render`. Conflicts:
+   `gl_entalpha.js`, `gl_rsurf.js` (#253), `pr_edict.js` (#255), `protocol.js`
+   (the protocol-design work): mechanical, so it can rebase on any of them.
+9. **QuakeC profile** (G3, `pr_exec`'s `ss_active` included). Edits `pr_edict`,
+   `progs`, `pr_exec`, `pr_cmds`, `progdefs`, `server`, `sv_main`, `world`.
+   Conflicts: `pr_edict.js`, `pr_cmds.js` (#255): land after #255.
 10. **Engine services** (G6): `default_cfg` as a virtual file,
-    `Cmd_ForwardToServer` to the client, `net_main`/`net_loop` and `pr_exec`
-    reading server state through hooks. Conflicts: `cmd.js` (#255, stuffcmd
-    trust), `net_loop.js` (stuffcmd trust).
-11. **Platform splits**, one PR each: P1 net (after step 3), P2 input, P3 audio,
-    P4 video, P5 storage. Input and storage touch many files but no open PR.
-    Browser and phone checks required (touch, gyro, audio unlock, context loss).
+    `Cmd_ForwardToServer` to the client, `net_main`/`net_loop` reading server
+    state through hooks, `Host_Error` reached from `gl_model` through a hook.
+    Edits `cmd`, `cl_main`, `net_main`, `net_loop`, `gl_model`, `host`.
+    Conflicts: `cmd.js` (#255, stuffcmd trust), `cl_main.js` and `net_loop.js`
+    (stuffcmd trust), `gl_model.js` (#253).
+11. **Platform splits**, one PR each. Phone and browser checks required (touch,
+    gyro, audio unlock, context loss, XR where a headset is at hand).
+    - P1 net (after step 3): `net`, `net_main`, the browser drivers, `menu`,
+      `keys`, `cl_reconnect`, the server drivers, `lobby_server.js`. No open PR.
+    - P2 input: `in_web`, `touch`, `touch_editor`, `cl_input`, `cl_main`,
+      `agent`, `menu`, `host`. Conflicts: `cl_main.js` (stuffcmd trust),
+      `agent.js` (#246).
+    - P3 audio: `cd_audio`, `cl_parse`, `host`. Conflicts: `cl_parse.js`
+      (stuffcmd trust).
+    - P4 video: `vid`, `webxr`, `gl_contextloss`, `gl_screen`, `view` and the
+      renderer files that read `vid` or XR state. Conflicts: `gl_screen.js`
+      (#249), `gl_rsurf.js` (#253).
+    - P5 storage: `userdata`, `autosave`, `host_cmd`, `cl_demo`, and the browser
+      globals in `cvar`, `keys`, `console`, `common`, `gl_draw`, `pak`,
+      `snd_dma`. Conflicts: `cvar.js` (stuffcmd trust), `common.js` (#249).
 12. **Split `common.js`** into the audit's `msg.js`, `sz.js`, `com_args.js` and
     `com_file.js`, with `LOC_*` in its own module and `Con_Printf` going through
-    the `sys.js` print hook, which breaks the `cmd`/`common`/`cvar`/ `pak`
-    cycle. `common.js` re-exports during the step so its 49 importers move over
-    in the same PR or the next. Conflicts: `common.js` (#249): land after #249.
+    the `sys.js` print hook, which breaks the `cmd`/`common`/`cvar`/`pak` cycle.
+    Edits `common`, `cmd`, `cvar`, `pak`. `common.js` re-exports everything
+    during the step; its 49 importers move to the new modules in a separate,
+    codemod-made PR (as in step 14), because moving them here would conflict
+    with every open PR that touches `src/`. Conflicts: `common.js` (#249),
+    `cmd.js` (#255, stuffcmd trust), `cvar.js` (stuffcmd trust): land after
+    #249.
 13. **Optional: collapse the injected copies** in `sv_phys`, `sv_user`,
-    `sv_move` and `progs` (see Duplicated state). Conflicts: `sv_user.js`
-    (#255).
+    `sv_move` and `progs` (see Duplicated state). Edits those and `host`,
+    `server`. Conflicts: `sv_user.js` (#255).
 14. **Move files into the directories**, one PR per layer (platform, then core,
-    then game), each made by a codemod that rewrites import specifiers in
-    `src/`, `server/`, `main.js`, `tests/` and `tools/bench/` and the text
-    references tests make (`new URL("../src/pr_exec.js", import.meta.url)` in
-    `tests/pr_exec_ops_test.js`, the source reads in
-    `tests/menu_advanced_test.js`): 978 references in tests and 71 in the
-    benches. The checker switches from its table to the directories. A move
-    commit changes nothing but paths, so git's rename detection carries open PRs
-    across: they merge `dev` and only import lines conflict. The codemod stays
-    in `tools/` so an open PR can run it on its own new imports, as the style
-    tiers' catch-up recipe does. Paths that name the directory and not a file
-    keep working: the Dockerfile's `COPY src/`, `.dockerignore`'s `!src/`,
-    `CLIENT_DIRS` in `cloudflare/client/build.js`, the lint include in
-    `deno.json`, `sw.js`. New files created by steps 3–12 go straight into their
-    final directory, so this step only moves files that existed before.
-    Conflicts: every open PR that touches `src/`; pick a quiet moment.
+    then game), each made by a codemod that rewrites import specifiers and the
+    text references to `src/` files. Files outside `src/` that name a file in
+    `src/` (measured with `rg -l 'src/[a-z_0-9]+\.(js|ts)'`): `main.js`, the
+    `server/` entries, drivers, `turnstile.js` and `README.md`, every
+    `tools/bench/` file, `tools/room_bench.js`, `tools/room_memory_probe.js`,
+    `tools/nav/nav_build.js`, `tools/gym/icaro_env.py`,
+    `tools/port_inventory.py`, `cloudflare/client/build.js`, its
+    `wrangler.jsonc` and `README.md`, `cloudflare/lobby/wrangler.jsonc` and
+    `README.md`, `.claude/hooks/lint-delta.sh`, `.vscode/settings.json` and
+    AGENTS.md; and in `tests/`, 978 references, including the source reads in
+    `tests/pr_exec_ops_test.js` (`new URL("../src/pr_exec.js", ...)`) and
+    `tests/menu_advanced_test.js`. `docs/` is left alone: its files are
+    snapshots. The same PR updates AGENTS.md's Layout section, and the checker
+    switches from its table to the directories. A move commit changes nothing
+    but paths, so git's rename detection carries open PRs across: they merge
+    `dev` and only import lines conflict. The codemod stays in `tools/` so an
+    open PR can run it on its own new imports, as the style tiers' catch-up
+    recipe does. Paths that name the directory and not a file keep working: the
+    Dockerfile's `COPY src/`, `.dockerignore`'s `!src/`, `CLIENT_DIRS` in
+    `cloudflare/client/build.js`, the lint include in `deno.json`, `sw.js`. New
+    files created by steps 3–12 go straight into their final directory, so this
+    step only moves files that existed before. Conflicts: every open PR that
+    touches `src/`; pick a quiet moment.
 15. **TypeScript**: `@ts-check` and typedefs, core leaves first.
 16. **Retire the shim** once the headless host and tests no longer need it (open
-    question 5).
+    question 5). Updates AGENTS.md's note on `server/browser_shim.js` and the
+    root `deno.json` import map.
 
 Dependencies: 3 before 11 (P1) and 6; 3, 4 and 5 before 6, which adds the
 no-`three` test; 6 before 13; 12 after 10 (both edit `cmd`/`common` imports); 14
@@ -485,8 +567,9 @@ apart from the open PRs they wait for.
    (no parser, but `deno task test` would need `--allow-run` for `deno`)?
 7. **Moves**: a codemod that rewrites every import (this plan), or leave
    re-export stubs at the old paths for a while to spare open PRs?
-8. **`PLANE_ANYZ`**: make `gl_rmain.js` use the C value 5 from `bspfile.js` (no
-   behaviour change, as `BoxOnPlaneSide` only tests `type < 3`)?
+8. **`PLANE_ANYZ`**: make `gl_rmain.js` use the C value 5 from `bspfile.js`? The
+   readers found treat 3 and 5 alike, so it should change nothing; the bench
+   checksums would confirm it.
 9. **Injected copies** (step 13): collapse them once the cycles allow, or keep
    the pattern as the audit recommends?
 10. **`gl_model.js`** is 3552 lines. Split it into brush, alias and sprite
