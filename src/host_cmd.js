@@ -22,7 +22,7 @@ import { ED_NewString, ED_Write, ED_WriteGlobals, ED_ParseGlobals, ED_ParseEdict
 import { sv_player } from './sv_phys.js';
 import { FL_GODMODE, FL_NOTARGET,
 	MOVETYPE_WALK, MOVETYPE_FLY, MOVETYPE_NOCLIP } from './sv_phys.js';
-import { Cvar_Set, Cvar_SetValue, Cvar_VariableValue, Cvar_VariableString } from './cvar.js';
+import { cvar_t, Cvar_RegisterVariable, Cvar_FindVar, Cvar_Set, Cvar_SetValue, Cvar_VariableValue, Cvar_VariableString } from './cvar.js';
 import { net_time, net_activeconnections } from './net.js';
 import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv, Cmd_Args, Cmd_ExecuteString,
 	Cmd_ForwardToServer, cmd_source, src_command, Cbuf_AddText } from './cmd.js';
@@ -30,12 +30,13 @@ import { SV_SpawnServer, SV_SaveSpawnparms, SV_DropClient,
 	SV_WriteClientdataToMessage, current_skill } from './sv_main.js';
 import { sv, svs, host_client, set_host_client,
 	NUM_SPAWN_PARMS, NUM_PING_TIMES, PRESPAWN_FLUSH, PRESPAWN_SIGNONBUFS } from './server.js';
-import { cls, cl, ca_connected, ca_dedicated, MAX_DEMOS } from './client.js';
-import { key_game, set_key_dest, MAXCMDLINE } from './keys.js';
+import { cls, cl, ca_connected, ca_dedicated, MAX_DEMOS, SIGNONS } from './client.js';
+import { key_game, set_key_dest, MAXCMDLINE, Key_ModalActive } from './keys.js';
 import { CL_Disconnect, CL_EstablishConnection, CL_NextDemo,
 	cl_name, cl_color } from './cl_main.js';
 import { CL_StopPlayback } from './cl_demo.js';
-import { SCR_BeginLoadingPlaque } from './gl_screen.js';
+import { SCR_BeginLoadingPlaque, SCR_ModalMessage } from './gl_screen.js';
+import { AUTOSAVE_SLOT, Autosave_OfferDecision, Autosave_ReadMeta, Autosave_WriteMeta, Autosave_Consume } from './autosave.js';
 import { hostname } from './net_main.js';
 import { SV_LinkEdict } from './world.js';
 import { SV_ClientPrintf, SV_BroadcastPrintf,
@@ -56,7 +57,13 @@ export function set_noclip_anglehack( v ) {
 Host_InitCommands
 ======================
 */
+// Web-only cvar (no Quake equivalent): save the game when the page is hidden
+// (Host_AutoSave). 0 turns it off.
+const web_autosave = new cvar_t( 'web_autosave', '1', true );
+
 export function Host_InitCommands() {
+
+	if ( Cvar_FindVar( web_autosave.name ) === null ) Cvar_RegisterVariable( web_autosave );
 
 	Cmd_AddCommand( 'status', Host_Status_f );
 	Cmd_AddCommand( 'quit', Host_Quit_f );
@@ -268,6 +275,8 @@ function Host_Map_f() {
 	}
 
 	cls.demonum = - 1; // stop demo loop in case this fails
+
+	Autosave_Consume(); // web-only: a new game replaces the autosave's game (autosave.js)
 
 	CL_Disconnect();
 	Host_ShutdownServer( false );
@@ -1361,32 +1370,10 @@ function Host_Savegame_f() {
 
 	if ( cmd_source !== src_command ) return;
 
-	if ( sv.active === false ) {
+	const refusal = Host_SaveRefusal();
+	if ( refusal !== null ) {
 
-		Con_Printf( 'Not playing a local game.\n' );
-		return;
-
-	}
-
-	// Ironwail: a save made with the monsters removed would carry that into
-	// the loaded game
-	if ( sv.nomonsters ) {
-
-		Con_Printf( 'Can\'t save when using "nomonsters".\n' );
-		return;
-
-	}
-
-	if ( cl.intermission !== 0 ) {
-
-		Con_Printf( 'Can\'t save in intermission.\n' );
-		return;
-
-	}
-
-	if ( svs.maxclients !== 1 ) {
-
-		Con_Printf( 'Can\'t save multiplayer games.\n' );
+		Con_Printf( refusal );
 		return;
 
 	}
@@ -1405,20 +1392,57 @@ function Host_Savegame_f() {
 
 	}
 
+	const dead = Host_SaveDeadRefusal();
+	if ( dead !== null ) {
+
+		Con_Printf( dead );
+		return;
+
+	}
+
+	Host_WriteSave( Cmd_Argv( 1 ), false );
+
+}
+
+// The refusals Host_Savegame_f makes before it looks at its arguments: the
+// message to print, or null if the game can be saved. Host_AutoSave shares them.
+function Host_SaveRefusal() {
+
+	if ( sv.active === false ) return 'Not playing a local game.\n';
+
+	// Ironwail: a save made with the monsters removed would carry that into
+	// the loaded game
+	if ( sv.nomonsters ) return 'Can\'t save when using "nomonsters".\n';
+
+	if ( cl.intermission !== 0 ) return 'Can\'t save in intermission.\n';
+
+	if ( svs.maxclients !== 1 ) return 'Can\'t save multiplayer games.\n';
+
+	return null;
+
+}
+
+function Host_SaveDeadRefusal() {
+
 	for ( let i = 0; i < svs.maxclients; i ++ ) {
 
 		if ( svs.clients[ i ] != null && svs.clients[ i ].active && svs.clients[ i ].edict.v.health <= 0 ) {
 
-			Con_Printf( 'Can\'t savegame with a dead player\n' );
-			return;
+			return 'Can\'t savegame with a dead player\n';
 
 		}
 
 	}
 
-	const name = Cmd_Argv( 1 );
+	return null;
 
-	Con_Printf( 'Saving game to %s...\n', name );
+}
+
+// The body of Host_Savegame_f. quiet: the automatic path prints nothing.
+// Returns true if the save was stored.
+function Host_WriteSave( name, quiet ) {
+
+	if ( quiet === false ) Con_Printf( 'Saving game to %s...\n', name );
 
 	const lines = [];
 
@@ -1469,13 +1493,128 @@ function Host_Savegame_f() {
 
 	} catch {
 
-		Con_Printf( 'ERROR: couldn\'t save (localStorage full?).\n' );
-		return;
+		if ( quiet === false ) Con_Printf( 'ERROR: couldn\'t save (localStorage full?).\n' );
+		return false;
 
 	}
 
-	Con_Printf( 'done.\n' );
+	if ( quiet === false ) Con_Printf( 'done.\n' );
 	Host_RequestPersistentStorage();
+	return true;
+
+}
+
+/*
+===============
+Host_AutoSave
+
+Web-only deviation (mobile roadmap Tier 2 item 14, rules in autosave.js): iOS
+discards background tabs, so in_web.js calls this when the page is hidden
+(visibilitychange, pagehide). A local single-player game in progress is saved
+into the reserved slot "autosave", which the s0-s11 menu slots never touch.
+It uses the refusals of Host_Savegame_f but prints nothing, and it is
+synchronous (localStorage), so it finishes inside the event. Returns true if
+a save was written.
+===============
+*/
+let autosave_last_name = '';
+let autosave_last_time = - 1;
+
+export function Host_AutoSave() {
+
+	if ( web_autosave.value === 0 ) return false;
+
+	// a local game in progress: one client, past signon and spawned, not a demo
+	if ( cls.state !== ca_connected || cls.signon !== SIGNONS || cls.demoplayback ) return false;
+	if ( sv.active !== true || svs.clients === null || svs.clients[ 0 ] == null ) return false;
+	if ( svs.clients[ 0 ].active !== true || svs.clients[ 0 ].spawned !== true ) return false;
+
+	if ( Host_SaveRefusal() !== null ) return false;
+	if ( Host_SaveDeadRefusal() !== null ) return false;
+
+	// visibilitychange and pagehide both fire: don't write the same moment twice
+	if ( sv.name === autosave_last_name && sv.time === autosave_last_time ) return false;
+
+	if ( Host_WriteSave( AUTOSAVE_SLOT, true ) !== true ) return false;
+
+	autosave_last_name = sv.name;
+	autosave_last_time = sv.time;
+	Autosave_WriteMeta( Date.now(), sv.name );
+	return true;
+
+}
+
+/*
+===============
+Host_AutosaveVisible
+
+The page is visible again, so the game in memory is the live one: nothing to
+recover if it is discarded later than this (autosave.js rules).
+===============
+*/
+export function Host_AutosaveVisible() {
+
+	// Only the autosave this page wrote: one left by an earlier page waits
+	// for the Continue offer, even if the player switches tabs first
+	if ( autosave_last_name !== '' ) Autosave_Consume();
+	autosave_last_name = '';
+	autosave_last_time = - 1;
+
+}
+
+/*
+===============
+Host_MaybeOfferContinue
+
+Web-only. Called once per frame by Host_Frame until it returns true. On the
+first page load after an autosave it asks, with the engine's YES/NO prompt
+(SCR_ModalMessage, which takes touch taps), whether to continue. Yes loads
+the autosave; either answer consumes it. Rules: autosave.js.
+===============
+*/
+let offer_frames = 0;
+
+export function Host_MaybeOfferContinue() {
+
+	offer_frames ++;
+
+	if ( web_autosave.value === 0 ) return true; // autosave is off: offer nothing
+
+	let saveExists = false;
+	try {
+
+		saveExists = localStorage.getItem( SAVE_STORAGE_PREFIX + AUTOSAVE_SLOT ) !== null;
+
+	} catch {
+
+		// ignore
+	}
+
+	const decision = Autosave_OfferDecision( {
+		search: typeof location !== 'undefined' && location !== null ? location.search : '',
+		now: Date.now(),
+		metaText: Autosave_ReadMeta(),
+		saveExists: saveExists,
+		connected: sv.active === true || ( cls.state === ca_connected && cls.demoplayback !== true ), // a title demo is not a game
+		dedicated: cls.state === ca_dedicated,
+		modalActive: Key_ModalActive(),
+		ready: offer_frames > 3 // the config and the title demo have started
+	} );
+
+	if ( decision === 'wait' ) return false;
+	if ( decision === 'skip' ) return true;
+
+	SCR_ModalMessage( 'Continue your last game?\n', function ( yes ) {
+
+		Autosave_Consume();
+		if ( yes !== true ) return;
+
+		set_key_dest( key_game );
+		SCR_BeginLoadingPlaque();
+		Cbuf_AddText( 'load ' + AUTOSAVE_SLOT + '\n' );
+
+	} );
+	return true;
 
 }
 
