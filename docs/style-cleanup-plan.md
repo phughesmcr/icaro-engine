@@ -1,8 +1,8 @@
 # Style cleanup plan
 
 Status: tier 0 done (#217); tier 1 done (#218); tier 2 done (#219); tier 3 done
-on `refactor/markdown-fmt` (see its results below); tier 4 not started. Measured
-on `dev` at b8f46e7 (2026-11-26), after #205–#215 merged.
+(#220); tier 4 goes file by file (see below). Measured on `dev` at b8f46e7
+(2026-11-26), after #205–#215 merged.
 
 Decisions made: adopt `deno fmt` with the settings below, and include `tests/`.
 Comment banners go: `/** */` documents a declaration, and every other comment is
@@ -246,7 +246,7 @@ Verify:
 - `deno fmt --check` and `deno task ci` pass. The code is unchanged, so the
   benchmarks and a browser check add nothing.
 
-Results, on `refactor/comment-banners`:
+Results (#219):
 
 - The codemod deleted 301 name-only banners and 2 blocks of rules only. It made
   633 banners into doc comments (name line dropped) and 28 plain blocks into doc
@@ -269,7 +269,7 @@ PR because the status docs collect most merge conflicts (AGENTS.md "Git
 workflow"). That PR removes `**/*.md` from `fmt.exclude`. `.claude/` stays
 excluded, so the YAML front matter of its skills and agents isn't touched.
 
-Results (`refactor/markdown-fmt`):
+Results (#220):
 
 - One sweep commit: 17 Markdown files, +4,222 / -3,060 lines, the `exclude`
   change in `deno.json` included. Of the other 5 tracked Markdown files, the 4
@@ -293,9 +293,10 @@ editing that file and its tests cover the change.
 
 ## Sequencing with open PRs
 
-One PR is open: #216 (MCP SDK), which touches `server/agent_mcp.ts`,
-`tests/agent_mcp_*.js`, `tests/agent_goto_test.js`, `deno.json`, `deno.lock`,
-`server/deno.json` and docs.
+When this was written one PR was open: #216 (MCP SDK, since merged), which
+touched `server/agent_mcp.ts`, `tests/agent_mcp_*.js`,
+`tests/agent_goto_test.js`, `deno.json`, `deno.lock`, `server/deno.json` and
+docs.
 
 1. Land #216 (or any PR close to done) before tier 1 commit 2, and hold new
    feature PRs until tiers 1 and 2 land.
