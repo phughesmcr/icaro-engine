@@ -42,8 +42,9 @@ unless the user asks (see step 10).
    unsandboxed call that runs
    `gh pr create --base dev --title "<title>" --body-file <file>`. The body
    covers:
-   - **Why**: the problem and the C behaviour being restored, citing the C
-     file and function where relevant.
+   - **Why**: the problem and the reference behaviour being restored, citing
+     the reference's file and function where relevant (id's C, QuakeSpasm or
+     Ironwail; none for Icaro's own features).
    - **Changes**: each finding as fixed or not fixed, with the reason.
    - **Verification**: the test count before and after, the lint result, and
      any browser or manual checks.

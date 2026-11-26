@@ -5,6 +5,7 @@ check their claims against the code before relying on them. Status sections are
 updated by a docs PR after a batch of work merges, not by each feature PR (see
 AGENTS.md, Git workflow).
 
+- `vision.md`: the project's goals and direction. Kept current, not a snapshot.
 - `port-review.md`: a fidelity review of the port against the C source. A
   snapshot.
 - `port-inventory.md`: every C function, cvar and command in the GLQuake build's
