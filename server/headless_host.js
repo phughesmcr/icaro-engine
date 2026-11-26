@@ -83,9 +83,9 @@ function _trimSlash(dir) {
  * that directory is named id1 (common.c's basedir).
  */
 function _gameBaseDirectory(pak) {
-  const dir = pak.lastIndexOf("/") >= 0 ?
-    pak.slice(0, pak.lastIndexOf("/")) :
-    ".";
+  const dir = pak.lastIndexOf("/") >= 0
+    ? pak.slice(0, pak.lastIndexOf("/"))
+    : ".";
   const name = dir.slice(dir.lastIndexOf("/") + 1);
   if (name.toLowerCase() !== "id1") return dir;
   return dir.lastIndexOf("/") >= 0 ? dir.slice(0, dir.lastIndexOf("/")) : ".";
@@ -224,6 +224,52 @@ export function headless_install_globals() {
 }
 
 /**
+ * What headless_init mounts for opts (see there), worked out without
+ * touching the file system: { pak, pak_sequence, argv (com_argv, "quake"
+ * first), game_dirs (in mount order), loose_dirs (in search order, each
+ * ending in '/') }. Throws on a -game name that isn't one path component.
+ */
+export function headless_search_paths(opts = {}) {
+  const base = opts.base !== undefined ? _trimSlash(opts.base) : null;
+  const pak = opts.pak !== undefined
+    ? opts.pak
+    : (base !== null ? base + "/id1/pak0.pak" : DEFAULT_PAK);
+  const pak_sequence = opts.pak_sequence !== undefined
+    ? opts.pak_sequence
+    : base !== null;
+  const argv = ["quake", ...(opts.argv !== undefined ? opts.argv : [])];
+  const basedir = base !== null ? base : _gameBaseDirectory(pak);
+
+  // common.c COM_InitFilesystem: rogue, then hipnotic, then -game
+  const gameDirs = [];
+  if (argv.includes("-rogue") === true) gameDirs.push(basedir + "/rogue");
+  if (argv.includes("-hipnotic") === true) {
+    gameDirs.push(basedir + "/hipnotic");
+  }
+  const gameArg = argv.indexOf("-game");
+  if (gameArg > 0) {
+    const name = argv[gameArg + 1];
+    if (name === undefined || /^[A-Za-z0-9_-]+$/.test(name) === false) {
+      throw new Error("headless_init: bad -game directory " + name);
+    }
+    gameDirs.push(basedir + "/" + name);
+  }
+  for (const dir of opts.game_dirs !== undefined ? opts.game_dirs : []) {
+    gameDirs.push(_trimSlash(dir));
+  }
+
+  // Loose files: the game directories (last mounted first), then next to
+  // the pak, then static/ when the pak is in another layout
+  const loose_dirs = [
+    ...gameDirs.toReversed().map((dir) => dir + "/"),
+    pak.slice(0, pak.lastIndexOf("/") + 1),
+  ];
+  if (base !== null) loose_dirs.push(STATIC_DIR);
+
+  return { pak, pak_sequence, argv, game_dirs: gameDirs, loose_dirs };
+}
+
+/**
  * Starts the host: mounts the game data, runs Host_Init (quake.rc included,
  * minus its demo loop) and turns the 3D view off. Resolves once the host is
  * ready for commands and frames.
@@ -256,33 +302,8 @@ export async function headless_init(opts = {}) {
     throw new Error("headless_init: the host is already running");
   }
 
-  const base = opts.base !== undefined ? _trimSlash(opts.base) : null;
-  const pak = opts.pak !== undefined ?
-    opts.pak :
-    (base !== null ? base + "/id1/pak0.pak" : DEFAULT_PAK);
-  const pak_sequence = opts.pak_sequence !== undefined ?
-    opts.pak_sequence :
-    base !== null;
-  const argv = ["quake", ...(opts.argv !== undefined ? opts.argv : [])];
-  const basedir = base !== null ? base : _gameBaseDirectory(pak);
-
-  // common.c COM_InitFilesystem: rogue, then hipnotic, then -game
-  const gameDirs = [];
-  if (argv.includes("-rogue") === true) gameDirs.push(basedir + "/rogue");
-  if (argv.includes("-hipnotic") === true) {
-    gameDirs.push(basedir + "/hipnotic");
-  }
-  const gameArg = argv.indexOf("-game");
-  if (gameArg > 0) {
-    const name = argv[gameArg + 1];
-    if (name === undefined || /^[A-Za-z0-9_-]+$/.test(name) === false) {
-      throw new Error("headless_init: bad -game directory " + name);
-    }
-    gameDirs.push(basedir + "/" + name);
-  }
-  for (const dir of opts.game_dirs !== undefined ? opts.game_dirs : []) {
-    gameDirs.push(_trimSlash(dir));
-  }
+  const { pak, pak_sequence, argv, game_dirs, loose_dirs } =
+    headless_search_paths(opts);
 
   headless_initialized = true;
 
@@ -298,20 +319,13 @@ export async function headless_init(opts = {}) {
     if (pack === null) throw new Error("headless_init: could not load " + pak);
     COM_AddPack(pack);
   }
-  for (const dir of gameDirs) {
+  for (const dir of game_dirs) {
     if (await COM_AddGameDirectory(dir) === 0) {
       throw new Error("headless_init: " + dir + "/pak0.pak not found");
     }
   }
 
-  // Loose files: the game directories (last mounted first), then next to
-  // the pak, then static/ when the pak is in another layout
-  const looseDirs = [
-    ...gameDirs.toReversed().map((dir) => dir + "/"),
-    pak.slice(0, pak.lastIndexOf("/") + 1),
-  ];
-  if (base !== null) looseDirs.push(STATIC_DIR);
-  COM_SetLooseFileBasePaths(looseDirs);
+  COM_SetLooseFileBasePaths(loose_dirs);
 
   await Host_Init({ argv, argc: argv.length, basedir: "" });
 

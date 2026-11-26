@@ -3,7 +3,11 @@
 // over the shareware pak. The fixture game directories are built in a temp
 // directory at run time: no pak but static/pak0.pak may be tracked.
 
-import { headless_init, headless_map } from "../server/headless_host.js";
+import {
+  headless_init,
+  headless_map,
+  headless_search_paths,
+} from "../server/headless_host.js";
 import { COM_EnsureFile, COM_LoadFileAsString } from "../src/pak.js";
 import { host_colormap } from "../src/host.js";
 import { sv } from "../src/server.js";
@@ -13,6 +17,83 @@ function assert(cond, message) {
     throw new Error(message);
   }
 }
+
+function same(actual, expected, what) {
+  assert(
+    JSON.stringify(actual) === JSON.stringify(expected),
+    what + ": " + JSON.stringify(actual),
+  );
+}
+
+const STATIC = decodeURIComponent(
+  new URL("../static/", import.meta.url).pathname,
+);
+
+Deno.test("headless search paths: the default is the shareware pak alone", () => {
+  const paths = headless_search_paths();
+  same(paths.pak, STATIC + "pak0.pak", "pak");
+  same(paths.pak_sequence, false, "pak_sequence");
+  same(paths.argv, ["quake"], "argv");
+  same(paths.game_dirs, [], "game_dirs");
+  same(paths.loose_dirs, [STATIC], "loose_dirs");
+});
+
+Deno.test("headless search paths: common.c's order, then game_dirs", () => {
+  const paths = headless_search_paths({
+    pak: "/q/id1/pak0.pak",
+    argv: ["-game", "mod", "-hipnotic", "-rogue"],
+    game_dirs: ["/x/a/", "/y/b"],
+  });
+  // id1's parent is the basedir, as in C
+  same(
+    paths.game_dirs,
+    ["/q/rogue", "/q/hipnotic", "/q/mod", "/x/a", "/y/b"],
+    "game_dirs",
+  );
+  same(
+    paths.loose_dirs,
+    ["/y/b/", "/x/a/", "/q/mod/", "/q/hipnotic/", "/q/rogue/", "/q/id1/"],
+    "loose_dirs",
+  );
+  same(paths.pak_sequence, false, "pak_sequence");
+  same(
+    paths.argv,
+    ["quake", "-game", "mod", "-hipnotic", "-rogue"],
+    "argv",
+  );
+});
+
+Deno.test("headless search paths: a pak outside id1 is its own basedir", () => {
+  const paths = headless_search_paths({
+    pak: "/q/pak0.pak",
+    argv: ["-hipnotic"],
+  });
+  same(paths.game_dirs, ["/q/hipnotic"], "game_dirs");
+  same(paths.loose_dirs, ["/q/hipnotic/", "/q/"], "loose_dirs");
+});
+
+Deno.test("headless search paths: base sets the id1 pak sequence", () => {
+  const paths = headless_search_paths({
+    base: "/r/",
+    argv: ["-game", "mg1"],
+  });
+  same(paths.pak, "/r/id1/pak0.pak", "pak");
+  same(paths.pak_sequence, true, "pak_sequence");
+  same(paths.game_dirs, ["/r/mg1"], "game_dirs");
+  same(paths.loose_dirs, ["/r/mg1/", "/r/id1/", STATIC], "loose_dirs");
+});
+
+Deno.test("headless search paths: a -game name must be one component", () => {
+  for (const argv of [["-game"], ["-game", "../x"], ["-game", "a/b"]]) {
+    let threw = false;
+    try {
+      headless_search_paths({ argv });
+    } catch {
+      threw = true;
+    }
+    assert(threw === true, "accepted " + JSON.stringify(argv));
+  }
+});
 
 /** A pak holding files, a map of name to Uint8Array or string */
 function makePak(files) {
