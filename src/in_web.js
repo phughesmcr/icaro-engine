@@ -207,7 +207,8 @@ let touchMode = false;
 // the next touch pointerdown. Web-only; there is no C counterpart.
 let gamepadHidTouch = false;
 // Ironwail in_sdl.c lastactivetype === KD_GAMEPAD: the pad was the last
-// device used, so it may rumble
+// device used, so it may rumble. Keys, mouse buttons, the wheel and (web
+// only) touches take it back; as in Ironwail, mouse movement doesn't.
 let gamepadLastActive = false;
 
 // Meta Quest — disables pointer lock and fullscreen
@@ -499,7 +500,7 @@ function GP_KeyEdge(quakeKey, isDown, prev, storeKey) {
 
   const wasDown = prev[storeKey];
   if (isDown !== wasDown) {
-    if (isDown) gamepadLastActive = true;
+    gamepadLastActive = true;
     if (quakeKey === K_ESCAPE && isDown) lastEscapeTime = IN_Now();
     Key_Event(quakeKey, isDown);
     prev[storeKey] = isDown;
@@ -1011,6 +1012,7 @@ function handleKeyDown(event) {
 function handleKeyUp(event) {
   if (!in_initialized) return;
   if (isEditableTarget(event.target)) return;
+  gamepadLastActive = false;
   if (isMetaKey(event)) return;
 
   let qkey = keyForCode.get(event.code);
@@ -1034,7 +1036,6 @@ function handleKeyUp(event) {
 
 function handleMouseMove(event) {
   if (!in_initialized) return;
-  if (event.movementX || event.movementY) gamepadLastActive = false;
 
   // Ironwail in_sdl.c: SDL_MOUSEMOTION calls M_Mousemove in menus. The
   // cursor is free there (IN_Commands drops pointer lock), so pass its
@@ -1159,6 +1160,7 @@ function handleMouseDown(event) {
 // Bound on window so a button released outside the canvas is still seen
 function handleMouseUp(event) {
   if (!in_initialized) return;
+  gamepadLastActive = false;
 
   if (event.button === 3 || event.button === 4) {
     event.preventDefault();
@@ -1177,6 +1179,7 @@ function handleMouseUp(event) {
 
 function handleWheel(event) {
   if (!in_initialized) return;
+  gamepadLastActive = false;
 
   // Stop page scrolling and Ctrl+wheel page zoom
   event.preventDefault();

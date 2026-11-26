@@ -318,11 +318,12 @@ export function S_UpdateLevels() {
   levelAnalyser.getFloatTimeDomainData(_levelSamples);
 
   // The C divides the volume back out, so rumble doesn't follow it
-  const scale = 0.5 / Math.min(volume.value, 1);
+  const scale = 0.5 / volume.value;
   // the newest samples are at the end of the buffer
   for (let i = LEVEL_FFT_SIZE - count; i < LEVEL_FFT_SIZE; i++) {
-    // |left| + |right| in the C, twice the mono sample here
-    const sample = Math.abs(_levelSamples[i]) * 2 * scale;
+    // The C sums |left| + |right| of a paintbuffer that S_PaintChannels has
+    // halved for headroom, which comes to one unhalved mono sample here
+    const sample = Math.abs(_levelSamples[i]) * scale;
     snd_lofreqlevel += (sample - snd_lofreqlevel) * 1e-3;
     snd_hifreqlevel += (sample - snd_hifreqlevel) * 1e-2;
   }

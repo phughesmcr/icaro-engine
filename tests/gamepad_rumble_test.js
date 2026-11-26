@@ -73,6 +73,9 @@ const pad = {
   },
 };
 
+// the input handlers IN_Init registers, by event type
+const handlers = {};
+
 function makeElement(tag) {
   return {
     tagName: tag,
@@ -83,7 +86,9 @@ function makeElement(tag) {
       this.children.push(child);
       return child;
     },
-    addEventListener() {},
+    addEventListener(type, fn) {
+      (handlers[type] ??= []).push(fn);
+    },
     removeEventListener() {},
     getBoundingClientRect() {
       return { left: 0, top: 0, width: 640, height: 480 };
@@ -93,6 +98,9 @@ function makeElement(tag) {
 
 cmd.Cbuf_Init();
 cmd.Cmd_Init();
+
+// the fake page, kept for the handlers that read document
+let fakeDocument = null;
 
 // IN_Init registers in_web.js's cvars and lets IN_Commands run; do it once
 // against a fake DOM
@@ -108,6 +116,7 @@ cmd.Cmd_Init();
   doc.visibilityState = "visible";
   doc.fullscreenElement = null;
   doc.createElement = (tag) => makeElement(tag.toUpperCase());
+  fakeDocument = doc;
   const win = makeElement("WINDOW");
   win.innerWidth = 640;
   win.innerHeight = 480;
@@ -133,6 +142,8 @@ cmd.Cmd_Init();
   }
 }
 
+let connected = true;
+
 // One monotonic clock for all the tests, as performance.now is
 let clock = 1000;
 
@@ -145,11 +156,18 @@ function withPadAndSound(fn) {
 
   Object.defineProperty(globalThis, "window", {
     configurable: true,
-    value: { AudioContext: FakeContext, devicePixelRatio: 1 },
+    value: {
+      AudioContext: FakeContext,
+      devicePixelRatio: 1,
+      innerWidth: 640,
+      innerHeight: 480,
+      addEventListener() {},
+      removeEventListener() {},
+    },
   });
   Object.defineProperty(navigator, "getGamepads", {
     configurable: true,
-    value: () => [pad],
+    value: () => connected ? [pad] : [],
   });
   performance.now = () => clock;
 
@@ -168,9 +186,17 @@ function withPadAndSound(fn) {
       ctx.currentTime += 0.06;
       input.IN_Commands();
     };
+    // an unplugged pad forgets it was the last device used
+    connected = false;
+    input.IN_Move({ forwardmove: 0, sidemove: 0, upmove: 0 });
+    connected = true;
     effects.length = 0;
     resets = 0;
-    fn(ctx, frame);
+    fn(ctx, frame, (ms) => {
+      clock += ms;
+      ctx.currentTime += ms / 1000;
+      input.IN_Commands();
+    });
   } finally {
     input.IN_ClearAllStates();
     pad.axes = [0, 0, 0, 0];
@@ -212,11 +238,11 @@ Deno.test("the level meter follows the output and divides the volume out", () =>
         snd.S_UpdateLevels();
       }
 
-      // |mono| / volume = 0.4 once the envelopes have settled
+      // Ironwail's level, |mono| * 0.5 / volume, once the envelopes settle
       const lo = snd.S_GetLoFreqLevel();
       const hi = snd.S_GetHiFreqLevel();
-      assert(Math.abs(lo - 0.4) < 0.01, `lo ${lo}`);
-      assert(Math.abs(hi - 0.4) < 0.01, `hi ${hi}`);
+      assert(Math.abs(lo - 0.2) < 0.01, `lo ${lo}`);
+      assert(Math.abs(hi - 0.2) < 0.01, `hi ${hi}`);
 
       ctx.state = "suspended";
       snd.S_UpdateLevels();
@@ -227,9 +253,99 @@ Deno.test("the level meter follows the output and divides the volume out", () =>
   });
 });
 
+Deno.test("the two envelopes rise at the C's rates", () => {
+  withPadAndSound((ctx) => {
+    snd.S_UpdateLevels(); // creates the analyser
+    ctx.amplitude = 0.5;
+    ctx.currentTime += 200 / ctx.sampleRate;
+    snd.S_UpdateLevels();
+
+    // the level is 0.5 * 0.5 / 0.7; 200 samples of each filter from 0
+    const target = 0.25 / 0.7;
+    const lo = target * (1 - Math.pow(1 - 1e-3, 200));
+    const hi = target * (1 - Math.pow(1 - 1e-2, 200));
+    assert(Math.abs(snd.S_GetLoFreqLevel() - lo) < 1e-4, "low envelope");
+    assert(Math.abs(snd.S_GetHiFreqLevel() - hi) < 1e-4, "high envelope");
+  });
+});
+
+Deno.test("part-loud sound follows Ironwail's curve on each motor", () => {
+  withPadAndSound((ctx, frame) => {
+    ctx.amplitude = 0.35; // level 0.35 * 0.5 / 0.7 = 0.25
+    useStick();
+    for (let i = 0; i < 10; i++) frame();
+    const e = effects.at(-1);
+    const strong = 0.3 * (0.25 - 0.067) / (0.45 - 0.067);
+    const weak = 0.3 * Math.pow((0.25 - 0.061) / (0.45 - 0.061), 2);
+    assert(Math.abs(e.strongMagnitude - strong) < 1e-4, "strong motor");
+    assert(Math.abs(e.weakMagnitude - weak) < 1e-4, "weak motor");
+  });
+});
+
+Deno.test("effects are sent at most every 50 ms", () => {
+  withPadAndSound((ctx, frame, step) => {
+    ctx.amplitude = 0.7;
+    useStick();
+    for (let i = 0; i < 10; i++) frame();
+    effects.length = 0;
+    for (let i = 0; i < 20; i++) step(10);
+    assert(effects.length === 4, `${effects.length} effects in 200 ms`);
+  });
+});
+
+Deno.test("keys, mouse buttons, the wheel and touches take over from the pad", () => {
+  const event = {
+    code: "F24",
+    key: "F24",
+    button: 1,
+    deltaY: 0,
+    pointerType: "touch",
+    target: null,
+    preventDefault() {},
+  };
+  const oldDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: fakeDocument,
+  });
+  try {
+    const others = ["keydown", "keyup", "mouseup", "wheel", "pointerdown"];
+    for (const type of others) {
+      withPadAndSound((ctx, frame) => {
+        ctx.amplitude = 0.7;
+        useStick();
+        for (let i = 0; i < 10; i++) frame();
+        assert(effects.length > 0, "no rumble");
+        assert(handlers[type] !== undefined, `no ${type} handler`);
+        for (const handler of handlers[type]) handler(event);
+        const count = effects.length;
+        for (let i = 0; i < 5; i++) frame();
+        assert(effects.length === count, `still rumbling after ${type}`);
+      });
+    }
+
+    // as in Ironwail, moving the mouse doesn't
+    withPadAndSound((ctx, frame) => {
+      ctx.amplitude = 0.7;
+      useStick();
+      for (let i = 0; i < 10; i++) frame();
+      for (const handler of handlers.mousemove) {
+        handler({ movementX: 5, movementY: 0, pointerType: "mouse" });
+      }
+      const count = effects.length;
+      frame();
+      assert(effects.length === count + 1, "mouse movement stopped the rumble");
+    });
+  } finally {
+    if (oldDocument) {
+      Object.defineProperty(globalThis, "document", oldDocument);
+    } else delete globalThis.document;
+  }
+});
+
 Deno.test("loud sound rumbles the pad once it is the last device used", () => {
   withPadAndSound((ctx, frame) => {
-    ctx.amplitude = 0.5;
+    ctx.amplitude = 0.7;
     for (let i = 0; i < 10; i++) frame();
     assert(effects.length === 0, "an untouched pad must not rumble");
 
@@ -259,7 +375,7 @@ Deno.test("joy_rumble 0 and clearing the input states stop the rumble", () => {
     const rumble = cvar.Cvar_FindVar("joy_rumble");
     const saved = rumble.string;
     try {
-      ctx.amplitude = 0.5;
+      ctx.amplitude = 0.7;
       useStick();
       for (let i = 0; i < 10; i++) frame();
       assert(effects.length > 0, "no rumble");
