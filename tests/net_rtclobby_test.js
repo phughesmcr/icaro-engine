@@ -657,6 +657,64 @@ Deno.test( 'RTC lobby: the server stopping while the widget is up cancels the ho
 
 } );
 
+Deno.test( 'RTC lobby: a newer Start Game while the widget is up cancels the first host', async () => {
+
+	const { lobbyServer, teardown } = setup( { turnstile: fakeTurnstile( [] ) } );
+	try {
+
+		const answers = [];
+		RTCLobby_SetTurnstileTokenSource( () => new Promise( ( resolve ) => answers.push( resolve ) ) );
+		let error = null;
+		const first = RTCLobby_HostRoom( { hostName: 'First' }, svs.spawncount, false ).catch( ( e ) => error = e );
+		spawn( 'e1m2' );
+		await waitFor( () => answers.length === 1, 1000, 'the first widget' );
+
+		const second = RTCLobby_HostRoom( { hostName: 'Second' }, svs.spawncount, false );
+		answers[ 0 ]( 'good' );
+		await first;
+		assert( error !== null && error.cancelled === true, 'first cancelled: ' + error?.message );
+
+		spawn( 'e1m3' );
+		await waitFor( () => answers.length === 2, 1000, 'the second widget' );
+		answers[ 1 ]( 'good' );
+		const room = await second;
+		assertEqual( room.hostName, 'Second', 'the newer host is listed' );
+		assertEqual( lobbyServer.lobby.rooms.size, 1, 'one room' );
+		RTCLobby_ServerShutdown();
+
+	} finally {
+
+		RTCLobby_SetTurnstileTokenSource( null );
+		await teardown();
+
+	}
+
+} );
+
+Deno.test( 'RTC lobby: a host cancelled while the lobby refuses its token stays a cancel', async () => {
+
+	const { lobbyServer, teardown } = setup( { turnstile: fakeTurnstile( [] ) } );
+	try {
+
+		RTCLobby_SetTurnstileTokenSource( () => Promise.resolve( 'bad' ) );
+		lobbyServer.delays.push( 1, 100 ); // the second LOBBY_HOST's refusal comes late
+		let error = null;
+		const hosting = RTCLobby_HostRoom( { hostName: 'Tester' }, svs.spawncount, false ).catch( ( e ) => error = e );
+		spawn( 'e1m2' );
+		await waitFor( () => lobbyServer.opened === 2, 1000, 'the request with the token' );
+		RTCLobby_ServerShutdown();
+		await hosting;
+		assert( error !== null && error.cancelled === true, 'cancelled: ' + error?.message );
+
+	} finally {
+
+		RTCLobby_SetTurnstileTokenSource( null );
+		await teardown();
+
+	}
+
+} );
+
 Deno.test( 'RTC lobby: a malformed LOBBY_VERIFY fails the host without the widget', async () => {
 
 	const { lobbyServer, teardown } = setup( { turnstile: () => Promise.resolve( { challenge: { sitekey: '' } } ) } );

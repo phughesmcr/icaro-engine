@@ -455,7 +455,18 @@ export async function RTCLobby_HostRoom( config, spawnCount, exitRules ) {
 	};
 	if ( config.options !== undefined ) request.options = config.options;
 
-	const session = await _RTCLobby_RequestHost( url, request, token );
+	let session;
+	try {
+
+		session = await _RTCLobby_RequestHost( url, request, token );
+
+	} catch ( error ) {
+
+		// Superseded while the lobby answered: a cancel, whatever it said
+		if ( token !== host_token || host_armed === false ) throw _RTCLobby_Cancelled();
+		throw error;
+
+	}
 	if ( token !== host_token || host_armed === false ) {
 
 		// The server stopped while the lobby answered
