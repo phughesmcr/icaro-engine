@@ -75,6 +75,7 @@ import { Host_AutoSave, Host_AutosaveVisible } from "./host_cmd.js";
 import { PITCH, YAW } from "./quakedef.js";
 import { movevars } from "./pmove.js";
 import {
+  Touch_AimAssistFrame,
   Touch_Disable,
   Touch_Enable,
   Touch_Frame,
@@ -1918,10 +1919,12 @@ export function IN_IsMobile() {
 }
 
 /**
- * Update touch control state based on key_dest.
- * Should be called each frame.
+ * Update touch control state based on key_dest, and apply the aim assist
+ * level (in every input mode). Should be called each frame.
  */
 export function IN_UpdateTouch() {
+  Touch_AimAssistFrame();
+
   if (!touchMode) return;
 
   Touch_Frame();
