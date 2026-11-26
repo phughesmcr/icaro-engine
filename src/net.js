@@ -275,7 +275,8 @@ export const WT_PACKET_HEADER_BYTES = 9; // [magic:u8][sequence:u32][acknowledge
 
 // Largest reliable frame payload either side accepts: one full game message
 // plus the sequencing header. Anything larger is a protocol violation. It must
-// fit the frame's 16-bit length (tests/net_maxmessage_test.js checks it).
+// fit the frame's 16-bit length (tests/net_webtransport_client_lifecycle_test.js
+// checks it).
 export const WT_MAX_FRAME_PAYLOAD = NET_MAXMESSAGE + WT_PACKET_HEADER_BYTES;
 
 export const WT_PROTOCOL_VERSION = 1;

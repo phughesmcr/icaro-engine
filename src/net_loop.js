@@ -24,8 +24,9 @@ let loop_server = null;
  * the datagrams already queued (QuakeSpasm and Ironwail too, where a
  * MAX_MSGLEN message plus one datagram can exceed it). Here the queue has
  * room for one more full message: unreliable messages still stop at
- * NET_MAXMESSAGE, and a reliable message goes only when the last one has been
- * read (NET_CanSendMessage), so it always fits.
+ * NET_MAXMESSAGE, and a reliable message normally goes only when the last
+ * one has been read (NET_CanSendMessage), so it fits. NET_SendToAll and the
+ * client's keepalive skip that check, as in C, but their messages are small.
  */
 export const LOOP_QUEUE_BYTES = 2 * NET_MAXMESSAGE + 8;
 
