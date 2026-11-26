@@ -70,6 +70,8 @@ Deno.test("client build: deny check refuses registered data and secrets", () => 
       "static/ctf/maps/ctf1.bsp",
       "static/dopa/maps/e5m1.bsp",
       "static/mg3/a.bsp",
+      "static/librequake/v0.09-beta/full.zip",
+      "static/librequake/id1/maps/lqdm1.bsp",
       "static/key.pem",
       "src/tls.key",
       "static/cert.crt",
@@ -90,6 +92,7 @@ Deno.test("client build: deny check refuses registered data and secrets", () => 
     const path of [
       CLIENT_SHAREWARE_PAK,
       "src/net_rtclobby.js",
+      "src/librequake.js",
       "static/maps/mymap.txt",
       "static/screenshots/e1m1.jpg",
     ]

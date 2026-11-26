@@ -51,6 +51,17 @@ that two branches adding entries rarely touch the same lines:
     `pak0.pak` extracted from the release, without the agreement. No clause
     found grants distribution of an extracted part, and the pak holds no copy of
     the agreement.
+- **LibreQuake v0.09-beta.** Loaded: the browser's default game data, a free
+  replacement for id1's. [src/librequake.js](src/librequake.js) downloads the
+  pinned `full.zip` or `lite.zip` when a player asks for it and keeps the files,
+  its `docs/` licence files included, in that player's browser storage. Nothing
+  of it is in this repository or the deployed client
+  ([docs/librequake-content.md](docs/librequake-content.md) covers hosting).
+  Licence: models, textures, sounds and maps under the BSD 3-clause licence
+  (`docs/COPYING` in the zip); the QuakeC, `progs.dat` and `pop.lmp` under the
+  GPL-2 (`docs/misc-docs/COPYING`), as the zip's
+  `docs/README-IMPORTANT-LICENCE-INFO` says. Source:
+  [lavenderdotpet/LibreQuake](https://github.com/lavenderdotpet/LibreQuake).
 
 ## Images, icons and fonts
 
@@ -160,6 +171,10 @@ rg -il 'ironwail|quakespasm|fitzquake|johnfitz' src server main.js
 - **nipplejs 1.0.4.** The touch move stick. Licence:
   [MIT](https://github.com/yoannmoinet/nipplejs/blob/v1.0.4/LICENSE). Source:
   [yoannmoinet/nipplejs](https://github.com/yoannmoinet/nipplejs/tree/v1.0.4).
+- **zip.js 2.25.0** (`dist/zip-core-external.min.js`). Unpacks LibreQuake's
+  download; imported only when a download is unpacked. Licence:
+  [BSD 3-clause](https://cdn.jsdelivr.net/npm/@zip.js/zip.js@2.25.0/LICENSE).
+  Source: [gildas-lormeau/zip.js](https://github.com/gildas-lormeau/zip.js).
 
 ## Hosted services
 

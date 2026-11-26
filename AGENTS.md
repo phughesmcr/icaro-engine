@@ -30,14 +30,18 @@ process per room. It was forked from mrdoob's three-quake.
   own data: the Game data panel, its OPFS or IndexedDB store, and the player's
   paks, saves, configs and demos), `touch_layout.js` (the touch HUD's saved
   layout profiles) and `touch_editor.js` (the layout editor,
-  `touch_editlayout`). Some files port features from Ironwail or QuakeSpasm
-  rather than id's C, and their headers cite it (`gl_fog.js`, `gl_sky.js`,
-  `gl_md5.js`, `gl_entalpha.js`, `gl_screenwarp.js`, `image.js`,
-  `pr_sprintf.js`, `default_cfg.js`, `unicode_translit.js`). For those,
-  Ironwail's source is the reference.
+  `touch_editlayout`), `intro.js` (the intro page: nothing pak-related loads
+  before a person presses Play) and `librequake.js` (LibreQuake's download, hash
+  check and unpack; see `docs/librequake-content.md`). Some files port features
+  from Ironwail or QuakeSpasm rather than id's C, and their headers cite it
+  (`gl_fog.js`, `gl_sky.js`, `gl_md5.js`, `gl_entalpha.js`, `gl_screenwarp.js`,
+  `image.js`, `pr_sprintf.js`, `default_cfg.js`, `unicode_translit.js`). For
+  those, Ironwail's source is the reference.
 - `main.js` and `index.html`: the browser entry. `index.html`'s import map loads
-  `three` and `nipplejs` from jsDelivr. Assets are in `static/`. `sw.js` is the
-  service worker (offline play and caching; see its header), and
+  `three` and `nipplejs` from jsDelivr, and zip.js (for LibreQuake's download)
+  with an integrity hash; both `deno.json` files repeat the zip.js entry, and
+  its file is a remote entry in `deno.lock`. Assets are in `static/`. `sw.js` is
+  the service worker (offline play and caching; see its header), and
   `manifest.webmanifest` the install metadata, with its screenshots in
   `static/screenshots/`.
 - `server/`: `lobby_server.js`, `game_server.js` and the WebTransport and
@@ -158,7 +162,8 @@ process per room. It was forked from mrdoob's three-quake.
   its security headers; run `deno task client-build` first) and `lobby`
   (`deno task lobby`: port 4433, the client's default, with rooms on 4434–4443;
   it needs the certs). To drive it as an agent, open
-  `?agent=lockstep&map=e1m1&skill=1` and call `icaro.help()` in the page.
+  `?agent=lockstep&map=e1m1&skill=1`, press the intro page's Play button, and
+  call `icaro.help()` in the page.
 - CI (`.github/workflows/ci.yml`) runs on PRs to `dev` and `main` and on pushes
   to them: a check that no pak but `static/pak0.pak` is tracked, then
   `deno fmt --check`, test, lint and check, on the Deno version pinned in
@@ -297,11 +302,16 @@ and `static/rogue/`, and the 2021 rerelease in `static/rerelease/`,
 deployed publicly; `.gitignore` covers those paths and every `.pak` but
 `static/pak0.pak`, and CI fails if another pak is tracked. `.gitignore` also
 covers `static/music/`, a player's CD rips, which `sw.js` caches on the player's
-device for offline play (no other `music/` folder is cached). The client loads a
-mission pack with `?game=hipnotic` or `?game=rogue`, a rerelease add-on with
-`?game=mg1` (etc.), and the rerelease layout with `?base=rerelease`; the servers
-take `-hipnotic`, `-rogue` or `-game <dir>`. If the data isn't present, test
-that the shareware game is unchanged and list manual test steps in the PR.
+device for offline play (no other `music/` folder is cached). LibreQuake, the
+browser's default content, is never committed or deployed either: it is
+downloaded into the player's browser storage, and `static/librequake/` (a local
+copy for testing, and the release zips under `v0.09-beta/`) is gitignored and
+denied by the client build. The client loads a mission pack with
+`?game=hipnotic` or `?game=rogue`, a rerelease add-on with `?game=mg1` (etc.),
+the rerelease layout with `?base=rerelease`, LibreQuake with `?base=librequake`
+and id's data with `?base=id1`; the servers take `-hipnotic`, `-rogue` or
+`-game <dir>`. If the data isn't present, test that the shareware game is
+unchanged and list manual test steps in the PR.
 
 ## Git workflow
 

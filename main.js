@@ -18,6 +18,7 @@ import { renderer } from "./src/vid.js";
 import { Draw_CachePicFromPNG, Draw_GetOverlayCanvas } from "./src/gl_draw.js";
 import { XR_Init } from "./src/webxr.js";
 import { UD_Init, UD_MountPaks } from "./src/userdata.js";
+import { Intro_Gate } from "./src/intro.js";
 import { PWA_InitLaunchQueue } from "./src/pwa_launch.js";
 import {
   CDAudio_SetTrackURLProvider,
@@ -66,9 +67,15 @@ const MISSION_PACKS = ["rogue", "hipnotic"];
 const GAME_DIRS = ["mg1", "mg3", "dopa", "ctf"]; // the 2021 rerelease's add-ons
 
 // ?base=rerelease stands in for -basedir: the 2021 rerelease's directories,
-// static/rerelease/id1 and static/rerelease/<game>. Without it, id1's paks
-// are static/pak*.pak and game directories are static/<game>.
-const BASE_DIRS = { rerelease: "static/rerelease" };
+// static/rerelease/id1 and static/rerelease/<game>. ?base=librequake is
+// LibreQuake, kept in the browser's storage under static/librequake/id1
+// (src/librequake.js). Without either (?base=id1), id1's paks are
+// static/pak*.pak and game directories are static/<game>. The intro page
+// (src/intro.js) picks the base when the URL doesn't.
+const BASE_DIRS = {
+  rerelease: "static/rerelease",
+  librequake: "static/librequake",
+};
 
 // ?particles=<n> stands in for -particles <n> (r_part.c R_InitParticles
 // sizes the particle pool from it). Only whole numbers are passed on. C has
@@ -145,7 +152,8 @@ async function main() {
       );
     }
 
-    const base = urlParams.get("base");
+    // No game data is fetched before a person presses Play on the intro page
+    const base = await Intro_Gate(urlParams);
     let basedir = "static";
     let id1dir = "static";
     if (Object.hasOwn(BASE_DIRS, base)) {

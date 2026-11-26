@@ -4,8 +4,10 @@
 //
 // What it caches, and how:
 // - static/pak0.pak (the shareware pak) and version-pinned CDN modules
-//   (three, nipplejs from cdn.jsdelivr.net/npm/<name>@<version>/): cache
-//   first. Their contents never change under the same URL.
+//   (three, nipplejs and zip.js from cdn.jsdelivr.net/npm/<name>@<version>/):
+//   cache first. Their contents never change under the same URL. Each is
+//   cached when the page first asks for it, so pak0 is cached only once a
+//   person has pressed Play on the intro page (src/intro.js).
 // - Music in static/music/ (a player's own static/music/trackNN.ogg or .mp3):
 //   cache first, in a cache of its own. Media elements read with Range and
 //   cache.put rejects a 206, so a track that isn't cached streams from the
@@ -27,13 +29,17 @@
 //   A successful response is copied into the cache; offline, the cached copy
 //   is served.
 // - Not cached: other paks (registered or rerelease data: big, and lazy paks
-//   are read with Range requests), music in any other music/ directory (the
+//   are read with Range requests), anything under static/librequake/ (the
+//   LibreQuake download, 56 to 116 MB, which src/librequake.js keeps in the
+//   browser's storage itself), music in any other music/ directory (the
 //   mission packs' and the rerelease's: their paks aren't cached, so an
 //   offline launch can't use it) and any other request carrying a Range
 //   header. Offline, these get a 404, which the pak loader treats as "no such
 //   pak", so an offline launch still starts.
 //
-// On install it fetches the shell and pak0. The first page load runs before
+// On install it fetches the shell, but no pak: a bot that loads the page
+// runs this too, and nothing pak-related is fetched before a person acts
+// (src/intro.js). The first page load runs before
 // this worker controls it, so once the page has loaded it posts the URLs it
 // fetched (main.js, src/*.js, three's files) and the worker caches those
 // too, music last. No file list is kept here, so new modules need no change to
@@ -62,13 +68,14 @@ const SHELL = [
   "static/icon-maskable-512.png",
   "static/apple-touch-icon.png",
   "static/mainmenu.png",
-  "static/pak0.pak",
 ];
 
 const PAK0_PATH = "static/pak0.pak";
 // CD tracks as cd_audio.js names them (CDAudio_TrackURLs)
 const TRACK_FILE = /\/music\/track\d{2,}\.(ogg|mp3)$/i;
 const OFFLINE_MUSIC_DIR = "static/music/";
+// The LibreQuake download and a developer's unpacked copy (src/librequake.js)
+const LIBREQUAKE_DIR = "static/librequake/";
 const MEDIA_EXT = /\.(ogg|mp3|wav|flac|opus|m4a)$/i;
 const CDN_HOST = "cdn.jsdelivr.net";
 // npm package with an exact version: /npm/three@0.183.0/...
@@ -98,6 +105,9 @@ function SW_Route(request) {
     const scope = scopeURL();
     if (url.pathname === new URL(PAK0_PATH, scope).pathname) return "pak0";
     if (/\.pak$/i.test(url.pathname)) return "passthrough";
+    if (url.pathname.startsWith(new URL(LIBREQUAKE_DIR, scope).pathname)) {
+      return "passthrough";
+    }
     if (TRACK_FILE.test(url.pathname)) {
       const dir = new URL(OFFLINE_MUSIC_DIR, scope).pathname;
       const cached = url.pathname.startsWith(dir) &&

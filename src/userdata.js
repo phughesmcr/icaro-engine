@@ -13,12 +13,21 @@
 // pak is read back through Blob.slice. Nothing here touches window, document
 // or navigator at import time: the server and the tests import pak.js and
 // cl_demo.js, which import this.
+//
+// LibreQuake, the game's standard content (src/librequake.js), is kept in the
+// same store: its files under the URLs ?base=librequake fetches
+// (static/librequake/id1/...), mounted only once its manifest is stored.
 
-import { COM_AddVirtualFile, COM_SetUserPaks } from "./pak.js";
+import {
+  COM_AddVirtualFile,
+  COM_SetUserFiles,
+  COM_SetUserPaks,
+} from "./pak.js";
 import { Con_Printf } from "./common.js";
 import { Cbuf_AddText, Cmd_AddCommand } from "./cmd.js";
 import { key_dest, key_menu, Key_WriteBindings } from "./keys.js";
 import { Cvar_WriteVariables } from "./cvar.js";
+import { CDAudio_SetStoredTracks } from "./cd_audio.js";
 
 // localStorage keys of host_cmd.js (saves) and host.js (config)
 const SAVE_STORAGE_PREFIX = "quake_save_";
@@ -32,6 +41,34 @@ const IDB_STORE = "files";
 // Store keys: a pak's is the URL main.js would fetch it from (lower case), a
 // demo's "demos/<name>.dem"
 const DEMO_PREFIX = "demos/";
+
+/** Store keys of LibreQuake's files: the URLs ?base=librequake fetches. */
+export const UD_LQ_PREFIX = "static/librequake/id1/";
+/**
+ * Store key of LibreQuake's manifest, written last by src/librequake.js: its
+ * files are mounted only when it is there.
+ */
+export const UD_LQ_MANIFEST = "librequake/manifest.json";
+/** Store keys of a LibreQuake download's parts, kept so it can resume. */
+export const UD_LQ_PARTS = "librequake/download/";
+
+/**
+ * localStorage key of the content a person last picked to play (src/intro.js
+ * Intro_Decide): "librequake" or "id1". Set only by a click.
+ */
+export const UD_CHOICE_KEY = "icaro_content";
+
+/** Remembers the content a person picked; storage refused is no error. */
+export function UD_RememberChoice(base) {
+  try {
+    localStorage.setItem(UD_CHOICE_KEY, base);
+  } catch {
+    // no localStorage: the intro asks again next time
+  }
+}
+
+// CD tracks (music/trackNN.ogg or .mp3) among stored loose files
+const UD_TRACK_FILE = /\/music\/track\d{2,}\.(ogg|mp3)$/;
 
 /**
  * What a pak is, from the names in its directory (a Set of lower-case names):
@@ -119,13 +156,19 @@ export async function UD_ReadPakNames(blob) {
 /**
  * The games a set of stored keys can start, each { label, query } with the
  * query string for main.js. A rerelease add-on needs the rerelease's id1.
+ * id's own data is ?base=id1, since a launch without ?base plays the content
+ * the intro last started (src/intro.js).
  */
 export function UD_PlayOptions(keys) {
   const has = (dir) => keys.has(UD_PakKey(dir));
-  const out = [{
+  const out = [];
+  if (keys.has(UD_LQ_MANIFEST)) {
+    out.push({ label: "LibreQuake", query: "?base=librequake" });
+  }
+  out.push({
     label: has("id1") ? "Quake (registered)" : "Quake (shareware)",
-    query: "",
-  }];
+    query: "?base=id1",
+  });
   if (has("hipnotic")) {
     out.push({ label: "Scourge of Armagon", query: "?game=hipnotic" });
   }
@@ -288,16 +331,33 @@ export function UD_OpenStore() {
 }
 
 /**
- * Called by main.js before the paks load: hands the stored paks to pak.js and
- * adds the stored demos as loose files. Never throws: without storage, or
- * with a store it can't read, the game starts with the server's data.
+ * Called by main.js before the paks load: hands the stored paks and loose
+ * files to pak.js, the stored CD tracks to cd_audio.js, and adds the stored
+ * demos as loose files. Never throws: without storage, or with a store it
+ * can't read, the game starts with the server's data. store stands in for
+ * the browser's in tests.
  */
-export async function UD_MountPaks() {
+export async function UD_MountPaks(store = undefined) {
   try {
-    const store = await UD_OpenStore();
+    if (store === undefined) store = await UD_OpenStore();
     if (store === null) return;
+    const items = await store.list();
+    // LibreQuake's files count only once all of them are in (the manifest)
+    const lq = items.some((i) => i.key === UD_LQ_MANIFEST);
     const paks = new Map();
-    for (const { key } of await store.list()) {
+    const files = new Map();
+    const tracks = new Map();
+    let own = 0;
+    for (const { key } of items) {
+      const isLq = key.startsWith(UD_LQ_PREFIX);
+      if (isLq && lq === false) continue;
+      // the download's parts (librequake/download/) are never mounted
+      if (
+        key.startsWith("static/") === false &&
+        key.startsWith(DEMO_PREFIX) === false
+      ) {
+        continue;
+      }
       const blob = await store.get(key);
       if (blob === null) continue;
       if (key.startsWith(DEMO_PREFIX)) {
@@ -307,12 +367,20 @@ export async function UD_MountPaks() {
         );
       } else if (key.startsWith("static/") && key.endsWith(".pak")) {
         paks.set(key, blob);
+        if (isLq === false) own++;
+      } else if (UD_TRACK_FILE.test(key)) {
+        tracks.set(key, URL.createObjectURL(blob));
+      } else if (key.startsWith("static/")) {
+        files.set(key, blob);
       }
     }
     COM_SetUserPaks(paks);
-    if (paks.size > 0) {
-      Con_Printf("%d pak(s) of your own in %s\n", paks.size, store.kind);
+    COM_SetUserFiles(files);
+    CDAudio_SetStoredTracks(tracks);
+    if (own > 0) {
+      Con_Printf("%d pak(s) of your own in %s\n", own, store.kind);
     }
+    if (lq) Con_Printf("LibreQuake in %s\n", store.kind);
   } catch (e) {
     Con_Printf("Couldn't read your game data: %s\n", e.message);
   }
@@ -517,8 +585,34 @@ async function UD_Fill(body, status) {
   items.sort((a, b) => a.key < b.key ? -1 : 1);
   const keys = new Set(items.map((i) => i.key));
 
+  const isLq = (key) =>
+    key.startsWith(UD_LQ_PREFIX) || key.startsWith("librequake/");
+  const lqItems = items.filter((i) => isLq(i.key));
+  if (lqItems.length > 0) {
+    UD_El("h3", "LibreQuake", body);
+    const row = UD_El("div", null, body);
+    row.className = "ud-row";
+    const bytes = lqItems.reduce((n, i) => n + i.size, 0);
+    UD_El(
+      "span",
+      (keys.has(UD_LQ_MANIFEST) ? "Installed" : "Part downloaded") + " (" +
+        UD_Size(bytes) + ")",
+      row,
+    );
+    UD_Button("Remove", row, async () => {
+      // the manifest first, so a removal cut short leaves nothing mounted
+      await store.remove(UD_LQ_MANIFEST);
+      for (const item of lqItems) await store.remove(item.key);
+      status.textContent = "Removed LibreQuake. Restart the game to stop " +
+        "using it.";
+      UD_Fill(body, status);
+    });
+  }
+
   UD_El("h3", "Your paks", body);
-  const paks = items.filter((i) => !i.key.startsWith(DEMO_PREFIX));
+  const paks = items.filter((i) =>
+    !i.key.startsWith(DEMO_PREFIX) && !isLq(i.key)
+  );
   if (store === null) {
     UD_El("p", "This browser has no storage for game data.", body);
   } else if (paks.length === 0) {
@@ -542,6 +636,9 @@ async function UD_Fill(body, status) {
   play.className = "ud-row";
   for (const opt of UD_PlayOptions(keys)) {
     UD_Button(opt.label, play, () => {
+      // a plain launch plays this from now on (src/intro.js)
+      const base = new URLSearchParams(opt.query).get("base");
+      if (base === "librequake" || base === "id1") UD_RememberChoice(base);
       // keep the other parameters (lobby, quality...) but the game's own
       const params = new URLSearchParams(location.search);
       params.delete("game");

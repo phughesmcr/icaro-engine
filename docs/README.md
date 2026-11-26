@@ -44,6 +44,9 @@ AGENTS.md, Git workflow).
   the ASCII `map` tier, the numeric `rl` tier, the browser-only `screen` tier
   and a Gymnasium env (`tools/gym/icaro_env.py`); its status section says what
   isn't. A snapshot.
+- `librequake-content.md`: LibreQuake as the browser's standard content: the
+  intro page and its gate, full or lite, resumable download and hash check,
+  quota, hosting the zips, and the CSP. Its status line says what is built.
 - `style-cleanup-plan.md`: plan to adopt `deno fmt` (two-space indent, 80
   columns) and collapse the C-style comment banners, with trial results, tiers,
   neutrality checks and how open PRs catch up. Its status line says which tiers

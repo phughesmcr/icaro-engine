@@ -129,7 +129,8 @@ On phones and tablets the game shows touch controls. Play in landscape.
 
 ### AI agents
 
-The page has a JavaScript API for LLM agents and scripts, `window.icaro`: run
+The page has a JavaScript API for LLM agents and scripts, `window.icaro`: press
+the intro page's Play button (no game data loads before it), then run
 `icaro.help()` in the page. `?agent=lockstep` freezes the game between the
 agent's steps (`?agent=realtime` leaves it running), and `?map=e1m1&skill=1`
 starts a map instead of the intro demos.

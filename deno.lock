@@ -103,6 +103,10 @@
       "integrity": "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="
     }
   },
+  "remote": {
+    "https://cdn.jsdelivr.net/npm/@zip.js/zip.js@2.25.0/dist/zip-core-external.min.js": "d67a5754897c6f08f60015b7bdb60a837c709c96f2f04e2f750465a348213f8d",
+    "https://cdn.jsdelivr.net/npm/@zip.js/zip.js@2.25.0/dist/zip-web-worker.js": "176f5edcda68347df4d7c9208bfd111083224d7508e35660b55f87f7b9e23046"
+  },
   "workspace": {
     "dependencies": [
       "npm:@modelcontextprotocol/server@2.4.0",

@@ -258,8 +258,8 @@ function COM_FindPackFile(search) {
  * extension) of the files directly in dir ('maps', or '' for the root) with the
  * given extension, from the loaded packs and the preloaded loose files. Files
  * of minsize bytes or fewer are skipped. Console tab completion uses it like
- * Ironwail's ExtraMaps_Init (maps over 32k, so not the b_*.bsp item models) and
- * DemoList_Init.
+ * Ironwail's ExtraMaps_Init (maps over 32k, so not id's b_*.bsp item models;
+ * LibreQuake's are up to 42k, so the size rule lists them) and DemoList_Init.
  */
 export function COM_ListFiles(dir, ext, minsize) {
   const prefix = dir.length > 0 ? dir.toLowerCase() + "/" : "";
@@ -419,8 +419,11 @@ export async function COM_PreloadLooseFile(filename, url) {
   try {
     let data;
 
-    // Check if running in Deno
-    if (typeof Deno !== "undefined") {
+    // a loose file in the browser's storage (see COM_SetUserFiles) first
+    const user = com_userfiles.get(url.toLowerCase());
+    if (user !== undefined) {
+      data = new Uint8Array(await user.arrayBuffer());
+    } else if (typeof Deno !== "undefined") {
       // Load from filesystem in Deno
       try {
         data = await Deno.readFile(url);
@@ -558,14 +561,15 @@ export function COM_SetLazyPakSize(size) {
 
 /**
  * True when a lazily opened pak's entry is fetched only on demand through
- * COM_EnsureFile rather than at load: maps bigger than 32k (not the b_*.bsp
- * item models, as in COM_ListFiles), the mapper texture wads in gfx/, .lit files
- * (fetched with their map), and file types and directories the engine never
- * reads.
+ * COM_EnsureFile rather than at load: maps bigger than 32k (as in
+ * COM_ListFiles) but never the b_*.bsp item models, which QuakeC precaches
+ * synchronously and LibreQuake's are up to 42k; the mapper texture wads in
+ * gfx/, .lit files (fetched with their map), and file types and directories
+ * the engine never reads.
  */
 export function COM_PakEntryIsDeferred(name, filelen) {
   if (name.startsWith("maps/") && name.endsWith(".bsp")) {
-    return filelen > 32 * 1024;
+    return filelen > 32 * 1024 && name.startsWith("maps/b_") === false;
   }
   if (name.startsWith("gfx/") && name.endsWith(".wad")) {
     return true;
@@ -688,6 +692,18 @@ let com_userpaks = new Map();
  */
 export function COM_SetUserPaks(paks) {
   com_userpaks = paks;
+}
+
+// Loose files in the browser's storage, by lower-case URL, as com_userpaks
+let com_userfiles = new Map();
+
+/**
+ * Not in id's common.c. Sets loose files kept in the browser's storage (a Map
+ * from lower-case URL, such as "static/librequake/id1/maps/lqdm1.bsp", to
+ * Blob). COM_PreloadLooseFile reads one in place of fetching its URL.
+ */
+export function COM_SetUserFiles(files) {
+  com_userfiles = files;
 }
 
 /**

@@ -507,7 +507,8 @@ function CompleteFileList(partial, dir, ext, minsize) {
   }
 }
 
-// maps over 32k, so not the b_*.bsp item models (Ironwail ExtraMaps_Init)
+// maps over 32k, so not id's b_*.bsp item models (Ironwail ExtraMaps_Init);
+// LibreQuake's item models are up to 42k and are listed
 function CompleteMaps(partial) {
   if (tab_argc < 3) {
     CompleteFileList(partial, "maps", "bsp", 32 * 1024);

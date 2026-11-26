@@ -66,6 +66,15 @@ export function CDAudio_SetTrackURLProvider(fn) {
   _getTrackURL = fn;
 }
 
+// Tracks kept in the browser's storage (src/userdata.js UD_MountPaks): the
+// lower-case URL CDAudio_TrackURLs would give, to a blob: URL of the file
+let storedTracks = new Map();
+
+/** Web-only: sets the stored tracks, which play in place of their URLs. */
+export function CDAudio_SetStoredTracks(tracks) {
+  storedTracks = tracks;
+}
+
 /**
  * Candidate URLs for a track's CD rip, as QuakeSpasm/Ironwail's BGM_PlayCDtrack
  * looks for music/trackNN.<ext>: game directories in search-path priority
@@ -78,7 +87,8 @@ export function CDAudio_TrackURLs(track, gamedirs) {
 
   for (const dir of gamedirs) {
     for (const ext of MUSIC_EXTENSIONS) {
-      urls.push(dir + "/" + MUSIC_DIRNAME + "/" + name + "." + ext);
+      const url = dir + "/" + MUSIC_DIRNAME + "/" + name + "." + ext;
+      urls.push(storedTracks.get(url.toLowerCase()) ?? url);
     }
   }
 
