@@ -94,6 +94,14 @@ Deno.test("VID_GetPixelRatio detects touch-primary devices", () => {
   }, () => {
     assertEqual(VID_GetPixelRatio(), 3, "touch laptop with a mouse");
   });
+  // hover alone, with no fine pointer, is still a phone
+  withWindow({
+    devicePixelRatio: 3,
+    location: { search: "" },
+    matchMedia: media(true, false, true),
+  }, () => {
+    assertEqual(VID_GetPixelRatio(), 2, "coarse and hover only");
+  });
   // measured on a Galaxy S25 Ultra: the stylus is fine but can't hover
   withWindow({
     devicePixelRatio: 3.5,
