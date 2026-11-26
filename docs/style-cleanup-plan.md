@@ -369,8 +369,8 @@ commits.
 ## Side effects to expect
 
 - `src/x.js:123` line references in the snapshot docs (`docs/port-review.md` and
-  others) go stale. They are snapshots, so leave them. Tier 3 only reformatted
-  the docs and fixed none of them.
+  others) go stale. Tier 3 only reformatted the docs; #228 then updated the
+  references.
 - Reading the port side by side with the C changes: C uses tabs and `foo( a )`
   spacing. The `quake-c-reference` skill finds functions by name and compares
   behaviour, not layout, so its steps still apply.
