@@ -89,9 +89,11 @@ JS name) for gl_doubleeys (the console name).
 Deno.test( 'advanced menu: every row is a real cvar whose default the row can reach', async () => {
 
 	const defaults = new Map();
+	// Either quote and any spacing, so the patterns hold with or without
+	// deno fmt's layout. Group 2 is the name and group 4 the default
 	const patterns = [
-		/name: '([A-Za-z0-9_]+)', string: '([^']*)'/g,
-		/new cvar_t\( '([A-Za-z0-9_]+)', '([^']*)'/g
+		/name:\s*(['"])([A-Za-z0-9_]+)\1,\s*string:\s*(['"])([^'"]*)\3/g,
+		/new cvar_t\(\s*(['"])([A-Za-z0-9_]+)\1,\s*(['"])([^'"]*)\3/g
 	];
 	for await ( const entry of Deno.readDir( new URL( '../src/', import.meta.url ) ) ) {
 
@@ -100,7 +102,7 @@ Deno.test( 'advanced menu: every row is a real cvar whose default the row can re
 		const text = await Deno.readTextFile( new URL( '../src/' + entry.name, import.meta.url ) );
 		for ( const re of patterns )
 			for ( const m of text.matchAll( re ) )
-				defaults.set( m[ 1 ], Number( m[ 2 ] ) );
+				defaults.set( m[ 2 ], Number( m[ 4 ] ) );
 
 	}
 

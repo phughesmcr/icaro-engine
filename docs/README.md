@@ -37,3 +37,7 @@ feature PR (see AGENTS.md, Git workflow).
   graph (`src/nav.js`, built offline by `tools/nav/nav_build.js` and at map
   load in agent games) and the `goto` macro; its status section says what
   isn't. A snapshot.
+- `style-cleanup-plan.md`: plan, not yet carried out, to adopt `deno fmt`
+  (two-space indent, 80 columns) and collapse the C-style comment banners,
+  with trial results, tiers, neutrality checks and how open PRs catch up.
+  The style rules in AGENTS.md apply until it lands.

@@ -165,6 +165,8 @@ Deno.test( 'MOD-4: ftos/vtos padding and OP_NE_S strcmp', () => {
 Deno.test( 'MOD-2: COM_CheckRegistered sets registered from gfx/pop.lmp', () => {
 
 	// big-endian dump of the pop[] table from common.c, as stored in pak1
+	// A table kept in rows: deno fmt would give each entry its own line
+	// deno-fmt-ignore
 	const popShorts = [
 		0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
 		0x0000, 0x0000, 0x6600, 0x0000, 0x0000, 0x0000, 0x6600, 0x0000,

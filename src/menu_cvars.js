@@ -17,6 +17,8 @@ const SCALES = [ 0, 1, 2, 3, 4, 5, 6 ];
 const SCALE_NAMES = [ 'auto', '1', '2', '3', '4', '5', '6' ];
 const OFF_ON_SMOOTH = [ 'off', 'on', 'smooth' ];
 
+// A table kept in rows: deno fmt would split each menu row
+// deno-fmt-ignore
 export const advancedPages = [
 	{
 		title: 'Display & HUD',
