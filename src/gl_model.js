@@ -697,6 +697,11 @@ let decompressed = new Uint8Array(0);
 // (alias skins: the fullbright texture's alpha is the mask the alias shader
 // mixes by); without it they are blacked out of the base (world textures,
 // drawn with the fullbright texture as an emissive map).
+// fence marks a world cutout ('{') texture, passed with alpha set (Ironwail's
+// TEXPREF_ALPHA): index 255 is transparent, TexMgr_AlphaEdgeFix recolours
+// those texels, and texture._cutout tells gl_rsurf.js to alpha-test it. As in
+// TexMgr_LoadImage8's "detect false alpha cases", a fence texture with no
+// index 255 texel loads opaque.
 
 export function GL_LoadTexture(
   name,
@@ -707,6 +712,7 @@ export function GL_LoadTexture(
   alpha,
   splitFullbright,
   keepBase = false,
+  fence = false,
 ) {
   // Not in the C: a dedicated server never uploads or draws, so it keeps
   // the texture object (models still own and dispose one per texture) but
@@ -741,6 +747,7 @@ export function GL_LoadTexture(
   const rgba = new Uint8Array(width * height * 4);
   const fullbrightStart = vid.fullbright; // palette index 224+
   let hasFullbright = false;
+  let hasTransparent = false;
   let fullbrightTexture = null;
 
   for (let i = 0; i < width * height; i++) {
@@ -748,8 +755,9 @@ export function GL_LoadTexture(
 
     // gl_draw.c GL_Upload8 copies d_8to24table[ p ] for every texel; the
     // table's entry 255 has alpha 0 (VID_SetPalette), so a transparent
-    // texel ('{' textures, MF_HOLEY skins) keeps the palette RGB for the
-    // filter and mipmaps to blend, not black.
+    // texel (MF_HOLEY skins, sprites) keeps the palette RGB for the filter
+    // and mipmaps to blend, not black. Fence textures replace it below
+    // (TexMgr_AlphaEdgeFix).
     const color = d_8to24table[palIdx];
     rgba[i * 4] = color & 0xff;
     rgba[i * 4 + 1] = (color >> 8) & 0xff;
@@ -757,6 +765,7 @@ export function GL_LoadTexture(
 
     if (alpha && palIdx === 255) {
       rgba[i * 4 + 3] = 0;
+      hasTransparent = true;
     } else {
       rgba[i * 4 + 3] = 255;
       if (palIdx >= fullbrightStart) hasFullbright = true;
@@ -787,7 +796,17 @@ export function GL_LoadTexture(
           rgba[i * 4 + 1] = 0;
           rgba[i * 4 + 2] = 0;
         }
+      } else if (fence === true && palIdx !== 255) {
+        // Ironwail's d_8to24table_fbright_fence: only index 255 is
+        // transparent; the other non-fullbright texels are opaque black, so
+        // TexMgr_AlphaEdgeFix averages them in. The emissive map reads RGB
+        // only, so their alpha changes nothing else.
+        fbRgba[i * 4 + 3] = 255;
       }
+    }
+
+    if (fence === true && hasTransparent === true) {
+      TexMgr_AlphaEdgeFix(fbRgba, width, height);
     }
 
     fullbrightTexture = new THREE.DataTexture(
@@ -808,8 +827,16 @@ export function GL_LoadTexture(
     if (loadmodel != null) loadmodel._threeTextures.add(fullbrightTexture);
   }
 
+  // Ironwail runs it on the 32-bit base level only (after the fullbright
+  // black-out: the NOBRIGHT fence palette); its mipmaps are plain 2x2 RGBA
+  // averages, as WebGL's generateMipmap makes.
+  if (fence === true && hasTransparent === true) {
+    TexMgr_AlphaEdgeFix(rgba, width, height);
+  }
+
   const texture = new THREE.DataTexture(rgba, width, height, THREE.RGBAFormat);
   texture.name = name;
+  if (fence === true && hasTransparent === true) texture._cutout = true;
   // gl_draw.c GL_Upload32: filters from gl_texturemode
   GL_SetTextureFilter(texture, mipmap);
   texture.wrapS = THREE.RepeatWrapping;
@@ -831,6 +858,62 @@ export function GL_LoadTexture(
   if (loadmodel != null) loadmodel._threeTextures.add(texture);
 
   return texture;
+}
+
+/**
+ * TexMgr_AlphaEdgeFix (Ironwail/QuakeSpasm gl_texmgr.c): "eliminate pink
+ * edges". Each transparent texel takes the average RGB of its opaque
+ * neighbours (all eight, wrapping at the edges), so filtering and mipmaps
+ * blend towards the surrounding colour rather than palette entry 255. Works in
+ * place on RGBA data, and reads texels it has already fixed, as the C does.
+ */
+export function TexMgr_AlphaEdgeFix(data, width, height) {
+  let n = 0;
+  let c0 = 0;
+  let c1 = 0;
+  let c2 = 0;
+  let dest = 0;
+
+  for (let i = 0; i < height; i++) {
+    const lastrow = width * 4 * ((i === 0) ? height - 1 : i - 1);
+    const thisrow = width * 4 * i;
+    const nextrow = width * 4 * ((i === height - 1) ? 0 : i + 1);
+
+    for (let j = 0; j < width; j++, dest += 4) {
+      if (data[dest + 3] !== 0) continue; // not transparent
+
+      const lastpix = 4 * ((j === 0) ? width - 1 : j - 1);
+      const thispix = 4 * j;
+      const nextpix = 4 * ((j === width - 1) ? 0 : j + 1);
+
+      // the eight neighbours: three rows by three columns, less this texel
+      for (let r = 0; r < 3; r++) {
+        const row = r === 0 ? lastrow : (r === 1 ? thisrow : nextrow);
+        for (let p = 0; p < 3; p++) {
+          if (r === 1 && p === 1) continue;
+          const b = row + (p === 0 ? lastpix : (p === 1 ? thispix : nextpix));
+          if (data[b + 3] !== 0) {
+            c0 += data[b];
+            c1 += data[b + 1];
+            c2 += data[b + 2];
+            n++;
+          }
+        }
+      }
+
+      // average all non-transparent neighbors
+      if (n !== 0) {
+        data[dest] = (c0 / n) | 0;
+        data[dest + 1] = (c1 / n) | 0;
+        data[dest + 2] = (c2 / n) | 0;
+        n =
+          c0 =
+          c1 =
+          c2 =
+            0;
+      }
+    }
+  }
 }
 
 function GL_SubdivideSurface(s) {
@@ -1450,14 +1533,19 @@ function Mod_LoadTextures(fileofs, filelen) {
       // splitting out fullbright pixels would black them out (*lava1 is
       // entirely fullbright).
       const splitFullbright = name[0] !== "*";
+      // QuakeSpasm/Ironwail (ericw): '{' textures are fences, TEXPREF_ALPHA,
+      // drawn alpha-tested (Ironwail TEXTYPE_CUTOUT, SURF_DRAWFENCE)
+      const fence = name[0] === "{";
       tx.gl_texture = GL_LoadTexture(
         name,
         tx.width,
         tx.height,
         tx.pixels,
         true,
-        false,
+        fence,
         splitFullbright,
+        false,
+        fence,
       );
     }
   }
