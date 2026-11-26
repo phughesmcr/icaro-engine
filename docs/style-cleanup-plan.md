@@ -22,7 +22,7 @@ Measured over `src/`, `main.js`, `tests/`, `server/` and `cloudflare/lobby/src/`
 | Blank line straight before `}` | 9,986 | `deno fmt` |
 | Lines with `( x )` paren padding | ~37,600 | `deno fmt` |
 | Lines with `[ x ]` bracket padding | ~9,700 | `deno fmt` |
-| `/* ===== Name ===== */` banners in `src/` and `main.js` | 1,202 (756 with notes) | banner codemod |
+| `/*` / `=====` / Name / `=====` / `*/` banners in `src/` and `main.js` | 1,202 (756 with notes) | banner codemod |
 | Empty `//` lines (mostly `//` / `// Section` / `//` boxes) | 434 | banner codemod |
 | `if ( !x )` / `while ( !x )` falsy checks | 553 | not swept (tier 4) |
 | Bare `let a, b;` hoisted to the top of a function, in `src/` | 162 | not swept (tier 4) |
@@ -72,8 +72,10 @@ out of `exclude` in tier 3.
   `tools/` (JS and TS), and the JSON and JSONC files outside the excluded
   folders (`deno.json`, `server/deno.json`, both `wrangler.jsonc`).
 - `server/` was going to keep its own formatting. A single formatter for the
-  whole repository replaces that rule; `server/` already uses two-space
-  indents, so it changes least (+4.3k / -3.3k lines).
+  whole repository replaces that rule. Most of `server/` is tab-indented;
+  only four `.ts` drivers use two spaces (`client_address.ts`,
+  `net_websocket_server.ts`, `net_webtransport_server.ts`, `quic_listen.ts`).
+  It is small, so it changes least (+4.3k / -3.3k lines).
 - `tools/` has no tests and isn't linted or run in CI. For those files the AST
   check below is the only proof that nothing changed.
 - Not formatted: `static/`, `tests/fixtures/`, `.claude/`, `.vscode/`, HTML,
@@ -165,7 +167,9 @@ any hand edits go in an earlier commit.
     layout.
   - `.claude/skills/pr/SKILL.md`: drop "Don't format with `deno fmt`".
   - `.editorconfig`: `indent_style = space` and `indent_size = 2` under
-    `[*]`, and remove the now-redundant `server/*.ts` section.
+    `[*]`, and remove the now-redundant
+    `[server/{client_address,net_websocket_server,net_webtransport_server,quic_listen}.ts]`
+    section.
   - `.vscode/settings.json`: `editor.insertSpaces: true`,
     `editor.tabSize: 2`, and optionally `editor.formatOnSave: true` with
     Deno as the formatter. The sandbox protects this file, so the maintainer
