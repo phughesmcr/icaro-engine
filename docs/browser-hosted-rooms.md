@@ -439,6 +439,14 @@ Decided by the maintainer on 2026-11-25:
 - **TURN:** the maintainer will create the Cloudflare Realtime TURN key,
   including a billing method if it asks for one. The lobby Worker holds the
   key's token as a secret; no agent creates keys or accounts.
+  - Done on 2026-11-25. A `generate-ice-servers` call with a 600 s TTL
+    returned [measured]:
+    - STUN on `stun.cloudflare.com` ports 3478 and 443;
+    - one username and credential for TURN on `turn.cloudflare.com`:
+      UDP on 3478 and 443, TCP on 3478 and 80, and TLS (`turns:`) on 5349
+      and 443.
+  - Pass that list to peers as it is. TURN over TCP 80 and TLS 443 gets
+    through networks that block UDP.
 
 - **Snapshot rate:** joiners get the C's per-frame rate, with no 20 Hz cap.
 - **Room listing:** the host chooses. A room is private by default, joinable
