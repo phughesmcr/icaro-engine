@@ -116,10 +116,9 @@ export function RoomManager_SetConfig(config: {
   }
   if (config.wsEnabled !== undefined) wsEnabled = config.wsEnabled === true;
   if (config.gameDir !== undefined) {
-    gameDir =
-      config.gameDir !== null && /^[A-Za-z0-9_-]+$/.test(config.gameDir) ?
-        config.gameDir :
-        null;
+    gameDir = config.gameDir !== null && /^[A-Za-z0-9_-]+$/.test(config.gameDir)
+      ? config.gameDir
+      : null;
   }
 }
 
@@ -439,13 +438,15 @@ export async function RoomManager_CreateRoom(config: {
     // -game dir, where basedir is the pak's directory, or its parent when
     // that directory is id1
     const pakDir = dirname(absPak);
-    const basedir = basename(pakDir).toLowerCase() === "id1" ?
-      dirname(pakDir) :
-      pakDir;
+    const basedir = basename(pakDir).toLowerCase() === "id1"
+      ? dirname(pakDir)
+      : pakDir;
     const gameNames = gameFlags.map((f) => f.slice(1));
     if (gameDir !== null) gameNames.push(gameDir);
     const gameDirs = gameNames.map((name) => basedir + "/" + name);
-    const readPaths = [staticDir, absPak, absCert, absKey, ...gameDirs];
+    // The pak's own directory too: the pak sequence (pak1.pak...) and loose
+    // maps, .lit files and the like (game_server.js's loose-file base path).
+    const readPaths = [staticDir, pakDir, absPak, absCert, absKey, ...gameDirs];
     if (readPaths.some((p) => p.includes(","))) {
       throw new Error("paths passed to --allow-read must not contain commas");
     }
@@ -453,7 +454,7 @@ export async function RoomManager_CreateRoom(config: {
     // Spawn dedicated server process for this room. Permissions are
     // scoped to what the room needs: listen on its own UDP port (IPv6 and
     // IPv4, see quic_listen.ts), and on the same TCP port on 127.0.0.1
-    // for the lobby's WebSocket proxy, read the pak, the TLS files, loose
+    // for the lobby's WebSocket proxy, read the pak and its directory, the TLS files, loose
     // files under static/ and the game directories (in the pak's basedir,
     // which may be outside static/).
     const command = new Deno.Command(denoPath, {

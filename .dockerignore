@@ -1,13 +1,16 @@
 # Build context for server/Dockerfile (the game-room image). A second guard
 # behind the Dockerfile's COPY allowlist: exclude everything, re-include only
-# the allowlist, then drop secrets and every .pak except the shareware one.
-# Registered and rerelease data must never reach an image.
-# tools/check_container_image.sh (CI) checks this.
+# the allowlist, then drop secrets and every .pak. The context holds no game
+# data: the Dockerfile fetches LibreQuake itself. Registered and rerelease data
+# must never reach an image. tools/check_container_image.sh (CI) checks this.
 *
 !deno.json
+!deno.lock
 !server/
 !src/
-!static/pak0.pak
+!tools/
+tools/*
+!tools/fetch_data.js
 
 # TLS files and env files, even inside the allowlisted directories
 # (server/README.md generates server/cert.pem and server/key.pem).
@@ -17,6 +20,5 @@
 **/.env
 **/.env.*
 
-# Any pak, in any case. The last matching line wins, so pak0.pak comes back.
+# Any pak, in any case, anywhere.
 **/*.[pP][aA][kK]
-!static/pak0.pak

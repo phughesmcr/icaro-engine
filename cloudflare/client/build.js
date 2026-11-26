@@ -3,7 +3,7 @@
 //
 //   deno task client-build [--allow-dirty]
 //
-// Only files git tracks are copied, so gitignored data (registered paks, CD
+// Only files git tracks are copied, so gitignored data (paks, CD
 // rips, certs) can't get in, and every copied path then goes through a deny
 // check as a second guard, as tools/check_container_image.sh does for the
 // room image. The build refuses to run while a client file has uncommitted
@@ -20,16 +20,6 @@ export const CLIENT_FILES = [
 
 /** Folders whose tracked files are copied whole. */
 export const CLIENT_DIRS = ["src/", "static/"];
-
-/** The one pak that may be deployed: the shareware Episode 1. */
-export const CLIENT_SHAREWARE_PAK = "static/pak0.pak";
-
-/**
- * SHA-256 of the shareware pak0.pak (v1.06, 18,689,235 bytes). The path alone
- * would let registered data committed under that name through.
- */
-export const CLIENT_SHAREWARE_PAK_SHA256 =
-  "35a9c55e5e5a284a159ad2a62e0e8def23d829561fe2f54eb402dbc0a9a946af";
 
 /** Workers static assets refuse a file over 25 MiB. */
 export const CLIENT_MAX_FILE_BYTES = 25 * 1024 * 1024;
@@ -73,9 +63,7 @@ export function Client_DenyReason(path) {
     return "not a normalised path";
   }
   const name = parts[parts.length - 1];
-  if (/\.pak$/i.test(name) && path !== CLIENT_SHAREWARE_PAK) {
-    return "a pak other than " + CLIENT_SHAREWARE_PAK;
-  }
+  if (/\.pak$/i.test(name)) return "a pak (no game data is deployed)";
   for (const dir of parts.slice(0, -1)) {
     if (DENIED_DIRS.has(dir.toLowerCase())) {
       return "registered data or CD rips (" + dir + "/)";
@@ -280,12 +268,6 @@ async function main() {
     }
     const to = new URL(path, dist);
     await Deno.mkdir(new URL(".", to), { recursive: true });
-    if (path === CLIENT_SHAREWARE_PAK) {
-      const sha = await Client_Sha256(await Deno.readFile(from));
-      if (sha !== CLIENT_SHAREWARE_PAK_SHA256) {
-        fail(path + " is not the shareware pak (SHA-256 " + sha + ")");
-      }
-    }
     await Deno.copyFile(from, to);
     bytes += size;
   }
