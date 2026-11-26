@@ -159,19 +159,43 @@ function settle() {
 const params = (q) => new URLSearchParams(q);
 
 Deno.test("Intro_Want: the URL's content, else the last pick, else LibreQuake", () => {
-  const want = (q, choice = null) =>
-    JSON.stringify(Intro_Want(params(q), choice));
-  const is = (base, named) => JSON.stringify({ base, named });
+  const want = (q, choice = null, id1 = false) =>
+    JSON.stringify(Intro_Want(params(q), choice, id1));
+  const is = (base, named, missing) =>
+    JSON.stringify(
+      missing === undefined ? { base, named } : { base, named, missing },
+    );
+  // a fresh profile
   assert(want("") === is("librequake", false), "plain launch");
-  assert(want("", "id1") === is(null, false), "picked id's data before");
   assert(want("", "librequake") === is("librequake", false), "picked LQ");
-  assert(want("?base=id1") === is(null, true), "?base=id1");
+  // remembered id's data: only with its pak0 stored
+  assert(want("", "id1") === is("librequake", false), "id1 not stored");
+  assert(want("", "id1", true) === is(null, false), "id1 stored");
+  // ?base=id1
+  assert(
+    want("?base=id1") === is("librequake", true, true),
+    "?base=id1, nothing stored",
+  );
+  assert(want("?base=id1", null, true) === is(null, true, false), "stored");
+  assert(
+    want("?game=hipnotic") === is("librequake", true, true),
+    "mission pack, nothing stored",
+  );
+  assert(
+    want("?game=hipnotic", null, true) === is(null, true, false),
+    "mission pack, stored",
+  );
   assert(want("?base=rerelease") === is("rerelease", true), "rerelease");
   assert(want("?base=librequake") === is("librequake", true), "?base=LQ");
   assert(want("?base=nope") === is("nope", true), "unknown base passed on");
-  // content that needs id's data: mission packs, lobby rooms, e1m1 links
-  for (const q of ["?game=hipnotic", "?room=abc", "?agent=lockstep&map=e1m1"]) {
-    assert(want(q, "librequake") === is(null, true), q);
+  // rooms and map links start LibreQuake, even with id's data stored
+  for (const q of ["?room=abc", "?agent=lockstep&map=lq_e1m1&skill=1"]) {
+    for (const id1 of [false, true]) {
+      assert(
+        want(q, "id1", id1) === is("librequake", true, false),
+        q + " id1=" + id1,
+      );
+    }
   }
   assert(
     want("?base=librequake&map=lq_e1m1") === is("librequake", true),
@@ -181,28 +205,48 @@ Deno.test("Intro_Want: the URL's content, else the last pick, else LibreQuake", 
 
 Deno.test("Intro_Decide asks a first-time visitor whatever the URL says", () => {
   for (
-    const q of ["", "?base=id1", "?room=abc", "?agent=lockstep&map=e1m1"]
+    const q of ["", "?base=id1", "?room=abc", "?agent=lockstep&map=lq_e1m1"]
   ) {
     for (const installed of [false, true]) {
-      const d = Intro_Decide({
-        params: params(q),
-        played: false,
-        choice: null,
-        installed,
-      });
-      assert("ask" in d, q + " installed=" + installed + " asks");
+      for (const id1 of [false, true]) {
+        const d = Intro_Decide({
+          params: params(q),
+          played: false,
+          choice: null,
+          installed,
+          id1,
+        });
+        assert("ask" in d, q + " installed=" + installed + " asks");
+      }
     }
   }
 });
 
 Deno.test("Intro_Decide lets a returning player through unless it must download", () => {
-  const decide = (q, installed, choice = null) =>
-    Intro_Decide({ params: params(q), played: true, choice, installed });
+  const decide = (q, installed, choice = null, id1 = false) =>
+    Intro_Decide({ params: params(q), played: true, choice, installed, id1 });
   assert(decide("", true).start === "librequake", "LibreQuake installed");
   assert("ask" in decide("", false), "LibreQuake not there: ask");
-  assert(decide("", false, "id1").start === null, "picked id's data");
-  assert(decide("?game=rogue", false).start === null, "mission pack");
+  assert(decide("", false, "id1", true).start === null, "picked id's data");
+  assert(
+    decide("", true, "id1").start === "librequake",
+    "remembered id's data, none stored: LibreQuake",
+  );
+  assert(
+    "ask" in decide("", false, "id1"),
+    "remembered id's data, none stored, no LibreQuake: ask",
+  );
+  assert(decide("?game=rogue", false, null, true).start === null, "pack");
   assert("ask" in decide("?base=librequake", false), "LQ link, not there");
+  assert(
+    decide("?room=abc", true, "id1", true).start === "librequake",
+    "room",
+  );
+  // a link to id's data with none stored always shows its page, even with
+  // LibreQuake installed, and never starts id's data
+  const d = decide("?base=id1", true);
+  assert("ask" in d && d.ask.missing === true, "?base=id1, nothing stored");
+  assert(decide("?base=id1", true, null, true).start === null, "stored");
 });
 
 Deno.test("Intro_Describe names what a link starts", () => {
@@ -216,10 +260,11 @@ Deno.test("Intro_Describe names what a link starts", () => {
       "Quake (2021 rerelease): Dimension of the Machine",
     "mg1",
   );
-  assert(Intro_Describe(params("?map=e1m1")) === "Quake", "map");
+  assert(Intro_Describe(params("?map=lq_e1m1")) === "LibreQuake", "map");
+  assert(Intro_Describe(params("?base=id1")) === "Quake", "id's data");
 });
 
-Deno.test("Intro_Gate fetches nothing until the shareware button is pressed", async () => {
+Deno.test("Intro_Gate fetches nothing until a button is pressed", async () => {
   const env = fakeEnv();
   const calls = await withFetchRecorder(async (calls) => {
     let base;
@@ -235,15 +280,20 @@ Deno.test("Intro_Gate fetches nothing until the shareware button is pressed", as
       env.document.focused === env.document.buttons()[0],
       "first button focused",
     );
+    const labels = env.document.buttons().map((b) => b.textContent);
+    assert(
+      !/shareware|Play Quake/.test(labels.join("|")),
+      "no id button without id's pak0: " + labels.join("|"),
+    );
+    assert(!/shareware/i.test(env.document.text()), "no shareware text");
 
-    env.document.button(/shareware/).click();
+    env.document.button(/^Download LibreQuake/).click();
     await gate;
-    assert(base === null, "id's data");
+    assert(base === "librequake", "LibreQuake");
     assert(env.document.getElementById("intro") === null, "page removed");
   });
   assert(calls.length === 0, "the gate itself fetches nothing: " + calls);
   assert(env.local.get(INTRO_PLAYED_KEY) === "1", "played remembered");
-  assert(env.local.get(UD_CHOICE_KEY) === "id1", "choice remembered");
 });
 
 Deno.test("Intro_Gate downloads LibreQuake only when its button is pressed", async () => {
@@ -322,15 +372,68 @@ Deno.test("Intro_Gate: a link that names its content gets one Play button", asyn
   await settle();
   assert(/multiplayer game/.test(env.document.text()), "says what it starts");
   const labels = env.document.buttons().map((b) => b.textContent);
-  assert(labels.join("|") === "Play", "buttons: " + labels.join("|"));
-  env.document.button(/^Play$/).click();
-  assert(await gate === null, "id's data for a lobby room");
+  assert(
+    labels.join("|") === "Play LibreQuake",
+    "buttons: " + labels.join("|"),
+  );
+  env.document.button(/^Play LibreQuake$/).click();
+  assert(await gate === "librequake", "LibreQuake for a lobby room");
   assert(!env.local.has(UD_CHOICE_KEY), "a link's content isn't remembered");
 });
 
-Deno.test("Intro_Gate offers registered Quake by name when its pak is stored", async () => {
+Deno.test("Intro_Gate: ?base=id1 with nothing stored says so and offers LibreQuake", async () => {
   const env = fakeEnv({
-    store: fakeStore({ "static/pak1.pak": new Blob(["PACK"]) }),
+    storage: { [INTRO_PLAYED_KEY]: "1" },
+    store: fakeStore(INSTALLED),
+  });
+  const gate = Intro_Gate(params("?base=id1"), env);
+  await settle();
+  await settle();
+  assert(env.document.getElementById("intro") !== null, "page shown");
+  assert(/aren't in this browser/.test(env.document.text()), "says so");
+  assert(/Game data/.test(env.document.text()), "says where to add them");
+  const labels = env.document.buttons().map((b) => b.textContent);
+  assert(labels.join("|") === "Play LibreQuake", labels.join("|"));
+  env.document.button(/^Play LibreQuake$/).click();
+  assert(await gate === "librequake", "LibreQuake, never id's data");
+});
+
+Deno.test("Intro_Gate: ?base=id1 with pak0 stored plays id's data", async () => {
+  const env = fakeEnv({
+    storage: { [INTRO_PLAYED_KEY]: "1" },
+    store: fakeStore({ "static/pak0.pak": new Blob(["PACK"]) }),
+  });
+  assert(await Intro_Gate(params("?base=id1"), env) === null, "id's data");
+  assert(env.document.getElementById("intro") === null, "no page");
+});
+
+Deno.test("Intro_Gate: remembered id's data with nothing stored falls back to LibreQuake", async () => {
+  const env = fakeEnv({
+    storage: { [INTRO_PLAYED_KEY]: "1", [UD_CHOICE_KEY]: "id1" },
+    store: fakeStore(INSTALLED),
+  });
+  assert(await Intro_Gate(params(""), env) === "librequake", "LibreQuake");
+  assert(env.document.getElementById("intro") === null, "no page");
+});
+
+Deno.test("Intro_Gate offers Quake by name when id1's pak0 is stored", async () => {
+  const env = fakeEnv({
+    store: fakeStore({ "static/pak0.pak": new Blob(["PACK"]) }),
+  });
+  const gate = Intro_Gate(params(""), env);
+  await settle();
+  await settle();
+  env.document.button(/^Play Quake$/).click();
+  assert(await gate === null, "id's data");
+  assert(env.local.get(UD_CHOICE_KEY) === "id1", "choice remembered");
+});
+
+Deno.test("Intro_Gate offers registered Quake by name when pak1 is stored too", async () => {
+  const env = fakeEnv({
+    store: fakeStore({
+      "static/pak0.pak": new Blob(["PACK"]),
+      "static/pak1.pak": new Blob(["PACK"]),
+    }),
   });
   const gate = Intro_Gate(params(""), env);
   await settle();

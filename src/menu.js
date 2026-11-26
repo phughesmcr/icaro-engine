@@ -74,6 +74,7 @@ import {
 } from "./gl_draw.js";
 import { SAVEGAME_COMMENT_LENGTH } from "./quakedef.js";
 import { hipnotic, registered, rogue, standard_quake } from "./common.js";
+import { COM_FileExists } from "./pak.js";
 import { Sys_PageURL } from "./sys.js";
 import { Room_ExitRuleValues } from "./room_rules.js";
 import { Turnstile_Cancel } from "./turnstile.js";
@@ -411,18 +412,148 @@ const rogueepisodes = [
   { description: "Deathmatch Arena", firstLevel: 16, levels: 1 },
 ];
 
+// LibreQuake's levels. An Icaro addition: no reference port has this table.
+// The game options menu offers it when LibreQuake is the mounted data (the
+// id1 table's e1m1 and the rest don't exist there). Titles are the maps'
+// worldspawn "message" keys, from LibreQuake v0.09-beta. The stub maps
+// without a title or monsters (lq_e1m6, lq_e2m1, lq_e2m6, lq_e2m7, lq_e3m5,
+// lq_e3m7, lq_e4m2, lq_e4m6 to lq_e4m8 and lq_end) are left out.
+const LQ_EPISODES = [
+  {
+    description: "Start",
+    levels: [["start", "Episode Select"]],
+  },
+  {
+    description: "Episode 0",
+    levels: [
+      ["lq_e0m1", "Baseless Base Banter"],
+      ["lq_e0m2", "Cruel Cave Conundrum"],
+      ["lq_e0m3", "Mountainous Mining Menace"],
+      ["lq_e0m4", "Feint-free funtime"],
+      ["lq_e0m5", "Adequate Aquatic Adventure"],
+      ["lq_e0m6", "Great Greek Grinder"],
+      ["lq_e0m7", "Beyond Baneful Boundaries"],
+      ["lq_e0m8", "Satan's Smelly Spawn"],
+    ],
+  },
+  {
+    description: "Episode 1",
+    levels: [
+      ["lq_e1m1", "Rats Behind Bars"],
+      ["lq_e1m2", "The Feudal Anomaly"],
+      ["lq_e1m3", "Rogue's Passage"],
+      ["lq_e1m4", "Dismal Shores"],
+      ["lq_e1m5", "Gloomliths"],
+      ["lq_e1m7", "Raging Core"],
+      ["lq_e1m8", "That's my Ex, Calibur!"],
+    ],
+  },
+  {
+    description: "Episode 2",
+    levels: [
+      ["lq_e2m2", "Dirge of the Depths"],
+      ["lq_e2m3", "Corpse army"],
+      ["lq_e2m4", "Earth's Reclaiming"],
+      ["lq_e2m5", "Meeting of The Parasites"],
+    ],
+  },
+  {
+    description: "Episode 3",
+    levels: [
+      ["lq_e3m1", "Rampant Reactor Rage"],
+      ["lq_e3m2", "Ghastly Greek Gorge"],
+      ["lq_e3m3", "Deep Myst"],
+      ["lq_e3m4", "Hounds of The Depths"],
+      ["lq_e3m6", "Holy Bloated Corpse"],
+    ],
+  },
+  {
+    description: "Episode 4",
+    levels: [
+      ["lq_e4m1", "Damnation Station"],
+      ["lq_e4m3", "Will of the Machine"],
+      ["lq_e4m4", "Steel Forest"],
+      ["lq_e4m5", "Copper Citadel"],
+    ],
+  },
+  {
+    description: "LibreQuake Deathmatch",
+    levels: [
+      ["lqdm1", "Solstice"],
+      ["lqdm2", "Torture Pit"],
+      ["lqdm3", "Hyperborea"],
+      ["lqdm4", "Psychofuge"],
+      ["lqdm5", "Transport Tubes"],
+      ["lqdm6", "Ghost Quarter"],
+      ["lqdm7", "Boomstick Basement"],
+      ["lqdm8", "Alichar Sector"],
+      ["lqdm9", "The Outlands"],
+      ["lqdm10", "Lucifer's Gambit"],
+      ["lqdm11", "The Wicked Night"],
+      ["lqdm12", "Javelin"],
+      ["lqdm13", "Death Provides No Return"],
+    ],
+  },
+];
+
+// The levels and episodes (in the shapes of levels[] and episodes[]) of the
+// LibreQuake that is mounted, built once and null while it is not. Maps in
+// its paks are checked by name, so the lite release (the start map and
+// episode 0) offers only those. The deathmatch maps are loose files that the
+// search path can't list, so they are offered with the full release, which
+// is the one that has lq_e1m1.
+let m_lq = null;
+
+function M_LibreQuake() {
+  if (m_lq !== null) return m_lq;
+  if (COM_FileExists("maps/lq_e0m1.bsp") < 0) return null;
+
+  const full = COM_FileExists("maps/lq_e1m1.bsp") >= 0;
+  const lqlevels = [];
+  const lqepisodes = [];
+  for (const group of LQ_EPISODES) {
+    const firstLevel = lqlevels.length;
+    for (const [name, description] of group.levels) {
+      const there = name.startsWith("lqdm") ?
+        full :
+        COM_FileExists("maps/" + name + ".bsp") >= 0;
+      if (there) lqlevels.push({ name: name, description: description });
+    }
+    const count = lqlevels.length - firstLevel;
+    if (count > 0) {
+      lqepisodes.push({
+        description: group.description,
+        firstLevel: firstLevel,
+        levels: count,
+      });
+    }
+  }
+  m_lq = { levels: lqlevels, episodes: lqepisodes };
+  return m_lq;
+}
+
 // M_GameEpisodes / M_StartLevel
 //
 // The episode list for the running game (menu.c picks hipnotic, then rogue,
-// then id1 at each use), and the level the game options menu points at.
+// then id1 at each use; Icaro adds LibreQuake before id1), and the level the
+// game options menu points at.
 function M_GameEpisodes() {
   if (hipnotic) return hipnoticepisodes;
   if (rogue) return rogueepisodes;
+  const lq = M_LibreQuake();
+  if (lq !== null) return lq.episodes;
   return episodes;
 }
 
 export function M_StartLevel() {
-  const list = hipnotic ? hipnoticlevels : rogue ? roguelevels : levels;
+  const lq = hipnotic || rogue ? null : M_LibreQuake();
+  const list = hipnotic ?
+    hipnoticlevels :
+    rogue ?
+    roguelevels :
+    lq !== null ?
+    lq.levels :
+    levels;
   return list[M_GameEpisodes()[startepisode].firstLevel + startlevel];
 }
 
@@ -432,6 +563,7 @@ export function M_StartLevel() {
  */
 export function M_NumEpisodes() {
   if (hipnotic || rogue) return M_GameEpisodes().length;
+  if (M_LibreQuake() !== null) return M_GameEpisodes().length;
   return registered !== null && registered.value !== 0 ?
     episodes.length :
     SHAREWARE_EPISODES;

@@ -7,7 +7,8 @@ rl tier itself (observation layout, actions, reward, episode ends) is the
 "RL TIER" section of src/agent.js.
 
 From the repository root (the server always starts there, whatever the
-working directory, since it reads static/pak0.pak, the shareware episode):
+working directory, since it reads static/librequake/id1/, LibreQuake's data,
+which `deno task fetch-data` downloads):
 
     uv run --with gymnasium --with numpy tools/gym/icaro_env.py
 
@@ -16,7 +17,7 @@ it in your own code:
 
     import sys; sys.path.insert(0, "tools/gym")
     from icaro_env import IcaroEnv
-    env = IcaroEnv(map="e1m1", skill=1, ents=16, rays=32, map_size=0)
+    env = IcaroEnv(map="lq_e1m1", skill=1, ents=16, rays=32, map_size=0)
     obs, info = env.reset(seed=1)
     obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
     env.close()
@@ -134,13 +135,13 @@ class McpClient:
 
 
 class IcaroEnv(gym.Env):
-    """Quake (shareware e1 by default) as a Gymnasium env."""
+    """Quake (LibreQuake e1 by default) as a Gymnasium env."""
 
     metadata = {"render_modes": []}
 
     def __init__(
         self,
-        map="e1m1",
+        map="lq_e1m1",
         skill=1,
         ents=16,
         rays=32,

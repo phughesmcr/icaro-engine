@@ -263,7 +263,7 @@ export function agent_mcp_engine(): Promise<Engine> {
 
 // The browser hints in agent.js's text name window.icaro calls
 function mcp_text(text: string): string {
-  return text.replaceAll('icaro.new_game("e1m1", 1)', "the start tool")
+  return text.replaceAll('icaro.new_game("lq_e1m1", 1)', "the start tool")
     .replaceAll("icaro.cmd", "the cmd tool");
 }
 

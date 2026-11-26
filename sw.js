@@ -3,11 +3,10 @@
 // equivalent. index.html registers it.
 //
 // What it caches, and how:
-// - static/pak0.pak (the shareware pak) and version-pinned CDN modules
-//   (three, nipplejs and zip.js from cdn.jsdelivr.net/npm/<name>@<version>/):
-//   cache first. Their contents never change under the same URL. Each is
-//   cached when the page first asks for it, so pak0 is cached only once a
-//   person has pressed Play on the intro page (src/intro.js).
+// - Version-pinned CDN modules (three, nipplejs and zip.js from
+//   cdn.jsdelivr.net/npm/<name>@<version>/): cache first. Their contents
+//   never change under the same URL. Each is cached when the page first asks
+//   for it.
 // - Music in static/music/ (a player's own static/music/trackNN.ogg or .mp3):
 //   cache first, in a cache of its own. Media elements read with Range and
 //   cache.put rejects a 206, so a track that isn't cached streams from the
@@ -28,8 +27,9 @@
 //   online launch and every module of one load comes from the same version.
 //   A successful response is copied into the cache; offline, the cached copy
 //   is served.
-// - Not cached: other paks (registered or rerelease data: big, and lazy paks
-//   are read with Range requests), anything under static/librequake/ (the
+// - Not cached: paks (the site serves none of id's; a player's own are kept
+//   in browser storage by src/userdata.js, and lazy paks are read with Range
+//   requests), anything under static/librequake/ (the
 //   LibreQuake download, 56 to 116 MB, which src/librequake.js keeps in the
 //   browser's storage itself), music in any other music/ directory (the
 //   mission packs' and the rerelease's: their paks aren't cached, so an
@@ -45,11 +45,11 @@
 // too, music last. No file list is kept here, so new modules need no change to
 // this file.
 //
-// Bump CACHE_NAME to drop everything cached by an older worker. Bump it
-// whenever static/pak0.pak changes: it is cache first under the same URL, so
-// players would otherwise keep the old copy. Music survives that bump.
+// Bump CACHE_NAME to drop everything cached by an older worker. Version 2
+// dropped the shareware static/pak0.pak that version 1 cached. Music survives
+// that bump.
 
-const CACHE_NAME = "icaro-v1";
+const CACHE_NAME = "icaro-v2";
 const CACHE_PREFIX = "icaro-";
 const MUSIC_CACHE_NAME = "icaro-music-v1";
 // A whole CD track as 320 kbit/s MP3 is well under this
@@ -70,7 +70,6 @@ const SHELL = [
   "static/mainmenu.png",
 ];
 
-const PAK0_PATH = "static/pak0.pak";
 // CD tracks as cd_audio.js names them (CDAudio_TrackURLs)
 const TRACK_FILE = /\/music\/track\d{2,}\.(ogg|mp3)$/i;
 const OFFLINE_MUSIC_DIR = "static/music/";
@@ -93,7 +92,7 @@ function sameOrigin(url) {
   return url.origin === self.location.origin;
 }
 
-// How to answer a GET: 'pak0', 'music', 'immutable', 'network', 'passthrough'
+// How to answer a GET: 'music', 'immutable', 'network', 'passthrough'
 // or null (let the browser handle it). Exported for tests through self.
 function SW_Route(request) {
   if (request.method !== "GET") return null;
@@ -103,7 +102,6 @@ function SW_Route(request) {
 
   if (sameOrigin(url)) {
     const scope = scopeURL();
-    if (url.pathname === new URL(PAK0_PATH, scope).pathname) return "pak0";
     if (/\.pak$/i.test(url.pathname)) return "passthrough";
     if (url.pathname.startsWith(new URL(LIBREQUAKE_DIR, scope).pathname)) {
       return "passthrough";
@@ -160,26 +158,6 @@ async function putIfOk(cache, key, response) {
   } catch {
     // over quota: the page still gets the response
   }
-}
-
-// pak0: the cached whole pak answers every request, including the loader's
-// Range: bytes=0-11 probe. pak.js takes a 200 to mean the server ignored the
-// Range and reads the whole pak from it.
-async function SW_Pak0(_request) {
-  const cache = await caches.open(CACHE_NAME);
-  const key = new URL(PAK0_PATH, scopeURL()).href;
-  const cached = await cache.match(key);
-  if (cached !== undefined) return cached;
-
-  let response;
-  try {
-    response = await fetch(key);
-  } catch {
-    return offlineResponse();
-  }
-
-  if (response.status === 200) await cache.put(key, response.clone());
-  return response;
 }
 
 async function SW_Immutable(request) {
@@ -456,7 +434,6 @@ async function SW_Music(request, event) {
 }
 
 const handlers = {
-  pak0: SW_Pak0,
   music: SW_Music,
   immutable: SW_Immutable,
   network: SW_Network,

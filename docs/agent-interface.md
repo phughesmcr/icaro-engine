@@ -413,8 +413,8 @@ document it. A useful `goto` needs a graph. Options, in order:
      units) and drop height;
    - mark links that cross `func_door`, `func_plat`, teleporters and buttons.
 
-   This works for every map, including shareware and custom maps. It is the real
-   work item.
+   This works for every map, including LibreQuake's and custom maps. It is the
+   real work item.
 2. **Load the rerelease's `bots/navigation/<map>.nav`** when the user's own
    rerelease data is present. The format must be reverse-engineered, and it only
    covers id1 maps.
@@ -437,9 +437,9 @@ document it. A useful `goto` needs a graph. Options, in order:
   - Typical use: one `javascript_tool` call does `icaro.step(...)` and gets the
     next observation back, so each turn is one round trip.
   - URL flags (as built): `window.icaro` is always present. `?agent=lockstep` or
-    `?agent=realtime` attaches at startup, and `?map=e1m1&skill=1` starts that
-    map instead of the intro demos, once a person (or the agent) presses the
-    intro page's Play button (`src/intro.js`; no game data loads before it).
+    `?agent=realtime` attaches at startup, and `?map=lq_e1m1&skill=1` starts
+    that map instead of the intro demos, once a person (or the agent) presses
+    the intro page's Play button (`src/intro.js`; no game data loads before it).
   - Discovery: serve a short `/agent.md` (or `llms.txt`), and link it from a
     `<meta>` tag and a visually hidden line in `index.html`, so an agent landing
     on the page can learn the API in one read.
@@ -500,7 +500,7 @@ document it. A useful `goto` needs a graph. Options, in order:
 
 1. **Core and `window.icaro`**: clock modes, `status`, `ents` and `events`
    tiers, low-level actions, `ui` tier with menu text, `?agent=` flags,
-   `/agent.md`. Test it by having Claude play e1m1 through the browser pane.
+   `/agent.md`. Test it by having Claude play lq_e1m1 through the browser pane.
 2. **Headless MCP server**: prove a headless loopback client under Deno, then
    `server/agent_mcp.ts` (stdio). Add seeded RNG and a virtual clock, and a
    determinism test that replays an action log and compares a state hash.

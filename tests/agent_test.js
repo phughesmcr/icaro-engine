@@ -168,10 +168,10 @@ Deno.test("agent: lockstep pins the frame cvars without saving them, detach rest
 Deno.test("agent: commands that load a map are recognised", () => {
   for (
     const text of [
-      "map e1m1",
+      "map lq_e1m1",
       "restart",
       "reconnect",
-      "god; changelevel e1m2",
+      "god; changelevel lq_e1m2",
       "skill 1\nmap start",
       "load s0",
     ]
