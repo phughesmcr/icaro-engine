@@ -1017,8 +1017,8 @@ the places where the two systematically disagree.
 - `cl.mtime[0]` comes from `svc_time` (`cl_parse.js:1552`), and the
   packet-entity linker uses `CL_LerpPoint`'s `frac` (`cl_main.js:1125`), so this
   covers the QuakeWorld-style entity path too.
-  - Beams were already patched to use `cl.mtime` (`cl_tent.js:73` at `dfef74a`),
-    which suggests this problem had been noticed before.
+  - Beams were already patched to use `cl.mtime` (`cl_tent.js:74-76` at
+    `dfef74a`), which suggests this problem had been noticed before.
 - **Fix direction:** keep the prediction time in its own variable, as QW
   effectively does, and leave `cl.time` in server time.
 
@@ -1550,7 +1550,7 @@ view, not the head's.
 
 ### MENU-4 · Other menu differences — **low to low-medium**, Reported
 
-- **Room list races (low-medium):** `M_FetchRooms` (`menu.js:153-237`) has no
+- **Room list races (low-medium):** `M_FetchRooms` (`menu.js:150-203`) has no
   generation counter, and Space refreshes even while a fetch is running
   (`:1387-1389`). The first reply to finish clears "Searching…", a slower older
   reply overwrites a newer list, and the cursor is reset only when the menu

@@ -185,10 +185,10 @@ JS line numbers point at the named code in the current tree, except those marked
   steps of 10) and timelimit (0–60 in steps of 5) (`menu.c:2537`, `:2610-2619`,
   `:2717-2728`). `maxplayers` goes up to `svs.maxclientslimit`, which is 4
   unless `-listen`/`-dedicated` asks for more (`host.c:181-194`).
-- **JS:** it has seven rows (`src/menu.js:244`). There are no fraglimit or
-  timelimit rows, so Episode and Level move up 8 px. The maxplayers cap is a
-  hard-coded 4 (`src/menu.js:266`) rather than `svs.maxclientslimit`, which
-  gives the same result at default settings.
+- **JS:** it has seven rows (`src/menu.js:139-140` at `06d4414`). There are no
+  fraglimit or timelimit rows, so Episode and Level move up 8 px. The maxplayers
+  cap is a hard-coded 4 (`src/menu.js:1470` at `06d4414`) rather than
+  `svs.maxclientslimit`, which gives the same result at default settings.
 - **Seen:** a host can set limits only from the console before creating a room.
 - **Fix:** starting the match as a WebTransport room instead of `listen`/`map`
   is deliberate (port-review §7). The missing rows are not.
@@ -207,7 +207,8 @@ JS line numbers point at the named code in the current tree, except those marked
   `SCR_UpdateScreen` draws `+` at the centre of `scr_vrect`, including during
   demos (`gl_screen.c:906`).
 - **JS:**
-  - The default is `'1'` and the cvar is not archived (`src/view.js:103`).
+  - The default is `'1'` and the cvar is not archived (`src/view.js:71` at
+    `06d4414`).
   - The crosshair is drawn at the centre of the screen and offset by
     `cl_crossx`/`cl_crossy`. In C those two only affect the software renderer
     (`view.c:1056`, `#ifndef GLQUAKE`).
@@ -262,7 +263,7 @@ JS line numbers point at the named code in the current tree, except those marked
   `"sv_gravity" changed to "200"` to every player (`cvar.c:123-127`).
 - **JS:** the broadcast exists (`src/cvar.js:136`) and the other server cvars
   use it (`src/host.js:185-190`). These three are created without the flag
-  (`src/sv_phys.js:187-192`).
+  (`src/sv_phys.js:189-194` at `06d4414`).
 - **Seen:** players aren't told when the host or QuakeC changes gravity or
   speed. This is separate from port-review's "movevars sent once" note (Part 2),
   which is about prediction.
