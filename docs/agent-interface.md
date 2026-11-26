@@ -41,9 +41,12 @@ Parts of phases 2 and 3 are built too (status checked at `dev` `4e95d06`):
   `tic=N hash=H` (tics since `start`, and `Agent_StateHash`, a hash of
   the server's edicts and the client's stats). `start` with a `seed` turns
   on both determinism hooks below, with a virtual clock that advances one
-  tic per frame; without one they are off. It speaks the initialize-based
-  MCP versions (2024-11-05 to 2025-11-25), not 2026-07-28, and has no
-  Streamable HTTP transport, `act` or `screenshot` yet.
+  tic per frame; without one they are off. It is built on the official
+  MCP TypeScript SDK (`@modelcontextprotocol/server` 2.4.0, pinned in
+  `deno.lock`), whose `serveStdio` serves both the initialize-based
+  versions (2024-11-05 to 2025-11-25) and 2026-07-28. It has no
+  Streamable HTTP transport, `act` or `screenshot` yet; the SDK's
+  `createMcpHandler` is the way to add HTTP.
   `tests/agent_mcp_test.js` replays a seeded action log (moving, firing,
   a console command) against the process's first game and gets the same
   hash.

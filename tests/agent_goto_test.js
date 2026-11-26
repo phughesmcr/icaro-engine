@@ -2,8 +2,8 @@
 // the walk graph built at map load, and goto's outcomes on e1m1 from pak0.
 // A seeded start makes each run the same game.
 
-import { agent_mcp_handle, MCP_TOOLS } from '../server/agent_mcp.ts';
-import { Agent_Goto, Agent_NavGraph, GOTO_MAX_TICS } from '../src/agent.js';
+import { mcp_session } from './agent_mcp_client.js';
+import { Agent_Goto, Agent_NavGraph, GOTO_DEFAULT_TICS, GOTO_MAX_TICS } from '../src/agent.js';
 import { NAV_NODE_EXIT } from '../src/nav.js';
 
 function assert( cond, message ) {
@@ -16,19 +16,20 @@ function assert( cond, message ) {
 // One host per process, kept across tests (see agent_mcp_test.js)
 const ENGINE_TEST = { sanitizeResources: false, sanitizeOps: false };
 
-let next_id = 1;
+// One connection, opened on first use
+let session = null;
 async function raw( name, args ) {
 
-	const r = await agent_mcp_handle( { jsonrpc: '2.0', id: next_id ++, method: 'tools/call', params: { name, arguments: args } } );
-	assert( r.result !== undefined, name + ': ' + JSON.stringify( r ) );
-	return r.result;
+	if ( session === null )
+		session = await mcp_session();
+	return await session.raw( name, args );
 
 }
 
 async function call( name, args = {} ) {
 
 	const r = await raw( name, args );
-	assert( r.isError === false, name + ' failed: ' + r.content[ 0 ].text );
+	assert( r.isError !== true, name + ' failed: ' + r.content[ 0 ].text );
 	return r.content[ 0 ].text;
 
 }
@@ -109,8 +110,10 @@ Deno.test( { name: 'agent goto: timeout, no path, damage', ...ENGINE_TEST, fn: a
 Deno.test( { name: 'agent goto: bad targets are errors', ...ENGINE_TEST, fn: async () => {
 
 	await start( 1, false );
-	const schema = MCP_TOOLS.find( ( t ) => t.name === 'goto' ).inputSchema.properties.max_tics;
+	const list = await session.request( 'tools/list', {} );
+	const schema = list.result.tools.find( ( t ) => t.name === 'goto' ).inputSchema.properties.max_tics;
 	assert( schema.maximum === GOTO_MAX_TICS, 'the goto schema and GOTO_MAX_TICS disagree' );
+	assert( schema.description.includes( '(default ' + GOTO_DEFAULT_TICS + ' ' ), 'the goto schema and GOTO_DEFAULT_TICS disagree: ' + schema.description );
 	for ( const args of [ {}, { id: 13, pos: ARMOR }, { pos: [ 1, 2 ] }, { id: 0 }, { id: 9999 }, { pos: ARMOR, max_tics: 0 } ] ) {
 
 		const r = await raw( 'goto', args );
