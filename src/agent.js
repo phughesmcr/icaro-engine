@@ -91,7 +91,18 @@ import {
 } from "./keys.js";
 import { sv } from "./server.js";
 import { PR_GetString, pr_globals_int } from "./progs.js";
-import { SV_RecursiveHullCheck, trace_t } from "./world.js";
+import {
+  SV_HullPointContents,
+  SV_RecursiveHullCheck,
+  trace_t,
+} from "./world.js";
+import {
+  CONTENTS_LAVA,
+  CONTENTS_SKY,
+  CONTENTS_SLIME,
+  CONTENTS_SOLID,
+  CONTENTS_WATER,
+} from "./bspfile.js";
 import { CL_ClampPitch } from "./cl_input.js";
 import { COM_EnsureFile } from "./pak.js";
 import {
@@ -102,6 +113,8 @@ import {
   NAV_LINK_MOVER,
   NAV_LINK_PLAT,
   NAV_LINK_SWIM,
+  NAV_NODE_SLIME,
+  NAV_NODE_WATER,
 } from "./nav.js";
 
 export const AGENT_TIC = 1 / 72; // one step tic: host_maxfps's default frame
@@ -1094,7 +1107,7 @@ function Agent_GotoBlocked(k) {
 /**
  * Walks to an entity (#id, as in observations) or a point along the level's
  * walk graph (src/nav.js), one lockstep tic at a time. opts: { max_tics (30 s),
- * stop_on_damage (true), ents }. The first line of the result says how it
+ * stop_on_damage (true), ents, map }. The first line of the result says how it
  * ended: arrived, blocked (with what to try), took damage, died, level
  * changed, no path, or timeout. The observation follows.
  */
@@ -1859,6 +1872,368 @@ function Agent_EntityLine(e) {
   return s;
 }
 
+// MAP TIER
+
+export const MAP_DEFAULT_SIZE = 21;
+export const MAP_MAX_SIZE = 41;
+const MAP_CELL = 32; // units per cell: the walk graph's grid
+const MAP_STEP = 18; // STEPSIZE: floor this much off your height is level
+const MAP_LEDGE = 64; // higher floor drawn as '+'; above that the cell is a wall
+const MAP_DROP = 256; // lower floor drawn as '-' (the graph's longest drop)
+const MAP_ENT_DZ = 128; // entities this far above or below aren't drawn
+const MAP_N = MAP_MAX_SIZE * MAP_MAX_SIZE;
+
+// Cell state
+const MAP_SOLID = 1; // the world is solid at body height
+const MAP_BRUSH = 2; // a brush entity (door, lift, wall) fills body height
+const MAP_REACHED = 4; // the flood from your cell got here
+const MAP_NODE = 8; // a walk graph node stands here
+
+const map_x = new Float32Array(MAP_N); // sample point of each cell
+const map_y = new Float32Array(MAP_N);
+const map_z = new Float32Array(MAP_N); // its floor's player origin z, or yours
+const map_state = new Uint8Array(MAP_N);
+const map_glyph = new Uint8Array(MAP_N);
+const map_queue = new Int16Array(MAP_N);
+const map_point = new Float32Array(3);
+const map_a = new Float32Array(3);
+const map_b = new Float32Array(3);
+const map_me = new Float32Array(3);
+
+const MONSTER_KINDS = new Set([
+  "grunt",
+  "dog",
+  "ogre",
+  "knight",
+  "death_knight",
+  "fiend",
+  "shambler",
+  "zombie",
+  "scrag",
+  "fish",
+  "vore",
+  "enforcer",
+  "spawn",
+  "shub",
+  "chthon",
+]);
+const WEAPON_KINDS = new Set([
+  "super_shotgun",
+  "nailgun",
+  "super_nailgun",
+  "grenade_launcher",
+  "rocket_launcher",
+  "thunderbolt",
+]);
+
+// Glyphs: one character per cell
+const G_FLOOR = 46; // '.' floor within a step of your height
+const G_HIGH = 43; // '+' floor a ledge above (up to 64 units)
+const G_LOW = 45; // '-' floor below (a drop)
+const G_WALL = 35; // '#'
+const G_WATER = 126; // '~'
+const G_SLIME = 33; // '!' slime or lava
+const G_NONE = 32; // ' ' nothing to stand on, or not seen
+
+/** Glyph for an entity kind on the map tier; 0 for none. */
+function Agent_MapGlyph(kind) {
+  if (MONSTER_KINDS.has(kind)) return 77; // 'M'
+  if (kind === "player") return 80; // 'P'
+  if (kind === "gold_key" || kind === "silver_key") return 107; // 'k'
+  if (WEAPON_KINDS.has(kind)) return 119; // 'w'
+  if (kind === "explobox") return 120; // 'x'
+  if (kind.endsWith("_proj") || kind === "lavaball") return 42; // '*'
+  if (kind === "door") return 68; // 'D'
+  if (kind === "button") return 66; // 'B'
+  if (kind === "lift" || kind === "train") return 76; // 'L'
+  if (kind === "exit") return 69; // 'E'
+  if (kind === "teleport") return 84; // 'T'
+  if (kind === "secret_door" || kind === "gate") return G_WALL;
+  return 105; // 'i': ammo, health, armour, powerups, backpacks, runes
+}
+
+/** The cell index of world point (x, y), or -1 outside the map. */
+function Agent_MapCell(n, x, y, cos, sin) {
+  const R = (n - 1) / 2;
+  const dx = x - map_me[0], dy = y - map_me[1];
+  const fwd = dx * cos + dy * sin;
+  const right = dx * sin - dy * cos;
+  const r = R - Math.round(fwd / MAP_CELL);
+  const c = R + Math.round(right / MAP_CELL);
+  if (r < 0 || r >= n || c < 0 || c >= n) return -1;
+  return r * n + c;
+}
+
+// Marks the cells whose sample point lies in the box, flat, where the box
+// spans body height over the cell's floor. Returns how many it marked.
+function Agent_MapBox(n, mins, maxs, glyph, block) {
+  let marked = 0;
+  for (let i = 0; i < n * n; i++) {
+    if (map_x[i] < mins[0] || map_x[i] > maxs[0]) continue;
+    if (map_y[i] < mins[1] || map_y[i] > maxs[1]) continue;
+    // body from a step above the feet (origin - 24 + 18) to the head (+32)
+    if (maxs[2] <= map_z[i] - 6 || mins[2] >= map_z[i] + 32) continue;
+    if (!block && (map_state[i] & (MAP_SOLID | MAP_BRUSH)) !== 0) continue;
+    if (block) map_state[i] |= MAP_BRUSH;
+    if (glyph !== 0) map_glyph[i] = glyph;
+    marked++;
+  }
+  return marked;
+}
+
+// Whether a player can see across from cell a to neighbour b: a world trace
+// at the higher of their two heights, so a ledge or a drop isn't a wall
+function Agent_MapOpen(a, b) {
+  const z = Math.max(map_z[a], map_z[b]);
+  map_a[0] = map_x[a];
+  map_a[1] = map_y[a];
+  map_a[2] = z;
+  map_b[0] = map_x[b];
+  map_b[1] = map_y[b];
+  map_b[2] = z;
+  return Agent_LineOfSight(map_a, map_b);
+}
+
+/**
+ * The map tier: an n x n ASCII grid of 32-unit cells around the player,
+ * egocentric (you are '^' at the centre, facing up; left is left). Floors
+ * come from the walk graph (src/nav.js), walls and liquids from the world's
+ * hull 0, and doors, lifts and walls from brush entities' boxes. Only cells
+ * a flood from your cell reaches (through cells open at body height, with no
+ * wall between) are drawn, so rooms behind walls stay hidden. Entities in
+ * view are drawn over the floor; with a local server and `truth`, exits and
+ * teleporters too, and brush entities get their kind. Returns null before a
+ * level is loaded.
+ */
+export function Agent_Map(size = MAP_DEFAULT_SIZE, truth = true) {
+  if (Agent_Ready() === false) return null;
+  const me = cl_entities[cl.viewentity];
+  const world = cl.worldmodel;
+  if (me === undefined || me === null || world === null) return null;
+  if (world.hulls === undefined) return null;
+  let n = Number.isFinite(size) ? Math.floor(size) : MAP_DEFAULT_SIZE;
+  n = Math.max(5, Math.min(MAP_MAX_SIZE, n));
+  if ((n & 1) === 0) n++;
+  const R = (n - 1) / 2;
+  const useTruth = truth === true && sv.active === true;
+  const graph = nav_graph;
+  const hull0 = world.hulls[0];
+
+  map_me[0] = me.origin[0];
+  map_me[1] = me.origin[1];
+  map_me[2] = me.origin[2];
+  const yaw = cl.viewangles[YAW];
+  const cos = Math.cos(yaw * Math.PI / 180);
+  const sin = Math.sin(yaw * Math.PI / 180);
+
+  // Floors and walls
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      const i = r * n + c;
+      const fwd = (R - r) * MAP_CELL, right = (c - R) * MAP_CELL;
+      const x = map_me[0] + fwd * cos + right * sin;
+      const y = map_me[1] + fwd * sin - right * cos;
+      map_x[i] = x;
+      map_y[i] = y;
+      map_z[i] = map_me[2];
+      map_state[i] = 0;
+      map_glyph[i] = G_NONE;
+
+      // The graph node in this cell nearest your height
+      let best = -1, best_dz = 0;
+      if (graph !== null) {
+        const cx = Math.round(x / graph.grid) - graph.cell_x0;
+        const cy = Math.round(y / graph.grid) - graph.cell_y0;
+        if (cx >= 0 && cx < graph.cell_w && cy >= 0 && cy < graph.cell_h) {
+          const cell = cx + cy * graph.cell_w;
+          for (
+            let j = graph.cell_start[cell];
+            j < graph.cell_start[cell + 1];
+            j++
+          ) {
+            const k = graph.cell_nodes[j];
+            const dz = graph.node_pos[k * 3 + 2] - map_me[2];
+            if (dz > MAP_LEDGE || dz < -MAP_DROP) continue;
+            if (best === -1 || Math.abs(dz) < Math.abs(best_dz)) {
+              best = k;
+              best_dz = dz;
+            }
+          }
+        }
+      }
+
+      if (best !== -1) {
+        map_z[i] = graph.node_pos[best * 3 + 2];
+        map_state[i] = MAP_NODE;
+        const f = graph.node_flags[best];
+        if ((f & NAV_NODE_SLIME) !== 0) map_glyph[i] = G_SLIME;
+        else if ((f & NAV_NODE_WATER) !== 0) map_glyph[i] = G_WATER;
+        else if (best_dz > MAP_STEP) map_glyph[i] = G_HIGH;
+        else if (best_dz < -MAP_STEP) map_glyph[i] = G_LOW;
+        else map_glyph[i] = G_FLOOR;
+        continue;
+      }
+
+      map_point[0] = x;
+      map_point[1] = y;
+      map_point[2] = map_me[2];
+      const contents = SV_HullPointContents(
+        hull0,
+        hull0.firstclipnode,
+        map_point,
+      );
+      if (contents === CONTENTS_SOLID || contents === CONTENTS_SKY) {
+        map_state[i] = MAP_SOLID;
+        map_glyph[i] = G_WALL;
+      } else if (contents === CONTENTS_WATER) {
+        map_glyph[i] = G_WATER;
+      } else if (contents === CONTENTS_SLIME || contents === CONTENTS_LAVA) {
+        map_glyph[i] = G_SLIME;
+      } else if (graph === null) {
+        map_glyph[i] = G_FLOOR; // no graph: open space, floor unknown
+      }
+    }
+  }
+
+  // Brush entities: closed doors, lifts and func_walls fill cells. Their
+  // client boxes work without a local server; truth names their kind
+  for (let e = 1; e < cl.num_entities; e++) {
+    const ent = cl_entities[e];
+    if (ent === undefined || ent === null || ent.model === null) continue;
+    if (ent.msgtime !== cl.mtime[0]) continue;
+    if (ent.model.name.charCodeAt(0) !== 42) continue; // '*'
+    let glyph = G_WALL;
+    if (useTruth) {
+      const ed = Agent_Edict(e);
+      if (ed === null) continue;
+      const kind = BRUSH_KINDS[PR_GetString(ed.v.classname)];
+      if (kind === undefined && ed.v.solid !== 4) continue; // SOLID_BSP
+      if (kind !== undefined) glyph = Agent_MapGlyph(kind);
+    }
+    map_a[0] = ent.origin[0] + ent.model.mins[0];
+    map_a[1] = ent.origin[1] + ent.model.mins[1];
+    map_a[2] = ent.origin[2] + ent.model.mins[2];
+    map_b[0] = ent.origin[0] + ent.model.maxs[0];
+    map_b[1] = ent.origin[1] + ent.model.maxs[1];
+    map_b[2] = ent.origin[2] + ent.model.maxs[2];
+    if (Agent_MapBox(n, map_a, map_b, glyph, true) > 0 || glyph === G_WALL) {
+      continue;
+    }
+    // A box no sample point falls in (a button on a wall): its centre cell
+    const i = Agent_MapCell(
+      n,
+      (map_a[0] + map_b[0]) / 2,
+      (map_a[1] + map_b[1]) / 2,
+      cos,
+      sin,
+    );
+    const z = (map_a[2] + map_b[2]) / 2;
+    if (i !== -1 && z > map_z[i] - 24 && z < map_z[i] + 32) {
+      map_glyph[i] = glyph;
+    }
+  }
+
+  // Flood from your cell through open cells
+  const centre = R * n + R;
+  map_state[centre] &= ~(MAP_SOLID | MAP_BRUSH);
+  map_state[centre] |= MAP_REACHED;
+  map_queue[0] = centre;
+  let head = 0, tail = 1;
+  while (head < tail) {
+    const a = map_queue[head++];
+    const r = (a / n) | 0, c = a - r * n;
+    for (let d = 0; d < 4; d++) {
+      const rr = d === 0 ? r - 1 : d === 1 ? r + 1 : r;
+      const cc = d === 2 ? c - 1 : d === 3 ? c + 1 : c;
+      if (rr < 0 || rr >= n || cc < 0 || cc >= n) continue;
+      const b = rr * n + cc;
+      if ((map_state[b] & MAP_REACHED) !== 0) continue;
+      // walls are drawn where the flood touches them, but stop it
+      if ((map_state[b] & (MAP_SOLID | MAP_BRUSH)) !== 0) {
+        map_state[b] |= MAP_REACHED;
+        continue;
+      }
+      if (Agent_MapOpen(a, b) === false) continue;
+      map_state[b] |= MAP_REACHED;
+      map_queue[tail++] = b;
+    }
+  }
+
+  // Exits and teleporters (server truth): their whole box
+  if (useTruth) {
+    for (let e = 1; e < sv.num_edicts; e++) {
+      const ed = Agent_Edict(e);
+      if (ed === null) continue;
+      const kind = TRIGGER_KINDS[PR_GetString(ed.v.classname)];
+      if (kind === undefined) continue;
+      Agent_MapBox(n, ed.v.absmin, ed.v.absmax, Agent_MapGlyph(kind), false);
+    }
+  }
+
+  // Point entities in view, on cells the flood reached
+  for (let e = 1; e < cl.num_entities; e++) {
+    if (e === cl.viewentity) continue;
+    const ent = cl_entities[e];
+    if (ent === undefined || ent === null || ent.model === null) continue;
+    if (ent.msgtime !== cl.mtime[0]) continue;
+    const kind = Agent_ModelKind(ent);
+    if (kind === null || kind === "") continue;
+    if (Math.abs(ent.origin[2] - map_me[2]) > MAP_ENT_DZ) continue;
+    if (useTruth) {
+      const ed = Agent_Edict(e);
+      if (ed !== null && (ed.v.flags & FL_MONSTER) !== 0 && ed.v.health <= 0) {
+        continue; // corpse
+      }
+    }
+    const i = Agent_MapCell(n, ent.origin[0], ent.origin[1], cos, sin);
+    if (i === -1 || (map_state[i] & MAP_REACHED) === 0) continue;
+    const glyph = Agent_MapGlyph(kind);
+    // monsters and players win a shared cell
+    if (map_glyph[i] === 77 || map_glyph[i] === 80) continue;
+    map_glyph[i] = glyph;
+  }
+
+  const rows = [];
+  for (let r = 0; r < n; r++) {
+    let s = "";
+    for (let c = 0; c < n; c++) {
+      const i = r * n + c;
+      if (i === centre) s += "^";
+      else if ((map_state[i] & MAP_REACHED) === 0) s += " ";
+      else s += String.fromCharCode(map_glyph[i]);
+    }
+    rows.push(s.trimEnd());
+  }
+  return {
+    size: n,
+    cell: MAP_CELL,
+    yaw: Agent_AngleMod(Math.round(yaw)),
+    x: Math.round(map_me[0]),
+    y: Math.round(map_me[1]),
+    z: Math.round(map_me[2]),
+    rows,
+  };
+}
+
+// The map as text: a header, then the rows with the blank rows above and
+// below and the blank columns on the left cut ('^' still marks you)
+function Agent_MapText(m) {
+  let top = 0, bottom = m.rows.length;
+  while (top < bottom && m.rows[top] === "") top++;
+  while (bottom > top && m.rows[bottom - 1] === "") bottom--;
+  let indent = m.size;
+  for (let r = top; r < bottom; r++) {
+    const row = m.rows[r];
+    if (row === "") continue;
+    indent = Math.min(indent, row.length - row.trimStart().length);
+  }
+  let s = "map " + m.size + "x" + m.size + " " + m.cell +
+    "u, ^ you facing up (yaw " + m.yaw + ") at " + m.x + " " + m.y + " " +
+    m.z;
+  for (let r = top; r < bottom; r++) s += "\n" + m.rows[r].slice(indent);
+  return s;
+}
+
 export function Agent_EventsSince(seq) {
   const out = [];
   for (let i = Math.max(seq, event_seq - EVENT_MAX); i < event_seq; i++) {
@@ -1869,8 +2244,9 @@ export function Agent_EventsSince(seq) {
 
 /**
  * opts: { ents: max entities (default 10, 0 for none), events: true,
- * truth: true, format: 'text' | 'json' }. Text is the compact default; json
- * returns an object for programs.
+ * truth: true, map: false | true | cells across (Agent_Map; true is 21),
+ * format: 'text' | 'json' }. Text is the compact default; json returns an
+ * object for programs.
  */
 export function Agent_Observe(opts = {}) {
   Agent_StatEvents();
@@ -1880,6 +2256,14 @@ export function Agent_Observe(opts = {}) {
   if (opts.events !== false) event_read = event_seq;
   const status = Agent_StatusText();
   const ui = Agent_UIText();
+  const want_map = opts.map === true ||
+    (typeof opts.map === "number" && opts.map > 0);
+  const map = want_map ?
+    Agent_Map(
+      opts.map === true ? MAP_DEFAULT_SIZE : opts.map,
+      opts.truth !== false,
+    ) :
+    null;
 
   if (opts.format === "json") {
     return {
@@ -1890,11 +2274,13 @@ export function Agent_Observe(opts = {}) {
       entities: ents,
       more: ents.more ?? 0,
       events,
+      map,
     };
   }
 
   let s = status;
   if (ui !== "ui=game") s += "\n" + ui;
+  if (map !== null) s += "\n" + Agent_MapText(map);
   for (const e of ents) s += "\n" + Agent_EntityLine(e);
   if ((ents.more ?? 0) > 0) s += "\n(+" + ents.more + " farther)";
   for (const ev of events) s += "\n" + ev;
@@ -1982,7 +2368,12 @@ Look:   icaro.observe()   // status line, ui, nearest entities, events since las
         entity line: #id kind distance yawN [pitchN] [hidden] [hpN]
         yawN is the yaw change that faces it: step({ yaw: N }).
         exit = level exit trigger (walk into it).
+Map:    icaro.observe({ map: 21 })  // also the opts of step, goto, turn_to and attack
+        21x21 cells of 32 units, turned so you are ^ at the centre facing up (left is left):
+        . floor at your height  + higher  - lower  # wall  ~ water  ! slime/lava
+        blank: nothing to stand on, or not in view.  D door  L lift  B button
+        E exit  T teleporter  M monster  P player  w weapon  k key  i item  x box  * shot
 Menus:  icaro.key('down'|'up'|'enter'|'escape'|'y'|...), icaro.menu('Single Player')
 Console: await icaro.cmd('god')   // returns what it printed (lockstep, in game: runs one tic)
 Image:  use your browser's own screenshot tool (icaro.screenshot() returns a data URL)
-Options: icaro.observe({ ents: 20, format: 'json', truth: false })`;
+Options: icaro.observe({ ents: 20, map: 21, format: 'json', truth: false })`;

@@ -1,7 +1,9 @@
 // Web addition: the game rules a multiplayer room applies before its map
-// spawns. server/game_server.js uses them for lobby rooms; a browser-hosted
-// room (docs/browser-hosted-rooms.md) is to use the same ones,
-// so both kinds of room behave alike. Moved here from server/game_server.js.
+// spawns. server/game_server.js uses them for lobby rooms. A room hosted in a
+// browser (docs/browser-hosted-rooms.md) takes its exit rules from
+// Room_ExitRuleValues (M_HostInBrowser in menu.js) and its game options from
+// the menu's cvars, so both kinds of room behave alike.
+// Moved here from server/game_server.js.
 //
 // Call these before SV_SpawnServer, while sv.active is false: noexit is a
 // server cvar, and setting it on a running server broadcasts the change.

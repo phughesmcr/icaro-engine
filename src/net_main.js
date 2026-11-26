@@ -622,10 +622,14 @@ export function NET_UseWebSocket() {
   );
 }
 
-/** True when the browser has a remote transport at all. */
+/**
+ * True when the browser has a remote transport at all: WebTransport or
+ * WebSocket for lobby rooms, or WebRTC for rooms hosted in browsers.
+ */
 export function NET_MultiplayerAvailable() {
   return _NET_DriverReady(net_wtdriverlevel) ||
-    _NET_DriverReady(net_wsdriverlevel);
+    _NET_DriverReady(net_wsdriverlevel) ||
+    _NET_DriverReady(net_rtcdriverlevel);
 }
 
 /**
