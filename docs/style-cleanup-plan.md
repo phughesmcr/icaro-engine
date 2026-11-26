@@ -1,8 +1,9 @@
 # Style cleanup plan
 
 Status: tier 0 done (#217); tier 1 done (#218); tier 2 done (#219); tier 3 done
-on `refactor/markdown-fmt` (see its results below); tier 4 not started. Measured
-on `dev` at b8f46e7 (2026-11-26), after #205–#215 merged.
+on `refactor/markdown-fmt` (see its results below); tier 4 piloted on one file
+(see its results below), not swept. Measured on `dev` at b8f46e7 (2026-11-26),
+after #205–#215 merged.
 
 Decisions made: adopt `deno fmt` with the settings below, and include `tests/`.
 Comment banners go: `/** */` documents a declaration, and every other comment is
@@ -290,6 +291,21 @@ The 553 `!x` checks, 162 hoisted `let` declarations and 42 outer loop variables
 change behaviour or mirror the C on purpose. `!x` is not `x === null` when `x`
 can be `0`, `''` or `undefined`. Fix them file by file, when a PR is already
 editing that file and its tests cover the change.
+
+Pilot results (`refactor/tier4-pr-edict`): `src/pr_edict.js`. `cmd.js`,
+`cvar.js` and `common.js` have only 4 to 8 `!` operators each.
+
+- `!`: 10 of 16 became `=== null`. Each value is an object or `null` (`fileData`
+  is an `ArrayBuffer` or `null`), so behaviour is unchanged. The other 6 test
+  booleans or, once, a flag bit.
+- Bare `let`: 2 of 6 moved to where they are used. The other 4 were already next
+  to their use, or are read after a loop.
+- Outer loop variable: the only one stays, because `ED_Alloc` reads it after the
+  loop, as the C does.
+
+No site was a bug. This is one file, with no null check on a number or string,
+so it says little about the files that have those. It doesn't justify a wider
+pass: keep the rule above.
 
 ## Sequencing with open PRs
 
