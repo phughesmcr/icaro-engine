@@ -76,13 +76,7 @@ import { Sys_PageURL } from "./sys.js";
 import { Room_ExitRuleValues } from "./room_rules.js";
 import { Turnstile_Cancel } from "./turnstile.js";
 
-/*
-==============================================================================
-
-			MENU STATES
-
-==============================================================================
-*/
+// MENU STATES
 
 export const m_none = 0;
 export const m_main = 1;
@@ -118,13 +112,7 @@ let m_return_reason = "";
 
 let m_save_demonum = 0;
 
-/*
-==============================================================================
-
-			LAN CONFIG MENU (Join Game)
-
-==============================================================================
-*/
+// LAN CONFIG MENU (Join Game)
 
 // The lobby comes from _NET_LobbyServer (the page's ?server= parameter, or the
 // transport's default), which is null when ?server= is not a valid address.
@@ -251,13 +239,7 @@ function M_ValidRooms(reply) {
   return valid;
 }
 
-/*
-==============================================================================
-
-			GAME OPTIONS MENU (New Game)
-
-==============================================================================
-*/
+// GAME OPTIONS MENU (New Game)
 
 let gameoptions_cursor = 0;
 // Web addition: the last two rows, Host on and Listed
@@ -434,14 +416,10 @@ const rogueepisodes = [
   { description: "Deathmatch Arena", firstLevel: 16, levels: 1 },
 ];
 
-/*
-==============
-M_GameEpisodes / M_StartLevel
-
-The episode list for the running game (menu.c picks hipnotic, then rogue,
-then id1 at each use), and the level the game options menu points at.
-==============
-*/
+// M_GameEpisodes / M_StartLevel
+//
+// The episode list for the running game (menu.c picks hipnotic, then rogue,
+// then id1 at each use), and the level the game options menu points at.
 function M_GameEpisodes() {
   if (hipnotic) return hipnoticepisodes;
   if (rogue) return rogueepisodes;
@@ -453,15 +431,11 @@ export function M_StartLevel() {
   return list[M_GameEpisodes()[startepisode].firstLevel + startlevel];
 }
 
-/*
-==============
-M_NumEpisodes
-
-menu.c M_NetStart_Change: 6 for hipnotic, 4 for rogue, 7 when registered
-and 2 for shareware. This port adds its loose-file deathmatch episode to
-the last two.
-==============
-*/
+/**
+ * menu.c M_NetStart_Change: 6 for hipnotic, 4 for rogue, 7 when registered
+ * and 2 for shareware. This port adds its loose-file deathmatch episode to
+ * the last two.
+ */
 export function M_NumEpisodes() {
   if (hipnotic || rogue) return M_GameEpisodes().length;
   return registered !== null && registered.value !== 0 ?
@@ -469,13 +443,7 @@ export function M_NumEpisodes() {
     SHAREWARE_EPISODES;
 }
 
-/*
-==============================================================================
-
-			CONNECTION ERROR HANDLING
-
-==============================================================================
-*/
+// CONNECTION ERROR HANDLING
 
 /**
  * Called when a connection attempt fails.
@@ -512,13 +480,7 @@ export function M_ShouldReturnOnError() {
   return m_return_onerror;
 }
 
-/*
-==============================================================================
-
-			EXTERNAL REFERENCES
-
-==============================================================================
-*/
+// EXTERNAL REFERENCES
 
 // Set by external modules to avoid circular dependencies
 let _key_dest_set = null; // function to set key_dest
@@ -547,19 +509,15 @@ export const scr_menuscale = {
   archive: true,
 };
 
-/*
-================
-M_MenuCanvasScale
-
-Ironwail GL_SetCanvas( CANVAS_MENU ): CLAMP( 1, scr_menuscale, the most
-that fits 320x200 ), for Draw_SetCanvasScale. 0 is the automatic scale.
-
-Deviation (web-only, docs/mobile-roadmap.md B3): while the menu takes
-taps (Touch_MenuShown), the automatic scale is the most that fits rather
-than the whole-number UI scale. A 740x360 phone at DPR 2 gets 3.6
-instead of 3, so menu rows are a fifth taller under the finger.
-================
-*/
+/**
+ * Ironwail GL_SetCanvas( CANVAS_MENU ): CLAMP( 1, scr_menuscale, the most
+ * that fits 320x200 ), for Draw_SetCanvasScale. 0 is the automatic scale.
+ *
+ * Deviation (web-only, docs/mobile-roadmap.md B3): while the menu takes
+ * taps (Touch_MenuShown), the automatic scale is the most that fits rather
+ * than the whole-number UI scale. A 740x360 phone at DPR 2 gets 3.6
+ * instead of 3, so menu rows are a fifth taller under the finger.
+ */
 function M_MenuCanvasScale() {
   const touchFit = !(scr_menuscale.value > 0);
   if (touchFit && !Touch_MenuShown()) {
@@ -656,21 +614,9 @@ function setKeyDest(val) {
   if (_key_dest_set) _key_dest_set(val);
 }
 
-/*
-==============================================================================
+// DRAWING HELPERS
 
-			DRAWING HELPERS
-
-==============================================================================
-*/
-
-/*
-================
-M_DrawCharacter
-
-Draws one solid graphics character
-================
-*/
+/** Draws one solid graphics character */
 function M_DrawCharacter(cx, line, num) {
   if (_Draw_Character) {
     _Draw_Character(
@@ -795,13 +741,7 @@ function M_DrawTextBox(x, y, width, lines) {
   M_DrawTransPic(cx, cy + 8, p);
 }
 
-/*
-==============================================================================
-
-			TRANSLATION TABLE (for player color)
-
-==============================================================================
-*/
+// TRANSLATION TABLE (for player color)
 
 const TOP_RANGE = 16;
 const BOTTOM_RANGE = 96;
@@ -837,11 +777,6 @@ function M_BuildTranslationTable(top, bottom) {
   }
 }
 
-/*
-================
-M_ToggleMenu_f
-================
-*/
 export function M_ToggleMenu_f() {
   m_entersound = true;
 
@@ -863,13 +798,7 @@ export function M_ToggleMenu_f() {
   }
 }
 
-/*
-==============================================================================
-
-			MAIN MENU
-
-==============================================================================
-*/
+// MAIN MENU
 
 let m_main_cursor = 0;
 const MAIN_ITEMS = 5;
@@ -997,13 +926,7 @@ function M_Main_Key(key) {
   }
 }
 
-/*
-==============================================================================
-
-			SINGLE PLAYER MENU
-
-==============================================================================
-*/
+// SINGLE PLAYER MENU
 
 let m_singleplayer_cursor = 0;
 const SINGLEPLAYER_ITEMS = 3;
@@ -1097,13 +1020,7 @@ function M_SinglePlayer_Key(key) {
   }
 }
 
-/*
-==============================================================================
-
-			LOAD/SAVE MENU
-
-==============================================================================
-*/
+// LOAD/SAVE MENU
 
 let load_cursor = 0;
 const MAX_SAVEGAMES = 12;
@@ -1272,13 +1189,7 @@ function M_Save_Key(k) {
   }
 }
 
-/*
-==============================================================================
-
-			MULTIPLAYER MENU
-
-==============================================================================
-*/
+// MULTIPLAYER MENU
 
 let m_multiplayer_cursor = 0;
 const MULTIPLAYER_ITEMS = 3;
@@ -1348,13 +1259,7 @@ function M_MultiPlayer_Key(key) {
   }
 }
 
-/*
-==============================================================================
-
-			LAN CONFIG MENU (Join Game via WebTransport or WebSocket)
-
-==============================================================================
-*/
+// LAN CONFIG MENU (Join Game via WebTransport or WebSocket)
 
 function M_Menu_LanConfig_f() {
   setKeyDest(key_menu);
@@ -1554,13 +1459,7 @@ function M_LanConfig_Join(roomId) {
   Cbuf_AddText('connect "' + connectUrl + '"\n');
 }
 
-/*
-==============================================================================
-
-			GAME OPTIONS MENU (New Game / Host)
-
-==============================================================================
-*/
+// GAME OPTIONS MENU (New Game / Host)
 
 function M_Menu_GameOptions_f() {
   M_CancelCreateRoom();
@@ -1828,17 +1727,13 @@ function M_GameOptionValues() {
   };
 }
 
-/*
-================
-M_HostInBrowser
-
-Web addition: Start Game with Host on "This browser". Starts a listen server
-as menu.c's begin game does, with listen 1 and the room's exit rules
-(room_rules.js) before the map, then registers the room with the lobby once
-the map is up (src/net_rtclobby.js), which resets the exit rules when the
-room ends.
-================
-*/
+/**
+ * Web addition: Start Game with Host on "This browser". Starts a listen server
+ * as menu.c's begin game does, with listen 1 and the room's exit rules
+ * (room_rules.js) before the map, then registers the room with the lobby once
+ * the map is up (src/net_rtclobby.js), which resets the exit rules when the
+ * room ends.
+ */
 function M_HostInBrowser(mapName) {
   if (M_CanHostInBrowser() === false) {
     m_return_reason = M_HOST_HERE_REASON;
@@ -1894,15 +1789,11 @@ function M_HostInBrowser(mapName) {
   });
 }
 
-/*
-================
-M_CancelCreateRoom
-
-Drop a Start Game room request in flight, so its reply is ignored. The lobby
-still creates the room; it is reaped when it stays empty. A Turnstile widget
-the request is waiting on is removed.
-================
-*/
+/**
+ * Drop a Start Game room request in flight, so its reply is ignored. The lobby
+ * still creates the room; it is reaped when it stays empty. A Turnstile widget
+ * the request is waiting on is removed.
+ */
 function M_CancelCreateRoom() {
   if (m_createroom_pending === false) {
     return;
@@ -2103,13 +1994,7 @@ function M_GameOptions_Key(key) {
   }
 }
 
-/*
-==============================================================================
-
-			OPTIONS MENU HELPERS
-
-==============================================================================
-*/
+// OPTIONS MENU HELPERS
 
 const SLIDER_RANGE = 10;
 
@@ -2229,13 +2114,7 @@ function M_AdjustSliders(dir) {
   }
 }
 
-/*
-==============================================================================
-
-			OPTIONS MENU
-
-==============================================================================
-*/
+// OPTIONS MENU
 
 const OPTIONS_ITEMS = 17;
 let m_options_cursor = 0;
@@ -2381,13 +2260,7 @@ function M_Options_Key(key) {
   }
 }
 
-/*
-==============================================================================
-
-			TOUCH CONTROLS MENU
-
-==============================================================================
-*/
+// TOUCH CONTROLS MENU
 
 // Sliders: cvar, range and step. Toggles: cvar flipped between 0 and 1, or
 // get/set for settings stored another way.
@@ -2526,20 +2399,14 @@ function M_Touch_Key(key) {
   }
 }
 
-/*
-==============================================================================
-
-			ADVANCED MENU
-
-Web-only addition, no Quake equivalent. Phone and tablet players have no
-console, so Options > Advanced lists pages of the player-facing cvars
-(menu_cvars.js) that they could otherwise only set there. Each row shows the
-cvar's value; changes go through Cvar_SetValue like a console change, so the
-archived ones are saved with the config. Long pages scroll like the Keys
-menu, with "more" rows that a tap pages.
-
-==============================================================================
-*/
+// ADVANCED MENU
+//
+// Web-only addition, no Quake equivalent. Phone and tablet players have no
+// console, so Options > Advanced lists pages of the player-facing cvars
+// (menu_cvars.js) that they could otherwise only set there. Each row shows the
+// cvar's value; changes go through Cvar_SetValue like a console change, so the
+// archived ones are saved with the config. Long pages scroll like the Keys
+// menu, with "more" rows that a tap pages.
 
 const ADV_TOP = 48;
 const ADV_VIEWSIZE = 17; // rows 48 to 183; the "more" row below is at 184
@@ -2846,13 +2713,7 @@ function M_AdvPage_Touch(vx, i) {
   }
 }
 
-/*
-==============================================================================
-
-			KEYS MENU (key binding)
-
-==============================================================================
-*/
+// KEYS MENU (key binding)
 
 let m_keys_cursor = 0;
 let m_keys_scroll = 0; // first row shown
@@ -2900,15 +2761,11 @@ const NUMCOMMANDS = bindnames.length;
 const KEYS_TOP = 48;
 const KEYS_VIEWSIZE = 18;
 
-/*
-===============
-M_FindKeysForCommand
-
-Finds up to two keys bound to a command. id compares the first strlen
-(command) characters, so "impulse 1" would also find "impulse 10" and
-"impulse 12"; Ironwail (Key_GetKeysForCommand) compares the whole binding.
-===============
-*/
+/**
+ * Finds up to two keys bound to a command. id compares the first strlen
+ * (command) characters, so "impulse 1" would also find "impulse 10" and
+ * "impulse 12"; Ironwail (Key_GetKeysForCommand) compares the whole binding.
+ */
 function M_FindKeysForCommand(command) {
   const twokeys = [-1, -1];
   let count = 0;
@@ -2930,13 +2787,7 @@ function M_FindKeysForCommand(command) {
   return twokeys;
 }
 
-/*
-===============
-M_UnbindCommand
-
-Unbinds all keys for a command (whole-binding match, as in Ironwail)
-===============
-*/
+/** Unbinds all keys for a command (whole-binding match, as in Ironwail) */
 function M_UnbindCommand(command) {
   for (let j = 0; j < 256; j++) {
     const b = keybindings[j];
@@ -3105,13 +2956,7 @@ function M_Keys_Key(key) {
   }
 }
 
-/*
-==============================================================================
-
-			SETUP MENU
-
-==============================================================================
-*/
+// SETUP MENU
 
 let setup_cursor = 3;
 const setup_cursor_table = [40, 64, 88, 124];
@@ -3289,13 +3134,7 @@ function M_Setup_Key(key) {
   }
 }
 
-/*
-==============================================================================
-
-			HELP MENU
-
-==============================================================================
-*/
+// HELP MENU
 
 // menu.c M_Menu_Help_f / M_Help_Draw / M_Help_Key: pages through
 // gfx/help0.lmp-help5.lmp. The port's credits screen stays reachable with
@@ -3339,13 +3178,7 @@ function M_Help_Key(key) {
   }
 }
 
-/*
-==============================================================================
-
-			CREDITS MENU
-
-==============================================================================
-*/
+// CREDITS MENU
 
 const CREDITS_SOURCE_URL = "https://github.com/phughesmcr/icaro-engine";
 
@@ -3402,13 +3235,7 @@ function M_Credits_Touch(_vx, vy) {
   M_Credits_Key(K_ESCAPE);
 }
 
-/*
-==============================================================================
-
-			QUIT MENU
-
-==============================================================================
-*/
+// QUIT MENU
 
 // Deliberate deviation (web-only input): the quit prompt offers a YES / NO
 // choice like SCR_ModalMessage's (see keys.js Key_BeginModal), so a gamepad
@@ -3436,16 +3263,12 @@ function M_Quit_Draw() {
   );
 }
 
-/*
-================
-M_Quit_Yes
-
-C's M_Quit_Key runs Host_Quit_f, which shuts the engine down. A page can't
-quit, so this is a deliberate deviation: leave the game (disconnect, which
-also shuts down a local server) and go back to the main menu. The title
-screen's demo loop is not a game, so it keeps playing.
-================
-*/
+/**
+ * C's M_Quit_Key runs Host_Quit_f, which shuts the engine down. A page can't
+ * quit, so this is a deliberate deviation: leave the game (disconnect, which
+ * also shuts down a local server) and go back to the main menu. The title
+ * screen's demo loop is not a game, so it keeps playing.
+ */
 function M_Quit_Yes() {
   if (_sv.active || (_cls.state === 2 && _cls.demoplayback === false)) { // ca_connected
     Cbuf_AddText("disconnect\n");
@@ -3485,13 +3308,7 @@ function M_Quit_Key(key) {
   }
 }
 
-/*
-==============================================================================
-
-			VIDEO MENU (stub)
-
-==============================================================================
-*/
+// VIDEO MENU (stub)
 
 function M_Menu_Video_f() {
   setKeyDest(key_menu);
@@ -3509,19 +3326,8 @@ function M_Video_Key(key) {
   }
 }
 
-/*
-==============================================================================
+// PUBLIC API
 
-			PUBLIC API
-
-==============================================================================
-*/
-
-/*
-================
-M_Init
-================
-*/
 export function M_Init() {
   // menu.c starts at the first episode; this port's own default (the
   // community deathmatch maps) is in the id1 list only
@@ -3554,21 +3360,13 @@ export function M_Init() {
   Cmd_AddCommand("menu_gameoptions", M_Menu_GameOptions_f);
 }
 
-/*
-================
-M_Keydown
-================
-*/
-/*
-================
-M_KeyRepeats
-
-Ironwail M_Keydown: only a few navigational keys repeat in menus, which
-reduces sound spam. Escape is left out (a held Escape would back out of
-every level and close the menu), and so is a key while it is being bound
-or is still held from being bound, so the repeat doesn't move the cursor.
-================
-*/
+// M_Keydown
+/**
+ * Ironwail M_Keydown: only a few navigational keys repeat in menus, which
+ * reduces sound spam. Escape is left out (a held Escape would back out of
+ * every level and close the menu), and so is a key while it is being bound
+ * or is still held from being bound, so the repeat doesn't move the cursor.
+ */
 export function M_KeyRepeats(key) {
   if (bind_grab || key === bind_grab_key) {
     return false;
@@ -3675,11 +3473,6 @@ export function M_Keydown(key) {
   }
 }
 
-/*
-================
-M_Draw
-================
-*/
 export function M_Draw() {
   if (m_state === m_none || getKeyDest() !== key_menu) {
     return;
@@ -3765,20 +3558,14 @@ function M_DrawState() {
   }
 }
 
-/*
-==============================================================================
-
-			MENU MOUSE AND TOUCH
-
-Ironwail (menu.c M_Mousemove, M_UpdateCursor): the mouse moves the menu
-cursor and MOUSE1 selects. Touch taps and mouse clicks share one hit test:
-a tap or click on a row selects it, as before. Ironwail's M_UpdateCursor
-clamps the mouse to the nearest row, and MOUSE1 then activates the cursor
-row wherever the mouse is; here hover and clicks only act on the row under
-the pointer, and a click outside the 320x200 menu goes back, as taps do.
-
-==============================================================================
-*/
+// MENU MOUSE AND TOUCH
+//
+// Ironwail (menu.c M_Mousemove, M_UpdateCursor): the mouse moves the menu
+// cursor and MOUSE1 selects. Touch taps and mouse clicks share one hit test:
+// a tap or click on a row selects it, as before. Ironwail's M_UpdateCursor
+// clamps the mouse to the nearest row, and MOUSE1 then activates the cursor
+// row wherever the mouse is; here hover and clicks only act on the row under
+// the pointer, and a click outside the 320x200 menu goes back, as taps do.
 
 // Ironwail ui_mouse: 0 ignores the mouse in menus
 export const ui_mouse = {
@@ -3804,16 +3591,12 @@ let m_vy = 0;
 let m_sx = 0;
 let m_sy = 0;
 
-/*
-================
-M_ToMenuSpace
-
-Maps a point on the element the menu is drawn into (CSS pixels, w x h) to
-the 320x200 menu space (Ironwail M_Mousemove's CANVAS_MENU transform). The
-menu is drawn centred in _vid on the menu canvas (scr_menuscale), so
-drawing x = menu x + (_vid.width - 320) / 2, and the same for y.
-================
-*/
+/**
+ * Maps a point on the element the menu is drawn into (CSS pixels, w x h) to
+ * the 320x200 menu space (Ironwail M_Mousemove's CANVAS_MENU transform). The
+ * menu is drawn centred in _vid on the menu canvas (scr_menuscale), so
+ * drawing x = menu x + (_vid.width - 320) / 2, and the same for y.
+ */
 function M_ToMenuSpace(x, y, w, h) {
   m_sx = (x / w) * _vid.width;
   m_sy = (y / h) * _vid.height;
@@ -3856,15 +3639,11 @@ function M_TableRowAt(vy, table, count) {
 
 const LAN_MAX_VISIBLE = 8; // rooms M_LanConfig_Draw shows
 
-/*
-================
-M_MenuRowAt
-
-The cursor row of the current menu under a point in menu space, or -1.
-Rows are the values the menu's cursor takes. slack (menu units) lets a tap
-just above or below an evenly spaced list take its end row.
-================
-*/
+/**
+ * The cursor row of the current menu under a point in menu space, or -1.
+ * Rows are the values the menu's cursor takes. slack (menu units) lets a tap
+ * just above or below an evenly spaced list take its end row.
+ */
 export function M_MenuRowAt(vx, vy, slack = 0) {
   if (vx < 0 || vx > 320) {
     return -1;
@@ -3933,13 +3712,7 @@ export function M_MenuRowAt(vx, vy, slack = 0) {
   }
 }
 
-/*
-================
-M_UpdateHover
-
-Ironwail M_<menu>_Mousemove: the row under the mouse takes the cursor
-================
-*/
+/** Ironwail M_<menu>_Mousemove: the row under the mouse takes the cursor */
 function M_UpdateHover() {
   if (m_mouse_valid === false || bind_grab || ui_mouse.value === 0) {
     return;
@@ -3999,15 +3772,11 @@ function M_UpdateHover() {
   }
 }
 
-/*
-================
-M_Mousemove
-
-Ironwail M_Mousemove. in_web.js calls this while a menu is up and the
-pointer is not locked: x, y are relative to the element the menu is drawn
-into, which is w x h CSS pixels.
-================
-*/
+/**
+ * Ironwail M_Mousemove. in_web.js calls this while a menu is up and the
+ * pointer is not locked: x, y are relative to the element the menu is drawn
+ * into, which is w x h CSS pixels.
+ */
 export function M_Mousemove(x, y, w, h) {
   M_ToMenuSpace(x, y, w, h);
   m_mousex = m_vx;
@@ -4027,29 +3796,21 @@ export function M_Mousemove(x, y, w, h) {
   M_UpdateHover();
 }
 
-/*
-================
-M_MouseButton
-
-in_web.js calls this with the cursor position just before it sends a mouse
-button key in a menu (Ironwail's in_sdl.c calls M_Mousemove on button
-events). Only a K_MOUSE1 sent this way clicks at the mouse position.
-================
-*/
+/**
+ * in_web.js calls this with the cursor position just before it sends a mouse
+ * button key in a menu (Ironwail's in_sdl.c calls M_Mousemove on button
+ * events). Only a K_MOUSE1 sent this way clicks at the mouse position.
+ */
 export function M_MouseButton(x, y, w, h) {
   M_Mousemove(x, y, w, h);
   m_mouse_click = true;
 }
 
-/*
-================
-M_TouchInput
-
-Touch tap (or, while SCR_ModalMessage is up, mouse click) on the menu.
-Converts element coordinates to the 320x200 menu space and selects there.
-fromTouch is true when touch.js passes a finger tap (see M_MenuClick).
-================
-*/
+/**
+ * Touch tap (or, while SCR_ModalMessage is up, mouse click) on the menu.
+ * Converts element coordinates to the 320x200 menu space and selects there.
+ * fromTouch is true when touch.js passes a finger tap (see M_MenuClick).
+ */
 export function M_TouchInput(
   touchX,
   touchY,
@@ -4089,13 +3850,7 @@ export function M_TouchInput(
   M_MenuClick(vx, vy, fromTouch === true);
 }
 
-/*
-================
-M_MenuClick
-
-A tap or MOUSE1 at a point in menu space. touch is true for a finger tap.
-================
-*/
+/** A tap or MOUSE1 at a point in menu space. touch is true for a finger tap. */
 function M_MenuClick(vx, vy, touch = false) {
   // Keys menu: the "more" rows above and below the list scroll it a page
   // (touch has no wheel)
@@ -4401,15 +4156,11 @@ function M_Quit_Touch(vx, vy) {
   }
 }
 
-/*
-==================
-M_AgentState
-
-Web-only: the open menu's cursor row for src/agent.js, which turns it into
-text. Rows count as the menu draws them; the main menu's first row is the
-port's Continue row while in a game.
-==================
-*/
+/**
+ * Web-only: the open menu's cursor row for src/agent.js, which turns it into
+ * text. Rows count as the menu draws them; the main menu's first row is the
+ * port's Continue row while in a game.
+ */
 export function M_AgentState() {
   let cursor = -1;
   switch (m_state) {

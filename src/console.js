@@ -32,24 +32,12 @@ import {
 import { COM_ListFiles } from "./pak.js";
 import { Draw_GetVirtualHeight, Draw_GetVirtualWidth } from "./gl_draw.js";
 
-/*
-==============================================================================
-
-			CONSOLE CONSTANTS
-
-==============================================================================
-*/
+// CONSOLE CONSTANTS
 
 const CON_TEXTSIZE = 16384;
 const NUM_CON_TIMES = 4;
 
-/*
-==============================================================================
-
-			CONSOLE STATE
-
-==============================================================================
-*/
+// CONSOLE STATE
 
 export let con_linewidth = 0;
 
@@ -132,11 +120,6 @@ export function Con_SetForcedup(val) {
   con_forcedup = val;
 }
 
-/*
-================
-Con_ToggleConsole_f
-================
-*/
 export function Con_ToggleConsole_f() {
   if (key_dest === key_console) {
     if (_cls.state === 2) { // ca_connected
@@ -157,11 +140,6 @@ export function Con_ToggleConsole_f() {
   con_times.fill(0);
 }
 
-/*
-================
-Con_Clear_f
-================
-*/
 export function Con_Clear_f() {
   if (con_text) {
     for (let i = 0; i < CON_TEXTSIZE; i++) {
@@ -170,44 +148,23 @@ export function Con_Clear_f() {
   }
 }
 
-/*
-================
-Con_ClearNotify
-================
-*/
 export function Con_ClearNotify() {
   for (let i = 0; i < NUM_CON_TIMES; i++) {
     con_times[i] = 0;
   }
 }
 
-/*
-================
-Con_MessageMode_f
-================
-*/
 export function Con_MessageMode_f() {
   set_key_dest(key_message);
   set_team_message(false);
 }
 
-/*
-================
-Con_MessageMode2_f
-================
-*/
 export function Con_MessageMode2_f() {
   set_key_dest(key_message);
   set_team_message(true);
 }
 
-/*
-================
-Con_CheckResize
-
-If the line width has changed, reformat the buffer.
-================
-*/
+/** If the line width has changed, reformat the buffer. */
 export function Con_CheckResize() {
   let width = (_vid.width >> 3) - 2;
 
@@ -268,11 +225,6 @@ export function Con_CheckResize() {
   con_current = con_totallines - 1;
 }
 
-/*
-================
-Con_Init
-================
-*/
 export function Con_Init() {
   con_text = new Array(CON_TEXTSIZE);
   for (let i = 0; i < CON_TEXTSIZE; i++) {
@@ -284,9 +236,7 @@ export function Con_Init() {
 
   Con_Printf("Console initialized.\n");
 
-  //
   // register our commands
-  //
   Cvar_RegisterVariable(con_notifytime);
 
   Cmd_AddCommand("toggleconsole", Con_ToggleConsole_f);
@@ -296,11 +246,6 @@ export function Con_Init() {
   con_initialized = true;
 }
 
-/*
-===============
-Con_Linefeed
-===============
-*/
 function Con_Linefeed() {
   con_x = 0;
   con_current++;
@@ -311,15 +256,12 @@ function Con_Linefeed() {
   }
 }
 
-/*
-================
-Con_Print
+// Con_Print
+//
+// Handles cursor positioning, line wrapping, etc
+// All console printing must go through this in order to be logged to disk
+// If no console is visible, the notify window will pop up.
 
-Handles cursor positioning, line wrapping, etc
-All console printing must go through this in order to be logged to disk
-If no console is visible, the notify window will pop up.
-================
-*/
 // Web-only: src/agent.js sees every console line (null when no agent is attached)
 let con_agent_hook = null;
 export function Con_SetAgentHook(fn) {
@@ -400,13 +342,9 @@ export function Con_Print(txt) {
   }
 }
 
-/*
-================
-Con_Printf
-
-Handles cursor positioning, line wrapping, etc
-================
-*/
+// Con_Printf
+//
+// Handles cursor positioning, line wrapping, etc
 let inupdate = false;
 
 export function Con_Printf(...args) {
@@ -437,13 +375,7 @@ export function Con_Printf(...args) {
   }
 }
 
-/*
-================
-Con_DPrintf
-
-A Con_Printf that only shows up if the "developer" cvar is set
-================
-*/
+/** A Con_Printf that only shows up if the "developer" cvar is set */
 export function Con_DPrintf(...args) {
   if (!_developer.value) {
     return; // don't confuse non-developers with techie stuff...
@@ -452,13 +384,7 @@ export function Con_DPrintf(...args) {
   Con_Printf(...args);
 }
 
-/*
-==================
-Con_SafePrintf
-
-Okay to call even when the screen can't be updated
-==================
-*/
+/** Okay to call even when the screen can't be updated */
 export function Con_SafePrintf(...args) {
   const temp = _scr_disabled_for_loading;
   _scr_disabled_for_loading = true;
@@ -466,18 +392,12 @@ export function Con_SafePrintf(...args) {
   _scr_disabled_for_loading = temp;
 }
 
-/*
-==============================================================================
-
-TAB COMPLETION
-
-johnfitz/QuakeSpasm, with Ironwail's argument completion. Not in id's
-console.c, whose Tab only completed a command or cvar name. Names match by
-prefix, ignoring case (QS compares case, Ironwail ignores it and matches
-anywhere in the name).
-
-==============================================================================
-*/
+// TAB COMPLETION
+//
+// johnfitz/QuakeSpasm, with Ironwail's argument completion. Not in id's
+// console.c, whose Tab only completed a command or cvar name. Names match by
+// prefix, ignoring case (QS compares case, Ironwail ignores it and matches
+// anywhere in the name).
 
 let key_tabpartial = ""; // the word being cycled through; empty on the first Tab
 let tab_start = 0; // QS's static c: where that word starts in the edit line
@@ -500,14 +420,10 @@ function Con_Match(str, partial) {
     str.substring(0, partial.length).toLowerCase() === partial.toLowerCase();
 }
 
-/*
-============
-Con_AddToTabList -- johnfitz
-
-Adds name to the matches if it starts with partial. type is shown after it in
-the list ('cvar', 'command', a key's binding), or null for none.
-============
-*/
+// Con_AddToTabList -- johnfitz
+//
+// Adds name to the matches if it starts with partial. type is shown after it in
+// the list ('cvar', 'command', a key's binding), or null for none.
 export function Con_AddToTabList(name, partial, type) {
   if (!Con_Match(name, partial)) {
     return;
@@ -541,14 +457,10 @@ export function Con_AddToTabList(name, partial, type) {
   tablist.splice(insert, 0, { name: name, type: type });
 }
 
-/*
-============
-ParseCommand -- Ironwail
-
-Tokenizes the command the cursor is in, from the last ';' or quote, so the
-argument completions below know which command and argument they are in
-============
-*/
+// ParseCommand -- Ironwail
+//
+// Tokenizes the command the cursor is in, from the last ';' or quote, so the
+// argument completions below know which command and argument they are in
 function ParseCommand() {
   const str = Key_LineString(key_lines[edit_line], 1).substring(
     0,
@@ -656,11 +568,7 @@ const arg_completion_types = [
   { command: "unbind", fn: CompleteUnbindKeys },
 ];
 
-/*
-============
-BuildTabList -- johnfitz
-============
-*/
+// BuildTabList -- johnfitz
 function BuildTabList(partial) {
   tablist.length = 0;
   bash_partial = "";
@@ -720,14 +628,10 @@ function Con_PrintTabList() {
   Con_SafePrintf("\n");
 }
 
-/*
-============
-Con_TabComplete -- johnfitz
-
-The first Tab lists every match and extends the word to their longest common
-prefix; further Tabs cycle through the matches (Shift+Tab backwards).
-============
-*/
+// Con_TabComplete -- johnfitz
+//
+// The first Tab lists every match and extends the word to their longest common
+// prefix; further Tabs cycle through the matches (Shift+Tab backwards).
 export function Con_TabComplete() {
   const line = key_lines[edit_line];
 
@@ -817,26 +721,16 @@ export function Con_TabComplete() {
   set_key_linepos(linepos);
 }
 
-/*
-==============================================================================
+// DRAWING
 
-DRAWING
-
-==============================================================================
-*/
-
-/*
-================
-Con_DrawInput
-
-The input line scrolls horizontally if typing goes beyond the right edge.
-QuakeSpasm draws the text and then the cursor over it, so the cursor can sit
-inside the line; id's version wrote the cursor into key_lines. At the end of
-the line in insert mode the cursor blinks as in id's; elsewhere it is drawn
-over the character on alternate frames, a block in insert mode and an
-underscore in overwrite mode (QS has pictures for these).
-================
-*/
+/**
+ * The input line scrolls horizontally if typing goes beyond the right edge.
+ * QuakeSpasm draws the text and then the cursor over it, so the cursor can sit
+ * inside the line; id's version wrote the cursor into key_lines. At the end of
+ * the line in insert mode the cursor blinks as in id's; elsewhere it is drawn
+ * over the character on alternate frames, a block in insert mode and an
+ * underscore in overwrite mode (QS has pictures for these).
+ */
 function Con_DrawInput() {
   if (key_dest !== key_console && !con_forcedup) {
     return; // don't draw anything
@@ -872,13 +766,7 @@ function Con_DrawInput() {
   }
 }
 
-/*
-================
-Con_Scroll
-
-QuakeSpasm: scrolls the console back (lines > 0) or forward
-================
-*/
+/** QuakeSpasm: scrolls the console back (lines > 0) or forward */
 export function Con_Scroll(lines) {
   let bs = con_backscroll + lines;
   const maxscroll = con_totallines - (_vid.height >> 3) - 1;
@@ -891,13 +779,7 @@ export function Con_Scroll(lines) {
   con_backscroll = bs;
 }
 
-/*
-================
-Con_DrawNotify
-
-Draws the last few lines of output transparently over the game top
-================
-*/
+/** Draws the last few lines of output transparently over the game top */
 export function Con_DrawNotify() {
   if (!_Draw_Character) return;
 
@@ -952,14 +834,10 @@ export function Con_DrawNotify() {
   }
 }
 
-/*
-================
-Con_DrawConsole
-
-Draws the console with the solid background
-The typing input line at the bottom should only be drawn if typing is allowed
-================
-*/
+/**
+ * Draws the console with the solid background
+ * The typing input line at the bottom should only be drawn if typing is allowed
+ */
 export function Con_DrawConsole(lines, drawinput) {
   if (lines <= 0) {
     return;
@@ -995,11 +873,6 @@ export function Con_DrawConsole(lines, drawinput) {
   }
 }
 
-/*
-==================
-Con_NotifyBox
-==================
-*/
 export function Con_NotifyBox(text) {
   // during startup for sound / cd warnings
   Con_Printf(
@@ -1015,13 +888,7 @@ export function Con_NotifyBox(text) {
   // For now, just print the notification.
 }
 
-/*
-==============================================================================
-
-			INTERNAL HELPERS
-
-==============================================================================
-*/
+// INTERNAL HELPERS
 
 // sprintf implementation supporting width, precision, and flags for Quake format strings
 export function _sprintf(fmt, ...args) {

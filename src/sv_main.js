@@ -242,9 +242,7 @@ import {
 import { V_CalcRoll } from "./view.js";
 import { key_dest } from "./keys.js";
 
-//============================================================================
 // Module-level state
-//============================================================================
 
 // The edicts SV_SpawnServer allocates up front; more are added on demand
 // (progs.js ED_GrowEdicts). Not in C, which allocates sv.max_edicts.
@@ -265,14 +263,10 @@ const CONTENTS_SOLID = -2;
 let fatbytes = 0;
 let fatpvs = new Uint8Array(0);
 
-/*
-=============
-SV_AllocFatPVS
-
-Not in C. Grows fatpvs to hold the PVS of the given world model; it never
-shrinks, so it allocates only when a map has more leafs than any before it.
-=============
-*/
+/**
+ * Not in C. Grows fatpvs to hold the PVS of the given world model; it never
+ * shrinks, so it allocates only when a map has more leafs than any before it.
+ */
 export function SV_AllocFatPVS(worldmodel) {
   const bytes = (worldmodel.numleafs + 31) >> 3;
   if (bytes > fatpvs.length) {
@@ -291,11 +285,6 @@ export const max_edicts = new cvar_t("max_edicts", "16384"); //johnfitz //ericw 
 
 export let current_skill = 0;
 
-/*
-===============
-SV_Init
-===============
-*/
 export function SV_Init() {
   PR_SetHostError(Host_Error);
   Cvar_RegisterVariable(sv_maxvelocity);
@@ -329,29 +318,19 @@ export function SV_Init() {
   });
 }
 
-/*
-=============================================================================
+// EVENT MESSAGES
 
-EVENT MESSAGES
-
-=============================================================================
-*/
-
-/*
-==================
-SV_MarkDatagram
-
-Not in C (PROTO-1, a deliberate deviation). id copies sv.datagram into a
-client's datagram whole or not at all (sv_main.c:738-739). Here sv.datagram
-holds up to MAX_DATAGRAM bytes, more than a network client's datagram
-(SV_ClientDatagramSize), so on a busy frame a remote player would lose every
-sound and particle of that frame. SV_StartParticle and SV_StartSound mark
-where each of their messages starts and ends, and SV_CopyServerDatagram
-copies whole chunks between marks while they fit. QuakeC's MSG_BROADCAST
-writes (PF_WriteByte and the rest) have no boundaries the engine can see, so
-the bytes between two marks are one chunk, copied whole or not at all.
-==================
-*/
+// SV_MarkDatagram
+//
+// Not in C (PROTO-1, a deliberate deviation). id copies sv.datagram into a
+// client's datagram whole or not at all (sv_main.c:738-739). Here sv.datagram
+// holds up to MAX_DATAGRAM bytes, more than a network client's datagram
+// (SV_ClientDatagramSize), so on a busy frame a remote player would lose every
+// sound and particle of that frame. SV_StartParticle and SV_StartSound mark
+// where each of their messages starts and ends, and SV_CopyServerDatagram
+// copies whole chunks between marks while they fit. QuakeC's MSG_BROADCAST
+// writes (PF_WriteByte and the rest) have no boundaries the engine can see, so
+// the bytes between two marks are one chunk, copied whole or not at all.
 const SV_MAX_DATAGRAM_MARKS = 512; // two per message; the smallest is 17 bytes
 const sv_datagram_marks = new Uint16Array(SV_MAX_DATAGRAM_MARKS);
 let sv_datagram_nummarks = 0;
@@ -377,16 +356,12 @@ function SV_MarkDatagram() {
   }
 }
 
-/*
-==================
-SV_CopyServerDatagram
-
-Not in C: sv_main.c:738-739 inline, plus the PROTO-1 partial copy (see
-SV_MarkDatagram). If sv.datagram fits in msg it is copied whole, as in id.
-Otherwise the longest run of whole chunks from its start that fits is
-copied, so the frame's first sounds and particles still reach the client.
-==================
-*/
+/**
+ * Not in C: sv_main.c:738-739 inline, plus the PROTO-1 partial copy (see
+ * SV_MarkDatagram). If sv.datagram fits in msg it is copied whole, as in id.
+ * Otherwise the longest run of whole chunks from its start that fits is
+ * copied, so the frame's first sounds and particles still reach the client.
+ */
 export function SV_CopyServerDatagram(msg) {
   const datagram = sv.datagram;
 
@@ -419,13 +394,7 @@ export function SV_CopyServerDatagram(msg) {
   }
 }
 
-/*
-==================
-SV_StartParticle
-
-Make sure the event gets sent to all clients
-==================
-*/
+/** Make sure the event gets sent to all clients */
 export function SV_StartParticle(org, dir, color, count) {
   // C checks MAX_DATAGRAM-16, the size of the message with 2-byte coords.
   // PROTOCOL_ICARO's coords are 4 bytes, so the message is 18.
@@ -452,20 +421,16 @@ export function SV_StartParticle(org, dir, color, count) {
   SV_MarkDatagram(); // PROTO-1
 }
 
-/*
-==================
-SV_StartSound
-
-Each entity can have eight independant sound sources, like voice,
-weapon, feet, etc.
-
-Channel 0 is an auto-allocate channel, the others override anything
-allready running on that entity/channel pair.
-
-An attenuation of 0 will play full volume everywhere in the level.
-Larger attenuations will drop off. (max 4 attenuation)
-==================
-*/
+/**
+ * Each entity can have eight independant sound sources, like voice,
+ * weapon, feet, etc.
+ *
+ * Channel 0 is an auto-allocate channel, the others override anything
+ * allready running on that entity/channel pair.
+ *
+ * An attenuation of 0 will play full volume everywhere in the level.
+ * Larger attenuations will drop off. (max 4 attenuation)
+ */
 export function SV_StartSound(entity, channel, sample, volume, attenuation) {
   // C calls Sys_Error for these. Like Ironwail, Host_Error: a bad QuakeC
   // sound() call ends the map, not the program.
@@ -558,13 +523,9 @@ export function SV_StartSound(entity, channel, sample, volume, attenuation) {
   SV_MarkDatagram(); // PROTO-1
 }
 
-/*
-==================
-SV_LocalSound - for 2021 rerelease
-
-Ported from Ironwail's sv_main.c.
-==================
-*/
+// SV_LocalSound - for 2021 rerelease
+//
+// Ported from Ironwail's sv_main.c.
 export function SV_LocalSound(client, sample) {
   let sound_num;
   for (
@@ -600,22 +561,12 @@ export function SV_LocalSound(client, sample) {
   }
 }
 
-/*
-==============================================================================
+// CLIENT SPAWNING
 
-CLIENT SPAWNING
-
-==============================================================================
-*/
-
-/*
-================
-SV_SendServerinfo
-
-Sends the first message from the server to a connected client.
-This will be sent on the initial connection and upon each server load.
-================
-*/
+/**
+ * Sends the first message from the server to a connected client.
+ * This will be sent on the initial connection and upon each server load.
+ */
 export function SV_SendServerinfo(client) {
   MSG_WriteByte(client.message, svc_print);
   const message = "\x02\nVERSION 1.09 SERVER (" + pr_crc + " CRC)";
@@ -670,16 +621,12 @@ export function SV_SendServerinfo(client) {
   client.spawned = false; // need prespawn, spawn, etc
 }
 
-/*
-================
-SV_WriteMovevars
-
-Writes the _movevars stufftext that feeds client-side prediction. Not in
-NetQuake: it carries the values QuakeWorld sends in svc_serverdata, then
-edgefriction, sv_maxvelocity and sv_altnoclip for pmove.js's
-NetQuake-physics mode.
-================
-*/
+/**
+ * Writes the _movevars stufftext that feeds client-side prediction. Not in
+ * NetQuake: it carries the values QuakeWorld sends in svc_serverdata, then
+ * edgefriction, sv_maxvelocity and sv_altnoclip for pmove.js's
+ * NetQuake-physics mode.
+ */
 export function SV_WriteMovevars(msg) {
   MSG_WriteByte(msg, svc_stufftext);
   MSG_WriteString(
@@ -716,14 +663,10 @@ function SV_SnapshotMovevars() {
   _movevars_sent[7] = sv_altnoclip.value;
 }
 
-/*
-================
-SV_CheckMovevars
-
-Re-sends _movevars on the reliable stream when one of the cvars it carries
-changes mid-game, so prediction keeps using the server's values.
-================
-*/
+/**
+ * Re-sends _movevars on the reliable stream when one of the cvars it carries
+ * changes mid-game, so prediction keeps using the server's values.
+ */
 export function SV_CheckMovevars() {
   if (
     _movevars_sent[0] === sv_gravity.value &&
@@ -742,14 +685,10 @@ export function SV_CheckMovevars() {
   SV_WriteMovevars(sv.reliable_datagram);
 }
 
-/*
-================
-SV_ConnectClient
-
-Initializes a client_t for a new net connection. This will only be called
-once for a player each game, not once for each level change.
-================
-*/
+/**
+ * Initializes a client_t for a new net connection. This will only be called
+ * once for a player each game, not once for each level change.
+ */
 export function SV_ConnectClient(clientnum) {
   const client = svs.clients[clientnum];
 
@@ -797,11 +736,6 @@ export function SV_ConnectClient(clientnum) {
   SV_SendServerinfo(client);
 }
 
-/*
-===================
-SV_CheckForNewClients
-===================
-*/
 export function SV_CheckForNewClients() {
   while (true) {
     const ret = NET_CheckNewConnections();
@@ -828,30 +762,14 @@ export function SV_CheckForNewClients() {
   }
 }
 
-/*
-===============================================================================
+// FRAME UPDATES
 
-FRAME UPDATES
-
-===============================================================================
-*/
-
-/*
-==================
-SV_ClearDatagram
-==================
-*/
 export function SV_ClearDatagram() {
   SZ_Clear(sv.datagram);
   sv.datagram.overflowed = false;
   sv_datagram_nummarks = 0; // PROTO-1
 }
 
-/*
-=======================
-SV_SendClientMessages
-=======================
-*/
 export function SV_SendClientMessages() {
   // update frags, names, etc
   SV_UpdateToReliableMessages();
@@ -946,11 +864,6 @@ export function SV_SendClientMessages() {
   SV_CleanupEnts();
 }
 
-/*
-=======================
-SV_UpdateToReliableMessages
-=======================
-*/
 function SV_UpdateToReliableMessages() {
   SV_CheckMovevars();
 
@@ -989,24 +902,12 @@ function SV_UpdateToReliableMessages() {
   sv.reliable_datagram.overflowed = false;
 }
 
-/*
-=============================================================================
+// The PVS must include a small area around the client to allow head bobbing
+// or other small motion on the client side. Otherwise, a bob might cause an
+// entity that should be visible to not show up, especially when the bob
+// crosses a waterline.
 
-The PVS must include a small area around the client to allow head bobbing
-or other small motion on the client side. Otherwise, a bob might cause an
-entity that should be visible to not show up, especially when the bob
-crosses a waterline.
-
-=============================================================================
-*/
-
-/*
-=============
-SV_AddToFatPVS
-
-Recursively accumulates PVS bits from leafs within 8 units of the point.
-=============
-*/
+/** Recursively accumulates PVS bits from leafs within 8 units of the point. */
 function SV_AddToFatPVS(org, node) {
   while (true) {
     // if this is a leaf, accumulate the pvs bits
@@ -1036,14 +937,10 @@ function SV_AddToFatPVS(org, node) {
   }
 }
 
-/*
-=============
-SV_FatPVS
-
-Calculates a PVS that is the inclusive or of all leafs within 8 pixels of the
-given point.
-=============
-*/
+/**
+ * Calculates a PVS that is the inclusive or of all leafs within 8 pixels of the
+ * given point.
+ */
 export function SV_FatPVS(org) {
   SV_AllocFatPVS(sv.worldmodel); // no-op unless the map is new and bigger
   fatbytes = (sv.worldmodel.numleafs + 31) >> 3;
@@ -1052,15 +949,11 @@ export function SV_FatPVS(org) {
   return fatpvs;
 }
 
-/*
-==================
-SV_WriteDelta
-
-Writes part of a packetentities message.
-Can delta from either a baseline or a previous packet_entity.
-Ported from: QW/server/sv_ents.c
-==================
-*/
+/**
+ * Writes part of a packetentities message.
+ * Can delta from either a baseline or a previous packet_entity.
+ * Ported from: QW/server/sv_ents.c
+ */
 function SV_WriteDelta(from, to, msg, force) {
   // send an update
   let bits = 0;
@@ -1124,9 +1017,7 @@ function SV_WriteDelta(from, to, msg, force) {
     bits |= PE_MOREBITS;
   }
 
-  //
   // write the message
-  //
   if (to.number === 0) {
     Sys_Error("SV_WriteDelta: unset entity number");
   }
@@ -1204,23 +1095,19 @@ function SV_SameBox(a, b) {
     a.maxs[2] === b.maxs[2];
 }
 
-/*
-=============
-SV_SetStateSolid
-
-Fills in the PS_* byte and box that client-side prediction collides with.
-Not in QuakeWorld, whose CL_SetSolidEntities guesses from the model (QW
-never sets U_SOLID). Uses v.solid, never the model: corpses keep their
-model but are SOLID_NOT. Mirrors the filters SV_ClipToLinks applies when
-clent moves, so the player doesn't collide with their own missiles or
-with point-sized entities (nails, rockets) in prediction either.
-
-SOLID_BBOX and SOLID_SLIDEBOX entities get their v.mins/v.maxs as the box,
-sent with the PS_* byte only when it changes: the client has no other way
-to learn a monster's size, and setsize boxes don't follow from the model
-(misc_explobox is 0..32 x 0..64, Chthon is 256 wide and 280 tall).
-=============
-*/
+/**
+ * Fills in the PS_* byte and box that client-side prediction collides with.
+ * Not in QuakeWorld, whose CL_SetSolidEntities guesses from the model (QW
+ * never sets U_SOLID). Uses v.solid, never the model: corpses keep their
+ * model but are SOLID_NOT. Mirrors the filters SV_ClipToLinks applies when
+ * clent moves, so the player doesn't collide with their own missiles or
+ * with point-sized entities (nails, rockets) in prediction either.
+ *
+ * SOLID_BBOX and SOLID_SLIDEBOX entities get their v.mins/v.maxs as the box,
+ * sent with the PS_* byte only when it changes: the client has no other way
+ * to learn a monster's size, and setsize boxes don't follow from the model
+ * (misc_explobox is 0..32 x 0..64, Chthon is 256 wide and 280 tall).
+ */
 export function SV_SetStateSolid(state, ent, clent) {
   let solid = 0;
   const s = ent.v.solid;
@@ -1279,14 +1166,10 @@ const MIN_PACKETENTITIES_BYTES = 2 + 2;
 // (QW uses 9999, below MAX_EDICTS here)
 const PE_NUM_END = MAX_EDICTS;
 
-/*
-=============
-SV_EmitPacketEntities
-
-Writes a delta update of a packet_entities_t to the message.
-Ported from: QW/server/sv_ents.c
-=============
-*/
+/**
+ * Writes a delta update of a packet_entities_t to the message.
+ * Ported from: QW/server/sv_ents.c
+ */
 export function SV_EmitPacketEntities(client, to, msg) {
   let from;
   let oldmax;
@@ -1425,29 +1308,21 @@ export function SV_EmitPacketEntities(client, to, msg) {
   MSG_WriteShort(msg, 0); // end of packetentities
 }
 
-/*
-=============
-SV_StringIsEmpty
-
-Not in C. PR_GetString( ofs ) === '' without building the string: the
-offset is outside the strings in use, or the first byte is the terminator.
-=============
-*/
+/**
+ * Not in C. PR_GetString( ofs ) === '' without building the string: the
+ * offset is outside the strings in use, or the first byte is the terminator.
+ */
 function SV_StringIsEmpty(ofs) {
   return ofs < 0 || ofs >= pr_strings_size || pr_strings_data[ofs] === 0;
 }
 
-/*
-=============
-SV_BuildEntityCandidates
-
-Not in C. The entities SV_WriteEntitiesToClient can send, in order: not a
-player, with a model. That doesn't depend on the client, so
-SV_SendClientMessages builds the list once for all of them. Nothing it reads
-changes while the messages are built, except when SV_DropClient runs QuakeC;
-it then clears sv_ec_valid so the list is rebuilt for the clients after it.
-=============
-*/
+// SV_BuildEntityCandidates
+//
+// Not in C. The entities SV_WriteEntitiesToClient can send, in order: not a
+// player, with a model. That doesn't depend on the client, so
+// SV_SendClientMessages builds the list once for all of them. Nothing it reads
+// changes while the messages are built, except when SV_DropClient runs QuakeC;
+// it then clears sv_ec_valid so the list is rebuilt for the clients after it.
 const sv_ec_ents = [];
 const sv_ec_nums = [];
 let sv_ec_count = 0;
@@ -1473,14 +1348,10 @@ function SV_BuildEntityCandidates() {
   sv_ec_count = n;
 }
 
-/*
-=============
-SV_WriteEntitiesToClient
-
-Encodes the current state of the world as a svc_packetentities message.
-Ported from: QW/server/sv_ents.c
-=============
-*/
+/**
+ * Encodes the current state of the world as a svc_packetentities message.
+ * Ported from: QW/server/sv_ents.c
+ */
 export function SV_WriteEntitiesToClient(client, clent, pvs, msg) {
   // this is the frame we are creating
   const frame = client.frames[client.outgoing_sequence & PE_UPDATE_MASK];
@@ -1558,17 +1429,13 @@ export function SV_WriteEntitiesToClient(client, clent, pvs, msg) {
   SV_EmitPacketEntities(client, pack, msg);
 }
 
-/*
-==================
-SV_UpdateEntAlpha
-
-Ironwail sv_main.c SV_WriteEntitiesToClient, which refreshes ent->alpha
-from the progs field while it builds the entity list. Players are sent
-with svc_playerinfo here, not in that list, so SV_WritePlayersToClient
-and SV_WriteClientdataToMessage call this too. Ironwail's clientdata reads
-the alpha from the previous frame's SV_WriteEntitiesToClient.
-==================
-*/
+/**
+ * Ironwail sv_main.c SV_WriteEntitiesToClient, which refreshes ent->alpha
+ * from the progs field while it builds the entity list. Players are sent
+ * with svc_playerinfo here, not in that list, so SV_WritePlayersToClient
+ * and SV_WriteClientdataToMessage call this too. Ironwail's clientdata reads
+ * the alpha from the previous frame's SV_WriteEntitiesToClient.
+ */
 function SV_UpdateEntAlpha(ent) {
   if (pr_extfields.alpha >= 0) {
     ent.alpha = ENTALPHA_ENCODE(
@@ -1577,15 +1444,8 @@ function SV_UpdateEntAlpha(ent) {
   }
 }
 
-/*
-==================
-SV_WriteClientdataToMessage
-==================
-*/
 export function SV_WriteClientdataToMessage(ent, msg) {
-  //
   // send a damage message
-  //
   if (ent.v.dmg_take || ent.v.dmg_save) {
     const other = PROG_TO_EDICT(ent.v.dmg_inflictor);
     MSG_WriteByte(msg, svc_damage);
@@ -1602,9 +1462,7 @@ export function SV_WriteClientdataToMessage(ent, msg) {
     ent.v.dmg_save = 0;
   }
 
-  //
   // send the current viewpos offset from the view entity
-  //
   SV_SetIdealPitch();
 
   // a fixangle might get lost in a dropped packet. Oh well.
@@ -1760,13 +1618,7 @@ export function SV_WriteClientdataToMessage(ent, msg) {
   //johnfitz
 }
 
-/*
-==================
-MSG_WriteDeltaUsercmd
-
-QuakeWorld-style delta compression for usercmd_t
-==================
-*/
+/** QuakeWorld-style delta compression for usercmd_t */
 function MSG_WriteDeltaUsercmd(buf, from, cmd) {
   let bits = 0;
 
@@ -1848,13 +1700,7 @@ const _playerCmd = {
 // Player model index for checking if model changed
 let sv_playermodel = 0;
 
-/*
-==================
-SV_WritePlayersToClient
-
-QuakeWorld-style player info for client-side prediction
-==================
-*/
+/** QuakeWorld-style player info for client-side prediction */
 export function SV_WritePlayersToClient(_client, clent, pvs, msg) {
   // Find player model index if not cached
   if (sv_playermodel === 0) {
@@ -2027,11 +1873,8 @@ export function SV_WritePlayersToClient(_client, clent, pvs, msg) {
   }
 }
 
-/*
-=======================
-SV_SendClientDatagram
-=======================
-*/
+// SV_SendClientDatagram
+
 // Cached buffers for SV_SendClientDatagram (avoid per-frame allocations)
 const _scdBuf = new Uint8Array(MAX_DATAGRAM);
 const _scdMsg = {
@@ -2063,22 +1906,18 @@ const _sendReconnectMsg = {
   cursize: 0,
 };
 
-/*
-=======================
-SV_ClientDatagramSize
-
-The most a client's per-frame datagram may hold. FitzQuake/QuakeSpasm give
-the local client MAX_DATAGRAM and every other client DATAGRAM_MTU, so a
-network datagram isn't fragmented. Deliberate deviation: a network client's
-driver knows the path's limit (WebTransport's maxDatagramSize, less the
-transport header) and puts it in sock.maxdatagram, re-read every frame
-because QUIC raises it as path MTU discovery probes. That is clamped to
-[MAX_DATAGRAM_ID, DATAGRAM_MTU]; unknown is id's MAX_DATAGRAM. The floor keeps
-room for the clientdata and an empty packetentities, which are written
-unconditionally; a larger message than the path takes still goes out, on
-the driver's reliable fallback.
-=======================
-*/
+/**
+ * The most a client's per-frame datagram may hold. FitzQuake/QuakeSpasm give
+ * the local client MAX_DATAGRAM and every other client DATAGRAM_MTU, so a
+ * network datagram isn't fragmented. Deliberate deviation: a network client's
+ * driver knows the path's limit (WebTransport's maxDatagramSize, less the
+ * transport header) and puts it in sock.maxdatagram, re-read every frame
+ * because QUIC raises it as path MTU discovery probes. That is clamped to
+ * [MAX_DATAGRAM_ID, DATAGRAM_MTU]; unknown is id's MAX_DATAGRAM. The floor keeps
+ * room for the clientdata and an empty packetentities, which are written
+ * unconditionally; a larger message than the path takes still goes out, on
+ * the driver's reliable fallback.
+ */
 export function SV_ClientDatagramSize(sock) {
   // johnfitz -- if client is nonlocal, use smaller max size so packets aren't fragmented
   if (sock.address === "LOCAL") {
@@ -2164,14 +2003,10 @@ function SV_SendClientDatagram(client) {
   return true;
 }
 
-/*
-=======================
-SV_SendNop
-
-Send a nop message without trashing or sending the accumulated client
-message buffer
-=======================
-*/
+/**
+ * Send a nop message without trashing or sending the accumulated client
+ * message buffer
+ */
 function SV_SendNop(client) {
   // Use cached buffer instead of allocating per-call
   _sendNopMsg.cursize = 0;
@@ -2184,11 +2019,6 @@ function SV_SendNop(client) {
   client.last_message = realtime;
 }
 
-/*
-=======================
-SV_CleanupEnts
-=======================
-*/
 function SV_CleanupEnts() {
   if (!sv.edicts || !sv.edicts[0]) {
     return;
@@ -2201,14 +2031,10 @@ function SV_CleanupEnts() {
   }
 }
 
-/*
-=====================
-SV_DropClient
-
-Called when the player is getting totally kicked off the host
-if (crash = true), don't bother sending signoffs
-=====================
-*/
+/**
+ * Called when the player is getting totally kicked off the host
+ * if (crash = true), don't bother sending signoffs
+ */
 export function SV_DropClient(crash) {
   const client = host_client;
   if (client == null) {
@@ -2275,11 +2101,6 @@ export function SV_DropClient(crash) {
   }
 }
 
-/*
-================
-SV_ModelIndex
-================
-*/
 export function SV_ModelIndex(name) {
   if (!name || name.length === 0) {
     return 0;
@@ -2295,13 +2116,7 @@ export function SV_ModelIndex(name) {
   return 0;
 }
 
-/*
-================
-SV_SendReconnect
-
-Tell all the clients that the server is changing levels
-================
-*/
+/** Tell all the clients that the server is changing levels */
 function SV_SendReconnect() {
   // Use cached buffer instead of allocating per-call
   _sendReconnectMsg.cursize = 0;
@@ -2313,14 +2128,10 @@ function SV_SendReconnect() {
   Cbuf_InsertText("reconnect\n");
 }
 
-/*
-================
-SV_SaveSpawnparms
-
-Grabs the current state of each client for saving across the
-transition to another level
-================
-*/
+/**
+ * Grabs the current state of each client for saving across the
+ * transition to another level
+ */
 export function SV_SaveSpawnparms() {
   svs.serverflags = pr_global_struct.serverflags;
 
@@ -2339,13 +2150,7 @@ export function SV_SaveSpawnparms() {
   }
 }
 
-/*
-==============================================================================
-
-SERVER SPAWNING
-
-==============================================================================
-*/
+// SERVER SPAWNING
 
 // Ironwail sizes each signon buffer at 31500 bytes, about half its 64000-byte
 // client message. This port keeps id's MAX_MSGLEN (8000) message, and a
@@ -2354,11 +2159,7 @@ SERVER SPAWNING
 // svc_signonnum all fit in one message.
 export const SIGNON_SIZE = MAX_MSGLEN / 2;
 
-/*
-================
-SV_AddSignonBuffer -- Ironwail
-================
-*/
+// SV_AddSignonBuffer -- Ironwail
 function SV_AddSignonBuffer() {
   if (sv.num_signon_buffers >= MAX_SIGNON_BUFFERS) {
     Host_Error("SV_AddSignonBuffer overflow\n");
@@ -2371,25 +2172,16 @@ function SV_AddSignonBuffer() {
   sv.signon = sb;
 }
 
-/*
-================
-SV_ReserveSignonSpace -- Ironwail
-
-Starts a new signon buffer when the current one can't take numbytes more,
-so that no message is split across two buffers.
-================
-*/
+// SV_ReserveSignonSpace -- Ironwail
+//
+// Starts a new signon buffer when the current one can't take numbytes more,
+// so that no message is split across two buffers.
 export function SV_ReserveSignonSpace(numbytes) {
   if (sv.signon.cursize + numbytes > sv.signon.maxsize) {
     SV_AddSignonBuffer();
   }
 }
 
-/*
-================
-SV_CreateBaseline
-================
-*/
 function SV_CreateBaseline() {
   for (let entnum = 0; entnum < sv.num_edicts; entnum++) {
     const svent = EDICT_NUM(entnum);
@@ -2400,9 +2192,7 @@ function SV_CreateBaseline() {
       continue;
     }
 
-    //
     // create entity baseline
-    //
     if (svent.v) {
       VectorCopy(svent.v.origin, svent.baseline.origin);
       VectorCopy(svent.v.angles, svent.baseline.angles);
@@ -2421,7 +2211,6 @@ function SV_CreateBaseline() {
       }
     }
 
-    //
     // add to the message
     //
     // PROTOCOL_ICARO's baseline (protocol.js): a short model index, a
@@ -2444,13 +2233,7 @@ function SV_CreateBaseline() {
   }
 }
 
-/*
-================
-SV_SpawnServer
-
-This is called at the start of each level
-================
-*/
+/** This is called at the start of each level */
 export function SV_SpawnServer(server) {
   // let's not have any servers with no name
   if (hostname.string.length === 0) {
@@ -2463,16 +2246,12 @@ export function SV_SpawnServer(server) {
   // Reset cached player model index so it's re-looked-up for the new map
   sv_playermodel = 0;
 
-  //
   // tell all connected clients that we are going to a new level
-  //
   if (sv.active) {
     SV_SendReconnect();
   }
 
-  //
   // make cvars consistant
-  //
   if (coop.value) {
     Cvar_SetValue("deathmatch", 0);
   }
@@ -2487,9 +2266,7 @@ export function SV_SpawnServer(server) {
   Cvar_SetValue("skill", current_skill);
   PR_SetCurrentSkill(current_skill);
 
-  //
   // set up the new server
-  //
   Host_ClearMemory();
 
   // clear the server struct
@@ -2576,9 +2353,7 @@ export function SV_SpawnServer(server) {
   sv.models[1] = sv.worldmodel;
   SV_AllocFatPVS(sv.worldmodel);
 
-  //
   // clear world interaction links
-  //
   SV_ClearWorld();
 
   sv.sound_precache[0] = "";
@@ -2601,9 +2376,7 @@ export function SV_SpawnServer(server) {
     sv.models[i + 1] = Mod_ForName(localmodels[i], false);
   }
 
-  //
   // load the rest of the entities
-  //
   const ent = EDICT_NUM(0);
   ED_ClearEdict(ent);
   ent.free = false;

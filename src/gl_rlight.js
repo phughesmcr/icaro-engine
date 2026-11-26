@@ -46,16 +46,9 @@ function _getLightMid(depth) {
 
 export let r_dlightframecount = 0;
 
-/*
-==================
-R_AnimateLight
-==================
-*/
 export function R_AnimateLight(cl, cl_lightstyle) {
-  //
   // light animations
   // 'm' is normal light, 'a' is no light, 'z' is double bright
-  //
   const i = (cl.time * 10) | 0;
   for (let j = 0; j < MAX_LIGHTSTYLES; j++) {
     if (!cl_lightstyle[j] || !cl_lightstyle[j].length) {
@@ -70,13 +63,7 @@ export function R_AnimateLight(cl, cl_lightstyle) {
   }
 }
 
-/*
-=============================================================================
-
-DYNAMIC LIGHTS BLEND RENDERING
-
-=============================================================================
-*/
+// DYNAMIC LIGHTS BLEND RENDERING
 
 export function AddLightBlend(r, g, b, a2) {
   let a;
@@ -90,13 +77,9 @@ export function AddLightBlend(r, g, b, a2) {
   v_blend[2] = v_blend[2] * (1 - a2f) + b * a2f;
 }
 
-/*
-=============
-R_RenderDlight
-
-Renders a dynamic light using Three.js PointLight.
-=============
-*/
+// R_RenderDlight
+//
+// Renders a dynamic light using Three.js PointLight.
 
 // Reusable vector for distance check
 const _dlightV = new Float32Array(3);
@@ -135,24 +118,24 @@ function _getDlight(index) {
   return light;
 }
 
-/*
-Brightness of a dynamic light, matched to the gl_flashblend 0 lightmap path.
-
-R_AddDynamicLights adds ( rad - dist ) light units to a texel. R_BuildLightMap
-turns L units into a lightmap byte of 2L (blocklights >> 7), and the world
-material reads the lightmap with lightMapIntensity LIGHTMAP_INTENSITY, so one
-Quake light unit is 2 * LIGHTMAP_INTENSITY / 255 of Three.js irradiance. (The
-lightmap is decoded as sRGB and a PointLight adds linear irradiance, so this
-matches at full brightness and is only approximate below it.)
-
-Three.js has no linear falloff. With decay 0 a PointLight gives
-intensity * ( 1 - ( d / distance )^4 )^2. Setting distance to the light's
-reach and matching the light delivered over the lit disc,
-	∫ ( 1 - x ) x dx = 1/6  against  ∫ ( 1 - x^4 )^2 x dx = 4/15,
-gives intensity = radius * 2 * LIGHTMAP_INTENSITY / 255 * ( 1/6 ) / ( 4/15 ).
-The radius already shrinks by dl.decay in CL_DecayLights, which is the only
-fade C has; how long the light has left to live plays no part.
-*/
+/**
+ * Brightness of a dynamic light, matched to the gl_flashblend 0 lightmap path.
+ *
+ * R_AddDynamicLights adds ( rad - dist ) light units to a texel. R_BuildLightMap
+ * turns L units into a lightmap byte of 2L (blocklights >> 7), and the world
+ * material reads the lightmap with lightMapIntensity LIGHTMAP_INTENSITY, so one
+ * Quake light unit is 2 * LIGHTMAP_INTENSITY / 255 of Three.js irradiance. (The
+ * lightmap is decoded as sRGB and a PointLight adds linear irradiance, so this
+ * matches at full brightness and is only approximate below it.)
+ *
+ * Three.js has no linear falloff. With decay 0 a PointLight gives
+ * intensity * ( 1 - ( d / distance )^4 )^2. Setting distance to the light's
+ * reach and matching the light delivered over the lit disc,
+ * 	∫ ( 1 - x ) x dx = 1/6  against  ∫ ( 1 - x^4 )^2 x dx = 4/15,
+ * gives intensity = radius * 2 * LIGHTMAP_INTENSITY / 255 * ( 1/6 ) / ( 4/15 ).
+ * The radius already shrinks by dl.decay in CL_DecayLights, which is the only
+ * fade C has; how long the light has left to live plays no part.
+ */
 const DLIGHT_IRRADIANCE_PER_UNIT = 2 * LIGHTMAP_INTENSITY / 255;
 const DLIGHT_WINDOW_FIT = (1 / 6) / (4 / 15);
 
@@ -205,14 +188,11 @@ export function R_RenderDlight(light, dlightIndex) {
   return pointLight;
 }
 
-/*
-=============
-R_RenderDlights
+// R_RenderDlights
+//
+// Updates PointLights for all dynamic lights. Lights stay in scene
+// and have their intensity updated each frame based on decaying radius.
 
-Updates PointLights for all dynamic lights. Lights stay in scene
-and have their intensity updated each frame based on decaying radius.
-=============
-*/
 // Web-only, no C equivalent: at most this many dlights become PointLights
 // (R_SetDlightLimit, from gl_rmain.js's gl_dlightcap). The lowest-numbered
 // active lights win; the rest are left out of the scene.
@@ -274,23 +254,13 @@ export function R_RemoveDlights() {
   }
 }
 
-/*
-=============================================================================
+// DYNAMIC LIGHTS
 
-DYNAMIC LIGHTS
-
-=============================================================================
-*/
-
-/*
-=============
-R_MarkLights
-
-Deliberate deviation, from QuakeSpasm: takes the light's index rather than
-its bit, and sets that bit in the surface's dlightbits word array, so more
-than 32 lights (MAX_DLIGHTS) can be told apart.
-=============
-*/
+/**
+ * Deliberate deviation, from QuakeSpasm: takes the light's index rather than
+ * its bit, and sets that bit in the surface's dlightbits word array, so more
+ * than 32 lights (MAX_DLIGHTS) can be told apart.
+ */
 export function R_MarkLights(light, num, node, surfaces) {
   if (node.contents < 0) {
     return;
@@ -331,11 +301,6 @@ export function R_MarkLights(light, num, node, surfaces) {
   R_MarkLights(light, num, node.children[1], surfaces);
 }
 
-/*
-=============
-R_PushDlights
-=============
-*/
 export function R_PushDlights(cl) {
   if (gl_flashblend.value) {
     return;
@@ -358,22 +323,13 @@ export function R_PushDlights(cl) {
   }
 }
 
-/*
-=============================================================================
-
-LIGHT SAMPLING
-
-=============================================================================
-*/
+// LIGHT SAMPLING
 
 export let lightplane = null;
 export const lightspot = new Float32Array(3);
 
-/*
-=============
-RecursiveLightPoint
-=============
-*/
+// RecursiveLightPoint
+
 // Not exported: it reads the trace state that only R_LightPoint resets.
 function RecursiveLightPoint(node, start, end, surfaces, depth = 0) {
   if (!node || node.contents < 0) {
@@ -559,11 +515,8 @@ function RecursiveLightPoint(node, start, end, surfaces, depth = 0) {
   );
 }
 
-/*
-=============
-R_LightPoint
-=============
-*/
+// R_LightPoint
+
 // ofs (Ironwail): start the trace this far above p. R_SetupAliasLighting
 // retries with ofs = model maxs[2] * 0.5 when the first trace is black, for
 // models whose origin is just below the floor.
@@ -603,15 +556,11 @@ export function R_LightPoint(p, cl, ofs = 0) {
   return r;
 }
 
-/*
-=============
-R_AddDynamicLights
-
-Add contribution of dynamic lights to a surface's lightmap.
-In Three.js, this can be used to compute per-vertex lighting contributions
-from dynamic lights for surfaces near them.
-=============
-*/
+/**
+ * Add contribution of dynamic lights to a surface's lightmap.
+ * In Three.js, this can be used to compute per-vertex lighting contributions
+ * from dynamic lights for surfaces near them.
+ */
 export function R_AddDynamicLights(surf, cl) {
   if (!cl || !cl.dlights) {
     return;
@@ -637,11 +586,7 @@ export function R_AddDynamicLights(surf, cl) {
   }
 }
 
-/*
-=============
-dlight_t class
-=============
-*/
+// dlight_t class
 export class dlight_t {
   constructor() {
     this.origin = new Float32Array(3);

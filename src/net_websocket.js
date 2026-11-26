@@ -134,15 +134,11 @@ function _isNewerSequence(sequence, current) {
   return ((sequence - current) | 0) > 0;
 }
 
-/*
-=============
-URL helpers
-
-The WebTransport URLs this port has always used (https://, wts://, wt://,
-or a bare host:port) become WebSocket URLs with the same host, port, path and
-query: https/wts/wt and no scheme give wss://, http gives ws://.
-=============
-*/
+// URL helpers
+//
+// The WebTransport URLs this port has always used (https://, wts://, wt://,
+// or a bare host:port) become WebSocket URLs with the same host, port, path and
+// query: https/wts/wt and no scheme give wss://, http gives ws://.
 export function WS_IsWebSocketURL(url) {
   return typeof url === "string" && /^wss?:\/\//i.test(url);
 }
@@ -157,15 +153,11 @@ export function WS_ToWebSocketURL(url) {
   return url;
 }
 
-/*
-=============
-WS_ServerBase
-
-The lobby's base URL: scheme, host, port and path, without query, fragment
-or trailing slash. The lobby is at <base>/lobby and room <id> at
-<base>/room/<id>.
-=============
-*/
+/**
+ * The lobby's base URL: scheme, host, port and path, without query, fragment
+ * or trailing slash. The lobby is at <base>/lobby and room <id> at
+ * <base>/room/<id>.
+ */
 export function WS_ServerBase(serverUrl) {
   const url = new URL(WS_ToWebSocketURL(serverUrl));
   url.search = "";
@@ -181,15 +173,11 @@ export function WS_RoomURL(serverUrl, roomId) {
   return WS_ServerBase(serverUrl) + "/room/" + encodeURIComponent(roomId);
 }
 
-/*
-=============
-WS_PageIsLocal
-
-True when the page is on this machine (localhost, a loopback address, a
-file: page with no host) or there is no page at all (Deno). Such a page
-expects a local `deno task lobby`; any other page is hosted.
-=============
-*/
+/**
+ * True when the page is on this machine (localhost, a loopback address, a
+ * file: page with no host) or there is no page at all (Deno). Such a page
+ * expects a local `deno task lobby`; any other page is hosted.
+ */
 export function WS_PageIsLocal() {
   const loc = globalThis.location;
   if (
@@ -203,13 +191,9 @@ export function WS_PageIsLocal() {
     host === "::1";
 }
 
-/*
-=============
-WS_DefaultServer
-
-The lobby to use when the page has no ?server=: see WS_DEFAULT_LOBBY_PATH.
-=============
-*/
+/**
+ * The lobby to use when the page has no ?server=: see WS_DEFAULT_LOBBY_PATH.
+ */
 export function WS_DefaultServer() {
   if (WS_PageIsLocal()) return WS_DEFAULT_LOCAL_LOBBY;
 
@@ -218,25 +202,16 @@ export function WS_DefaultServer() {
     WS_DEFAULT_LOBBY_PATH;
 }
 
-/*
-=============
-WS_SetTimeouts
-
-Shorten the connect, handshake and close-flush timeouts (tests use this).
-Values that are not positive numbers leave the current setting.
-=============
-*/
+/**
+ * Shorten the connect, handshake and close-flush timeouts (tests use this).
+ * Values that are not positive numbers leave the current setting.
+ */
 export function WS_SetTimeouts({ connectMs, handshakeMs, closeFlushMs } = {}) {
   if (connectMs > 0) WS_CONNECT_TIMEOUT_MS = connectMs;
   if (handshakeMs > 0) WS_HANDSHAKE_TIMEOUT_MS = handshakeMs;
   if (closeFlushMs > 0) WS_CLOSE_FLUSH_MS = closeFlushMs;
 }
 
-/*
-=============
-WS_Init
-=============
-*/
 export function WS_Init() {
   if (typeof WebSocket === "undefined") {
     Con_Printf("WebSocket not available in this browser\n");
@@ -277,11 +252,6 @@ function _onPageHide() {
   ws_connections.clear();
 }
 
-/*
-=============
-WS_Shutdown
-=============
-*/
 export function WS_Shutdown() {
   for (const conn of ws_connections.values()) {
     try {
@@ -295,54 +265,27 @@ export function WS_Shutdown() {
   ws_initialized = false;
 }
 
-/*
-=============
-WS_Listen
-
-Browser clients don't listen for connections
-=============
-*/
+/** Browser clients don't listen for connections */
 export function WS_Listen(_state) {
 }
 
-/*
-=============
-WS_SearchForHosts
-
-No broadcast discovery: the menu asks the lobby (WS_QueryRooms)
-=============
-*/
+/** No broadcast discovery: the menu asks the lobby (WS_QueryRooms) */
 export function WS_SearchForHosts(_xmit) {
 }
 
-/*
-=============
-WS_CheckNewConnections
-
-Browser clients don't accept connections
-=============
-*/
+/** Browser clients don't accept connections */
 export function WS_CheckNewConnections() {
   return null;
 }
 
-/*
-=============
-WS_GetAnyMessage
-=============
-*/
 export function WS_GetAnyMessage() {
   return 0;
 }
 
-/*
-=============
-Socket helpers
-
-Every socket is opened with binaryType 'arraybuffer': the default 'blob'
-would make each message an asynchronous read.
-=============
-*/
+// Socket helpers
+//
+// Every socket is opened with binaryType 'arraybuffer': the default 'blob'
+// would make each message an asynchronous read.
 function _WS_OpenSocket(url, attempt) {
   const socket = new WebSocket(url);
   socket.binaryType = "arraybuffer";
@@ -408,15 +351,11 @@ function _WS_WithTimeout(promise, timeoutMs, timeoutValue) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-/*
-=============
-WSConnectAttempt
-
-One whole connect, lobby join included, as WTConnectAttempt in
-net_webtransport.js: its deadline closes every socket it opened and rejects
-whatever the connect is waiting on.
-=============
-*/
+/**
+ * One whole connect, lobby join included, as WTConnectAttempt in
+ * net_webtransport.js: its deadline closes every socket it opened and rejects
+ * whatever the connect is waiting on.
+ */
 class WSConnectAttempt {
   constructor(timeoutMs) {
     this.aborted = false;
@@ -464,14 +403,10 @@ class WSConnectAttempt {
   }
 }
 
-/*
-=============
-Lobby requests
-
-One request per socket to <base>/lobby, in the lobby's framed format
-[type:1][length:2][data], one frame per WebSocket message each way.
-=============
-*/
+// Lobby requests
+//
+// One request per socket to <base>/lobby, in the lobby's framed format
+// [type:1][length:2][data], one frame per WebSocket message each way.
 function _WS_EncodeLobbyFrame(type, data) {
   const frame = new Uint8Array(3 + data.length);
   frame[0] = type;
@@ -518,13 +453,7 @@ function _WS_LobbyErrorText(data) {
   return text.length > 0 ? text : "Lobby request failed";
 }
 
-/*
-=============
-WS_QueryRooms
-
-Room list from the lobby. Resolves to an array of room objects.
-=============
-*/
+/** Room list from the lobby. Resolves to an array of room objects. */
 export async function WS_QueryRooms(serverUrl) {
   if (ws_initialized === false) throw new Error("WebSocket not initialized");
 
@@ -565,13 +494,7 @@ export async function WS_QueryRooms(serverUrl) {
   }
 }
 
-/*
-=============
-WS_CreateRoom
-
-Ask the lobby for a new room. Resolves to the room object.
-=============
-*/
+/** Ask the lobby for a new room. Resolves to the room object. */
 export async function WS_CreateRoom(serverUrl, config) {
   if (ws_initialized === false) throw new Error("WebSocket not initialized");
 
@@ -618,11 +541,7 @@ export async function WS_CreateRoom(serverUrl, config) {
   }
 }
 
-/*
-=============
-Connect failure helpers, as in net_webtransport.js
-=============
-*/
+// Connect failure helpers, as in net_webtransport.js
 function _WS_ClearRoomFromUrl() {
   // Clear room from URL so refresh doesn't retry; keep the transport choice
   if (typeof history !== "undefined" && typeof window !== "undefined") {
@@ -650,18 +569,14 @@ function _WS_FailConnectToMainMenu(quiet = NET_QuietConnect()) {
   return null;
 }
 
-/*
-=============
-WS_Connect
-
-Connect to a game server over WebSocket. host can be:
-  - "wss://host/mp?room=ROOMID": ask the lobby at wss://host/mp for the room
-    (it may re-create an expired room), then connect to wss://host/mp/room/ROOMID
-  - "wss://host/mp/room/ROOMID": connect to the room through the lobby's proxy
-  - "ws://127.0.0.1:4433": a standalone game server
-Any WebTransport-style URL is converted first (WS_ToWebSocketURL).
-=============
-*/
+/**
+ * Connect to a game server over WebSocket. host can be:
+ *   - "wss://host/mp?room=ROOMID": ask the lobby at wss://host/mp for the room
+ *     (it may re-create an expired room), then connect to wss://host/mp/room/ROOMID
+ *   - "wss://host/mp/room/ROOMID": connect to the room through the lobby's proxy
+ *   - "ws://127.0.0.1:4433": a standalone game server
+ * Any WebTransport-style URL is converted first (WS_ToWebSocketURL).
+ */
 export async function WS_Connect(host) {
   if (ws_initialized === false) {
     Con_Printf("WebSocket not initialized\n");
@@ -705,13 +620,7 @@ export async function WS_Connect(host) {
   }
 }
 
-/*
-=============
-_WS_ConnectViaLobby
-
-Ask the lobby for roomId, then connect to the room's proxy path.
-=============
-*/
+/** Ask the lobby for roomId, then connect to the room's proxy path. */
 async function _WS_ConnectViaLobby(url, host, roomId, attempt) {
   let reply;
 
@@ -773,13 +682,7 @@ async function _WS_ConnectViaLobby(url, host, roomId, attempt) {
   );
 }
 
-/*
-=============
-_WS_ConnectDirect
-
-Open the game socket, send the hello and wait for the server's reply.
-=============
-*/
+/** Open the game socket, send the hello and wait for the server's reply. */
 async function _WS_ConnectDirect(url, originalHost, roomId, attempt) {
   Con_Printf("WebSocket connecting directly to " + url + "\n");
 
@@ -906,13 +809,7 @@ async function _WS_ConnectDirect(url, originalHost, roomId, attempt) {
   }
 }
 
-/*
-=============
-_WS_OnMessage
-
-Queue one received message for WS_QGetMessage.
-=============
-*/
+/** Queue one received message for WS_QGetMessage. */
 function _WS_OnMessage(conn, raw) {
   if (conn.connected !== true) return;
 
@@ -975,14 +872,10 @@ function _WS_ProtocolError(conn, reason) {
   conn.pendingMessages.length = 0;
 }
 
-/*
-=============
-_WS_ParseSequencedPacket
-
-Strip the sequencing header and update the socket's sequence and ack state,
-as _WT_ParseSequencedPacket does. Returns null for a stale packet.
-=============
-*/
+/**
+ * Strip the sequencing header and update the socket's sequence and ack state,
+ * as _WT_ParseSequencedPacket does. Returns null for a stale packet.
+ */
 function _WS_ParseSequencedPacket(sock, conn, packet, reliable) {
   if (packet.length < WT_PACKET_HEADER_BYTES || packet[0] !== WT_PACKET_MAGIC) {
     return packet;
@@ -1036,13 +929,7 @@ function _WS_ParseSequencedPacket(sock, conn, packet, reliable) {
   return packet.subarray(WT_PACKET_HEADER_BYTES);
 }
 
-/*
-=============
-WS_QGetMessage
-
-Returns 0 = no message, 1 = reliable, 2 = unreliable, -1 = error
-=============
-*/
+/** Returns 0 = no message, 1 = reliable, 2 = unreliable, -1 = error */
 export function WS_QGetMessage(sock) {
   const conn = sock.driverdata;
   if (conn == null) return -1;
@@ -1117,13 +1004,7 @@ function _WS_BufferedAmount(conn) {
   return typeof amount === "number" ? amount : 0;
 }
 
-/*
-=============
-_WS_SendPacket
-
-[channel][magic][sequence][ack][payload] from the send scratch buffer.
-=============
-*/
+/** [channel][magic][sequence][ack][payload] from the send scratch buffer. */
 function _WS_SendPacket(sock, conn, channel, data) {
   const length = data.cursize;
   const sequence = sock.sendSequence | 0;
@@ -1169,13 +1050,7 @@ function _WS_CheckSendable(conn) {
   return true;
 }
 
-/*
-=============
-WS_QSendMessage
-
-Send a reliable message. TCP handles ordering and retransmission.
-=============
-*/
+/** Send a reliable message. TCP handles ordering and retransmission. */
 export function WS_QSendMessage(sock, data) {
   const conn = sock.driverdata;
   if (conn == null || conn.connected !== true) return -1;
@@ -1200,14 +1075,10 @@ export function WS_QSendMessage(sock, data) {
   return 1;
 }
 
-/*
-=============
-WS_SendUnreliableMessage
-
-Send an unreliable message on the same stream, or drop it while the socket is
-backed up (see WS_MAX_UNRELIABLE_BUFFERED).
-=============
-*/
+/**
+ * Send an unreliable message on the same stream, or drop it while the socket is
+ * backed up (see WS_MAX_UNRELIABLE_BUFFERED).
+ */
 export function WS_SendUnreliableMessage(sock, data) {
   const conn = sock.driverdata;
   if (conn == null || conn.connected !== true) {
@@ -1235,11 +1106,6 @@ export function WS_SendUnreliableMessage(sock, data) {
   return 1;
 }
 
-/*
-=============
-WS_CanSendMessage
-=============
-*/
 export function WS_CanSendMessage(sock) {
   const conn = sock.driverdata;
   if (conn == null) return false;
@@ -1248,14 +1114,10 @@ export function WS_CanSendMessage(sock) {
     _WS_BufferedAmount(conn) < WS_MAX_RELIABLE_BUFFERED;
 }
 
-/*
-=============
-WS_CanSendUnreliableMessage
-
-True while connected: a message that can't go out now is dropped by
-WS_SendUnreliableMessage, which still uses up its sequence number.
-=============
-*/
+/**
+ * True while connected: a message that can't go out now is dropped by
+ * WS_SendUnreliableMessage, which still uses up its sequence number.
+ */
 export function WS_CanSendUnreliableMessage(sock) {
   const conn = sock.driverdata;
   if (conn == null) return false;
@@ -1263,16 +1125,12 @@ export function WS_CanSendUnreliableMessage(sock) {
   return conn.connected === true && conn.socket.readyState === WS_OPEN;
 }
 
-/*
-=============
-_WS_CloseConnection
-
-Graceful close: stop delivering messages and give the server
-WS_CLOSE_FLUSH_MS to act on the clc_disconnect already sent and close the
-socket itself (its close is what _WS_WaitForClosingConnections waits for);
-then close from this end.
-=============
-*/
+/**
+ * Graceful close: stop delivering messages and give the server
+ * WS_CLOSE_FLUSH_MS to act on the clc_disconnect already sent and close the
+ * socket itself (its close is what _WS_WaitForClosingConnections waits for);
+ * then close from this end.
+ */
 function _WS_CloseConnection(conn) {
   if (conn.closing === true) return;
   conn.closing = true;
@@ -1312,16 +1170,12 @@ function _WS_FinishClose(conn) {
   if (ws_closing.delete(conn) === true) _WS_WakeCloseWaiters();
 }
 
-/*
-=============
-_WS_WaitForClosingConnections
-
-Resolves once every closing connection has finished. Deliberate deviation,
-as _WT_WaitForClosingConnections in net_webtransport.js: the C server frees
-the old slot of a reconnecting IP itself, which would also drop other
-players behind the same NAT, so the client waits for the server instead.
-=============
-*/
+/**
+ * Resolves once every closing connection has finished. Deliberate deviation,
+ * as _WT_WaitForClosingConnections in net_webtransport.js: the C server frees
+ * the old slot of a reconnecting IP itself, which would also drop other
+ * players behind the same NAT, so the client waits for the server instead.
+ */
 function _WS_WaitForClosingConnections() {
   if (ws_closing.size === 0) return Promise.resolve();
   return new Promise((resolve) => {
@@ -1336,14 +1190,10 @@ function _WS_WakeCloseWaiters() {
   for (const resolve of waiters) resolve();
 }
 
-/*
-=============
-WS_Close
-
-Close a connection. The socket is detached at once (NET_Close frees it
-straight after); the close finishes in the background.
-=============
-*/
+/**
+ * Close a connection. The socket is detached at once (NET_Close frees it
+ * straight after); the close finishes in the background.
+ */
 export function WS_Close(sock) {
   const conn = sock.driverdata;
   if (conn == null) return;

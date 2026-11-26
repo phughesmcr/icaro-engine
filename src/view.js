@@ -68,14 +68,10 @@ export { v_blend };
 // Lazy-loaded Chase_Update (avoids circular dependency: in_web.js → view.js → chase.js → client.js)
 let _Chase_Update = null;
 
-/*
-
-The view is allowed to move slightly from it's true position for bobbing,
-but if it exceeds 8 pixels linear distance (spherical, not box), the list of
-entities sent from the server may not include everything in the pvs, especially
-when crossing a water boudnary.
-
-*/
+// The view is allowed to move slightly from it's true position for bobbing,
+// but if it exceeds 8 pixels linear distance (spherical, not box), the list of
+// entities sent from the server may not include everything in the pvs, especially
+// when crossing a water boudnary.
 
 const lcd_x = new cvar_t("lcd_x", "0");
 const lcd_yaw = new cvar_t("lcd_yaw", "0");
@@ -156,13 +152,9 @@ let v_dmg_pitch = 0;
 // Re-export for backwards compat with modules that import from view.js
 export { r_refdef };
 
-/*
-===============
-V_CalcRoll
-
-Used by view and sv_user
-===============
-*/
+// V_CalcRoll
+//
+// Used by view and sv_user
 const _forward = new Float32Array(3);
 const _right = new Float32Array(3);
 const _up = new Float32Array(3);
@@ -196,28 +188,19 @@ export function V_CalcRoll(angles, velocity) {
   return side * sign;
 }
 
-/*
-===============
-V_UsePrediction
-
-True when the view should follow the QuakeWorld-style predicted state
-(cl_simorg/cl_simangles/cl_simvel). Those are only written by
-CL_PredictMove, which doesn't run with a local server or during demo
-playback; there the view uses cl_entities[cl.viewentity] and cl state,
-as WinQuake's view.c does.
-===============
-*/
+/**
+ * True when the view should follow the QuakeWorld-style predicted state
+ * (cl_simorg/cl_simangles/cl_simvel). Those are only written by
+ * CL_PredictMove, which doesn't run with a local server or during demo
+ * playback; there the view uses cl_entities[cl.viewentity] and cl state,
+ * as WinQuake's view.c does.
+ */
 export function V_UsePrediction() {
   return (sv.active === false) && (cls.demoplayback === false) &&
     (cl_nopred.value === 0) && cl_prediction_active;
 }
 
-/*
-===============
-V_CalcBob
-
-===============
-*/
+// V_CalcBob
 let _bobtime = 0;
 let _bob = 0;
 
@@ -288,8 +271,6 @@ export function V_CalcBob() {
   return _bob;
 }
 
-//=============================================================================
-
 const v_centermove = new cvar_t("v_centermove", "0.15", false);
 const v_centerspeed = new cvar_t("v_centerspeed", "500");
 
@@ -305,14 +286,10 @@ export function V_StartPitchDrift() {
   }
 }
 
-/*
-===============
-V_UpdatePunchAngles
-
-From Ironwail (cl_parse.c CL_ParseClientdata): remember the previous
-punchangle and when it changed, for v_gunkick 2.
-===============
-*/
+/**
+ * From Ironwail (cl_parse.c CL_ParseClientdata): remember the previous
+ * punchangle and when it changed, for v_gunkick 2.
+ */
 export function V_UpdatePunchAngles() {
   const cur = v_punchangles[0];
   if (
@@ -325,13 +302,7 @@ export function V_UpdatePunchAngles() {
   }
 }
 
-/*
-===============
-V_AddPunchAngles
-
-The weapon kick from Ironwail's V_CalcRefdef (johnfitz v_gunkick)
-===============
-*/
+/** The weapon kick from Ironwail's V_CalcRefdef (johnfitz v_gunkick) */
 export function V_AddPunchAngles(angles) {
   if (v_gunkick.value === 1) { // original quake kick
     VectorAdd(angles, cl.punchangle, angles);
@@ -355,14 +326,10 @@ export function V_ResetPunchAngles() {
   v_punchtime = 0;
 }
 
-/*
-===============
-V_ResetEffects
-
-From Ironwail (view.c), called by CL_Disconnect: clear the screen blend and
-damage kick so they don't linger after a disconnect.
-===============
-*/
+/**
+ * From Ironwail (view.c), called by CL_Disconnect: clear the screen blend and
+ * damage kick so they don't linger after a disconnect.
+ */
 export function V_ResetEffects() {
   cshift_empty.percent = 0;
   v_blend.fill(0);
@@ -377,19 +344,15 @@ export function V_StopPitchDrift() {
   cl.pitchvel = 0;
 }
 
-/*
-===============
-V_DriftPitch
-
-Moves the client pitch angle towards cl.idealpitch sent by the server.
-
-If the user is adjusting pitch manually, either with lookup/lookdown,
-mlook and mouse, or klook and keyboard, pitch drifting is constantly stopped.
-
-Drifting is enabled when the center view key is hit, mlook is released and
-lookspring is non 0, or when
-===============
-*/
+/**
+ * Moves the client pitch angle towards cl.idealpitch sent by the server.
+ *
+ * If the user is adjusting pitch manually, either with lookup/lookdown,
+ * mlook and mouse, or klook and keyboard, pitch drifting is constantly stopped.
+ *
+ * Drifting is enabled when the center view key is hit, mlook is released and
+ * lookspring is non 0, or when
+ */
 function V_DriftPitch() {
   if (noclip_anglehack || !cl.onground || cls.demoplayback) {
     cl.driftmove = 0;
@@ -439,13 +402,7 @@ function V_DriftPitch() {
   }
 }
 
-/*
-==============================================================================
-
-						PALETTE FLASHES
-
-==============================================================================
-*/
+// PALETTE FLASHES
 
 export const cshift_empty = { destcolor: [130, 80, 50], percent: 0 };
 export const cshift_water = { destcolor: [130, 80, 50], percent: 128 };
@@ -476,11 +433,7 @@ function BuildGammaTable(g) {
   }
 }
 
-/*
-=================
-V_CheckGamma
-=================
-*/
+// V_CheckGamma
 let _oldgammavalue = 0;
 
 function V_CheckGamma() {
@@ -496,11 +449,6 @@ function V_CheckGamma() {
   return true;
 }
 
-/*
-===============
-V_ParseDamage
-===============
-*/
 export function V_ParseDamage() {
   const armor = MSG_ReadByte();
   const blood = MSG_ReadByte();
@@ -539,11 +487,9 @@ export function V_ParseDamage() {
     cl.cshifts[CSHIFT_DAMAGE].destcolor[2] = 0;
   }
 
-  //
   // calculate view angle kicks
   // QuakeWorld uses predicted origin and angles; WinQuake uses
   // cl_entities[cl.viewentity] (the only valid state without prediction)
-  //
   const usePrediction = V_UsePrediction();
   const ent = cl_entities[cl.viewentity];
 
@@ -565,11 +511,6 @@ export function V_ParseDamage() {
   v_dmg_time = v_kicktime.value;
 }
 
-/*
-==================
-V_cshift_f
-==================
-*/
 function V_cshift_f() {
   cshift_empty.destcolor[0] = parseInt(Cmd_Argv(1)) || 0;
   cshift_empty.destcolor[1] = parseInt(Cmd_Argv(2)) || 0;
@@ -577,13 +518,7 @@ function V_cshift_f() {
   cshift_empty.percent = parseInt(Cmd_Argv(4)) || 0;
 }
 
-/*
-==================
-V_BonusFlash_f
-
-When you run over an item, the server sends this command
-==================
-*/
+/** When you run over an item, the server sends this command */
 function V_BonusFlash_f() {
   cl.cshifts[CSHIFT_BONUS].destcolor[0] = 215;
   cl.cshifts[CSHIFT_BONUS].destcolor[1] = 186;
@@ -591,13 +526,9 @@ function V_BonusFlash_f() {
   cl.cshifts[CSHIFT_BONUS].percent = 50;
 }
 
-/*
-=============
-V_SetContentsColor
-
-Underwater, lava, etc each has a color shift
-=============
-*/
+// V_SetContentsColor
+//
+// Underwater, lava, etc each has a color shift
 const CONTENTS_EMPTY = -1;
 const CONTENTS_SOLID = -2;
 const CONTENTS_SLIME = -4;
@@ -636,11 +567,6 @@ export function V_SetContentsColor(contents) {
   }
 }
 
-/*
-=============
-V_CalcPowerupCshift
-=============
-*/
 function V_CalcPowerupCshift() {
   if (cl.items & IT_QUAD) {
     cl.cshifts[CSHIFT_POWERUP].destcolor[0] = 0;
@@ -667,11 +593,6 @@ function V_CalcPowerupCshift() {
   }
 }
 
-/*
-=============
-V_CalcBlend
-=============
-*/
 export function V_CalcBlend() {
   let r = 0;
   let g = 0;
@@ -709,11 +630,6 @@ export function V_CalcBlend() {
   }
 }
 
-/*
-=============
-V_UpdatePalette
-=============
-*/
 export function V_UpdatePalette() {
   V_CalcPowerupCshift();
 
@@ -753,13 +669,7 @@ export function V_UpdatePalette() {
   V_CalcBlend();
 }
 
-/*
-==============================================================================
-
-						VIEW RENDERING
-
-==============================================================================
-*/
+// VIEW RENDERING
 
 function angledelta(a) {
   let result = anglemod(a);
@@ -769,11 +679,7 @@ function angledelta(a) {
   return result;
 }
 
-/*
-==================
-CalcGunAngle
-==================
-*/
+// CalcGunAngle
 let _gun_oldyaw = 0;
 let _gun_oldpitch = 0;
 
@@ -830,11 +736,6 @@ function CalcGunAngle() {
     Math.sin(cl.time * v_iyaw_cycle.value) * v_iyaw_level.value;
 }
 
-/*
-==============
-V_BoundOffsets
-==============
-*/
 function V_BoundOffsets(playerorg) {
   // absolutely bound refresh reletive to entity clipping hull
   // so the view can never be inside a solid wall
@@ -856,13 +757,7 @@ function V_BoundOffsets(playerorg) {
   }
 }
 
-/*
-==============
-V_AddIdle
-
-Idle swaying
-==============
-*/
+/** Idle swaying */
 function V_AddIdle() {
   r_refdef.viewangles[ROLL] += v_idlescale.value *
     Math.sin(cl.time * v_iroll_cycle.value) * v_iroll_level.value;
@@ -872,13 +767,7 @@ function V_AddIdle() {
     Math.sin(cl.time * v_iyaw_cycle.value) * v_iyaw_level.value;
 }
 
-/*
-==============
-V_CalcViewRoll
-
-Roll is induced by movement and damage
-==============
-*/
+/** Roll is induced by movement and damage */
 export function V_CalcViewRoll() {
   // In WebXR the headset owns the view orientation: rolling or kicking the
   // rig is a comfort problem, so skip strafe roll, damage kick and the dead
@@ -909,12 +798,6 @@ export function V_CalcViewRoll() {
   }
 }
 
-/*
-==================
-V_CalcIntermissionRefdef
-
-==================
-*/
 export function V_CalcIntermissionRefdef() {
   // ent is the player model (visible when out of body)
   // During intermission, the player entity is moved to info_intermission position
@@ -946,22 +829,13 @@ export function V_CalcIntermissionRefdef() {
   }
 }
 
-/*
-==================
-V_CalcRefdef
-
-==================
-*/
+// V_CalcRefdef
 let _oldz = 0;
 
-/*
-==================
-V_InNoclip
-
-True when the view player is in noclip: noclip_anglehack where this
-process runs the server, else PF_NOCLIP from its last svc_playerinfo.
-==================
-*/
+/**
+ * True when the view player is in noclip: noclip_anglehack where this
+ * process runs the server, else PF_NOCLIP from its last svc_playerinfo.
+ */
 function V_InNoclip() {
   if (noclip_anglehack) {
     return true;
@@ -1103,14 +977,10 @@ export function V_CalcRefdef() {
   }
 }
 
-/*
-==================
-V_RenderView
-
-The player's clipping box goes from (-16 -16 -24) to (16 16 32) from
-the entity origin, so any view position inside that will be valid
-==================
-*/
+/**
+ * The player's clipping box goes from (-16 -16 -24) to (16 16 32) from
+ * the entity origin, so any view position inside that will be valid
+ */
 export function V_RenderView() {
   if (con_forcedup) {
     return;
@@ -1136,13 +1006,6 @@ export function V_RenderView() {
   R_RenderView();
 }
 
-//============================================================================
-
-/*
-=============
-V_Init
-=============
-*/
 export function V_Init() {
   Cmd_AddCommand("v_cshift", V_cshift_f);
   Cmd_AddCommand("bf", V_BonusFlash_f);

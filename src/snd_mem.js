@@ -5,13 +5,7 @@ import { COM_LoadFile } from "./pak.js";
 import { Sys_Error } from "./sys.js";
 import { loadas8bit, sfxcache_t, shm, wavinfo_t } from "./sound.js";
 
-/*
-==============================================================================
-
-			WAV LOADING
-
-==============================================================================
-*/
+// WAV LOADING
 
 // IFF parser state (module-level, mirrors C globals)
 let data_p = 0; // offset into wav data
@@ -21,11 +15,6 @@ let iff_data = 0;
 let iff_chunk_len = 0;
 let _wav = null; // Uint8Array reference for current parse
 
-/*
-================
-GetLittleShort
-================
-*/
 function GetLittleShort() {
   let val = _wav[data_p];
   val = val + (_wav[data_p + 1] << 8);
@@ -36,11 +25,6 @@ function GetLittleShort() {
   return val;
 }
 
-/*
-================
-GetLittleLong
-================
-*/
 function GetLittleLong() {
   let val = _wav[data_p];
   val = val + (_wav[data_p + 1] << 8);
@@ -50,11 +34,6 @@ function GetLittleLong() {
   return val;
 }
 
-/*
-================
-FindNextChunk
-================
-*/
 function FindNextChunk(name) {
   while (true) {
     data_p = last_chunk;
@@ -92,21 +71,11 @@ function FindNextChunk(name) {
   }
 }
 
-/*
-================
-FindChunk
-================
-*/
 function FindChunk(name) {
   last_chunk = iff_data;
   FindNextChunk(name);
 }
 
-/*
-============
-GetWavinfo
-============
-*/
 export function GetWavinfo(name, wav, wavlength) {
   const info = new wavinfo_t();
 
@@ -217,11 +186,6 @@ export function GetWavinfo(name, wav, wavlength) {
   return info;
 }
 
-/*
-================
-ResampleSfx
-================
-*/
 function ResampleSfx(sfx, inrate, inwidth, data) {
   const sc = sfx.cache;
   if (!sc) {
@@ -282,11 +246,6 @@ function ResampleSfx(sfx, inrate, inwidth, data) {
   }
 }
 
-/*
-==============
-S_LoadSound
-==============
-*/
 export function S_LoadSound(s) {
   if (!s) {
     return null;

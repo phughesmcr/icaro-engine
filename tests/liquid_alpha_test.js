@@ -231,12 +231,10 @@ Deno.test("a map without entities drops the last map's worldspawn alpha", () => 
   });
 });
 
-// ----------------------------------------------------------------------------
 // Mod_CheckWaterVis on a tiny BSP: leaf 1 is slime and sees leaf 2 (empty),
 // leaves 3 and 4 are lava and see only lava, and there is no water.
 // extraLeafs appends leafs past visleafs (as submodels' leafs are), and vis
 // replaces the vis lump.
-// ----------------------------------------------------------------------------
 
 function buildBsp(lumps) {
   const header = 4 + bspfile.HEADER_LUMPS * 8;

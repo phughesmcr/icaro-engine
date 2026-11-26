@@ -53,9 +53,7 @@ function tga(
   return new Uint8Array([...header, ...id, ...body]);
 }
 
-// ----------------------------------------------------------------------------
 // Image_LoadTGA
-// ----------------------------------------------------------------------------
 
 Deno.test("Image_LoadTGA flips a bottom-up 24-bit targa and swaps BGR", () => {
   // 2x2, bottom row first: bottom = red, green; top = blue, white
@@ -270,9 +268,7 @@ Deno.test("Image_LoadTGA refuses unsupported targas without ending the game", ()
   assertEqual(Image_LoadTGA(new Uint8Array(4)), null, "truncated header");
 });
 
-// ----------------------------------------------------------------------------
 // Skyboxes
-// ----------------------------------------------------------------------------
 
 const SUF = ["rt", "bk", "lf", "ft", "up", "dn"];
 

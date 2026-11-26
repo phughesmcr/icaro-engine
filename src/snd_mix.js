@@ -11,13 +11,7 @@ import {
 } from "./sound.js";
 import { S_LoadSound } from "./snd_mem.js";
 
-/*
-==============================================================================
-
-			PAINT BUFFER
-
-==============================================================================
-*/
+// PAINT BUFFER
 
 const PAINTBUFFER_SIZE = 512;
 const paintbuffer = [];
@@ -25,24 +19,13 @@ for (let i = 0; i < PAINTBUFFER_SIZE; i++) {
   paintbuffer[i] = new portable_samplepair_t();
 }
 
-/*
-==============================================================================
-
-			SCALE TABLE
-
-==============================================================================
-*/
+// SCALE TABLE
 
 const snd_scaletable = [];
 for (let i = 0; i < 32; i++) {
   snd_scaletable[i] = new Int32Array(256);
 }
 
-/*
-================
-SND_InitScaletable
-================
-*/
 export function SND_InitScaletable() {
   for (let i = 0; i < 32; i++) {
     for (let j = 0; j < 256; j++) {
@@ -54,19 +37,8 @@ export function SND_InitScaletable() {
   }
 }
 
-/*
-===============================================================================
+// CHANNEL MIXING
 
-CHANNEL MIXING
-
-===============================================================================
-*/
-
-/*
-================
-SND_PaintChannelFrom8
-================
-*/
 function SND_PaintChannelFrom8(ch, sc, count) {
   let leftvol = ch.leftvol;
   let rightvol = ch.rightvol;
@@ -92,11 +64,6 @@ function SND_PaintChannelFrom8(ch, sc, count) {
   ch.pos += count;
 }
 
-/*
-================
-SND_PaintChannelFrom16
-================
-*/
 function SND_PaintChannelFrom16(ch, sc, count) {
   const leftvol = ch.leftvol;
   const rightvol = ch.rightvol;
@@ -118,11 +85,6 @@ function SND_PaintChannelFrom16(ch, sc, count) {
   ch.pos += count;
 }
 
-/*
-================
-S_PaintChannels
-================
-*/
 export function S_PaintChannels(endtime) {
   let pt = paintedtime;
 
@@ -198,11 +160,6 @@ export function S_PaintChannels(endtime) {
   }
 }
 
-/*
-================
-Snd_WriteLinearBlastStereo16
-================
-*/
 function Snd_WriteLinearBlastStereo16(
   snd_out,
   snd_out_idx,
@@ -232,11 +189,6 @@ function Snd_WriteLinearBlastStereo16(
   }
 }
 
-/*
-================
-S_TransferStereo16
-================
-*/
 function S_TransferStereo16(endtime) {
   const snd_vol = Math.floor(volume.value * 256);
 
@@ -280,11 +232,6 @@ function S_TransferStereo16(endtime) {
   }
 }
 
-/*
-================
-S_TransferPaintBuffer
-================
-*/
 function S_TransferPaintBuffer(endtime) {
   if (!shm) {
     return;

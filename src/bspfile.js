@@ -33,8 +33,6 @@ export const MAX_MAP_PORTALS = 65536;
 export const MAX_KEY = 32;
 export const MAX_VALUE = 1024;
 
-//=============================================================================
-
 export const BSPVERSION = 29;
 
 // Deliberate addition (Ironwail bspfile.h BSP2VERSION_BSP2): the BSP2 format,

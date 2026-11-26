@@ -1,15 +1,11 @@
 // Ported from: WinQuake/anorm_dots.h, WinQuake/anorms.h
 // Pre-calculated dot products for quantized light directions + vertex normals
 
-/*
-================
-r_avertexnormals
-
-Pre-computed vertex normals for alias models (162 entries).
-Each vertex in an MDL file stores a lightnormalindex (0-161) into this table.
-From: WinQuake/anorms.h
-================
-*/
+/**
+ * Pre-computed vertex normals for alias models (162 entries).
+ * Each vertex in an MDL file stores a lightnormalindex (0-161) into this table.
+ * From: WinQuake/anorms.h
+ */
 export const r_avertexnormals = [
   [-0.525731, 0.000000, 0.850651],
   [-0.442863, 0.238856, 0.864188],

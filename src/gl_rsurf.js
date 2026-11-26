@@ -6,12 +6,12 @@ import { Sys_Error } from "./sys.js";
 import { Fog_PatchSkyShader } from "./gl_fog.js";
 import { Sky_GetSkyBox } from "./gl_sky.js";
 
-/*
-r_lightmap: GLQuake's R_BlendLightmaps draws the lightmaps without blending
-them over the textures, so only the lighting shows. Every lightmapped material
-shares this uniform; the fragment shader swaps the diffuse texture for white
-and drops the fullbright emissive while it is 1.
-*/
+/**
+ * r_lightmap: GLQuake's R_BlendLightmaps draws the lightmaps without blending
+ * them over the textures, so only the lighting shows. Every lightmapped material
+ * shares this uniform; the fragment shader swaps the diffuse texture for white
+ * and drops the fullbright emissive while it is 1.
+ */
 const _lightmapOnly = { value: 0 };
 
 export function R_PatchLightmapShader(shader) {
@@ -35,28 +35,28 @@ function R_LightmapProgramKey() {
   return "quake-lightmap";
 }
 
-/*
-SURF_UNDERWATER: GLQuake draws surfaces in water, slime or lava leaves with
-DrawGLWaterPoly / DrawGLWaterPolyLightmap (gl_rsurf.c), which move each vertex
-every frame:
-	nv[0] = v[0] + 8*sin(v[1]*0.05+realtime)*sin(v[2]*0.05+realtime);
-	nv[1] = v[1] + 8*sin(v[0]*0.05+realtime)*sin(v[2]*0.05+realtime);
-	nv[2] = v[2];
-The port's world is static BatchedMesh geometry, so the same sum runs in the
-vertex shader on the unmoved Quake-space position. The texture and lightmap
-share one pass here, so both move together as C's two passes do.
-_waterWarpTime holds realtime wrapped to [0, 2*PI): sin(a + t) is unchanged,
-and the small value keeps float32 precision after hours of play.
-*/
+/**
+ * SURF_UNDERWATER: GLQuake draws surfaces in water, slime or lava leaves with
+ * DrawGLWaterPoly / DrawGLWaterPolyLightmap (gl_rsurf.c), which move each vertex
+ * every frame:
+ * 	nv[0] = v[0] + 8*sin(v[1]*0.05+realtime)*sin(v[2]*0.05+realtime);
+ * 	nv[1] = v[1] + 8*sin(v[0]*0.05+realtime)*sin(v[2]*0.05+realtime);
+ * 	nv[2] = v[2];
+ * The port's world is static BatchedMesh geometry, so the same sum runs in the
+ * vertex shader on the unmoved Quake-space position. The texture and lightmap
+ * share one pass here, so both move together as C's two passes do.
+ * _waterWarpTime holds realtime wrapped to [0, 2*PI): sin(a + t) is unchanged,
+ * and the small value keeps float32 precision after hours of play.
+ */
 const _waterWarpTime = { value: 0 };
 
-/*
-R_WarpTime: the clock for water turbulence and the sky scroll. id uses
-realtime, so both keep moving while the game is paused. Deliberate deviation
-(QuakeSpasm/Ironwail): use cl.time, which stops with the game. The underwater
-vertex warp above stays on realtime as in id; QuakeSpasm and Ironwail don't
-have it.
-*/
+/**
+ * R_WarpTime: the clock for water turbulence and the sky scroll. id uses
+ * realtime, so both keep moving while the game is paused. Deliberate deviation
+ * (QuakeSpasm/Ironwail): use cl.time, which stops with the game. The underwater
+ * vertex warp above stays on realtime as in id; QuakeSpasm and Ironwail don't
+ * have it.
+ */
 function R_WarpTime() {
   return cl.time;
 }
@@ -83,19 +83,19 @@ export function R_PatchWaterWarpVertexShader(shader) {
     );
 }
 
-/*
-Turbulent (SURF_DRAWTURB) surfaces: gl_warp.c EmitWaterPolys, per vertex:
-	s = os + turbsin[(int)((ot*0.125+realtime) * TURBSCALE) & 255];
-	s *= (1.0/64);
-	t = ot + turbsin[(int)((os*0.125+realtime) * TURBSCALE) & 255];
-	t *= (1.0/64);
-The port used to redo this on the CPU for every vertex each frame and upload
-the UVs. It now runs in the vertex shader: the geometry keeps the unwarped
-s/t in its uv attribute and _turbTime is the clock. turbsin[i] is
-8 * sin( i * 2 * PI / 256 ), so trunc() of the same index and a sin() give
-C's 256-step table, and & 255 is the sine's period. _turbTime is R_WarpTime
-(cl.time, see above) wrapped to [0, 2*PI), the period of the index.
-*/
+/**
+ * Turbulent (SURF_DRAWTURB) surfaces: gl_warp.c EmitWaterPolys, per vertex:
+ * 	s = os + turbsin[(int)((ot*0.125+realtime) * TURBSCALE) & 255];
+ * 	s *= (1.0/64);
+ * 	t = ot + turbsin[(int)((os*0.125+realtime) * TURBSCALE) & 255];
+ * 	t *= (1.0/64);
+ * The port used to redo this on the CPU for every vertex each frame and upload
+ * the UVs. It now runs in the vertex shader: the geometry keeps the unwarped
+ * s/t in its uv attribute and _turbTime is the clock. turbsin[i] is
+ * 8 * sin( i * 2 * PI / 256 ), so trunc() of the same index and a sin() give
+ * C's 256-step table, and & 255 is the sine's period. _turbTime is R_WarpTime
+ * (cl.time, see above) wrapped to [0, 2*PI), the period of the index.
+ */
 const _turbTime = { value: 0 };
 
 export function R_PatchTurbVertexShader(shader) {
@@ -118,17 +118,17 @@ function R_TurbProgramKey() {
   return "quake-turb";
 }
 
-/*
-Sky: gl_warp.c EmitSkyPolys, per vertex:
-	VectorSubtract (v, r_origin, dir);
-	dir[2] *= 3;	// flatten the sphere
-	length = 6*63/Length (dir);
-	s = (speedscale + dir[0]*length) * (1.0/128);
-	t = (speedscale + dir[1]*length) * (1.0/128);
-Also moved from a per-frame CPU loop into the vertex shader. _skyOrigin is
-r_origin, set by R_DrawSkyChain; each layer has its own speedscale uniform.
-position is the unmoved Quake-space vertex, as the CPU loop read it.
-*/
+/**
+ * Sky: gl_warp.c EmitSkyPolys, per vertex:
+ * 	VectorSubtract (v, r_origin, dir);
+ * 	dir[2] *= 3;	// flatten the sphere
+ * 	length = 6*63/Length (dir);
+ * 	s = (speedscale + dir[0]*length) * (1.0/128);
+ * 	t = (speedscale + dir[1]*length) * (1.0/128);
+ * Also moved from a per-frame CPU loop into the vertex shader. _skyOrigin is
+ * r_origin, set by R_DrawSkyChain; each layer has its own speedscale uniform.
+ * position is the unmoved Quake-space vertex, as the CPU loop read it.
+ */
 const _skyOrigin = { value: new THREE.Vector3() };
 const _solidSkySpeed = { value: 0 };
 const _alphaSkySpeed = { value: 0 };
@@ -170,21 +170,21 @@ function R_AlphaSkyProgramKey() {
   return "quake-sky-alpha";
 }
 
-/*
-Skybox: Ironwail's sky_cubemap shaders (gl_shaders.h), for the box set by the
-worldspawn "sky" key (gl_sky.js). The sky surfaces sample the cubemap in the
-direction from the eye, so the box shows through them as Ironwail's
-R_DrawBrushModels_SkyCubemap draws it:
-	out_dir.x = -(pos.y - EyePos.y);
-	out_dir.y =  (pos.z - EyePos.z);
-	out_dir.z =  (pos.x - EyePos.x);
-	...
-	out_fragcolor = texture(Skybox, in_dir);
-	out_fragcolor.rgb = mix(out_fragcolor.rgb, SkyFog.rgb, SkyFog.a);
-The fog mix is Fog_PatchSkyShader's. Tone mapping and the colour space
-conversion are included so gamma (vid.js) applies as on the other sky.
-Ironwail's skywind animation is not ported.
-*/
+/**
+ * Skybox: Ironwail's sky_cubemap shaders (gl_shaders.h), for the box set by the
+ * worldspawn "sky" key (gl_sky.js). The sky surfaces sample the cubemap in the
+ * direction from the eye, so the box shows through them as Ironwail's
+ * R_DrawBrushModels_SkyCubemap draws it:
+ * 	out_dir.x = -(pos.y - EyePos.y);
+ * 	out_dir.y =  (pos.z - EyePos.z);
+ * 	out_dir.z =  (pos.x - EyePos.x);
+ * 	...
+ * 	out_fragcolor = texture(Skybox, in_dir);
+ * 	out_fragcolor.rgb = mix(out_fragcolor.rgb, SkyFog.rgb, SkyFog.a);
+ * The fog mix is Fog_PatchSkyShader's. Tone mapping and the colour space
+ * conversion are included so gamma (vid.js) applies as on the other sky.
+ * Ironwail's skywind animation is not ported.
+ */
 const _skyBoxMap = { value: null };
 
 const R_SKYBOX_VERTEX_SHADER = `
@@ -364,9 +364,7 @@ import { R_MirrorGate } from "./gl_rmirror.js";
 import { isXRActive } from "./webxr.js";
 import { renderer } from "./vid.js";
 
-//============================================================================
 // Constants
-//============================================================================
 
 export const BLOCK_WIDTH = 128;
 export const BLOCK_HEIGHT = 128;
@@ -381,9 +379,7 @@ const MAX_SANITY_LIGHTMAPS = 1 << 20;
 const GL_LUMINANCE = 0x1909;
 const GL_RGBA = 0x1908;
 
-//============================================================================
 // Module-level state
-//============================================================================
 
 export let skytexturenum = -1; // index in cl.loadmodel, not gl texture object
 export function set_skytexturenum(v) {
@@ -441,15 +437,11 @@ export let lightmap_count = 0;
 const allocated = new Int32Array(BLOCK_WIDTH);
 let last_lightmap_allocated = 0;
 
-/*
-================
-GL_GrowLightmaps
-
-Makes sure the per-block arrays hold at least count blocks. Runs at start-up
-for MAX_LIGHTMAPS blocks and again from AllocBlock at map load if a map
-needs more, never per frame.
-================
-*/
+/**
+ * Makes sure the per-block arrays hold at least count blocks. Runs at start-up
+ * for MAX_LIGHTMAPS blocks and again from AllocBlock at map load if a map
+ * needs more, never per frame.
+ */
 function GL_GrowLightmaps(count) {
   while (lightmaps.length < count) {
     lightmap_polys.push(null);
@@ -542,31 +534,27 @@ const _brushRight = new Float32Array(3);
 const _brushUp = new Float32Array(3);
 const _brushPlaneNormal = new Float32Array(3);
 
-/*
-================
-Liquid alpha
-
-Deliberate deviation, from QuakeSpasm (gl_rmisc.c, by ericw): lava, slime
-and teleporters can have their own alpha (r_lavaalpha, r_slimealpha,
-r_telealpha; 0 falls back to r_wateralpha), and a map's worldspawn can set
-_wateralpha, _lavaalpha, _slimealpha and _telealpha. GLQuake applies
-r_wateralpha to every liquid, which the defaults keep.
-
-QS reparses the worldspawn in R_NewMap and its cvar callbacks override the
-map's values when a cvar is set. This port's cvars have no callbacks and
-R_NewMap is in gl_rmisc.js, so the values are parsed lazily after
-GL_BuildLightmaps (which R_NewMap calls) and a cvar is applied once its value
-changes.
-
-Ironwail (gl_rmisc.c R_ParseWorldspawn at 3fa96fe) also keeps a liquid
-opaque at map load, whatever the cvars say, when the map's vis can't see
-through it (contentstransparent, from Mod_CheckWaterVis), so the void behind
-it doesn't show. The worldspawn keys apply whatever the vis: the mapper
-asked for them. Setting a cvar during the map still applies it to every
-liquid (Ironwail's callbacks only warn), until the next map load. QS gates
-neither; GLQuake has neither the keys nor the gate.
-================
-*/
+// Liquid alpha
+//
+// Deliberate deviation, from QuakeSpasm (gl_rmisc.c, by ericw): lava, slime
+// and teleporters can have their own alpha (r_lavaalpha, r_slimealpha,
+// r_telealpha; 0 falls back to r_wateralpha), and a map's worldspawn can set
+// _wateralpha, _lavaalpha, _slimealpha and _telealpha. GLQuake applies
+// r_wateralpha to every liquid, which the defaults keep.
+//
+// QS reparses the worldspawn in R_NewMap and its cvar callbacks override the
+// map's values when a cvar is set. This port's cvars have no callbacks and
+// R_NewMap is in gl_rmisc.js, so the values are parsed lazily after
+// GL_BuildLightmaps (which R_NewMap calls) and a cvar is applied once its value
+// changes.
+//
+// Ironwail (gl_rmisc.c R_ParseWorldspawn at 3fa96fe) also keeps a liquid
+// opaque at map load, whatever the cvars say, when the map's vis can't see
+// through it (contentstransparent, from Mod_CheckWaterVis), so the void behind
+// it doesn't show. The worldspawn keys apply whatever the vis: the mapper
+// asked for them. Setting a cvar during the map still applies it to every
+// liquid (Ironwail's callbacks only warn), until the next map load. QS gates
+// neither; GLQuake has neither the keys nor the gate.
 let map_wateralpha = 1;
 let map_lavaalpha = 0;
 let map_slimealpha = 0;
@@ -690,13 +678,9 @@ function R_AnyLiquidTranslucent() {
     (map_slimealpha > 0 ? map_slimealpha : map_fallbackalpha) !== 1;
 }
 
-/*
-================
-_getWaterMaterial
-
-Returns a cached material for water/turb surfaces. Keyed by texture object.
-================
-*/
+/**
+ * Returns a cached material for water/turb surfaces. Keyed by texture object.
+ */
 function _getWaterMaterial(t, opacity) {
   // Use texture + opacity bucket as key
   const opKey = opacity < 1.0 ? 0 : 1;
@@ -723,13 +707,9 @@ function _getWaterMaterial(t, opacity) {
   return material;
 }
 
-/*
-================
-_getWaterMesh
-
-Returns a cached Mesh for a water/turb surface. Cached on the surface object.
-================
-*/
+/**
+ * Returns a cached Mesh for a water/turb surface. Cached on the surface object.
+ */
 function _getWaterMesh(s, geometry, material, renderGroup) {
   let mesh = s._waterMesh;
   if (!mesh) {
@@ -752,11 +732,9 @@ function _getWaterMesh(s, geometry, material, renderGroup) {
   return mesh;
 }
 
-//============================================================================
 // R_TextureAnimation
 //
 // Returns the proper texture for a given time and base texture
-//============================================================================
 
 export function R_TextureAnimation(
   base,
@@ -840,12 +818,10 @@ export function R_UpdateAnimatedMaterial(
   return true;
 }
 
-//============================================================================
 // DrawGLPoly
 //
 // Draws a polygon. In Three.js, we build BufferGeometry from the glpoly_t
 // vertex data and add it to the scene.
-//============================================================================
 
 export function DrawGLPoly(p, planeNormal) {
   if (!p || p.numverts < 3) return;
@@ -931,12 +907,10 @@ export function DrawGLPoly(p, planeNormal) {
   return geometry;
 }
 
-//============================================================================
 // _mergeGLPolys
 //
 // Merges multiple glpoly_t into a single BufferGeometry. Used to batch
 // brush entity surfaces that share the same material into one draw call.
-//============================================================================
 
 function _mergeGLPolys(polys, planeNormals) {
   // Count total triangles across all polys
@@ -1033,7 +1007,6 @@ function _mergeGLPolys(polys, planeNormals) {
   return geometry;
 }
 
-//============================================================================
 // DrawGLWaterPoly
 //
 // Warp the vertex coordinates. GLQuake recomputes the moved vertices on the
@@ -1041,19 +1014,16 @@ function _mergeGLPolys(polys, planeNormals) {
 // static geometry as DrawGLPoly, and R_BuildWorldMeshes gives it a material
 // that does the warp in its vertex shader (R_PatchWaterWarpVertexShader). The lightmap UVs ride
 // along, which covers DrawGLWaterPolyLightmap too.
-//============================================================================
 
 export function DrawGLWaterPoly(p, planeNormal) {
   return DrawGLPoly(p, planeNormal);
 }
 
-//============================================================================
 // EmitWaterPolysQuake
 //
 // Builds water geometry with warped UVs in Quake coordinate space.
 // Unlike gl_warp.js version, keeps coordinates in Quake space to match
 // the world geometry and camera setup.
-//============================================================================
 
 function EmitWaterPolysQuake(fa, time) {
   // The turbulence runs in the vertex shader (R_PatchTurbVertexShader), so
@@ -1123,14 +1093,10 @@ function EmitWaterPolysQuake(fa, time) {
   return cached.geometry;
 }
 
-/*
-================
-R_DisposeTurbSkyGeometry
-
-Disposes every cached water and sky geometry and drops the caches, so a
-surface that is drawn again rebuilds its geometry.
-================
-*/
+/**
+ * Disposes every cached water and sky geometry and drops the caches, so a
+ * surface that is drawn again rebuilds its geometry.
+ */
 function R_DisposeTurbSkyGeometry() {
   for (const fa of _turbSkySurfaces) {
     if (fa._waterGeoCache) fa._waterGeoCache.geometry.dispose();
@@ -1144,12 +1110,10 @@ function R_DisposeTurbSkyGeometry() {
   _turbSkySurfaces.clear();
 }
 
-//============================================================================
 // EmitSkyPolysQuake
 //
 // Builds sky geometry in Quake coordinate space.
 // layer: 0 = solid layer, 1 = alpha layer
-//============================================================================
 
 function EmitSkyPolysQuake(fa, layer) {
   // The UVs are computed in the vertex shader (R_PatchSkyVertexShader) from
@@ -1213,25 +1177,19 @@ function EmitSkyPolysQuake(fa, layer) {
   return cached.geometry;
 }
 
-//============================================================================
 // R_DrawSequentialPoly
 //
 // Systems that have fast state and texture changes can just do everything
 // as it passes with no need to sort
-//============================================================================
 
 export function R_DrawSequentialPoly(s) {
-  //
   // normal lightmaped poly
-  //
   if (!(s.flags & (SURF_DRAWSKY | SURF_DRAWTURB | SURF_UNDERWATER))) {
     R_RenderDynamicLightmaps(s);
     return;
   }
 
-  //
   // subdivided water surface warp
-  //
   if (s.flags & SURF_DRAWTURB) {
     const renderGroup = currentRenderGroup || worldGroup;
     if (s.polys && renderGroup) {
@@ -1246,24 +1204,18 @@ export function R_DrawSequentialPoly(s) {
     return;
   }
 
-  //
   // subdivided sky warp
-  //
   if (s.flags & SURF_DRAWSKY) {
     // Sky rendering -- skip for now (needs sky texture setup)
     return;
   }
 
-  //
   // underwater warped with lightmap
   // (the warp itself is in the world material: see DrawGLWaterPoly)
-  //
   R_RenderDynamicLightmaps(s);
 }
 
-//============================================================================
 // R_RenderBrushPoly
-//============================================================================
 
 export function R_RenderBrushPoly(fa) {
   let maps;
@@ -1384,9 +1336,7 @@ export function R_RenderBrushPoly(fa) {
   }
 }
 
-//============================================================================
 // R_RenderDynamicLightmaps (multitexture path)
-//============================================================================
 
 export function R_RenderDynamicLightmaps(fa) {
   let maps;
@@ -1484,9 +1434,7 @@ export function R_RenderDynamicLightmaps(fa) {
   }
 }
 
-//============================================================================
 // R_AddDynamicLights
-//============================================================================
 
 export function R_AddDynamicLights(surf) {
   if (!cl_dlights) return;
@@ -1556,11 +1504,9 @@ export function R_AddDynamicLights(surf) {
   }
 }
 
-//============================================================================
 // R_BuildLightMap
 //
 // Combine and scale multiple lightmaps into the 8.8 format in blocklights
-//============================================================================
 
 export function R_BuildLightMap(surf, dest, destOffset, stride) {
   const smax = (surf.extents[0] >> 4) + 1;
@@ -1632,16 +1578,14 @@ export function R_BuildLightMap(surf, dest, destOffset, stride) {
   }
 }
 
-/*
-R_BuildLightMapRGBA
-
-R_BuildLightMap for GL_RGBA blocks, used when a model has a .lit: QuakeSpasm's
-"lit support via lordhavoc" version, which keeps r, g and b in blocklights. It
-bounds, inverts and shifts each channel as the GL_LUMINANCE case does (no
-overbright), so a white .lit looks like the mono map. Surfaces without RGB
-samples (a model with no .lit in a map that has one) add their mono sample to
-all three channels. The fourth byte is never read.
-*/
+/**
+ * R_BuildLightMap for GL_RGBA blocks, used when a model has a .lit: QuakeSpasm's
+ * "lit support via lordhavoc" version, which keeps r, g and b in blocklights. It
+ * bounds, inverts and shifts each channel as the GL_LUMINANCE case does (no
+ * overbright), so a white .lit looks like the mono map. Surfaces without RGB
+ * samples (a model with no .lit in a map that has one) add their mono sample to
+ * all three channels. The fourth byte is never read.
+ */
 function R_BuildLightMapRGBA(surf, dest, destOffset, stride) {
   const smax = (surf.extents[0] >> 4) + 1;
   const tmax = (surf.extents[1] >> 4) + 1;
@@ -1713,9 +1657,7 @@ function R_BuildLightMapRGBA(surf, dest, destOffset, stride) {
   }
 }
 
-//============================================================================
 // R_DrawBrushModel
-//============================================================================
 
 // Euler object reused for brush entity rotation (avoid per-frame allocation)
 const _brushEuler = new THREE.Euler(0, 0, 0, "ZYX");
@@ -1952,9 +1894,7 @@ export function R_DrawBrushModel(e) {
   R_BlendLightmaps();
 }
 
-//============================================================================
 // R_RecursiveWorldNode
-//============================================================================
 
 export function R_RecursiveWorldNode(node) {
   if (!node) return;
@@ -2088,9 +2028,7 @@ export function R_RecursiveWorldNode(node) {
   R_RecursiveWorldNode(node.children[side ? 0 : 1]);
 }
 
-//============================================================================
 // R_DrawWorld
-//============================================================================
 
 export function R_DrawWorld() {
   const cl_ref = cl;
@@ -2142,14 +2080,10 @@ export function R_DrawWorld() {
   R_BlendLightmaps();
 }
 
-/*
-================
-R_CleanupWaterMeshes
-
-Remove water/sky meshes that were in the scene last frame but not rendered
-this frame. Called from R_RenderView after all water rendering is done.
-================
-*/
+/**
+ * Remove water/sky meshes that were in the scene last frame but not rendered
+ * this frame. Called from R_RenderView after all water rendering is done.
+ */
 export function R_CleanupWaterMeshes() {
   for (const mesh of _waterMeshesInScene) {
     if (!_waterMeshesThisFrame.has(mesh)) {
@@ -2159,9 +2093,7 @@ export function R_CleanupWaterMeshes() {
   }
 }
 
-//============================================================================
 // DrawTextureChains
-//============================================================================
 
 export function DrawTextureChains() {
   const cl_ref = cl;
@@ -2204,18 +2136,14 @@ export function DrawTextureChains() {
   }
 }
 
-//============================================================================
 // R_BlendLightmaps
-//============================================================================
 
-/*
-R_CheckLightmapCvars
-
-GLQuake reads r_fullbright in R_BuildLightMap (fill with full light) and
-r_lightmap in R_BlendLightmaps. Here the lightmaps are textures on the
-materials, so a change of r_fullbright rebuilds every lightmap block and
-r_lightmap flips the shared shader uniform.
-*/
+// R_CheckLightmapCvars
+//
+// GLQuake reads r_fullbright in R_BuildLightMap (fill with full light) and
+// r_lightmap in R_BlendLightmaps. Here the lightmaps are textures on the
+// materials, so a change of r_fullbright rebuilds every lightmap block and
+// r_lightmap flips the shared shader uniform.
 let _oldFullbright = 0;
 
 function R_CheckLightmapCvars() {
@@ -2265,13 +2193,11 @@ function R_CheckLightmapCvars() {
   }
 }
 
-/*
-R_LightmapToRGBA
-
-Converts texels start to end of a lightmap block (255 - light: GL_LUMINANCE,
-one byte a texel, or GL_RGBA, r, g and b in four bytes) to the RGBA
-brightness of its texture.
-*/
+/**
+ * Converts texels start to end of a lightmap block (255 - light: GL_LUMINANCE,
+ * one byte a texel, or GL_RGBA, r, g and b in four bytes) to the RGBA
+ * brightness of its texture.
+ */
 function R_LightmapToRGBA(src, dstData, start, end) {
   if (lightmap_bytes === 4) {
     for (let p = start * 4, e = end * 4; p < e; p += 4) {
@@ -2293,21 +2219,19 @@ function R_LightmapToRGBA(src, dstData, start, end) {
   }
 }
 
-/*
-R_UploadLightmapRect
-
-The upload half of R_BlendLightmaps for lightmap block i. GLQuake sends only
-the changed rows:
-	glTexSubImage2D (GL_TEXTURE_2D, 0, 0, theRect->t, BLOCK_WIDTH, theRect->h, ...)
-Three.js has no sub-image upload on the texture itself, so convert those rows
-of the block (255 - light) to the texture's RGBA brightness and
-hand them to renderer.copyTextureToTexture. For CPU data that is one
-texSubImage2D, and it uploads the destination first if it is still pending.
-
-The source must be a texture the renderer has never seen: once a texture has
-GPU state, copyTextureToTexture copies through a framebuffer instead. Without
-a renderer (tests, server) fall back to a full re-upload.
-*/
+// R_UploadLightmapRect
+//
+// The upload half of R_BlendLightmaps for lightmap block i. GLQuake sends only
+// the changed rows:
+// 	glTexSubImage2D (GL_TEXTURE_2D, 0, 0, theRect->t, BLOCK_WIDTH, theRect->h, ...)
+// Three.js has no sub-image upload on the texture itself, so convert those rows
+// of the block (255 - light) to the texture's RGBA brightness and
+// hand them to renderer.copyTextureToTexture. For CPU data that is one
+// texSubImage2D, and it uploads the destination first if it is still pending.
+//
+// The source must be a texture the renderer has never seen: once a texture has
+// GPU state, copyTextureToTexture copies through a framebuffer instead. Without
+// a renderer (tests, server) fall back to a full re-upload.
 let _lightmapUploadSrc = null; // THREE.DataTexture sharing the block's image
 const _lightmapSrcRegion = {
   min: { x: 0, y: 0 },
@@ -2352,18 +2276,16 @@ export function R_UploadLightmapRect(i, theRect, r) {
   );
 }
 
-/*
-R_LightmapsContextRestored
-
-Web-only (see gl_contextloss.js). After a WebGL context restore every lightmap
-texture must be uploaded again from scratch. Three.js does that on its own
-from the texture's image data, but that data is only current for rows
-R_UploadLightmapRect has already converted: rows changed while the context
-was lost (animated styles, dynamic lights) are still waiting in
-lightmap_rectchange. Mark every block fully modified, so the next
-R_BlendLightmaps converts and uploads all of it, and bump each texture's
-version so the whole image is sent as a fresh texture.
-*/
+/**
+ * Web-only (see gl_contextloss.js). After a WebGL context restore every lightmap
+ * texture must be uploaded again from scratch. Three.js does that on its own
+ * from the texture's image data, but that data is only current for rows
+ * R_UploadLightmapRect has already converted: rows changed while the context
+ * was lost (animated styles, dynamic lights) are still waiting in
+ * lightmap_rectchange. Mark every block fully modified, so the next
+ * R_BlendLightmaps converts and uploads all of it, and bump each texture's
+ * version so the whole image is sent as a fresh texture.
+ */
 export function R_LightmapsContextRestored() {
   for (let i = 0; i < lightmap_count; i++) {
     lightmap_modified[i] = true;
@@ -2415,9 +2337,7 @@ export function R_BlendLightmaps() {
   }
 }
 
-//============================================================================
 // R_DrawWaterSurfaces
-//============================================================================
 
 export function R_DrawWaterSurfaces() {
   const cl_ref = cl;
@@ -2474,9 +2394,7 @@ export function R_DrawWaterSurfaces() {
   }
 }
 
-//============================================================================
 // R_MarkLeaves
-//============================================================================
 
 // Cached buffer for r_novis solid visibility (matches C's static byte solid[4096])
 let _markleaves_solid = new Uint8Array(4096);
@@ -2532,9 +2450,7 @@ export function R_MarkLeaves() {
   }
 }
 
-//============================================================================
 // R_MirrorChain
-//============================================================================
 
 // GLQuake's R_NewMap picks the mirror texture by this name prefix.
 export function R_IsMirrorTexture(t) {
@@ -2579,21 +2495,15 @@ function R_ClearMirrors() {
   mirrorItems.length = 0;
 }
 
-//============================================================================
 // R_DrawSkyChain
-//============================================================================
 
 let solidSkyMaterial = null;
 let alphaSkyMaterial = null;
 
-/*
-=================
-R_EnsureSkyMaterials
-
-Split out of R_DrawSkyChain (web-only) so R_WarmupMeshes can build the sky
-materials before the first frame. The code is unchanged.
-=================
-*/
+/**
+ * Split out of R_DrawSkyChain (web-only) so R_WarmupMeshes can build the sky
+ * materials before the first frame. The code is unchanged.
+ */
 function R_EnsureSkyMaterials() {
   // Create or update sky materials from the sky textures
   if (solidskytexture && !solidSkyMaterial) {
@@ -2704,7 +2614,6 @@ function R_DrawSkyChain(s) {
   }
 }
 
-//============================================================================
 // R_WarmupMeshes
 //
 // Web-only (gl_warmup.js). Three.js builds a water or sky program the first
@@ -2715,7 +2624,6 @@ function R_DrawSkyChain(s) {
 // plaque. The meshes are never added to the scene. The water materials are
 // the ones DrawGLWaterPoly will use (cached by texture); the sky ones are
 // the ones R_DrawSkyChain will use.
-//============================================================================
 
 let _warmWaterGeometry = null;
 let _warmSkyGeometry = null;
@@ -2804,11 +2712,9 @@ export function R_WarmupMeshes(worldmodel) {
   return _warmMeshes;
 }
 
-//============================================================================
 // AllocBlock
 //
 // Returns a texture number and the position inside it
-//============================================================================
 
 export function AllocBlock(w, h, outX, outY) {
   // ericw (QuakeSpasm) -- rather than searching starting at lightmap 0 every
@@ -2870,12 +2776,10 @@ export function AllocBlock(w, h, outX, outY) {
   Sys_Error("AllocBlock: full");
 }
 
-//============================================================================
 // BuildSurfaceDisplayList
 //
 // Reconstructs polygon from BSP edges and computes texture coordinates.
 // In Three.js, we build BufferGeometry instead of glpoly_t display lists.
-//============================================================================
 
 export function BuildSurfaceDisplayList(fa) {
   if (!currentmodel) return;
@@ -2983,9 +2887,7 @@ export function BuildSurfaceDisplayList(fa) {
   }
 }
 
-//============================================================================
 // GL_CreateSurfaceLightmap
-//============================================================================
 
 export function GL_CreateSurfaceLightmap(surf) {
   if (surf.flags & (SURF_DRAWSKY | SURF_DRAWTURB)) {
@@ -3010,22 +2912,18 @@ export function GL_CreateSurfaceLightmap(surf) {
   );
 }
 
-//============================================================================
 // GL_BuildLightmaps
 //
 // Builds the lightmap texture with all the surfaces from all brush models.
 // In Three.js, we create THREE.DataTexture objects for each lightmap atlas.
-//============================================================================
 
 export const lightmapTextures = []; // THREE.DataTexture array
 
-//============================================================================
 // R_BuildWorldMeshes
 //
 // Builds world geometry using BatchedMesh for efficient PVS culling.
 // One BatchedMesh per (texture, lightmap) combo, with each leaf's geometry
 // added as a separate instance. Visibility is toggled via setVisibleAt().
-//============================================================================
 
 // Batch key for each texture_t, assigned on first use (was Math.random())
 let _batchBuildId = 0;
@@ -3140,12 +3038,12 @@ function R_BuildWorldMeshes() {
   _worldBatchVisibleCount = new Uint32Array(worldBatchedMeshes.length);
 }
 
-/*
-First pass of R_BuildWorldMeshes: group the world's drawn surfaces by
-(texture, lightmap). SURF_UNDERWATER surfaces get their own groups, because
-gl_rsurf.c draws them with DrawGLWaterPoly and here their batch takes the
-warping material.
-*/
+/**
+ * First pass of R_BuildWorldMeshes: group the world's drawn surfaces by
+ * (texture, lightmap). SURF_UNDERWATER surfaces get their own groups, because
+ * gl_rsurf.c draws them with DrawGLWaterPoly and here their batch takes the
+ * warping material.
+ */
 export function R_CollectWorldBatchGroups(worldmodel, surfaceToLeaves) {
   // Each surface stores its geometry and ALL leaves that contain it
   // Structure: batchGroups: Map<texKey, { texture, lmNum, totalVerts, totalGeoms, surfaceData: Array<{geom, leaves}> }>
@@ -3226,24 +3124,24 @@ export function R_CollectWorldBatchGroups(worldmodel, surfaceToLeaves) {
   return batchGroups;
 }
 
-/*
-Names a world batch and sets how Three.js culls and sorts it.
-
-Every batch skips the per-instance work BatchedMesh does by default: sorting
-instances by depth and testing each one against the frustum. Both run on
-every frame for every batch while either is on, and re-upload the batch's
-indirect texture. The world is static and the PVS (setVisibleAt) already picks
-the surfaces, so with both off BatchedMesh does that work only when visibility
-changes. In E1M1 this halved the frame time of a busy view (GPU included).
-A batch with no instance in the PVS is hidden whole by
-R_SetWorldBatchVisibility.
-C culls BSP nodes, not single surfaces, against the frustum (R_CullBox in
-R_RecursiveWorldNode); the whole-batch bounding-sphere test stays on.
-
-An underwater group also turns that off: the warp moves vertices up to 8
-units past the static bounds Three.js culls with, so culling could drop a
-surface still on screen.
-*/
+/**
+ * Names a world batch and sets how Three.js culls and sorts it.
+ *
+ * Every batch skips the per-instance work BatchedMesh does by default: sorting
+ * instances by depth and testing each one against the frustum. Both run on
+ * every frame for every batch while either is on, and re-upload the batch's
+ * indirect texture. The world is static and the PVS (setVisibleAt) already picks
+ * the surfaces, so with both off BatchedMesh does that work only when visibility
+ * changes. In E1M1 this halved the frame time of a busy view (GPU included).
+ * A batch with no instance in the PVS is hidden whole by
+ * R_SetWorldBatchVisibility.
+ * C culls BSP nodes, not single surfaces, against the frustum (R_CullBox in
+ * R_RecursiveWorldNode); the whole-batch bounding-sphere test stays on.
+ *
+ * An underwater group also turns that off: the warp moves vertices up to 8
+ * units past the static bounds Three.js culls with, so culling could drop a
+ * surface still on screen.
+ */
 export function R_InitWorldBatch(batchedMesh, group) {
   const texName = group.texture.name || "";
   batchedMesh.name = `world_${texName}_lm${group.lmNum}` +
@@ -3275,14 +3173,12 @@ function R_UpdateWorldTextureAnimations() {
   }
 }
 
-//============================================================================
 // R_UpdateWorldVisibility
 //
 // Called each frame after R_MarkLeaves. Uses BatchedMesh.setVisibleAt() to
 // toggle visibility. A surface is visible if ANY of its containing leaves
 // is in the PVS (has visframe === r_visframecount). A batch with no visible
 // instance is hidden whole (R_SetWorldBatchVisibility).
-//============================================================================
 
 function R_UpdateWorldVisibility() {
   // Skip update if viewleaf hasn't changed (PVS is the same)
@@ -3296,16 +3192,16 @@ function R_UpdateWorldVisibility() {
   );
 }
 
-/*
-The body of R_UpdateWorldVisibility, which has no C counterpart: GLQuake walks
-the BSP and draws only the surfaces it reaches, so it has nothing to hide.
-
-Sets each world instance visible when any of its leaves has visframe ===
-visframecount, then hides every batch with no visible instance. Three.js
-still binds the program, uniforms and textures for a visible BatchedMesh
-whose instances are all hidden; on big maps most batches are empty, and
-that cost several milliseconds a frame. counts holds one slot per batch.
-*/
+/**
+ * The body of R_UpdateWorldVisibility, which has no C counterpart: GLQuake walks
+ * the BSP and draws only the surfaces it reaches, so it has nothing to hide.
+ *
+ * Sets each world instance visible when any of its leaves has visframe ===
+ * visframecount, then hides every batch with no visible instance. Three.js
+ * still binds the program, uniforms and textures for a visible BatchedMesh
+ * whose instances are all hidden; on big maps most batches are empty, and
+ * that cost several milliseconds a frame. counts holds one slot per batch.
+ */
 export function R_SetWorldBatchVisibility(
   visInfo,
   batches,
@@ -3519,9 +3415,7 @@ export function GL_BuildLightmaps() {
   R_BuildWorldMeshes();
 }
 
-//============================================================================
 // Stub for external dependency
-//============================================================================
 
 // Mod_LeafPVS: imported from gl_model.js at top of file
 

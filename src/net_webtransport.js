@@ -222,39 +222,25 @@ function _WT_ParseSequencedPacket(sock, packet, reliable) {
   return packet.subarray(WT_PACKET_HEADER_BYTES);
 }
 
-/*
-=============
-WT_SetClientOutboundDatagrams
-
-Send client moves as datagrams (the default) or, with false, on the reliable
-stream. See USE_CLIENT_OUTBOUND_DATAGRAMS.
-=============
-*/
+/**
+ * Send client moves as datagrams (the default) or, with false, on the reliable
+ * stream. See USE_CLIENT_OUTBOUND_DATAGRAMS.
+ */
 export function WT_SetClientOutboundDatagrams(enabled) {
   USE_CLIENT_OUTBOUND_DATAGRAMS = enabled === true;
 }
 
-/*
-=============
-WT_SetTimeouts
-
-Shorten the connect, handshake and close-flush timeouts (tests use this).
-Values that are not positive numbers leave the current setting.
-=============
-*/
+/**
+ * Shorten the connect, handshake and close-flush timeouts (tests use this).
+ * Values that are not positive numbers leave the current setting.
+ */
 export function WT_SetTimeouts({ connectMs, handshakeMs, closeFlushMs } = {}) {
   if (connectMs > 0) WT_CONNECT_TIMEOUT_MS = connectMs;
   if (handshakeMs > 0) WT_HANDSHAKE_TIMEOUT_MS = handshakeMs;
   if (closeFlushMs > 0) WT_CLOSE_FLUSH_MS = closeFlushMs;
 }
 
-/*
-=============
-WT_Init
-
-Initialize the WebTransport driver
-=============
-*/
+/** Initialize the WebTransport driver */
 export function WT_Init() {
   // Check if WebTransport is available in this browser
   if (typeof WebTransport === "undefined") {
@@ -298,13 +284,7 @@ function _onPageHide() {
   wt_connections.clear();
 }
 
-/*
-=============
-WT_Shutdown
-
-Shutdown the WebTransport driver
-=============
-*/
+/** Shutdown the WebTransport driver */
 export function WT_Shutdown() {
   // Close all active connections
   for (const conn of wt_connections.values()) {
@@ -319,26 +299,16 @@ export function WT_Shutdown() {
   wt_initialized = false;
 }
 
-/*
-=============
-WT_Listen
-
-Enable/disable listening for new connections
-Browser clients don't listen, only servers do
-=============
-*/
+/**
+ * Enable/disable listening for new connections
+ * Browser clients don't listen, only servers do
+ */
 export function WT_Listen(_state) {
   // Browser clients don't listen for connections
   // This is a no-op on the client side
 }
 
-/*
-=============
-WT_SearchForHosts
-
-Search for available servers
-=============
-*/
+/** Search for available servers */
 export function WT_SearchForHosts(_xmit) {
   // WebTransport doesn't have broadcast discovery
   // Use WT_QueryRooms instead for server list
@@ -352,14 +322,10 @@ const LOBBY_ROOMS = 0x81;
 const LOBBY_ERROR = 0x82;
 const LOBBY_VERIFY = 0x86;
 
-/*
-=============
-WT_QueryRooms
-
-Query available rooms from a WebTransport server
-Returns a Promise that resolves to an array of room objects
-=============
-*/
+/**
+ * Query available rooms from a WebTransport server
+ * Returns a Promise that resolves to an array of room objects
+ */
 export async function WT_QueryRooms(serverUrl) {
   if (!wt_initialized) {
     throw new Error("WebTransport not initialized");
@@ -468,14 +434,10 @@ export async function WT_QueryRooms(serverUrl) {
   }
 }
 
-/*
-=============
-WT_CreateRoom
-
-Create a new room on the WebTransport server
-Returns a Promise that resolves to the room object with ID
-=============
-*/
+/**
+ * Create a new room on the WebTransport server
+ * Returns a Promise that resolves to the room object with ID
+ */
 export async function WT_CreateRoom(serverUrl, config) {
   if (!wt_initialized) {
     throw new Error("WebTransport not initialized");
@@ -627,13 +589,10 @@ export async function WT_CreateRoom(serverUrl, config) {
   }
 }
 
-/*
-=============
-_readExact
+// _readExact
+//
+// Read exactly n bytes from a stream reader
 
-Read exactly n bytes from a stream reader
-=============
-*/
 // Per-reader buffer state (shared global buffer breaks concurrent lobby requests)
 const _lobbyReaderBuffers = new WeakMap();
 
@@ -727,16 +686,12 @@ async function _readExact(reader, n) {
   return result;
 }
 
-/*
-=============
-Connect helpers
-
-One WTConnectAttempt covers a whole connect, lobby redirect included. Its
-deadline closes every transport the attempt opened and rejects whatever the
-connect is waiting on, so the connect always settles (with null) before the
-caller's own timeout and never hands back a socket nobody owns.
-=============
-*/
+// Connect helpers
+//
+// One WTConnectAttempt covers a whole connect, lobby redirect included. Its
+// deadline closes every transport the attempt opened and rejects whatever the
+// connect is waiting on, so the connect always settles (with null) before the
+// caller's own timeout and never hands back a socket nobody owns.
 class WTConnectAttempt {
   constructor(timeoutMs) {
     this.aborted = false;
@@ -855,18 +810,14 @@ function _WT_DeferToWebSocket() {
   return true;
 }
 
-/*
-=============
-WT_Connect
-
-Connect to a remote server via WebTransport
-host can be:
-  - "wt://hostname:port" or "wts://hostname:port"
-  - "hostname:port" (defaults to wts://)
-  - Full URL like "https://hostname:port/quake"
-  - URL with room parameter: "https://hostname:port?room=ROOMID"
-=============
-*/
+/**
+ * Connect to a remote server via WebTransport
+ * host can be:
+ *   - "wt://hostname:port" or "wts://hostname:port"
+ *   - "hostname:port" (defaults to wts://)
+ *   - Full URL like "https://hostname:port/quake"
+ *   - URL with room parameter: "https://hostname:port?room=ROOMID"
+ */
 export async function WT_Connect(host) {
   if (!wt_initialized) {
     Con_Printf("WebTransport not initialized\n");
@@ -927,14 +878,10 @@ export async function WT_Connect(host) {
   }
 }
 
-/*
-=============
-_WT_ConnectViaLobby
-
-Ask the lobby which room server hosts roomId, then connect to it directly.
-The lobby exchange needs no qsocket.
-=============
-*/
+/**
+ * Ask the lobby which room server hosts roomId, then connect to it directly.
+ * The lobby exchange needs no qsocket.
+ */
 async function _WT_ConnectViaLobby(url, host, roomId, attempt) {
   let transport = null;
   let opened = false; // transport.ready resolved
@@ -1046,21 +993,17 @@ async function _WT_ConnectViaLobby(url, host, roomId, attempt) {
   }
 }
 
-/*
-=============
-_WT_ConnectDirect
-
-Connect directly to a room server (no lobby protocol)
-Used when redirected from lobby to a room server on a different port
-
-Transport protocol:
-- Reliable stream: [length:2][transport_packet]
-- Unreliable datagrams: transport_packet
-  transport_packet: [magic:1][sequence:4][ack:4][quake_payload...]
-- The first reliable frame each way is the connect handshake
-  (WT_BuildHelloFrame / WT_BuildHandshakeReplyFrame in net.js)
-=============
-*/
+/**
+ * Connect directly to a room server (no lobby protocol)
+ * Used when redirected from lobby to a room server on a different port
+ *
+ * Transport protocol:
+ * - Reliable stream: [length:2][transport_packet]
+ * - Unreliable datagrams: transport_packet
+ *   transport_packet: [magic:1][sequence:4][ack:4][quake_payload...]
+ * - The first reliable frame each way is the connect handshake
+ *   (WT_BuildHelloFrame / WT_BuildHandshakeReplyFrame in net.js)
+ */
 async function _WT_ConnectDirect(url, originalHost, roomId, attempt) {
   Con_Printf("WebTransport connecting directly to " + url + "\n");
 
@@ -1212,13 +1155,7 @@ async function _WT_ConnectDirect(url, originalHost, roomId, attempt) {
   }
 }
 
-/*
-=============
-_WT_ReadHandshakeReply
-
-Read the server's first reliable frame and parse it as a handshake reply
-=============
-*/
+/** Read the server's first reliable frame and parse it as a handshake reply */
 async function _WT_ReadHandshakeReply(reader) {
   const header = await _WT_ReadExact(reader, 2);
   if (header === null) {
@@ -1277,13 +1214,7 @@ function _WT_PushPendingMessage(conn, reliable, data) {
   queue.push({ reliable, data });
 }
 
-/*
-=============
-_WT_StartBackgroundReaders
-
-Start background readers for reliable stream + unreliable datagrams
-=============
-*/
+/** Start background readers for reliable stream + unreliable datagrams */
 function _WT_StartBackgroundReaders(_sock, conn) {
   Con_Printf("Starting reliable stream and datagram readers...\n");
   conn.readersStarted = true;
@@ -1417,14 +1348,10 @@ function _WT_StartBackgroundReaders(_sock, conn) {
   })();
 }
 
-/*
-=============
-_WT_ReadFramedMessageWithType
-
-Read a lobby framed message and return both type and data
-Frame format: [type:1][length:2][data:N]
-=============
-*/
+/**
+ * Read a lobby framed message and return both type and data
+ * Frame format: [type:1][length:2][data:N]
+ */
 async function _WT_ReadFramedMessageWithType(reader) {
   // Read header (3 bytes: type + length)
   const header = await _WT_ReadExact(reader, 3);
@@ -1442,13 +1369,10 @@ async function _WT_ReadFramedMessageWithType(reader) {
   return { type, data };
 }
 
-/*
-=============
-_WT_ReadExact
+// _WT_ReadExact
+//
+// Read exactly n bytes from a reader, with buffering for leftover bytes
 
-Read exactly n bytes from a reader, with buffering for leftover bytes
-=============
-*/
 // Per-reader buffer storage (WeakMap to avoid memory leaks)
 const _wtReaderBuffers = new WeakMap();
 
@@ -1500,30 +1424,20 @@ async function _WT_ReadExact(reader, n) {
   return result;
 }
 
-/*
-=============
-WT_CheckNewConnections
-
-Check for new incoming connections (server-side only)
-=============
-*/
+/** Check for new incoming connections (server-side only) */
 export function WT_CheckNewConnections() {
   // Browser clients don't accept connections
   return null;
 }
 
-/*
-=============
-WT_QGetMessage
-
-Get a message from the connection
-Returns:
-  0 = no message
-  1 = reliable message
-  2 = unreliable message
-  -1 = error
-=============
-*/
+/**
+ * Get a message from the connection
+ * Returns:
+ *   0 = no message
+ *   1 = reliable message
+ *   2 = unreliable message
+ *   -1 = error
+ */
 export function WT_QGetMessage(sock) {
   const conn = sock.driverdata;
   if (!conn) {
@@ -1616,15 +1530,11 @@ function _WT_WriteReliableFrame(conn, frame) {
   });
 }
 
-/*
-=============
-WT_QSendMessage
-
-Send a reliable message via the reliable stream.
-Frame format: [length:2][data...]
-QUIC streams handle ordering and retransmission.
-=============
-*/
+/**
+ * Send a reliable message via the reliable stream.
+ * Frame format: [length:2][data...]
+ * QUIC streams handle ordering and retransmission.
+ */
 export function WT_QSendMessage(sock, data) {
   const conn = sock.driverdata;
   if (conn == null || !conn.connected) return -1;
@@ -1675,13 +1585,7 @@ function _WT_SendUnreliableOnReliable(sock, conn, data) {
   return WT_QSendMessage(sock, data);
 }
 
-/*
-=============
-WT_SendUnreliableMessage
-
-Send an unreliable message via WebTransport datagrams.
-=============
-*/
+/** Send an unreliable message via WebTransport datagrams. */
 export function WT_SendUnreliableMessage(sock, data) {
   const conn = sock.driverdata;
   if (conn == null || !conn.connected) {
@@ -1726,13 +1630,7 @@ export function WT_SendUnreliableMessage(sock, data) {
   return 1;
 }
 
-/*
-=============
-WT_CanSendMessage
-
-Check if we can send a reliable message
-=============
-*/
+/** Check if we can send a reliable message */
 export function WT_CanSendMessage(sock) {
   const conn = sock.driverdata;
   if (!conn) return false;
@@ -1741,13 +1639,7 @@ export function WT_CanSendMessage(sock) {
     conn.pendingReliableWrites < WT_MAX_PENDING_RELIABLE_WRITES;
 }
 
-/*
-=============
-WT_CanSendUnreliableMessage
-
-Check if we can send an unreliable message
-=============
-*/
+/** Check if we can send an unreliable message */
 export function WT_CanSendUnreliableMessage(sock) {
   const conn = sock.driverdata;
   if (!conn) return false;
@@ -1760,15 +1652,11 @@ export function WT_CanSendUnreliableMessage(sock) {
   return conn.connected && conn.datagramWriter != null;
 }
 
-/*
-=============
-_WT_CloseConnection
-
-Graceful close: stop delivering messages, let the writes already queued on
-the reliable stream (clc_disconnect) go out, send FIN, then close the
-transport once the server has reacted or WT_CLOSE_FLUSH_MS has passed.
-=============
-*/
+/**
+ * Graceful close: stop delivering messages, let the writes already queued on
+ * the reliable stream (clc_disconnect) go out, send FIN, then close the
+ * transport once the server has reacted or WT_CLOSE_FLUSH_MS has passed.
+ */
 function _WT_CloseConnection(conn) {
   if (conn.closing === true) return;
   conn.closing = true;
@@ -1821,22 +1709,18 @@ function _WT_MaybeFinishClose(conn) {
   }
 }
 
-/*
-=============
-_WT_WaitForClosingConnections
-
-Resolves once every connection that is still closing has finished: the server
-dropped the client and sent FIN, or WT_CLOSE_FLUSH_MS passed.
-
-Deliberate deviation: the C client reconnects at once, and the C server frees
-the old slot itself, because _Datagram_CheckNewConnections (net_dgrm.c) closes
-any qsocket from the connecting IP. That rule would also drop other players
-behind the same NAT or in another tab, so the port waits here instead.
-Without the wait, the room server (20 Hz, SV_CheckForNewClients before
-SV_RunClients) can accept the reconnect into a new slot in the same tick that
-it drops the old one.
-=============
-*/
+/**
+ * Resolves once every connection that is still closing has finished: the server
+ * dropped the client and sent FIN, or WT_CLOSE_FLUSH_MS passed.
+ *
+ * Deliberate deviation: the C client reconnects at once, and the C server frees
+ * the old slot itself, because _Datagram_CheckNewConnections (net_dgrm.c) closes
+ * any qsocket from the connecting IP. That rule would also drop other players
+ * behind the same NAT or in another tab, so the port waits here instead.
+ * Without the wait, the room server (20 Hz, SV_CheckForNewClients before
+ * SV_RunClients) can accept the reconnect into a new slot in the same tick that
+ * it drops the old one.
+ */
 function _WT_WaitForClosingConnections() {
   if (wt_closing.size === 0) return Promise.resolve();
   return new Promise((resolve) => {
@@ -1876,14 +1760,10 @@ function _WT_FinishClose(conn) {
   }
 }
 
-/*
-=============
-WT_Close
-
-Close a connection. The socket is detached at once (NET_Close frees it
-straight after); the final reliable frames are flushed in the background.
-=============
-*/
+/**
+ * Close a connection. The socket is detached at once (NET_Close frees it
+ * straight after); the final reliable frames are flushed in the background.
+ */
 export function WT_Close(sock) {
   const conn = sock.driverdata;
   if (!conn) return;
@@ -1895,13 +1775,7 @@ export function WT_Close(sock) {
   sock.driverdata = null;
 }
 
-/*
-=============
-WT_GetAnyMessage
-
-Used for control messages during connection
-=============
-*/
+/** Used for control messages during connection */
 export function WT_GetAnyMessage() {
   // Not used for WebTransport
   return 0;

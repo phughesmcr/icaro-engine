@@ -55,26 +55,14 @@ import {
   STAT_TOTALSECRETS,
 } from "./quakedef.js";
 
-/*
-==============================================================================
-
-			STATUS BAR CONSTANTS
-
-==============================================================================
-*/
+// STATUS BAR CONSTANTS
 
 export const SBAR_HEIGHT = 24;
 const STAT_MINUS = 10; // num frame for '-' stats digit
 
 const GAME_DEATHMATCH = 1;
 
-/*
-==============================================================================
-
-			STATUS BAR STATE
-
-==============================================================================
-*/
+// STATUS BAR STATE
 
 // Write-only, kept so the sbar.c reset sites still map 1:1. Its reader, the
 // `sb_updates >= vid.numpages` early-out in Sbar_Draw, is left out: the canvas
@@ -135,13 +123,7 @@ const hsb_items = new Array(2).fill(null);
 const fragsort = new Array(MAX_SCOREBOARD).fill(0);
 let scoreboardlines = 0;
 
-/*
-==============================================================================
-
-			EXTERNAL REFERENCES
-
-==============================================================================
-*/
+// EXTERNAL REFERENCES
 
 let _cl = {
   stats: new Int32Array(32),
@@ -191,13 +173,9 @@ export function Sbar_SetExternals(externals) {
   if (externals.rogue !== undefined) _rogue = externals.rogue;
 }
 
-/*
-===============
-Sbar_ShowScores / Sbar_DontShowScores
-
-Tab key down/up
-===============
-*/
+// Sbar_ShowScores / Sbar_DontShowScores
+//
+// Tab key down/up
 export function Sbar_ShowScores() {
   if (sb_showscores) return;
   sb_showscores = true;
@@ -209,20 +187,10 @@ export function Sbar_DontShowScores() {
   sb_updates = 0;
 }
 
-/*
-===============
-Sbar_Changed
-===============
-*/
 export function Sbar_Changed() {
   sb_updates = 0; // update next frame
 }
 
-/*
-===============
-Sbar_Init
-===============
-*/
 export function Sbar_Init() {
   if (!_Draw_PicFromWad) {
     Con_Printf("Sbar_Init: Draw_PicFromWad not available yet\n");
@@ -361,21 +329,10 @@ export function Sbar_Init() {
   }
 }
 
-/*
-=============================================================================
+// DRAWING ROUTINES
+//
+// drawing routines are relative to the status bar location
 
-			DRAWING ROUTINES
-
-drawing routines are relative to the status bar location
-
-=============================================================================
-*/
-
-/*
-=============
-Sbar_DrawPic
-=============
-*/
 function Sbar_DrawPic(x, y, pic) {
   if (!_Draw_Pic || !pic) return;
 
@@ -390,14 +347,10 @@ function Sbar_DrawPic(x, y, pic) {
   }
 }
 
-/*
-================
-Sbar_DrawPicAlpha -- johnfitz
-
-Ported from QuakeSpasm Quake/sbar.c: the status bar backgrounds are drawn
-with scr_sbaralpha
-================
-*/
+// Sbar_DrawPicAlpha -- johnfitz
+//
+// Ported from QuakeSpasm Quake/sbar.c: the status bar backgrounds are drawn
+// with scr_sbaralpha
 function Sbar_DrawPicAlpha(x, y, pic, alpha) {
   if (alpha >= 1) {
     Sbar_DrawPic(x, y, pic);
@@ -414,13 +367,7 @@ function Sbar_DrawPicAlpha(x, y, pic, alpha) {
   ctx.globalAlpha = oldAlpha;
 }
 
-/*
-================
-Sbar_DrawCharacter
-
-Draws one solid graphics character
-================
-*/
+/** Draws one solid graphics character */
 function Sbar_DrawCharacter(x, y, num) {
   if (!_Draw_Character) return;
 
@@ -435,11 +382,6 @@ function Sbar_DrawCharacter(x, y, num) {
   }
 }
 
-/*
-================
-Sbar_DrawString
-================
-*/
 function Sbar_DrawString(x, y, str) {
   if (!_Draw_Character) return;
 
@@ -462,13 +404,7 @@ function Sbar_DrawString(x, y, str) {
   }
 }
 
-/*
-=============
-Sbar_DrawNum
-
-Draws a number with the large status bar font
-=============
-*/
+/** Draws a number with the large status bar font */
 export function Sbar_DrawNum(x, y, num, digits, color) {
   // Sbar_itoa: integer to decimal, with a leading '-' for negatives
   const str = String(Math.trunc(num));
@@ -492,11 +428,6 @@ export function Sbar_DrawNum(x, y, num, digits, color) {
   }
 }
 
-/*
-===============
-Sbar_DrawInventory
-===============
-*/
 function Sbar_DrawInventory() {
   if (_rogue) {
     if (_cl.stats[STAT_ACTIVEWEAPON] >= RIT_LAVA_NAILGUN) {
@@ -687,11 +618,6 @@ function Sbar_DrawInventory() {
   }
 }
 
-/*
-===============
-Sbar_DrawFrags
-===============
-*/
 function Sbar_DrawFrags() {
   if (_cl.scores == null) return;
 
@@ -744,11 +670,6 @@ function Sbar_DrawFrags() {
   }
 }
 
-/*
-===============
-Sbar_SortFrags
-===============
-*/
 function Sbar_SortFrags() {
   // sort by frags
   scoreboardlines = 0;
@@ -776,22 +697,13 @@ function Sbar_SortFrags() {
   }
 }
 
-/*
-===============
-Sbar_ColorForMap
-===============
-*/
 function Sbar_ColorForMap(m) {
   return m < 128 ? m + 8 : m + 8;
 }
 
-/*
-===============
-Sbar_DrawScrollString -- johnfitz
-
-scroll the string inside a glscissor region
-===============
-*/
+// Sbar_DrawScrollString -- johnfitz
+//
+// scroll the string inside a glscissor region
 function Sbar_DrawScrollString(x, y, width, str) {
   // Sbar_DrawString centres the 320-wide bar outside deathmatch; clip the same way
   const xofs = _cl.gametype === GAME_DEATHMATCH ? 0 : (_vid.width - 320) >> 1;
@@ -808,15 +720,11 @@ function Sbar_DrawScrollString(x, y, width, str) {
   Draw_ResetClipping();
 }
 
-/*
-=================
-Sbar_SanitizeMapDescription
-
-Mirrors Ironwail Mod_SanitizeMapDescription (gl_model.c): removes colors,
-replaces newlines (and a literal backslash-n) with spaces, collapses runs of
-spaces and trims both ends.
-=================
-*/
+/**
+ * Mirrors Ironwail Mod_SanitizeMapDescription (gl_model.c): removes colors,
+ * replaces newlines (and a literal backslash-n) with spaces, collapses runs of
+ * spaces and trims both ends.
+ */
 function Sbar_SanitizeMapDescription(src) {
   let dst = "";
   for (let i = 0; i < src.length; i++) {
@@ -856,16 +764,12 @@ let solo_levelname = null;
 let solo_worldmodel = null;
 let solo_title = "";
 
-/*
-===============
-Sbar_SoloScoreboard -- johnfitz -- new layout
-
-Deviation: id's layout (Monsters, Secrets, Time and the level name) is
-replaced by Ironwail's: kills and secrets either side, the skill between
-them, and "level name (mapname)" above, scrolling when wider than the bar.
-The Time field is gone, as in QuakeSpasm and Ironwail; scr_clock shows it.
-===============
-*/
+// Sbar_SoloScoreboard -- johnfitz -- new layout
+//
+// Deviation: id's layout (Monsters, Secrets, Time and the level name) is
+// replaced by Ironwail's: kills and secrets either side, the skill between
+// them, and "level name (mapname)" above, scrolling when wider than the bar.
+// The Time field is gone, as in QuakeSpasm and Ironwail; scr_clock shows it.
 export function Sbar_SoloScoreboard() {
   if (
     _cl.stats[STAT_MONSTERS] !== solo_monsters ||
@@ -891,7 +795,7 @@ export function Sbar_SoloScoreboard() {
   const right = 312 - solo_secretsstr.length * 8;
   Sbar_DrawString(right, 12, solo_secretsstr);
 
-  /* QuakeSpasm customization: */
+  // QuakeSpasm customization:
   const sk = Math.trunc(skill.value + 0.5);
   if (sk !== solo_skill) {
     solo_skill = sk;
@@ -929,11 +833,6 @@ export function Sbar_SoloScoreboard() {
   }
 }
 
-/*
-===============
-Sbar_DrawScoreboard
-===============
-*/
 function Sbar_DrawScoreboard() {
   Sbar_SoloScoreboard();
   if (_cl.gametype === GAME_DEATHMATCH) {
@@ -941,13 +840,7 @@ function Sbar_DrawScoreboard() {
   }
 }
 
-/*
-===============
-Sbar_DrawFace
-
-Returns the health face to display
-===============
-*/
+/** Returns the health face to display */
 function Sbar_DrawFace() {
   let f;
   let anim;
@@ -1048,11 +941,6 @@ function Sbar_DrawFace() {
   Sbar_DrawPic(112, 0, sb_faces[f][anim]);
 }
 
-/*
-===============
-Sbar_Draw
-===============
-*/
 export function Sbar_Draw() {
   // Force redraw every frame — canvas overlay is cleared each frame
   sb_updates = 0;
@@ -1188,18 +1076,14 @@ export function Sbar_Draw() {
   }
 }
 
-/*
-==================
-Sbar_DrawPing
-
-Draw ping (latency) in the top-right corner during deathmatch. Not in the C.
-The round trip is measured on the client from the transport ack, as QW's
-client does (CL_GetDisplayPing). STAT_PING, the server's tick-quantised NQ
-sample, is the fallback when there is no ack (loopback). It reads above the
-network round trip by the wait for the server tick and for the client frame
-that reads the reply: about 12 ms at a 72 Hz send rate and 60 fps.
-==================
-*/
+/**
+ * Draw ping (latency) in the top-right corner during deathmatch. Not in the C.
+ * The round trip is measured on the client from the transport ack, as QW's
+ * client does (CL_GetDisplayPing). STAT_PING, the server's tick-quantised NQ
+ * sample, is the fallback when there is no ack (loopback). It reads above the
+ * network round trip by the wait for the server tick and for the client frame
+ * that reads the reply: about 12 ms at a 72 Hz send rate and 60 fps.
+ */
 function Sbar_DrawPing() {
   if (_Draw_Character == null) return;
 
@@ -1218,11 +1102,6 @@ function Sbar_DrawPing() {
   }
 }
 
-/*
-==================
-Sbar_DeathmatchOverlay
-==================
-*/
 function Sbar_DeathmatchOverlay() {
   if (_Draw_Character == null || _Draw_Fill == null) return;
 
@@ -1281,11 +1160,6 @@ function Sbar_DeathmatchOverlay() {
   }
 }
 
-/*
-==================
-Sbar_MiniDeathmatchOverlay
-==================
-*/
 export function Sbar_MiniDeathmatchOverlay() {
   if (_vid.width < 512 || sb_lines === 0) {
     return;
@@ -1364,13 +1238,7 @@ export function Sbar_MiniDeathmatchOverlay() {
   }
 }
 
-/*
-==================
-Sbar_IntermissionNumber
-
-Draw large numbers for intermission screen
-==================
-*/
+/** Draw large numbers for intermission screen */
 function Sbar_IntermissionNumber(x, y, num, digits, color) {
   if (!_Draw_TransPic) return;
 
@@ -1400,11 +1268,6 @@ function Sbar_IntermissionNumber(x, y, num, digits, color) {
   }
 }
 
-/*
-==================
-Sbar_IntermissionOverlay
-==================
-*/
 export function Sbar_IntermissionOverlay() {
   if (!_Draw_TransPic || !_Draw_CachePic) return;
 
@@ -1482,11 +1345,6 @@ export function Sbar_IntermissionOverlay() {
   );
 }
 
-/*
-==================
-Sbar_FinaleOverlay
-==================
-*/
 export function Sbar_FinaleOverlay() {
   if (!_Draw_TransPic || !_Draw_CachePic) return;
 

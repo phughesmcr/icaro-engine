@@ -5,14 +5,14 @@
 // own console names. This module is pure (no cvar or DOM access) so the
 // stepping and clamping can be tested on their own.
 
-/*
-Each row names a cvar and how it changes:
-- slider: min, max and step. Values snap to the grid from min. `zero`, if
-  set, is shown instead of 0 (the liquid alphas fall back to r_wateralpha).
-- choice: values (and optional names to show for them), stepped in order
-  and wrapping, so a tap on the row reaches every value.
-- toggle: neither; 0 and 1.
-*/
+/**
+ * Each row names a cvar and how it changes:
+ * - slider: min, max and step. Values snap to the grid from min. `zero`, if
+ *   set, is shown instead of 0 (the liquid alphas fall back to r_wateralpha).
+ * - choice: values (and optional names to show for them), stepped in order
+ *   and wrapping, so a tap on the row reaches every value.
+ * - toggle: neither; 0 and 1.
+ */
 const SCALES = [0, 1, 2, 3, 4, 5, 6];
 const SCALE_NAMES = ["auto", "1", "2", "3", "4", "5", "6"];
 const OFF_ON_SMOOTH = ["off", "on", "smooth"];
@@ -236,18 +236,14 @@ export const advancedPages = [
 	}
 ];
 
-/*
-================
-M_CvarWhen_Applies
-
-Some pages and rows apply only in some games, named by their `when`:
-- 'local': the cvar acts on this browser's own server or clock, so it is
-  hidden while connected to an online server (remote). A demo playing doesn't
-  count, so the title screen can set up the next local game.
-- 'single': GLQuake forces the cvar off in multiplayer (connected with
-  cl.maxclients > 1), so it is hidden then.
-================
-*/
+// M_CvarWhen_Applies
+//
+// Some pages and rows apply only in some games, named by their `when`:
+// - 'local': the cvar acts on this browser's own server or clock, so it is
+//   hidden while connected to an online server (remote). A demo playing doesn't
+//   count, so the title screen can set up the next local game.
+// - 'single': GLQuake forces the cvar off in multiplayer (connected with
+//   cl.maxclients > 1), so it is hidden then.
 export const ADV_WHEN = ["local", "single"];
 
 export function M_CvarWhen_Applies(when, remote, multiplayer) {
@@ -273,14 +269,10 @@ function M_CvarRound(v) {
   return Math.round(v * 1e6) / 1e6;
 }
 
-/*
-================
-M_CvarItem_Snap
-
-A slider value clamped to the range and snapped to the step grid from min,
-so console values off the grid or out of range land on a reachable step.
-================
-*/
+/**
+ * A slider value clamped to the range and snapped to the step grid from min,
+ * so console values off the grid or out of range land on a reachable step.
+ */
 export function M_CvarItem_Snap(item, v) {
   if (!(v >= item.min)) { // also catches NaN
     return item.min;
@@ -305,15 +297,11 @@ function M_CvarItem_ChoiceIndex(item, v) {
   return best;
 }
 
-/*
-================
-M_CvarItem_Step
-
-The value one step from v in direction dir (1 or -1). Sliders stop at their
-ends; choices and toggles wrap, so a tap (which only steps up) reaches every
-value.
-================
-*/
+/**
+ * The value one step from v in direction dir (1 or -1). Sliders stop at their
+ * ends; choices and toggles wrap, so a tap (which only steps up) reaches every
+ * value.
+ */
 export function M_CvarItem_Step(item, v, dir) {
   if (M_CvarItem_IsSlider(item)) {
     return M_CvarItem_Snap(item, v + dir * item.step);
@@ -339,14 +327,10 @@ export function M_CvarItem_FromFraction(item, r) {
   return M_CvarItem_Snap(item, item.min + r * (item.max - item.min));
 }
 
-/*
-================
-M_CvarItem_Format
-
-The text shown for value v: on/off for toggles, the choice's name, or the
-number (to 4 decimals, so cl_bob's 0.005 steps show).
-================
-*/
+/**
+ * The text shown for value v: on/off for toggles, the choice's name, or the
+ * number (to 4 decimals, so cl_bob's 0.005 steps show).
+ */
 export function M_CvarItem_Format(item, v) {
   if (M_CvarItem_IsChoice(item)) {
     const i = M_CvarItem_ChoiceIndex(item, v);

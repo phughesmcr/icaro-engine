@@ -2,9 +2,7 @@
 
 import { Sys_Error } from "./sys.js";
 
-//===============
 //   TYPES
-//===============
 
 export const CMP_NONE = 0;
 export const CMP_LZSS = 1;
@@ -23,17 +21,13 @@ export let wad_numlumps = 0;
 export let wad_lumps = null;
 export let wad_base = null;
 
-/*
-==================
-W_CleanupName
-
-Lowercases name and pads with spaces and a terminating 0 to the length of
-lumpinfo_t->name.
-Used so lumpname lookups can proceed rapidly by comparing 4 chars at a time
-Space padding is so names can be printed nicely in tables.
-Can safely be performed in place.
-==================
-*/
+/**
+ * Lowercases name and pads with spaces and a terminating 0 to the length of
+ * lumpinfo_t->name.
+ * Used so lumpname lookups can proceed rapidly by comparing 4 chars at a time
+ * Space padding is so names can be printed nicely in tables.
+ * Can safely be performed in place.
+ */
 export function W_CleanupName(inStr) {
   let out = "";
   for (let i = 0; i < 16; i++) {
@@ -50,11 +44,6 @@ export function W_CleanupName(inStr) {
   return out;
 }
 
-/*
-====================
-W_LoadWadFile
-====================
-*/
 export function W_LoadWadFile(data) {
   // data is an ArrayBuffer
   wad_base = new Uint8Array(data);
@@ -106,11 +95,6 @@ export function W_LoadWadFile(data) {
   }
 }
 
-/*
-=============
-W_GetLumpinfo
-=============
-*/
 export function W_GetLumpinfo(name) {
   const clean = W_CleanupName(name);
 
@@ -124,13 +108,7 @@ export function W_GetLumpinfo(name) {
   return null;
 }
 
-/*
-=============
-W_GetLumpName
-
-Returns a DataView into the wad data at the lump's position
-=============
-*/
+/** Returns a DataView into the wad data at the lump's position */
 export function W_GetLumpName(name) {
   const lump = W_GetLumpinfo(name);
   return {
@@ -140,11 +118,6 @@ export function W_GetLumpName(name) {
   };
 }
 
-/*
-=============
-W_GetLumpNum
-=============
-*/
 export function W_GetLumpNum(num) {
   if (num < 0 || num >= wad_numlumps) {
     Sys_Error("W_GetLumpNum: bad number: " + num);
@@ -158,11 +131,6 @@ export function W_GetLumpNum(num) {
   };
 }
 
-/*
-=============
-SwapPic
-=============
-*/
 export function SwapPic(data, offset) {
   // In the original C, this byte-swaps width/height from little-endian.
   // JavaScript DataView handles this, so this is a no-op on little-endian systems.

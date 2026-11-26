@@ -37,8 +37,8 @@ process per room. It was forked from mrdoob's three-quake.
   import map for scripts run from `server/` and editors; keep the two in
   step. The only npm packages are the MCP SDK and zod, for
   `server/agent_mcp.ts`, and `@babel/parser`, for
-  `tools/fmt_ast_check.js` (imported by full `npm:` specifier, not through
-  the import map), all pinned in the root `deno.lock`; the engine, servers
+  `tools/fmt_ast_check.js` and `tools/collapse_banners.js` (imported by full
+  `npm:` specifier, not through the import map), all pinned in the root `deno.lock`; the engine, servers
   and room image import none. `server/headless_host.js` runs the
   whole game (host, local server and a loopback client) under Deno with no
   browser or rendering, for scripted play; its header says how to wait for
@@ -72,6 +72,11 @@ process per room. It was forked from mrdoob's three-quake.
   version at a git ref, to show that a formatting change (see
   `docs/style-cleanup-plan.md`) changed nothing else; its header gives the
   command and what it accepts. Not linted or run in CI.
+  `collapse_banners.js` turned the C-style comment banners into doc
+  comments and `//` lines (tier 2 of the plan); the plan's catch-up steps
+  for an open PR run it again. `--verify <ref>` checks that no comment
+  text was lost but the name lines of the banners it deleted. Not linted
+  or run in CI.
   `check_container_image.sh` (`deno task image-check`, needs Docker)
   fails if the game-room image or its build context holds any `.pak` but
   `static/pak0.pak`, or TLS or env files, then starts a room in the image;
@@ -156,8 +161,9 @@ process per room. It was forked from mrdoob's three-quake.
   fields, and **cvar/console names exactly as in Quake**. Players' configs and
   QuakeC depend on them.
 - New ported files start with a header citing their C source, e.g.
-  `// Ported from: WinQuake/common.c`. Comments on a ported function name the C
-  function it mirrors.
+  `// Ported from: WinQuake/common.c`. A ported function keeps its C name.
+  Where the JS name differs, or one function covers several C ones, a
+  comment names the C function it mirrors.
 - Before deleting code that looks dead or odd, check whether it mirrors the C.
   If it does, keep it with `// deno-lint-ignore <rule>` and a "mirrors the C"
   comment. Unused parameters often exist only to keep the C signature.
@@ -172,6 +178,10 @@ process per room. It was forked from mrdoob's three-quake.
 
 - `deno fmt` decides layout (two-space indent, 80 columns, double quotes).
   Use snake_case for ported identifiers.
+- Comments: `/** */` documents a declaration (a top-level function, variable
+  or class, or a class member). Everything else is `//`: notes, deviations
+  from the C, directions. No `====` banners, and no empty `//` lines above
+  and below a comment.
 - **Golden Rule #2**: use explicit null checks (`x !== null`), not falsy
   checks.
 - **Golden Rule #4**: don't allocate in per-frame or per-call hot paths.

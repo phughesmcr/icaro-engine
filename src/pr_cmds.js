@@ -123,13 +123,7 @@ import {
   svc_stufftext,
 } from "./protocol.js";
 
-/*
-===============================================================================
-
-						BUILT-IN FUNCTIONS
-
-===============================================================================
-*/
+// BUILT-IN FUNCTIONS
 
 // Ironwail pr_cmds.c PF_GetStringArg: argument idx after the format string,
 // localized
@@ -163,16 +157,12 @@ function PF_VarString(first) {
   return parts.join("");
 }
 
-/*
-=================
-PF_error
-
-This is a TERMINAL error, which will kill off the entire server.
-Dumps self.
-
-error(value)
-=================
-*/
+/**
+ * This is a TERMINAL error, which will kill off the entire server.
+ * Dumps self.
+ *
+ * error(value)
+ */
 function PF_error() {
   const s = PF_VarString(0);
   Con_Printf(
@@ -186,16 +176,12 @@ function PF_error() {
   PR_HostError("Program error");
 }
 
-/*
-=================
-PF_objerror
-
-Dumps out self, then an error message. The program is aborted and self is
-removed, but the level can continue.
-
-objerror(value)
-=================
-*/
+/**
+ * Dumps out self, then an error message. The program is aborted and self is
+ * removed, but the level can continue.
+ *
+ * objerror(value)
+ */
 function PF_objerror() {
   const s = PF_VarString(0);
   Con_Printf(
@@ -212,14 +198,10 @@ function PF_objerror() {
   // "by design, this should not be fatal"): self is freed and play goes on.
 }
 
-/*
-==============
-PF_makevectors
-
-Writes new values for v_forward, v_up, and v_right based on angles
-makevectors(vector)
-==============
-*/
+/**
+ * Writes new values for v_forward, v_up, and v_right based on angles
+ * makevectors(vector)
+ */
 function PF_makevectors() {
   const ang = G_VECTOR(OFS_PARM0);
   const forward = pr_global_struct.v_forward;
@@ -228,13 +210,7 @@ function PF_makevectors() {
   AngleVectors(ang, forward, right, up);
 }
 
-/*
-=================
-PF_setorigin
-
-setorigin (entity, origin)
-=================
-*/
+/** setorigin (entity, origin) */
 function PF_setorigin() {
   const e = G_EDICT(OFS_PARM0);
   const org = G_VECTOR(OFS_PARM1);
@@ -242,15 +218,11 @@ function PF_setorigin() {
   SV_LinkEdict(e, false);
 }
 
-/*
-=================
-PF_setsize
-
-the size box is rotated by the current angle
-
-setsize (entity, minvector, maxvector)
-=================
-*/
+/**
+ * the size box is rotated by the current angle
+ *
+ * setsize (entity, minvector, maxvector)
+ */
 function PF_setsize() {
   const e = G_EDICT(OFS_PARM0);
   const min = G_VECTOR(OFS_PARM1);
@@ -269,13 +241,7 @@ function PF_setsize() {
   SV_LinkEdict(e, false);
 }
 
-/*
-=================
-PF_setmodel
-
-setmodel(entity, model)
-=================
-*/
+/** setmodel(entity, model) */
 function PF_setmodel() {
   const e = G_EDICT(OFS_PARM0);
   const m = G_STRING(OFS_PARM1);
@@ -311,29 +277,21 @@ function PF_setmodel() {
   SV_LinkEdict(e, false);
 }
 
-/*
-=================
-PF_bprint
-
-broadcast print to everyone on server
-
-bprint(value)
-=================
-*/
+/**
+ * broadcast print to everyone on server
+ *
+ * bprint(value)
+ */
 function PF_bprint() {
   const s = PF_VarString(0);
   SV_BroadcastPrintf("%s", s);
 }
 
-/*
-=================
-PF_sprint
-
-single print to a specific client
-
-sprint(clientent, value)
-=================
-*/
+/**
+ * single print to a specific client
+ *
+ * sprint(clientent, value)
+ */
 function PF_sprint() {
   const entnum = G_EDICTNUM(OFS_PARM0);
   const s = PF_VarString(1);
@@ -350,15 +308,11 @@ function PF_sprint() {
   }
 }
 
-/*
-=================
-PF_centerprint
-
-single print to a specific client
-
-centerprint(clientent, value)
-=================
-*/
+/**
+ * single print to a specific client
+ *
+ * centerprint(clientent, value)
+ */
 function PF_centerprint() {
   const entnum = G_EDICTNUM(OFS_PARM0);
   const s = PF_VarString(1);
@@ -375,13 +329,7 @@ function PF_centerprint() {
   }
 }
 
-/*
-=================
-PF_normalize
-
-vector normalize(vector)
-=================
-*/
+/** vector normalize(vector) */
 function PF_normalize() {
   const value1 = G_VECTOR(OFS_PARM0);
 
@@ -400,13 +348,7 @@ function PF_normalize() {
   }
 }
 
-/*
-=================
-PF_vlen
-
-scalar vlen(vector)
-=================
-*/
+/** scalar vlen(vector) */
 function PF_vlen() {
   const value1 = G_VECTOR(OFS_PARM0);
 
@@ -417,13 +359,7 @@ function PF_vlen() {
   G_FLOAT_SET(OFS_RETURN, len);
 }
 
-/*
-=================
-PF_vectoyaw
-
-float vectoyaw(vector)
-=================
-*/
+/** float vectoyaw(vector) */
 function PF_vectoyaw() {
   const value1 = G_VECTOR(OFS_PARM0);
   let yaw;
@@ -440,13 +376,7 @@ function PF_vectoyaw() {
   G_FLOAT_SET(OFS_RETURN, yaw);
 }
 
-/*
-=================
-PF_vectoangles
-
-vector vectoangles(vector)
-=================
-*/
+/** vector vectoangles(vector) */
 function PF_vectoangles() {
   const value1 = G_VECTOR(OFS_PARM0);
   let yaw, pitch;
@@ -476,28 +406,18 @@ function PF_vectoangles() {
   G_FLOAT_SET(OFS_RETURN + 2, 0);
 }
 
-/*
-=================
-PF_Random
-
-Returns a number from 0<= num < 1
-
-random()
-=================
-*/
+// PF_Random
+//
+// Returns a number from 0<= num < 1
+//
+// random()
 function PF_random() {
   // The C returns ( rand() & 0x7fff ) / (float)0x7fff; Sys_Random keeps the
   // port's 0 <= num < 1 and can be seeded (see Sys_SetRandomSeed)
   G_FLOAT_SET(OFS_RETURN, Sys_Random());
 }
 
-/*
-=================
-PF_particle
-
-particle(origin, color, count)
-=================
-*/
+/** particle(origin, color, count) */
 function PF_particle() {
   const org = G_VECTOR(OFS_PARM0);
   const dir = G_VECTOR(OFS_PARM1);
@@ -506,11 +426,6 @@ function PF_particle() {
   SV_StartParticle(org, dir, color, count);
 }
 
-/*
-=================
-PF_ambientsound
-=================
-*/
 function PF_ambientsound() {
   const pos = G_VECTOR(OFS_PARM0);
   const samp = G_STRING(OFS_PARM1);
@@ -543,14 +458,10 @@ function PF_ambientsound() {
   MSG_WriteByte(sv.signon, (attenuation * 64) | 0);
 }
 
-/*
-=================
-PF_sound
-
-Each entity can have eight independent sound sources, like voice,
-weapon, feet, etc.
-=================
-*/
+/**
+ * Each entity can have eight independent sound sources, like voice,
+ * weapon, feet, etc.
+ */
 function PF_sound() {
   const entity = G_EDICT(OFS_PARM0);
   const channel = G_FLOAT(OFS_PARM1) | 0;
@@ -575,13 +486,7 @@ function PF_sound() {
   SV_StartSound(entity, channel, sample, volume, attenuation);
 }
 
-/*
-=================
-PF_break
-
-break()
-=================
-*/
+/** break() */
 function PF_break() {
   Con_Printf("break statement\n");
   // In C this dumps to debugger; in JS we just log
@@ -589,15 +494,11 @@ function PF_break() {
   debugger;
 }
 
-/*
-=================
-PF_traceline
-
-Used for use tracing and shot targeting
-
-traceline (vector1, vector2, tryents, ignore)
-=================
-*/
+/**
+ * Used for use tracing and shot targeting
+ *
+ * traceline (vector1, vector2, tryents, ignore)
+ */
 function PF_traceline() {
   const v1 = G_VECTOR(OFS_PARM0);
   const v2 = G_VECTOR(OFS_PARM1);
@@ -657,14 +558,10 @@ function PF_traceline() {
   pr_global_struct.trace_inwater = trace.inwater ? 1 : 0;
 }
 
-/*
-=================
-PF_checkclient
-
-Returns a client (or object that has a client enemy) that would be a
-valid target.
-=================
-*/
+// PF_checkclient
+//
+// Returns a client (or object that has a client enemy) that would be a
+// valid target.
 let checkpvs = null;
 let traceline_trace = null; // PF_traceline's scratch trace_t, made on first use
 
@@ -825,15 +722,11 @@ function PF_checkclient() {
   RETURN_EDICT(ent);
 }
 
-/*
-=================
-PF_stuffcmd
-
-Sends text over to the client's execution buffer
-
-stuffcmd (clientent, value)
-=================
-*/
+/**
+ * Sends text over to the client's execution buffer
+ *
+ * stuffcmd (clientent, value)
+ */
 function PF_stuffcmd() {
   const entnum = G_EDICTNUM(OFS_PARM0);
   if (entnum < 1 || entnum > (svs.maxclients || 1)) {
@@ -848,54 +741,34 @@ function PF_stuffcmd() {
   }
 }
 
-/*
-=================
-PF_localcmd
-
-Sends text to the server's command buffer
-
-localcmd (string)
-=================
-*/
+/**
+ * Sends text to the server's command buffer
+ *
+ * localcmd (string)
+ */
 function PF_localcmd() {
   const str = G_STRING(OFS_PARM0);
   Cbuf_AddText(str);
 }
 
-/*
-=================
-PF_cvar
-
-float cvar (string)
-=================
-*/
+/** float cvar (string) */
 function PF_cvar() {
   const str = G_STRING(OFS_PARM0);
   G_FLOAT_SET(OFS_RETURN, Cvar_VariableValue(str));
 }
 
-/*
-=================
-PF_cvar_set
-
-float cvar (string)
-=================
-*/
+/** float cvar (string) */
 function PF_cvar_set() {
   const varName = G_STRING(OFS_PARM0);
   const val = G_STRING(OFS_PARM1);
   Cvar_Set(varName, val);
 }
 
-/*
-=================
-PF_findradius
-
-Returns a chain of entities that have origins within a spherical area
-
-findradius (origin, radius)
-=================
-*/
+/**
+ * Returns a chain of entities that have origins within a spherical area
+ *
+ * findradius (origin, radius)
+ */
 function PF_findradius() {
   let chain = sv.edicts[0];
 
@@ -927,11 +800,6 @@ function PF_findradius() {
   RETURN_EDICT(chain);
 }
 
-/*
-=========
-PF_dprint
-=========
-*/
 function PF_dprint() {
   Con_DPrintf("%s", PF_VarString(0));
 }
@@ -1086,13 +954,7 @@ function PF_eprint() {
   ED_PrintNum(G_EDICTNUM(OFS_PARM0));
 }
 
-/*
-===============
-PF_walkmove
-
-float(float yaw, float dist) walkmove
-===============
-*/
+/** float(float yaw, float dist) walkmove */
 function PF_walkmove() {
   const ent = PROG_TO_EDICT(pr_global_struct.self);
   const yaw = G_FLOAT(OFS_PARM0);
@@ -1120,13 +982,7 @@ function PF_walkmove() {
   pr_global_struct.self = oldself;
 }
 
-/*
-===============
-PF_droptofloor
-
-void() droptofloor
-===============
-*/
+/** void() droptofloor */
 function PF_droptofloor() {
   const ent = PROG_TO_EDICT(pr_global_struct.self);
 
@@ -1147,13 +1003,7 @@ function PF_droptofloor() {
   }
 }
 
-/*
-===============
-PF_lightstyle
-
-void(float style, string value) lightstyle
-===============
-*/
+/** void(float style, string value) lightstyle */
 function PF_lightstyle() {
   const style = G_FLOAT(OFS_PARM0) | 0;
   const val = G_STRING(OFS_PARM1);
@@ -1204,33 +1054,17 @@ function PF_ceil() {
   G_FLOAT_SET(OFS_RETURN, Math.ceil(G_FLOAT(OFS_PARM0)));
 }
 
-/*
-=============
-PF_checkbottom
-=============
-*/
 function PF_checkbottom() {
   const ent = G_EDICT(OFS_PARM0);
   G_FLOAT_SET(OFS_RETURN, SV_CheckBottom(ent) ? 1 : 0);
 }
 
-/*
-=============
-PF_pointcontents
-=============
-*/
 function PF_pointcontents() {
   const v = G_VECTOR(OFS_PARM0);
   G_FLOAT_SET(OFS_RETURN, SV_PointContents(v));
 }
 
-/*
-=============
-PF_nextent
-
-entity nextent(entity)
-=============
-*/
+/** entity nextent(entity) */
 function PF_nextent() {
   let i = G_EDICTNUM(OFS_PARM0);
 
@@ -1249,14 +1083,10 @@ function PF_nextent() {
   }
 }
 
-/*
-=============
-PF_aim
-
-Pick a vector for the player to shoot along
-vector aim(entity, missilespeed)
-=============
-*/
+// PF_aim
+//
+// Pick a vector for the player to shoot along
+// vector aim(entity, missilespeed)
 const DAMAGE_AIM = 2;
 
 function PF_aim() {
@@ -1332,13 +1162,7 @@ function PF_aim() {
   }
 }
 
-/*
-==============
-PF_changeyaw
-
-This was a major timewaster in progs, so it was converted to C
-==============
-*/
+/** This was a major timewaster in progs, so it was converted to C */
 function PF_changeyaw() {
   const ent = PROG_TO_EDICT(pr_global_struct.self);
   const current = anglemod(ent.v.angles[1]);
@@ -1373,9 +1197,7 @@ function PF_changeyaw() {
   ent.v.angles[1] = anglemod(current + move);
 }
 
-//===============================================================================
 // MESSAGE WRITING
-//===============================================================================
 
 const MSG_BROADCAST = 0; // unreliable to all
 const MSG_ONE = 1; // reliable to one (msg_entity)
@@ -1451,8 +1273,6 @@ function PF_WriteEntity() {
   if (dest) MSG_WriteShort(dest, NUM_FOR_EDICT(G_EDICT(OFS_PARM1)));
 }
 
-//=============================================================================
-
 function PF_makestatic() {
   const ent = G_EDICT(OFS_PARM0);
 
@@ -1483,11 +1303,6 @@ function PF_makestatic() {
   ED_Free(ent);
 }
 
-/*
-==============
-PF_setspawnparms
-==============
-*/
 function PF_setspawnparms() {
   const ent = G_EDICT(OFS_PARM0);
   const i = NUM_FOR_EDICT(ent);
@@ -1502,11 +1317,6 @@ function PF_setspawnparms() {
   }
 }
 
-/*
-==============
-PF_changelevel
-==============
-*/
 function PF_changelevel() {
   // make sure we don't issue two changelevels
   if (svs.changelevel_issued) {
@@ -1518,27 +1328,16 @@ function PF_changelevel() {
   Cbuf_AddText("changelevel " + s + "\n");
 }
 
-/*
-=================
-SV_MoveToGoal
-=================
-*/
 function SV_MoveToGoal() {
   SV_MoveToGoal_Real();
 }
 
-/*
-===============================================================================
-
-EXTENSION BUILT-INS
-
-Not in id's Quake. Ported from Ironwail's pr_cmds.c, with its builtin
-numbers, so that mods written for QuakeSpasm-family engines (Arcane
-Dimensions and others) load. Before these, any call past #78 ended the map
-with "Bad builtin call number".
-
-===============================================================================
-*/
+// EXTENSION BUILT-INS
+//
+// Not in id's Quake. Ported from Ironwail's pr_cmds.c, with its builtin
+// numbers, so that mods written for QuakeSpasm-family engines (Arcane
+// Dimensions and others) load. Before these, any call past #78 ended the map
+// with "Bad builtin call number".
 
 // Ironwail's Con_Warning and Con_DWarning
 function PF_Warning(msg) {
@@ -1576,16 +1375,12 @@ function PF_walkpathtogoal() {
   G_FLOAT_SET(OFS_RETURN, 0); // PATH_ERROR
 }
 
-/*
-=================
-PF_localsound
-
-Ported from Ironwail's pr_cmds.c (2021 re-release builtin): plays a sound
-that only the given client hears.
-
-localsound(clientent, sample)
-=================
-*/
+/**
+ * Ported from Ironwail's pr_cmds.c (2021 re-release builtin): plays a sound
+ * that only the given client hears.
+ *
+ * localsound(clientent, sample)
+ */
 function PF_localsound() {
   const entnum = G_EDICTNUM(OFS_PARM0);
   const sample = G_STRING(OFS_PARM1);
@@ -1598,18 +1393,14 @@ function PF_localsound() {
   SV_LocalSound(svs.clients[entnum - 1], sample);
 }
 
-/*
-=================
-PF_checkextension
-
-float(string extname) checkextension = #99
-
-Deviation from Ironwail, which answers true for FTE_QC_CHECKCOMMAND (and
-implements checkcommand, #294) so that older Arcane Dimensions builds take
-their FTE code path. Neither is ported, so every extension is reported as
-missing and mods fall back to their plain-Quake paths.
-=================
-*/
+/**
+ * float(string extname) checkextension = #99
+ *
+ * Deviation from Ironwail, which answers true for FTE_QC_CHECKCOMMAND (and
+ * implements checkcommand, #294) so that older Arcane Dimensions builds take
+ * their FTE code path. Neither is ported, so every extension is reported as
+ * missing and mods fall back to their plain-Quake paths.
+ */
 function PF_checkextension() {
   G_FLOAT_SET(OFS_RETURN, 0);
 }
@@ -1737,14 +1528,10 @@ function PF_substring() {
   G_INT_SET(OFS_RETURN, PR_SetTempString(s.substr(start, length)));
 }
 
-/*
-=================
-PF_strzone
-
-Copies its arguments, joined, into a string that lasts until strunzone
-(see PR_ZoneString)
-=================
-*/
+/**
+ * Copies its arguments, joined, into a string that lasts until strunzone
+ * (see PR_ZoneString)
+ */
 function PF_strzone() {
   let s = "";
   for (let i = 0; i < pr_argc; i++) {
@@ -1856,10 +1643,8 @@ function PF_Fixme() {
   PR_RunError("unimplemented builtin");
 }
 
-//============================================================================
 // Builtin dispatch table
 // This matches the C pr_builtin[] array exactly
-//============================================================================
 
 const pr_builtin = [
   PF_Fixme, // #0
@@ -2146,17 +1931,13 @@ const pr_builtin_table = (function () {
   return table;
 })();
 
-/*
-===============
-PR_InitProgsBuiltins
-
-Called by PR_LoadProgs once the functions are parsed. Mirrors the second
-half of Ironwail's PR_InitBuiltins: a function declared "= #0" (no
-statements, parms or locals) is bound by name to the builtin with that name.
-Also resets the string state the extension builtins keep per progs (zoned
-strings live in the string table that PR_LoadProgs replaces).
-===============
-*/
+/**
+ * Called by PR_LoadProgs once the functions are parsed. Mirrors the second
+ * half of Ironwail's PR_InitBuiltins: a function declared "= #0" (no
+ * statements, parms or locals) is bound by name to the builtin with that name.
+ * Also resets the string state the extension builtins keep per progs (zoned
+ * strings live in the string table that PR_LoadProgs replaces).
+ */
 export function PR_InitProgsBuiltins() {
   for (let i = 0; i < pr_functions.length; i++) {
     const func = pr_functions[i];
@@ -2176,13 +1957,7 @@ export function PR_InitProgsBuiltins() {
   qctoken.length = 0;
 }
 
-/*
-===============
-PR_InitBuiltins
-
-Registers the builtin function table. Called during PR_Init.
-===============
-*/
+/** Registers the builtin function table. Called during PR_Init. */
 export function PR_InitBuiltins() {
   PR_SetBuiltins(pr_builtin_table, MAX_BUILTINS);
 

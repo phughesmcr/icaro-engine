@@ -192,11 +192,7 @@ function _isNewerSequence(sequence, current) {
   return ((sequence - current) | 0) > 0;
 }
 
-/*
-=============
-Configuration
-=============
-*/
+// Configuration
 export function RTC_SetTimeouts(
   { connectMs, handshakeMs, pendingAcceptMs, closeFlushMs } = {},
 ) {
@@ -216,23 +212,12 @@ export function RTC_SetSignaller(signaller) {
     null;
 }
 
-/*
-=============
-RTC_IsRoomAddress
-
-True for an rtc:<code> address, which NET_Connect hands to this driver.
-=============
-*/
+/** True for an rtc:<code> address, which NET_Connect hands to this driver. */
 export function RTC_IsRoomAddress(host) {
   return typeof host === "string" && host.length > 4 &&
     host.slice(0, 4).toLowerCase() === "rtc:";
 }
 
-/*
-=============
-RTC_Init
-=============
-*/
 export function RTC_Init() {
   if (typeof RTCPeerConnection === "undefined") {
     Con_Printf("WebRTC not available in this browser\n");
@@ -271,11 +256,6 @@ function _onPageHide() {
   }
 }
 
-/*
-=============
-RTC_Shutdown
-=============
-*/
 export function RTC_Shutdown() {
   if (rtc_attempt !== null) {
     rtc_attempt.abort(new Error("WebRTC shut down"));
@@ -298,14 +278,10 @@ export function RTC_Shutdown() {
   rtc_initialized = false;
 }
 
-/*
-=============
-RTC_Listen
-
-Host: accept offers while listening. Stopping drops the peers that have not
-been handed to the server yet; connected players stay.
-=============
-*/
+/**
+ * Host: accept offers while listening. Stopping drops the peers that have not
+ * been handed to the server yet; connected players stay.
+ */
 export function RTC_Listen(state) {
   rtc_listening = state === true;
   if (rtc_listening === true) return;
@@ -317,21 +293,10 @@ export function RTC_Listen(state) {
   }
 }
 
-/*
-=============
-RTC_SearchForHosts
-
-No broadcast discovery: rooms are listed by the lobby
-=============
-*/
+/** No broadcast discovery: rooms are listed by the lobby */
 export function RTC_SearchForHosts(_xmit) {
 }
 
-/*
-=============
-RTC_GetStatsForTest
-=============
-*/
 export function RTC_GetStatsForTest() {
   let handshaking = 0;
   for (const conn of rtc_peers.values()) {
@@ -348,11 +313,7 @@ export function RTC_GetStatsForTest() {
   };
 }
 
-/*
-=============
-Signalling
-=============
-*/
+// Signalling
 function _RTC_Signal(to, kind, data) {
   if (rtc_signaller === null) return;
 
@@ -409,14 +370,10 @@ function _RTC_CandidateInit(candidate) {
   };
 }
 
-/*
-=============
-RTC_HandleSignal
-
-Every signal the lobby relays to this tab. Offers are for the host role;
-answers, and candidates from the room code, are for the client's connection.
-=============
-*/
+/**
+ * Every signal the lobby relays to this tab. Offers are for the host role;
+ * answers, and candidates from the room code, are for the client's connection.
+ */
 export function RTC_HandleSignal(from, kind, data) {
   if (rtc_initialized === false || typeof from !== "string") return;
 
@@ -473,11 +430,7 @@ function _RTC_FlushCandidates(conn) {
   }
 }
 
-/*
-=============
-Peer connection wiring, both roles
-=============
-*/
+// Peer connection wiring, both roles
 function _RTC_CreatePeerConnection(conn, iceServers) {
   const pc = new RTCPeerConnection({ iceServers });
   conn.pc = pc;
@@ -529,14 +482,10 @@ function _RTC_AttachChannel(conn, channel) {
   };
 }
 
-/*
-=============
-_RTC_OnOffer
-
-Host: a joiner offers a peer connection. It gets RTC_HANDSHAKE_TIMEOUT_MS from
-now to open the reliable channel and send a valid hello.
-=============
-*/
+/**
+ * Host: a joiner offers a peer connection. It gets RTC_HANDSHAKE_TIMEOUT_MS from
+ * now to open the reliable channel and send a valid hello.
+ */
 function _RTC_OnOffer(from, data) {
   if (rtc_listening !== true) return;
   if (_RTC_ValidDescription(data, "offer") === false) return;
@@ -621,14 +570,10 @@ async function _RTC_AnswerOffer(conn, offer) {
   _RTC_Signal(conn.remoteId, "answer", { type: answer.type, sdp: answer.sdp });
 }
 
-/*
-=============
-_RTC_OnReliable
-
-The first reliable message is the handshake: the hello on the host, the reply
-on the client. Every later one is a game packet.
-=============
-*/
+/**
+ * The first reliable message is the handshake: the hello on the host, the reply
+ * on the client. Every later one is a game packet.
+ */
 function _RTC_OnReliable(conn, raw) {
   if (conn.accepted === true) {
     _RTC_OnMessage(conn, raw, true);
@@ -657,15 +602,11 @@ function _RTC_SendHandshakeReply(conn, status, reason) {
   }
 }
 
-/*
-=============
-_RTC_OnHello
-
-Host: reply with an accept and queue the socket for RTC_CheckNewConnections,
-or with a reject and close. Ported from _onHello in
-server/net_websocket_server.ts.
-=============
-*/
+/**
+ * Host: reply with an accept and queue the socket for RTC_CheckNewConnections,
+ * or with a reject and close. Ported from _onHello in
+ * server/net_websocket_server.ts.
+ */
 function _RTC_OnHello(conn, raw) {
   if (conn.closing === true) return;
 
@@ -739,13 +680,9 @@ function _RTC_Reject(conn, reason) {
   _RTC_CloseConnection(conn);
 }
 
-/*
-=============
-_RTC_DropUnaccepted
-
-Host: close a peer the server never took, freeing its socket if it has one.
-=============
-*/
+/**
+ * Host: close a peer the server never took, freeing its socket if it has one.
+ */
 function _RTC_DropUnaccepted(conn) {
   const sock = conn.sock;
   if (sock !== null) {
@@ -759,11 +696,6 @@ function _RTC_DropUnaccepted(conn) {
   _RTC_CloseConnection(conn);
 }
 
-/*
-=============
-RTC_CheckNewConnections
-=============
-*/
 export function RTC_CheckNewConnections() {
   while (rtc_pending.length > 0) {
     const sock = rtc_pending.shift();
@@ -794,14 +726,10 @@ export function RTC_CheckNewConnections() {
   return null;
 }
 
-/*
-=============
-Connect attempt
-
-One whole connect: its deadline closes the peer connection and rejects
-whatever the connect is waiting on, as WSConnectAttempt does.
-=============
-*/
+// Connect attempt
+//
+// One whole connect: its deadline closes the peer connection and rejects
+// whatever the connect is waiting on, as WSConnectAttempt does.
 class RTCConnectAttempt {
   constructor(timeoutMs) {
     this.aborted = false;
@@ -874,13 +802,7 @@ function _RTC_FailConnect(reason) {
   return null;
 }
 
-/*
-=============
-RTC_Connect
-
-Join a browser-hosted room: host is "rtc:<ROOMCODE>".
-=============
-*/
+/** Join a browser-hosted room: host is "rtc:<ROOMCODE>". */
 export async function RTC_Connect(host) {
   if (rtc_initialized === false) {
     Con_Printf("WebRTC not initialized\n");
@@ -1089,13 +1011,7 @@ function _RTC_OnAnswer(conn, data) {
   });
 }
 
-/*
-=============
-_RTC_OnMessage
-
-Queue one received game packet for RTC_QGetMessage.
-=============
-*/
+/** Queue one received game packet for RTC_QGetMessage. */
 function _RTC_OnMessage(conn, raw, reliable) {
   if (conn.connected !== true && conn.accepted !== true) return;
   if (conn.closing === true || conn.dead === true || conn.error !== null) {
@@ -1161,16 +1077,12 @@ function _RTC_ProtocolError(conn, reason) {
   if (conn.sock === null) _RTC_FinishClose(conn);
 }
 
-/*
-=============
-_RTC_OnTransportClosed
-
-A channel closed or the peer connection failed. A socket the server or
-client is using is left for RTC_QGetMessage to report: it delivers what is
-queued, then -1 (leading to SV_DropClient or Host_Error, then NET_Close). A
-host socket still pending is freed here.
-=============
-*/
+/**
+ * A channel closed or the peer connection failed. A socket the server or
+ * client is using is left for RTC_QGetMessage to report: it delivers what is
+ * queued, then -1 (leading to SV_DropClient or Host_Error, then NET_Close). A
+ * host socket still pending is freed here.
+ */
 function _RTC_OnTransportClosed(conn) {
   if (conn.dead === true) return;
   conn.dead = true;
@@ -1196,13 +1108,7 @@ function _RTC_OnTransportClosed(conn) {
   _RTC_FinishClose(conn);
 }
 
-/*
-=============
-RTC_QGetMessage
-
-Returns 0 = no message, 1 = reliable, 2 = unreliable, -1 = error
-=============
-*/
+/** Returns 0 = no message, 1 = reliable, 2 = unreliable, -1 = error */
 export function RTC_QGetMessage(sock) {
   const conn = sock.driverdata;
   if (conn === null) return -1;
@@ -1273,15 +1179,11 @@ export function RTC_QGetMessage(sock) {
   return -1;
 }
 
-/*
-=============
-_RTC_ParseSequencedPacket
-
-Strip the sequencing header and update the socket's sequence and ack state,
-as _WS_ParseSequencedPacket does. Returns null for a stale or reordered
-packet.
-=============
-*/
+/**
+ * Strip the sequencing header and update the socket's sequence and ack state,
+ * as _WS_ParseSequencedPacket does. Returns null for a stale or reordered
+ * packet.
+ */
 function _RTC_ParseSequencedPacket(sock, conn, packet, reliable) {
   if (packet.length < WT_PACKET_HEADER_BYTES || packet[0] !== WT_PACKET_MAGIC) {
     return packet;
@@ -1344,15 +1246,11 @@ function _RTC_ChannelOpen(channel) {
   return channel !== null && channel.readyState === "open";
 }
 
-/*
-=============
-_RTC_SendPacket
-
-[magic][sequence][ack][payload] from the send scratch buffer. The ack is the
-highest sequence received on either channel, so a joiner's moves are
-acknowledged whichever channel they came on.
-=============
-*/
+/**
+ * [magic][sequence][ack][payload] from the send scratch buffer. The ack is the
+ * highest sequence received on either channel, so a joiner's moves are
+ * acknowledged whichever channel they came on.
+ */
 function _RTC_SendPacket(sock, conn, channel, data) {
   const length = data.cursize;
   const sequence = sock.sendSequence | 0;
@@ -1392,13 +1290,7 @@ function _RTC_CheckSendable(conn) {
   return true;
 }
 
-/*
-=============
-RTC_QSendMessage
-
-Send a reliable message. SCTP handles ordering and retransmission.
-=============
-*/
+/** Send a reliable message. SCTP handles ordering and retransmission. */
 export function RTC_QSendMessage(sock, data) {
   const conn = sock.driverdata;
   if (conn === null || conn.connected !== true) return -1;
@@ -1434,15 +1326,11 @@ function _RTC_DropUnreliable(sock, conn) {
   return 1;
 }
 
-/*
-=============
-RTC_SendUnreliableMessage
-
-Send on the unreliable channel. A message too large for one unfragmented
-packet goes on the reliable channel instead; one that can't go out now
-(channel not open yet, or backed up) is dropped.
-=============
-*/
+/**
+ * Send on the unreliable channel. A message too large for one unfragmented
+ * packet goes on the reliable channel instead; one that can't go out now
+ * (channel not open yet, or backed up) is dropped.
+ */
 export function RTC_SendUnreliableMessage(sock, data) {
   const conn = sock.driverdata;
   if (conn === null || conn.connected !== true) {
@@ -1489,11 +1377,6 @@ export function RTC_SendUnreliableMessage(sock, data) {
   return 1;
 }
 
-/*
-=============
-RTC_CanSendMessage
-=============
-*/
 export function RTC_CanSendMessage(sock) {
   const conn = sock.driverdata;
   if (conn === null) return false;
@@ -1502,16 +1385,12 @@ export function RTC_CanSendMessage(sock) {
     _RTC_Buffered(conn.reliable) < RTC_MAX_RELIABLE_BUFFERED;
 }
 
-/*
-=============
-RTC_CanSendUnreliableMessage
-
-Client: true while connected, as WS_CanSendUnreliableMessage: a message that
-can't go out is dropped and still uses its sequence number. Host: false while
-the unreliable channel can't take a message, so SV_SendClientDatagram skips
-building it (QW-style gating, as the server drivers do).
-=============
-*/
+/**
+ * Client: true while connected, as WS_CanSendUnreliableMessage: a message that
+ * can't go out is dropped and still uses its sequence number. Host: false while
+ * the unreliable channel can't take a message, so SV_SendClientDatagram skips
+ * building it (QW-style gating, as the server drivers do).
+ */
 export function RTC_CanSendUnreliableMessage(sock) {
   const conn = sock.driverdata;
   if (conn === null) return false;
@@ -1525,16 +1404,12 @@ export function RTC_CanSendUnreliableMessage(sock) {
     _RTC_Buffered(conn.unreliable) < RTC_MAX_UNRELIABLE_BUFFERED;
 }
 
-/*
-=============
-_RTC_CloseConnection
-
-Graceful close: stop delivering messages, let the reliable channel drain
-what is queued (svc_disconnect, a kick or reject reason, clc_disconnect),
-then close the channel, which SCTP does after the data already sent. The
-peer connection closes once the channel has, or after RTC_CLOSE_FLUSH_MS.
-=============
-*/
+/**
+ * Graceful close: stop delivering messages, let the reliable channel drain
+ * what is queued (svc_disconnect, a kick or reject reason, clc_disconnect),
+ * then close the channel, which SCTP does after the data already sent. The
+ * peer connection closes once the channel has, or after RTC_CLOSE_FLUSH_MS.
+ */
 function _RTC_CloseConnection(conn) {
   if (conn.closing === true) return;
   conn.closing = true;
@@ -1593,14 +1468,10 @@ function _RTC_ClearTimers(conn) {
   }
 }
 
-/*
-=============
-_RTC_FinishClose
-
-Release the peer connection. Messages already queued stay for
-RTC_QGetMessage while a socket still points here.
-=============
-*/
+/**
+ * Release the peer connection. Messages already queued stay for
+ * RTC_QGetMessage while a socket still points here.
+ */
 function _RTC_FinishClose(conn) {
   if (conn.closeFinished === true) return;
   conn.closeFinished = true;
@@ -1660,15 +1531,11 @@ function _RTC_FinishClose(conn) {
   if (rtc_closing.delete(conn) === true) _RTC_WakeCloseWaiters();
 }
 
-/*
-=============
-_RTC_WaitForClosingConnections
-
-Resolves once every closing client connection has finished, so a reconnect
-reaches the host after it has seen the old connection go (as
-_WS_WaitForClosingConnections).
-=============
-*/
+/**
+ * Resolves once every closing client connection has finished, so a reconnect
+ * reaches the host after it has seen the old connection go (as
+ * _WS_WaitForClosingConnections).
+ */
 function _RTC_WaitForClosingConnections() {
   if (rtc_closing.size === 0) return Promise.resolve();
   return new Promise((resolve) => {
@@ -1683,14 +1550,10 @@ function _RTC_WakeCloseWaiters() {
   for (const resolve of waiters) resolve();
 }
 
-/*
-=============
-RTC_Close
-
-Close a connection. The socket is detached at once (NET_Close frees it
-straight after); the close finishes in the background.
-=============
-*/
+/**
+ * Close a connection. The socket is detached at once (NET_Close frees it
+ * straight after); the close finishes in the background.
+ */
 export function RTC_Close(sock) {
   const conn = sock.driverdata;
   if (conn === null) return;

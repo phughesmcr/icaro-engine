@@ -29,9 +29,7 @@ function assertThrows(fn, pattern, message) {
   throw new Error(`${message}: did not throw`);
 }
 
-// ----------------------------------------------------------------------------
 // Synthetic BSP29 builder
-// ----------------------------------------------------------------------------
 
 const SIZEOF_DPLANE = 20;
 const SIZEOF_DNODE = 24;
@@ -181,9 +179,7 @@ function minimalLumps(numleafs) {
   return lumps;
 }
 
-// ----------------------------------------------------------------------------
 // 1. Mod_DecompressVis on truncated data
-// ----------------------------------------------------------------------------
 
 Deno.test("Mod_DecompressVis stops at the end of truncated vis data", () => {
   const model = { numleafs: 64, name: "trunc", viswarn: false };
@@ -255,9 +251,7 @@ Deno.test("Mod_DecompressVis clamps a zero run that overruns the row", () => {
   assertEqual(ok.viswarn, false, "no warning for good data");
 });
 
-// ----------------------------------------------------------------------------
 // 3. PVS rows sized from the model's leaf count
-// ----------------------------------------------------------------------------
 
 Deno.test("PVS rows fit maps with more than 8192 leafs", () => {
   const numleafs = 9001;
@@ -290,9 +284,7 @@ Deno.test("Mod_LoadLeafs rejects more than MAX_MAP_LEAFS leafs", () => {
   );
 });
 
-// ----------------------------------------------------------------------------
 // 2. Unsigned node and clipnode children, clipnode planenum, texture lump
-// ----------------------------------------------------------------------------
 
 Deno.test("node children are read unsigned", () => {
   // 32770 nodes: the root's front child is node 32769, which a signed
@@ -396,9 +388,7 @@ Deno.test("texture lump skips bad offsets and clamps pixels to the lump", () => 
   assertEqual(tx.pixels[tx.pixels.length - 1], 0, "pixel past the lump left 0");
 });
 
-// ----------------------------------------------------------------------------
 // 5-6. Alias models
-// ----------------------------------------------------------------------------
 
 // A synthetic MDL with one 8x8 skin and three vertices. tris: array of
 // [ facesfront, v0, v1, v2 ]. frames: array of either a pose (array of three
@@ -549,9 +539,7 @@ Deno.test("alias cull sphere holds every pose, not just the first", () => {
   }
 });
 
-// ----------------------------------------------------------------------------
 // Limits
-// ----------------------------------------------------------------------------
 
 Deno.test("alias model limits match QuakeSpasm and gl_mesh.js", () => {
   assertEqual(gl_model.MAXALIASVERTS, 2400, "MAXALIASVERTS");

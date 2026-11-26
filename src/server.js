@@ -12,9 +12,7 @@ import {
 import { sizebuf_t } from "./common.js";
 import { PE_UPDATE_BACKUP } from "./protocol.js";
 
-//============================================================================
 // Server state enum
-//============================================================================
 
 export const ss_loading = 0;
 export const ss_active = 1;
@@ -28,9 +26,7 @@ export const PRESPAWN_FLUSH = 1;
 export const PRESPAWN_SIGNONBUFS = 2;
 export const PRESPAWN_SIGNONMSG = 3;
 
-//============================================================================
 // server_static_t -- persistant server info
-//============================================================================
 
 export class server_static_t {
   constructor() {
@@ -46,9 +42,7 @@ export class server_static_t {
   }
 }
 
-//============================================================================
 // server_t -- local server state
-//============================================================================
 
 export class server_t {
   constructor() {
@@ -90,10 +84,8 @@ export class server_t {
   }
 }
 
-//============================================================================
 // client_frame_t -- per-frame entity snapshot for delta compression
 // Ported from: QW/server/server.h
-//============================================================================
 
 export class client_frame_t {
   constructor() {
@@ -102,9 +94,7 @@ export class client_frame_t {
   }
 }
 
-//============================================================================
 // client_t -- per-client state on the server
-//============================================================================
 
 export const NUM_PING_TIMES = 16;
 export const NUM_SPAWN_PARMS = 16;
@@ -153,9 +143,7 @@ export class client_t {
   }
 }
 
-//============================================================================
 // edict->movetype values
-//============================================================================
 
 export const MOVETYPE_NONE = 0; // never moves
 export const MOVETYPE_ANGLENOCLIP = 1;
@@ -169,9 +157,7 @@ export const MOVETYPE_NOCLIP = 8;
 export const MOVETYPE_FLYMISSILE = 9; // extra size to monsters
 export const MOVETYPE_BOUNCE = 10;
 
-//============================================================================
 // edict->solid values
-//============================================================================
 
 export const SOLID_NOT = 0; // no interaction with other objects
 export const SOLID_TRIGGER = 1; // touch on edge, but not blocking
@@ -179,9 +165,7 @@ export const SOLID_BBOX = 2; // touch on edge, block
 export const SOLID_SLIDEBOX = 3; // touch on edge, but not an onground
 export const SOLID_BSP = 4; // bsp clip, touch on edge, block
 
-//============================================================================
 // edict->deadflag values
-//============================================================================
 
 export const DEAD_NO = 0;
 export const DEAD_DYING = 1;
@@ -191,9 +175,7 @@ export const DAMAGE_NO = 0;
 export const DAMAGE_YES = 1;
 export const DAMAGE_AIM = 2;
 
-//============================================================================
 // edict->flags
-//============================================================================
 
 export const FL_FLY = 1;
 export const FL_SWIM = 2;
@@ -209,9 +191,7 @@ export const FL_PARTIALGROUND = 1024; // not all corners are valid
 export const FL_WATERJUMP = 2048; // player jumping out of water
 export const FL_JUMPRELEASED = 4096; // for jump debouncing
 
-//============================================================================
 // entity effects
-//============================================================================
 
 export const EF_BRIGHTFIELD = 1;
 export const EF_MUZZLEFLASH = 2;
@@ -221,18 +201,14 @@ export const EF_QEX_QUADLIGHT = 16; // 2021 rerelease (Ironwail server.h)
 export const EF_QEX_PENTALIGHT = 32; // 2021 rerelease
 export const EF_QEX_CANDLELIGHT = 64; // 2021 rerelease
 
-//============================================================================
 // spawn flags
-//============================================================================
 
 export const SPAWNFLAG_NOT_EASY = 256;
 export const SPAWNFLAG_NOT_MEDIUM = 512;
 export const SPAWNFLAG_NOT_HARD = 1024;
 export const SPAWNFLAG_NOT_DEATHMATCH = 2048;
 
-//============================================================================
 // Extern cvars - defined in host.js, re-exported here for compatibility
-//============================================================================
 
 // Note: These are re-exported from host.js where they are defined and registered.
 // This matches original Quake where cvars were defined in host.c and extern'd in server.h.
@@ -245,9 +221,7 @@ export {
   timelimit,
 } from "./host.js";
 
-//============================================================================
 // Global server state
-//============================================================================
 
 export const svs = new server_static_t(); // persistant server info
 export const sv = new server_t(); // local server

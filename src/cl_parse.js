@@ -265,15 +265,7 @@ export const svc_strings = [
   "svc_cutscene",
 ];
 
-//=============================================================================
-
-/*
-===============
-CL_EntityNum
-
-This error checks and tracks the total number of entities
-===============
-*/
+/** This error checks and tracks the total number of entities */
 export function CL_EntityNum(num) {
   //johnfitz -- check minimum number too (Ironwail cl_parse.c)
   if (num < 0) {
@@ -295,11 +287,6 @@ export function CL_EntityNum(num) {
   return cl_entities[num];
 }
 
-/*
-==================
-CL_ParseStartSoundPacket
-==================
-*/
 export function CL_ParseStartSoundPacket() {
   const pos = _soundPos;
 
@@ -368,13 +355,9 @@ export function CL_ParseStartSoundPacket() {
   S_StartSound(ent, ch, sfx, pos, volume / 255.0, attenuation);
 }
 
-/*
-==================
-CL_ParseLocalSound - for 2021 rerelease
-
-Ported from Ironwail's cl_parse.c.
-==================
-*/
+// CL_ParseLocalSound - for 2021 rerelease
+//
+// Ported from Ironwail's cl_parse.c.
 export function CL_ParseLocalSound() {
   const field_mask = MSG_ReadByte();
   const sound_num = (field_mask & SND_LARGESOUND) ?
@@ -391,14 +374,10 @@ export function CL_ParseLocalSound() {
   S_LocalSound(sfx.name);
 }
 
-/*
-==================
-CL_KeepaliveMessage
-
-When the client is taking a long time to load stuff, send keepalive messages
-so the server doesn't disconnect.
-==================
-*/
+// CL_KeepaliveMessage
+//
+// When the client is taking a long time to load stuff, send keepalive messages
+// so the server doesn't disconnect.
 let _keepalive_lastmsg = 0;
 // net_message is saved here while the queued messages are read (C's olddata)
 let _keepalive_olddata = null;
@@ -467,17 +446,10 @@ export function CL_KeepaliveMessage() {
   SZ_Clear(cls.message);
 }
 
-/*
-==================
-CL_ParseServerInfo
-==================
-*/
 export function CL_ParseServerInfo() {
   Con_DPrintf("Serverinfo packet received.\n");
 
-  //
   // wipe the client_state_t struct
-  //
   CL_ClearState();
 
   // parse protocol version number
@@ -520,9 +492,7 @@ export function CL_ParseServerInfo() {
   );
   Con_Printf("\x02%s\n", str);
 
-  //
   // precache models
-  //
   cl.model_precache.fill(null);
   const model_precache = [];
   model_precache[0] = "";
@@ -562,9 +532,7 @@ export function CL_ParseServerInfo() {
     // S_TouchSound( s );
   }
 
-  //
   // now we try to load everything else until a cache allocation fails
-  //
 
   // Lazy-load (web-only): if the world BSP isn't cached yet, fetch it on
   // demand and reconnect
@@ -620,21 +588,17 @@ export function CL_ParseServerInfo() {
   Con_ClearLastCenterString(); //johnfitz
 }
 
-/*
-==================
-CL_ParseDelta
-
-Parse a QW-style delta-compressed entity state.
-Can delta from either a baseline or a previous packet_entity.
-Ported from: QW/client/cl_ents.c
-
-Deviation: QW packs the entity number and the high bits into one short.
-Icaro's word is the entity number (and PE_REMOVE) alone, and the bits
-follow in one or two bytes (see PE_* in protocol.js). The model index is a
-short, PE_ALPHA adds an alpha byte at the end and PE_FRAME2 the frame's
-high byte after it (Ironwail U_ALPHA and U_FRAME2).
-==================
-*/
+/**
+ * Parse a QW-style delta-compressed entity state.
+ * Can delta from either a baseline or a previous packet_entity.
+ * Ported from: QW/client/cl_ents.c
+ *
+ * Deviation: QW packs the entity number and the high bits into one short.
+ * Icaro's word is the entity number (and PE_REMOVE) alone, and the bits
+ * follow in one or two bytes (see PE_* in protocol.js). The model index is a
+ * short, PE_ALPHA adds an alpha byte at the end and PE_FRAME2 the frame's
+ * high byte after it (Ironwail U_ALPHA and U_FRAME2).
+ */
 function CL_ParseDelta(from, to, word) {
   // set everything to the state we are delta'ing from
   to.copyFrom(from);
@@ -718,14 +682,10 @@ function CL_ParseDelta(from, to, word) {
   }
 }
 
-/*
-=================
-FlushEntityPacket
-
-Read and discard all entity data in the packet (on parse error).
-Ported from: QW/client/cl_ents.c
-=================
-*/
+// FlushEntityPacket
+//
+// Read and discard all entity data in the packet (on parse error).
+// Ported from: QW/client/cl_ents.c
 const _flushOlde = new entity_state_t();
 const _flushNewe = new entity_state_t();
 
@@ -757,15 +717,11 @@ function FlushEntityPacket() {
   }
 }
 
-/*
-==================
-CL_ParsePacketEntities
-
-An svc_packetentities has just been parsed, deal with the
-rest of the data stream.
-Ported from: QW/client/cl_ents.c
-==================
-*/
+/**
+ * An svc_packetentities has just been parsed, deal with the
+ * rest of the data stream.
+ * Ported from: QW/client/cl_ents.c
+ */
 function CL_ParsePacketEntities(delta) {
   // NetQuake 15 (demos) has no packet entities, and its coords are shorts
   if (cl.protocol !== PROTOCOL_ICARO) {
@@ -922,15 +878,11 @@ function CL_ParsePacketEntities(delta) {
 // QW's 9999 sentinel: past every entity number (PE_ENT_MASK is 32767)
 const PE_NUM_END = PE_ENT_MASK + 1;
 
-/*
-==================
-CL_EntityBaseline
-
-The baseline to delta a new entity from. QW indexes cl_baselines directly;
-cl_entities grows on demand here (client.js CL_EnsureEntities), so make sure
-the slot exists. Numbers past MAX_EDICTS are a bad message.
-==================
-*/
+/**
+ * The baseline to delta a new entity from. QW indexes cl_baselines directly;
+ * cl_entities grows on demand here (client.js CL_EnsureEntities), so make sure
+ * the slot exists. Numbers past MAX_EDICTS are a bad message.
+ */
 function CL_EntityBaseline(num) {
   if (num >= MAX_EDICTS) {
     Host_Error("CL_ParsePacketEntities: entity " + num + " >= MAX_EDICTS");
@@ -942,15 +894,11 @@ function CL_EntityBaseline(num) {
 // Empty packet for full updates (no old data)
 const _emptyPacket = { num_entities: 0, entities: [] };
 
-/*
-==================
-CL_ParseUpdate
-
-Parse an entity update message from the server
-If an entities model or origin changes from frame to frame, it must be
-relinked. Other attributes can change without relinking.
-==================
-*/
+// CL_ParseUpdate
+//
+// Parse an entity update message from the server
+// If an entities model or origin changes from frame to frame, it must be
+// relinked. Other attributes can change without relinking.
 const bitcounts = new Int32Array(16);
 
 // Reusable vectors for per-frame parsing (avoid per-call allocations)
@@ -1149,15 +1097,11 @@ export function CL_ParseUpdate(bits) {
   }
 }
 
-/*
-==================
-CL_ParseBaseline
-
-Under PROTOCOL_ICARO the model index and frame are shorts and an alpha
-byte ends the message (protocol.js). NetQuake 15 (the demos) keeps id's
-layout.
-==================
-*/
+/**
+ * Under PROTOCOL_ICARO the model index and frame are shorts and an alpha
+ * byte ends the message (protocol.js). NetQuake 15 (the demos) keeps id's
+ * layout.
+ */
 export function CL_ParseBaseline(ent) {
   const icaro = cl.protocol === PROTOCOL_ICARO;
   ent.baseline.modelindex = icaro ? (MSG_ReadShort() & 0xFFFF) : MSG_ReadByte();
@@ -1172,13 +1116,7 @@ export function CL_ParseBaseline(ent) {
   ent.baseline.alpha = icaro ? MSG_ReadByte() : ENTALPHA_DEFAULT;
 }
 
-/*
-==================
-CL_ParseClientdata
-
-Server information pertaining to this client only
-==================
-*/
+/** Server information pertaining to this client only */
 export function CL_ParseClientdata(bits) {
   //johnfitz -- PROTOCOL_FITZQUAKE (Ironwail reads the bits here: unsigned short)
   bits &= 0xFFFF;
@@ -1321,10 +1259,8 @@ export function CL_ParseClientdata(bits) {
   }
   //johnfitz
 
-  //
   // Update client-side prediction with authoritative server state
   // This provides the base position/velocity for prediction to build on
-  //
   if (cl.viewentity >= 1 && cl.viewentity < cl_entities.length) {
     // QuakeWorld-style reconciliation baseline:
     // use the latest transport-level ack from server.
@@ -1347,14 +1283,10 @@ export function CL_ParseClientdata(bits) {
   }
 }
 
-/*
-==================
-CL_ParsePlayerInfo
-
-QuakeWorld-style player info for client-side prediction.
-Parses svc_playerinfo message containing player state for other players.
-==================
-*/
+/**
+ * QuakeWorld-style player info for client-side prediction.
+ * Parses svc_playerinfo message containing player state for other players.
+ */
 function CL_ParsePlayerInfo() {
   const playernum = MSG_ReadByte();
   const flags = MSG_ReadShort();
@@ -1481,11 +1413,6 @@ function CL_ParsePlayerInfo() {
   );
 }
 
-/*
-=====================
-CL_NewTranslation
-=====================
-*/
 export function CL_NewTranslation(slot) {
   // Deviation: Sys_Error in id's C and Ironwail; Host_Error keeps the page
   if (slot > cl.maxclients) {
@@ -1495,11 +1422,6 @@ export function CL_NewTranslation(slot) {
   R_TranslatePlayerSkin(slot);
 }
 
-/*
-=====================
-CL_ParseStatic
-=====================
-*/
 export function CL_ParseStatic() {
   const i = cl.num_statics;
   if (i >= MAX_STATIC_ENTITIES) {
@@ -1523,11 +1445,6 @@ export function CL_ParseStatic() {
   R_AddEfrags(ent);
 }
 
-/*
-===================
-CL_ParseStaticSound
-===================
-*/
 export function CL_ParseStaticSound() {
   const org = _staticSoundOrg;
   for (let i = 0; i < 3; i++) {
@@ -1543,17 +1460,13 @@ export function CL_ParseStaticSound() {
   S_StaticSound(cl.sound_precache[sound_num], org, vol, atten);
 }
 
-/*
-=====================
-CL_ParseStuffText
-
-QuakeSpasm/Ironwail: svc_stufftext text is held until a whole line has
-arrived, then each complete line goes to the command buffer. In id's C the
-text went straight to Cbuf_AddText, and Cbuf_Execute ran whatever was there,
-so a command split across two messages ran half-way. Ironwail's "//" and
-ProQuake handling is not ported: lines go to Cbuf_AddText as in id.
-=====================
-*/
+// CL_ParseStuffText
+//
+// QuakeSpasm/Ironwail: svc_stufftext text is held until a whole line has
+// arrived, then each complete line goes to the command buffer. In id's C the
+// text went straight to Cbuf_AddText, and Cbuf_Execute ran whatever was there,
+// so a command split across two messages ran half-way. Ironwail's "//" and
+// ProQuake handling is not ported: lines go to Cbuf_AddText as in id.
 let cl_stuffcmdbuf = "";
 
 export function CL_ParseStuffText(msg) {
@@ -1573,18 +1486,11 @@ export function CL_ClearStuffText() {
   cl_stuffcmdbuf = "";
 }
 
-/*
-=====================
-CL_ParseServerMessage
-=====================
-*/
 export function CL_ParseServerMessage() {
   let cmd;
   let i;
 
-  //
   // if recording demos, copy the message out
-  //
   if (cl_shownet.value === 1) {
     Con_Printf("%i ", net_message.cursize);
   } else if (cl_shownet.value === 2) {
@@ -1593,9 +1499,7 @@ export function CL_ParseServerMessage() {
 
   cl.onground = false; // unless the server says otherwise
 
-  //
   // parse the message
-  //
   MSG_BeginReading();
 
   while (true) {

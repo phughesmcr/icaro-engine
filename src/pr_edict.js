@@ -85,9 +85,7 @@ import {
   EF_QEX_QUADLIGHT,
 } from "./server.js";
 
-//============================================================================
 // Module state
-//============================================================================
 
 const MAX_FIELD_LEN = 64;
 const GEFV_CACHESIZE = 2;
@@ -97,9 +95,7 @@ const gefvCache = [
   { pcache: null, field: "" },
 ];
 
-//============================================================================
 // Cvar stubs (will be replaced when cvar system is connected)
-//============================================================================
 
 export const nomonsters = new cvar_t("nomonsters", "0");
 const gamecfg = new cvar_t("gamecfg", "0");
@@ -133,13 +129,7 @@ export function PR_SetCurrentSkill(s) {
   current_skill = s;
 }
 
-/*
-=================
-ED_ClearEdict
-
-Sets everything to NULL
-=================
-*/
+/** Sets everything to NULL */
 export function ED_ClearEdict(e) {
   e.clearFields();
   e.free = false;
@@ -157,17 +147,13 @@ export function PR_SetEffectsMask(mask) {
   pr_effects_mask = mask;
 }
 
-/*
-=================
-ED_Alloc
-
-Either finds a free edict, or allocates a new one.
-Try to avoid reusing an entity that was recently freed, because it
-can cause the client to think the entity morphed into something else
-instead of being removed and recreated, which can cause interpolated
-angles and bad trails.
-=================
-*/
+/**
+ * Either finds a free edict, or allocates a new one.
+ * Try to avoid reusing an entity that was recently freed, because it
+ * can cause the client to think the entity morphed into something else
+ * instead of being removed and recreated, which can cause interpolated
+ * angles and bad trails.
+ */
 export function ED_Alloc() {
   let i;
   let e;
@@ -198,13 +184,7 @@ export function ED_Alloc() {
   return e;
 }
 
-/*
-=================
-ED_Free
-
-Marks the edict as free
-=================
-*/
+/** Marks the edict as free */
 export function ED_Free(ed) {
   SV_UnlinkEdict(ed); // unlink from world bsp
 
@@ -230,13 +210,6 @@ export function ED_Free(ed) {
   ed.freetime = sv.time;
 }
 
-//===========================================================================
-
-/*
-============
-ED_GlobalAtOfs
-============
-*/
 export function ED_GlobalAtOfs(ofs) {
   for (let i = 0; i < progs.numglobaldefs; i++) {
     const def = pr_globaldefs[i];
@@ -248,11 +221,6 @@ export function ED_GlobalAtOfs(ofs) {
   return null;
 }
 
-/*
-============
-ED_FieldAtOfs
-============
-*/
 export function ED_FieldAtOfs(ofs) {
   // Deviation from id's C, which started at 0: fielddef 0 is the null def
   // with ofs 0, so .modelindex (also ofs 0) was never found. Ironwail
@@ -288,11 +256,6 @@ function ED_BuildIndex(defs, count) {
   return index;
 }
 
-/*
-============
-ED_FindField
-============
-*/
 export function ED_FindField(name) {
   if (
     fieldIndex === null || fieldIndexDefs !== pr_fielddefs ||
@@ -307,11 +270,6 @@ export function ED_FindField(name) {
   return i !== undefined ? pr_fielddefs[i] : null;
 }
 
-/*
-============
-ED_FindGlobal
-============
-*/
 export function ED_FindGlobal(name) {
   if (
     globalIndex === null || globalIndexDefs !== pr_globaldefs ||
@@ -326,13 +284,7 @@ export function ED_FindGlobal(name) {
   return i !== undefined ? pr_globaldefs[i] : null;
 }
 
-/*
-============
-ED_FindFunctionIndex
-
-Not in the C: the index of the function in pr_functions, or -1.
-============
-*/
+/** Not in the C: the index of the function in pr_functions, or -1. */
 function ED_FindFunctionIndex(name) {
   if (
     functionIndex === null || functionIndexDefs !== pr_functions ||
@@ -347,21 +299,12 @@ function ED_FindFunctionIndex(name) {
   return i !== undefined ? i : -1;
 }
 
-/*
-============
-ED_FindFunction
-============
-*/
 export function ED_FindFunction(name) {
   const i = ED_FindFunctionIndex(name);
   return i >= 0 ? pr_functions[i] : null;
 }
 
-/*
-============
-GetEdictFieldValue
-============
-*/
+// GetEdictFieldValue
 let gefvCache_rep = 0;
 
 export function GetEdictFieldValue(ed, field) {
@@ -392,13 +335,7 @@ export function GetEdictFieldValue(ed, field) {
   return { accessor: ed._fieldAccessor, ofs: def.ofs };
 }
 
-/*
-============
-PR_ValueString
-
-Returns a string describing *data in a type specific manner
-=============
-*/
+/** Returns a string describing *data in a type specific manner */
 export function PR_ValueString(type, accessor, ofs) {
   type &= ~DEF_SAVEGLOBAL;
 
@@ -435,14 +372,10 @@ export function PR_ValueString(type, accessor, ofs) {
   }
 }
 
-/*
-============
-PR_UglyValueString
-
-Returns a string describing *data in a type specific manner
-Easier to parse than PR_ValueString
-=============
-*/
+/**
+ * Returns a string describing *data in a type specific manner
+ * Easier to parse than PR_ValueString
+ */
 export function PR_UglyValueString(type, accessor, ofs) {
   type &= ~DEF_SAVEGLOBAL;
 
@@ -475,14 +408,10 @@ export function PR_UglyValueString(type, accessor, ofs) {
   }
 }
 
-/*
-============
-PR_GlobalString
-
-Returns a string with a description and the contents of a global,
-padded to 20 field width
-============
-*/
+/**
+ * Returns a string with a description and the contents of a global,
+ * padded to 20 field width
+ */
 export function PR_GlobalString(ofs) {
   const def = ED_GlobalAtOfs(ofs);
   let line;
@@ -520,13 +449,7 @@ export function PR_GlobalStringNoContents(ofs) {
   return line;
 }
 
-/*
-=============
-ED_Print
-
-For debugging
-=============
-*/
+/** For debugging */
 export function ED_Print(ed) {
   if (ed.free) {
     Con_Printf("FREE\n");
@@ -568,13 +491,7 @@ export function ED_Print(ed) {
   }
 }
 
-/*
-=============
-ED_Write
-
-For savegames
-=============
-*/
+/** For savegames */
 export function ED_Write(lines, ed) {
   lines.push("{");
 
@@ -623,13 +540,7 @@ export function ED_PrintNum(ent) {
   ED_Print(EDICT_NUM(ent));
 }
 
-/*
-=============
-ED_PrintEdict_f
-
-For debugging, prints a single edict
-=============
-*/
+/** For debugging, prints a single edict */
 function ED_PrintEdict_f() {
   const i = parseInt(Cmd_Argv(1)) || 0;
   if (i >= sv.num_edicts) {
@@ -640,13 +551,7 @@ function ED_PrintEdict_f() {
   ED_PrintNum(i);
 }
 
-/*
-=============
-ED_PrintEdicts
-
-For debugging, prints all the entities in the current server
-=============
-*/
+/** For debugging, prints all the entities in the current server */
 export function ED_PrintEdicts() {
   Con_Printf("%i entities\n", sv.num_edicts);
   for (let i = 0; i < sv.num_edicts; i++) {
@@ -654,13 +559,7 @@ export function ED_PrintEdicts() {
   }
 }
 
-/*
-=============
-ED_Count
-
-For debugging
-=============
-*/
+/** For debugging */
 export function ED_Count() {
   let active = 0, models = 0, solid = 0, step = 0;
 
@@ -688,20 +587,10 @@ export function ED_Count() {
   Con_Printf("step      :%3i\n", step);
 }
 
-/*
-==============================================================================
+// ARCHIVING GLOBALS
+//
+// FIXME: need to tag constants, doesn't really work
 
-					ARCHIVING GLOBALS
-
-FIXME: need to tag constants, doesn't really work
-==============================================================================
-*/
-
-/*
-=============
-ED_WriteGlobals
-=============
-*/
 export function ED_WriteGlobals(lines) {
   lines.push("{");
 
@@ -727,14 +616,10 @@ export function ED_WriteGlobals(lines) {
   lines.push("}");
 }
 
-/*
-=============
-ED_ParseGlobals
-
-Returns the text after the closing brace, as Ironwail's does (id's returns
-nothing; Host_Loadgame_f needs it to go on to the edicts).
-=============
-*/
+/**
+ * Returns the text after the closing brace, as Ironwail's does (id's returns
+ * nothing; Host_Loadgame_f needs it to go on to the edicts).
+ */
 export function ED_ParseGlobals(data) {
   while (true) {
     // parse key
@@ -772,16 +657,10 @@ export function ED_ParseGlobals(data) {
   return data;
 }
 
-//============================================================================
-
-/*
-=============
-ED_NewString
-
-Returns an offset into the string table for a newly allocated string.
-Handles backslash-n escape sequences.
-=============
-*/
+/**
+ * Returns an offset into the string table for a newly allocated string.
+ * Handles backslash-n escape sequences.
+ */
 export function ED_NewString(string) {
   // Use array + join() instead of string concatenation to avoid O(n²) allocations
   const chars = [];
@@ -802,14 +681,10 @@ export function ED_NewString(string) {
   return PR_AppendString(chars.join(""));
 }
 
-/*
-=============
-ED_ParseEpair
-
-Can parse either fields or globals
-returns false if error
-=============
-*/
+/**
+ * Can parse either fields or globals
+ * returns false if error
+ */
 export function ED_ParseEpair(accessor, key, s) {
   const ofs = key.ofs;
 
@@ -864,15 +739,11 @@ export function ED_ParseEpair(accessor, key, s) {
   return true;
 }
 
-/*
-====================
-ED_ParseEdict
-
-Parses an edict out of the given string, returning the new position
-ed should be a properly initialized empty edict.
-Used for initial level load and for savegames.
-====================
-*/
+/**
+ * Parses an edict out of the given string, returning the new position
+ * ed should be a properly initialized empty edict.
+ * Used for initial level load and for savegames.
+ */
 export function ED_ParseEdict(data, ent) {
   let anglehack;
   let init = false;
@@ -966,21 +837,17 @@ export function ED_ParseEdict(data, ent) {
   return data;
 }
 
-/*
-================
-ED_LoadFromFile
-
-The entities are directly placed in the array, rather than allocated with
-ED_Alloc, because otherwise an error loading the map would have entity
-number references out of order.
-
-Creates a server's entity / program execution context by
-parsing textual entity definitions out of an ent file.
-
-Used for both fresh maps and savegame loads. A fresh map would also need
-to call ED_CallSpawnFunctions () to let the objects initialize themselves.
-================
-*/
+/**
+ * The entities are directly placed in the array, rather than allocated with
+ * ED_Alloc, because otherwise an error loading the map would have entity
+ * number references out of order.
+ *
+ * Creates a server's entity / program execution context by
+ * parsing textual entity definitions out of an ent file.
+ *
+ * Used for both fresh maps and savegame loads. A fresh map would also need
+ * to call ED_CallSpawnFunctions () to let the objects initialize themselves.
+ */
 export function ED_LoadFromFile(data) {
   let ent = null;
   let inhibit = 0;
@@ -1023,7 +890,6 @@ export function ED_LoadFromFile(data) {
       continue;
     }
 
-    //
     // immediately call spawn function
     //
     // Check if classname string is empty (offset 0 points to empty string)
@@ -1064,13 +930,7 @@ export function ED_LoadFromFile(data) {
   Con_DPrintf("%i entities inhibited\n", inhibit);
 }
 
-/*
-===============
-PR_LoadProgs
-
-Loads progs.dat from the provided ArrayBuffer
-===============
-*/
+/** Loads progs.dat from the provided ArrayBuffer */
 export function PR_LoadProgs(fileData) {
   // flush the non-C variable lookup cache
   for (let i = 0; i < GEFV_CACHESIZE; i++) {
@@ -1279,29 +1139,19 @@ export function PR_LoadProgs(fileData) {
   pr_effects_mask = PR_FindSupportedEffects();
 }
 
-/*
-===============
-PR_HasGlobal
-
-Ironwail pr_edict.c
-===============
-*/
+/** Ironwail pr_edict.c */
 function PR_HasGlobal(name, value) {
   const g = ED_FindGlobal(name);
   return g !== null && (g.type & ~DEF_SAVEGLOBAL) === ev_float &&
     pr_globals.getFloat(g.ofs) === value;
 }
 
-/*
-===============
-PR_FindSupportedEffects
-
-Ironwail pr_edict.c: checks for the presence of Quake 2021 release effects
-flags and returns a mask with the corresponding bits either on or off
-depending on the result, in order to avoid conflicts (e.g. Arcane Dimensions
-uses bit 32 for its explosions)
-===============
-*/
+/**
+ * Ironwail pr_edict.c: checks for the presence of Quake 2021 release effects
+ * flags and returns a mask with the corresponding bits either on or off
+ * depending on the result, in order to avoid conflicts (e.g. Arcane Dimensions
+ * uses bit 32 for its explosions)
+ */
 export function PR_FindSupportedEffects() {
   const isqex = PR_HasGlobal("EF_QUADLIGHT", EF_QEX_QUADLIGHT) &&
     (PR_HasGlobal("EF_PENTLIGHT", EF_QEX_PENTALIGHT) ||
@@ -1311,11 +1161,6 @@ export function PR_FindSupportedEffects() {
     -1 & ~(EF_QEX_QUADLIGHT | EF_QEX_PENTALIGHT | EF_QEX_CANDLELIGHT);
 }
 
-/*
-============
-PR_Profile_f
-============
-*/
 function PR_Profile_f() {
   let num = 0;
 
@@ -1344,11 +1189,6 @@ function PR_Profile_f() {
   } while (true);
 }
 
-/*
-===============
-PR_Init
-===============
-*/
 export function PR_Init() {
   Cmd_AddCommand("edict", ED_PrintEdict_f);
   Cmd_AddCommand("edicts", ED_PrintEdicts);
@@ -1370,15 +1210,11 @@ export function PR_Init() {
   PR_InitBuiltins();
 }
 
-/*
-===============
-PR_AllocEdicts
-
-Allocates the edict array for the server.
-Called by server init (not in original C - we need this because
-JS doesn't have pointer arithmetic over a flat memory block).
-===============
-*/
+/**
+ * Allocates the edict array for the server.
+ * Called by server init (not in original C - we need this because
+ * JS doesn't have pointer arithmetic over a flat memory block).
+ */
 export function PR_AllocEdicts(maxEdicts, entityfields) {
   const edicts = [];
   for (let i = 0; i < maxEdicts; i++) {

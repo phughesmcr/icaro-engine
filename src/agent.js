@@ -106,13 +106,7 @@ import {
 
 export const AGENT_TIC = 1 / 72; // one step tic: host_maxfps's default frame
 
-/*
-==============================================================================
-
-	STATE
-
-==============================================================================
-*/
+// STATE
 
 let agent_mode = "off"; // 'off' | 'realtime' | 'lockstep'
 let agent_tics = 0; // tics stepped in lockstep since attach
@@ -142,13 +136,7 @@ const LOCKSTEP_CVARS = [["host_framerate", String(AGENT_TIC)], [
 ], ["host_maxfps", "72"]];
 const saved_cvars = new Map();
 
-/*
-==============================================================================
-
-	TABLES
-
-==============================================================================
-*/
+// TABLES
 
 // Action button names to the client's +/- commands
 export const AGENT_BUTTONS = {
@@ -313,13 +301,7 @@ export const AGENT_KEYS = {
   space: 32,
 };
 
-/*
-==============================================================================
-
-	EVENTS
-
-==============================================================================
-*/
+// EVENTS
 
 function Agent_PushEvent(text) {
   agent_events[event_seq % EVENT_MAX] = text;
@@ -440,23 +422,13 @@ function Agent_StatEvents() {
   prev_valid = true;
 }
 
-/*
-==============================================================================
+// ATTACH AND CLOCK
 
-	ATTACH AND CLOCK
-
-==============================================================================
-*/
-
-/*
-==================
-Agent_Attach
-
-mode 'realtime' leaves the game running; 'lockstep' freezes it between
-Agent_Step calls (main.js stops calling Host_Frame) and pins the frame time
-to one tic, so each step tic is exactly 1/72 s of game time.
-==================
-*/
+/**
+ * mode 'realtime' leaves the game running; 'lockstep' freezes it between
+ * Agent_Step calls (main.js stops calling Host_Frame) and pins the frame time
+ * to one tic, so each step tic is exactly 1/72 s of game time.
+ */
 export function Agent_Attach(mode = "realtime") {
   if (mode !== "realtime" && mode !== "lockstep") {
     throw new Error('mode must be "realtime" or "lockstep"');
@@ -608,13 +580,7 @@ function Agent_Loading() {
   return cls.state !== ca_connected && sv.active === true;
 }
 
-/*
-==============================================================================
-
-	ACTIONS
-
-==============================================================================
-*/
+// ACTIONS
 
 function Agent_SetButtons(names) {
   for (const name of held_buttons) {
@@ -681,16 +647,12 @@ function Agent_AngleMod(a) {
   return a < 0 ? a + 360 : a;
 }
 
-/*
-==================
-Agent_Step
-
-action: { buttons: 'forward,attack', yaw: deg (+ turns left), pitch: deg
-(+ looks down), face: absolute yaw, impulse: n }. The buttons are held for
-`tics` tics (1/72 s each) and released after. Look changes apply at once.
-Returns the observation text (with the events since the last observation).
-==================
-*/
+/**
+ * action: { buttons: 'forward,attack', yaw: deg (+ turns left), pitch: deg
+ * (+ looks down), face: absolute yaw, impulse: n }. The buttons are held for
+ * `tics` tics (1/72 s each) and released after. Look changes apply at once.
+ * Returns the observation text (with the events since the last observation).
+ */
 export function Agent_Step(action = {}, tics = 1, opts = {}) {
   return Agent_Serial(() => Agent_StepNow(action, tics, opts));
 }
@@ -732,13 +694,7 @@ async function Agent_StepNow(action, tics, opts) {
   return Agent_Observe(opts);
 }
 
-/*
-==============================================================================
-
-	NAVIGATION AND MACROS
-
-==============================================================================
-*/
+// NAVIGATION AND MACROS
 
 let nav_graph = null; // src/nav.js walk graph of the current level, or null
 
@@ -813,14 +769,10 @@ function Agent_PlayerOrigin(out) {
   out[2] = src[2];
 }
 
-/*
-==================
-Agent_GotoTarget
-
-Sets goto_goal (and goto_mins/maxs for a brush or trigger) from an entity
-number or a point. Returns a short label, or throws.
-==================
-*/
+/**
+ * Sets goto_goal (and goto_mins/maxs for a brush or trigger) from an entity
+ * number or a point. Returns a short label, or throws.
+ */
 function Agent_GotoTarget(target) {
   goto_hasbox = false;
   const list = Array.isArray(target) || ArrayBuffer.isView(target);
@@ -990,11 +942,11 @@ function Agent_GraphEntEdict(rec) {
   return by_box;
 }
 
-/*
-Entities a goto was blocked by: their links cost GOTO_AVOID_COST more, so
-the next goto takes another way if there is one, until the entity moves
-(a door opening) or the level changes.
-*/
+/**
+ * Entities a goto was blocked by: their links cost GOTO_AVOID_COST more, so
+ * the next goto takes another way if there is one, until the entity moves
+ * (a door opening) or the level changes.
+ */
 const GOTO_AVOID_COST = 1000000;
 const goto_avoid = []; // { e: graph entity, num: edict or -1, x, y, z: its absmin then }
 const goto_avoid_links = []; // graph links a goto was blocked on with nothing to name
@@ -1139,17 +1091,13 @@ function Agent_GotoBlocked(k) {
   }
 }
 
-/*
-==================
-Agent_Goto
-
-Walks to an entity (#id, as in observations) or a point along the level's
-walk graph (src/nav.js), one lockstep tic at a time. opts: { max_tics (30 s),
-stop_on_damage (true), ents }. The first line of the result says how it
-ended: arrived, blocked (with what to try), took damage, died, level
-changed, no path, or timeout. The observation follows.
-==================
-*/
+/**
+ * Walks to an entity (#id, as in observations) or a point along the level's
+ * walk graph (src/nav.js), one lockstep tic at a time. opts: { max_tics (30 s),
+ * stop_on_damage (true), ents }. The first line of the result says how it
+ * ended: arrived, blocked (with what to try), took damage, died, level
+ * changed, no path, or timeout. The observation follows.
+ */
 export function Agent_Goto(target, opts = {}) {
   return Agent_Serial(() => Agent_GotoNow(target, opts));
 }
@@ -1356,14 +1304,10 @@ export function Agent_StartsLoad(text) {
   return AGENT_LOAD_CMDS.test(text);
 }
 
-/*
-==================
-Agent_Command
-
-Runs console text (e.g. 'map e1m2' or 'god'), lets it take effect, and
-returns the console lines it printed.
-==================
-*/
+/**
+ * Runs console text (e.g. 'map e1m2' or 'god'), lets it take effect, and
+ * returns the console lines it printed.
+ */
 export function Agent_Command(text) {
   return Agent_Serial(() => Agent_CommandNow(text));
 }
@@ -1397,14 +1341,10 @@ async function Agent_CommandNow(text) {
   return lines.join("\n");
 }
 
-/*
-==================
-Agent_NewGame
-
-Starts a single-player map at a skill (0 easy to 3 nightmare). Host_Map_f
-closes the console and menu, as in C.
-==================
-*/
+/**
+ * Starts a single-player map at a skill (0 easy to 3 nightmare). Host_Map_f
+ * closes the console and menu, as in C.
+ */
 export function Agent_NewGame(map = "start", skill = 1) {
   return Agent_Serial(() => Agent_NewGameNow(map, skill));
 }
@@ -1434,14 +1374,10 @@ async function Agent_NewGameNow(map, skill) {
   return Agent_Observe();
 }
 
-/*
-==================
-Agent_Key
-
-Presses and releases one key, for menus and the console: a name from
-AGENT_KEYS or a single character.
-==================
-*/
+/**
+ * Presses and releases one key, for menus and the console: a name from
+ * AGENT_KEYS or a single character.
+ */
 export function Agent_Key(name, count = 1) {
   if (agent_mode === "off") Agent_Attach("realtime");
   let k;
@@ -1462,14 +1398,10 @@ export function Agent_Key(name, count = 1) {
   return Agent_UIText();
 }
 
-/*
-==================
-Agent_MenuSelect
-
-Moves the menu cursor to the row whose label contains `label` and presses
-enter. Only menus with labels (main, single player, multiplayer).
-==================
-*/
+/**
+ * Moves the menu cursor to the row whose label contains `label` and presses
+ * enter. Only menus with labels (main, single player, multiplayer).
+ */
 export function Agent_MenuSelect(label) {
   const items = Agent_MenuItems();
   if (items === null) {
@@ -1495,13 +1427,7 @@ export function Agent_MenuSelect(label) {
   return Agent_UIText();
 }
 
-/*
-==============================================================================
-
-	OBSERVATIONS
-
-==============================================================================
-*/
+// OBSERVATIONS
 
 function Agent_MenuItems() {
   if (key_dest !== key_menu) return null;
@@ -1643,16 +1569,12 @@ function Agent_Edict(num) {
   return ed === undefined || ed === null || ed.free === true ? null : ed;
 }
 
-/*
-==================
-Agent_Entities
-
-The nearest entities the client knows about, with the yaw and pitch change
-that would face each one (so `yaw` can be passed straight to Agent_Step).
-With a local server, `truth` adds monster health, brush entity kinds and
-the level's exits and teleporters.
-==================
-*/
+/**
+ * The nearest entities the client knows about, with the yaw and pitch change
+ * that would face each one (so `yaw` can be passed straight to Agent_Step).
+ * With a local server, `truth` adds monster health, brush entity kinds and
+ * the level's exits and teleporters.
+ */
 export function Agent_Entities(max = 10, truth = true) {
   if (Agent_Ready() === false) return [];
   const me = cl_entities[cl.viewentity];
@@ -1759,15 +1681,11 @@ export function Agent_EventsSince(seq) {
   return out;
 }
 
-/*
-==================
-Agent_Observe
-
-opts: { ents: max entities (default 10, 0 for none), events: true,
-truth: true, format: 'text' | 'json' }. Text is the compact default; json
-returns an object for programs.
-==================
-*/
+/**
+ * opts: { ents: max entities (default 10, 0 for none), events: true,
+ * truth: true, format: 'text' | 'json' }. Text is the compact default; json
+ * returns an object for programs.
+ */
 export function Agent_Observe(opts = {}) {
   Agent_StatEvents();
   const max = opts.ents ?? 10;
@@ -1801,16 +1719,12 @@ const fnv = (h, x) => Math.imul(h ^ x, 16777619) >>> 0;
 const hash_time = new Float64Array(1);
 const hash_time_bits = new Int32Array(hash_time.buffer);
 
-/*
-==================
-Agent_StateHash
-
-FNV-1a over the local server's gameplay state (sv.time, the QuakeC globals
-and every field of every edict) and the client's stats, as 8 hex digits.
-Two runs from the same seed and actions give the same hash. '' without a
-local server.
-==================
-*/
+/**
+ * FNV-1a over the local server's gameplay state (sv.time, the QuakeC globals
+ * and every field of every edict) and the client's stats, as 8 hex digits.
+ * Two runs from the same seed and actions give the same hash. '' without a
+ * local server.
+ */
 export function Agent_StateHash() {
   if (sv.active !== true) return "";
   hash_time[0] = sv.time;
@@ -1834,16 +1748,12 @@ export function Agent_StateHash() {
   return h.toString(16).padStart(8, "0");
 }
 
-/*
-==================
-Agent_Screenshot
-
-Draws the current view (3D canvas and 2D overlay) into a small image and
-returns a data URL. In a browser with its own screenshot tool, that tool is
-cheaper: a data URL comes back as text, which costs far more tokens than an
-image. This is for adapters (MCP) that return it as an image.
-==================
-*/
+/**
+ * Draws the current view (3D canvas and 2D overlay) into a small image and
+ * returns a data URL. In a browser with its own screenshot tool, that tool is
+ * cheaper: a data URL comes back as text, which costs far more tokens than an
+ * image. This is for adapters (MCP) that return it as an image.
+ */
 export function Agent_Screenshot(
   gl_canvas,
   overlay_canvas,

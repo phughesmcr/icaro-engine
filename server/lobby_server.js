@@ -736,7 +736,6 @@ async function acceptConnections(listener) {
   }
 }
 
-//============================================================================
 // WebSocket listener (-wsport)
 //
 // For browsers without WebTransport and for HTTP-only proxies such as a
@@ -755,7 +754,6 @@ async function acceptConnections(listener) {
 // (https://developers.cloudflare.com/network/websockets/). A game connection
 // carries server updates every frame, and a dropped one ends like any lost
 // connection (the client returns to the menu; the room link rejoins). src/net_websocket.js is the client side.
-//============================================================================
 
 const WS_OPEN = 1;
 const WS_CONNECTING = 0;

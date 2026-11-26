@@ -22,13 +22,7 @@ import { COM_LoadFileAsString } from "./pak.js";
 import { default_cfg } from "./default_cfg.js";
 import { clc_stringcmd } from "./protocol.js";
 
-/*
-=============================================================================
-
-						COMMAND BUFFER
-
-=============================================================================
-*/
+// COMMAND BUFFER
 
 const MAX_ALIAS_NAME = 32;
 const MAX_ARGS = 80;
@@ -59,35 +53,20 @@ export let cmd_functions = null; // linked list of registered commands
 // Callback injection for client state (to avoid circular dependency with client.js)
 let _getClientState = null;
 
-/*
-============
-Cmd_SetClientCallbacks
-
-Called from host.js after client.js is loaded to wire up client state access
-============
-*/
+/**
+ * Called from host.js after client.js is loaded to wire up client state access
+ */
 export function Cmd_SetClientCallbacks(callbacks) {
   _getClientState = callbacks.getClientState;
 }
 
-/*
-============
-Cbuf_Init
-============
-*/
 export function Cbuf_Init() {
   // space for commands and script files. id's 8192; QuakeSpasm/Ironwail
   // (Spike) raise it for large configs full of comments
   SZ_Alloc(cmd_text, 1 << 18);
 }
 
-/*
-============
-Cbuf_AddText
-
-Adds command text at the end of the buffer
-============
-*/
+/** Adds command text at the end of the buffer */
 export function Cbuf_AddText(text) {
   const l = text.length;
 
@@ -102,15 +81,11 @@ export function Cbuf_AddText(text) {
   cmd_text.cursize += l;
 }
 
-/*
-============
-Cbuf_InsertText
-
-Adds command text immediately after the current command
-Adds a \n to the text
-FIXME: actually change the command buffer to do less copying
-============
-*/
+/**
+ * Adds command text immediately after the current command
+ * Adds a \n to the text
+ * FIXME: actually change the command buffer to do less copying
+ */
 export function Cbuf_InsertText(text) {
   // copy off any commands still remaining in the exec buffer
   let temp = null;
@@ -133,11 +108,6 @@ export function Cbuf_InsertText(text) {
   }
 }
 
-/*
-============
-Cbuf_Execute
-============
-*/
 export function Cbuf_Execute() {
   while (cmd_text.cursize) {
     // find a \n or ; line break
@@ -195,19 +165,8 @@ export function Cbuf_Execute() {
   }
 }
 
-/*
-=============================================================================
+// COMMAND EXECUTION
 
-					COMMAND EXECUTION
-
-=============================================================================
-*/
-
-/*
-============
-Cmd_Init
-============
-*/
 export function Cmd_Init() {
   // register our commands
   Cmd_AddCommand("stuffcmds", Cmd_StuffCmds_f);
@@ -230,20 +189,10 @@ export function Cmd_Init() {
   Cvar_Init();
 }
 
-/*
-============
-Cmd_Argc
-============
-*/
 export function Cmd_Argc() {
   return cmd_argc;
 }
 
-/*
-============
-Cmd_Argv
-============
-*/
 export function Cmd_Argv(arg) {
   if (arg < 0 || arg >= cmd_argc) {
     return "";
@@ -251,22 +200,11 @@ export function Cmd_Argv(arg) {
   return cmd_argv[arg];
 }
 
-/*
-============
-Cmd_Args
-============
-*/
 export function Cmd_Args() {
   return cmd_args;
 }
 
-/*
-============
-Cmd_TokenizeString
-
-Parses the given string into command line tokens.
-============
-*/
+/** Parses the given string into command line tokens. */
 export function Cmd_TokenizeString(text) {
   // clear the args from the last string
   cmd_argc = 0;
@@ -304,11 +242,6 @@ export function Cmd_TokenizeString(text) {
   }
 }
 
-/*
-============
-Cmd_AddCommand
-============
-*/
 export function Cmd_AddCommand(cmd_name, fn) {
   // fail if the command is a variable name
   if (Cvar_VariableString(cmd_name)) {
@@ -339,11 +272,6 @@ export function Cmd_AddCommand(cmd_name, fn) {
   cmd_functions = cmd;
 }
 
-/*
-============
-Cmd_Exists
-============
-*/
 export function Cmd_Exists(cmd_name) {
   let cmd = cmd_functions;
   while (cmd) {
@@ -356,11 +284,6 @@ export function Cmd_Exists(cmd_name) {
   return false;
 }
 
-/*
-============
-Cmd_CompleteCommand
-============
-*/
 export function Cmd_CompleteCommand(partial) {
   const len = partial.length;
 
@@ -380,14 +303,10 @@ export function Cmd_CompleteCommand(partial) {
   return null;
 }
 
-/*
-============
-Cmd_ExecuteString
-
-A complete command line has been parsed, so try to execute it
-FIXME: lookupnoadd the token to speed search?
-============
-*/
+/**
+ * A complete command line has been parsed, so try to execute it
+ * FIXME: lookupnoadd the token to speed search?
+ */
 export function Cmd_ExecuteString(text, src) {
   cmd_source = src;
   Cmd_TokenizeString(text);
@@ -425,25 +344,15 @@ export function Cmd_ExecuteString(text, src) {
   }
 }
 
-/*
-============
-Cmd_Wait_f
-
-Causes execution of the remainder of the command buffer to be delayed until
-next frame.
-============
-*/
+/**
+ * Causes execution of the remainder of the command buffer to be delayed until
+ * next frame.
+ */
 function Cmd_Wait_f() {
   cmd_wait = true;
 }
 
-/*
-===============
-Cmd_Exec_f
-
-Executes a script file from the game data
-===============
-*/
+/** Executes a script file from the game data */
 function Cmd_Exec_f() {
   if (Cmd_Argc() !== 2) {
     Con_Printf("exec <filename> : execute a script file\n");
@@ -466,13 +375,7 @@ function Cmd_Exec_f() {
   Cbuf_InsertText(f);
 }
 
-/*
-===============
-Cmd_Echo_f
-
-Just prints the rest of the line to the console
-===============
-*/
+/** Just prints the rest of the line to the console */
 function Cmd_Echo_f() {
   for (let i = 1; i < Cmd_Argc(); i++) {
     Con_Printf(Cmd_Argv(i) + " ");
@@ -480,13 +383,9 @@ function Cmd_Echo_f() {
   Con_Printf("\n");
 }
 
-/*
-===============
-Cmd_Alias_f
-
-Creates a new command that executes a command string (possibly ; separated)
-===============
-*/
+/**
+ * Creates a new command that executes a command string (possibly ; separated)
+ */
 function Cmd_Alias_f() {
   if (Cmd_Argc() === 1) {
     Con_Printf("Current alias commands:\n");
@@ -547,11 +446,7 @@ function Cmd_Alias_f() {
   a.value = cmd;
 }
 
-/*
-===============
-Cmd_Unalias_f -- johnfitz
-===============
-*/
+// Cmd_Unalias_f -- johnfitz
 function Cmd_Unalias_f() {
   switch (Cmd_Argc()) {
     default:
@@ -579,23 +474,15 @@ function Cmd_Unalias_f() {
   }
 }
 
-/*
-===============
-Cmd_Unaliasall_f -- johnfitz
-===============
-*/
+// Cmd_Unaliasall_f -- johnfitz
 function Cmd_Unaliasall_f() {
   cmd_alias = null;
 }
 
-/*
-============
-Cmd_List_f -- johnfitz
-
-Ironwail's cmd_functions is kept sorted; this port's is not, so the names
-are sorted here.
-============
-*/
+// Cmd_List_f -- johnfitz
+//
+// Ironwail's cmd_functions is kept sorted; this port's is not, so the names
+// are sorted here.
 function Cmd_List_f() {
   const partial = Cmd_Argc() > 1 ? Cmd_Argv(1) : null;
 
@@ -617,13 +504,9 @@ function Cmd_List_f() {
   );
 }
 
-/*
-============
-Cmd_ListAllContaining -- Ironwail
-
-Lists the commands and cvars whose names contain substr, ignoring case
-============
-*/
+// Cmd_ListAllContaining -- Ironwail
+//
+// Lists the commands and cvars whose names contain substr, ignoring case
 function Cmd_ListAllContaining(substr) {
   const needle = substr.toLowerCase();
   let hits = 0;
@@ -663,13 +546,9 @@ function Cmd_ListAllContaining(substr) {
   }
 }
 
-/*
-============
-Cmd_Apropos_f -- Ironwail
-
-apropos and find
-============
-*/
+// Cmd_Apropos_f -- Ironwail
+//
+// apropos and find
 function Cmd_Apropos_f() {
   const substr = Cmd_Argv(1);
   if (substr === "") {
@@ -683,14 +562,10 @@ function Cmd_Apropos_f() {
   Cmd_ListAllContaining(substr);
 }
 
-/*
-===============
-Cmd_StuffCmds_f
-
-Adds command line parameters as script statements
-Commands lead with a +, and continue until a - or another +
-===============
-*/
+/**
+ * Adds command line parameters as script statements
+ * Commands lead with a +, and continue until a - or another +
+ */
 function Cmd_StuffCmds_f() {
   if (Cmd_Argc() !== 1) {
     Con_Printf("stuffcmds : execute command line parameters\n");
@@ -746,14 +621,10 @@ function Cmd_StuffCmds_f() {
   }
 }
 
-/*
-================
-Cmd_CheckParm
-
-Returns the position (1 to argc-1) in the command's argument list
-where the given parameter appears, or 0 if not present
-================
-*/
+/**
+ * Returns the position (1 to argc-1) in the command's argument list
+ * where the given parameter appears, or 0 if not present
+ */
 export function Cmd_CheckParm(parm) {
   if (parm == null) {
     Con_Printf("Cmd_CheckParm: NULL\n");
@@ -769,13 +640,7 @@ export function Cmd_CheckParm(parm) {
   return 0;
 }
 
-/*
-===================
-Cmd_ForwardToServer
-
-Sends the entire command line over to the server
-===================
-*/
+/** Sends the entire command line over to the server */
 export function Cmd_ForwardToServer() {
   // Get client state through callback (avoids circular dependency)
   if (_getClientState == null) {

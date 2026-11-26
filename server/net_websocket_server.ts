@@ -339,7 +339,7 @@ export function WS_HandleRequest(
   return upgraded.response;
 }
 
-/*
+/**
  * Session limits, as in net_webtransport_server.ts: a connection counts as
  * handshaking until it is accepted or closed, and against its IP until its
  * close finishes. Returns the release function, or null if over a limit.

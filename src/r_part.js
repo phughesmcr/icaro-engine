@@ -94,18 +94,18 @@ let pointsMaterial = null;
 let pointsMesh = null;
 let particleTexture = null;
 
-/*
-Particle size, from gl_rmisc.c R_DrawParticles:
-
-	scale = (p->org - r_origin) . vpn;
-	if (scale < 20) scale = 1; else scale = 1 + scale * 0.004;
-
-Each particle is a triangle with 1.5 * scale legs, textured so the 4x4 dot in
-the 8x8 texture covers half of each leg. A point sprite of world size
-1.5 * scale shows the same dot. Three.js attenuates point size as
-size * scale / depth, which ignores the projection, so the vertex shader is
-patched to give the sprite a world size instead.
-*/
+/**
+ * Particle size, from gl_rmisc.c R_DrawParticles:
+ *
+ * 	scale = (p->org - r_origin) . vpn;
+ * 	if (scale < 20) scale = 1; else scale = 1 + scale * 0.004;
+ *
+ * Each particle is a triangle with 1.5 * scale legs, textured so the 4x4 dot in
+ * the 8x8 texture covers half of each leg. A point sprite of world size
+ * 1.5 * scale shows the same dot. Three.js attenuates point size as
+ * size * scale / depth, which ignores the projection, so the vertex shader is
+ * patched to give the sprite a world size instead.
+ */
 const PARTICLE_SIZE = 1.5;
 // Quake units per scene unit: 1, or XR_SCALE while scene.scale = 1/XR_SCALE
 const _particleUnits = { value: 1 };
@@ -142,13 +142,9 @@ let colorArray = new Float32Array(r_numparticles * 3);
 
 let tracercount = 0;
 
-/*
-===============
-R_InitParticleTexture
-
-Matches gl_rmisc.c R_InitParticleTexture — 8x8 white dot with alpha diamond
-===============
-*/
+/**
+ * Matches gl_rmisc.c R_InitParticleTexture — 8x8 white dot with alpha diamond
+ */
 function R_InitParticleTexture() {
   const dottexture = [
     [0, 1, 1, 0, 0, 0, 0, 0],
@@ -184,15 +180,11 @@ function R_InitParticleTexture() {
   GL_RegisterTexture(particleTexture);
 }
 
-/*
-===============
-R_InitParticles
-
--particles <n> sizes the pool, with C's 512 minimum and no maximum. The
-"i < com_argc - 1" check, which keeps the default when no number follows,
-is Ironwail's.
-===============
-*/
+/**
+ * -particles <n> sizes the pool, with C's 512 minimum and no maximum. The
+ * "i < com_argc - 1" check, which keeps the default when no number follows,
+ * is Ironwail's.
+ */
 export function R_InitParticles() {
   const i = COM_CheckParm("-particles");
 
@@ -241,21 +233,11 @@ export function R_InitParticles() {
   R_InitParticleTexture();
 }
 
-/*
-===============
-R_SetParticleExternals
-===============
-*/
 export function R_SetParticleExternals(externals) {
   if (externals.scene) _scene = externals.scene;
   if (externals.sv_gravity != null) _sv_gravity = externals.sv_gravity;
 }
 
-/*
-===============
-R_ClearParticles
-===============
-*/
 export function R_ClearParticles() {
   activeList = -1;
   particleLive = 0;
@@ -293,15 +275,11 @@ function allocParticle() {
   return p;
 }
 
-/*
-===============
-R_ParsePointFile
-
-The fscanf( f, "%f %f %f\n", ... ) loop of R_ReadPointFile_f: read
-whitespace-separated triples until one fails to parse. Returns the
-coordinates as a flat array, three per point.
-===============
-*/
+/**
+ * The fscanf( f, "%f %f %f\n", ... ) loop of R_ReadPointFile_f: read
+ * whitespace-separated triples until one fails to parse. Returns the
+ * coordinates as a flat array, three per point.
+ */
 export function R_ParsePointFile(text) {
   const tokens = text.split(/\s+/).filter((t) => t.length > 0);
   const out = [];
@@ -318,14 +296,10 @@ export function R_ParsePointFile(text) {
   return out;
 }
 
-/*
-===============
-R_LoadPointFile
-
-The particle half of R_ReadPointFile_f: one static particle per point,
-coloured ( -c ) & 15, that never dies. Returns the number of points read.
-===============
-*/
+/**
+ * The particle half of R_ReadPointFile_f: one static particle per point,
+ * coloured ( -c ) & 15, that never dies. Returns the number of points read.
+ */
 export function R_LoadPointFile(coords) {
   let c = 0;
   for (let i = 0; i + 2 < coords.length; i += 3) {
@@ -348,17 +322,13 @@ export function R_LoadPointFile(coords) {
   return c;
 }
 
-/*
-===============
-R_ReadPointFile_f
-
-Deviation: C opens maps/<sv.name>.pts, which only exists on the server host.
-The port names it after the client's world model ( maps/e1m1.bsp gives
-maps/e1m1.pts ), the same file whenever the server is local, and it also
-works when connected to a remote server. Loose .pts files (written by qbsp
-on a leak) are fetched on demand, so the particles appear once it arrives.
-===============
-*/
+/**
+ * Deviation: C opens maps/<sv.name>.pts, which only exists on the server host.
+ * The port names it after the client's world model ( maps/e1m1.bsp gives
+ * maps/e1m1.pts ), the same file whenever the server is local, and it also
+ * works when connected to a remote server. Loose .pts files (written by qbsp
+ * on a leak) are fetched on demand, so the particles appear once it arrives.
+ */
 export function R_ReadPointFile_f() {
   if (
     client_cl === null || client_cl.worldmodel === null ||
@@ -387,11 +357,6 @@ export function R_ReadPointFile_f() {
   });
 }
 
-/*
-===============
-R_ParticleExplosion
-===============
-*/
 export function R_ParticleExplosion(org) {
   if (!client_cl) return;
 
@@ -419,11 +384,6 @@ export function R_ParticleExplosion(org) {
   }
 }
 
-/*
-===============
-R_ParticleExplosion2
-===============
-*/
 export function R_ParticleExplosion2(org, colorStart, colorLength) {
   if (!client_cl) return;
   let colorMod = 0;
@@ -444,11 +404,6 @@ export function R_ParticleExplosion2(org, colorStart, colorLength) {
   }
 }
 
-/*
-===============
-R_BlobExplosion
-===============
-*/
 export function R_BlobExplosion(org) {
   if (!client_cl) return;
 
@@ -473,11 +428,6 @@ export function R_BlobExplosion(org) {
   }
 }
 
-/*
-===============
-R_RunParticleEffect
-===============
-*/
 export function R_RunParticleEffect(org, dir, color, count) {
   if (!client_cl) return;
 
@@ -517,11 +467,7 @@ export function R_RunParticleEffect(org, dir, color, count) {
   }
 }
 
-/*
-===============
-R_LavaSplash
-===============
-*/
+// R_LavaSplash
 const _lavasplash_dir = new Float32Array(3);
 
 export function R_LavaSplash(org) {
@@ -554,11 +500,7 @@ export function R_LavaSplash(org) {
   }
 }
 
-/*
-===============
-R_TeleportSplash
-===============
-*/
+// R_TeleportSplash
 const _teleportsplash_dir = new Float32Array(3);
 
 export function R_TeleportSplash(org) {
@@ -593,11 +535,8 @@ export function R_TeleportSplash(org) {
   }
 }
 
-/*
-===============
-R_RocketTrail
-===============
-*/
+// R_RocketTrail
+
 // Scratch for R_RocketTrail, called per trailing entity per frame
 const _rockettrail_vec = new Float32Array(3);
 const _rockettrail_s = new Float32Array(3);
@@ -705,13 +644,9 @@ export function R_RocketTrail(start, end, type) {
   }
 }
 
-/*
-===============
-R_EntityParticles
-
-Glowing particle aura around entities with EF_BRIGHTFIELD (e.g. Quad Damage)
-===============
-*/
+// R_EntityParticles
+//
+// Glowing particle aura around entities with EF_BRIGHTFIELD (e.g. Quad Damage)
 
 const NUMVERTEXNORMALS = 162;
 const avelocities = new Array(NUMVERTEXNORMALS);
@@ -764,15 +699,11 @@ export function R_EntityParticles(ent) {
   }
 }
 
-/*
-===============
-R_MarkParticleUpload
-
-Not in C. Three.js uploads a whole buffer attribute when needsUpdate is set;
-limit the upload to the first count particles, which are the live ones.
-(The server's Three.js shim has no update ranges, hence the check.)
-===============
-*/
+/**
+ * Not in C. Three.js uploads a whole buffer attribute when needsUpdate is set;
+ * limit the upload to the first count particles, which are the live ones.
+ * (The server's Three.js shim has no update ranges, hence the check.)
+ */
 export function R_MarkParticleUpload(attribute, count) {
   if (attribute.clearUpdateRanges !== undefined) {
     attribute.clearUpdateRanges();
@@ -782,14 +713,10 @@ export function R_MarkParticleUpload(attribute, count) {
   attribute.needsUpdate = true;
 }
 
-/*
-===============
-R_EnsureParticleMesh
-
-Web-only: the lazy creation of the Points mesh, moved out of R_DrawParticles
-unchanged so gl_warmup.js can reach the material before the first frame.
-===============
-*/
+/**
+ * Web-only: the lazy creation of the Points mesh, moved out of R_DrawParticles
+ * unchanged so gl_warmup.js can reach the material before the first frame.
+ */
 function R_EnsureParticleMesh() {
   if (!pointsGeometry) {
     pointsGeometry = new THREE.BufferGeometry();
@@ -825,11 +752,6 @@ export function R_GetParticleMaterial() {
   return pointsMaterial;
 }
 
-/*
-===============
-R_DrawParticles
-===============
-*/
 export function R_DrawParticles() {
   if (!client_cl || !_scene) return;
 

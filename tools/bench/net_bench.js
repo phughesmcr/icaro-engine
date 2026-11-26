@@ -143,9 +143,7 @@ function fnv(h, data, start, end) {
   return h;
 }
 
-//
 // Fake net driver: copies each datagram into an arena and records its size
-//
 const FAKE_DRIVER = MAX_NET_DRIVERS - 1;
 const ARENA = 1 << 22;
 const arena = new Uint8Array(ARENA);
@@ -304,9 +302,7 @@ function driveClients(frame) {
   }
 }
 
-//
 // Client half: parse the datagrams client 0 was sent, then replay commands
-//
 let C = null;
 async function initClient() {
   await import("../../src/gl_rsurf.js"); // the client graph's safe import order

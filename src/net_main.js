@@ -133,9 +133,7 @@ import { Turnstile_GetToken } from "./turnstile.js";
 
 import { MAX_SCOREBOARD } from "./quakedef.js";
 
-//============================================================================
 // Module-level state
-//============================================================================
 
 let listening = false;
 export function set_listening(state) {
@@ -177,30 +175,21 @@ let pollProcedureList = null;
 
 // macros from C: sfunc = net_drivers[sock.driver], dfunc = net_drivers[net_driverlevel]
 
-/*
-===================
-SetNetTime
-===================
-*/
 export function SetNetTime() {
   set_net_time(Sys_FloatTime());
   return net_time;
 }
 
-/*
-===================
-NET_NewQSocket
-
-Called by drivers when a new communications endpoint is required
-The sequence and buffer fields will be filled in properly
-
-pendingConnections: sockets the calling driver has already handed out for
-incoming sessions that SV_CheckForNewClients has not accepted yet. A server
-driver passes its queue length so that connections opened in the same frame
-cannot claim more sockets than there are free client slots (net_activeconnections
-only rises once a socket is accepted). Outgoing and loopback callers pass 0.
-===================
-*/
+/**
+ * Called by drivers when a new communications endpoint is required
+ * The sequence and buffer fields will be filled in properly
+ *
+ * pendingConnections: sockets the calling driver has already handed out for
+ * incoming sessions that SV_CheckForNewClients has not accepted yet. A server
+ * driver passes its queue length so that connections opened in the same frame
+ * cannot claim more sockets than there are free client slots (net_activeconnections
+ * only rises once a socket is accepted). Outgoing and loopback callers pass 0.
+ */
 export function NET_NewQSocket(pendingConnections = 0) {
   if (net_freeSockets === null) {
     return null;
@@ -241,11 +230,6 @@ export function NET_NewQSocket(pendingConnections = 0) {
   return sock;
 }
 
-/*
-===================
-NET_FreeQSocket
-===================
-*/
 export function NET_FreeQSocket(sock) {
   // remove it from active list
   if (sock === net_activeSockets) {
@@ -272,11 +256,6 @@ export function NET_FreeQSocket(sock) {
   sock.disconnected = true;
 }
 
-/*
-===================
-NET_Listen_f
-===================
-*/
 function NET_Listen_f() {
   if (Cmd_Argc() !== 2) {
     Con_Printf('"listen" is "' + (listening ? 1 : 0) + '"\n');
@@ -294,11 +273,6 @@ function NET_Listen_f() {
   }
 }
 
-/*
-===================
-MaxPlayers_f
-===================
-*/
 function MaxPlayers_f() {
   if (Cmd_Argc() !== 2) {
     Con_Printf('"maxplayers" is "' + svs.maxclients + '"\n');
@@ -335,11 +309,6 @@ function MaxPlayers_f() {
   }
 }
 
-/*
-===================
-NET_Port_f
-===================
-*/
 function NET_Port_f() {
   if (Cmd_Argc() !== 2) {
     Con_Printf('"port" is "' + net_hostport + '"\n');
@@ -362,22 +331,12 @@ function NET_Port_f() {
   }
 }
 
-/*
-===================
-PrintSlistHeader
-===================
-*/
 function PrintSlistHeader() {
   Con_Printf("Server          Map             Users\n");
   Con_Printf("--------------- --------------- -----\n");
   slistLastShown = 0;
 }
 
-/*
-===================
-PrintSlist
-===================
-*/
 function PrintSlist() {
   for (let n = slistLastShown; n < hostCacheCount; n++) {
     if (hostcache[n].maxusers) {
@@ -393,11 +352,6 @@ function PrintSlist() {
   slistLastShown = hostCacheCount;
 }
 
-/*
-===================
-PrintSlistTrailer
-===================
-*/
 function PrintSlistTrailer() {
   if (hostCacheCount) {
     Con_Printf("== end list ==\n\n");
@@ -406,11 +360,6 @@ function PrintSlistTrailer() {
   }
 }
 
-/*
-===================
-NET_Slist_f
-===================
-*/
 export function NET_Slist_f() {
   if (slistInProgress) {
     return;
@@ -430,11 +379,6 @@ export function NET_Slist_f() {
   set_hostCacheCount(0);
 }
 
-/*
-===================
-Slist_Send
-===================
-*/
 function Slist_Send() {
   for (let i = 0; i < net_numdrivers; i++) {
     set_net_driverlevel(i);
@@ -452,11 +396,6 @@ function Slist_Send() {
   }
 }
 
-/*
-===================
-Slist_Poll
-===================
-*/
 function Slist_Poll() {
   for (let i = 0; i < net_numdrivers; i++) {
     set_net_driverlevel(i);
@@ -489,45 +428,33 @@ function Slist_Poll() {
 const slistSendProcedure = new PollProcedure(null, 0.0, Slist_Send);
 const slistPollProcedure = new PollProcedure(null, 0.0, Slist_Poll);
 
-/*
-===================
-NET_ConnectionDead
-
-Web-only (no C counterpart). A send that fails is a lost connection only when
-the driver has given up on it; a message too large fails without that.
-===================
-*/
+/**
+ * Web-only (no C counterpart). A send that fails is a lost connection only when
+ * the driver has given up on it; a message too large fails without that.
+ */
 function NET_ConnectionDead(sock) {
   const conn = sock.driverdata;
   return conn == null || conn.connected === false ||
     (conn.error !== undefined && conn.error !== null);
 }
 
-/*
-===================
-NET_WebSocketFallbackAvailable
-
-Web-only (no C counterpart). True when a failed WebTransport connect may be
-retried over WebSocket: the WebSocket driver is ready and the page didn't
-force WebTransport with ?transport=wt.
-===================
-*/
+/**
+ * Web-only (no C counterpart). True when a failed WebTransport connect may be
+ * retried over WebSocket: the WebSocket driver is ready and the page didn't
+ * force WebTransport with ?transport=wt.
+ */
 export function NET_WebSocketFallbackAvailable() {
   return _NET_DriverReady(net_wsdriverlevel) &&
     _NET_PageParam("transport") !== "wt";
 }
 
-/*
-===================
-NET_WebSocketFallback
-
-Web-only (no C counterpart). WebTransport rides on QUIC (UDP), which some
-networks block. When the WebTransport driver reports it couldn't open its
-transport (not that the server refused the player), try the same address once
-over wss:// before giving up. NET_UseWebSocket only chooses a transport up
-front, so this is the only place a failed WebTransport falls back.
-===================
-*/
+/**
+ * Web-only (no C counterpart). WebTransport rides on QUIC (UDP), which some
+ * networks block. When the WebTransport driver reports it couldn't open its
+ * transport (not that the server refused the player), try the same address once
+ * over wss:// before giving up. NET_UseWebSocket only chooses a transport up
+ * front, so this is the only place a failed WebTransport falls back.
+ */
 function NET_WebSocketFallback(promise, host) {
   return promise.then((sock) => {
     if (sock || net_wt_unreachable === false) {
@@ -541,14 +468,10 @@ function NET_WebSocketFallback(promise, host) {
   });
 }
 
-/*
-===================
-NET_Connect
-
-Connects to a host. For local connections, this is synchronous.
-For remote connections (WebTransport or WebSocket), this returns a Promise.
-===================
-*/
+/**
+ * Connects to a host. For local connections, this is synchronous.
+ * For remote connections (WebTransport or WebSocket), this returns a Promise.
+ */
 export function NET_Connect(host) {
   SetNetTime();
 
@@ -638,24 +561,20 @@ export function NET_Connect(host) {
   return null;
 }
 
-/*
-===================
-Remote transport choice (no C counterpart)
-
-The browser client reaches lobbies and rooms over WebTransport or, where
-WebTransport is missing or an HTTP-only proxy sits in front (Cloudflare
-Tunnel), over WebSocket. Page parameters:
-  ?transport=ws        use WebSocket
-  ?transport=wt        use WebTransport (if the browser has it)
-  ?server=<url>        the lobby; a ws:// or wss:// URL implies WebSocket,
-                       any other scheme WebTransport
-Without either, a page on localhost uses WebTransport and the local lobby
-(SYS_DEFAULT_LOBBY), and a page on any other host uses WebSocket and the
-lobby at /mp on its own host (WS_DefaultServer): WebTransport's default
-lobby, https://localhost:4433, can't work for a public page, and WebTransport
-doesn't reach a lobby behind Cloudflare (docs/always-on-hosting.md).
-===================
-*/
+// Remote transport choice (no C counterpart)
+//
+// The browser client reaches lobbies and rooms over WebTransport or, where
+// WebTransport is missing or an HTTP-only proxy sits in front (Cloudflare
+// Tunnel), over WebSocket. Page parameters:
+//   ?transport=ws        use WebSocket
+//   ?transport=wt        use WebTransport (if the browser has it)
+//   ?server=<url>        the lobby; a ws:// or wss:// URL implies WebSocket,
+//                        any other scheme WebTransport
+// Without either, a page on localhost uses WebTransport and the local lobby
+// (SYS_DEFAULT_LOBBY), and a page on any other host uses WebSocket and the
+// lobby at /mp on its own host (WS_DefaultServer): WebTransport's default
+// lobby, https://localhost:4433, can't work for a public page, and WebTransport
+// doesn't reach a lobby behind Cloudflare (docs/always-on-hosting.md).
 
 function _NET_PageParam(name) {
   const loc = globalThis.location;
@@ -668,16 +587,12 @@ function _NET_DriverReady(level) {
     net_drivers[level].initialized === true;
 }
 
-/*
-===================
-NET_ChooseWebSocket
-
-The transport decision behind NET_UseWebSocket, from its inputs: whether
-each driver is ready, the page's ?transport= and ?server= (null when
-absent), and whether the page is local (WS_PageIsLocal). An empty ?server=
-counts as absent, as in NET_LobbyServer.
-===================
-*/
+/**
+ * The transport decision behind NET_UseWebSocket, from its inputs: whether
+ * each driver is ready, the page's ?transport= and ?server= (null when
+ * absent), and whether the page is local (WS_PageIsLocal). An empty ?server=
+ * counts as absent, as in NET_LobbyServer.
+ */
 export function NET_ChooseWebSocket(
   wtReady,
   wsReady,
@@ -696,13 +611,7 @@ export function NET_ChooseWebSocket(
   return pageIsLocal === false;
 }
 
-/*
-===================
-NET_UseWebSocket
-
-True when remote connections should use the WebSocket driver.
-===================
-*/
+/** True when remote connections should use the WebSocket driver. */
 export function NET_UseWebSocket() {
   return NET_ChooseWebSocket(
     _NET_DriverReady(net_wtdriverlevel),
@@ -713,27 +622,17 @@ export function NET_UseWebSocket() {
   );
 }
 
-/*
-===================
-NET_MultiplayerAvailable
-
-True when the browser has a remote transport at all.
-===================
-*/
+/** True when the browser has a remote transport at all. */
 export function NET_MultiplayerAvailable() {
   return _NET_DriverReady(net_wtdriverlevel) ||
     _NET_DriverReady(net_wsdriverlevel);
 }
 
-/*
-===================
-NET_LobbyServer
-
-The lobby URL: ?server=, or the transport's default, checked by
-Sys_ParseLobbyURL. Null when ?server= is not a valid lobby address (callers
-refuse to connect rather than fall back to a default).
-===================
-*/
+/**
+ * The lobby URL: ?server=, or the transport's default, checked by
+ * Sys_ParseLobbyURL. Null when ?server= is not a valid lobby address (callers
+ * refuse to connect rather than fall back to a default).
+ */
 export function NET_LobbyServer() {
   const server = _NET_PageParam("server");
   if (server !== null && server.length > 0) return Sys_ParseLobbyURL(server);
@@ -754,13 +653,9 @@ function _NET_ServerUsesWebSocket(serverUrl) {
   return WS_IsWebSocketURL(serverUrl) || NET_UseWebSocket();
 }
 
-/*
-===================
-NET_QueryRooms / NET_CreateRoom
-
-The lobby's room list, and a new room, over the chosen transport.
-===================
-*/
+// NET_QueryRooms / NET_CreateRoom
+//
+// The lobby's room list, and a new room, over the chosen transport.
 export function NET_QueryRooms(serverUrl) {
   return _NET_ServerUsesWebSocket(serverUrl) ?
     WS_QueryRooms(serverUrl) :
@@ -814,14 +709,10 @@ export async function NET_CreateRoom(serverUrl, config) {
   }
 }
 
-/*
-===================
-NET_LobbyVerifyError
-
-The error for a LOBBY_VERIFY reply to a room request: its `turnstile` is
-{ sitekey, action }, for NET_CreateRoom.
-===================
-*/
+/**
+ * The error for a LOBBY_VERIFY reply to a room request: its `turnstile` is
+ * { sitekey, action }, for NET_CreateRoom.
+ */
 export function NET_LobbyVerifyError(data) {
   let challenge = null;
 
@@ -844,16 +735,12 @@ export function NET_LobbyVerifyError(data) {
   return error;
 }
 
-/*
-===================
-NET_LobbyJoinURL
-
-The connect address that joins room roomId through the lobby (which
-re-creates a room that has expired). The result is quoted into a `connect`
-command, so the lobby is checked and the room id encoded: null when either
-could end the quoted argument (see Sys_ConnectURL).
-===================
-*/
+/**
+ * The connect address that joins room roomId through the lobby (which
+ * re-creates a room that has expired). The result is quoted into a `connect`
+ * command, so the lobby is checked and the room id encoded: null when either
+ * could end the quoted argument (see Sys_ConnectURL).
+ */
 export function NET_LobbyJoinURL(serverUrl, roomId) {
   if (serverUrl === null) return null;
 
@@ -872,16 +759,12 @@ export function NET_LobbyJoinURL(serverUrl, roomId) {
   return Sys_ConnectURL(serverUrl, roomId, null);
 }
 
-/*
-===================
-NET_RtcLobbyURL
-
-Web addition: the lobby address for rooms hosted in browsers. Their
-signalling needs a lobby socket that stays open, which only the WebSocket
-lobby has, so this is null when the page reaches its lobby over
-WebTransport.
-===================
-*/
+/**
+ * Web addition: the lobby address for rooms hosted in browsers. Their
+ * signalling needs a lobby socket that stays open, which only the WebSocket
+ * lobby has, so this is null when the page reaches its lobby over
+ * WebTransport.
+ */
 export function NET_RtcLobbyURL() {
   const server = NET_LobbyServer();
   if (server === null || _NET_ServerUsesWebSocket(server) === false) {
@@ -890,15 +773,11 @@ export function NET_RtcLobbyURL() {
   return WS_LobbyURL(server);
 }
 
-/*
-===================
-NET_CanHostInBrowser / NET_HostRoom
-
-Web addition: host a room in this browser (src/net_rtclobby.js). The caller
-starts the listen server; NET_HostRoom registers it with the lobby once its
-map is up.
-===================
-*/
+// NET_CanHostInBrowser / NET_HostRoom
+//
+// Web addition: host a room in this browser (src/net_rtclobby.js). The caller
+// starts the listen server; NET_HostRoom registers it with the lobby once its
+// map is up.
 export function NET_CanHostInBrowser() {
   return _NET_DriverReady(net_rtcdriverlevel) && RTCLobby_CanHost();
 }
@@ -907,15 +786,11 @@ export function NET_HostRoom(config, spawnCount, exitRules) {
   return RTCLobby_HostRoom(config, spawnCount, exitRules);
 }
 
-/*
-===================
-NET_RoomURL
-
-The connect address of a room the lobby has just returned: its own port for
-WebTransport, the lobby's /room/<id> proxy path for WebSocket. Null when
-the lobby, room id or port is not safe to quote into a `connect` command.
-===================
-*/
+/**
+ * The connect address of a room the lobby has just returned: its own port for
+ * WebTransport, the lobby's /room/<id> proxy path for WebSocket. Null when
+ * the lobby, room id or port is not safe to quote into a `connect` command.
+ */
 export function NET_RoomURL(serverUrl, room) {
   if (serverUrl === null) return null;
 
@@ -933,11 +808,6 @@ export function NET_RoomURL(serverUrl, room) {
   return Sys_ConnectURL(serverUrl, null, Number(room.port));
 }
 
-/*
-===================
-NET_CheckNewConnections
-===================
-*/
 export function NET_CheckNewConnections() {
   SetNetTime();
 
@@ -965,11 +835,6 @@ export function NET_CheckNewConnections() {
   return null;
 }
 
-/*
-===================
-NET_HasFreeClientSlot
-===================
-*/
 function NET_HasFreeClientSlot() {
   if (svs.clients == null) {
     return true;
@@ -985,11 +850,6 @@ function NET_HasFreeClientSlot() {
   return false;
 }
 
-/*
-===================
-NET_Close
-===================
-*/
 export function NET_Close(sock) {
   if (!sock) {
     return;
@@ -1007,18 +867,14 @@ export function NET_Close(sock) {
   NET_FreeQSocket(sock);
 }
 
-/*
-=================
-NET_GetMessage
-
-If there is a complete message, return it in net_message
-
-returns 0 if no data is waiting
-returns 1 if a message was received
-returns 2 if an unreliable message was received
-returns -1 if connection is invalid
-=================
-*/
+/**
+ * If there is a complete message, return it in net_message
+ *
+ * returns 0 if no data is waiting
+ * returns 1 if a message was received
+ * returns 2 if an unreliable message was received
+ * returns -1 if connection is invalid
+ */
 export function NET_GetMessage(sock) {
   if (!sock) {
     return -1;
@@ -1061,17 +917,13 @@ export function NET_GetMessage(sock) {
   return ret;
 }
 
-/*
-==================
-NET_SendMessage
-
-Try to send a complete length+message unit over the reliable stream.
-returns 0 if the message cannot be delivered reliably, but the connection
-		is still considered valid
-returns 1 if the message was sent properly
-returns -1 if the connection died
-==================
-*/
+/**
+ * Try to send a complete length+message unit over the reliable stream.
+ * returns 0 if the message cannot be delivered reliably, but the connection
+ * 		is still considered valid
+ * returns 1 if the message was sent properly
+ * returns -1 if the connection died
+ */
 export function NET_SendMessage(sock, data) {
   if (!sock) {
     return -1;
@@ -1091,11 +943,6 @@ export function NET_SendMessage(sock, data) {
   return r;
 }
 
-/*
-==================
-NET_SendUnreliableMessage
-==================
-*/
 export function NET_SendUnreliableMessage(sock, data) {
   if (!sock) {
     return -1;
@@ -1115,14 +962,10 @@ export function NET_SendUnreliableMessage(sock, data) {
   return r;
 }
 
-/*
-==================
-NET_CanSendMessage
-
-Returns true or false if the given qsocket can currently accept a
-message to be transmitted.
-==================
-*/
+/**
+ * Returns true or false if the given qsocket can currently accept a
+ * message to be transmitted.
+ */
 export function NET_CanSendMessage(sock) {
   if (!sock) {
     return false;
@@ -1139,14 +982,10 @@ export function NET_CanSendMessage(sock) {
   return r;
 }
 
-/*
-==================
-NET_CanSendUnreliableMessage
-
-Returns true or false if the given qsocket can currently accept an
-unreliable message to be transmitted.
-==================
-*/
+/**
+ * Returns true or false if the given qsocket can currently accept an
+ * unreliable message to be transmitted.
+ */
 export function NET_CanSendUnreliableMessage(sock) {
   if (!sock) {
     return false;
@@ -1163,13 +1002,7 @@ export function NET_CanSendUnreliableMessage(sock) {
   return r;
 }
 
-/*
-==================
-NET_SendToAll
-
-This is a reliable *blocking* send to all attached clients.
-==================
-*/
+/** This is a reliable *blocking* send to all attached clients. */
 export function NET_SendToAll(data, blocktime) {
   const start = Sys_FloatTime();
   let count = 0;
@@ -1242,11 +1075,6 @@ export function NET_SendToAll(data, blocktime) {
   return count;
 }
 
-/*
-====================
-NET_Init
-====================
-*/
 export function NET_Init() {
   let i = COM_CheckParm("-port");
   if (i === 0) {
@@ -1394,11 +1222,6 @@ export function NET_Init() {
   Con_Printf("NET_Init complete\n");
 }
 
-/*
-====================
-NET_Shutdown
-====================
-*/
 export function NET_Shutdown() {
   SetNetTime();
 
@@ -1419,11 +1242,6 @@ export function NET_Shutdown() {
   }
 }
 
-/*
-===================
-NET_Poll
-===================
-*/
 export function NET_Poll() {
   SetNetTime();
 
@@ -1438,11 +1256,6 @@ export function NET_Poll() {
   }
 }
 
-/*
-===================
-SchedulePollProcedure
-===================
-*/
 export function SchedulePollProcedure(proc, timeOffset) {
   proc.nextTime = Sys_FloatTime() + timeOffset;
 

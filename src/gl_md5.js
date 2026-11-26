@@ -41,16 +41,12 @@ import {
 // Ironwail iqmvert_t: weight[4], idx[4]
 const MD5_MAXINFLUENCES = 4;
 
-/*
-=================================================================
-Tokenizer
-
-COM_Parse over the file text: the same tokens (whitespace and // and /* *\/
-comments skipped, quoted strings, and { } ( ) ' as single characters), but
-it walks an index instead of returning the rest of the text, since an
-.md5anim is a few hundred kilobytes of numbers.
-=================================================================
-*/
+// Tokenizer
+//
+// COM_Parse over the file text: the same tokens (whitespace and // and /* *\/
+// comments skipped, quoted strings, and { } ( ) ' as single characters), but
+// it walks an index instead of returning the rest of the text, since an
+// .md5anim is a few hundred kilobytes of numbers.
 
 function MD5_IsSingleChar(c) {
   return c === 123 || c === 125 || c === 40 || c === 41 || c === 39; // { } ( ) '
@@ -178,11 +174,7 @@ function MD5_Float(p) {
   return Number.isNaN(f) ? 0 : f;
 }
 
-/*
-=================================================================
-3x4 row-major matrices (Ironwail bonepose_t.mat), flat with an offset
-=================================================================
-*/
+// 3x4 row-major matrices (Ironwail bonepose_t.mat), flat with an offset
 
 // GenMatrixPosQuat4Scale, with a scale of 1 (all Ironwail passes for MD5)
 function GenMatrixPosQuat4(px, py, pz, qx, qy, qz, qw, out, o) {
@@ -259,14 +251,10 @@ function MD5_QuatW(qx, qy, qz) {
   return -Math.sqrt(w);
 }
 
-/*
-=================
-MD5_BakeInfluences
-
-Bind-pose position of each vertex from its weights, and its four strongest
-bone influences, renormalised.
-=================
-*/
+/**
+ * Bind-pose position of each vertex from its weights, and its four strongest
+ * bone influences, renormalised.
+ */
 function MD5_BakeInfluences(fname, bindposes, mesh, wbone, wpos, numweights) {
   const numverts = mesh.numverts;
   const xyz = new Float32Array(numverts * 3);
@@ -345,15 +333,11 @@ function MD5_BakeInfluences(fname, bindposes, mesh, wbone, wpos, numweights) {
   mesh.maxinfluences = maxinfluences;
 }
 
-/*
-=================
-MD5_ComputeNormals
-
-Bind-pose normals, which the format lacks: each triangle's face normal is
-added to its corners, with vertices at the same position welded so seams
-are smooth.
-=================
-*/
+/**
+ * Bind-pose normals, which the format lacks: each triangle's face normal is
+ * added to its corners, with vertices at the same position welded so seams
+ * are smooth.
+ */
 function MD5_ComputeNormals(mesh) {
   const numverts = mesh.numverts;
   const xyz = mesh.xyz;
@@ -422,15 +406,11 @@ function MD5_ComputeNormals(mesh) {
   mesh.normals = normals;
 }
 
-/*
-=================
-MD5Anim_Begin
-
-The .md5anim header, up to its frame rate. Its poses are read by
-MD5Anim_Load once the mesh's joints are known. A missing file gives no
-poses, which fails the load.
-=================
-*/
+/**
+ * The .md5anim header, up to its frame rate. Its poses are read by
+ * MD5Anim_Load once the mesh's joints are known. A missing file gives no
+ * poses, which fails the load.
+ */
 function MD5Anim_Begin(fname, text) {
   const ctx = { parser: null, numposes: 0, numjoints: 0, posedata: null };
   if (text === null) {
@@ -456,17 +436,13 @@ function MD5Anim_Begin(fname, text) {
   return ctx;
 }
 
-/*
-=================
-MD5Anim_Load
-
-Every frame's bone matrices, each the joint's absolute pose times the
-inverse of its bind pose: what moves a bind-pose vertex into that frame.
-Like Ironwail, components a joint's flags leave out are 0, not the
-baseframe's (the rerelease animates all six of every joint), and a frame
-the file leaves out keeps zero matrices.
-=================
-*/
+/**
+ * Every frame's bone matrices, each the joint's absolute pose times the
+ * inverse of its bind pose: what moves a bind-pose vertex into that frame.
+ * Like Ironwail, components a joint's flags leave out are 0, not the
+ * baseframe's (the rerelease animates all six of every joint), and a frame
+ * the file leaves out keeps zero matrices.
+ */
 function MD5Anim_Load(ctx, names, parents, inverse) {
   const p = ctx.parser;
   const fname = p.fname;
@@ -619,16 +595,12 @@ function MD5Anim_Load(ctx, names, parents, inverse) {
   ctx.posedata = posedata;
 }
 
-/*
-=================
-MD5_ParseModel
-
-The joints, poses and mesh of an .md5mesh and its .md5anim, in the order
-Ironwail's Mod_LoadMD5MeshModel reads them. Throws on a bad file. Not in
-the C as a separate step: it has no textures or GPU state, so tests can
-call it.
-=================
-*/
+/**
+ * The joints, poses and mesh of an .md5mesh and its .md5anim, in the order
+ * Ironwail's Mod_LoadMD5MeshModel reads them. Throws on a bad file. Not in
+ * the C as a separate step: it has no textures or GPU state, so tests can
+ * call it.
+ */
 export function MD5_ParseModel(fname, meshText, animText) {
   const p = MD5_Parser(meshText, fname);
   MD5_Parse(p);
@@ -837,15 +809,12 @@ function COM_StripMD5Extension(name) {
   return dot > name.lastIndexOf("/") ? name.substring(0, dot) : name;
 }
 
-/*
-=================
-MD5_SkinPose
+// MD5_SkinPose
+//
+// One pose's vertices: each bind-pose position and normal moved by its
+// weighted bone matrices. out and outnormals hold numverts * 3 floats;
+// lightnormalindices, if given, gets each normal's nearest Quake normal.
 
-One pose's vertices: each bind-pose position and normal moved by its
-weighted bone matrices. out and outnormals hold numverts * 3 floats;
-lightnormalindices, if given, gets each normal's nearest Quake normal.
-=================
-*/
 // The blended bone matrix is held in twelve locals, rounded to float with
 // Math.fround after every add: the same values a Float32Array(12) accumulator
 // gives, without its loads and stores.
@@ -940,14 +909,10 @@ export function MD5_NearestNormal(x, y, z) {
   return best;
 }
 
-/*
-=================
-MD5_CullSphere
-
-GL_AliasCullSphere (gl_mesh.js) for an MD5: one model-space sphere around
-every vertex of every pose.
-=================
-*/
+/**
+ * GL_AliasCullSphere (gl_mesh.js) for an MD5: one model-space sphere around
+ * every vertex of every pose.
+ */
 function MD5_CullSphere(hdr) {
   const md5 = hdr.md5;
   const stride = md5.numverts * 3;
@@ -989,18 +954,14 @@ function MD5_CullSphere(hdr) {
   hdr._cullRadius = Math.sqrt(radiusSq);
 }
 
-/*
-=================
-Mod_LoadMD5Skins
-
-progs/<shader>_<skin>_<frame>: up to MAX_SKINS skins of up to four frames
-each, until a skin has no frame 0. "MD5 violation: the skin is a single
-material. adding prefixes/postfixes here is the wrong thing to do. but we
-do so anyway, because rerelease compat." The textures are made as
-Mod_LoadAllSkins makes an .mdl's, so fullbrights, MF_HOLEY and the player
-colormap (texels) work the same.
-=================
-*/
+/**
+ * progs/<shader>_<skin>_<frame>: up to MAX_SKINS skins of up to four frames
+ * each, until a skin has no frame 0. "MD5 violation: the skin is a single
+ * material. adding prefixes/postfixes here is the wrong thing to do. but we
+ * do so anyway, because rerelease compat." The textures are made as
+ * Mod_LoadAllSkins makes an .mdl's, so fullbrights, MF_HOLEY and the player
+ * colormap (texels) work the same.
+ */
 function Mod_LoadMD5Skins(mod, hdr, shader) {
   // no palette (the Deno server never runs VID_Init): no masks to make
   const splitFullbright = vid.fullbright > 0;
@@ -1089,23 +1050,19 @@ function MD5_LoadLMP(name) {
   };
 }
 
-/*
-=================
-Mod_LoadMD5MeshModel
-
-The alias header an .md5mesh draws with, or null (and a warning) when the
-files are bad. As in Ironwail, each pose is one frame: Quake frame n is
-pose n of the .md5anim, so QuakeC's frame numbers pick the same animation
-as the .mdl's. Nothing else of the .mdl's is changed: the model keeps its
-flags (trails, rotation), synctype, frame count, bounds and the .mdl
-header the server and the rest of the client read. Ironwail recomputes the
-bounds from the MD5 (Mod_CalcAliasBounds); the port's alias bounds are
-WinQuake's fixed 16-unit box, which the server's setmodel uses.
-
-The caller (gl_model.js Mod_LoadMD5Replacement) sets loadmodel, so the
-skins belong to mod.
-=================
-*/
+/**
+ * The alias header an .md5mesh draws with, or null (and a warning) when the
+ * files are bad. As in Ironwail, each pose is one frame: Quake frame n is
+ * pose n of the .md5anim, so QuakeC's frame numbers pick the same animation
+ * as the .mdl's. Nothing else of the .mdl's is changed: the model keeps its
+ * flags (trails, rotation), synctype, frame count, bounds and the .mdl
+ * header the server and the rest of the client read. Ironwail recomputes the
+ * bounds from the MD5 (Mod_CalcAliasBounds); the port's alias bounds are
+ * WinQuake's fixed 16-unit box, which the server's setmodel uses.
+ *
+ * The caller (gl_model.js Mod_LoadMD5Replacement) sets loadmodel, so the
+ * skins belong to mod.
+ */
 export function Mod_LoadMD5MeshModel(mod, meshText, animText) {
   let md5;
   try {
@@ -1148,15 +1105,11 @@ export function Mod_LoadMD5MeshModel(mod, meshText, animText) {
   return hdr;
 }
 
-/*
-=================
-GL_DrawMD5Frame
-
-GL_DrawAliasFrame (gl_mesh.js) for an MD5: the template of one pose, made
-the first time the pose is drawn and cached, so drawing allocates nothing.
-Every pose shares the uvs and the index.
-=================
-*/
+/**
+ * GL_DrawAliasFrame (gl_mesh.js) for an MD5: the template of one pose, made
+ * the first time the pose is drawn and cached, so drawing allocates nothing.
+ * Every pose shares the uvs and the index.
+ */
 export function GL_DrawMD5Frame(hdr, posenum) {
   const md5 = hdr.md5;
   if (posenum < 0 || posenum >= md5.numposes) return null;

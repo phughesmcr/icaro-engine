@@ -95,12 +95,8 @@ for (const name of ["noexit", "samelevel"]) {
   if (Cvar_FindVar(name) === null) Cvar_RegisterVariable(new cvar_t(name, "0"));
 }
 
-/*
-=============
-The lobby, behind a WebSocket stub: each new WebSocket( url ) is the client
-end of a fake pair whose server end runs RtcLobby, as lobby_server.js does
-=============
-*/
+// The lobby, behind a WebSocket stub: each new WebSocket( url ) is the client
+// end of a fake pair whose server end runs RtcLobby, as lobby_server.js does
 function makeLobbyServer(turnstile = null) {
   const lobby = new RtcLobby({
     iceServers: () => [{ urls: "stun:stun.example.test" }],
@@ -146,12 +142,8 @@ function roles(lobby) {
   return [...lobby.sessions.values()].map((s) => s.role);
 }
 
-/*
-=============
-Host setup, as in net_webrtc_test.js: the WebRTC driver in slot 1, a
-listening server with free client slots
-=============
-*/
+// Host setup, as in net_webrtc_test.js: the WebRTC driver in slot 1, a
+// listening server with free client slots
 function setup({ maxclients = 2, turnstile = null } = {}) {
   const saved = {
     maxclients: svs.maxclients,
@@ -261,11 +253,7 @@ function svCheckForNewClients() {
   return accepted;
 }
 
-/*
-=============
-Tests
-=============
-*/
+// Tests
 
 Deno.test("RTC lobby: host a room once the map is up, join it by code, heartbeat and end it", async () => {
   const { lobbyServer, teardown } = setup();

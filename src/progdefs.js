@@ -6,7 +6,6 @@ export const PROGHEADER_CRC = 5927;
 // NUM_SPAWN_PARMS - number of parm fields (parm1 through parm16)
 export const NUM_SPAWN_PARMS = 16;
 
-//
 // globalvars_t field name-to-offset mapping
 // In C this is a struct overlaid on pr_globals.
 // The first 28 ints are pad (RESERVED_OFS).
@@ -16,7 +15,6 @@ export const NUM_SPAWN_PARMS = 16;
 //   int pad[28] -> offsets 0-27
 //   int self    -> offset 28
 //   ...
-//
 export const globalvars_t_fields = [
   // name, offset, type ('int','float','vec3','string','func')
   ["self", 28, "int"],
@@ -75,10 +73,8 @@ export const globalvars_t_fields = [
   ["SetChangeParms", 91, "func"],
 ];
 
-//
 // globalvars_t - proxy object that reads/writes pr_globals directly
 // Provides property access like C: pr_global_struct->time
-//
 export class globalvars_t {
   constructor(pr_globals) {
     this._globals = pr_globals;
@@ -451,14 +447,12 @@ export class globalvars_t {
   }
 }
 
-//
 // entvars_t field definitions
 // These define the offsets within each edict's field data.
 // Each edict has progs.entityfields worth of int/float data.
 // vec3 fields occupy 3 consecutive slots.
 //
 // The offsets here are sequential from 0, matching C struct layout.
-//
 export const entvars_t_fields = [
   // [ name, offset, size (1=scalar, 3=vec3), type ]
   ["modelindex", 0, 1, "float"],
@@ -543,10 +537,8 @@ export const entvars_t_fields = [
 // entvars_t field count (number of int/float slots the known fields occupy)
 export const ENTVARS_COUNT = 105;
 
-//
 // entvars_t - proxy for accessing entity variable fields
 // backed by the edict's fields array (Int32Array / Float32Array overlay)
-//
 export class entvars_t {
   constructor(fields) {
     // fields is a pr_globals-like accessor for this edict's field data

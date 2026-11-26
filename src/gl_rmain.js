@@ -178,22 +178,20 @@ export {
   v_blend,
 };
 
-//============================================================================
 // glquake.h constants
-//============================================================================
 
 export const ALIAS_BASE_SIZE_RATIO = 1.0 / 11.0;
 export const MAX_LBM_HEIGHT = 480;
 
 export const TILE_SIZE = 128;
 
-/*
-gl_farclip, from QuakeSpasm and Ironwail (gl_rmain.c): the far clip
-distance. id's R_SetupGL hard-codes 4096, so that is the default here;
-QuakeSpasm and Ironwail default to 65536 for large custom maps. With
-zNear 4 the far plane barely changes depth precision: a 24-bit depth step
-at distance z is about z * z / ( 4 * 2^24 ) units whatever the far plane.
-*/
+/**
+ * gl_farclip, from QuakeSpasm and Ironwail (gl_rmain.c): the far clip
+ * distance. id's R_SetupGL hard-codes 4096, so that is the default here;
+ * QuakeSpasm and Ironwail default to 65536 for large custom maps. With
+ * zNear 4 the far plane barely changes depth precision: a 24-bit depth step
+ * at distance z is about z * z / ( 4 * 2^24 ) units whatever the far plane.
+ */
 export const gl_farclip = {
   name: "gl_farclip",
   string: "4096",
@@ -232,9 +230,7 @@ export const SURF_UNDERWATER = 0x80;
 export { MAX_DLIGHTS, MAX_VISEDICTS };
 export const MAXLIGHTMAPS = 4;
 
-//============================================================================
 // Globals from gl_rmain.c
-//============================================================================
 
 // Deferred initialization — entity_t may not be available at module load time
 // due to circular imports (gl_rmain -> gl_model -> gl_mesh -> gl_rmisc -> gl_rmain).
@@ -344,25 +340,19 @@ export function set_mirror_plane(v) {
 
 export let glx = 0, gly = 0, glwidth = 0, glheight = 0;
 
-//============================================================================
 // Three.js scene and camera (replace raw GL state)
-//============================================================================
 
 export let scene = null; // THREE.Scene
 export let camera = null; // THREE.PerspectiveCamera
 
-//============================================================================
 // Cvars
-//============================================================================
 
 // Most cvars are defined in glquake.js and imported+re-exported above.
 // They are registered in gl_rmisc.js R_Init().
 
-//============================================================================
 // R_CullBox
 //
 // Returns true if the box is completely outside the frustum
-//============================================================================
 
 export function R_CullBox(mins, maxs) {
   // WebXR: the headset's eyes, not the body (see R_SetupXRFrustum)
@@ -401,7 +391,6 @@ export function R_CullBoxViews(mins, maxs, views, numviews) {
   return numviews > 0;
 }
 
-//============================================================================
 // R_SetupXRFrustum
 //
 // Web addition for WebXR (XR-1). R_SetFrustum builds frustum[] from
@@ -411,7 +400,6 @@ export function R_CullBoxViews(mins, maxs, views, numviews) {
 // head could see. Runs after R_SetupGL has posed the XR rig, and points
 // R_CullBox at one frustum per eye. Outside XR it leaves R_CullBox on
 // frustum[], unchanged.
-//============================================================================
 
 export function R_SetupXRFrustum() {
   if (isXRActive() === false) {
@@ -430,9 +418,7 @@ export function R_SetupXRFrustum() {
   }
 }
 
-//============================================================================
 // SignbitsForPlane
-//============================================================================
 
 function SignbitsForPlane(out) {
   // for fast box on planeside test
@@ -446,9 +432,7 @@ function SignbitsForPlane(out) {
   return bits;
 }
 
-//============================================================================
 // R_SetFrustum
-//============================================================================
 
 export function R_SetFrustum() {
   if (r_refdef.fov_x === 90) {
@@ -496,9 +480,7 @@ export function R_SetFrustum() {
   }
 }
 
-//============================================================================
 // R_SetupFrame
-//============================================================================
 
 export function R_SetupFrame() {
   // don't allow cheats in multiplayer
@@ -549,12 +531,10 @@ export function R_SetupFrame() {
   c_alias_polys = 0;
 }
 
-//============================================================================
 // R_SetupGL
 //
 // Instead of raw GL matrix setup, we configure the Three.js camera
 // to match Quake's projection and modelview matrices.
-//============================================================================
 
 export function R_SetupGL() {
   const screenaspect = r_refdef.vrect.width / r_refdef.vrect.height;
@@ -592,7 +572,6 @@ export function R_SetupGL() {
     camera.updateProjectionMatrix();
   }
 
-  //
   // Quake's coordinate system:
   //   X = forward, Y = left, Z = up
   //
@@ -609,7 +588,6 @@ export function R_SetupGL() {
   //
   // We replicate this with Three.js by setting camera position and rotation.
 
-  //
   // Position the camera in Quake world coordinates.
   // Geometry vertices are in Quake coords (X=forward, Y=left, Z=up).
   // Three.js camera looks down -Z with Y=up.
@@ -623,7 +601,6 @@ export function R_SetupGL() {
   //   glRotatef(-pitch, 0, 1, 0)
   //   glRotatef(-yaw, 0, 0, 1)
   //   glTranslatef(-vieworg)
-  //
 
   // Set camera position directly in Quake coordinates
   camera.position.set(
@@ -780,9 +757,7 @@ export function R_SetupGL() {
   glheight = vid.height;
 }
 
-//============================================================================
 // R_Clear
-//============================================================================
 
 // Scene background while XR is presenting (see R_RenderView)
 const _xrBackground = new THREE.Color(0x000000);
@@ -804,9 +779,7 @@ export function R_Clear() {
   gldepthmax = 1;
 }
 
-//============================================================================
 // R_DrawEntitiesOnList
-//============================================================================
 
 export function R_DrawEntitiesOnList() {
   if (!r_drawentities.value) {
@@ -860,9 +833,7 @@ export function R_DrawEntitiesOnList() {
   }
 }
 
-//============================================================================
 // R_DrawViewModel
-//============================================================================
 
 const SHADEDOT_QUANT = 16;
 
@@ -1020,9 +991,7 @@ export function R_DrawViewModel() {
   }
 }
 
-//============================================================================
 // R_DrawAliasModel (stub -- full implementation requires gl_mesh.js)
-//============================================================================
 
 // Track entity meshes currently in the scene for efficient add/remove
 const _entityMeshesInScene = new Set();
@@ -1115,17 +1084,13 @@ const _setupgl_matrix = new THREE.Matrix4();
 const _setupgl_drawingBufferSize = new THREE.Vector2();
 const _setupgl_viewport = new Float64Array(4);
 
-/*
-=============
-R_VrectToViewport
-
-Port-only helper for R_SetupGL's glViewport. Writes the Three.js viewport
-(x, y, width, height in CSS pixels, bottom-left origin) for a view rectangle
-in virtual 2D coordinates. vrectScale maps those to 2D overlay pixels;
-renderScale (vid_renderscale, from ?scale=) is the WebGL buffer's size
-relative to the overlay, so the result is the same at every render scale.
-=============
-*/
+/**
+ * Port-only helper for R_SetupGL's glViewport. Writes the Three.js viewport
+ * (x, y, width, height in CSS pixels, bottom-left origin) for a view rectangle
+ * in virtual 2D coordinates. vrectScale maps those to 2D overlay pixels;
+ * renderScale (vid_renderscale, from ?scale=) is the WebGL buffer's size
+ * relative to the overlay, so the result is the same at every render scale.
+ */
 export function R_VrectToViewport(
   out,
   vrect,
@@ -1154,18 +1119,14 @@ export function R_VrectToViewport(
   return out;
 }
 
-/*
-=================
-R_AliasLightPoint
-
-Deliberate deviation (Ironwail R_SetupAliasLighting): if the trace from the
-model's origin finds no light at all, try again from half the model's height
-above it. This helps models whose origin is slightly below the floor (e.g. the
-candles on some mod start maps), which id's C draws pitch black. Ironwail
-computes alias bounds from the vertices; this port keeps id's fixed +/-16
-bounds (Mod_LoadAliasModel), so the retry starts 8 units up.
-=================
-*/
+/**
+ * Deliberate deviation (Ironwail R_SetupAliasLighting): if the trace from the
+ * model's origin finds no light at all, try again from half the model's height
+ * above it. This helps models whose origin is slightly below the floor (e.g. the
+ * candles on some mod start maps), which id's C draws pitch black. Ironwail
+ * computes alias bounds from the vertices; this port keeps id's fixed +/-16
+ * bounds (Mod_LoadAliasModel), so the retry starts 8 units up.
+ */
 export function R_AliasLightPoint(e) {
   const light = R_LightPoint(e.origin, cl);
   if (light !== 0) return light;
@@ -1186,24 +1147,20 @@ function R_ShadeColorFloor(shadelight, floor) {
   shadecolor[2] = floor + (shadecolor[2] - shadelight);
 }
 
-/*
-=================
-R_SetupAliasLighting
-
-The lighting block of id's R_DrawAliasModel (gl_rmain.c), carrying
-QuakeSpasm's lightcolor beside the scalar shadelight so .lit maps tint alias
-models (QuakeSpasm r_alias.c R_SetupAliasLighting). Leaves the shade in
-shadecolor and returns the shadedots row, or null with no client.
-
-Deliberate deviation from QuakeSpasm: id's order and clamps are kept (the
-gun's 24 before the dlights, ambient 128 and ambient + shade 192, players' 8
-after the clamp, the flame names rather than MOD_FBRIGHTHACK). QuakeSpasm's
-would change maps without a .lit. Each channel follows the scalar instead:
-dlights (white in id) add to all three, a floor lifts all three alike, and the
-clamp scales them. Without a .lit every channel equals shadelight at each step,
-so the shade is exactly id's.
-=================
-*/
+/**
+ * The lighting block of id's R_DrawAliasModel (gl_rmain.c), carrying
+ * QuakeSpasm's lightcolor beside the scalar shadelight so .lit maps tint alias
+ * models (QuakeSpasm r_alias.c R_SetupAliasLighting). Leaves the shade in
+ * shadecolor and returns the shadedots row, or null with no client.
+ *
+ * Deliberate deviation from QuakeSpasm: id's order and clamps are kept (the
+ * gun's 24 before the dlights, ambient 128 and ambient + shade 192, players' 8
+ * after the clamp, the flame names rather than MOD_FBRIGHTHACK). QuakeSpasm's
+ * would change maps without a .lit. Each channel follows the scalar instead:
+ * dlights (white in id) add to all three, a floor lifts all three alike, and the
+ * clamp scales them. Without a .lit every channel equals shadelight at each step,
+ * so the shade is exactly id's.
+ */
 export function R_SetupAliasLighting(e) {
   if (!cl || !e.origin) return null;
 
@@ -1287,9 +1244,7 @@ function R_DrawAliasModel(e) {
   const paliashdr = e.model.cache ? Mod_EnhancedAliasHeader(e.model) : null;
   if (!paliashdr || (!paliashdr.posedata && !paliashdr.md5)) return;
 
-  //
   // get lighting information
-  //
   const shadedots = R_SetupAliasLighting(e);
 
   // Compute shadevector from entity yaw (for shadows, computed before mesh call)
@@ -1350,26 +1305,17 @@ function R_DrawAliasModel(e) {
   c_alias_polys++;
 }
 
-//============================================================================
 // R_DrawBrushModel (stub -- full implementation in gl_rsurf.js)
-//============================================================================
 
 function R_DrawBrushModel(e) {
   R_DrawBrushModel_rsurf(e);
   R_EntAlpha_Apply(e); //johnfitz -- entity alpha (gl_entalpha.js)
 }
 
-//============================================================================
 // R_DrawSpriteModel
 // Ported from: WinQuake/gl_rmain.c
-//============================================================================
 
-/*
-================
-R_GetSpriteFrame
-Ported from: WinQuake/gl_rmain.c:144-188
-================
-*/
+/** Ported from: WinQuake/gl_rmain.c:144-188 */
 function R_GetSpriteFrame(e) {
   const psprite = e.model.cache.data;
   let frame = e.frame;
@@ -1413,22 +1359,18 @@ const _sprite_v_forward = new Float32Array(3);
 const _sprite_v_right = new Float32Array(3);
 const _sprite_v_up = new Float32Array(3);
 
-/*
-================
-R_SpriteAxes
-
-Sets up and right for a sprite of the given type and returns true, or
-returns false if the sprite isn't drawn this frame.
-
-id's GLQuake R_DrawSpriteModel handles only SPR_ORIENTED and draws every
-other type parallel to the view plane. The five types below are id's own,
-from WinQuake/r_sprite.c R_DrawSprite (the software renderer), which
-QuakeSpasm and Ironwail also port. Like the software renderer, the two
-upright types aren't drawn when the view is within 1 degree of straight up
-or down. Deliberate deviation: an unknown type is skipped, as in QuakeSpasm,
-rather than a Sys_Error.
-================
-*/
+/**
+ * Sets up and right for a sprite of the given type and returns true, or
+ * returns false if the sprite isn't drawn this frame.
+ *
+ * id's GLQuake R_DrawSpriteModel handles only SPR_ORIENTED and draws every
+ * other type parallel to the view plane. The five types below are id's own,
+ * from WinQuake/r_sprite.c R_DrawSprite (the software renderer), which
+ * QuakeSpasm and Ironwail also port. Like the software renderer, the two
+ * upright types aren't drawn when the view is within 1 degree of straight up
+ * or down. Deliberate deviation: an unknown type is skipped, as in QuakeSpasm,
+ * rather than a Sys_Error.
+ */
 export function R_SpriteAxes(type, e, up, right) {
   switch (type) {
     case SPR_FACING_UPRIGHT: {
@@ -1611,7 +1553,6 @@ function R_DrawSpriteModel(e) {
   }
 }
 
-//============================================================================
 // R_PolyBlend
 //
 // Draws a full-screen color blend for damage flashes, powerups, etc.
@@ -1620,7 +1561,6 @@ function R_DrawSpriteModel(e) {
 // In WebXR a 2D overlay can't cover both eyes, so the blend goes to
 // XR_PolyBlend, which draws it head-locked with GLQuake's quad (see there)
 // when R_RenderView calls XR_RenderHUD.
-//============================================================================
 
 let polyBlendMesh = null;
 let polyBlendScene = null;
@@ -1675,11 +1615,9 @@ export function R_PolyBlend() {
   renderer.render(polyBlendScene, polyBlendCamera);
 }
 
-//============================================================================
 // R_RenderScene
 //
 // r_refdef must be set before the first call
-//============================================================================
 
 export function R_RenderScene() {
   // Begin new frame: clear the "this frame" set
@@ -1719,11 +1657,9 @@ export function R_RenderScene() {
   R_DrawParticles();
 }
 
-//============================================================================
 // R_RenderView
 //
 // r_refdef must be set before the first call
-//============================================================================
 
 export function R_RenderView() {
   let time1, time2;
@@ -1794,7 +1730,6 @@ export function R_RenderView() {
   }
 }
 
-//============================================================================
 // R_Mirror
 //
 // The mirror texture is window02_1. It is used in start and e1m5
@@ -1806,7 +1741,6 @@ export function R_RenderView() {
 // Otherwise the scene is rendered again from the reflected viewpoint into a
 // render target and the mirror surface is redrawn mixing that image with its
 // texture at r_mirroralpha (see gl_rmirror.js). Not done under WebXR.
-//============================================================================
 
 function R_Mirror() {
   if (mirror === false) {
@@ -1873,11 +1807,9 @@ function _R_MirrorRemovePlayerMesh(mesh) {
   _entityMeshesThisFrame.delete(mesh);
 }
 
-//============================================================================
 // R_Init
 //
 // Called at startup to initialize the renderer
-//============================================================================
 
 export function R_Init() {
   Con_Printf("R_Init");
@@ -1909,11 +1841,9 @@ export function R_Init() {
   Con_Printf("R_Init: Three.js renderer ready");
 }
 
-//============================================================================
 // R_NewMap
 //
 // Called when a new map is loaded
-//============================================================================
 
 export function R_NewMap() {
   XR_ResetHeadOrigin(); // web-only: the old map's head position is meaningless
@@ -1985,10 +1915,8 @@ export function R_NewMap() {
   GL_BuildLightmaps_rsurf();
 }
 
-//============================================================================
 // Stub functions for external dependencies
 // These will be connected to real implementations later
-//============================================================================
 
 function R_AnimateLight() {
   if (cl) R_AnimateLight_impl(cl, cl_lightstyle);
@@ -2028,22 +1956,18 @@ function R_RenderDlights() {
   }
 }
 
-/*
-=============
-R_PadDlights
-
-Not in C. gl_flashblend draws dlights as PointLights (gl_rlight.js), and
-Three.js compiles a new shader program for every lit material each time the
-number of lights in the scene changes. Measured in Chrome on the start map:
-each light count seen for the first time added about 7 programs and a
-20-250 ms frame. Keeping all MAX_DLIGHTS lights in the scene avoids that but
-makes every lit fragment loop over them: 64 zero-intensity lights took a
-frame from about 3 ms to 12-18 ms (2048x1536, render plus a 1-pixel
-readPixels). So pad the count with zero-intensity lights up to the next of
-4, 8, 16, 32 or 64: at most five program sets per material, and the per-pixel
-cost stays near what the frame actually uses.
-=============
-*/
+// R_PadDlights
+//
+// Not in C. gl_flashblend draws dlights as PointLights (gl_rlight.js), and
+// Three.js compiles a new shader program for every lit material each time the
+// number of lights in the scene changes. Measured in Chrome on the start map:
+// each light count seen for the first time added about 7 programs and a
+// 20-250 ms frame. Keeping all MAX_DLIGHTS lights in the scene avoids that but
+// makes every lit fragment loop over them: 64 zero-intensity lights took a
+// frame from about 3 ms to 12-18 ms (2048x1536, render plus a 1-pixel
+// readPixels). So pad the count with zero-intensity lights up to the next of
+// 4, 8, 16, 32 or 64: at most five program sets per material, and the per-pixel
+// cost stays near what the frame actually uses.
 const _dlightFillers = [];
 
 export function R_CountRenderedDlights() {

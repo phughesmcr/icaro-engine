@@ -63,13 +63,7 @@ function resetExecuted() {
   executed.bind.length = 0;
 }
 
-/*
-==============================================================================
-
-MENU-2: the lobby address can't inject commands
-
-==============================================================================
-*/
+// MENU-2: the lobby address can't inject commands
 
 Deno.test("Sys_ParseLobbyURL accepts wts://, https:// and wt:// hosts with an optional port", () => {
   assertEqual(
@@ -256,13 +250,7 @@ Deno.test("Sys_PageURL keeps a valid server= and drops an invalid one", async ()
   });
 });
 
-/*
-==============================================================================
-
-MENU-3: Start Game sends one room request at a time
-
-==============================================================================
-*/
+// MENU-3: Start Game sends one room request at a time
 
 function deferred() {
   let resolve, reject;

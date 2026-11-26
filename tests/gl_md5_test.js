@@ -37,9 +37,7 @@ function assertNear(actual, expected, message) {
 
 const encoder = new TextEncoder();
 
-// ----------------------------------------------------------------------------
 // Synthetic files
-// ----------------------------------------------------------------------------
 
 // Two joints: root at the origin and child 10 up. v0 and v1 hang off root,
 // v2 off child, so moving child moves only v2.
@@ -215,9 +213,7 @@ async function withEnhanced(value, fn) {
   }
 }
 
-// ----------------------------------------------------------------------------
 // Parsing and skinning
-// ----------------------------------------------------------------------------
 
 Deno.test("MD5_ParseModel reads joints, mesh and every anim frame as a pose", () => {
   const md5 = gl_md5.MD5_ParseModel("progs/x.md5mesh", md5mesh("x"), MD5ANIM);
@@ -332,9 +328,7 @@ Deno.test("MD5_ParseModel rejects a missing anim, extra meshes and bad indices",
   }
 });
 
-// ----------------------------------------------------------------------------
 // Loading beside the .mdl
-// ----------------------------------------------------------------------------
 
 Deno.test("an .md5mesh replaces the .mdl for drawing only", () =>
   withEnhanced(1, () => {
@@ -452,9 +446,7 @@ Deno.test("a dedicated server never loads MD5s", () => {
   }
 });
 
-// ----------------------------------------------------------------------------
 // Drawing
-// ----------------------------------------------------------------------------
 
 Deno.test("GL_DrawAliasFrame skins an MD5 pose once and shares the uvs and index", () =>
   withEnhanced(1, () => {
@@ -603,9 +595,7 @@ Deno.test("a player skin translated from the .mdl is translated again for its MD
   }
 });
 
-// ----------------------------------------------------------------------------
 // Lazily opened paks
-// ----------------------------------------------------------------------------
 
 // A pack of entries [ name, Uint8Array ]: header, bodies, then the directory
 function makePak(entries) {

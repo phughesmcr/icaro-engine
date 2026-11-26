@@ -8,24 +8,22 @@ import { Sys_Error } from "./sys.js";
 import { Con_DPrintf, Con_Printf } from "./common.js";
 import { Cmd_AddCommand } from "./cmd.js";
 
-/*
-Memory layout in original Quake (for reference):
-
------- Top of Memory -------
-high hunk allocations
-video buffer / z buffer / surface cache
-cachable memory
-client and server low hunk allocations
-startup hunk allocations
-Zone block
------ Bottom of Memory -----
-
-In JS, we simplify:
-- Zone = general small allocations (just use JS objects)
-- Hunk = level-load allocations (just use JS objects, track for clearing)
-- Cache = persistable data across levels (Map with LRU eviction)
-- Temp = temporary allocations (just use JS objects)
-*/
+// Memory layout in original Quake (for reference):
+//
+// ------ Top of Memory -------
+// high hunk allocations
+// video buffer / z buffer / surface cache
+// cachable memory
+// client and server low hunk allocations
+// startup hunk allocations
+// Zone block
+// ----- Bottom of Memory -----
+//
+// In JS, we simplify:
+// - Zone = general small allocations (just use JS objects)
+// - Hunk = level-load allocations (just use JS objects, track for clearing)
+// - Cache = persistable data across levels (Map with LRU eviction)
+// - Temp = temporary allocations (just use JS objects)
 
 // cache_user_t equivalent
 export class cache_user_t {
@@ -47,71 +45,35 @@ let zone_allocated = 0;
 const cache_entries = new Map(); // name -> { data, user, size }
 const cache_lru = []; // ordered from most recent to least recent
 
-/*
-========================
-Memory_Init
-========================
-*/
 export function Memory_Init() {
   Cache_Init();
   Con_Printf("Memory initialized (JavaScript GC mode)\\n");
 }
 
-/*
-=============================================================================
+// ZONE MEMORY ALLOCATION
+//
+// Zone memory in JS is just regular allocations tracked for debugging.
 
-						ZONE MEMORY ALLOCATION
-
-Zone memory in JS is just regular allocations tracked for debugging.
-=============================================================================
-*/
-
-/*
-========================
-Z_Malloc
-
-Returns zero-filled memory. In JS, returns an ArrayBuffer or object.
-========================
-*/
+/** Returns zero-filled memory. In JS, returns an ArrayBuffer or object. */
 export function Z_Malloc(size) {
   zone_allocated += size;
   return new ArrayBuffer(size);
 }
 
-/*
-========================
-Z_Free
-========================
-*/
 export function Z_Free(_ptr) {
   // In JS, just let GC handle it
   // We could track and subtract from zone_allocated but it's not critical
 }
 
-/*
-========================
-Z_FreeMemory
-========================
-*/
 export function Z_FreeMemory() {
   return 0x100000 - zone_allocated; // approximate
 }
 
-/*
-=============================================================================
+// HUNK MEMORY ALLOCATION
+//
+// In JS, hunk allocations are regular allocations. We track marks so
+// level transitions can conceptually "free" old data.
 
-						HUNK MEMORY ALLOCATION
-
-In JS, hunk allocations are regular allocations. We track marks so
-level transitions can conceptually "free" old data.
-=============================================================================
-*/
-
-/*
-===================
-Hunk_AllocName
-===================
-*/
 export function Hunk_AllocName(size, _name) {
   // In JS, just allocate. The name is for debugging.
   const buf = new ArrayBuffer(size);
@@ -119,11 +81,6 @@ export function Hunk_AllocName(size, _name) {
   return buf;
 }
 
-/*
-===================
-Hunk_Alloc
-===================
-*/
 export function Hunk_Alloc(size) {
   return Hunk_AllocName(size, "unknown");
 }
@@ -155,11 +112,6 @@ export function Hunk_FreeToHighMark(mark) {
   hunk_high_mark = mark;
 }
 
-/*
-===================
-Hunk_HighAllocName
-===================
-*/
 export function Hunk_HighAllocName(size, _name) {
   if (hunk_temp_active) {
     Hunk_FreeToHighMark(hunk_temp_mark);
@@ -170,13 +122,7 @@ export function Hunk_HighAllocName(size, _name) {
   return new ArrayBuffer(size);
 }
 
-/*
-=================
-Hunk_TempAlloc
-
-Return space from the top of the hunk
-=================
-*/
+/** Return space from the top of the hunk */
 export function Hunk_TempAlloc(size) {
   if (hunk_temp_active) {
     Hunk_FreeToHighMark(hunk_temp_mark);
@@ -194,20 +140,10 @@ export function Hunk_Check() {
   // No-op in JS
 }
 
-/*
-=============================================================================
+// CACHE MEMORY
+//
+// In JS we use a simple Map with LRU tracking.
 
-						CACHE MEMORY
-
-In JS we use a simple Map with LRU tracking.
-=============================================================================
-*/
-
-/*
-============
-Cache_Init
-============
-*/
 function Cache_Init() {
   cache_entries.clear();
   cache_lru.length = 0;
@@ -219,13 +155,7 @@ function Cache_Init() {
   Cmd_AddCommand("flush", Cache_Flush);
 }
 
-/*
-============
-Cache_Flush
-
-Throw everything out, so new data will be demand cached
-============
-*/
+/** Throw everything out, so new data will be demand cached */
 export function Cache_Flush() {
   for (const entry of cache_entries.values()) {
     if (entry.user) {
@@ -237,13 +167,7 @@ export function Cache_Flush() {
   cache_lru.length = 0;
 }
 
-/*
-==============
-Cache_Free
-
-Frees the memory and removes it from the LRU list
-==============
-*/
+/** Frees the memory and removes it from the LRU list */
 export function Cache_Free(c) {
   if (!c.data) {
     Sys_Error("Cache_Free: not allocated");
@@ -262,14 +186,10 @@ export function Cache_Free(c) {
   c.data = null;
 }
 
-/*
-==============
-Cache_Check
-
-Returns the cached data, and moves to the head of the LRU list
-if present, otherwise returns null
-==============
-*/
+/**
+ * Returns the cached data, and moves to the head of the LRU list
+ * if present, otherwise returns null
+ */
 export function Cache_Check(c) {
   if (!c.data) {
     return null;
@@ -291,11 +211,6 @@ export function Cache_Check(c) {
   return c.data;
 }
 
-/*
-==============
-Cache_Alloc
-==============
-*/
 export function Cache_Alloc(c, size, name) {
   if (c.data) {
     Sys_Error("Cache_Alloc: already allocated");
@@ -314,11 +229,6 @@ export function Cache_Alloc(c, size, name) {
   return data;
 }
 
-/*
-============
-Cache_Report
-============
-*/
 export function Cache_Report() {
   let total = 0;
   for (const entry of cache_entries.values()) {

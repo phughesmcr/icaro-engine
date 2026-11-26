@@ -33,9 +33,7 @@ function assertThrows(fn, pattern, message) {
   throw new Error(`${message}: did not throw`);
 }
 
-// ----------------------------------------------------------------------------
 // Model load errors
-// ----------------------------------------------------------------------------
 
 Deno.test("a missing model with crash set is a Host_Error, not a Sys_Error", () => {
   assertThrows(
@@ -192,9 +190,7 @@ Deno.test("bad leaf, clipnode and marksurface lumps are Host_Errors", () => {
   );
 });
 
-// ----------------------------------------------------------------------------
 // R_LightPoint
-// ----------------------------------------------------------------------------
 
 const LEAF = { contents: -1 };
 
@@ -332,9 +328,7 @@ Deno.test("R_LightPoint ofs starts the trace above the point", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
 // Water turbulence clock
-// ----------------------------------------------------------------------------
 
 Deno.test("water turbulence follows cl.time, so it stops while paused", () => {
   const oldWorldmodel = cl.worldmodel;

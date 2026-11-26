@@ -70,14 +70,10 @@ export function SV_Move_SetCallbacks(callbacks) {
   if (callbacks.G_FLOAT_SET) G_FLOAT_SET = callbacks.G_FLOAT_SET;
 }
 
-/*
-=============
-SV_CheckBottom
-
-Returns false if any part of the bottom of the entity is off an edge that
-is not a staircase.
-=============
-*/
+/**
+ * Returns false if any part of the bottom of the entity is off an edge that
+ * is not a staircase.
+ */
 export function SV_CheckBottom(ent) {
   const mins = _checkbottom_mins;
   const maxs = _checkbottom_maxs;
@@ -114,9 +110,7 @@ export function SV_CheckBottom(ent) {
   }
 
   c_no++;
-  //
   // check it for real...
-  //
   start[2] = mins[2];
 
   // the midpoint must be within 16 of the bottom
@@ -168,16 +162,12 @@ export function SV_CheckBottom(ent) {
   return true;
 }
 
-/*
-=============
-SV_movestep
-
-Called by monster program code.
-The move will be adjusted for slopes and stairs, but if the move isn't
-possible, no move is done, false is returned, and
-pr_global_struct.trace_normal is set to the normal of the blocking wall
-=============
-*/
+/**
+ * Called by monster program code.
+ * The move will be adjusted for slopes and stairs, but if the move isn't
+ * possible, no move is done, false is returned, and
+ * pr_global_struct.trace_normal is set to the normal of the blocking wall
+ */
 export function SV_movestep(ent, move, relink) {
   const oldorg = _movestep_oldorg;
   const neworg = _movestep_neworg;
@@ -318,16 +308,10 @@ export function SV_movestep(ent, move, relink) {
   return true;
 }
 
-//============================================================================
-
-/*
-======================
-SV_StepDirection
-
-Turns to the movement direction, and walks the current distance if
-facing it.
-======================
-*/
+/**
+ * Turns to the movement direction, and walks the current distance if
+ * facing it.
+ */
 export function SV_StepDirection(ent, yaw, dist) {
   const move = _stepdir_move;
   const oldorigin = _stepdir_oldorigin;
@@ -357,20 +341,10 @@ export function SV_StepDirection(ent, yaw, dist) {
   return false;
 }
 
-/*
-======================
-SV_FixCheckBottom
-======================
-*/
 export function SV_FixCheckBottom(ent) {
   ent.v.flags = (ent.v.flags | 0) | FL_PARTIALGROUND;
 }
 
-/*
-================
-SV_NewChaseDir
-================
-*/
 export function SV_NewChaseDir(actor, enemy, dist) {
   const d = _chasedir_d;
 
@@ -429,14 +403,14 @@ export function SV_NewChaseDir(actor, enemy, dist) {
     return;
   }
 
-  /* there is no direct path to the player, so pick another direction */
+  // there is no direct path to the player, so pick another direction
 
   if (olddir !== DI_NODIR && SV_StepDirection(actor, olddir, dist)) {
     return;
   }
 
   if (Sys_Random() > 0.5) {
-    /* randomly determine direction of search */
+    // randomly determine direction of search
     for (tdir = 0; tdir <= 315; tdir += 45) {
       if (tdir !== turnaround && SV_StepDirection(actor, tdir, dist)) {
         return;
@@ -464,11 +438,6 @@ export function SV_NewChaseDir(actor, enemy, dist) {
   }
 }
 
-/*
-======================
-SV_CloseEnough
-======================
-*/
 export function SV_CloseEnough(ent, goal, dist) {
   for (let i = 0; i < 3; i++) {
     if (goal.v.absmin[i] > ent.v.absmax[i] + dist) {
@@ -482,11 +451,6 @@ export function SV_CloseEnough(ent, goal, dist) {
   return true;
 }
 
-/*
-======================
-SV_MoveToGoal
-======================
-*/
 export function SV_MoveToGoal() {
   const ent = PROG_TO_EDICT(pr_global_struct.self);
   const goal = PROG_TO_EDICT(ent.v.goalentity);

@@ -25,26 +25,16 @@ export const CLR_BACKOFF_MAX_MS = 8000;
 // again) keeps counting, so a flapping server can't hold the client in a loop.
 export const CLR_STABLE_MS = 15000;
 
-/*
-===============
-CLR_BackoffMs
-
-Delay before attempt number n (0-based): 1 s, 2 s, 4 s, then 8 s.
-===============
-*/
+/** Delay before attempt number n (0-based): 1 s, 2 s, 4 s, then 8 s. */
 export function CLR_BackoffMs(n) {
   if (n < 0) n = 0;
   return Math.min(CLR_BACKOFF_BASE_MS * Math.pow(2, n), CLR_BACKOFF_MAX_MS);
 }
 
-/*
-===============
-CLR_IsReconnectable
-
-True for an address a plain connect can be repeated for: a remote WebTransport
-or WebSocket address, not the loopback "local", not a WebRTC room.
-===============
-*/
+/**
+ * True for an address a plain connect can be repeated for: a remote WebTransport
+ * or WebSocket address, not the loopback "local", not a WebRTC room.
+ */
 export function CLR_IsReconnectable(host) {
   if (typeof host !== "string" || host.length === 0) return false;
   if (host.toLowerCase() === "local") return false;
@@ -81,14 +71,10 @@ export function CLR_HasSession() {
   return session !== null;
 }
 
-/*
-===============
-CLR_Init
-
-Install the dependencies and, in a browser, the wake-up listeners. Safe to
-call again: the listeners are installed once, the state is reset each time.
-===============
-*/
+/**
+ * Install the dependencies and, in a browser, the wake-up listeners. Safe to
+ * call again: the listeners are installed once, the state is reset each time.
+ */
 export function CLR_Init(d) {
   CLR_Cancel();
   deps = d;
@@ -111,13 +97,7 @@ function _clearTimer() {
   timer = null;
 }
 
-/*
-===============
-CLR_Connected
-
-A connect to host succeeded.
-===============
-*/
+/** A connect to host succeeded. */
 export function CLR_Connected(host) {
   _clearTimer();
   phase = "idle";
@@ -131,14 +111,10 @@ export function CLR_Connected(host) {
   connectedAt = deps !== null ? deps.now() : 0;
 }
 
-/*
-===============
-CLR_Cancel
-
-The player (or the server) ended the connection, or started another one:
-forget the session and drop any retry in flight.
-===============
-*/
+/**
+ * The player (or the server) ended the connection, or started another one:
+ * forget the session and drop any retry in flight.
+ */
 export function CLR_Cancel() {
   _clearTimer();
   epoch++;
@@ -147,13 +123,9 @@ export function CLR_Cancel() {
   attempts = 0;
 }
 
-/*
-===============
-CLR_CanReconnect
-
-True when a lost connection should be restored rather than treated as fatal.
-===============
-*/
+/**
+ * True when a lost connection should be restored rather than treated as fatal.
+ */
 export function CLR_CanReconnect() {
   return deps !== null && session !== null && deps.canReconnect() === true;
 }
@@ -164,13 +136,7 @@ function _schedule(ms) {
   timer = deps.setTimer(_attempt, ms);
 }
 
-/*
-===============
-CLR_ConnectionLost
-
-The connection died (CL_Disconnect saw it). Start the retries.
-===============
-*/
+/** The connection died (CL_Disconnect saw it). Start the retries. */
 export function CLR_ConnectionLost() {
   if (CLR_CanReconnect() === false) {
     CLR_Cancel();
@@ -245,14 +211,10 @@ async function _attempt() {
   _schedule(CLR_BackoffMs(attempts));
 }
 
-/*
-===============
-CLR_OnWake
-
-The page became visible, was shown again, or the browser came back online:
-if a retry is waiting, run it now.
-===============
-*/
+/**
+ * The page became visible, was shown again, or the browser came back online:
+ * if a retry is waiting, run it now.
+ */
 export function CLR_OnWake() {
   if (deps === null || session === null || phase !== "waiting") return;
   _clearTimer();

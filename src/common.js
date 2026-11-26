@@ -6,9 +6,7 @@ import { Cvar_RegisterVariable, Cvar_Set, cvar_t } from "./cvar.js";
 import { COM_LoadFile } from "./pak.js";
 import { unicode_translit_src } from "./unicode_translit.js";
 
-//============================================================================
 // common.h types
-//============================================================================
 
 export class sizebuf_t {
   constructor() {
@@ -27,9 +25,7 @@ export class link_t {
   }
 }
 
-//============================================================================
 // Linked list operations
-//============================================================================
 
 // ClearLink is used for new headnodes
 export function ClearLink(l) {
@@ -55,9 +51,7 @@ export function InsertLinkAfter(l, after) {
   l.next.prev = l;
 }
 
-//============================================================================
 // Q_ato* functions - parse numbers same way as Quake
-//============================================================================
 
 // QuakeSpasm/Ironwail: Q_atoi and Q_atof skip leading whitespace (q_isspace),
 // so a value such as " 1" reads as 1. id's C reads it as 0.
@@ -192,11 +186,9 @@ export function Q_atof(str) {
   return val * sign;
 }
 
-//============================================================================
 // Byte order functions
 // JavaScript is always little-endian for DataView, but we use typed arrays
 // which are platform-endian (little-endian on all modern platforms)
-//============================================================================
 
 export function LittleShort(l) {
   return l;
@@ -208,9 +200,7 @@ export function LittleFloat(l) {
   return l;
 }
 
-//============================================================================
 // sizebuf operations
-//============================================================================
 
 export function SZ_Alloc(buf, startsize) {
   if (startsize < 256) {
@@ -297,11 +287,9 @@ export function SZ_Print(buf, data) {
   }
 }
 
-//===========================================================================
 // MESSAGE IO FUNCTIONS
 //
 // Handles byte ordering and avoids alignment errors
-//===========================================================================
 
 // Cached buffers for float conversion to avoid per-call allocations (Golden Rule #4)
 const _floatWriteBuf = new ArrayBuffer(4);
@@ -522,9 +510,7 @@ export function MSG_ReadAngle16() {
   return MSG_ReadShort() * (360.0 / 65536);
 }
 
-//============================================================================
 // Path/string utility functions
-//============================================================================
 
 export function COM_SkipPath(pathname) {
   let last = 0;
@@ -566,13 +552,9 @@ export function COM_DefaultExtension(path, extension) {
   return path + extension;
 }
 
-/*
-==============
-COM_Parse
-
-Parse a token out of a string
-==============
-*/
+// COM_Parse
+//
+// Parse a token out of a string
 export let com_token = "";
 
 export function COM_Parse(data) {
@@ -670,9 +652,7 @@ export function COM_Parse(data) {
   return data.substring(pos);
 }
 
-//============================================================================
 // Command line args
-//============================================================================
 
 export let com_argc = 0;
 export let com_argv = [];
@@ -682,9 +662,7 @@ export let standard_quake = true;
 export let rogue = false;
 export let hipnotic = false;
 
-//============================================================================
 // Registered version check
-//============================================================================
 
 // this graphic needs to be in the pak file to use registered features
 // A table kept in rows: deno fmt would give each entry its own line
@@ -726,16 +704,12 @@ export function COM_SetModified(modified) {
 const CMDLINE_LENGTH = 256;
 export let com_cmdline = "";
 
-/*
-================
-COM_CheckRegistered
-
-Looks for the pop.txt file and verifies it.
-Sets the "registered" cvar.
-Immediately exits out if an alternate game was attempted to be started without
-being registered.
-================
-*/
+/**
+ * Looks for the pop.txt file and verifies it.
+ * Sets the "registered" cvar.
+ * Immediately exits out if an alternate game was attempted to be started without
+ * being registered.
+ */
 export function COM_CheckRegistered() {
   const h = COM_LoadFile("gfx/pop.lmp");
   static_registered = 0;
@@ -765,14 +739,10 @@ export function COM_CheckRegistered() {
   Con_Printf("Playing registered version.\n");
 }
 
-/*
-================
-COM_Init
-
-The registered check from C COM_Init. The pak files are loaded before
-Host_Init in this port, so it can run straight away.
-================
-*/
+/**
+ * The registered check from C COM_Init. The pak files are loaded before
+ * Host_Init in this port, so it can run straight away.
+ */
 export function COM_Init() {
   if (registered === null) {
     registered = new cvar_t("registered", "0");
@@ -818,9 +788,7 @@ export function COM_CheckParm(parm) {
   return 0;
 }
 
-//============================================================================
 // Console print stub (routes to real console when initialized)
-//============================================================================
 
 let _realConPrintf = null;
 let _realConDPrintf = null;
@@ -848,39 +816,33 @@ export function Con_DPrintf(fmt, ...args) {
   }
 }
 
-/*
-============================================================================
-
-					LOCALIZATION (2021 rerelease)
-
-Ported from Ironwail Quake/common.c: LOC_* and UTF8_ToQuake. The rerelease
-QuakeC prints "$key" strings (for example "$qc_item_health") that these
-resolve from localization/loc_<language>.txt in id1's pak0.pak.
-
-Deliberate deviations from Ironwail (docs/port-review.md section 7 names the main ones):
-- Only the game's paks are searched. Ironwail also opens QuakeEX.kpf (a zip)
-  and the Steam and Epic install folders; the port reads neither.
-- The file is decoded with TextDecoder, which turns invalid UTF-8 into U+FFFD
-  and so into QCHAR_BOX, as UTF8_ReadCodePoint's UNICODE_UNKNOWN does.
-- Entries go in a Map rather than Ironwail's open-addressed FNV-1a table. As
-  there, the first of two entries with the same key wins.
-- An unquoted value has all trailing whitespace trimmed. Ironwail's trim loop
-  keeps one trailing blank and leaves the '\r' of a CRLF line (every value in
-  the rerelease files is quoted, so neither case occurs there).
-- The port's cvars have no change callbacks, so a change to "language" is
-  picked up by the next lookup rather than by LOC_Language_f at once.
-- A missing file is reported with Con_DPrintf, not Con_Printf, so the
-  shareware game (which has none) boots without a new console line.
-- "auto" reads navigator.languages instead of SDL_GetPreferredLocales.
-- LOC_Load doesn't retry loc_english.txt when that was the file that failed.
-- PF_VarString and LOC_Format have no 1024-byte output buffer, so no
-  overflow warnings (the port's PF_VarString never had a limit).
-- Not ported: LOC_Init's "Language initialization" banner, the developer 2
-  list of entries with unprintable characters, "[skipnotify]" on the
-  "Loaded N strings" line, and language completion.
-
-============================================================================
-*/
+// LOCALIZATION (2021 rerelease)
+//
+// Ported from Ironwail Quake/common.c: LOC_* and UTF8_ToQuake. The rerelease
+// QuakeC prints "$key" strings (for example "$qc_item_health") that these
+// resolve from localization/loc_<language>.txt in id1's pak0.pak.
+//
+// Deliberate deviations from Ironwail (docs/port-review.md section 7 names the main ones):
+// - Only the game's paks are searched. Ironwail also opens QuakeEX.kpf (a zip)
+//   and the Steam and Epic install folders; the port reads neither.
+// - The file is decoded with TextDecoder, which turns invalid UTF-8 into U+FFFD
+//   and so into QCHAR_BOX, as UTF8_ReadCodePoint's UNICODE_UNKNOWN does.
+// - Entries go in a Map rather than Ironwail's open-addressed FNV-1a table. As
+//   there, the first of two entries with the same key wins.
+// - An unquoted value has all trailing whitespace trimmed. Ironwail's trim loop
+//   keeps one trailing blank and leaves the '\r' of a CRLF line (every value in
+//   the rerelease files is quoted, so neither case occurs there).
+// - The port's cvars have no change callbacks, so a change to "language" is
+//   picked up by the next lookup rather than by LOC_Language_f at once.
+// - A missing file is reported with Con_DPrintf, not Con_Printf, so the
+//   shareware game (which has none) boots without a new console line.
+// - "auto" reads navigator.languages instead of SDL_GetPreferredLocales.
+// - LOC_Load doesn't retry loc_english.txt when that was the file that failed.
+// - PF_VarString and LOC_Format have no 1024-byte output buffer, so no
+//   overflow warnings (the port's PF_VarString never had a limit).
+// - Not ported: LOC_Init's "Language initialization" banner, the developer 2
+//   list of entries with unprintable characters, "[skipnotify]" on the
+//   "Loaded N strings" line, and language completion.
 
 const QCHAR_BOX = 11;
 
@@ -1148,15 +1110,11 @@ const qchar_to_unicode = new Uint32Array([
 // code point below 65536 (the second is 0 when unused). Built on first use.
 let unicode_translit = null;
 
-/*
-==================
-UTF8_ToQuake
-
-Transliterates a string to Quake encoding. Ironwail decodes UTF-8 here; the
-port takes the string TextDecoder already decoded, and returns one character
-(code 0-255) per Quake byte, as PR_GetString builds them.
-==================
-*/
+/**
+ * Transliterates a string to Quake encoding. Ironwail decodes UTF-8 here; the
+ * port takes the string TextDecoder already decoded, and returns one character
+ * (code 0-255) per Quake byte, as PR_GetString builds them.
+ */
 export function UTF8_ToQuake(src) {
   if (unicode_translit === null) {
     unicode_translit = new Uint8Array(65536 * 2);
@@ -1241,11 +1199,6 @@ function q_isspace(c) {
   return c === 0x20 || (c >= 0x09 && c <= 0x0D);
 }
 
-/*
-================
-LOC_LoadFile
-================
-*/
 export function LOC_LoadFile(file) {
   // clear existing data
   loc_entries.clear();
@@ -1386,11 +1339,6 @@ export function LOC_LoadFile(file) {
   return true;
 }
 
-/*
-================
-LOC_Load
-================
-*/
 export function LOC_Load() {
   // Ironwail retries loc_english.txt even when that was the file that failed
   if (
@@ -1401,11 +1349,6 @@ export function LOC_Load() {
   }
 }
 
-/*
-================
-LOC_GetSystemLanguage
-================
-*/
 export function LOC_GetSystemLanguage() {
   if (typeof navigator === "undefined" || !Array.isArray(navigator.languages)) {
     return "english";
@@ -1424,13 +1367,7 @@ export function LOC_GetSystemLanguage() {
   return "english";
 }
 
-/*
-================
-LOC_Language_f
-
-Called when language changes
-================
-*/
+/** Called when language changes */
 export function LOC_Language_f() {
   loc_cvarstring = language.string;
   if (language.string.toLowerCase() === "auto") {
@@ -1449,11 +1386,6 @@ function LOC_CheckLanguage() {
   }
 }
 
-/*
-================
-LOC_Init
-================
-*/
 export function LOC_Init() {
   if (language === null) {
     language = new cvar_t("language", "auto", true); // for 2021 rerelease text
@@ -1464,24 +1396,13 @@ export function LOC_Init() {
   LOC_Language_f();
 }
 
-/*
-================
-LOC_Shutdown
-================
-*/
 export function LOC_Shutdown() {
   loc_entries.clear();
   loc_initialized = false;
   loc_cvarstring = null;
 }
 
-/*
-================
-LOC_GetRawString
-
-Returns localized string if available, or null otherwise
-================
-*/
+/** Returns localized string if available, or null otherwise */
 export function LOC_GetRawString(key) {
   LOC_CheckLanguage();
 
@@ -1496,26 +1417,16 @@ export function LOC_GetRawString(key) {
   return value !== undefined ? value : null;
 }
 
-/*
-================
-LOC_GetString
-
-Returns localized string if available, or input string otherwise
-================
-*/
+/** Returns localized string if available, or input string otherwise */
 export function LOC_GetString(key) {
   const value = LOC_GetRawString(key);
   return value !== null ? value : key;
 }
 
-/*
-================
-LOC_ParseArg
-
-Returns argument index (>= 0) and sets loc_argend past the placeholder if str
-has one ({} or {N}) at pos, otherwise returns a negative value
-================
-*/
+/**
+ * Returns argument index (>= 0) and sets loc_argend past the placeholder if str
+ * has one ({} or {N}) at pos, otherwise returns a negative value
+ */
 function LOC_ParseArg(str, pos) {
   // opening brace
   if (str.charCodeAt(pos) !== 0x7B) {
@@ -1540,11 +1451,6 @@ function LOC_ParseArg(str, pos) {
   return arg;
 }
 
-/*
-================
-LOC_HasPlaceholders
-================
-*/
 export function LOC_HasPlaceholders(str) {
   LOC_CheckLanguage();
 
@@ -1560,14 +1466,10 @@ export function LOC_HasPlaceholders(str) {
   return false;
 }
 
-/*
-================
-LOC_Format
-
-Replaces placeholders (of the form {} or {N}) with the corresponding arguments.
-Ironwail writes into a fixed buffer; the port's strings have no length limit.
-================
-*/
+/**
+ * Replaces placeholders (of the form {} or {N}) with the corresponding arguments.
+ * Ironwail writes into a fixed buffer; the port's strings have no length limit.
+ */
 export function LOC_Format(format, getarg_fn, userdata) {
   let out = "";
   let run = 0; // start of the literal text not yet copied

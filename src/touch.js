@@ -39,13 +39,7 @@ import { S_UnlockAudio } from "./snd_dma.js";
 import { Cvar_RegisterVariable, cvar_t } from "./cvar.js";
 import { Cbuf_AddText } from "./cmd.js";
 
-/*
-==============================================================================
-
-			CVARS (archived, set from the Touch Controls menu)
-
-==============================================================================
-*/
+// CVARS (archived, set from the Touch Controls menu)
 
 export const touch_sensitivity = new cvar_t("touch_sensitivity", "1", true); // drag look speed
 export const touch_gyro = new cvar_t("touch_gyro", "0", true); // gyro aiming on/off
@@ -73,13 +67,7 @@ export function Touch_RegisterCvars() {
 // (the same speed as before touch_sensitivity existed)
 const LOOK_DEGREES_PER_PX = 0.4;
 
-/*
-==============================================================================
-
-			STATE
-
-==============================================================================
-*/
+// STATE
 
 let enabled = false;
 let initialized = false;
@@ -145,11 +133,11 @@ let backButton = null;
 let keyboardButton = null;
 let keyboardInput = null;
 
-/*
-Hold buttons write kbutton state directly (not via Key_Event) and aim while
-held: dragging a finger that started on FIRE or JUMP turns the view, so the
-player can shoot and look with one thumb. Each tracks the touches on it.
-*/
+/**
+ * Hold buttons write kbutton state directly (not via Key_Event) and aim while
+ * held: dragging a finger that started on FIRE or JUMP turns the view, so the
+ * player can shoot and look with one thumb. Each tracks the touches on it.
+ */
 const holdButtons = [];
 
 // Tap buttons send a console command
@@ -264,16 +252,12 @@ let barKey = -1;
 let quickSaveExists = false;
 let quickSaveChecked = 0;
 
-/*
-=================
-Touch_IsMobile
-
-True on touch-first devices: the primary pointer is coarse and there is no
-fine pointer (mouse, trackpad) at all. Touchscreen laptops and tablets with a
-trackpad return false; in_web.js switches to touch controls when they are
-actually touched.
-=================
-*/
+/**
+ * True on touch-first devices: the primary pointer is coarse and there is no
+ * fine pointer (mouse, trackpad) at all. Touchscreen laptops and tablets with a
+ * trackpad return false; in_web.js switches to touch controls when they are
+ * actually touched.
+ */
 export function Touch_IsMobile() {
   if (typeof matchMedia === "function") {
     return matchMedia("(pointer: coarse)").matches &&
@@ -286,13 +270,7 @@ export function Touch_IsMobile() {
   );
 }
 
-/*
-=================
-Touch_IsTouchCapable
-
-True if the device has a touchscreen at all
-=================
-*/
+/** True if the device has a touchscreen at all */
 export function Touch_IsTouchCapable() {
   if (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0) {
     return true;
@@ -300,13 +278,7 @@ export function Touch_IsTouchCapable() {
   return typeof window !== "undefined" && "ontouchstart" in window;
 }
 
-/*
-==============================================================================
-
-			UI CREATION
-
-==============================================================================
-*/
+// UI CREATION
 
 function makeDiv(id, css) {
   const el = document.createElement("div");
@@ -454,15 +426,11 @@ function Touch_CreateUI(container) {
   Touch_Layout();
 }
 
-/*
-=================
-Touch_Layout
-
-Size and place the game controls from touch_size, touch_opacity and
-touch_lefthanded. Positions keep clear of notches and the home indicator
-(safe-area insets) and sit where the thumbs rest in landscape.
-=================
-*/
+/**
+ * Size and place the game controls from touch_size, touch_opacity and
+ * touch_lefthanded. Positions keep clear of notches and the home indicator
+ * (safe-area insets) and sit where the thumbs rest in landscape.
+ */
 function Touch_Layout() {
   if (overlay === null) return;
 
@@ -531,15 +499,12 @@ function Touch_Layout() {
   }
 }
 
-/*
-=================
-Touch_LayoutBar
+// Touch_LayoutBar
+//
+// The row of small buttons (SAVE, LOAD, CON, CHAT) to the inside of the menu
+// button, in the top corner on the stick side. Hidden ones leave no gap. The
+// row shrinks below touch_size when it would run off a narrow screen.
 
-The row of small buttons (SAVE, LOAD, CON, CHAT) to the inside of the menu
-button, in the top corner on the stick side. Hidden ones leave no gap. The
-row shrinks below touch_size when it would run off a narrow screen.
-=================
-*/
 // The bar's button scale: touch_size, shrunk so `count` buttons starting
 // `start` px in fit `width` with a 12 px margin, but never below 0.5
 export function Touch_BarScale(size, start, width, count) {
@@ -592,13 +557,7 @@ function Touch_SetButtonPressed(b, pressed) {
     "rgba(0, 0, 0, 0.2)";
 }
 
-/*
-=================
-Touch_CreateMenuUI
-
-Create fullscreen touch area for menu tap-to-select
-=================
-*/
+/** Create fullscreen touch area for menu tap-to-select */
 function Touch_CreateMenuUI(container) {
   menuOverlay = makeDiv(
     "touch-menu-controls",
@@ -626,17 +585,13 @@ function Touch_CreateMenuUI(container) {
   container.appendChild(menuOverlay);
 }
 
-/*
-=================
-Touch_CreatePortraitPrompt
-
-A full-screen "Rotate your device" card for portrait. The view keeps the
-vertical FOV of the 4:3 default (fov 90 at 4:3 is about 74 degrees
-vertically), so a portrait screen shows only about 38 degrees across. Tap to
-dismiss; it stays dismissed for the session, since foldables and tablets
-near square may never leave "portrait" by the innerHeight > innerWidth test.
-=================
-*/
+/**
+ * A full-screen "Rotate your device" card for portrait. The view keeps the
+ * vertical FOV of the 4:3 default (fov 90 at 4:3 is about 74 degrees
+ * vertically), so a portrait screen shows only about 38 degrees across. Tap to
+ * dismiss; it stays dismissed for the session, since foldables and tablets
+ * near square may never leave "portrait" by the innerHeight > innerWidth test.
+ */
 function Touch_CreatePortraitPrompt(container) {
   portraitPrompt = makeDiv(
     "touch-portrait",
@@ -686,15 +641,11 @@ function Touch_CreatePortraitPrompt(container) {
   container.appendChild(portraitPrompt);
 }
 
-/*
-=================
-Touch_UpdatePortraitPrompt
-
-Show the prompt while the game controls are up (touch mode, in game),
-the window is portrait and it has not been dismissed. Menus, the console
-and landscape hide it. Called on enable, disable, resize and rotation.
-=================
-*/
+/**
+ * Show the prompt while the game controls are up (touch mode, in game),
+ * the window is portrait and it has not been dismissed. Menus, the console
+ * and landscape hide it. Called on enable, disable, resize and rotation.
+ */
 function Touch_UpdatePortraitPrompt() {
   if (portraitPrompt === null) return;
 
@@ -712,15 +663,11 @@ function Touch_OnResize() {
   Touch_LayoutBar();
 }
 
-/*
-=================
-Touch_CreateSysBar
-
-Back (Escape) and keyboard buttons, shown in menus, the console and chat,
-where there is no keyboard to press Escape or type with. The keyboard button
-focuses an off-screen text field, whose input is forwarded as Quake keys.
-=================
-*/
+/**
+ * Back (Escape) and keyboard buttons, shown in menus, the console and chat,
+ * where there is no keyboard to press Escape or type with. The keyboard button
+ * focuses an off-screen text field, whose input is forwarded as Quake keys.
+ */
 function Touch_CreateSysBar(container) {
   sysBar = makeDiv(
     "touch-sysbar",
@@ -781,17 +728,11 @@ function Touch_CreateSysBar(container) {
   container.appendChild(keyboardInput);
 }
 
-/*
-==============================================================================
-
-			ON-SCREEN KEYBOARD
-
-Mobile keyboards often send keydown with key "Unidentified", so text comes
-from the input event and the field is emptied after each one. Enter and
-Backspace on an empty field only arrive as keydown.
-
-==============================================================================
-*/
+// ON-SCREEN KEYBOARD
+//
+// Mobile keyboards often send keydown with key "Unidentified", so text comes
+// from the input event and the field is emptied after each one. Enter and
+// Backspace on an empty field only arrive as keydown.
 
 function onKeyboardInput(e) {
   const type = e.inputType || "";
@@ -845,16 +786,12 @@ function Touch_HideKeyboard() {
   ) keyboardInput.blur();
 }
 
-/*
-=================
-Menu touch handlers
-
-A tap (released without dragging) selects the menu item under the finger.
-Dragging sends arrow keys, one per MENU_DRAG_STEP pixels along the first
-axis moved: up/down moves the cursor, left/right adjusts sliders and
-options. menu.js only takes taps, so drags go through Key_Event.
-=================
-*/
+// Menu touch handlers
+//
+// A tap (released without dragging) selects the menu item under the finger.
+// Dragging sends arrow keys, one per MENU_DRAG_STEP pixels along the first
+// axis moved: up/down moves the cursor, left/right adjusts sliders and
+// options. menu.js only takes taps, so drags go through Key_Event.
 
 function findTouch(list, id) {
   for (let i = 0; i < list.length; i++) {
@@ -968,13 +905,7 @@ function Menu_HandleTouchEnd(e) {
   }
 }
 
-/*
-==============================================================================
-
-			GAME TOUCH HANDLERS
-
-==============================================================================
-*/
+// GAME TOUCH HANDLERS
 
 function haptic(ms) {
   if (!touch_haptics.value || typeof navigator === "undefined") return;
@@ -1102,28 +1033,18 @@ function onTapTouchEnd(b, e) {
   onGameTouchEnd(e);
 }
 
-/*
-==============================================================================
+// WEAPON WHEEL
+//
+// Web-only: the C has no on-screen weapon picker. A quick tap on WPN▶ still
+// sends impulse 10 (cycle), now on release; holding it for WHEEL_HOLD_MS opens a
+// ring of the weapons the player has. Sliding to a slot and lifting sends
+// impulse 1-8 (the C weapon impulses); lifting elsewhere cancels.
 
-			WEAPON WHEEL
-
-Web-only: the C has no on-screen weapon picker. A quick tap on WPN▶ still
-sends impulse 10 (cycle), now on release; holding it for WHEEL_HOLD_MS opens a
-ring of the weapons the player has. Sliding to a slot and lifting sends
-impulse 1-8 (the C weapon impulses); lifting elsewhere cancels.
-
-==============================================================================
-*/
-
-/*
-=================
-Touch_WheelSlotAt
-
-dx, dy: finger position relative to the wheel centre, in px (y down).
-Slot 1 is straight up and the slots follow clockwise, 45 degrees apart.
-Returns 1-8, or null inside the dead zone or beyond outer.
-=================
-*/
+/**
+ * dx, dy: finger position relative to the wheel centre, in px (y down).
+ * Slot 1 is straight up and the slots follow clockwise, 45 degrees apart.
+ * Returns 1-8, or null inside the dead zone or beyond outer.
+ */
 export function Touch_WheelSlotAt(dx, dy, inner, outer) {
   const d = Math.hypot(dx, dy);
   if (d < inner || d > outer) return null;
@@ -1155,14 +1076,10 @@ const WHEEL_AMMO_STATS = [
   STAT_CELLS,
 ];
 
-/*
-=================
-Touch_WheelWeapons
-
-Fill out[ 0..7 ] (slot - 1) with { owned, ammo } from cl.items and cl.stats.
-The axe needs no ammo. Mission-pack weapons are not covered.
-=================
-*/
+/**
+ * Fill out[ 0..7 ] (slot - 1) with { owned, ammo } from cl.items and cl.stats.
+ * The axe needs no ammo. Mission-pack weapons are not covered.
+ */
 export function Touch_WheelWeapons(items, stats, out) {
   for (let i = 0; i < 8; i++) {
     out[i].owned = (items & WHEEL_ITEM_BITS[i]) !== 0;
@@ -1172,14 +1089,10 @@ export function Touch_WheelWeapons(items, stats, out) {
   return out;
 }
 
-/*
-=================
-Touch_WheelSelect
-
-The slot (1-8) under the finger, or null when it is off the ring or the
-weapon there isn't owned (so releasing there cancels).
-=================
-*/
+/**
+ * The slot (1-8) under the finger, or null when it is off the ring or the
+ * weapon there isn't owned (so releasing there cancels).
+ */
 export function Touch_WheelSelect(dx, dy, inner, outer, weapons) {
   const slot = Touch_WheelSlotAt(dx, dy, inner, outer);
   if (slot === null || weapons[slot - 1].owned === false) return null;
@@ -1369,13 +1282,7 @@ function Touch_BuildListeners() {
   add(pauseButton, "touchstart", onPauseTouchStart);
 }
 
-/*
-==============================================================================
-
-			MOVE STICK (nipplejs)
-
-==============================================================================
-*/
+// MOVE STICK (nipplejs)
 
 // Load nipplejs through the page's import map. The specifier is a variable
 // so tools that resolve imports up front (Deno tests) don't fail on it.
@@ -1432,18 +1339,14 @@ function Stick_Destroy() {
   Touch_ResetJoystick();
 }
 
-/*
-=================
-Touch_SetJoystick
-
-x, y: knob offset as a fraction of the radius (screen axes, y down).
-Applies the deadzone, then ramps the magnitude linearly from 0 at the
-deadzone edge to 1 at JOYSTICK_FULL. IN_Move multiplies it by
-cl_movespeedkey, so the response is continuous: walk speed (1x
-cl_forwardspeed) lands mid-throw and run speed (cl_movespeedkey x) at full
-deflection, with no jump between them. `run` only flags full deflection.
-=================
-*/
+/**
+ * x, y: knob offset as a fraction of the radius (screen axes, y down).
+ * Applies the deadzone, then ramps the magnitude linearly from 0 at the
+ * deadzone edge to 1 at JOYSTICK_FULL. IN_Move multiplies it by
+ * cl_movespeedkey, so the response is continuous: walk speed (1x
+ * cl_forwardspeed) lands mid-throw and run speed (cl_movespeedkey x) at full
+ * deflection, with no jump between them. `run` only flags full deflection.
+ */
 export function Touch_SetJoystick(x, y) {
   const mag = Math.sqrt(x * x + y * y);
 
@@ -1472,14 +1375,10 @@ function Touch_ResetJoystick() {
   moveRun = false;
 }
 
-/*
-=================
-Touch_ReleaseButtons
-
-Release FIRE/JUMP if touch is holding them, reset the stick and look
-tracking. Called by Touch_Disable and on focus loss.
-=================
-*/
+/**
+ * Release FIRE/JUMP if touch is holding them, reset the stick and look
+ * tracking. Called by Touch_Disable and on focus loss.
+ */
 export function Touch_ReleaseButtons() {
   for (const b of holdButtons) Touch_ReleaseHold(b);
   Touch_WheelClose();
@@ -1490,22 +1389,16 @@ export function Touch_ReleaseButtons() {
   menuTouch = null;
 }
 
-/*
-==============================================================================
-
-			GYRO AIMING
-
-devicemotion rotationRate is angular velocity in degrees per second about the
-device axes (beta: x, short edge; gamma: y, long edge; alpha: z, out of the
-screen). It is rotated into screen axes for the current orientation, then
-integrated over the time between events: rotation about the screen's
-vertical axis turns, about its horizontal axis pitches. Rotation about the
-screen normal (roll) is added to yaw ("local space" gyro), so turning while
-the phone is tilted back still turns. touch_gyro_sensitivity 1 maps a real
-degree to a view degree.
-
-==============================================================================
-*/
+// GYRO AIMING
+//
+// devicemotion rotationRate is angular velocity in degrees per second about the
+// device axes (beta: x, short edge; gamma: y, long edge; alpha: z, out of the
+// screen). It is rotated into screen axes for the current orientation, then
+// integrated over the time between events: rotation about the screen's
+// vertical axis turns, about its horizontal axis pitches. Rotation about the
+// screen normal (roll) is added to yaw ("local space" gyro), so turning while
+// the phone is tilted back still turns. touch_gyro_sensitivity 1 maps a real
+// degree to a view degree.
 
 function onDeviceMotion(e) {
   if (!enabled) return;
@@ -1551,15 +1444,11 @@ function Gyro_ScreenAngle() {
   return 0;
 }
 
-/*
-=================
-Gyro_Update
-
-Start or stop listening to match touch_gyro while the game controls are up.
-fromGesture: we are inside a user activation, so iOS may show its motion
-permission prompt now (it refuses outside one).
-=================
-*/
+/**
+ * Start or stop listening to match touch_gyro while the game controls are up.
+ * fromGesture: we are inside a user activation, so iOS may show its motion
+ * permission prompt now (it refuses outside one).
+ */
 function Gyro_Update(fromGesture) {
   const want = enabled && touch_gyro.value !== 0;
 
@@ -1585,15 +1474,11 @@ function Gyro_Update(fromGesture) {
   if (fromGesture) Gyro_RequestPermission();
 }
 
-/*
-=================
-Gyro_RequestPermission
-
-iOS only: ask for motion sensor access while touch_gyro is on. Must run
-inside a user activation (touchend). Gyro_Update starts listening once it is
-granted and the game controls are up.
-=================
-*/
+/**
+ * iOS only: ask for motion sensor access while touch_gyro is on. Must run
+ * inside a user activation (touchend). Gyro_Update starts listening once it is
+ * granted and the game controls are up.
+ */
 function Gyro_RequestPermission() {
   if (touch_gyro.value === 0 || gyroPermission !== "unknown") return;
 
@@ -1629,14 +1514,10 @@ function Gyro_Stop() {
   window.removeEventListener("devicemotion", onDeviceMotion);
 }
 
-/*
-=================
-Touch_Frame
-
-Called every frame: re-lays out the controls and starts or stops the gyro
-when the touch cvars change (from the menu or the console)
-=================
-*/
+/**
+ * Called every frame: re-lays out the controls and starts or stops the gyro
+ * when the touch cvars change (from the menu or the console)
+ */
 export function Touch_Frame() {
   if (!initialized) return;
 
@@ -1649,15 +1530,11 @@ export function Touch_Frame() {
   Touch_UpdateBar();
 }
 
-/*
-=================
-Touch_ButtonsVisible
-
-Which of the small buttons show. Quick save and load need a local
-single-player game (the C's save refuses anything else), and load needs the
-slot to exist; chat is for games with other players. Fills out and returns it.
-=================
-*/
+/**
+ * Which of the small buttons show. Quick save and load need a local
+ * single-player game (the C's save refuses anything else), and load needs the
+ * slot to exist; chat is for games with other players. Fills out and returns it.
+ */
 export function Touch_ButtonsVisible(
   singleplayer,
   multiplayer,
@@ -1713,11 +1590,7 @@ function Touch_UpdateBar() {
   }
 }
 
-/*
-=================
-Wake Lock - prevents screen from dimming while playing
-=================
-*/
+// Wake Lock - prevents screen from dimming while playing
 
 async function Touch_RequestWakeLock() {
   if (wakeLock !== null || wakeLockPending) return;
@@ -1771,13 +1644,7 @@ function onFullscreenChange() {
   }
 }
 
-/*
-=================
-Touch_RequestFullscreen
-
-Request fullscreen and lock to landscape orientation on mobile
-=================
-*/
+/** Request fullscreen and lock to landscape orientation on mobile */
 export async function Touch_RequestFullscreen() {
   if (fullscreenActivated || fullscreenPending) return;
 
@@ -1825,13 +1692,7 @@ export async function Touch_RequestFullscreen() {
   }
 }
 
-/*
-=================
-Touch_ExitFullscreen
-
-Exit fullscreen mode
-=================
-*/
+/** Exit fullscreen mode */
 export async function Touch_ExitFullscreen() {
   if (!document.fullscreenElement && !document.webkitFullscreenElement) return;
 
@@ -1853,13 +1714,7 @@ export async function Touch_ExitFullscreen() {
   }
 }
 
-/*
-=================
-Touch_Init
-
-Initialize touch controls
-=================
-*/
+/** Initialize touch controls */
 export function Touch_Init(container) {
   if (initialized) return;
 
@@ -1881,13 +1736,7 @@ export function Touch_Init(container) {
   Stick_Load();
 }
 
-/*
-=================
-Touch_Enable
-
-Enable touch controls (show UI, add listeners)
-=================
-*/
+/** Enable touch controls (show UI, add listeners) */
 export function Touch_Enable() {
   if (!initialized) return;
   if (enabled) return;
@@ -1911,13 +1760,7 @@ export function Touch_Enable() {
   Touch_RequestWakeLock();
 }
 
-/*
-=================
-Touch_Disable
-
-Disable touch controls (hide UI, remove listeners)
-=================
-*/
+/** Disable touch controls (hide UI, remove listeners) */
 export function Touch_Disable() {
   if (!initialized || !enabled) return;
 
@@ -1939,22 +1782,11 @@ export function Touch_Disable() {
   Touch_ReleaseButtons();
 }
 
-/*
-=================
-Touch_IsEnabled
-=================
-*/
 export function Touch_IsEnabled() {
   return enabled;
 }
 
-/*
-=================
-Touch_GetMoveInput
-
-Returns normalized movement input from joystick
-=================
-*/
+/** Returns normalized movement input from joystick */
 export function Touch_GetMoveInput() {
   _moveInput.forward = moveForward;
   _moveInput.right = moveRight;
@@ -1962,14 +1794,10 @@ export function Touch_GetMoveInput() {
   return _moveInput;
 }
 
-/*
-=================
-Touch_GetLookDelta
-
-Returns the view change from drag look and gyro since the last call, in
-degrees (yaw: + turns left, pitch: + looks down), and clears it
-=================
-*/
+/**
+ * Returns the view change from drag look and gyro since the last call, in
+ * degrees (yaw: + turns left, pitch: + looks down), and clears it
+ */
 export function Touch_GetLookDelta() {
   _lookDelta.yaw = lookYaw;
   _lookDelta.pitch = lookPitch;
@@ -1978,13 +1806,7 @@ export function Touch_GetLookDelta() {
   return _lookDelta;
 }
 
-/*
-=================
-Touch_ShowMenu
-
-Show menu touch overlay (and the Back / keyboard bar)
-=================
-*/
+/** Show menu touch overlay (and the Back / keyboard bar) */
 export function Touch_ShowMenu() {
   if (!initialized || !menuOverlay) return;
 
@@ -1993,13 +1815,7 @@ export function Touch_ShowMenu() {
   Touch_ShowSysBar();
 }
 
-/*
-=================
-Touch_HideMenu
-
-Hide menu touch overlay
-=================
-*/
+/** Hide menu touch overlay */
 export function Touch_HideMenu() {
   if (!initialized || !menuOverlay) return;
 
@@ -2007,25 +1823,17 @@ export function Touch_HideMenu() {
   menuShown = false;
 }
 
-/*
-=================
-Touch_MenuShown
-
-True while the menu overlay is up, so menu input comes from taps
-(menu.js sizes and confirms its rows for fingers then)
-=================
-*/
+/**
+ * True while the menu overlay is up, so menu input comes from taps
+ * (menu.js sizes and confirms its rows for fingers then)
+ */
 export function Touch_MenuShown() {
   return menuShown;
 }
 
-/*
-=================
-Touch_ShowSysBar / Touch_HideSysBar
-
-The Back / keyboard bar on its own, for the console and chat
-=================
-*/
+// Touch_ShowSysBar / Touch_HideSysBar
+//
+// The Back / keyboard bar on its own, for the console and chat
 export function Touch_ShowSysBar() {
   if (!initialized || !sysBar) return;
   sysBar.style.display = "flex";
@@ -2037,16 +1845,12 @@ export function Touch_HideSysBar() {
   Touch_HideKeyboard();
 }
 
-/*
-=================
-Touch_SetMenuCallback
-
-Set the callback function for menu touch events
-Callback receives (touchX, touchY, surfaceWidth, surfaceHeight, true),
-relative to the element returned by getSurface (the canvas the menu is drawn
-into); the last argument says the tap came from a finger
-=================
-*/
+/**
+ * Set the callback function for menu touch events
+ * Callback receives (touchX, touchY, surfaceWidth, surfaceHeight, true),
+ * relative to the element returned by getSurface (the canvas the menu is drawn
+ * into); the last argument says the tap came from a finger
+ */
 export function Touch_SetMenuCallback(callback, getSurface) {
   menuTouchCallback = callback;
   menuSurfaceGetter = getSurface || null;

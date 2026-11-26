@@ -59,26 +59,20 @@ const _accumulate_cmd = {
 // WebTransport game servers parse QuakeWorld-style clc_delta requests.
 const USE_QW_COMMAND_EXTENSIONS = true;
 
-/*
-===============================================================================
-
-KEY BUTTONS
-
-Continuous button event tracking is complicated by the fact that two different
-input sources (say, mouse button 1 and the control key) can both press the
-same button, but the button should only be released when both of the
-pressing key have been released.
-
-When a key event issues a button command (+forward, +attack, etc), it appends
-its key number as a parameter to the command so it can be matched up with
-the release.
-
-state bit 0 is the current state of the key
-state bit 1 is edge triggered on the up to down transition
-state bit 2 is edge triggered on the down to up transition
-
-===============================================================================
-*/
+// KEY BUTTONS
+//
+// Continuous button event tracking is complicated by the fact that two different
+// input sources (say, mouse button 1 and the control key) can both press the
+// same button, but the button should only be released when both of the
+// pressing key have been released.
+//
+// When a key event issues a button command (+forward, +attack, etc), it appends
+// its key number as a parameter to the command so it can be matched up with
+// the release.
+//
+// state bit 0 is the current state of the key
+// state bit 1 is edge triggered on the up to down transition
+// state bit 2 is edge triggered on the down to up transition
 
 export const in_mlook = new kbutton_t();
 export const in_klook = new kbutton_t();
@@ -272,16 +266,12 @@ function IN_Impulse() {
   in_impulse = Q_atoi(Cmd_Argv(1));
 }
 
-/*
-===============
-CL_KeyState
-
-Returns 0.25 if a key was pressed and released during the frame,
-0.5 if it was pressed and held
-0 if held then released, and
-1.0 if held for the entire time
-===============
-*/
+/**
+ * Returns 0.25 if a key was pressed and released during the frame,
+ * 0.5 if it was pressed and held
+ * 0 if held then released, and
+ * 1.0 if held for the entire time
+ */
 export function CL_KeyState(key) {
   let val;
   const impulsedown = key.state & 2;
@@ -323,8 +313,6 @@ export function CL_KeyState(key) {
   return val;
 }
 
-//==========================================================================
-
 export const cl_upspeed = new cvar_t("cl_upspeed", "200");
 export const cl_forwardspeed = new cvar_t("cl_forwardspeed", "200", true);
 export const cl_backspeed = new cvar_t("cl_backspeed", "200", true);
@@ -341,13 +329,7 @@ export const cl_pitchspeed = new cvar_t("cl_pitchspeed", "150");
 
 export const cl_anglespeedkey = new cvar_t("cl_anglespeedkey", "1.5");
 
-/*
-================
-CL_AdjustAngles
-
-Moves the local angle positions
-================
-*/
+/** Moves the local angle positions */
 export function CL_AdjustAngles() {
   let speed;
 
@@ -390,13 +372,7 @@ export function CL_AdjustAngles() {
   }
 }
 
-/*
-================
-CL_BaseMove
-
-Send the intended movement message to the server
-================
-*/
+/** Send the intended movement message to the server */
 export function CL_BaseMove(cmd) {
   if (cls.signon !== SIGNONS) {
     return;
@@ -425,9 +401,7 @@ export function CL_BaseMove(cmd) {
     cmd.forwardmove -= cl_backspeed.value * CL_KeyState(in_back);
   }
 
-  //
   // adjust for speed key
-  //
   if (in_speed.state & 1) {
     cmd.forwardmove *= cl_movespeedkey.value;
     cmd.sidemove *= cl_movespeedkey.value;
@@ -435,14 +409,10 @@ export function CL_BaseMove(cmd) {
   }
 }
 
-/*
-==============
-CL_QuantizeAngle
-
-The angle the server gets back from MSG_WriteAngle16 / MSG_ReadAngle16
-in clc_move: truncated to 1/65536 of a turn, as a signed short.
-==============
-*/
+/**
+ * The angle the server gets back from MSG_WriteAngle16 / MSG_ReadAngle16
+ * in clc_move: truncated to 1/65536 of a turn, as a signed short.
+ */
 export function CL_QuantizeAngle(f) {
   let s = ((f * 65536 / 360) | 0) & 65535;
   if (s > 32767) {
@@ -451,26 +421,22 @@ export function CL_QuantizeAngle(f) {
   return s * (360.0 / 65536);
 }
 
-/*
-=================
-CL_AccumulateCmd
-
-Ironwail CL_AccumulateCmd (Spike: split from CL_SendCmd): turns the view
-on a render frame that runs no network tick, so mouse look follows every
-frame (host.js _Host_NetFrame). A tick frame turns it in CL_SendCmd.
-
-Ironwail adds IN_Move's moves to cl.pendingcmd, which CL_SendCmd sends.
-Here CL_SendCmd is unchanged and samples the sticks and touch joystick
-itself, so the scratch command's moves are dropped; summing them as
-Ironwail does would multiply stick speed by the frames per tick. Mouse
-motion that moves rather than turns (+strafe, lookstrafe, or no +mlook)
-can't be told apart from those, so then nothing turns until the tick:
-CL_SendCmd gets the whole mouse delta, as in WinQuake, and host.js gives
-it the time since the view last turned for keyboard and stick turning.
-
-Returns true if the view turned.
-=================
-*/
+/**
+ * Ironwail CL_AccumulateCmd (Spike: split from CL_SendCmd): turns the view
+ * on a render frame that runs no network tick, so mouse look follows every
+ * frame (host.js _Host_NetFrame). A tick frame turns it in CL_SendCmd.
+ *
+ * Ironwail adds IN_Move's moves to cl.pendingcmd, which CL_SendCmd sends.
+ * Here CL_SendCmd is unchanged and samples the sticks and touch joystick
+ * itself, so the scratch command's moves are dropped; summing them as
+ * Ironwail does would multiply stick speed by the frames per tick. Mouse
+ * motion that moves rather than turns (+strafe, lookstrafe, or no +mlook)
+ * can't be told apart from those, so then nothing turns until the tick:
+ * CL_SendCmd gets the whole mouse delta, as in WinQuake, and host.js gives
+ * it the time since the view last turned for keyboard and stick turning.
+ *
+ * Returns true if the view turned.
+ */
 export function CL_AccumulateCmd() {
   if (cls.state !== ca_connected || cls.signon !== SIGNONS) {
     return false;
@@ -495,15 +461,11 @@ export function CL_AccumulateCmd() {
   return true;
 }
 
-/*
-==============
-CL_MoveAngles
-
-The angles CL_SendMove sends: the view angles, or in XR the controller's
-aim, so weapons fire where it points. The server also moves the player
-along them, so prediction must use the same ones (IN-3).
-==============
-*/
+/**
+ * The angles CL_SendMove sends: the view angles, or in XR the controller's
+ * aim, so weapons fire where it points. The server also moves the player
+ * along them, so prediction must use the same ones (IN-3).
+ */
 export function CL_MoveAngles() {
   if (isXRActive() && XR_GetAimAngles(_xrAimAngles)) {
     return _xrAimAngles;
@@ -511,11 +473,6 @@ export function CL_MoveAngles() {
   return cl.viewangles;
 }
 
-/*
-==============
-CL_SendMove
-==============
-*/
 export function CL_SendMove(cmd) {
   const buf = _sendmove_buf;
   buf.cursize = 0;
@@ -523,9 +480,7 @@ export function CL_SendMove(cmd) {
 
   cl.cmd = cmd;
 
-  //
   // send the movement message
-  //
   MSG_WriteByte(buf, clc_move);
 
   MSG_WriteFloat(buf, cl.mtime[0]); // so server can get ping times
@@ -547,9 +502,7 @@ export function CL_SendMove(cmd) {
   MSG_WriteShort(buf, cmd.sidemove);
   MSG_WriteShort(buf, cmd.upmove);
 
-  //
   // send button bits
-  //
   let bits = 0;
 
   if (in_attack.state & 3) {
@@ -567,7 +520,6 @@ export function CL_SendMove(cmd) {
   MSG_WriteByte(buf, in_impulse);
   in_impulse = 0;
 
-  //
   // Store command for client-side prediction (QuakeWorld style)
   // Build a prediction command structure
   //
@@ -600,17 +552,13 @@ export function CL_SendMove(cmd) {
     }
   }
 
-  //
   // deliver the message
-  //
   if (cls.demoplayback) {
     return;
   }
 
-  //
   // allways dump the first two message, because it may contain leftover inputs
   // from the last level
-  //
   if (++cl.movemessages <= 2) {
     return;
   }
@@ -621,15 +569,11 @@ export function CL_SendMove(cmd) {
   }
 }
 
-/*
-============
-CL_ClampPitch
-
-johnfitz -- variable pitch clamping: cl_maxpitch / cl_minpitch replace
-id's hard-coded 80 / -70 in CL_AdjustAngles and the mouse look (in_win.c
-IN_MouseMove, here IN_Move), plus the port's gamepad and touch look
-============
-*/
+/**
+ * johnfitz -- variable pitch clamping: cl_maxpitch / cl_minpitch replace
+ * id's hard-coded 80 / -70 in CL_AdjustAngles and the mouse look (in_win.c
+ * IN_MouseMove, here IN_Move), plus the port's gamepad and touch look
+ */
 export function CL_ClampPitch() {
   if (cl.viewangles[PITCH] > cl_maxpitch.value) {
     cl.viewangles[PITCH] = cl_maxpitch.value;
@@ -639,11 +583,6 @@ export function CL_ClampPitch() {
   }
 }
 
-/*
-============
-CL_InitInput
-============
-*/
 export function CL_InitInput() {
   Cvar_RegisterVariable(cl_maxpitch);
   Cvar_RegisterVariable(cl_minpitch);

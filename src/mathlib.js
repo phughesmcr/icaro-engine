@@ -7,8 +7,6 @@ export const M_PI = 3.14159265358979323846;
 
 export const vec3_origin = new Float32Array([0, 0, 0]);
 
-/*-----------------------------------------------------------------*/
-
 const DEG2RAD = (a) => (a * M_PI) / 180.0;
 
 export function DotProduct(x, y) {
@@ -101,13 +99,7 @@ export function anglemod(a) {
   return (360.0 / 65536) * (((a * (65536 / 360.0)) | 0) & 65535);
 }
 
-/*
-==================
-BoxOnPlaneSide
-
-Returns 1, 2, or 1 + 2
-==================
-*/
+/** Returns 1, 2, or 1 + 2 */
 export function BoxOnPlaneSide(emins, emaxs, p) {
   let dist1, dist2;
   let sides;
@@ -214,11 +206,6 @@ export function AngleVectors(angles, forward, right, up) {
   up[2] = cr * cp;
 }
 
-/*
-================
-R_ConcatRotations
-================
-*/
 export function R_ConcatRotations(in1, in2, out) {
   out[0][0] = in1[0][0] * in2[0][0] + in1[0][1] * in2[1][0] +
     in1[0][2] * in2[2][0];
@@ -240,11 +227,6 @@ export function R_ConcatRotations(in1, in2, out) {
     in1[2][2] * in2[2][2];
 }
 
-/*
-================
-R_ConcatTransforms
-================
-*/
 export function R_ConcatTransforms(in1, in2, out) {
   out[0][0] = in1[0][0] * in2[0][0] + in1[0][1] * in2[1][0] +
     in1[0][2] * in2[2][0];
@@ -317,9 +299,7 @@ export function ProjectPointOnPlane(dst, p, normal) {
   dst[2] = p[2] - d * n[2];
 }
 
-/*
- ** assumes "src" is normalized
- */
+/** assumes "src" is normalized */
 export function PerpendicularVector(dst, src) {
   let pos = 0;
   let minelem = 1.0;
@@ -403,15 +383,11 @@ export function RotatePointAroundVector(dst, dir, point, degrees) {
   }
 }
 
-/*
-===================
-FloorDivMod
-
-Returns mathematically correct (floor-based) quotient and remainder for
-numer and denom, both of which should contain no fractional part. The
-quotient must fit in 32 bits.
-====================
-*/
+/**
+ * Returns mathematically correct (floor-based) quotient and remainder for
+ * numer and denom, both of which should contain no fractional part. The
+ * quotient must fit in 32 bits.
+ */
 export function FloorDivMod(numer, denom) {
   let q, r;
 

@@ -23,11 +23,7 @@ import { Cvar_RegisterVariable, cvar_t } from "./cvar.js";
 import { cl } from "./client.js";
 import { Q_FormatFloat } from "./pr_sprintf.js";
 
-//==============================================================================
-//
 //  GLOBAL FOG
-//
-//==============================================================================
 
 const DEFAULT_DENSITY = 0.0;
 const DEFAULT_GRAY = 0.3;
@@ -69,13 +65,7 @@ export function Fog_GetState() {
   };
 }
 
-/*
-=============
-Fog_Update
-
-update internal variables
-=============
-*/
+/** update internal variables */
 export function Fog_Update(density, red, green, blue, time) {
   // save previous settings for fade
   if (time > 0) {
@@ -106,13 +96,7 @@ function _g(v) {
   return Q_FormatFloat("g", 0, -1, -1, v);
 }
 
-/*
-=============
-Fog_FogCommand_f
-
-handle the 'fog' console command
-=============
-*/
+/** handle the 'fog' console command */
 export function Fog_FogCommand_f() {
   let d, r, g, b, t;
 
@@ -176,10 +160,10 @@ export function Fog_FogCommand_f() {
   Fog_Update(d, r, g, b, t);
 }
 
-/*
-sscanf( value, "%f %f %f %f", ... ): fills the outputs left to right and stops
-at the first field that isn't a number, so later fields keep their values.
-*/
+/**
+ * sscanf( value, "%f %f %f %f", ... ): fills the outputs left to right and stops
+ * at the first field that isn't a number, so later fields keep their values.
+ */
 const _scanFloat = /\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)/y;
 
 export function Fog_ScanFloats(value, out) {
@@ -206,13 +190,7 @@ function _worldspawnKey(token) {
   );
 }
 
-/*
-=============
-Fog_ParseWorldspawn
-
-called at map load
-=============
-*/
+/** called at map load */
 export function Fog_ParseWorldspawn(entities) {
   // initially no fog
   fog_density = DEFAULT_DENSITY;
@@ -267,14 +245,10 @@ export function Fog_ParseWorldspawn(entities) {
   }
 }
 
-/*
-=============
-Sky_NewMap (gl_sky.c), the skyfog part
-
-The worldspawn "skyfog" key overrides r_skyfog for this map. The skybox
-part ("sky") is Sky_NewMap in gl_sky.js.
-=============
-*/
+// Sky_NewMap (gl_sky.c), the skyfog part
+//
+// The worldspawn "skyfog" key overrides r_skyfog for this map. The skybox
+// part ("sky") is Sky_NewMap in gl_sky.js.
 export function Sky_ParseSkyfog(entities) {
   skyfog = r_skyfog.value;
   _seenSkyFog = r_skyfog.value;
@@ -311,13 +285,9 @@ export function Sky_ParseSkyfog(entities) {
   }
 }
 
-/*
-=============
-Fog_GetColor
-
-calculates fog color for this frame, taking into account fade times
-=============
-*/
+// Fog_GetColor
+//
+// calculates fog color for this frame, taking into account fade times
 const _fogColor = new Float32Array(4);
 
 export function Fog_GetColor() {
@@ -348,13 +318,7 @@ export function Fog_GetColor() {
   return c;
 }
 
-/*
-=============
-Fog_GetDensity
-
-returns current density of fog
-=============
-*/
+/** returns current density of fog */
 export function Fog_GetDensity() {
   if (fade_done > cl.time) {
     const f = (fade_done - cl.time) / fade_time;
@@ -364,16 +328,16 @@ export function Fog_GetDensity() {
   return fog_density;
 }
 
-/*
-Sky: Ironwail's sky shaders end with
-	result.rgb = mix( result.rgb, SkyFog.rgb, SkyFog.a );
-where SkyFog is the fog colour and skyfog (r_skyfog, default 0.5) while the
-fog is on, and alpha 0 while it is off. Both of the port's sky layers get the
-same mix, which composes to the same colour as Ironwail's single pass. The
-mix runs after colorspace_fragment, in the output's gamma space as in
-Ironwail; the alpha is 0 for a map without fog, which leaves the colour as it
-was.
-*/
+/**
+ * Sky: Ironwail's sky shaders end with
+ * 	result.rgb = mix( result.rgb, SkyFog.rgb, SkyFog.a );
+ * where SkyFog is the fog colour and skyfog (r_skyfog, default 0.5) while the
+ * fog is on, and alpha 0 while it is off. Both of the port's sky layers get the
+ * same mix, which composes to the same colour as Ironwail's single pass. The
+ * mix runs after colorspace_fragment, in the output's gamma space as in
+ * Ironwail; the alpha is 0 for a map without fog, which leaves the colour as it
+ * was.
+ */
 const _skyFog = { value: new THREE.Vector4(0, 0, 0, 0) };
 
 export function Fog_PatchSkyShader(shader) {
@@ -385,25 +349,21 @@ export function Fog_PatchSkyShader(shader) {
     );
 }
 
-/*
-=============
-Fog_SetupFrame
-
-called at the beginning of each frame
-
-Ironwail's shaders compute exp2( -Fog.w * dist * dist ) with
-Fog.w = ( density * DensityScale )^2, DensityScale = sqrt( log2( e ) ) * 0.85 / 64,
-which is exp( -( density * 0.85 / 64 )^2 * dist^2 ) over the radial distance.
-The 0.85 compensates for that distance being radial. Three.js's FogExp2 is
-exp( -( fog.density * depth )^2 ) over the planar view depth. Deliberate
-deviation from Ironwail: the fog density here is density / 64, FitzQuake's
-GL_EXP2 fog (GL_FOG_DENSITY = density / 64) over the planar depth, so the
-centre of the view is about 1 / 0.85 denser than Ironwail's and the edges
-of a wide view a little thinner. Ironwail's radial fog would need a patched
-fog_vertex chunk in every material. In WebXR the scene is scaled to metres (scene.scale is
-1 / XR_SCALE), so the density is divided by that scale.
-=============
-*/
+// Fog_SetupFrame
+//
+// called at the beginning of each frame
+//
+// Ironwail's shaders compute exp2( -Fog.w * dist * dist ) with
+// Fog.w = ( density * DensityScale )^2, DensityScale = sqrt( log2( e ) ) * 0.85 / 64,
+// which is exp( -( density * 0.85 / 64 )^2 * dist^2 ) over the radial distance.
+// The 0.85 compensates for that distance being radial. Three.js's FogExp2 is
+// exp( -( fog.density * depth )^2 ) over the planar view depth. Deliberate
+// deviation from Ironwail: the fog density here is density / 64, FitzQuake's
+// GL_EXP2 fog (GL_FOG_DENSITY = density / 64) over the planar depth, so the
+// centre of the view is about 1 / 0.85 denser than Ironwail's and the edges
+// of a wide view a little thinner. Ironwail's radial fog would need a patched
+// fog_vertex chunk in every material. In WebXR the scene is scaled to metres (scene.scale is
+// 1 / XR_SCALE), so the density is divided by that scale.
 let _threeFog = null;
 
 export function Fog_SetupFrame(scene) {
@@ -445,19 +405,9 @@ export function Fog_GetSkyFog() {
   return _skyFog.value;
 }
 
-//==============================================================================
-//
 //  INIT
-//
-//==============================================================================
 
-/*
-=============
-Fog_NewMap
-
-called whenever a map is loaded
-=============
-*/
+/** called whenever a map is loaded */
 export function Fog_NewMap(worldmodel) {
   const entities = worldmodel !== null && worldmodel !== undefined ?
     worldmodel.entities :
@@ -466,13 +416,7 @@ export function Fog_NewMap(worldmodel) {
   Fog_ParseWorldspawn(entities); // for global fog
 }
 
-/*
-=============
-Fog_Init
-
-called when quake initializes
-=============
-*/
+/** called when quake initializes */
 export function Fog_Init() {
   Cmd_AddCommand("fog", Fog_FogCommand_f);
   Cvar_RegisterVariable(r_skyfog); // gl_sky.c Sky_Init

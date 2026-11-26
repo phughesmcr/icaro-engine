@@ -16,13 +16,7 @@ const TURNSTILE_Z_INDEX = 300;
 let turnstile_script = null; // Promise of window.turnstile, once loading starts
 let turnstile_active = null; // The widget on screen: { overlay, box, widgetId, finish }
 
-/*
-=============
-_Turnstile_LoadScript
-
-Load Cloudflare's api.js once, for explicit rendering.
-=============
-*/
+/** Load Cloudflare's api.js once, for explicit rendering. */
 function _Turnstile_LoadScript() {
   if (turnstile_script !== null) return turnstile_script;
 
@@ -52,11 +46,6 @@ function _Turnstile_LoadScript() {
   return turnstile_script;
 }
 
-/*
-=============
-_Turnstile_BuildOverlay
-=============
-*/
 function _Turnstile_BuildOverlay(onCancel) {
   const overlay = document.createElement("div");
   overlay.style.cssText = "position: fixed; inset: 0; z-index: " +
@@ -83,14 +72,10 @@ function _Turnstile_BuildOverlay(onCancel) {
   return { overlay, box };
 }
 
-/*
-=============
-Turnstile_GetToken
-
-Show the widget for sitekey and action. Resolves to its token; rejects if
-the widget fails, expires or times out, or Turnstile_Cancel is called.
-=============
-*/
+/**
+ * Show the widget for sitekey and action. Resolves to its token; rejects if
+ * the widget fails, expires or times out, or Turnstile_Cancel is called.
+ */
 export function Turnstile_GetToken(sitekey, action) {
   Turnstile_Cancel();
 
@@ -167,13 +152,7 @@ export function Turnstile_GetToken(sitekey, action) {
   });
 }
 
-/*
-=============
-Turnstile_Cancel
-
-Remove the widget, if one is on screen, and reject its request.
-=============
-*/
+/** Remove the widget, if one is on screen, and reject its request. */
 export function Turnstile_Cancel() {
   if (turnstile_active !== null) {
     turnstile_active.finish(new Error("Verification cancelled"));

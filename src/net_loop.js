@@ -18,37 +18,17 @@ let localconnectpending = false;
 let loop_client = null;
 let loop_server = null;
 
-/*
-=============
-Loop_Init
-=============
-*/
 export function Loop_Init() {
   // In browser, we always support loopback (not dedicated)
   return 0;
 }
 
-/*
-=============
-Loop_Shutdown
-=============
-*/
 export function Loop_Shutdown() {
 }
 
-/*
-=============
-Loop_Listen
-=============
-*/
 export function Loop_Listen(_state) {
 }
 
-/*
-=============
-Loop_SearchForHosts
-=============
-*/
 export function Loop_SearchForHosts(_xmit) {
   if (!sv.active) {
     return;
@@ -67,11 +47,6 @@ export function Loop_SearchForHosts(_xmit) {
   hostcache[0].cname = "local";
 }
 
-/*
-=============
-Loop_Connect
-=============
-*/
 export function Loop_Connect(host) {
   if (host !== "local") {
     return null;
@@ -113,11 +88,6 @@ export function Loop_Connect(host) {
   return loop_client;
 }
 
-/*
-=============
-Loop_CheckNewConnections
-=============
-*/
 export function Loop_CheckNewConnections() {
   if (!localconnectpending) {
     return null;
@@ -133,20 +103,10 @@ export function Loop_CheckNewConnections() {
   return loop_server;
 }
 
-/*
-=============
-IntAlign
-=============
-*/
 function IntAlign(value) {
   return (value + (4 - 1)) & (~(4 - 1)); // sizeof(int) = 4
 }
 
-/*
-=============
-Loop_GetMessage
-=============
-*/
 export function Loop_GetMessage(sock) {
   if (sock.receiveMessageLength === 0) {
     return 0;
@@ -177,11 +137,6 @@ export function Loop_GetMessage(sock) {
   return ret;
 }
 
-/*
-=============
-Loop_SendMessage
-=============
-*/
 export function Loop_SendMessage(sock, data) {
   if (!sock.driverdata) {
     return -1;
@@ -217,11 +172,6 @@ export function Loop_SendMessage(sock, data) {
   return 1;
 }
 
-/*
-=============
-Loop_SendUnreliableMessage
-=============
-*/
 export function Loop_SendUnreliableMessage(sock, data) {
   if (!sock.driverdata) {
     return -1;
@@ -255,11 +205,6 @@ export function Loop_SendUnreliableMessage(sock, data) {
   return 1;
 }
 
-/*
-=============
-Loop_CanSendMessage
-=============
-*/
 export function Loop_CanSendMessage(sock) {
   if (!sock.driverdata) {
     return false;
@@ -267,20 +212,10 @@ export function Loop_CanSendMessage(sock) {
   return sock.canSend;
 }
 
-/*
-=============
-Loop_CanSendUnreliableMessage
-=============
-*/
 export function Loop_CanSendUnreliableMessage(_sock) {
   return true;
 }
 
-/*
-=============
-Loop_Close
-=============
-*/
 export function Loop_Close(sock) {
   if (sock.driverdata != null) {
     sock.driverdata.driverdata = null;

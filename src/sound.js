@@ -1,12 +1,6 @@
 // Ported from: WinQuake/sound.h -- client sound i/o definitions
 
-/*
-==============================================================================
-
-			SOUND CONSTANTS
-
-==============================================================================
-*/
+// SOUND CONSTANTS
 
 export const DEFAULT_SOUND_PACKET_VOLUME = 255;
 export const DEFAULT_SOUND_PACKET_ATTENUATION = 1.0;
@@ -25,13 +19,7 @@ export const AMBIENT_SKY = 1;
 export const AMBIENT_SLIME = 2;
 export const AMBIENT_LAVA = 3;
 
-/*
-==============================================================================
-
-			SOUND STRUCTURES
-
-==============================================================================
-*/
+// SOUND STRUCTURES
 
 // portable_samplepair_t
 export class portable_samplepair_t {
@@ -107,13 +95,7 @@ export class wavinfo_t {
   }
 }
 
-/*
-==============================================================================
-
-			SOUND GLOBALS
-
-==============================================================================
-*/
+// SOUND GLOBALS
 
 export const channels = [];
 for (let i = 0; i < MAX_CHANNELS; i++) {

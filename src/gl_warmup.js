@@ -225,14 +225,10 @@ function R_WarmupCapped(generation) {
   R_WarmupFinish(generation);
 }
 
-/*
-===============
-R_WarmupStart
-
-Called by CL_ParseServerInfo after R_NewMap. Starts compiling the programs
-the level's first frames will need; see the header.
-===============
-*/
+/**
+ * Called by CL_ParseServerInfo after R_NewMap. Starts compiling the programs
+ * the level's first frames will need; see the header.
+ */
 export function R_WarmupStart(cl) {
   // a new map drops the previous one's pending plaque callback: the new
   // signon ends the new plaque
@@ -335,14 +331,10 @@ export function R_WarmupSetTest(hooks) {
   _test = hooks;
 }
 
-/*
-===============
-R_WarmupWhenReady
-
-Calls `callback` once the warm-up has finished or timed out: at once when
-none is running. CL_SignonReply uses it to end the loading plaque.
-===============
-*/
+/**
+ * Calls `callback` once the warm-up has finished or timed out: at once when
+ * none is running. CL_SignonReply uses it to end the loading plaque.
+ */
 export function R_WarmupWhenReady(callback) {
   if (_pending === false) {
     callback();

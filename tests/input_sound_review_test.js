@@ -55,13 +55,7 @@ function runBuffer() {
   return traced.join(",");
 }
 
-/*
-==============================================================================
-
-			KEYS
-
-==============================================================================
-*/
+// KEYS
 
 Deno.test("Key_Event drops key-ups for keys that were never down", () => {
   const oldBindings = keys.keybindings.slice();
@@ -182,13 +176,7 @@ Deno.test("a held arrow just bound in the keys menu does not repeat into the lis
   }
 });
 
-/*
-==============================================================================
-
-			SOUND
-
-==============================================================================
-*/
+// SOUND
 
 const started = [];
 

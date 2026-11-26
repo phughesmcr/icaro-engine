@@ -21,13 +21,7 @@ import {
   Draw_SetCanvasScale,
 } from "./gl_draw.js";
 
-/*
-==============================================================================
-
-			KEY CONSTANTS
-
-==============================================================================
-*/
+// KEY CONSTANTS
 
 // these are the key numbers that should be passed to Key_Event
 export const K_TAB = 9;
@@ -116,26 +110,14 @@ export const K_AUX32 = 238;
 export const K_MWHEELUP = 239;
 export const K_MWHEELDOWN = 240;
 
-/*
-==============================================================================
-
-			KEY DESTINATION MODES
-
-==============================================================================
-*/
+// KEY DESTINATION MODES
 
 export const key_game = 0;
 export const key_console = 1;
 export const key_message = 2;
 export const key_menu = 3;
 
-/*
-==============================================================================
-
-			KEY STATE
-
-==============================================================================
-*/
+// KEY STATE
 
 export const MAXCMDLINE = 256;
 const CMDLINES = 32;
@@ -210,13 +192,7 @@ const keyshift = new Array(256).fill(0);
 export const key_repeats = new Array(256).fill(0);
 const keydown = new Array(256).fill(false);
 
-/*
-==============================================================================
-
-			KEYNAME TABLE
-
-==============================================================================
-*/
+// KEYNAME TABLE
 
 const keynames = [
   { name: "TAB", keynum: K_TAB },
@@ -303,13 +279,7 @@ const keynames = [
   { name: "SEMICOLON", keynum: 59 }, // ';' - because a raw semicolon separates commands
 ];
 
-/*
-==============================================================================
-
-			LINE TYPING INTO THE CONSOLE
-
-==============================================================================
-*/
+// LINE TYPING INTO THE CONSOLE
 
 // External references we need
 // These are set by other modules to avoid circular imports
@@ -336,16 +306,10 @@ export function set_team_message(v) {
   team_message = v;
 }
 
-/*
-==============================================================================
-
-			CONSOLE LINE EDITING
-
-QuakeSpasm/Ironwail additions, not in id's keys.c: a cursor within the line,
-insert mode, word jumps, history that survives a reload, and clipboard paste.
-
-==============================================================================
-*/
+// CONSOLE LINE EDITING
+//
+// QuakeSpasm/Ironwail additions, not in id's keys.c: a cursor within the line,
+// insert mode, word jumps, history that survives a reload, and clipboard paste.
 
 // strlen() of a key_lines entry
 function Key_LineLength(line) {
@@ -390,13 +354,9 @@ function Key_LinesEqual(a, b) {
 // Up recalled history, restored by Down
 const key_current = new Array(MAXCMDLINE).fill(0);
 
-/*
-====================
-Key_IsWordSeparator, Key_FindWordBoundary
-
-QuakeSpasm: Ctrl+Left/Right and Ctrl+Backspace/Delete jump over words
-====================
-*/
+// Key_IsWordSeparator, Key_FindWordBoundary
+//
+// QuakeSpasm: Ctrl+Left/Right and Ctrl+Backspace/Delete jump over words
 function Key_IsWordSeparator(c) {
   return c === 32 || c === 95 || c === 9 || c === 59; // ' ', '_', '\t', ';'
 }
@@ -425,15 +385,11 @@ function Key_FindWordBoundary(dir) {
   return pos;
 }
 
-/*
-====================
-History_Init, History_Save
-
-QuakeSpasm keeps the command history in history.txt; the browser keeps it in
-localStorage. QS writes the file at shutdown, which a page never gets
-reliably, so it is saved after every command instead.
-====================
-*/
+// History_Init, History_Save
+//
+// QuakeSpasm keeps the command history in history.txt; the browser keeps it in
+// localStorage. QS writes the file at shutdown, which a page never gets
+// reliably, so it is saved after every command instead.
 const HISTORY_STORAGE_KEY = "quake_history";
 
 // undefined means the default store
@@ -540,16 +496,12 @@ function History_Save() {
   }
 }
 
-/*
-====================
-PasteToConsole
-
-QuakeSpasm: inserts text at the cursor, up to the first line break and cut to
-the line length. Tabs become spaces, and characters the Quake charset has no
-glyph for (other control characters, non-ASCII) are dropped, where QS copies
-the clipboard bytes as they are.
-====================
-*/
+/**
+ * QuakeSpasm: inserts text at the cursor, up to the first line break and cut to
+ * the line length. Tabs become spaces, and characters the Quake charset has no
+ * glyph for (other control characters, non-ASCII) are dropped, where QS copies
+ * the clipboard bytes as they are.
+ */
 export function PasteToConsole(text) {
   if (key_linepos === MAXCMDLINE - 1) {
     return;
@@ -600,21 +552,21 @@ export function PasteToConsole(text) {
   Con_ResetTabComplete();
 }
 
-/*
-Clipboard paste in the browser.
-
-Ctrl+V and Shift+Ins reach Key_Console, but Cmd+V never does: in_web.js leaves
-Cmd shortcuts to the browser. Both make the browser fire a paste event (the
-console doesn't prevent the default action), and that event carries the text
-without asking for permission, so it is the main route. It is listened for
-from Key_Init, never at import time.
-
-navigator.clipboard.readText() is the fallback for a Ctrl+V or Shift+Ins that
-brings no paste event. It runs after the key event has finished, when the
-paste event would already have arrived, and only if none did, because Firefox
-and Safari show a "Paste" prompt for every readText(). A refused permission
-or an empty clipboard is ignored.
-*/
+/**
+ * Clipboard paste in the browser.
+ *
+ * Ctrl+V and Shift+Ins reach Key_Console, but Cmd+V never does: in_web.js leaves
+ * Cmd shortcuts to the browser. Both make the browser fire a paste event (the
+ * console doesn't prevent the default action), and that event carries the text
+ * without asking for permission, so it is the main route. It is listened for
+ * from Key_Init, never at import time.
+ *
+ * navigator.clipboard.readText() is the fallback for a Ctrl+V or Shift+Ins that
+ * brings no paste event. It runs after the key event has finished, when the
+ * paste event would already have arrived, and only if none did, because Firefox
+ * and Safari show a "Paste" prompt for every readText(). A refused permission
+ * or an empty clipboard is ignored.
+ */
 let key_paste_events = 0;
 let key_paste_document = null;
 
@@ -697,16 +649,12 @@ function Key_PasteFromClipboard() {
   }, 0);
 }
 
-/*
-====================
-Key_ScrollConsole
-
-Ctrl+Home (top) or Con_Scroll( lines ). Both limit the backscroll by the
-console's height, which id takes from vid.height: the console's own
-canvas here (scr_conscale), as SCR_UpdateScreen lays the console out, not
-the automatic UI scale's virtual screen.
-====================
-*/
+/**
+ * Ctrl+Home (top) or Con_Scroll( lines ). Both limit the backscroll by the
+ * console's height, which id takes from vid.height: the console's own
+ * canvas here (scr_conscale), as SCR_UpdateScreen lays the console out, not
+ * the automatic UI scale's virtual screen.
+ */
 function Key_ScrollConsole(lines, top) {
   Draw_SetCanvasScale(scr_conscale.value);
   try {
@@ -720,15 +668,11 @@ function Key_ScrollConsole(lines, top) {
   }
 }
 
-/*
-====================
-Key_Console -- johnfitz -- heavy revision
-
-Interactive line editing and console scrollback. Follows QuakeSpasm, which
-moved Home/End to the cursor: Ctrl+Home/End now scroll the console to the
-top and bottom, where vanilla used plain Home/End.
-====================
-*/
+// Key_Console -- johnfitz -- heavy revision
+//
+// Interactive line editing and console scrollback. Follows QuakeSpasm, which
+// moved Home/End to the cursor: Ctrl+Home/End now scroll the console to the
+// top and bottom, where vanilla used plain Home/End.
 function Key_Console(key) {
   const workline = key_lines[edit_line];
   const ctrl = keydown[K_CTRL];
@@ -934,14 +878,10 @@ function Key_Console(key) {
   Char_Console(key);
 }
 
-/*
-====================
-Char_Console
-
-QuakeSpasm: types a character at the cursor, pushing the rest of the line
-right in insert mode or replacing the character under the cursor otherwise
-====================
-*/
+/**
+ * QuakeSpasm: types a character at the cursor, pushing the rest of the line
+ * right in insert mode or replacing the character under the cursor otherwise
+ */
 function Char_Console(key) {
   if (key_linepos >= MAXCMDLINE - 1) {
     return;
@@ -969,11 +909,6 @@ function Char_Console(key) {
   key_linepos++;
 }
 
-/*
-====================
-Key_Message
-====================
-*/
 function Key_Message(key) {
   if (key === K_ENTER) {
     if (team_message) {
@@ -1015,15 +950,11 @@ function Key_Message(key) {
   chat_buffer += String.fromCharCode(key);
 }
 
-/*
-===================
-Key_StringToKeynum
-
-Returns a key number to be used to index keybindings[] by looking at
-the given string. Single ascii characters return themselves, while
-the K_* names are matched up.
-===================
-*/
+/**
+ * Returns a key number to be used to index keybindings[] by looking at
+ * the given string. Single ascii characters return themselves, while
+ * the K_* names are matched up.
+ */
 export function Key_StringToKeynum(str) {
   if (!str || str.length === 0) {
     return -1;
@@ -1042,14 +973,10 @@ export function Key_StringToKeynum(str) {
   return -1;
 }
 
-/*
-===================
-Key_KeynumToString
-
-Returns a string (either a single ascii char, or a K_* name) for the
-given keynum.
-===================
-*/
+/**
+ * Returns a string (either a single ascii char, or a K_* name) for the
+ * given keynum.
+ */
 export function Key_KeynumToString(keynum) {
   if (keynum === -1) {
     return "<KEY NOT FOUND>";
@@ -1068,11 +995,6 @@ export function Key_KeynumToString(keynum) {
   return "<UNKNOWN KEYNUM>";
 }
 
-/*
-===================
-Key_SetBinding
-===================
-*/
 export function Key_SetBinding(keynum, binding) {
   if (keynum === -1) {
     return;
@@ -1081,11 +1003,6 @@ export function Key_SetBinding(keynum, binding) {
   keybindings[keynum] = binding;
 }
 
-/*
-===================
-Key_Unbind_f
-===================
-*/
 function Key_Unbind_f() {
   if (Cmd_Argc() !== 2) {
     Con_Printf("unbind <key> : remove commands from a key\n");
@@ -1109,11 +1026,6 @@ function Key_Unbindall_f() {
   }
 }
 
-/*
-===================
-Key_Bind_f
-===================
-*/
 function Key_Bind_f() {
   const c = Cmd_Argc();
 
@@ -1149,13 +1061,7 @@ function Key_Bind_f() {
   Key_SetBinding(b, cmd);
 }
 
-/*
-============
-Key_WriteBindings
-
-Writes lines containing "bind key value"
-============
-*/
+/** Writes lines containing "bind key value" */
 export function Key_WriteBindings() {
   let result = "";
   for (let i = 0; i < 256; i++) {
@@ -1168,18 +1074,11 @@ export function Key_WriteBindings() {
   return result;
 }
 
-/*
-===================
-Key_Init
-===================
-*/
 export function Key_Init() {
   History_Init();
   Key_InitPaste();
 
-  //
   // init ascii characters in console mode
-  //
   for (let i = 32; i < 128; i++) {
     consolekeys[i] = true;
   }
@@ -1239,22 +1138,16 @@ export function Key_Init() {
     menubound[K_F1 + i] = true;
   }
 
-  //
   // register our functions
-  //
   Cmd_AddCommand("bind", Key_Bind_f);
   Cmd_AddCommand("unbind", Key_Unbind_f);
   Cmd_AddCommand("unbindall", Key_Unbindall_f);
 }
 
-/*
-===================
-Key_Event
-
-Called by the system between frames for both key up and key down events
-Should NOT be called during an interrupt!
-===================
-*/
+/**
+ * Called by the system between frames for both key up and key down events
+ * Should NOT be called during an interrupt!
+ */
 export function Key_Event(key, down) {
   // Ironwail Key_EventWithKeycode: ignore stray key up events. Browsers
   // send key-ups for keys pressed before the page had focus (alt-tab back,
@@ -1328,9 +1221,7 @@ export function Key_Event(key, down) {
     shift_down = down;
   }
 
-  //
   // handle escape specially, so the user can never unbind it
-  //
   if (key === K_ESCAPE) {
     if (!down) {
       return;
@@ -1354,13 +1245,11 @@ export function Key_Event(key, down) {
     return;
   }
 
-  //
   // key up events only generate commands if the game key binding is
   // a button command (leading + sign). These will occur even in console mode,
   // to keep the character from continuing an action started before a console
   // switch. Button commands include the keynum as a parameter, so multiple
   // downs can be matched with ups
-  //
   if (!down) {
     const kb = keybindings[key];
     if (kb && kb.charAt(0) === "+") {
@@ -1377,17 +1266,13 @@ export function Key_Event(key, down) {
     return;
   }
 
-  //
   // during demo playback, most keys bring up the main menu
-  //
   if (_cls.demoplayback && down && consolekeys[key] && key_dest === key_game) {
     M_ToggleMenu_f();
     return;
   }
 
-  //
   // if not a consolekey, send to the interpreter no matter what mode is
-  //
   if (
     (key_dest === key_menu && menubound[key]) ||
     (key_dest === key_console && !consolekeys[key]) ||
@@ -1431,11 +1316,6 @@ export function Key_Event(key, down) {
   }
 }
 
-/*
-===================
-Key_ClearStates
-===================
-*/
 export function Key_ClearStates() {
   for (let i = 0; i < 256; i++) {
     keydown[i] = false;

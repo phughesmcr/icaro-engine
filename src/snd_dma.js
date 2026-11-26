@@ -36,13 +36,7 @@ import { S_LoadSound } from "./snd_mem.js";
 import { cl } from "./client.js";
 import { Mod_PointInLeaf } from "./gl_model.js";
 
-/*
-==============================================================================
-
-			WEB AUDIO STATE
-
-==============================================================================
-*/
+// WEB AUDIO STATE
 
 let audioContext = null;
 let masterGain = null;
@@ -90,11 +84,6 @@ const ambient_fade = { name: "ambient_fade", string: "100", value: 100 };
 const snd_noextraupdate = { name: "snd_noextraupdate", string: "0", value: 0 };
 const snd_show = { name: "snd_show", string: "0", value: 0 };
 
-/*
-================
-S_Init
-================
-*/
 export function S_Init() {
   Con_Printf("\nSound Initialization\n");
 
@@ -164,11 +153,6 @@ export function S_Init() {
   ambient_sfx[AMBIENT_SKY] = S_PrecacheSound("ambience/wind2.wav");
 }
 
-/*
-================
-S_Shutdown
-================
-*/
 export function S_Shutdown() {
   if (!sound_started) {
     return;
@@ -186,11 +170,6 @@ export function S_Shutdown() {
   num_sfx = 0;
 }
 
-/*
-================
-S_Startup
-================
-*/
 export function S_Startup() {
   if (!snd_initialized) {
     return;
@@ -201,13 +180,7 @@ export function S_Startup() {
   sound_started = true;
 }
 
-/*
-================
-S_SetCallbacks
-
-Set callbacks for host_frametime access (to avoid circular dependency)
-================
-*/
+/** Set callbacks for host_frametime access (to avoid circular dependency) */
 export function S_SetCallbacks(callbacks) {
   if (callbacks.getHostFrametime) {
     _getHostFrametime = callbacks.getHostFrametime;
@@ -226,16 +199,12 @@ export function S_SetCallbacks(callbacks) {
   }
 }
 
-/*
-================
-S_ResumeContext
-
-Web-only (no C equivalent). iOS leaves the context 'interrupted' after a
-call, Siri or an alarm without hiding the page, so resume from any state
-but 'running' or 'closed'. May reject without a user gesture; the next
-gesture's S_UnlockAudio retries.
-================
-*/
+/**
+ * Web-only (no C equivalent). iOS leaves the context 'interrupted' after a
+ * call, Siri or an alarm without hiding the page, so resume from any state
+ * but 'running' or 'closed'. May reject without a user gesture; the next
+ * gesture's S_UnlockAudio retries.
+ */
 function S_ResumeContext() {
   if (audioContext === null || snd_blocked > 0) return;
   if (audioContext.state === "running" || audioContext.state === "closed") {
@@ -250,14 +219,10 @@ function S_OnContextStateChange() {
   S_ResumeContext();
 }
 
-/*
-================
-S_UnlockAudio
-
-Called from user gesture handlers (mouse/keyboard/touch) to unlock the AudioContext.
-Web Audio API requires a user gesture before audio can play.
-================
-*/
+/**
+ * Called from user gesture handlers (mouse/keyboard/touch) to unlock the AudioContext.
+ * Web Audio API requires a user gesture before audio can play.
+ */
 export function S_UnlockAudio() {
   // A blocked (hidden) page stays silent until S_UnblockSound.
   S_ResumeContext();
@@ -267,16 +232,12 @@ export function S_UnlockAudio() {
   }
 }
 
-/*
-==================
-S_BlockSound
-
-Ported from snd_win.c. The wave-out path counts blocks and silences the
-device on the first (waveOutReset); suspending the AudioContext is the
-Web Audio equivalent. Nothing is mixed while hidden anyway: the frame
-loop runs on requestAnimationFrame, which the browser pauses.
-==================
-*/
+/**
+ * Ported from snd_win.c. The wave-out path counts blocks and silences the
+ * device on the first (waveOutReset); suspending the AudioContext is the
+ * Web Audio equivalent. Nothing is mixed while hidden anyway: the frame
+ * loop runs on requestAnimationFrame, which the browser pauses.
+ */
 export function S_BlockSound() {
   Sound_SetBlocked(snd_blocked + 1);
 
@@ -292,11 +253,6 @@ export function S_BlockSound() {
   }
 }
 
-/*
-==================
-S_UnblockSound
-==================
-*/
 export function S_UnblockSound() {
   Sound_SetBlocked(snd_blocked - 1);
 
@@ -314,11 +270,6 @@ export function S_UnblockSound() {
   }
 }
 
-/*
-==================
-S_FindName
-==================
-*/
 function S_FindName(name) {
   if (!name || name.length === 0) {
     Con_Printf("S_FindName: NULL name\n");
@@ -350,11 +301,6 @@ function S_FindName(name) {
   return sfx;
 }
 
-/*
-==================
-S_PrecacheSound
-==================
-*/
 export function S_PrecacheSound(name) {
   if (!sound_started || nosound.value) {
     return null;
@@ -370,11 +316,6 @@ export function S_PrecacheSound(name) {
   return sfx;
 }
 
-/*
-==================
-S_TouchSound
-==================
-*/
 export function S_TouchSound(name) {
   if (!sound_started || nosound.value) {
     return;
@@ -383,13 +324,7 @@ export function S_TouchSound(name) {
   S_FindName(name);
 }
 
-/*
-==================
-SND_PickChannel
-
-Picks a channel based on priorities, empty slots, number of channels
-==================
-*/
+/** Picks a channel based on priorities, empty slots, number of channels */
 export function SND_PickChannel(entnum, entchannel) {
   // Check for replacement sound, or find the best one to replace
   let first_to_die = -1;
@@ -448,11 +383,6 @@ export function SND_PickChannel(entnum, entchannel) {
   return channels[first_to_die];
 }
 
-/*
-=================
-SND_Spatialize
-=================
-*/
 export function SND_Spatialize(ch) {
   // anything coming from the view entity will always be full volume
   if (ch.entnum === cl.viewentity) {
@@ -497,11 +427,6 @@ export function SND_Spatialize(ch) {
   if (ch.leftvol < 0) ch.leftvol = 0;
 }
 
-/*
-=================
-S_StartSound
-=================
-*/
 export function S_StartSound(
   entnum,
   entchannel,
@@ -593,11 +518,6 @@ export function S_StartSound(
   _playWebAudio(sc, target_chan);
 }
 
-/*
-=================
-S_StopSound
-=================
-*/
 export function S_StopSound(entnum, entchannel) {
   for (let i = 0; i < MAX_DYNAMIC_CHANNELS; i++) {
     if (
@@ -613,11 +533,6 @@ export function S_StopSound(entnum, entchannel) {
   }
 }
 
-/*
-=================
-S_StopAllSounds
-=================
-*/
 export function S_StopAllSounds(clear) {
   if (!sound_started) {
     return;
@@ -655,11 +570,6 @@ function S_StopAllSoundsC() {
   S_StopAllSounds(true);
 }
 
-/*
-=================
-S_ClearBuffer
-=================
-*/
 export function S_ClearBuffer() {
   if (!sound_started || !shm) {
     return;
@@ -670,14 +580,10 @@ export function S_ClearBuffer() {
   }
 }
 
-/*
-===================
-S_UpdateAmbientSounds
-
-Updates the volumes of ambient sounds (water, wind, etc.) based on the
-leaf the listener is in.
-===================
-*/
+/**
+ * Updates the volumes of ambient sounds (water, wind, etc.) based on the
+ * leaf the listener is in.
+ */
 function S_UpdateAmbientSounds() {
   if (!snd_ambient) {
     return;
@@ -764,11 +670,6 @@ function S_UpdateAmbientSounds() {
   }
 }
 
-/*
-=================
-S_Update
-=================
-*/
 export function S_Update(origin, forward, right, up) {
   if (!sound_started || nosound.value) {
     return;
@@ -894,16 +795,12 @@ export function S_Update(origin, forward, right, up) {
   }
 }
 
-/*
-=================
-S_UpdatePaintedtime
-
-The port has no mixer, so paintedtime (in shm->speed sample frames, the same
-units as sfxcache_t.length after ResampleSfx) is taken from the AudioContext
-clock. Looping channels get their end pushed on, as S_PaintChannels does when
-it wraps a sound back to loopstart.
-=================
-*/
+/**
+ * The port has no mixer, so paintedtime (in shm->speed sample frames, the same
+ * units as sfxcache_t.length after ResampleSfx) is taken from the AudioContext
+ * clock. Looping channels get their end pushed on, as S_PaintChannels does when
+ * it wraps a sound back to loopstart.
+ */
 function S_UpdatePaintedtime() {
   if (!audioContext || !shm) {
     return;
@@ -928,13 +825,7 @@ function S_UpdatePaintedtime() {
   }
 }
 
-/*
-=================
-S_ExtraUpdate
-
-Called from other places to update sound while loading, etc.
-=================
-*/
+/** Called from other places to update sound while loading, etc. */
 export function S_ExtraUpdate() {
   if (snd_noextraupdate.value) {
     return;
@@ -943,13 +834,7 @@ export function S_ExtraUpdate() {
   // In Web Audio, nothing special needed
 }
 
-/*
-=================
-S_LocalSound
-
-Play a sound at full volume, no attenuation
-=================
-*/
+/** Play a sound at full volume, no attenuation */
 export function S_LocalSound(name) {
   if (!sound_started || nosound.value) {
     return;
@@ -964,11 +849,6 @@ export function S_LocalSound(name) {
   S_StartSound(cl.viewentity, -1, sfx, _vec3_origin, 1, 1);
 }
 
-/*
-==================
-S_StaticSound
-==================
-*/
 export function S_StaticSound(sfx, origin, vol, attenuation) {
   if (sfx == null || !sound_started) {
     return;
@@ -1009,38 +889,19 @@ export function S_StaticSound(sfx, origin, vol, attenuation) {
   // each frame, starting/stopping playback based on player distance.
 }
 
-/*
-=================
-S_ClearPrecache
-=================
-*/
 export function S_ClearPrecache() {
   // nothing to do in web audio
 }
 
-/*
-=================
-S_BeginPrecaching
-=================
-*/
 export function S_BeginPrecaching() {
   // nothing to do
 }
 
-/*
-=================
-S_EndPrecaching
-=================
-*/
 export function S_EndPrecaching() {
   // nothing to do
 }
 
-/*
-=================
-S_AmbientOff / S_AmbientOn
-=================
-*/
+// S_AmbientOff / S_AmbientOn
 export function S_AmbientOff() {
   // stub
 }
@@ -1049,13 +910,7 @@ export function S_AmbientOn() {
   // stub
 }
 
-/*
-==============================================================================
-
-			COMMANDS
-
-==============================================================================
-*/
+// COMMANDS
 
 let s_play_hash = 345; // static int hash=345; in S_Play
 let s_playvol_hash = 543; // static int hash=543; in S_PlayVol
@@ -1120,13 +975,7 @@ function S_SoundInfo_f() {
   );
 }
 
-/*
-==============================================================================
-
-			WEB AUDIO PLAYBACK HELPER
-
-==============================================================================
-*/
+// WEB AUDIO PLAYBACK HELPER
 
 function _playWebAudio(sc, chan) {
   if (!audioContext || !sc || !sc.data) {
@@ -1227,14 +1076,10 @@ function _playWebAudio(sc, chan) {
   }
 }
 
-/*
-=================
-SND_ChannelGain
-
-Per-side channel gain. SND_PaintChannelFrom8/16 clamp leftvol and rightvol
-to 255 independently before scaling the sample.
-=================
-*/
+/**
+ * Per-side channel gain. SND_PaintChannelFrom8/16 clamp leftvol and rightvol
+ * to 255 independently before scaling the sample.
+ */
 export function SND_ChannelGain(vol) {
   if (vol > 255) {
     vol = 255;
@@ -1246,13 +1091,9 @@ export function SND_ChannelGain(vol) {
   return vol / 255.0;
 }
 
-/*
-=================
-_updateWebAudioSpatial
-
-Updates the per-side volumes of a playing sound from its current spatialization
-=================
-*/
+/**
+ * Updates the per-side volumes of a playing sound from its current spatialization
+ */
 function _updateWebAudioSpatial(chan) {
   if (!chan._leftGain) {
     return;
@@ -1262,13 +1103,7 @@ function _updateWebAudioSpatial(chan) {
   chan._rightGain.gain.value = SND_ChannelGain(chan.rightvol);
 }
 
-/*
-=================
-_stopWebAudio
-
-Stops and drops the Web Audio nodes of a channel
-=================
-*/
+/** Stops and drops the Web Audio nodes of a channel */
 function _stopWebAudio(chan) {
   if (chan._audioSource) {
     try {
@@ -1281,13 +1116,9 @@ function _stopWebAudio(chan) {
   chan._rightGain = null;
 }
 
-/*
-================
-S_GetAudioContext
-
-Returns the Web Audio AudioContext for use by other modules (e.g. cd_audio)
-================
-*/
+/**
+ * Returns the Web Audio AudioContext for use by other modules (e.g. cd_audio)
+ */
 export function S_GetAudioContext() {
   return audioContext;
 }

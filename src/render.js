@@ -14,9 +14,7 @@ import {
   R_TeleportSplash as _R_TeleportSplash,
 } from "./r_part.js";
 
-//============================================================================
 // Constants
-//============================================================================
 
 export const MAXCLIPPLANES = 11;
 
@@ -62,9 +60,7 @@ export const r_nolerp_list = {
   value: 0,
 };
 
-//============================================================================
 // efrag_t -- entity fragment for BSP leaf association
-//============================================================================
 
 export class efrag_t {
   constructor() {
@@ -75,9 +71,7 @@ export class efrag_t {
   }
 }
 
-//============================================================================
 // entity_t -- client-side entity state
-//============================================================================
 
 export class entity_t {
   constructor() {
@@ -133,11 +127,9 @@ export class entity_t {
   }
 }
 
-//============================================================================
 // refdef_t -- refresh definition
 //
 // !!! if this is changed, it must be changed in asm_draw.h too !!!
-//============================================================================
 
 export class refdef_t {
   constructor() {
@@ -174,9 +166,7 @@ export class refdef_t {
   }
 }
 
-//============================================================================
 // Globals
-//============================================================================
 
 export const r_refdef = new refdef_t();
 
@@ -191,9 +181,7 @@ export const r_notexture_mip = null; // texture_t -- fallback texture
 export const reinit_surfcache = 0; // if 1, surface cache is currently empty
 export const r_cache_thrash = false; // set if thrashing the surface cache
 
-//============================================================================
 // Refresh function declarations (stubs -- implemented in gl_rmain.js)
-//============================================================================
 
 export function R_Init() {
   // Implemented in gl_rmain.js
@@ -226,9 +214,7 @@ export function R_NewMap() {
   // Implemented in gl_rmain.js
 }
 
-//============================================================================
 // Particle effect stubs
-//============================================================================
 
 export function R_ParseParticleEffect() {
   const org = new Float32Array(3);
@@ -290,9 +276,7 @@ export function R_PushDlights() {
   // Stub
 }
 
-//============================================================================
 // Surface cache related
-//============================================================================
 
 export function D_SurfaceCacheForRes(_width, _height) {
   return 0;

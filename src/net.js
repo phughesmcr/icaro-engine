@@ -3,9 +3,7 @@
 import { MAX_DATAGRAM } from "./quakedef.js";
 import { sizebuf_t } from "./common.js";
 
-//============================================================================
 // Network constants
-//============================================================================
 
 export const NET_NAMELEN = 64;
 
@@ -41,9 +39,7 @@ export const HOSTCACHESIZE = 8;
 
 export const MAX_NET_DRIVERS = 8;
 
-//============================================================================
 // qsocket_t - network socket structure
-//============================================================================
 
 export class qsocket_t {
   constructor() {
@@ -83,9 +79,7 @@ export class qsocket_t {
   }
 }
 
-//============================================================================
 // net_landriver_t - low-level network driver interface
-//============================================================================
 
 export class net_landriver_t {
   constructor() {
@@ -113,9 +107,7 @@ export class net_landriver_t {
   }
 }
 
-//============================================================================
 // net_driver_t - high-level network driver interface
-//============================================================================
 
 export class net_driver_t {
   constructor() {
@@ -137,9 +129,7 @@ export class net_driver_t {
   }
 }
 
-//============================================================================
 // hostcache_t - server browser cache entry
-//============================================================================
 
 export class hostcache_t {
   constructor() {
@@ -154,9 +144,7 @@ export class hostcache_t {
   }
 }
 
-//============================================================================
 // PollProcedure - for scheduled network polling
-//============================================================================
 
 export class PollProcedure {
   constructor(next, nextTime, procedure, arg) {
@@ -167,9 +155,7 @@ export class PollProcedure {
   }
 }
 
-//============================================================================
 // Network globals
-//============================================================================
 
 export let net_activeSockets = null;
 export let net_freeSockets = null;
@@ -263,7 +249,6 @@ export function set_slistLocal(v) {
   slistLocal = v;
 }
 
-//============================================================================
 // WebTransport wire protocol (shared by src/net_webtransport.js and
 // server/net_webtransport_server.ts)
 //
@@ -275,7 +260,6 @@ export function set_slistLocal(v) {
 //   server -> client: "ICARO" [version:u8] [status:u8] [reason: utf-8]
 // The server allocates a client slot only after a valid hello, and rejects
 // with a reason (for example "Server is full") instead of dropping the session.
-//============================================================================
 
 export const WT_PACKET_MAGIC = 0x71;
 export const WT_PACKET_HEADER_BYTES = 9; // [magic:u8][sequence:u32][acknowledged:u32]
@@ -381,7 +365,6 @@ export function WT_ParseHandshakeReply(payload) {
   };
 }
 
-//============================================================================
 // WebSocket wire protocol (shared by src/net_websocket.js and
 // server/net_websocket_server.ts)
 //
@@ -395,7 +378,6 @@ export function WT_ParseHandshakeReply(payload) {
 // stream: the receiver still returns 1 or 2 from QGetMessage, coalesces
 // queued unreliable updates, and a sender (or the lobby's proxy) may drop
 // unreliable messages when the socket is backed up.
-//============================================================================
 
 export const WS_CHANNEL_RELIABLE = 0;
 export const WS_CHANNEL_UNRELIABLE = 1;

@@ -122,13 +122,7 @@ export function RoomManager_SetConfig(config: {
   }
 }
 
-/*
-===============================================================================
-
-ROOM CONFIG VALIDATION
-
-===============================================================================
-*/
+// ROOM CONFIG VALIDATION
 
 /**
  * Game options a client may request for a new room: the Game Options menu's
@@ -179,13 +173,7 @@ export function RoomManager_SanitizeMapName(value: unknown): string | null {
   return Room_SanitizeMapName(value);
 }
 
-/*
-===============================================================================
-
-CHILD STDOUT PARSING
-
-===============================================================================
-*/
+// CHILD STDOUT PARSING
 
 /**
  * Split a byte stream into lines. Uses a streaming TextDecoder so multi-byte
@@ -278,13 +266,7 @@ export function formatRoomStatusLine(
     JSON.stringify({ players: status.players, active: status.active });
 }
 
-/*
-===============================================================================
-
-ROOM LIFECYCLE
-
-===============================================================================
-*/
+// ROOM LIFECYCLE
 
 /**
  * Generate a short room ID

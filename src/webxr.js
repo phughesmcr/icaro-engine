@@ -5,9 +5,7 @@ import * as THREE from "three";
 import { renderer } from "./vid.js";
 import { Draw_GetOverlayCanvas } from "./gl_draw.js";
 
-//============================================================================
 // Constants
-//============================================================================
 
 // Quake units per meter. Tuned so that a 1.7m-tall user maps to ~56 Quake
 // units (the player collision hull height), making enemies, doorways, and
@@ -35,17 +33,13 @@ const XR_HUD_WIDTH = 1.6;
 const XR_HUD_UPLOAD_INTERVAL = 1 / 30;
 const XR_HUD_UPLOAD_SLACK = 0.002;
 
-//============================================================================
 // Pre-allocated temp objects (Golden Rule #4)
-//============================================================================
 
 const _controllerWorldQuat = new THREE.Quaternion();
 const _aimForward = new THREE.Vector3();
 const _eyeWorld = new Float32Array(16); // XR_SetupFrusta: eye → world (meters)
 
-//============================================================================
 // State
-//============================================================================
 
 let _rendererOverride = null;
 let _overlayCanvasOverride = null;
@@ -94,9 +88,7 @@ export const xrInput = {
   buttonY: false, // left controller upper face button
 };
 
-//============================================================================
 // Public API
-//============================================================================
 
 export function isXRActive() {
   return xrSessionActive;
@@ -141,7 +133,6 @@ export function XR_SetSessionEndCallback(callback) {
   _onSessionEnd = callback;
 }
 
-//============================================================================
 // XR_Init
 //
 // Called after Host_Init when renderer and scene are ready.
@@ -151,7 +142,6 @@ export function XR_SetSessionEndCallback(callback) {
 // by 1/XR_SCALE when XR is active, putting everything in meter space.
 // The rig (also in meter space) is positioned at vieworg / XR_SCALE.
 // This way the XR camera and scene content are in the same units.
-//============================================================================
 
 export function XR_Init(scene) {
   if (R() == null) return;
@@ -225,14 +215,12 @@ export function XR_Init(scene) {
   _offerSession();
 }
 
-//============================================================================
 // XR_SetCamera
 //
 // Parents the camera to the XR rig. Called once when the camera is first
 // created in R_SetupGL. In non-XR mode the parent doesn't matter because
 // camera.matrixAutoUpdate is false and matrixWorld is set directly.
 // In XR mode, Three.js composes: rig.matrixWorld × camera.matrix (headset pose).
-//============================================================================
 
 export function XR_SetCamera(camera) {
   if (xrOffset != null && camera != null && camera.parent !== xrOffset) {
@@ -240,7 +228,6 @@ export function XR_SetCamera(camera) {
   }
 }
 
-//============================================================================
 // XR culling frustum
 //
 // GLQuake culls BSP nodes and brush models against the camera's frustum
@@ -256,7 +243,6 @@ export function XR_SetCamera(camera) {
 // it is only updated inside render(). The world pose is therefore composed
 // here from xrOffset.matrixWorld, which R_SetupGL has just updated with the
 // rig, as render() will compose it.
-//============================================================================
 
 // out = a × b, column-major 4×4
 function _mul4(a, b, out) {
@@ -359,14 +345,12 @@ export function XR_GetHeadOrigin(out) {
   return true;
 }
 
-//============================================================================
 // XR_PollInput
 //
 // Reads controller gamepad state each frame. Called from IN_Commands().
 // Left controller: thumbstick → movement, trigger, squeeze, X, Y
 // Right controller: thumbstick → turn, trigger, squeeze, A, B
 // (xr-standard mapping: buttons 0 trigger, 1 squeeze, 4/5 face buttons)
-//============================================================================
 
 function _resetInput() {
   xrInput.moveX = 0;
@@ -437,13 +421,11 @@ export function XR_PollInput() {
   }
 }
 
-//============================================================================
 // XR_UpdateHUD
 //
 // Uploads the 2D overlay canvas (menu, console, HUD) to the headset quad.
 // Called from IN_Commands(), before SCR_UpdateScreen clears the canvas, so
 // the canvas holds the previous frame's complete 2D drawing.
-//============================================================================
 
 export function XR_UpdateHUD() {
   if (xrSessionActive === false || hudMesh == null) return;
@@ -493,7 +475,6 @@ export function XR_UpdateHUD() {
   hudMesh.visible = true;
 }
 
-//============================================================================
 // XR_RenderHUD
 //
 // Called by R_RenderView after the world render, while XR is presenting.
@@ -510,7 +491,6 @@ export function XR_UpdateHUD() {
 //
 // The HUD scene also holds R_PolyBlend's quad, ahead of the HUD quad so it
 // draws first (sortObjects is false). XR_PolyBlend shows it for one frame.
-//============================================================================
 
 export function XR_RenderHUD(camera) {
   if (xrSessionActive === false || hudMesh == null) return;
@@ -523,7 +503,6 @@ export function XR_RenderHUD(camera) {
   blendMesh.visible = false;
 }
 
-//============================================================================
 // XR_PolyBlend
 //
 // R_PolyBlend (gl_rmain.c) for WebXR, called by R_PolyBlend after its
@@ -533,7 +512,6 @@ export function XR_RenderHUD(camera) {
 // quad is head-locked in the HUD scene at the same size in meters, so it
 // covers each eye's view out to about 84° from the head's forward
 // direction, as GLQuake's covers its view.
-//============================================================================
 
 const XR_BLEND_DISTANCE = 10 / XR_SCALE;
 const XR_BLEND_SIZE = 200 / XR_SCALE;
@@ -631,9 +609,7 @@ function _hideHUD() {
   }
 }
 
-//============================================================================
 // Aim controller
-//============================================================================
 
 function _pickAimController() {
   aimController = null;
@@ -654,7 +630,6 @@ function _pickAimController() {
   }
 }
 
-//============================================================================
 // XR_GetControllerWorldPose
 //
 // Returns the aim controller's world-space position and quaternion.
@@ -662,7 +637,6 @@ function _pickAimController() {
 // The caller converts to scene-local Quake units by multiplying by XR_SCALE.
 //
 // Returns false if controller or XR is not available.
-//============================================================================
 
 export function XR_GetControllerWorldPose(outPos, outQuat) {
   if (xrSessionActive === false) return false;
@@ -676,7 +650,6 @@ export function XR_GetControllerWorldPose(outPos, outQuat) {
   return true;
 }
 
-//============================================================================
 // XR_GetAimAngles
 //
 // Computes Quake pitch/yaw angles from the controller's aiming direction.
@@ -688,7 +661,6 @@ export function XR_GetControllerWorldPose(outPos, outQuat) {
 // fire where the controller points, not where the head looks.
 //
 // Returns false if XR is not active.
-//============================================================================
 
 export function XR_GetAimAngles(outAngles) {
   if (xrSessionActive === false) return false;
@@ -716,7 +688,6 @@ export function XR_GetAimAngles(outAngles) {
   return true;
 }
 
-//============================================================================
 // Internal: start a VR session
 //
 // Wherever immersive VR is supported, an "ENTER VR" button on the page calls
@@ -724,7 +695,6 @@ export function XR_GetAimAngles(outAngles) {
 // navigator.xr.offerSession (Quest Browser) also get their own "Enter VR"
 // prompt, but that prompt sits in the browser's UI, is easy to miss and is
 // gone once dismissed, so the button is shown there too.
-//============================================================================
 
 const _sessionInit = {
   requiredFeatures: ["local"],

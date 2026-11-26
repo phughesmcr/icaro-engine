@@ -86,14 +86,10 @@ export const DEFAULT_SOUND_PACKET_ATTENUATION = 1.0;
 export const GAME_COOP = 0;
 export const GAME_DEATHMATCH = 1;
 
-//==================
 // note that there are some defs.qc that mirror to these numbers
 // also related to svc_strings[] in cl_parse
-//==================
 
-//
 // server to client
-//
 export const svc_bad = 0;
 export const svc_nop = 1;
 export const svc_disconnect = 2;
@@ -138,18 +134,14 @@ export const svc_achievement = 52;
 // number Ironwail and the re-release use; it is free in this protocol.
 export const svc_localsound = 56;
 
-//
 // client to server
-//
 export const clc_bad = 0;
 export const clc_nop = 1;
 export const clc_disconnect = 2;
 export const clc_move = 3; // [usercmd_t]
 export const clc_stringcmd = 4; // [string] message
 
-//
 // temp entity events
-//
 export const TE_SPIKE = 0;
 export const TE_SUPERSPIKE = 1;
 export const TE_GUNSHOT = 2;
@@ -165,10 +157,8 @@ export const TE_TELEPORT = 11;
 export const TE_EXPLOSION2 = 12;
 export const TE_BEAM = 13;
 
-//
 // QuakeWorld-style player info (svc_playerinfo)
 // Used for client-side prediction of other players
-//
 export const svc_playerinfo = 42;
 
 // playerinfo flags from server
@@ -205,7 +195,6 @@ export const CM_BUTTONS = 1 << 5;
 export const CM_IMPULSE = 1 << 6;
 export const CM_ANGLE2 = 1 << 7;
 
-//==============================================
 // QW-style delta compression for packet entities
 // Ported from: QW/client/protocol.h
 //
@@ -215,7 +204,6 @@ export const CM_ANGLE2 = 1 << 7;
 // bits (MAX_EDICTS 32000) and PE_REMOVE in bit 15. 0 ends the list. Unless
 // PE_REMOVE is set, a byte of PE_* bits follows, and a second byte when
 // PE_MOREBITS is set in the first.
-//==============================================
 
 export const svc_packetentities = 47; // [...]
 export const svc_deltapacketentities = 48; // [...]
@@ -269,10 +257,8 @@ export const MAX_PACKET_ENTITIES = 32000; // MAX_EDICTS
 export const PE_UPDATE_BACKUP = 64; // must be power of 2
 export const PE_UPDATE_MASK = PE_UPDATE_BACKUP - 1;
 
-//==============================================
 // Entity alpha
 // Ported from: Ironwail Quake/protocol.h (johnfitz)
-//==============================================
 
 export const ENTALPHA_DEFAULT = 0; // entity's alpha is "default" (i.e. water obeys r_wateralpha) -- must be zero so zeroed out memory works
 export const ENTALPHA_ZERO = 1; // entity is invisible (lowest possible alpha)

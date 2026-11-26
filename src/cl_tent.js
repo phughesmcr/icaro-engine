@@ -60,11 +60,6 @@ let cl_sfx_ric2 = null;
 let cl_sfx_ric3 = null;
 let cl_sfx_r_exp3 = null;
 
-/*
-=================
-CL_InitTEnts
-=================
-*/
 export function CL_InitTEnts() {
   cl_sfx_wizhit = S_PrecacheSound("wizard/hit.wav");
   cl_sfx_knighthit = S_PrecacheSound("hknight/hit.wav");
@@ -75,11 +70,6 @@ export function CL_InitTEnts() {
   cl_sfx_r_exp3 = S_PrecacheSound("weapons/r_exp3.wav");
 }
 
-/*
-=================
-CL_ParseBeam
-=================
-*/
 function CL_ParseBeam(m) {
   const start = new Float32Array(3);
   const end = new Float32Array(3);
@@ -127,11 +117,6 @@ function CL_ParseBeam(m) {
   Con_Printf("beam list overflow!\n");
 }
 
-/*
-=================
-CL_ParseTEnt
-=================
-*/
 export function CL_ParseTEnt() {
   const pos = new Float32Array(3);
 
@@ -277,11 +262,6 @@ export function CL_ParseTEnt() {
   }
 }
 
-/*
-=================
-CL_NewTempEntity
-=================
-*/
 function CL_NewTempEntity() {
   if (cl_numvisedicts === MAX_VISEDICTS) {
     return null;
@@ -310,14 +290,10 @@ function CL_NewTempEntity() {
   return ent;
 }
 
-/*
-=================
-CL_TEntRand
-
-Stands in for C's srand/rand in CL_UpdateTEnts (mulberry32). The seed is
-mixed, so neighbouring seeds give unrelated rolls, as rand() does.
-=================
-*/
+// CL_TEntRand
+//
+// Stands in for C's srand/rand in CL_UpdateTEnts (mulberry32). The seed is
+// mixed, so neighbouring seeds give unrelated rolls, as rand() does.
 let _tent_seed = 0;
 
 export function CL_TEntSRand(seed) {
@@ -336,11 +312,6 @@ export function CL_TEntRand() {
 const _beam_dist = new Float32Array(3);
 const _beam_org = new Float32Array(3);
 
-/*
-=================
-CL_UpdateTEnts
-=================
-*/
 export function CL_UpdateTEnts() {
   num_temp_entities = 0;
 
