@@ -6,9 +6,9 @@ relying on them.
 
 ## Status
 
-Checked at `dev` `8474098` (2026-11-26). Tiers 1 and 2 are built, as are two
-fixes found on a phone. Tier 3 is not started. The rest of this doc is the older
-snapshot.
+Checked at `dev` `694b2cc` (2026-11-26). Tiers 1 and 2 are built, as are the
+fixes for what the phone test found. Tier 3 is built except item 23 (store
+wrappers). The rest of this doc is the older snapshot.
 
 - **Tier 1:** iOS audio resume (#180), the touch DPR cap (#181),
   `navigator.storage.persist()` after the first save (#183), the manifest's
@@ -22,6 +22,36 @@ snapshot.
   #208), the weapon wheel and overlay buttons (11 and 12, #213), reconnect (13,
   #210), autosave on hide (14, #211), context-loss recovery (15, #214), shader
   warm-up (16, #215) and quality presets (17, #212).
+- **Tier 3** (checked in Chrome's mobile emulation only, on no real device; each
+  is web-only):
+  - 18, HUD layout editor (#254): Edit Layout on the Touch Controls page, or
+    `touch_editlayout`, moves, resizes and hides FIRE, JUMP, the two weapon
+    buttons and DOWN. It adds up to 8 custom buttons that run any command (a
+    `+command` is held while pressed), and keeps up to 8 named profiles in
+    `localStorage` (`icaro_touch_layouts`; `touch_layout <name>` switches). The
+    move stick's zone can't be edited, the SAVE, LOAD, CON and CHAT bar buttons
+    can only be hidden, and the menu button can't be hidden or moved.
+  - 19, gyro modes (#247): `touch_gyro` 2 (only while a finger aims) and 3 (only
+    while FIRE is held), with `touch_gyro_deadzone` and `touch_gyro_smooth`
+    (both default 0).
+  - 20, look curve (#248): `touch_look_screen` (default 1) scales drag look by
+    screen size on touch-first devices whose short side is over 430 CSS px, so
+    phones are unchanged; `touch_look_accel` (default 0) adds acceleration.
+  - 21, bring your own data (#240): Options → Game data (or `menu_gamedata`)
+    copies the player's own paks into OPFS, or IndexedDB where OPFS can't be
+    written, and mounts them in place of the fetched URLs. It imports and
+    exports saves, `config.cfg` and demos (`navigator.share` where the browser
+    takes the file, else a download). Not checked: Safari or iOS, the real file
+    picker (the check passed files from script) and tapping the Options row.
+  - 22, dynamic resolution (#241): `vid_dynres` (default 0) steps the 3D view's
+    drawing buffer between 1 and 0.5 times `?scale=` from a frame-time EMA. The
+    2D overlay stays sharp. Its thresholds weren't checked on a phone.
+  - 23, store wrappers: not built. It needs the maintainer's store accounts.
+  - 24, aim assist (#250): the Touch Controls page's Aim Assist slider
+    (`touch_aimassist` 0–4, default 2) sets `sv_aim` (1 to 0.8; level 2 is
+    Quake's 0.93). Only the browser's own server reads `sv_aim`, so it does
+    nothing in a lobby room, and `PF_aim` adjusts only pitch, so the help is
+    vertical.
 - **Confirmed bugs:** each has a fix in `dev`: B1 #180, B2 #210, B3 #208, B4 and
   B8 #187, B5 #185, B6 #214, B7 #188. The B2 fix has the reconnect gaps below.
 - **Found on a phone, since fixed:** a phone with a stylus got neither the DPR
@@ -42,9 +72,13 @@ DevTools, not a finger:
   there); the Continue offer after leaving a running game; and, with the server
   stopped, a reload and `e1m1`.
 - **Manifest:** Chrome reported no parse or installability errors.
-- **Seen, not fixed:** the keyboard button covers the top of the menu's Quake
-  plaque; in portrait the ENTER VR button covers the left end of the status bar,
-  and a pickup message was clipped at the top (cause not traced).
+- **Seen, fixed since (#236):** the keyboard button covered the top of the
+  menu's Quake plaque (the Back/⌨ bar moved to the top right); in portrait the
+  ENTER VR button covered the left end of the status bar (it is hidden while the
+  in-game touch controls are up); and a pickup message was clipped at the top,
+  under the top touch buttons (the notify lines now start below them, a
+  deviation from the C). The fixes were checked in emulation, not on the phone,
+  and the ENTER VR rule only by its CSS, since emulation has no WebXR.
 - **Not tested:** installing the app, a second launch of it, rumble (no
   controller), how vibration feels, audible sound, tier 2 items 10 (touch
   menus), 13 (reconnect), 15 to 17 (context loss, shader warm-up, quality
@@ -57,8 +91,10 @@ What tier 2 leaves out:
 - The service worker caches no music outside `static/music/` and no pak but
   `pak0.pak`, and passes other Range requests through uncached, so offline play
   has none of those. A track never played isn't cached.
-- Reconnect (item 13) doesn't cover browser-hosted rooms (`rtc:<code>`). #210
-  did not check it in a browser, which needs a server that drops the connection.
+- Reconnect (item 13) to a lobby room was not checked in a browser by #210,
+  which needs a server that drops the connection. Browser-hosted rooms
+  (`rtc:<code>`) reconnect too since #239, which checked them in two tabs on one
+  machine; a real network change, an iOS freeze and TURN were not checked.
 
 ## How it was made
 
