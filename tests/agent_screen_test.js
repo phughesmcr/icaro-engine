@@ -100,6 +100,21 @@ Deno.test({
     assert(huge.width === SCREEN_MAX, "max");
     const def = Agent_ScreenRGBA(page.gl, null, NaN, NaN);
     assert(def.width === 84 && def.height === 63, "defaults");
+
+    // A phone held upright: the height from the aspect is clamped too
+    try {
+      page.gl.width = 400;
+      page.gl.height = 900;
+      const tall = Agent_ScreenRGBA(page.gl, null, SCREEN_MAX);
+      assert(tall.height === SCREEN_MAX, "tall: " + tall.height);
+      page.gl.width = 4000;
+      page.gl.height = 100;
+      const wide = Agent_ScreenRGBA(page.gl, null, SCREEN_MIN);
+      assert(wide.height === SCREEN_MIN, "wide: " + wide.height);
+    } finally {
+      page.gl.width = 640;
+      page.gl.height = 480;
+    }
   },
 });
 

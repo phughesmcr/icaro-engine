@@ -2354,9 +2354,12 @@ function Agent_ScreenDraw(gl_canvas, overlay_canvas, w, h) {
   return screen_ctx;
 }
 
-// The height that keeps the view's aspect at width w
+// The height that keeps the view's aspect at width w, clamped like a width
 function Agent_ScreenHeight(gl_canvas, w) {
-  return Math.max(1, Math.round(w * gl_canvas.height / gl_canvas.width));
+  return Agent_ScreenClamp(
+    Math.round(w * gl_canvas.height / gl_canvas.width),
+    w,
+  );
 }
 
 /**
