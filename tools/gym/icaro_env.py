@@ -21,8 +21,8 @@ it in your own code:
     obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
     env.close()
 
-Needs Deno on PATH (the version in .tool-versions), Python 3.9+, gymnasium
-and numpy. Standard library otherwise. Not linted or run in CI; the call
+Needs Deno on PATH (the version in .tool-versions), a Python Gymnasium
+supports, gymnasium and numpy. Standard library otherwise. Not linted or run in CI; the call
 sequence it makes is tested in tests/agent_rl_test.js.
 
 Observation: a float32 Box of rl_spec's size and bounds. Values come to 3
@@ -38,6 +38,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 
 import gymnasium as gym
 import numpy as np
@@ -50,30 +51,44 @@ RL_VERSION = 1
 class McpClient:
     """Newline-delimited JSON-RPC to the agent MCP server over its stdio."""
 
-    def __init__(self, cmd=SERVER, cwd=REPO):
-        # stderr carries the engine's console: inherit it or drop it, never
-        # an undrained pipe (it would fill and stall the server)
+    def __init__(self, cmd=SERVER, cwd=REPO, log=False):
+        # stderr carries the engine's console: shown with log, else kept in a
+        # temporary file for errors. Never an undrained pipe: it would fill
+        # and stall the server
+        self.log = None if log else tempfile.TemporaryFile()
         self.proc = subprocess.Popen(
             cmd,
             cwd=cwd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=self.log,
             text=True,
             bufsize=1,
         )
         self.next_id = 1
-        init = self.request(
-            "initialize",
-            {
-                "protocolVersion": "2025-06-18",
-                "capabilities": {},
-                "clientInfo": {"name": "icaro-gym", "version": "1"},
-            },
-        )
-        if "result" not in init:
-            raise RuntimeError("initialize: " + json.dumps(init))
-        self.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        try:
+            init = self.request(
+                "initialize",
+                {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "icaro-gym", "version": "1"},
+                },
+            )
+            if "result" not in init:
+                raise RuntimeError("initialize: " + json.dumps(init))
+            self.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        except BaseException:
+            self.close()
+            raise
+
+    def log_tail(self, size=2000):
+        """The end of the server's stderr, when it is kept."""
+        if self.log is None:
+            return ""
+        self.log.seek(0, os.SEEK_END)
+        self.log.seek(max(0, self.log.tell() - size))
+        return self.log.read().decode("utf-8", "replace")
 
     def send(self, msg):
         self.proc.stdin.write(json.dumps(msg) + "\n")
@@ -86,7 +101,10 @@ class McpClient:
         while True:
             line = self.proc.stdout.readline()
             if line == "":
-                raise RuntimeError("agent MCP server exited")
+                self.proc.wait()
+                raise RuntimeError(
+                    "agent MCP server exited (%s):\n%s" % (self.proc.returncode, self.log_tail())
+                )
             msg = json.loads(line)
             if msg.get("id") == rid:
                 return msg
@@ -110,6 +128,9 @@ class McpClient:
             except subprocess.TimeoutExpired:
                 self.proc.kill()
                 self.proc.wait()
+        if self.log is not None:
+            self.log.close()
+            self.log = None
 
 
 class IcaroEnv(gym.Env):
@@ -129,6 +150,7 @@ class IcaroEnv(gym.Env):
         reward=None,
         max_episode_steps=None,
         server_cmd=SERVER,
+        server_log=False,
     ):
         super().__init__()
         self.map = map
@@ -137,18 +159,22 @@ class IcaroEnv(gym.Env):
         self.max_episode_steps = max_episode_steps
         self.layout = {"ents": ents, "rays": rays, "map": map_size, "truth": truth}
         self.reward = reward
-        self.client = McpClient(server_cmd)
-        self.spec_json = json.loads(self.client.call("rl_spec", self.layout))
-        if self.spec_json["version"] != RL_VERSION:
-            raise RuntimeError("rl_spec version %r" % self.spec_json["version"])
-        self.observation_space = gym.spaces.Box(
-            low=np.array(self.spec_json["low"], dtype=np.float32),
-            high=np.array(self.spec_json["high"], dtype=np.float32),
-            dtype=np.float32,
-        )
-        action = self.spec_json["action"]
-        self.action_space = gym.spaces.MultiDiscrete(action["nvec"])
-        self.noop = list(action["noop"])
+        self.client = McpClient(server_cmd, log=server_log)
+        try:
+            self.spec_json = json.loads(self.client.call("rl_spec", self.layout))
+            if self.spec_json["version"] != RL_VERSION:
+                raise RuntimeError("rl_spec version %r" % self.spec_json["version"])
+            self.observation_space = gym.spaces.Box(
+                low=np.array(self.spec_json["low"], dtype=np.float32),
+                high=np.array(self.spec_json["high"], dtype=np.float32),
+                dtype=np.float32,
+            )
+            action = self.spec_json["action"]
+            self.action_space = gym.spaces.MultiDiscrete(action["nvec"])
+            self.noop = list(action["noop"])
+        except BaseException:
+            self.client.close()
+            raise
         self.steps = 0
 
     def _step(self, action, tics):
