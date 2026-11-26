@@ -3,11 +3,11 @@
 Web-only addition, no C counterpart. It starts the agent MCP server
 (server/agent_mcp.ts) as a child process and drives its rl tier over MCP's
 stdio JSON-RPC: rl_spec gives the spaces, start resets, rl_step steps. The
-rl tier itself (observation layout, actions, reward, episode ends) is
-src/agent.js; docs/agent-interface.md describes it.
+rl tier itself (observation layout, actions, reward, episode ends) is the
+"RL TIER" section of src/agent.js.
 
-Run from anywhere (the server is started at the repository root, since it
-reads static/pak0.pak, the shareware episode):
+From the repository root (the server always starts there, whatever the
+working directory, since it reads static/pak0.pak, the shareware episode):
 
     uv run --with gymnasium --with numpy tools/gym/icaro_env.py
 
