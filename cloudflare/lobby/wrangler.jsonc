@@ -15,7 +15,7 @@
 		// Turnstile on LOBBY_HOST (server/turnstile.js): the game page's
 		// hostnames, never localhost here. The check is on only while the
 		// TURNSTILE_SITEKEY secret is stored.
-		"TURNSTILE_HOSTNAMES": "anglezarke.games"
+		"TURNSTILE_HOSTNAMES": "quake.anglezarke.games"
 	}
 	// Secrets (wrangler secret put, never in this file): TURNSTILE_SITEKEY
 	// and TURNSTILE_SECRET, and TURN_KEY_ID and TURN_KEY_API_TOKEN for TURN

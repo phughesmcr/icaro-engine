@@ -331,7 +331,7 @@ The lobby can require a [Cloudflare Turnstile](https://developers.cloudflare.com
 |---|---|
 | `TURNSTILE_SITEKEY` | The widget's sitekey, from the Cloudflare dashboard. It is public (browsers receive it), but keep it out of the repository |
 | `TURNSTILE_SECRET` | The widget's secret, from the Cloudflare dashboard. Never commit it |
-| `TURNSTILE_HOSTNAMES` | Comma-separated hostnames of the page that serves the game, e.g. `anglezarke.games`. Siteverify reports the page's hostname, not the lobby's. Never include `localhost` or `127.0.0.1` in production |
+| `TURNSTILE_HOSTNAMES` | Comma-separated hostnames of the page that serves the game, e.g. `quake.anglezarke.games`. Siteverify reports the page's exact hostname, not the lobby's, so list each subdomain that serves it. Never include `localhost` or `127.0.0.1` in production |
 
 With a sitekey but no secret or no hostnames, the lobby still sends the challenge but refuses every token, so no room can be created. Without `--allow-env` for these names the check is off; the lobby prints a warning. It prints the state at startup.
 
