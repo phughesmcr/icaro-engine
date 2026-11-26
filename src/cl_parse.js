@@ -41,7 +41,7 @@ import {
 } from "./common.js";
 import { Sys_FloatTime } from "./sys.js";
 import { COM_EnsureFile, COM_FindFile } from "./pak.js";
-import { Cbuf_AddText } from "./cmd.js";
+import { Cbuf_AddServerText, Cbuf_AddText } from "./cmd.js";
 import { Cmd_ExecuteString } from "./cmd.js";
 import { src_command } from "./cmd.js";
 import {
@@ -206,6 +206,7 @@ import {
 } from "./render.js";
 import { Host_EndGame, Host_Error, realtime, sv } from "./host.js";
 import { NET_SendMessage } from "./net_main.js";
+import { Loop_IsClientSocket } from "./net_loop.js";
 import { CL_GetMessage } from "./cl_demo.js";
 import { set_noclip_anglehack } from "./host_cmd.js";
 import { CL_ClearState, cl_shownet, CL_SignonReply } from "./cl_main.js";
@@ -1467,9 +1468,31 @@ export function CL_ParseStaticSound() {
 // text went straight to Cbuf_AddText, and Cbuf_Execute ran whatever was there,
 // so a command split across two messages ran half-way. Ironwail's "//" and
 // ProQuake handling is not ported: lines go to Cbuf_AddText as in id.
+//
+// Deviation (web-only): only the player's own local server is trusted. Lines
+// from a remote host or a demo go to Cbuf_AddServerText, which runs only the
+// commands cmd.js allows and keeps the cvars they change out of the saved
+// config.
 let cl_stuffcmdbuf = "";
+let cl_stuffcmdbuf_local = false; // whose text cl_stuffcmdbuf holds
+
+/**
+ * Web-only: whether stuffed text comes from this browser's own server, a
+ * single-player game or a room it hosts, both reached over the loopback
+ */
+export function CL_StuffTextIsLocal() {
+  return cls.demoplayback === false && sv.active === true &&
+    Loop_IsClientSocket(cls.netcon) === true;
+}
 
 export function CL_ParseStuffText(msg) {
+  // a fragment never completes a line from another source
+  const local = CL_StuffTextIsLocal();
+  if (local !== cl_stuffcmdbuf_local) {
+    cl_stuffcmdbuf = "";
+    cl_stuffcmdbuf_local = local;
+  }
+
   // q_strlcat into the 1024-byte cl.stuffcmdbuf truncates the same way
   cl_stuffcmdbuf = (cl_stuffcmdbuf + msg).substring(0, 1023);
   const end = cl_stuffcmdbuf.lastIndexOf("\n");
@@ -1477,7 +1500,11 @@ export function CL_ParseStuffText(msg) {
     return;
   }
 
-  Cbuf_AddText(cl_stuffcmdbuf.substring(0, end + 1));
+  if (local === true) {
+    Cbuf_AddText(cl_stuffcmdbuf.substring(0, end + 1));
+  } else {
+    Cbuf_AddServerText(cl_stuffcmdbuf.substring(0, end + 1));
+  }
   cl_stuffcmdbuf = cl_stuffcmdbuf.substring(end + 1);
 }
 

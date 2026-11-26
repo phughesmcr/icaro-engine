@@ -5,6 +5,7 @@ import {
   com_argv,
   COM_Parse,
   com_token,
+  Con_DPrintf,
   Con_Printf,
   MSG_WriteByte,
   SZ_Alloc,
@@ -48,6 +49,53 @@ let cmd_args = null;
 
 export let cmd_source = src_command;
 
+// Deviation (web-only, no C equivalent): text a remote server stuffs into the
+// client (svc_stufftext) is untrusted. In id's C it went straight to
+// Cbuf_AddText and could run anything: bind keys, write the config, connect
+// elsewhere. Cbuf_AddServerText marks each of its commands with this byte,
+// Cbuf_Execute carries the mark to every ';'-separated command of the line,
+// and Cmd_ExecuteString runs a marked command only if its name is in
+// cmd_server_allowed. Text from the player's own local server is not marked
+// and runs as in C (cl_parse.js CL_ParseStuffText decides). The byte is
+// whitespace to COM_Parse, so a stray one changes no tokens.
+const CMD_SERVER_MARK = 0x01;
+
+// What a remote server may run, built from the stuffcmd calls in id's
+// rerelease QuakeC (quake-rerelease-qc: quakec, quakec_hipnotic,
+// quakec_rogue, quakec_ctf, quakec_mg1, quakec_mg3) and the main mods'
+// sources (Arcane Dimensions, Copper, Alkaline, progs_dump, LibreQuake), and
+// the text the engine's own server stuffs. No bind, alias, exec, connect or
+// file-writing command is here, nor any that changes state a disconnect
+// can't undo (Arcane Dimensions' gl_texturemode toggle). Any cvar a server
+// changes is neither saved nor kept after disconnect (cvar.js
+// Cvar_RestoreServerChanges).
+// deno-fmt-ignore
+const cmd_server_allowed = new Set([
+  "_movevars", // sv_main.js SV_WriteMovevars, every signon (prediction)
+  "reconnect", // sv_main.c SV_SendReconnect, every level change
+  "bf", // quakec items.qc and every mod: bonus flash on pickup
+  "-attack", // quakec client.qc PutClientInServer: no firing on respawn
+  "fog", // quakec_mg1/mg3 fog.qc, Copper, Alkaline, progs_dump, AD
+  "r_skyfog", // Copper, Alkaline, progs_dump fog.qc; AD globalfog.qc
+  "color", // quakec_rogue and quakec_ctf teamplay.qc: team colours
+  "disconnect", // quakec_rogue and quakec_ctf teamplay.qc: team-change kick
+  "teamplay", // quakec_rogue motd.qc
+  "v_cshift", // AD, Copper t_void.qc, Alkaline and progs_dump cshift.qc
+  "sky", // AD targets.qc, Alkaline misc.qc: skybox changes
+  "sizeup", // progs_dump cutscene.qc
+  "sizedown", // progs_dump cutscene.qc
+  "-forward", // progs_dump cutscene.qc
+  "-strafe", // progs_dump cutscene.qc
+]);
+
+// Set while a command from Cbuf_AddServerText runs; cvar.js reads it
+let cmd_server_text = false;
+
+/** Web-only: whether the command running now came from a remote server */
+export function Cmd_FromServer() {
+  return cmd_server_text;
+}
+
 export let cmd_functions = null; // linked list of registered commands
 
 // Callback injection for client state (to avoid circular dependency with client.js)
@@ -79,6 +127,32 @@ export function Cbuf_AddText(text) {
     cmd_text.data[cmd_text.cursize + i] = text.charCodeAt(i);
   }
   cmd_text.cursize += l;
+}
+
+/**
+ * Web-only: adds whole lines of text from a remote server (svc_stufftext),
+ * each marked so that only allowed commands run (see cmd_server_allowed).
+ */
+export function Cbuf_AddServerText(text) {
+  let marked = "";
+  // a command left without its newline would take the server's text as
+  // arguments
+  if (cmd_text.cursize > 0 && cmd_text.data[cmd_text.cursize - 1] !== 0x0A) {
+    marked = "\n";
+  }
+
+  // Cbuf_Execute always ends a command at '\n', even inside quotes, so each
+  // line starts a command
+  const mark = String.fromCharCode(CMD_SERVER_MARK);
+  let start = 0;
+  while (start < text.length) {
+    let end = text.indexOf("\n", start);
+    end = end === -1 ? text.length : end + 1;
+    marked += mark + text.substring(start, end);
+    start = end;
+  }
+
+  Cbuf_AddText(marked);
 }
 
 /**
@@ -139,8 +213,9 @@ export function Cbuf_Execute() {
     }
 
     // extract the line as a string
+    const server = i > 0 && text[0] === CMD_SERVER_MARK;
     let line = "";
-    for (let j = 0; j < i; j++) {
+    for (let j = server ? 1 : 0; j < i; j++) {
       line += String.fromCharCode(text[j]);
     }
 
@@ -148,13 +223,26 @@ export function Cbuf_Execute() {
     if (i === cmd_text.cursize) {
       cmd_text.cursize = 0;
     } else {
+      const semicolon = text[i] === 0x3B;
       i++;
       cmd_text.cursize -= i;
       cmd_text.data.copyWithin(0, i, i + cmd_text.cursize);
+
+      // the rest of a server's line is the server's too
+      if (server && semicolon) {
+        cmd_text.data.copyWithin(1, 0, cmd_text.cursize);
+        cmd_text.data[0] = CMD_SERVER_MARK;
+        cmd_text.cursize++;
+      }
     }
 
     // execute the command line
-    Cmd_ExecuteString(line, src_command);
+    cmd_server_text = server;
+    try {
+      Cmd_ExecuteString(line, src_command);
+    } finally {
+      cmd_server_text = false;
+    }
 
     if (cmd_wait) {
       // skip out while text still remains in buffer, leaving it
@@ -346,6 +434,15 @@ export function Cmd_ExecuteString(text, src) {
     return; // no tokens
   }
 
+  // web-only: a remote server runs only the allowed commands, never an alias
+  if (
+    cmd_server_text === true &&
+    cmd_server_allowed.has(cmd_argv[0].toLowerCase()) === false
+  ) {
+    Con_DPrintf("Server tried to %s\n", text);
+    return;
+  }
+
   // check functions
   let cmd = cmd_functions;
   while (cmd) {
@@ -358,7 +455,7 @@ export function Cmd_ExecuteString(text, src) {
   }
 
   // check alias
-  let a = cmd_alias;
+  let a = cmd_server_text === true ? null : cmd_alias;
   while (a) {
     if (cmd_argv[0].toLowerCase() === a.name.toLowerCase()) {
       Cbuf_InsertText(a.value);
