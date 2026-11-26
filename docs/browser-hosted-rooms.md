@@ -245,7 +245,9 @@ behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js` `NET_Init`].
   `{ "rtc": true }`, since older clients would look for a port. A joiner may
   signal only the room it joined, a host only that room's joiners, and failed
   joins of browser-room codes are rate limited per IP. ICE servers (and TURN
-  credentials) go only to a client that has just hosted or joined.
+  credentials) go only to a client that has just hosted or joined. The
+  Cloudflare lobby also refuses other sites' pages and caps connections and TURN
+  credentials per IP (`cloudflare/lobby/README.md`, "Abuse limits").
 
   Lobby sockets become long-lived for hosts and for joiners until they connect.
   Today the client opens one socket per request [code: `src/net_websocket.js`
@@ -402,9 +404,11 @@ Paste each run's _Copy results_ JSON into this section.
 4. **The lobby module, its Deno use and the Durable Object:** the shared state
    machine with tests, `lobby_server.js` using it, and `cloudflare/` with the
    Worker, the DO and TURN credentials. Deploying it needs the maintainer's
-   Cloudflare account; the Free plan is enough. The Worker's rate limits live in
-   memory and start again when the Durable Object leaves memory (see
-   `cloudflare/lobby/README.md`).
+   Cloudflare account; the Free plan is enough. The Durable Object's rate limits
+   live in memory and start again when it leaves memory. The Worker's rate-limit
+   bindings, on connections and TURN credentials per IP, don't (see
+   `cloudflare/lobby/README.md`, "Abuse limits"). It serves
+   `quake.anglezarke.games/mp/lobby`, the game page's default lobby.
 5. **Menus:** _Host in this browser_, _Join by code_, and a room list that shows
    both kinds of room. Built as `src/net_rtclobby.js` (the driver's signaller: a
    joiner's lobby socket lasts only until the host accepts it; a host registers
