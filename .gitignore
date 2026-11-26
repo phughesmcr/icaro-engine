@@ -40,6 +40,8 @@ static/mg1/
 static/mg3/
 static/dopa/
 static/ctf/
+# A player's CD rips (music/trackNN.ogg or .mp3)
+static/music/
 
 # Wrangler local state and secrets (tools/do_cpu_probe)
 .wrangler/

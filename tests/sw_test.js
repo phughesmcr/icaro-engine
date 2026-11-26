@@ -1,7 +1,7 @@
 // Tests for sw.js, the offline service worker. It runs here against fake
 // self, caches and fetch: the routing table, offline answers for pak0 (with
-// the loader's Range probe), network-first code, and the page's cache-urls
-// message.
+// the loader's Range probe), network-first code, music cached whole and served
+// by Range, and the page's cache-urls message.
 
 const SW_SOURCE = await Deno.readTextFile(new URL("../sw.js", import.meta.url));
 const ORIGIN = "https://play.example.test";
@@ -92,26 +92,48 @@ function makeNet(files) {
     if (!Object.hasOwn(files, path)) {
       return new Response("missing", { status: 404 });
     }
+    // like a real server, a Range request gets a 206
+    const range = /^bytes=(\d+)-(\d*)$/.exec(
+      request.headers.get("range") ?? "",
+    );
+    if (range !== null) {
+      const end = range[2] === "" ? undefined : Number(range[2]) + 1;
+      return new Response(files[path].slice(Number(range[1]), end), {
+        status: 206,
+      });
+    }
     return new Response(files[path], {
       status: 200,
-      headers: { "content-length": String(files[path].length) },
+      headers: {
+        "content-length": String(files[path].length),
+        ...net.headers,
+      },
     });
   };
+  net.headers = {}; // added to every 200, overriding
   return net;
 }
 
-function loadWorker(files) {
+function loadWorker(files, caches = new FakeCaches()) {
   const listeners = new Map();
+  const windows = { open: [], controlled: [] }; // client ids
   const self = {
     location: new URL(SCOPE + "sw.js"),
     registration: { scope: SCOPE },
-    clients: { claim: () => Promise.resolve() },
+    clients: {
+      claim: () => Promise.resolve(),
+      matchAll: (options) =>
+        Promise.resolve(
+          (options?.includeUncontrolled ? windows.open : windows.controlled)
+            .map((id) => ({ id })),
+        ),
+    },
     skipWaiting: () => Promise.resolve(),
     addEventListener: (type, fn) => listeners.set(type, fn),
   };
-  const caches = new FakeCaches();
   const net = makeNet({ ...files }); // tests change files; keep FILES as written
   new Function("self", "caches", "fetch", SW_SOURCE)(self, caches, net.fetch);
+  const background = []; // fetch events' waitUntil promises
 
   const extendable = () => {
     const waits = [];
@@ -122,16 +144,21 @@ function loadWorker(files) {
     self,
     caches,
     net,
+    windows,
+    background,
+    settle: () => Promise.all(background.splice(0)),
     async lifecycle(type, extra = {}) {
       const ev = { ...extendable(), ...extra };
       listeners.get(type)(ev);
       await Promise.all(ev.waits);
     },
     // Resolves to the worker's Response, or null if it didn't respond
-    fetch(request) {
+    fetch(request, clientId = "page") {
       let answer = null;
       listeners.get("fetch")({
         request,
+        clientId,
+        waitUntil: (p) => background.push(p),
         respondWith: (p) => {
           answer = p;
         },
@@ -170,8 +197,17 @@ Deno.test("sw: routes each kind of request", () => {
     [
       SCOPE + "static/music/track02.ogg",
       { headers: { Range: "bytes=0-" } },
-      "passthrough",
+      "music",
     ],
+    [SCOPE + "static/music/track11.MP3", undefined, "music"],
+    // other game directories' music is never cached, with Range or without
+    [SCOPE + "static/hipnotic/music/track02.ogg", undefined, "passthrough"],
+    [SCOPE + "static/rerelease/id1/music/track02.ogg", range, "passthrough"],
+    [SCOPE + "static/music/x/music/track02.ogg", undefined, "passthrough"],
+    [ORIGIN + "/static/music/track02.ogg", undefined, "passthrough"],
+    // not a CD track: handled as before
+    [SCOPE + "sound/music/theme.wav", undefined, "network"],
+    [SCOPE + "static/clip.ogg", range, "passthrough"],
     [SCOPE + "src/host.js", undefined, "network"],
     [SCOPE + "?room=abc", undefined, "network"],
     [ORIGIN + "/elsewhere/x.js", undefined, null],
@@ -379,11 +415,258 @@ Deno.test("sw: a hanging network falls back to the cached copy after the timeout
   }
 });
 
-Deno.test("sw: cache-urls skips streamed music", async () => {
-  const w = loadWorker({ ...FILES, "/game/static/music/track02.ogg": "ogg" });
-  await w.lifecycle("message", {
-    data: { type: "cache-urls", urls: [SCOPE + "static/music/track02.ogg"] },
+const TRACK_PATH = "/game/static/music/track02.ogg";
+const TRACK_URL = ORIGIN + TRACK_PATH;
+const TRACK = "0123456789";
+const MUSIC_FILES = { ...FILES, [TRACK_PATH]: TRACK };
+
+function trackRequest(range) {
+  return new Request(
+    TRACK_URL,
+    range === undefined ? undefined : { headers: { Range: range } },
+  );
+}
+
+async function musicEntries(w) {
+  const cache = await w.caches.open(w.self.SW_MUSIC_CACHE_NAME);
+  return cache.entries;
+}
+
+async function expectResponse(response, status, body, headers = {}) {
+  const got = await response.text();
+  if (response.status !== status || got !== body) {
+    fail(`expected ${status} "${body}", got ${response.status} "${got}"`);
+  }
+  for (const [name, value] of Object.entries(headers)) {
+    if (response.headers.get(name) !== value) {
+      fail(`${name}: expected ${value}, got ${response.headers.get(name)}`);
+    }
+  }
+}
+
+Deno.test("sw: an uncached track streams by Range and is fetched whole behind it", async () => {
+  const w = loadWorker(MUSIC_FILES);
+  await expectResponse(await w.fetch(trackRequest("bytes=0-3")), 206, "0123");
+  await w.settle();
+
+  const ranges = w.net.requests.map((r) => r.range);
+  if (JSON.stringify(ranges) !== '["bytes=0-3",null]') {
+    fail("expected the page's Range request, then a whole fetch: " + ranges);
+  }
+  const entry = (await musicEntries(w)).get(TRACK_URL);
+  if (entry === undefined || entry.status !== 200) fail("track not cached");
+  const main = await w.caches.open(w.self.SW_CACHE_NAME);
+  if (main.entries.size !== 0) fail("music went into the main cache");
+
+  // cached: no more requests, online or not
+  await expectResponse(await w.fetch(trackRequest("bytes=4-")), 206, "456789");
+  if (w.net.requests.length !== 2) fail("a cached track reached the network");
+});
+
+Deno.test("sw: a cached track answers Range requests offline", async () => {
+  const w = loadWorker(MUSIC_FILES);
+  w.net.headers = { "content-type": "audio/ogg" };
+  await w.fetch(trackRequest("bytes=0-"));
+  await w.settle();
+  w.net.online = false;
+
+  const cases = [
+    ["bytes=0-", "0123456789", "bytes 0-9/10"],
+    ["bytes=0-1", "01", "bytes 0-1/10"], // Safari's probe
+    ["bytes=3-6", "3456", "bytes 3-6/10"],
+    ["bytes=8-500", "89", "bytes 8-9/10"],
+    ["bytes=-3", "789", "bytes 7-9/10"],
+    ["bytes=-500", "0123456789", "bytes 0-9/10"],
+  ];
+  for (const [range, body, contentRange] of cases) {
+    await expectResponse(await w.fetch(trackRequest(range)), 206, body, {
+      "content-range": contentRange,
+      "content-length": String(body.length),
+      "content-type": "audio/ogg",
+      "accept-ranges": "bytes",
+    });
+  }
+
+  for (const range of ["bytes=10-", "bytes=-0"]) {
+    await expectResponse(await w.fetch(trackRequest(range)), 416, "", {
+      "content-range": "bytes */10",
+    });
+  }
+
+  // no Range, or one that is ignored: the whole track
+  const whole = [undefined, "bytes=0-1,4-5", "bytes=6-3", "bytes=-", "x=1-2"];
+  for (const range of whole) {
+    await expectResponse(await w.fetch(trackRequest(range)), 200, TRACK);
+  }
+});
+
+// The fake network's last response, to tell it from one the worker built
+function spyNetwork(w) {
+  const spy = { last: null };
+  const answer = w.net.answer;
+  w.net.answer = (request) => (spy.last = answer(request));
+  return spy;
+}
+
+Deno.test("sw: a streamed track is passed on as the worker's own Response", async () => {
+  // Chromium can't mix the network's response with ones cut from the cache
+  const w = loadWorker(MUSIC_FILES);
+  let streamed = null;
+  const answer = w.net.answer;
+  w.net.answer = (request) => {
+    const response = answer(request);
+    if (request.headers.has("range")) streamed = response;
+    return response;
+  };
+  const got = await w.fetch(trackRequest("bytes=0-"));
+  if (got === streamed) fail("the network's response was passed through");
+});
+
+Deno.test("sw: a page claimed mid-load is network first until reloaded", async () => {
+  const w = loadWorker(MUSIC_FILES);
+  w.windows.open = ["first-visit", "updated"];
+  w.windows.controlled = ["updated"]; // had a worker already
+  await w.lifecycle("activate");
+
+  const spy = spyNetwork(w);
+  const range = () => trackRequest("bytes=0-3");
+  let got = await w.fetch(range(), "first-visit");
+  if (got !== spy.last) fail("claimed page: not the network's own response");
+  await w.settle();
+  if (!(await musicEntries(w)).has(TRACK_URL)) fail("track not cached");
+
+  // cached now, and still from the network
+  await w.fetch(range(), "first-visit");
+  await w.settle();
+  const ranged = w.net.requests.filter((r) => r.range !== null).length;
+  if (ranged !== 2) fail("claimed page served from the cache while online");
+
+  for (const id of ["updated", "next-load"]) {
+    await w.fetch(range(), id);
+  }
+  if (w.net.requests.filter((r) => r.range !== null).length !== 2) {
+    fail("other pages must be cache first");
+  }
+
+  // a restarted worker remembers, and so does the next version's activate
+  const restarted = loadWorker(MUSIC_FILES, w.caches);
+  restarted.windows.open = ["first-visit"];
+  restarted.windows.controlled = ["first-visit"];
+  await restarted.lifecycle("activate");
+  const again = loadWorker(MUSIC_FILES, w.caches);
+  await again.fetch(range(), "first-visit");
+  if (again.net.requests.length === 0) fail("claimed page forgotten");
+
+  // offline, the cache is all there is
+  again.net.online = false;
+  await expectResponse(await again.fetch(range(), "first-visit"), 206, "0123");
+});
+
+Deno.test("sw: one whole fetch per track, however many requests", async () => {
+  const w = loadWorker(MUSIC_FILES);
+  await Promise.all([
+    w.fetch(trackRequest("bytes=0-")),
+    w.fetch(trackRequest("bytes=5-")),
+  ]);
+  await w.settle();
+  const whole = w.net.requests.filter((r) => r.range === null);
+  if (whole.length !== 1) fail("whole fetches: " + whole.length);
+});
+
+Deno.test("sw: a missing or offline track is a 404 and is not cached", async () => {
+  const w = loadWorker(MUSIC_FILES);
+  const missing = new Request(SCOPE + "static/music/track03.ogg", {
+    headers: { Range: "bytes=0-" },
   });
-  const cache = await w.caches.open(w.self.SW_CACHE_NAME);
-  if (cache.entries.size !== 0) fail("music was cached");
+  if ((await w.fetch(missing)).status !== 404) fail("missing track status");
+  if (w.background.length !== 0) fail("a 404 started a whole fetch");
+
+  w.net.online = false;
+  if ((await w.fetch(trackRequest("bytes=0-"))).status !== 404) {
+    fail("uncached track offline");
+  }
+
+  // a server that answers a missing file with its index page
+  w.net.online = true;
+  w.net.headers = { "content-type": "text/html" };
+  await w.fetch(trackRequest("bytes=0-"));
+  await w.settle();
+  if ((await musicEntries(w)).size !== 0) fail("cached an HTML page");
+});
+
+Deno.test("sw: a track that doesn't fit streams but isn't stored", async () => {
+  const MB = 1024 * 1024;
+  const cases = [
+    ["over the per-track cap", { "content-length": String(65 * MB) }, null],
+    ["would eat the reserve", {}, { quota: 100 * MB, usage: 51 * MB }],
+    ["no content-length, no room", { "content-length": "" }, {
+      quota: 10,
+      usage: 0,
+    }],
+  ];
+  for (const [name, headers, estimate] of cases) {
+    const w = loadWorker(MUSIC_FILES);
+    w.net.headers = headers;
+    if (estimate !== null) {
+      w.self.navigator = {
+        storage: { estimate: () => Promise.resolve(estimate) },
+      };
+    }
+    await expectResponse(await w.fetch(trackRequest("bytes=0-1")), 206, "01");
+    await w.settle();
+    if ((await musicEntries(w)).size !== 0) fail(name + ": stored");
+  }
+
+  const w = loadWorker(MUSIC_FILES);
+  w.self.navigator = {
+    storage: {
+      estimate: () => Promise.resolve({ quota: 100 * MB, usage: MB }),
+    },
+  };
+  await w.fetch(trackRequest("bytes=0-1"));
+  await w.settle();
+  if ((await musicEntries(w)).size !== 1) fail("a track with room not stored");
+});
+
+Deno.test("sw: a full origin fails neither music nor code", async () => {
+  const w = loadWorker(MUSIC_FILES);
+  for (const name of [w.self.SW_CACHE_NAME, w.self.SW_MUSIC_CACHE_NAME]) {
+    const cache = await w.caches.open(name);
+    cache.put = () =>
+      Promise.reject(new DOMException("full", "QuotaExceededError"));
+  }
+
+  await expectResponse(await w.fetch(trackRequest("bytes=0-1")), 206, "01");
+  await w.settle();
+  const code = await w.fetch(new Request(SCOPE + "src/host.js"));
+  await expectResponse(code, 200, "host");
+});
+
+Deno.test("sw: cached music survives a new game cache", async () => {
+  const w = loadWorker(MUSIC_FILES);
+  await w.caches.open(w.self.SW_MUSIC_CACHE_NAME);
+  await w.caches.open("icaro-music-v0");
+  await w.lifecycle("activate");
+  const names = await w.caches.keys();
+  if (!names.includes(w.self.SW_MUSIC_CACHE_NAME)) fail("music cache dropped");
+  if (names.includes("icaro-music-v0")) fail("old music cache kept");
+});
+
+Deno.test("sw: cache-urls stores music that started before the worker", async () => {
+  const rerelease = "/game/static/rerelease/id1/music/track02.ogg";
+  const w = loadWorker({
+    ...MUSIC_FILES,
+    [rerelease]: "registered",
+    "/game/static/clip.ogg": "clip",
+  });
+  await w.lifecycle("message", {
+    data: {
+      type: "cache-urls",
+      urls: [TRACK_URL, ORIGIN + rerelease, SCOPE + "static/clip.ogg"],
+    },
+  });
+  const keys = [...(await musicEntries(w)).keys()];
+  if (keys.length !== 1 || keys[0] !== TRACK_URL) fail("cached " + keys);
+  const main = await w.caches.open(w.self.SW_CACHE_NAME);
+  if (main.entries.size !== 0) fail("media in the main cache");
 });
