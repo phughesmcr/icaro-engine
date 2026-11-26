@@ -779,11 +779,29 @@ export function Con_Scroll(lines) {
   con_backscroll = bs;
 }
 
+/** CSS pixels at the window top covered by the touch controls; set by touch.js */
+let con_notify_top_css = 0;
+
+/** Keep the notify lines below `css_px` CSS pixels from the window top */
+export function Con_SetNotifyTop(css_px) {
+  con_notify_top_css = css_px;
+}
+
 /** Draws the last few lines of output transparently over the game top */
 export function Con_DrawNotify() {
   if (!_Draw_Character) return;
 
+  // Deviation from the C: the touch controls' top buttons would hide the
+  // notify lines (pickup messages), so start below them
   let v = 0;
+  if (
+    con_notify_top_css > 0 && typeof window !== "undefined" &&
+    window.innerHeight > 0
+  ) {
+    v = Math.ceil(
+      con_notify_top_css * Draw_GetVirtualHeight() / window.innerHeight,
+    );
+  }
   const realtime = _getRealtime();
 
   for (let i = con_current - NUM_CON_TIMES + 1; i <= con_current; i++) {
