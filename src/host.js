@@ -49,7 +49,7 @@ import { V_RenderView, V_UpdatePalette } from './view.js';
 import { S_LocalSound } from './snd_dma.js';
 import { M_Menu_Main_f } from './menu.js';
 import { R_Efrag_SetExternals } from './gl_refrag.js';
-import { Host_InitCommands } from './host_cmd.js';
+import { Host_InitCommands, Host_MaybeOfferContinue } from './host_cmd.js';
 import { R_SetParticleExternals } from './r_part.js';
 
 /*
@@ -673,6 +673,8 @@ let host_speeds_time1 = 0;
 let host_speeds_time2 = 0;
 let host_speeds_time3 = 0;
 
+let autosave_offer_done = false;
+
 function _Host_Frame_Internal( time ) {
 
 	// keep the random time dependent
@@ -690,6 +692,10 @@ function _Host_Frame_Internal( time ) {
 
 	// process console commands
 	Cbuf_Execute();
+
+	// Web-only: offer to continue the autosave once per page load (autosave.js)
+	if ( autosave_offer_done === false )
+		autosave_offer_done = Host_MaybeOfferContinue();
 
 	NET_Poll();
 
