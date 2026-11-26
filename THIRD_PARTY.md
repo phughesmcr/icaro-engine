@@ -52,52 +52,6 @@ that two branches adding entries rarely touch the same lines:
     found grants distribution of an extracted part, and the pak holds no copy of
     the agreement.
 
-## Community maps
-
-Deathmatch maps in `static/maps/`, shipped in the repository and the client (not
-the room image). Each belongs to its author and is under the terms in its own
-readme, which sits beside it; **none is under the GPL**. The summaries below
-don't replace the readmes. They came with
-[three-quake](https://github.com/mrdoob/three-quake) (commit `717692f` in this
-repository's history), whose commit message names
-[Quaddicted](https://www.quaddicted.com/) as their source, without a link to
-each file. **Not confirmed:** that each file matches its author's original
-release. Icaro ships each BSP and readme as loose files, not as the original
-archive. **Not confirmed:** that this meets the conditions in `efdm9` and `zed`
-about keeping the archive.
-
-- **`baldm6` ("Scrap Metal"), Benoit "Bal" Stordeur.** The BSP may be
-  distributed in any electronic form but not to make money, and not used as a
-  base for other levels without permission. Its textures remain their owners'.
-  Terms: [baldm6.txt](static/maps/baldm6.txt).
-- **`edc` ("Eternal Dismemberment Complex"), Kevin Shanahan.** The BSP may be
-  distributed with its readme unmodified. It may not be sold without permission
-  or used as a base for other levels. The readme says its textures are mostly
-  converted from Quake II. Terms: [edc.txt](static/maps/edc.txt).
-- **`efdm9` ("Tangerine Dream"), Van Ricketts (Mr Fribbles).** May be
-  distributed over electronic networks with its readme and with the archive left
-  intact. No commercial exploitation without permission, no distribution of
-  modified copies, no decompiling and no use as a base. The readme lists Quake
-  II and other authors' textures. Terms: [efdm9.txt](static/maps/efdm9.txt).
-- **`naked5` ("Kinky Afro"), Martin Mastomäki.** Distribution only over the
-  internet or BBSs. No CDs, and no other distribution without permission. Terms:
-  [naked5.txt](static/maps/naked5.txt).
-- **`rapture1` ("imminent boom"), Dan Proietti.** "Freely distributed"; the
-  readme adds that nobody should have paid for it. Terms:
-  [rapture1.txt](static/maps/rapture1.txt).
-- **`spinev2`, Dennis Kaltwasser (headshot).** A revision of the map "spine".
-  Same permissions as `edc`. The readme names registered Quake as its game.
-  Terms: [spinev2.txt](static/maps/spinev2.txt).
-- **`ultrav` ("UltraViolence"), Adriano Lorenzini (Escher).** Same permissions
-  as `edc`. The readme names registered Quake and credits Rogue for textures.
-  The Italian readme words it differently: no limits on distribution unless for
-  profit. Terms: [ultrav.txt](static/maps/ultrav.txt),
-  [ultrav_it.txt](static/maps/ultrav_it.txt).
-- **`zed`, Dmitry Svetlichny (vondur).** Distribution only over the internet or
-  BBSs; no CDs, and no other distribution without permission. The readme must
-  not be removed from the zip archive. It lists textures by other authors, from
-  Quake II and Shrak among them. Terms: [zed.txt](static/maps/zed.txt).
-
 ## Images, icons and fonts
 
 All shipped in the repository and the client. They contain id Software's art or
