@@ -1551,8 +1551,6 @@ function Gyro_Stop() {
 export function Touch_Frame() {
   if (!initialized) return;
 
-  Touch_AimAssistFrame();
-
   const key = touch_size.string + "|" + touch_opacity.string + "|" +
     touch_lefthanded.string;
   if (key !== layoutKey) Touch_Layout();
@@ -1595,7 +1593,11 @@ export function Touch_AimAssistCone(level) {
   return AIM_ASSIST_CONES[Touch_AimAssistLevel(level)];
 }
 
-/** Writes sv_aim when touch_aimassist changes (from the menu or the console) */
+/**
+ * Writes sv_aim when touch_aimassist changes (from the menu or the console).
+ * Called every client frame, in touch mode or not: the menu row is on every
+ * device, and any mouse movement leaves touch mode.
+ */
 export function Touch_AimAssistFrame() {
   const level = Touch_AimAssistLevel(touch_aimassist.value);
   if (level === aimAssistApplied) return;
