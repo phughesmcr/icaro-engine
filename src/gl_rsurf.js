@@ -250,6 +250,22 @@ function R_UnderwaterProgramKey() {
   return "quake-underwater";
 }
 
+/**
+ * Fence ('{') textures: Ironwail's world shader (WORLDSHADER_ALPHATEST)
+ * discards a texel whose alpha is below 0.666 (QuakeSpasm: glAlphaFunc
+ * GL_GREATER 0.666 with GL_ALPHA_TEST on for SURF_DRAWFENCE). They stay in the
+ * opaque pass with depth writes, as Ironwail's BP_ALPHATEST does.
+ */
+export const FENCE_ALPHATEST = 0.666;
+
+/**
+ * The alphaTest for a world or brush material drawn with diffuse: gl_model.js
+ * GL_LoadTexture sets _cutout on a fence texture that has transparent texels.
+ */
+export function R_SurfaceAlphaTest(diffuse) {
+  return diffuse != null && diffuse._cutout === true ? FENCE_ALPHATEST : 0;
+}
+
 function createQuakeLightmapMaterial(
   diffuseMap,
   lightmapTex,
@@ -263,6 +279,7 @@ function createQuakeLightmapMaterial(
     map: diffuseMap,
     lightMap: lightmapTex,
     lightMapIntensity: LIGHTMAP_INTENSITY,
+    alphaTest: R_SurfaceAlphaTest(diffuseMap),
   };
 
   // Fullbright pixel support: palette indices 224-255 should render at full
@@ -1803,7 +1820,10 @@ export function R_DrawBrushModel(e) {
           material = (diffuse != null && lmTex != null) ?
             createQuakeLightmapMaterial(diffuse, lmTex) :
             GL_RegisterCullMaterial(
-              new THREE.MeshBasicMaterial({ map: diffuse }),
+              new THREE.MeshBasicMaterial({
+                map: diffuse,
+                alphaTest: R_SurfaceAlphaTest(diffuse),
+              }),
             );
           _brushMaterialCache.set(matKey, material);
         }
@@ -1857,7 +1877,10 @@ export function R_DrawBrushModel(e) {
         material = (diffuse && anim.lmTex) ?
           createQuakeLightmapMaterial(diffuse, anim.lmTex) :
           GL_RegisterCullMaterial(
-            new THREE.MeshBasicMaterial({ map: diffuse }),
+            new THREE.MeshBasicMaterial({
+              map: diffuse,
+              alphaTest: R_SurfaceAlphaTest(diffuse),
+            }),
           );
         _brushMaterialCache.set(matKey, material);
       }
@@ -3157,7 +3180,10 @@ export function R_CreateWorldMaterial(diffuse, lmTex, underwater) {
     return createQuakeLightmapMaterial(diffuse, lmTex, underwater);
   }
 
-  const material = new THREE.MeshBasicMaterial({ map: diffuse });
+  const material = new THREE.MeshBasicMaterial({
+    map: diffuse,
+    alphaTest: R_SurfaceAlphaTest(diffuse),
+  });
   if (underwater) {
     material.onBeforeCompile = R_PatchWaterWarpVertexShader;
     material.customProgramCacheKey = R_UnderwaterProgramKey;

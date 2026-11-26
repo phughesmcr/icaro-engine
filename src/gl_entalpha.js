@@ -62,6 +62,7 @@ function _alphaClone(base, alpha, double) {
     clone.customProgramCacheKey = base.customProgramCacheKey;
     clone.transparent = true;
     clone.opacity = ENTALPHA_DECODE(alpha);
+    clone.alphaTest = _cloneAlphaTest(base, clone);
     clone.depthWrite = false; // Ironwail: glDepthMask( GL_FALSE )
     if (double === true) {
       clone.side = THREE.DoubleSide;
@@ -105,14 +106,23 @@ export function R_EntAlpha_Apply(e) {
   e._entalphaApplied = blended;
 }
 
+// Ironwail's alpha-tested shaders (MF_HOLEY skins, fence textures) discard on
+// the texel's own alpha, before the entity alpha multiplies it in. Three
+// compares opacity * texel alpha, so the clone's threshold is scaled by its
+// opacity to keep the same texels.
+function _cloneAlphaTest(base, clone) {
+  return base.alphaTest * clone.opacity;
+}
+
 // gl_mesh.js changes some alias materials in place: an entity's
 // r_lerpmodels material (R_GetAliasLerpMaterial) takes the map, fullbright
 // mask, alphaTest and vertexColors of whichever cached skin it follows. A
 // clone made earlier would keep the old skin, so copy them across when they
 // differ. The lerp blend is one shared uniform object (AliasMaterial.copy).
 function _syncClone(clone, base) {
+  const alphaTest = _cloneAlphaTest(base, clone);
   if (
-    clone.map === base.map && clone.alphaTest === base.alphaTest &&
+    clone.map === base.map && clone.alphaTest === alphaTest &&
     clone.vertexColors === base.vertexColors &&
     clone.fullbrightMap === base.fullbrightMap
   ) {
@@ -120,7 +130,7 @@ function _syncClone(clone, base) {
   }
 
   clone.map = base.map;
-  clone.alphaTest = base.alphaTest;
+  clone.alphaTest = alphaTest;
   clone.vertexColors = base.vertexColors;
   if (base.fullbrightMap !== undefined) {
     clone.fullbrightMap = base.fullbrightMap;
