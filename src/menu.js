@@ -2116,7 +2116,7 @@ function M_AdjustSliders(dir) {
 
 // OPTIONS MENU
 
-const OPTIONS_ITEMS = 17;
+const OPTIONS_ITEMS = 18;
 let m_options_cursor = 0;
 
 function M_Menu_Options_f() {
@@ -2183,7 +2183,11 @@ function M_Options_Draw() {
   // Port addition: the main menu's fourth row is C's Help again, so the
   // credits screen (attribution and source link) is reached from here,
   // which mouse and touch players can use without the console.
-  M_Print(16, 160, "               Credits");
+  // Web-only: the Game data panel (src/userdata.js), where a player adds
+  // their own registered or mission-pack paks and moves saves and demos
+  M_Print(16, 160, "             Game data");
+
+  M_Print(16, 168, "               Credits");
 
   // cursor
   M_DrawCharacter(
@@ -2215,6 +2219,9 @@ function M_Options_Key(key) {
           M_Menu_Advanced_f();
           break;
         case 16:
+          Cbuf_AddText("menu_gamedata\n");
+          break;
+        case 17:
           M_Menu_Credits_f();
           break;
         case 2:

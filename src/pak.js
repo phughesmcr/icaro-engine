@@ -403,6 +403,14 @@ async function COM_EnsureOneFile(filename) {
 }
 
 /**
+ * Not in id's common.c. Adds data (a Uint8Array) as a loose file, found by
+ * COM_FindFile after every pak: a demo the player imported or recorded.
+ */
+export function COM_AddVirtualFile(filename, data) {
+  virtualFiles.set(filename.toLowerCase(), data);
+}
+
+/**
  * Fetches a loose file from URL/path and adds it to virtualFiles.
  * Used for custom maps not included in pak files.
  * In Deno, reads from filesystem. In browser, uses fetch().
@@ -618,6 +626,68 @@ function COM_RangeReader(url) {
   };
 
   return { read: read, readSync: null };
+}
+
+// pak_reader_t over a Blob: a pak the player copied into the browser's
+// storage (see src/userdata.js). Blob.slice reads only the bytes asked for.
+function COM_BlobReader(blob) {
+  const read = async (pos, len) => {
+    if (len === 0) return new Uint8Array(0);
+    const data = new Uint8Array(
+      await blob.slice(pos, pos + len).arrayBuffer(),
+    );
+    if (data.length !== len) throw new Error("short read");
+    return data;
+  };
+
+  return { read: read, readSync: null };
+}
+
+/**
+ * Not in id's common.c. Opens a pak held in a Blob, such as a File: whole when
+ * it is at most com_lazypaksize, else lazily, as COM_FetchPak does for a URL.
+ * Returns a Promise of the pack_t, or null (with a message) when the Blob is
+ * not a pak or can't be read.
+ */
+export async function COM_OpenBlobPak(blob, filename, onProgress) {
+  try {
+    const reader = COM_BlobReader(blob);
+    const header = await reader.read(0, Math.min(12, blob.size));
+    if (!isPack(header)) {
+      Con_Printf("%s is not a packfile\n", filename);
+      return null;
+    }
+
+    if (blob.size > com_lazypaksize) {
+      return await COM_OpenLazyPack(
+        filename,
+        filename,
+        reader,
+        header,
+        onProgress,
+      );
+    }
+
+    const buffer = await blob.arrayBuffer();
+    if (onProgress) onProgress(1);
+    return COM_LoadPackFile(filename, buffer);
+  } catch (e) {
+    Con_Printf("Couldn't read %s: %s\n", filename, e.message);
+    return null;
+  }
+}
+
+// Paks the player copied into the browser's storage, by the lower-case URL
+// COM_AddPakSequence would otherwise fetch (src/userdata.js UD_MountPaks)
+let com_userpaks = new Map();
+
+/**
+ * Not in id's common.c. Sets the player's own paks (a Map from lower-case URL,
+ * such as "static/pak1.pak", to Blob). COM_AddPakSequence opens each in place
+ * of fetching its URL, so registered data never has to be on the server.
+ */
+export function COM_SetUserPaks(paks) {
+  com_userpaks = paks;
 }
 
 /**
@@ -862,7 +932,15 @@ export async function COM_AddPakSequence(pak0Url, onProgress) {
   let count = 0;
   for (let i = 0;; i++) {
     const name = "pak" + i + ".pak";
-    let pak = await COM_FetchPak(dir + name, name, onProgress, true);
+    // the player's own copy first (see COM_SetUserPaks); one that doesn't
+    // open falls back to the server's, so a bad copy can't stop the game
+    const user = com_userpaks.get((dir + name).toLowerCase());
+    let pak = user !== undefined ?
+      await COM_OpenBlobPak(user, name, onProgress) :
+      null;
+    if (pak === null) {
+      pak = await COM_FetchPak(dir + name, name, onProgress, true);
+    }
     if (pak === null && com_fetchmissing === true) {
       pak = await COM_FetchPak(
         dir + name.toUpperCase(),

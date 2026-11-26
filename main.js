@@ -17,6 +17,7 @@ import { camera, scene } from "./src/gl_rmain.js";
 import { renderer } from "./src/vid.js";
 import { Draw_CachePicFromPNG, Draw_GetOverlayCanvas } from "./src/gl_draw.js";
 import { XR_Init } from "./src/webxr.js";
+import { UD_Init, UD_MountPaks } from "./src/userdata.js";
 import { PWA_InitLaunchQueue } from "./src/pwa_launch.js";
 import {
   CDAudio_SetTrackURLProvider,
@@ -183,6 +184,11 @@ async function main() {
       }
     };
 
+    // The player's own paks (registered, mission packs, rerelease), copied
+    // into this browser's storage from the Game data panel, load in place
+    // of the server's (see src/userdata.js)
+    await UD_MountPaks();
+
     // Load id1's pak0.pak, then pak1.pak (registered) and so on if present
     Sys_Printf("Loading pak files...\\n");
     const pakCount = await COM_AddPakSequence(
@@ -228,6 +234,7 @@ async function main() {
     CDAudio_SetTrackURLProvider((track) => CDAudio_TrackURLs(track, musicDirs));
 
     await Host_Init(parms);
+    UD_Init();
 
     // Remove loading overlay
     if (loadingOverlay) {
