@@ -6,14 +6,32 @@ relying on them.
 
 ## Status
 
-Checked at `dev` `4e95d06`. Tier 1 is built except controller rumble (item 4)
-and part of item 8 (the manifest's `screenshots` and `launch_handler`, and iOS
-splash screens): iOS audio resume (#180), the touch DPR cap (#181),
-`navigator.storage.persist()` after the first save (#183), the manifest's `id`,
-description and 192 and maskable icons (#184), hiding touch controls under a
-gamepad (#185), opening the menu when a single-player game is hidden (#186), the
-continuous stick (#187) and the portrait prompt (#188). Tiers 2 and 3 are not
-started. None of it was tested on a real phone.
+Checked at `dev` `c0ea1d7` (2026-11-26). Tier 2 is built, and so is tier 1 but
+for two leftovers in open PRs. Tier 3 is not started. None of it was tested on a
+real phone. The rest of this doc is the older snapshot.
+
+- **Tier 1 in `dev`:** iOS audio resume (#180), the touch DPR cap (#181),
+  `navigator.storage.persist()` after the first save (#183), the manifest's
+  `id`, description and 192 and maskable icons (#184), hiding touch controls
+  under a gamepad (#185), opening the menu when a single-player game is hidden
+  (#186), the continuous stick (#187) and the portrait prompt (#188).
+- **Tier 1 in open PRs:** controller rumble (item 4, #224), and the manifest's
+  `screenshots` and `launch_handler` and the iOS splash screens (item 8, #227).
+- **Tier 2 in `dev`:** the offline PWA (item 9, #205), touch-sized menus (10,
+  #208), the weapon wheel and overlay buttons (11 and 12, #213), reconnect (13,
+  #210), autosave on hide (14, #211), context-loss recovery (15, #214), shader
+  warm-up (16, #215) and quality presets (17, #212).
+- **Confirmed bugs:** each has a fix in `dev`: B1 #180, B2 #210, B3 #208, B4 and
+  B8 #187, B5 #185, B6 #214, B7 #188. The B2 fix has the reconnect gaps below.
+
+What tier 2 leaves out:
+
+- three and nipplejs are not vendored (item 9). The service worker caches the
+  pinned CDN URLs instead.
+- The service worker caches no music, no pak but `pak0.pak` and no Range
+  request, so offline play has none of those.
+- Reconnect (item 13) doesn't cover browser-hosted rooms (`rtc:<code>`). #210
+  did not check it in a browser, which needs a server that drops the connection.
 
 ## How it was made
 
