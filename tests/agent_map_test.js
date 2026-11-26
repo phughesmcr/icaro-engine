@@ -165,7 +165,7 @@ Deno.test({
   fn: async () => {
     await call("start", { map: "e1m1", skill: 1, seed: 1 });
     // the first goto toward the armour stops by the bridge's button
-    await call("goto", { pos: [688, 480, 80], ents: 0 });
+    await call("goto", { pos: [688, 480, 80], ents: 0, stop_on_enemy: false });
     const button = Agent_Entities(64).find((e) => e.kind === "button");
     assert(button !== undefined && button.dist < 300, "a button nearby");
     const yaw = cl.viewangles[YAW];

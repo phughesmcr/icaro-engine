@@ -1,20 +1,24 @@
 # Client Worker: the game page as static files
 
-A Cloudflare Worker with static assets only (no script) that serves the browser
-client at `https://quake.anglezarke.games`. The lobby for rooms hosted in
-browsers is a separate Worker (`../lobby/`), routed at `/mp/lobby` on the same
-hostname, so the page's default lobby (`wss://<host>/mp/lobby`) needs no
-`?server=`. Nothing here depends on a home machine.
+A Cloudflare Worker with static assets that serves the browser client at
+`https://quake.anglezarke.games`. The lobby for rooms hosted in browsers is a
+separate Worker (`../lobby/`), routed at `/mp/lobby` on the same hostname, so
+the page's default lobby (`wss://<host>/mp/lobby`) needs no `?server=`. Nothing
+here depends on a home machine.
 
 Static asset requests are free and don't count towards the Workers request
-allowance, so the page costs nothing on the Free plan. Limits that matter: 25
-MiB per file (`static/pak0.pak` is 17.8 MiB) and 20,000 files per version.
+allowance. A small script runs for the page itself (`/`) and nothing else (see
+"Headers and caching"), so each page load is one Workers request: the Free
+plan's 100,000 a day is far more than the game needs. Limits that matter: 25 MiB
+per file (`static/pak0.pak` is 17.8 MiB) and 20,000 files per version.
 
 ## Files
 
 - `build.js`: fills `dist/` from an allowlist (`deno task client-build`).
 - `wrangler.jsonc`: the Worker, its assets folder (`dist/`) and the Custom
-  Domain. No `main`.
+  Domain.
+- `src/worker.js` and `src/nonce.js`: the script that adds a nonce to the page's
+  policy. It lives outside `dist/`, so it is never served.
 - `dist/`: build output, gitignored. Never edit it by hand.
 
 ## What gets deployed
@@ -89,6 +93,15 @@ response (`Client_Headers`):
   (`frame-ancestors 'none'`), no plugins, no `<base>`. `connect-src` allows any
   `https:` or `wss:` host, since `?server=` may name any lobby. Inline styles
   are allowed (the `<style>` block, touch controls).
+- A nonce, on the page alone. Cloudflare's JavaScript Detections (on with Bot
+  Fight Mode) injects an inline script into HTML that changes with every
+  request, so no hash can cover it. When the policy's `script-src` holds a
+  nonce, Cloudflare reads it and puts it on the scripts it injects. The Worker's
+  script runs only for `/` (`run_worker_first`), takes the asset response with
+  its `_headers`, and adds a fresh `'nonce-…'` to `script-src` (`src/nonce.js`).
+  The hashes stay for the page's own scripts. Without the nonce, the console
+  shows a policy violation for Cloudflare's script and JavaScript Detections
+  doesn't run.
 - `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: strict-origin-when-cross-origin`,
   `Cross-Origin-Opener-Policy: same-origin`, a `Permissions-Policy` that turns

@@ -57,11 +57,13 @@ process per room. It was forked from mrdoob's three-quake.
   the repository root it offers to upload the whole repository, registered data
   included.
 - `cloudflare/client/`: the Worker that serves the game page at
-  `quake.anglezarke.games` as static assets (no script). `build.js`
+  `quake.anglezarke.games` as static assets, with a script for the page alone
+  that adds a CSP nonce (`src/nonce.js`, tested by
+  `tests/cloudflare_client_nonce_test.js`). `build.js`
   (`deno task client-build`) fills its gitignored `dist/` from an allowlist of
-  tracked files with a deny check for registered data, and wrangler deploys only
-  `dist/`; its README gives the deploy steps. `tests/client_build_test.js`
-  covers the rules.
+  tracked files with a deny check for registered data, and wrangler uploads only
+  `dist/` as assets; its README gives the deploy steps.
+  `tests/client_build_test.js` covers the rules.
 - `docs/`: design notes, reviews and research; `docs/README.md` says what each
   one covers. Most are snapshots taken at a past revision, so check their claims
   against the code before relying on them.

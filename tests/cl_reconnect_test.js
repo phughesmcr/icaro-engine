@@ -68,7 +68,7 @@ Deno.test("CLR_BackoffMs doubles and caps", () => {
   assertEqual(r.CLR_BackoffMs(-1), 1000, "negative");
 });
 
-Deno.test("CLR_IsReconnectable accepts remote addresses only", () => {
+Deno.test("CLR_IsReconnectable accepts remote addresses and rtc rooms", () => {
   assertEqual(
     r.CLR_IsReconnectable("https://host:4433?room=abc"),
     true,
@@ -77,7 +77,7 @@ Deno.test("CLR_IsReconnectable accepts remote addresses only", () => {
   assertEqual(r.CLR_IsReconnectable("wss://host/mp/room/x"), true, "wss");
   assertEqual(r.CLR_IsReconnectable("local"), false, "local");
   assertEqual(r.CLR_IsReconnectable("LOCAL"), false, "LOCAL");
-  assertEqual(r.CLR_IsReconnectable("rtc:ABCD"), false, "rtc");
+  assertEqual(r.CLR_IsReconnectable("rtc:ABCD"), true, "rtc room");
   assertEqual(r.CLR_IsReconnectable(""), false, "empty");
   assertEqual(r.CLR_IsReconnectable(null), false, "null");
 });
@@ -155,12 +155,10 @@ Deno.test("cancel during a connect discards its result", async () => {
   assertEqual(env.giveUps.length, 0, "no give up");
 });
 
-Deno.test("local games, demos and rtc rooms never reconnect", () => {
+Deno.test("local games and demos never reconnect", () => {
   const env = makeEnv();
   r.CLR_Connected("local");
   assertEqual(r.CLR_HasSession(), false, "local not remembered");
-  r.CLR_Connected("rtc:ABCD");
-  assertEqual(r.CLR_HasSession(), false, "rtc not remembered");
 
   r.CLR_Connected("wss://host/mp");
   env.allowed = false; // sv.active or a demo
@@ -254,4 +252,52 @@ Deno.test("a server that accepts and drops us repeatedly ends in a give up", asy
   assertEqual(handled, false, "loop ended");
   assertEqual(env.giveUps.length, 1, "gave up once");
   assertEqual(r.CLR_HasSession(), false, "session forgotten");
+});
+
+Deno.test("a lost rtc room reconnects to the same code", async () => {
+  const env = makeEnv({ results: [false, true] });
+  r.CLR_Connected("rtc:ABCDEFGH");
+  assertEqual(r.CLR_HasSession(), true, "rtc remembered");
+  assertEqual(r.CLR_ConnectionLost(), true, "handled");
+  await env.fire();
+  assertEqual(r.CLR_Phase(), "waiting", "retry after a failed attempt");
+  await env.fire();
+  assertEqual(env.connects.join(), "rtc:ABCDEFGH,rtc:ABCDEFGH", "same code");
+  assertEqual(r.CLR_Phase(), "idle", "reconnected");
+  assertEqual(env.giveUps.length, 0, "no give up");
+});
+
+Deno.test("CLR_GiveUp ends a retry in flight with its reason, once", async () => {
+  const env = makeEnv();
+  let resolve;
+  env.pending = new Promise((res) => {
+    resolve = res;
+  });
+  r.CLR_Connected("rtc:ABCDEFGH");
+  r.CLR_ConnectionLost();
+  const fired = env.fire();
+  assertEqual(r.CLR_Phase(), "connecting", "connecting");
+
+  // The driver learns the room is gone, then its connect fails
+  assertEqual(r.CLR_GiveUp("The host has left the room"), true, "gave up");
+  resolve(false);
+  await fired;
+
+  assertEqual(env.giveUps.join("|"), "The host has left the room", "reason");
+  assertEqual(env.connects.length, 1, "no further attempts");
+  assertEqual(env.timers.length, 0, "no retry scheduled");
+  assertEqual(r.CLR_HasSession(), false, "session forgotten");
+  assertEqual(r.CLR_Phase(), "idle", "idle");
+});
+
+Deno.test("CLR_GiveUp does nothing outside a retry's connect", () => {
+  const env = makeEnv();
+  assertEqual(r.CLR_GiveUp("gone"), false, "no session");
+
+  r.CLR_Connected("rtc:ABCDEFGH");
+  assertEqual(r.CLR_GiveUp("gone"), false, "connected, no retry");
+  r.CLR_ConnectionLost();
+  assertEqual(r.CLR_GiveUp("gone"), false, "a retry waiting, not connecting");
+  assertEqual(env.timers.length, 1, "the retry is still scheduled");
+  assertEqual(env.giveUps.length, 0, "no give up");
 });

@@ -42,7 +42,12 @@
 // (design, "Listen-server rules").
 
 import { Con_DPrintf, Con_Printf, SZ_Clear, SZ_Write } from "./common.js";
-import { NET_FreeQSocket, NET_NewQSocket } from "./net_main.js";
+import { CLR_GiveUp } from "./cl_reconnect.js";
+import {
+  NET_FreeQSocket,
+  NET_NewQSocket,
+  NET_QuietConnect,
+} from "./net_main.js";
 import {
   NET_MAXMESSAGE,
   net_message,
@@ -731,8 +736,11 @@ export function RTC_CheckNewConnections() {
 // One whole connect: its deadline closes the peer connection and rejects
 // whatever the connect is waiting on, as WSConnectAttempt does.
 class RTCConnectAttempt {
-  constructor(timeoutMs) {
+  constructor(timeoutMs, quiet) {
     this.aborted = false;
+    // Web-only: a reconnect's silent retry (cl_reconnect.js), read when the
+    // connect began; it shows no menu on failure
+    this.quiet = quiet;
     this.conn = null;
     this.lobbyJoin = null; // the signaller's join( code ), if it has one
     this._reject = null;
@@ -796,7 +804,10 @@ function _RTC_WaitOpen(conn) {
   });
 }
 
-function _RTC_FailConnect(reason) {
+function _RTC_FailConnect(reason, quiet) {
+  // Web-only: a silent reconnect attempt (cl_reconnect.js) reports for itself
+  if (quiet === true) return null;
+
   set_key_dest(key_menu);
   M_ConnectionError(reason);
   return null;
@@ -804,6 +815,9 @@ function _RTC_FailConnect(reason) {
 
 /** Join a browser-hosted room: host is "rtc:<ROOMCODE>". */
 export async function RTC_Connect(host) {
+  // Read before the first await, as the WebTransport and WebSocket drivers do
+  const quiet = NET_QuietConnect();
+
   if (rtc_initialized === false) {
     Con_Printf("WebRTC not initialized\n");
     return null;
@@ -812,12 +826,12 @@ export async function RTC_Connect(host) {
   const code = RTC_IsRoomAddress(host) ? host.slice(4) : "";
   if (RTC_ROOM_CODE.test(code) === false) {
     Con_Printf("WebRTC: bad room address " + host + "\n");
-    return _RTC_FailConnect("Bad room address");
+    return _RTC_FailConnect("Bad room address", quiet);
   }
 
   if (rtc_signaller === null) {
     Con_Printf("WebRTC: no lobby to reach room " + code + "\n");
-    return _RTC_FailConnect("Not connected to the lobby");
+    return _RTC_FailConnect("Not connected to the lobby", quiet);
   }
 
   // CL_EstablishConnection has just closed the previous connection.
@@ -829,7 +843,7 @@ export async function RTC_Connect(host) {
 
   Con_Printf("WebRTC connecting to room " + code + "\n");
 
-  const attempt = new RTCConnectAttempt(RTC_CONNECT_TIMEOUT_MS);
+  const attempt = new RTCConnectAttempt(RTC_CONNECT_TIMEOUT_MS, quiet);
   rtc_attempt = attempt;
 
   try {
@@ -932,7 +946,7 @@ async function _RTC_ConnectAttempt(attempt, code, host) {
         "Connection refused";
       Con_Printf("Host refused connection: " + reason + "\n");
       _RTC_FinishClose(conn);
-      return _RTC_FailConnect(reason);
+      return _RTC_FailConnect(reason, attempt.quiet);
     }
 
     if (attempt.aborted === true || conn.dead === true) {
@@ -976,7 +990,15 @@ async function _RTC_ConnectAttempt(attempt, code, host) {
 
     if (error !== null && typeof error === "object" && error.lobby === true) {
       Con_Printf("WebRTC: " + error.message + "\n");
-      return _RTC_FailConnect(error.message);
+      // Web-only: a reconnect to a room the lobby no longer has (its host
+      // left) can never succeed, so end the retries now. Other lobby
+      // errors (a full room still holding our dropped slot, a rate limit,
+      // an unreachable lobby) may pass, so the retries go on.
+      if (attempt.quiet === true && error.roomGone === true) {
+        CLR_GiveUp("The host has left the room");
+        return null;
+      }
+      return _RTC_FailConnect(error.message, attempt.quiet);
     }
 
     if (attempt.aborted === true && error.message === "Connection timed out") {
@@ -984,11 +1006,14 @@ async function _RTC_ConnectAttempt(attempt, code, host) {
         "WebRTC connect timed out after %d seconds\n",
         RTC_CONNECT_TIMEOUT_MS / 1000,
       );
-      return _RTC_FailConnect("Connection timed out - the host may have left");
+      return _RTC_FailConnect(
+        "Connection timed out - the host may have left",
+        attempt.quiet,
+      );
     }
 
     Con_Printf("WebRTC connect failed: " + error.message + "\n");
-    return _RTC_FailConnect("Could not connect to the room");
+    return _RTC_FailConnect("Could not connect to the room", attempt.quiet);
   }
 }
 
@@ -1080,7 +1105,8 @@ function _RTC_ProtocolError(conn, reason) {
 /**
  * A channel closed or the peer connection failed. A socket the server or
  * client is using is left for RTC_QGetMessage to report: it delivers what is
- * queued, then -1 (leading to SV_DropClient or Host_Error, then NET_Close). A
+ * queued, then -1 (leading to SV_DropClient, or the client's reconnect or
+ * Host_Error, then NET_Close). A
  * host socket still pending is freed here.
  */
 function _RTC_OnTransportClosed(conn) {
