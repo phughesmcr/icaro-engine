@@ -8,17 +8,21 @@
 //   claude mcp add icaro -- deno run --no-prompt --allow-read=static server/agent_mcp.ts
 //
 // Both run from the repository root: --allow-read=static is relative to the
-// working directory. Only static/pak0.pak (shareware) is mounted.
+// working directory. Only static/pak0.pak (shareware) is mounted. The SDK
+// and zod are npm packages mapped in deno.json and server/deno.json (keep
+// the two in step) and pinned in the root deno.lock.
 //
-// Transport: stdio, one JSON-RPC message per line. The legacy MCP
-// lifecycle (initialize, then tools/list and tools/call) is implemented for
-// the versions in MCP_VERSIONS. A request that names a newer version in its
-// _meta gets the UnsupportedProtocolVersion error with that list, so the
-// client can fall back to initialize.
+// Protocol: the official MCP TypeScript SDK (@modelcontextprotocol/server)
+// over stdio. serveStdio serves both protocol eras from one factory: clients
+// that open with initialize (2024-11-05 to 2025-11-25) and 2026-07-28
+// clients (server/discover, and a _meta envelope on each request). The SDK checks tool arguments against the
+// zod schemas below before a handler runs. A bad argument comes back as a
+// tool result with isError, and so does an error a handler throws.
 //
 // The game runs in lockstep: it advances only inside start, step and goto, one
-// tic (1/72 s) at a time, so thinking time costs nothing. Tool calls run one
-// at a time, in order.
+// tic (1/72 s) at a time, so thinking time costs nothing. The SDK runs
+// requests concurrently, so tool calls are queued here and run one at a
+// time, in arrival order.
 //
 // Determinism: start with a seed seeds the server's gameplay randomness
 // (Sys_SetRandomSeed) and replaces the clock with a virtual one that
@@ -30,28 +34,26 @@
 // the stdio entry point sends console output to stderr before it loads the
 // engine. Engine modules are loaded on the first tool call.
 
+import { McpServer } from '@modelcontextprotocol/server';
+import { serveStdio, StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+import type { StdioServerHandle } from '@modelcontextprotocol/server/stdio';
+import type { Readable, Writable } from 'node:stream';
+import * as z from 'zod';
+
 // deno-lint-ignore no-explicit-any
 type Engine = { agent: any; sys: any; cmd: any; pak: any };
 
-type JsonRpcId = string | number | null;
-type JsonRpcMessage = {
-	jsonrpc?: string;
-	id?: JsonRpcId;
-	method?: string;
-	params?: Record<string, unknown>;
-};
-
-// Newest first. 2026-07-28 drops the initialize handshake; it isn't
-// implemented.
-export const MCP_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
-const MCP_UNSUPPORTED_VERSION = -32022;
-const META_VERSION = 'io.modelcontextprotocol/protocolVersion';
-
-const SERVER_INFO = { name: 'icaro-engine', version: '0.1.0' };
+export const SERVER_INFO = { name: 'icaro-engine', version: '0.2.0' };
 
 // Virtual clock origin, seconds (any constant works; it only has to be the
 // same on every seeded start)
 const CLOCK_BASE = 1;
+
+// Highest goto max_tics: GOTO_MAX_TICS in src/agent.js. The engine loads on
+// the first call, so it can't be read here; tests/agent_goto_test.js checks
+// that the two agree.
+const GOTO_MAX_TICS = 8640;
+const GOTO_DEFAULT_TICS = 72 * 30;
 
 const INSTRUCTIONS = `Plays Quake (id1 shareware episode 1) headless. The game is frozen between calls and advances only in start, step and goto (72 tics = 1 s of game time).
 Start with start {map: "e1m1", skill: 1}. Each result is an observation:
@@ -66,106 +68,50 @@ cmd runs console commands (god, give, map e1m2, ...). key and menu drive the men
 
 const BUTTONS_DESC = 'Buttons held for the step, comma separated: forward back moveleft moveright left right lookup lookdown jump attack speed up down strafe use';
 
-export const MCP_TOOLS = [
-	{
-		name: 'start',
-		description: 'Starts a new single-player game and returns the first observation. A seed makes the run reproducible.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				map: { type: 'string', description: 'Map name, e.g. e1m1 (default) or start', pattern: '^[A-Za-z0-9_]+$' },
-				skill: { type: 'integer', minimum: 0, maximum: 3, description: '0 easy, 1 normal (default), 2 hard, 3 nightmare' },
-				seed: { type: 'integer', description: 'Seeds the gameplay randomness and the clock. Omit for an unseeded game' },
-			},
-			additionalProperties: false,
-		},
-		annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
-	},
-	{
-		name: 'step',
-		description: 'Holds buttons and turns for a number of tics (1/72 s each), then returns the observation.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				buttons: { type: 'string', description: BUTTONS_DESC },
-				yaw: { type: 'number', description: 'Turn by this many degrees first; + turns left' },
-				pitch: { type: 'number', description: 'Look by this many degrees first; + looks down' },
-				face: { type: 'number', description: 'Face this absolute yaw first' },
-				impulse: { type: 'integer', minimum: 1, maximum: 255, description: '1-8 select a weapon (1 axe, 2 shotgun, ...)' },
-				tics: { type: 'integer', minimum: 0, maximum: 4320, description: 'Tics to run (default 1; 72 = 1 s)' },
-				hold: { type: 'boolean', description: 'Keep the buttons held after the step' },
-				ents: { type: 'integer', minimum: 0, maximum: 64, description: 'Entities to list (default 10)' },
-			},
-			additionalProperties: false,
-		},
-		annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
-	},
-	{
-		name: 'goto',
-		description: 'Walks to an entity (#id from the observation) or a point along the level\'s walk graph, then returns the observation. The first line says how it ended: arrived, blocked (and by what), took damage, died, level changed, no path, or timeout.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				id: { type: 'integer', minimum: 1, description: 'Entity number, as #id in the observation' },
-				pos: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3, description: 'A point [x, y, z] instead of an entity' },
-				max_tics: { type: 'integer', minimum: 1, maximum: 8640, description: 'Give up after this many tics (default 2160 = 30 s; at most 8640)' },
-				stop_on_damage: { type: 'boolean', description: 'Stop when hurt (default true)' },
-				ents: { type: 'integer', minimum: 0, maximum: 64, description: 'Entities to list (default 10)' },
-			},
-			additionalProperties: false,
-		},
-		annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
-	},
-	{
-		name: 'observe',
-		description: 'Returns the observation without advancing the game. Events are returned once.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				ents: { type: 'integer', minimum: 0, maximum: 64, description: 'Entities to list (default 10)' },
-				truth: { type: 'boolean', description: 'Add server-side facts (monster hp, doors, exits). Default true' },
-			},
-			additionalProperties: false,
-		},
-		annotations: { readOnlyHint: true, openWorldHint: false },
-	},
-	{
-		name: 'cmd',
-		description: 'Runs Quake console text (e.g. "god", "give s 50", "map e1m2") and returns what it printed. In a game it runs one tic.',
-		inputSchema: {
-			type: 'object',
-			properties: { text: { type: 'string' } },
-			required: ['text'],
-			additionalProperties: false,
-		},
-		annotations: { destructiveHint: false, openWorldHint: false },
-	},
-	{
-		name: 'key',
-		description: 'Presses a key for the menus or console: one character, or enter escape up down left right tab backspace space ` ~',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				name: { type: 'string' },
-				count: { type: 'integer', minimum: 1, maximum: 64, description: 'Presses (default 1)' },
-			},
-			required: ['name'],
-			additionalProperties: false,
-		},
-		annotations: { destructiveHint: false, openWorldHint: false },
-	},
-	{
-		name: 'menu',
-		description: 'Selects the open menu row whose label contains the text (main, single player and multiplayer menus).',
-		inputSchema: {
-			type: 'object',
-			properties: { label: { type: 'string' } },
-			required: ['label'],
-			additionalProperties: false,
-		},
-		annotations: { destructiveHint: false, openWorldHint: false },
-	},
-];
+// Out-of-range values are errors, not clamped, so a logged call replays as
+// it was written
+const int = (min: number, max: number) => z.number().int().min(min).max(max);
+const ents = int(0, 64).optional().describe('Entities to list (default 10)');
+
+// Tool argument schemas. Strict: an unknown argument is an error.
+const START_ARGS = z.strictObject({
+	map: z.string().regex(/^[A-Za-z0-9_]+$/).optional().describe('Map name, e.g. e1m1 (default) or start'),
+	skill: int(0, 3).optional().describe('0 easy, 1 normal (default), 2 hard, 3 nightmare'),
+	seed: z.number().int().optional().describe('Seeds the gameplay randomness and the clock. Omit for an unseeded game'),
+});
+
+const STEP_ARGS = z.strictObject({
+	buttons: z.string().optional().describe(BUTTONS_DESC),
+	yaw: z.number().optional().describe('Turn by this many degrees first; + turns left'),
+	pitch: z.number().optional().describe('Look by this many degrees first; + looks down'),
+	face: z.number().optional().describe('Face this absolute yaw first'),
+	impulse: int(1, 255).optional().describe('1-8 select a weapon (1 axe, 2 shotgun, ...)'),
+	tics: int(0, 72 * 60).optional().describe('Tics to run (default 1; 72 = 1 s)'),
+	hold: z.boolean().optional().describe('Keep the buttons held after the step'),
+	ents,
+});
+
+const GOTO_ARGS = z.strictObject({
+	id: int(1, 65535).optional().describe('Entity number, as #id in the observation'),
+	pos: z.array(z.number()).length(3).optional().describe('A point [x, y, z] instead of an entity'),
+	max_tics: int(1, GOTO_MAX_TICS).optional().describe('Give up after this many tics (default ' + GOTO_DEFAULT_TICS + ' = 30 s; at most ' + GOTO_MAX_TICS + ')'),
+	stop_on_damage: z.boolean().optional().describe('Stop when hurt (default true)'),
+	ents,
+});
+
+const OBSERVE_ARGS = z.strictObject({
+	ents,
+	truth: z.boolean().optional().describe('Add server-side facts (monster hp, doors, exits). Default true'),
+});
+
+const CMD_ARGS = z.strictObject({ text: z.string() });
+
+const KEY_ARGS = z.strictObject({
+	name: z.string(),
+	count: int(1, 64).optional().describe('Presses (default 1)'),
+});
+
+const MENU_ARGS = z.strictObject({ label: z.string() });
 
 /*
 ==============================================================================
@@ -206,31 +152,6 @@ function footer(e: Engine): string {
 	return 'tic=' + (e.agent.Agent_Tics() - game_origin) + (hash !== '' ? ' hash=' + hash : '');
 }
 
-// Out-of-range values are errors, not clamped, so a logged call replays as
-// it was written
-function opt_int(args: Record<string, unknown>, name: string, def: number, min: number, max: number): number {
-	const v = args[name];
-	if (v === undefined) return def;
-	if (typeof v !== 'number' || Number.isInteger(v) !== true || v < min || v > max) {
-		throw new Error(name + ' must be an integer from ' + min + ' to ' + max);
-	}
-	return v;
-}
-
-function opt_num(args: Record<string, unknown>, name: string): number | undefined {
-	const v = args[name];
-	if (v === undefined) return undefined;
-	if (typeof v !== 'number' || Number.isFinite(v) !== true) throw new Error(name + ' must be a number');
-	return v;
-}
-
-function opt_str(args: Record<string, unknown>, name: string, def: string | null): string {
-	const v = args[name];
-	if (v === undefined && def !== null) return def;
-	if (typeof v !== 'string') throw new Error(name + ' must be a string');
-	return v;
-}
-
 /*
 ==================
 agent_mcp_start
@@ -240,19 +161,15 @@ everything after it draw from the seeded generator and the virtual clock.
 Without a seed, both go back to the engine's defaults.
 ==================
 */
-async function agent_mcp_start(e: Engine, args: Record<string, unknown>): Promise<string> {
-	const map = opt_str(args, 'map', 'e1m1');
-	const skill = opt_int(args, 'skill', 1, 0, 3);
-	const seed = args.seed;
-	if (seed !== undefined && (typeof seed !== 'number' || Number.isInteger(seed) !== true)) throw new Error('seed must be an integer');
+async function agent_mcp_start(e: Engine, args: z.infer<typeof START_ARGS>): Promise<string> {
+	const map = args.map ?? 'e1m1';
 	// Check the map before ending the running game
-	if (/^[A-Za-z0-9_]+$/.test(map) !== true) throw new Error('bad map name ' + JSON.stringify(map));
 	if (await e.pak.COM_EnsureFile('maps/' + map + '.bsp') !== true) throw new Error('no map "' + map + '"');
 
 	e.cmd.Cmd_ExecuteString('disconnect', e.cmd.src_command);
 	game_origin = e.agent.Agent_Tics();
-	if (seed !== undefined) {
-		e.sys.Sys_SetRandomSeed(seed);
+	if (args.seed !== undefined) {
+		e.sys.Sys_SetRandomSeed(args.seed);
 		const origin = game_origin;
 		e.sys.Sys_SetClockOverride(() => CLOCK_BASE + (e.agent.Agent_Tics() - origin) * e.agent.AGENT_TIC);
 	} else {
@@ -260,186 +177,139 @@ async function agent_mcp_start(e: Engine, args: Record<string, unknown>): Promis
 		e.sys.Sys_SetClockOverride(null);
 	}
 
-	return await e.agent.Agent_NewGame(map, skill);
-}
-
-async function agent_mcp_call(name: string, args: Record<string, unknown>): Promise<string> {
-	const e = await agent_mcp_engine();
-	let text: string;
-	switch (name) {
-		case 'start':
-			text = await agent_mcp_start(e, args);
-			break;
-		case 'step': {
-			const action: Record<string, unknown> = {};
-			if (args.buttons !== undefined) action.buttons = opt_str(args, 'buttons', null);
-			for (const k of ['yaw', 'pitch', 'face']) {
-				const v = opt_num(args, k);
-				if (v !== undefined) action[k] = v;
-			}
-			if (args.impulse !== undefined) action.impulse = opt_int(args, 'impulse', 0, 1, 255);
-			if (args.hold !== undefined) action.hold = args.hold === true;
-			const tics = opt_int(args, 'tics', 1, 0, 72 * 60);
-			text = await e.agent.Agent_Step(action, tics, { ents: opt_int(args, 'ents', 10, 0, 64) });
-			break;
-		}
-		case 'goto': {
-			if ((args.id === undefined) === (args.pos === undefined)) throw new Error('goto takes id or pos (one of them)');
-			let target: number | number[];
-			if (args.id !== undefined) {
-				target = opt_int(args, 'id', 0, 1, 65535);
-			} else {
-				const p = args.pos;
-				if (!Array.isArray(p) || p.length !== 3 || !p.every((v) => typeof v === 'number' && Number.isFinite(v))) {
-					throw new Error('pos must be [x, y, z]');
-				}
-				target = p as number[];
-			}
-			text = await e.agent.Agent_Goto(target, {
-				max_tics: opt_int(args, 'max_tics', e.agent.GOTO_DEFAULT_TICS, 1, e.agent.GOTO_MAX_TICS),
-				stop_on_damage: args.stop_on_damage !== false,
-				ents: opt_int(args, 'ents', 10, 0, 64),
-			});
-			break;
-		}
-		case 'observe':
-			text = e.agent.Agent_Observe({ ents: opt_int(args, 'ents', 10, 0, 64), truth: args.truth !== false });
-			break;
-		case 'cmd': {
-			const out = await e.agent.Agent_Command(opt_str(args, 'text', null));
-			text = out !== '' ? out : '(no output)';
-			break;
-		}
-		case 'key':
-			text = e.agent.Agent_Key(opt_str(args, 'name', null), opt_int(args, 'count', 1, 1, 64));
-			break;
-		case 'menu':
-			text = e.agent.Agent_MenuSelect(opt_str(args, 'label', null));
-			break;
-		default:
-			throw new Error('unknown tool ' + name);
-	}
-	return mcp_text(text) + '\n' + footer(e);
+	return await e.agent.Agent_NewGame(map, args.skill ?? 1);
 }
 
 /*
 ==============================================================================
 
-	JSON-RPC
+	TOOLS
 
 ==============================================================================
 */
-
-function rpc_result(id: JsonRpcId, result: unknown) {
-	return { jsonrpc: '2.0', id, result };
-}
-
-function rpc_error(id: JsonRpcId, code: number, message: string, data?: unknown) {
-	return { jsonrpc: '2.0', id, error: data !== undefined ? { code, message, data } : { code, message } };
-}
 
 // Calls run one at a time, in arrival order
 let call_queue: Promise<unknown> = Promise.resolve();
 
-/*
-==================
-agent_mcp_handle
-
-Handles one JSON-RPC message and resolves with the response, or null for a
-notification. Tool failures come back as results with isError, as MCP asks.
-==================
-*/
-export function agent_mcp_handle(msg: unknown): Promise<unknown> {
-	const run = call_queue.then(() => handle_now(msg));
-	call_queue = run.catch(() => {});
-	return run;
-}
-
-async function handle_now(raw: unknown): Promise<unknown> {
-	if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-		return rpc_error(null, -32600, 'Invalid Request: expected one JSON-RPC object per line');
-	}
-	const msg = raw as JsonRpcMessage;
-	const id = msg.id !== undefined ? msg.id : null;
-	const is_request = msg.id !== undefined && msg.id !== null;
-	if (msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') {
-		// A response, or junk: nothing to reply to unless it has an id
-		return is_request ? rpc_error(id, -32600, 'Invalid Request') : null;
-	}
-	if (is_request === false) return null; // notifications (initialized, cancelled)
-
-	const params = msg.params !== undefined && msg.params !== null && typeof msg.params === 'object' ? msg.params : {};
-	const meta = params._meta as Record<string, unknown> | undefined;
-	const requested = meta !== undefined && meta !== null ? meta[META_VERSION] : undefined;
-	if (typeof requested === 'string' && MCP_VERSIONS.includes(requested) === false) {
-		return rpc_error(id, MCP_UNSUPPORTED_VERSION, 'Unsupported protocol version', { supported: MCP_VERSIONS, requested });
-	}
-
-	switch (msg.method) {
-		case 'initialize': {
-			const want = params.protocolVersion;
-			const version = typeof want === 'string' && MCP_VERSIONS.includes(want) ? want : MCP_VERSIONS[0];
-			return rpc_result(id, {
-				protocolVersion: version,
-				capabilities: { tools: { listChanged: false } },
-				serverInfo: SERVER_INFO,
-				instructions: INSTRUCTIONS,
-			});
-		}
-		case 'ping':
-			return rpc_result(id, {});
-		case 'tools/list':
-			return rpc_result(id, { tools: MCP_TOOLS });
-		case 'tools/call': {
-			const name = params.name;
-			if (typeof name !== 'string' || MCP_TOOLS.some((t) => t.name === name) === false) {
-				return rpc_error(id, -32602, 'Unknown tool: ' + String(name));
-			}
-			const args = params.arguments !== undefined && params.arguments !== null && typeof params.arguments === 'object'
-				? params.arguments as Record<string, unknown>
-				: {};
+// Wraps a tool body: queues it, loads the engine, and adds the footer
+function tool<A>(body: (e: Engine, args: A) => Promise<string> | string) {
+	return (args: A) => {
+		const run = call_queue.then(async () => {
 			try {
-				const text = await agent_mcp_call(name, args);
-				return rpc_result(id, { content: [{ type: 'text', text }], isError: false });
+				const e = await agent_mcp_engine();
+				const text = await body(e, args);
+				return { content: [{ type: 'text' as const, text: mcp_text(text) + '\n' + footer(e) }] };
 			} catch (err) {
 				const text = 'error: ' + (err instanceof Error ? err.message : String(err));
-				return rpc_result(id, { content: [{ type: 'text', text }], isError: true });
+				return { content: [{ type: 'text' as const, text }], isError: true };
 			}
+		});
+		call_queue = run.catch(() => {});
+		return run;
+	};
+}
+
+// Resolves once every queued call has finished and its reply has had a turn
+// to be written
+export async function agent_mcp_drain(): Promise<void> {
+	let q;
+	do {
+		q = call_queue;
+		await q;
+		await new Promise((r) => setTimeout(r, 0));
+	} while (q !== call_queue);
+}
+
+const LOCAL = { destructiveHint: false, openWorldHint: false };
+
+/*
+==================
+agent_mcp_server
+
+Builds the server with the tools. serveStdio calls it once per connection.
+==================
+*/
+export function agent_mcp_server(): McpServer {
+	const server = new McpServer(SERVER_INFO, { instructions: INSTRUCTIONS });
+
+	server.registerTool('start', {
+		description: 'Starts a new single-player game and returns the first observation. A seed makes the run reproducible.',
+		inputSchema: START_ARGS,
+		annotations: { ...LOCAL, idempotentHint: false },
+	}, tool(agent_mcp_start));
+
+	server.registerTool('step', {
+		description: 'Holds buttons and turns for a number of tics (1/72 s each), then returns the observation.',
+		inputSchema: STEP_ARGS,
+		annotations: { ...LOCAL, idempotentHint: false },
+	}, tool((e, args: z.infer<typeof STEP_ARGS>) => {
+		const action: Record<string, unknown> = {};
+		for (const k of ['buttons', 'yaw', 'pitch', 'face', 'impulse', 'hold'] as const) {
+			if (args[k] !== undefined) action[k] = args[k];
 		}
-		default:
-			return rpc_error(id, -32601, 'Method not found: ' + msg.method);
-	}
+		return e.agent.Agent_Step(action, args.tics ?? 1, { ents: args.ents ?? 10 });
+	}));
+
+	server.registerTool('goto', {
+		description: 'Walks to an entity (#id from the observation) or a point along the level\'s walk graph, then returns the observation. The first line says how it ended: arrived, blocked (and by what), took damage, died, level changed, no path, or timeout.',
+		inputSchema: GOTO_ARGS,
+		annotations: { ...LOCAL, idempotentHint: false },
+	}, tool((e, args: z.infer<typeof GOTO_ARGS>) => {
+		if ((args.id === undefined) === (args.pos === undefined)) throw new Error('goto takes id or pos (one of them)');
+		return e.agent.Agent_Goto(args.id ?? args.pos, {
+			max_tics: args.max_tics ?? GOTO_DEFAULT_TICS,
+			stop_on_damage: args.stop_on_damage !== false,
+			ents: args.ents ?? 10,
+		});
+	}));
+
+	server.registerTool('observe', {
+		description: 'Returns the observation without advancing the game. Events are returned once.',
+		inputSchema: OBSERVE_ARGS,
+		annotations: { readOnlyHint: true, openWorldHint: false },
+	}, tool((e, args: z.infer<typeof OBSERVE_ARGS>) => e.agent.Agent_Observe({ ents: args.ents ?? 10, truth: args.truth !== false })));
+
+	server.registerTool('cmd', {
+		description: 'Runs Quake console text (e.g. "god", "give s 50", "map e1m2") and returns what it printed. In a game it runs one tic.',
+		inputSchema: CMD_ARGS,
+		annotations: LOCAL,
+	}, tool(async (e, args: z.infer<typeof CMD_ARGS>) => {
+		const out = await e.agent.Agent_Command(args.text);
+		return out !== '' ? out : '(no output)';
+	}));
+
+	server.registerTool('key', {
+		description: 'Presses a key for the menus or console: one character, or enter escape up down left right tab backspace space ` ~',
+		inputSchema: KEY_ARGS,
+		annotations: LOCAL,
+	}, tool((e, args: z.infer<typeof KEY_ARGS>) => e.agent.Agent_Key(args.name, args.count ?? 1)));
+
+	server.registerTool('menu', {
+		description: 'Selects the open menu row whose label contains the text (main, single player and multiplayer menus).',
+		inputSchema: MENU_ARGS,
+		annotations: LOCAL,
+	}, tool((e, args: z.infer<typeof MENU_ARGS>) => e.agent.Agent_MenuSelect(args.label)));
+
+	return server;
 }
 
 /*
 ==================
 agent_mcp_serve
 
-Reads newline-delimited JSON-RPC from input and writes each response as one
-line through write. Resolves when input ends.
+Serves MCP over a pair of streams (the process's stdin and stdout, or a
+test's), one JSON-RPC message per line.
 ==================
 */
-export async function agent_mcp_serve(input: ReadableStream<Uint8Array>, write: (line: string) => Promise<void>) {
-	let buf = '';
-	const lines = input.pipeThrough(new TextDecoderStream());
-	for await (const chunk of lines) {
-		buf += chunk;
-		let nl;
-		while ((nl = buf.indexOf('\n')) >= 0) {
-			const line = buf.slice(0, nl).trim();
-			buf = buf.slice(nl + 1);
-			if (line === '') continue;
-			let msg: unknown;
-			try {
-				msg = JSON.parse(line);
-			} catch {
-				await write(JSON.stringify(rpc_error(null, -32700, 'Parse error')));
-				continue;
-			}
-			const reply = await agent_mcp_handle(msg);
-			if (reply !== null) await write(JSON.stringify(reply));
-		}
-	}
+export function agent_mcp_serve(input: Readable, output: Writable, onclose?: () => void): StdioServerHandle {
+	return serveStdio(() => {
+		const server = agent_mcp_server();
+		if (onclose !== undefined) server.server.onclose = onclose;
+		return server;
+	}, {
+		transport: new StdioServerTransport(input, output),
+		onerror: (err: Error) => console.error('agent_mcp: ' + err.message),
+	});
 }
 
 if (import.meta.main) {
@@ -447,9 +317,19 @@ if (import.meta.main) {
 	console.log = console.error;
 	console.info = console.error;
 	console.debug = console.error;
-	const encoder = new TextEncoder();
-	const out = Deno.stdout.writable.getWriter();
-	await agent_mcp_serve(Deno.stdin.readable, (line) => out.write(encoder.encode(line + '\n')));
-	// agent.js's MessageChannel keeps the event loop alive
-	Deno.exit(0);
+	const process = (await import('node:process')).default;
+	const { PassThrough } = await import('node:stream');
+	// At end of input the SDK closes the connection and drops replies still
+	// owed, so input ends here only after the queued calls have answered
+	// (a client may pipe a script of calls and close stdin).
+	const input = new PassThrough();
+	process.stdin.pipe(input, { end: false });
+	process.stdin.on('end', () => {
+		agent_mcp_drain().then(() => input.end());
+	});
+	// agent.js's MessageChannel keeps the event loop alive: exit once the
+	// connection is closed and stdout has flushed
+	agent_mcp_serve(input, process.stdout, () => {
+		process.stdout.write('', () => Deno.exit(0));
+	});
 }

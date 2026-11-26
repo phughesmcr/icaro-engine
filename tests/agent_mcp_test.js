@@ -1,9 +1,11 @@
-// server/agent_mcp.ts: the MCP server over the headless host. Checks the
-// JSON-RPC handling, and that a seeded game replayed from an action log ends
-// in the same state (Agent_StateHash), even against the process's first game.
+// server/agent_mcp.ts: the MCP server over the headless host, through the
+// official SDK's stdio entry (tests/agent_mcp_client.js). Checks both
+// protocol eras, the tool schemas, that calls run one at a time, and that a
+// seeded game replayed from an action log ends in the same state
+// (Agent_StateHash), even against the process's first game.
 
 import { Sys_FloatTime, Sys_Random } from '../src/sys.js';
-import { agent_mcp_handle, agent_mcp_serve, MCP_TOOLS, MCP_VERSIONS } from '../server/agent_mcp.ts';
+import { mcp_connect, mcp_session, MODERN_META, MODERN_VERSION } from './agent_mcp_client.js';
 
 function assert( cond, message ) {
 
@@ -12,18 +14,27 @@ function assert( cond, message ) {
 
 }
 
+const TOOL_NAMES = [ 'start', 'step', 'goto', 'observe', 'cmd', 'key', 'menu' ];
+
 // agent.js keeps a MessageChannel open for its yields, and the host runs
 // once per process, so the engine tests share it and skip the sanitizers
 const ENGINE_TEST = { sanitizeResources: false, sanitizeOps: false };
 
-let next_id = 1;
+// One connection for the engine tests, opened on first use
+let session = null;
 async function call( name, args = {} ) {
 
-	const reply = await agent_mcp_handle( { jsonrpc: '2.0', id: next_id ++, method: 'tools/call', params: { name, arguments: args } } );
-	assert( reply.result !== undefined, name + ': ' + JSON.stringify( reply ) );
-	const text = reply.result.content[ 0 ].text;
-	assert( reply.result.isError === false, name + ' failed: ' + text );
-	return text;
+	if ( session === null )
+		session = await mcp_session();
+	return await session.call( name, args );
+
+}
+
+async function raw( name, args ) {
+
+	if ( session === null )
+		session = await mcp_session();
+	return await session.raw( name, args );
 
 }
 
@@ -37,75 +48,129 @@ function footer( text ) {
 
 Deno.test( 'agent_mcp: initialize negotiates the protocol version', async () => {
 
-	const r = await agent_mcp_handle( { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } } } );
-	assert( r.result.protocolVersion === '2025-06-18', 'a supported version is echoed: ' + JSON.stringify( r ) );
-	assert( r.result.capabilities.tools !== undefined, 'tools capability' );
-	assert( typeof r.result.instructions === 'string' && r.result.instructions.length > 0, 'instructions' );
+	const c = mcp_connect();
+	try {
 
-	const old = await agent_mcp_handle( { jsonrpc: '2.0', id: 2, method: 'initialize', params: { protocolVersion: '2000-01-01' } } );
-	assert( old.result.protocolVersion === MCP_VERSIONS[ 0 ], 'an unknown version gets the newest supported one' );
+		const r = await c.request( 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } } );
+		assert( r.result.protocolVersion === '2025-06-18', 'a supported version is echoed: ' + JSON.stringify( r ) );
+		assert( r.result.capabilities.tools !== undefined, 'tools capability' );
+		assert( r.result.serverInfo.name === 'icaro-engine', 'server info' );
+		assert( typeof r.result.instructions === 'string' && r.result.instructions.includes( 'goto' ), 'instructions' );
 
-	const modern = await agent_mcp_handle( { jsonrpc: '2.0', id: 3, method: 'server/discover', params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28' } } } );
-	assert( modern.error !== undefined && modern.error.code === - 32022, 'unsupported version error: ' + JSON.stringify( modern ) );
-	assert( JSON.stringify( modern.error.data.supported ) === JSON.stringify( MCP_VERSIONS ), 'the error lists the supported versions' );
+		const old = await c.request( 'initialize', { protocolVersion: '2000-01-01', capabilities: {}, clientInfo: { name: 't', version: '1' } } );
+		assert( /^2025-/.test( old.result.protocolVersion ), 'an unknown version gets a supported one: ' + JSON.stringify( old ) );
+
+	} finally {
+
+		await c.close();
+
+	}
+
+} );
+
+Deno.test( 'agent_mcp: serves 2026-07-28 clients from the same tools', async () => {
+
+	const c = mcp_connect();
+	try {
+
+		const newer = await c.request( 'server/discover', { _meta: { ...MODERN_META, 'io.modelcontextprotocol/protocolVersion': '2099-01-01' } } );
+		assert( newer.error !== undefined && newer.error.code === - 32022, 'unsupported version error: ' + JSON.stringify( newer ) );
+		assert( newer.error.data.supported.includes( MODERN_VERSION ), 'the error lists the supported versions' );
+
+		const d = await c.request( 'server/discover', { _meta: MODERN_META } );
+		assert( d.result !== undefined && d.result.supportedVersions.includes( MODERN_VERSION ), 'discover: ' + JSON.stringify( d ) );
+		assert( d.result.instructions.includes( 'goto' ), 'instructions' );
+		const list = await c.request( 'tools/list', { _meta: MODERN_META } );
+		const names = list.result.tools.map( ( t ) => t.name );
+		assert( JSON.stringify( names ) === JSON.stringify( TOOL_NAMES ), 'tools: ' + names );
+		// Checked against the schema before the engine is touched
+		const bad = await c.request( 'tools/call', { name: 'step', arguments: { tics: - 1 }, _meta: MODERN_META } );
+		assert( bad.result.isError === true, 'bad argument: ' + JSON.stringify( bad ) );
+
+	} finally {
+
+		await c.close();
+
+	}
 
 } );
 
 Deno.test( 'agent_mcp: lists tools, ignores notifications, rejects unknown methods', async () => {
 
-	const list = await agent_mcp_handle( { jsonrpc: '2.0', id: 'a', method: 'tools/list' } );
-	assert( list.id === 'a', 'string ids are echoed' );
-	const names = list.result.tools.map( ( t ) => t.name );
-	assert( JSON.stringify( names ) === JSON.stringify( MCP_TOOLS.map( ( t ) => t.name ) ), 'tools: ' + names );
-	for ( const t of list.result.tools )
-		assert( t.inputSchema.type === 'object' && typeof t.description === 'string', t.name + ' schema' );
+	const c = mcp_connect();
+	try {
 
-	assert( await agent_mcp_handle( { jsonrpc: '2.0', method: 'notifications/initialized' } ) === null, 'no reply to a notification' );
-	const ping = await agent_mcp_handle( { jsonrpc: '2.0', id: 4, method: 'ping' } );
-	assert( JSON.stringify( ping.result ) === '{}', 'ping' );
-	const bad = await agent_mcp_handle( { jsonrpc: '2.0', id: 5, method: 'resources/list' } );
-	assert( bad.error.code === - 32601, 'method not found' );
-	const unknown = await agent_mcp_handle( { jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'fly' } } );
-	assert( unknown.error.code === - 32602, 'unknown tool' );
-	const batch = await agent_mcp_handle( [ { jsonrpc: '2.0', id: 7, method: 'ping' } ] );
-	assert( batch.error.code === - 32600, 'batches are rejected' );
+		const list = await c.request( 'tools/list', {}, 'a' );
+		assert( list.id === 'a', 'string ids are echoed' );
+		const names = list.result.tools.map( ( t ) => t.name );
+		assert( JSON.stringify( names ) === JSON.stringify( TOOL_NAMES ), 'tools: ' + names );
+		for ( const t of list.result.tools ) {
+
+			assert( t.inputSchema.type === 'object' && typeof t.description === 'string', t.name + ' schema' );
+			assert( t.inputSchema.additionalProperties === false, t.name + ' takes unknown arguments' );
+
+		}
+
+		const go = list.result.tools.find( ( t ) => t.name === 'goto' ).inputSchema.properties;
+		assert( go.pos.type === 'array' && go.pos.minItems === 3 && go.pos.maxItems === 3, 'goto pos: ' + JSON.stringify( go.pos ) );
+		assert( list.result.tools.find( ( t ) => t.name === 'observe' ).annotations.readOnlyHint === true, 'observe is read-only' );
+
+		c.notify( 'notifications/initialized' );
+		const ping = await c.request( 'ping', {} );
+		assert( JSON.stringify( ping.result ) === '{}', 'ping' );
+		const bad = await c.request( 'resources/list', {} );
+		assert( bad.error.code === - 32601, 'method not found' );
+		const unknown = await c.request( 'tools/call', { name: 'fly' } );
+		assert( unknown.error !== undefined || unknown.result.isError === true, 'unknown tool: ' + JSON.stringify( unknown ) );
+		const extra = await c.request( 'tools/call', { name: 'cmd', arguments: { text: 'echo', loud: true } } );
+		assert( extra.result.isError === true, 'an unknown argument is an error' );
+		assert( c.unmatched.length === 0, 'replies without a request: ' + JSON.stringify( c.unmatched ) );
+
+	} finally {
+
+		await c.close();
+
+	}
 
 } );
 
 Deno.test( 'agent_mcp: stdio framing, one JSON reply per line', async () => {
 
-	const input = [
-		'{"jsonrpc":"2.0","id":1,"method":"ping"}',
-		'',
-		'not json',
-		'{"jsonrpc":"2.0","method":"notifications/initialized"}',
-		'{"jsonrpc":"2.0","id":2,"method":"tools/list"}',
-	].join( '\n' ) + '\n';
-	const bytes = new TextEncoder().encode( input );
-	// Split mid-line, as a pipe may
-	const stream = new ReadableStream( {
-		start( c ) {
+	const c = mcp_connect();
+	try {
 
-			c.enqueue( bytes.slice( 0, 17 ) );
-			c.enqueue( bytes.slice( 17 ) );
-			c.close();
+		// Junk lines get no reply and don't end the connection
+		c.write( 'not json\n\n' );
+		// A message split mid-line, as a pipe may
+		const msg = '{"jsonrpc":"2.0","id":41,"method":"ping"}\n';
+		const reply = c.request( 'ping', {}, 42 );
+		c.write( msg.slice( 0, 17 ) );
+		await new Promise( ( r ) => setTimeout( r, 10 ) );
+		c.write( msg.slice( 17 ) );
+		assert( ( await reply ).result !== undefined, 'ping 42' );
+		await new Promise( ( r ) => setTimeout( r, 10 ) );
+		assert( c.unmatched.length === 1 && c.unmatched[ 0 ].id === 41 && c.unmatched[ 0 ].result !== undefined, 'split ping: ' + JSON.stringify( c.unmatched ) );
 
-		}
-	} );
-	const out = [];
-	await agent_mcp_serve( stream, ( line ) => {
+	} finally {
 
-		out.push( line );
-		return Promise.resolve();
+		await c.close();
 
-	} );
-	assert( out.length === 3, 'replies: ' + out.length );
-	const parsed = out.map( ( l ) => JSON.parse( l ) );
-	assert( parsed[ 0 ].id === 1 && parsed[ 0 ].result !== undefined, 'ping reply' );
-	assert( parsed[ 1 ].error.code === - 32700 && parsed[ 1 ].id === null, 'parse error' );
-	assert( parsed[ 2 ].id === 2 && Array.isArray( parsed[ 2 ].result.tools ), 'tools/list reply' );
+	}
 
 } );
+
+Deno.test( { name: 'agent_mcp: calls run one at a time, in order', ...ENGINE_TEST, fn: async () => {
+
+	await call( 'start', { map: 'e1m1', skill: 1 } );
+	await call( 'step', { tics: 50, ents: 0 } );
+	// Sent together: observe must wait for the new game. start does work
+	// outside src/agent.js's own queue (the map check, the disconnect).
+	const [ started, seen ] = await Promise.all( [ call( 'start', { map: 'e1m1', skill: 1 } ), call( 'observe', { ents: 0 } ) ] );
+	assert( footer( seen ).tic === footer( started ).tic, 'observe ran during start: ' + footer( started ).tic + ' vs ' + footer( seen ).tic );
+	const [ stepped, after ] = await Promise.all( [ call( 'step', { tics: 30, ents: 0 } ), call( 'observe', { ents: 0 } ) ] );
+	assert( footer( after ).tic === footer( stepped ).tic, 'observe ran during the step' );
+
+} } );
 
 Deno.test( { name: 'agent_mcp: bad tool arguments come back as tool errors', ...ENGINE_TEST, fn: async () => {
 
@@ -115,8 +180,8 @@ Deno.test( { name: 'agent_mcp: bad tool arguments come back as tool errors', ...
 	];
 	for ( const [ name, args ] of bad ) {
 
-		const r = await agent_mcp_handle( { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name, arguments: args } } );
-		assert( r.result !== undefined && r.result.isError === true, name + ' ' + JSON.stringify( args ) + ': ' + JSON.stringify( r ) );
+		const r = await raw( name, args );
+		assert( r.isError === true, name + ' ' + JSON.stringify( args ) + ': ' + JSON.stringify( r ) );
 
 	}
 
@@ -126,8 +191,8 @@ Deno.test( { name: 'agent_mcp: a missing map fails at once and keeps the game', 
 
 	const before = footer( await call( 'start', { map: 'e1m1', skill: 1 } ) );
 	const t0 = performance.now();
-	const r = await agent_mcp_handle( { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'start', arguments: { map: 'e1m9x' } } } );
-	assert( r.result.isError === true && r.result.content[ 0 ].text.includes( 'no map' ), JSON.stringify( r ) );
+	const r = await raw( 'start', { map: 'e1m9x' } );
+	assert( r.isError === true && r.content[ 0 ].text.includes( 'no map' ), JSON.stringify( r ) );
 	assert( performance.now() - t0 < 1000, 'took ' + Math.round( performance.now() - t0 ) + ' ms' );
 	const after = await call( 'observe', { ents: 0 } );
 	assert( after.startsWith( 'e1m1 ' ), 'the game ended: ' + after );

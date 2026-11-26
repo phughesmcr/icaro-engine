@@ -33,11 +33,15 @@ process per room. It was forked from mrdoob's three-quake.
   `server/README.md`); all three are pure, so the Cloudflare lobby imports
   them too. Under Deno, `three` maps to `server/browser_shim.js` (root
   `deno.json`). If `src/` starts using a new Three.js export, add it to the
-  shim or the server and tests break. `server/headless_host.js` runs the
+  shim or the server and tests break. `server/deno.json` repeats the root
+  import map for scripts run from `server/` and editors; keep the two in
+  step. The only npm packages are the MCP SDK and zod, for
+  `server/agent_mcp.ts`, pinned in the root `deno.lock`; the engine,
+  servers and room image import none. `server/headless_host.js` runs the
   whole game (host, local server and a loopback client) under Deno with no
   browser or rendering, for scripted play; its header says how to wait for
-  a level to load. `server/agent_mcp.ts` is an MCP server (stdio) on top
-  of it that exposes `src/agent.js` as tools, so MCP clients can play
+  a level to load. `server/agent_mcp.ts` is an MCP server (stdio, on the
+  official MCP TypeScript SDK) on top of it that exposes `src/agent.js` as tools, so MCP clients can play
   headless (`deno task agent-mcp`; its header gives the `claude mcp add`
   line). `server/Dockerfile` builds the
   game-room image from an allowlist (`deno.json`, `server/`, `src/`,
