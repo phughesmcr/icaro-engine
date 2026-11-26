@@ -45,13 +45,13 @@ Deno.test("the game options menu offers the registered episodes only when regist
     common.registered.value = 0;
     assertEqual(
       menu.M_NumEpisodes(),
-      3,
-      "shareware: Welcome, Doomed Dimension, Deathmatch Arena",
+      2,
+      "shareware: Welcome, Doomed Dimension",
     );
     common.registered.value = 1;
     assertEqual(
       menu.M_NumEpisodes(),
-      8,
+      7,
       "registered adds E2-E4, the end and the id1 DM maps",
     );
   } finally {

@@ -5,7 +5,7 @@
 
 export const MAX_PLAYERS_LIMIT = 16; // MAX_SCOREBOARD in quakedef.h
 export const DEFAULT_MAX_PLAYERS = 4;
-export const DEFAULT_MAP = "rapture1";
+export const DEFAULT_MAP = "start";
 export const DEFAULT_HOST_NAME = "Player";
 export const MAX_HOST_NAME_BYTES = 32;
 export const MAX_MAP_NAME_LENGTH = 32;

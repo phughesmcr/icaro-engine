@@ -64,7 +64,7 @@ const CLIENTS = Number(arg("-clients", "8"));
 const FRAMES = Number(arg("-frames", "300"));
 const RUNS = Number(arg("-runs", "5"));
 const MTU = Number(arg("-mtu", "1200"));
-const MAPS = arg("-maps", "e1m3,e1m7,dm3,baldm6,edc:coop").split(",");
+const MAPS = arg("-maps", "e1m3,e1m7,dm3,e1m2:coop").split(",");
 const JSON_OUT = args.includes("-json");
 
 const root = decodeURIComponent(
