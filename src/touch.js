@@ -1578,6 +1578,8 @@ const AIM_ASSIST_DEFAULT = 2;
 // The level last written to sv_aim. Starting at the default means a player
 // who never moves the slider keeps sv_aim as the console or a config set it,
 // and a saved level other than the default is applied on the first frame.
+// The Local game page's Autoaim row (menu_cvars.js) writes sv_aim too; the
+// one changed last wins, as with a console sv_aim.
 let aimAssistApplied = AIM_ASSIST_DEFAULT;
 
 /** touch_aimassist's value as a level, rounded and clamped */
