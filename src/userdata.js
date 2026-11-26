@@ -324,9 +324,11 @@ export async function UD_MountPaks() {
  */
 export function UD_KeepDemo(name, data) {
   if (ud_store === null) return;
-  // stored under a name safe to quote, but found now under the recorded one
+  // stored under a name safe to quote (which the panel's Play uses), and
+  // found now under the recorded one too
   const demo = UD_DemoName(name);
   COM_AddVirtualFile(name, data);
+  COM_AddVirtualFile(demo, data);
   ud_store.put(DEMO_PREFIX + demo, new Blob([data])).catch((e) =>
     Con_Printf("Couldn't keep %s: %s\n", demo, e.message)
   );
@@ -484,10 +486,21 @@ function UD_Size(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 
+// While the panel is open, keys aimed anywhere else (focus falls to <body>
+// when a clicked button is rebuilt) go no further than the window: the
+// game's handlers are on document. Escape closes the panel from anywhere.
+function UD_KeyGuard(e) {
+  if (ud_panel === null || ud_panel.contains(e.target)) return;
+  e.stopPropagation();
+  if (e.type === "keydown" && e.key === "Escape") UD_Close();
+}
+
 function UD_Close() {
   if (ud_panel === null) return;
   ud_panel.remove();
   ud_panel = null;
+  window.removeEventListener("keydown", UD_KeyGuard, true);
+  window.removeEventListener("keyup", UD_KeyGuard, true);
 }
 
 // Closes the panel and the menu behind it, for a command that starts play
@@ -628,6 +641,8 @@ export function UD_OpenPanel() {
   panel.setAttribute("role", "dialog");
   panel.setAttribute("aria-label", "Game data");
   ud_panel = panel;
+  window.addEventListener("keydown", UD_KeyGuard, true);
+  window.addEventListener("keyup", UD_KeyGuard, true);
 
   // keep the game's handlers (keys, touch look, pointer lock) out of it
   for (
