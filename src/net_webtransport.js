@@ -12,6 +12,7 @@ import {
 import { Sys_PageURL } from "./sys.js";
 import {
   net_driverlevel,
+  NET_MAXMESSAGE,
   net_message,
   WT_BuildHelloFrame,
   WT_HANDSHAKE_REJECT,
@@ -1557,6 +1558,14 @@ export function WT_QSendMessage(sock, data) {
     Con_Printf("WT_QSendMessage: reliable stream stalled, disconnecting\n");
     conn.connected = false;
     conn.error = new Error("reliable stream stalled");
+    return -1;
+  }
+
+  // A bigger one would not fit the frame's 16-bit length (WT_MAX_FRAME_PAYLOAD)
+  if (data.cursize > NET_MAXMESSAGE) {
+    Con_Printf(
+      "WT_QSendMessage: message too large (" + data.cursize + " bytes)\n",
+    );
     return -1;
   }
 

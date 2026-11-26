@@ -7,7 +7,13 @@ import { sizebuf_t } from "./common.js";
 
 export const NET_NAMELEN = 64;
 
-export const NET_MAXMESSAGE = 8192;
+/**
+ * QuakeSpasm's 64000 (id: 8192), one MAX_MSGLEN reliable message. Not
+ * Ironwail's 65535: the WebTransport stream frames a message with its 9-byte
+ * packet header behind a 16-bit length (WT_MAX_FRAME_PAYLOAD), so a message
+ * can be at most 65526 bytes.
+ */
+export const NET_MAXMESSAGE = 64000;
 export const NET_HEADERSIZE = 2 * 4; // 2 * sizeof(unsigned int)
 export const NET_DATAGRAMSIZE = MAX_DATAGRAM + NET_HEADERSIZE;
 
@@ -61,13 +67,16 @@ export class qsocket_t {
     this.hasAck = false; // true once the peer has acknowledged a sequence
     this.sendSequence = 0;
     this.unreliableSendSequence = 0;
+    // C's sendMessage and receiveMessage are NET_MAXMESSAGE arrays in every
+    // socket. Only the loopback driver uses them here, and it sizes its own
+    // queue (Loop_SizeQueue), so the socket pool doesn't hold 128 KB a slot.
     this.sendMessageLength = 0;
-    this.sendMessage = new Uint8Array(NET_MAXMESSAGE);
+    this.sendMessage = new Uint8Array(0);
 
     this.receiveSequence = 0;
     this.unreliableReceiveSequence = 0;
     this.receiveMessageLength = 0;
-    this.receiveMessage = new Uint8Array(NET_MAXMESSAGE);
+    this.receiveMessage = new Uint8Array(0);
 
     this.addr = null;
     this.address = "";
@@ -265,7 +274,9 @@ export const WT_PACKET_MAGIC = 0x71;
 export const WT_PACKET_HEADER_BYTES = 9; // [magic:u8][sequence:u32][acknowledged:u32]
 
 // Largest reliable frame payload either side accepts: one full game message
-// plus the sequencing header. Anything larger is a protocol violation.
+// plus the sequencing header. Anything larger is a protocol violation. It must
+// fit the frame's 16-bit length (tests/net_webtransport_client_lifecycle_test.js
+// checks it).
 export const WT_MAX_FRAME_PAYLOAD = NET_MAXMESSAGE + WT_PACKET_HEADER_BYTES;
 
 export const WT_PROTOCOL_VERSION = 1;

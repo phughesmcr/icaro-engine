@@ -30,6 +30,7 @@
 import { Sys_Printf } from "./sys_server.ts";
 import { WS_ClientAddress } from "./client_address.ts";
 import {
+  NET_MAXMESSAGE,
   net_message,
   WS_CHANNEL_BYTES,
   WS_CHANNEL_RELIABLE,
@@ -133,8 +134,6 @@ const liveConnections = new Set<ClientConnection>();
 
 let nextConnectionId = 1;
 let net_driverlevel = 0;
-
-const NET_MAXMESSAGE = 8192;
 
 // Session limits, as in net_webtransport_server.ts
 let maxHandshakingSessions = 16;

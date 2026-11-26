@@ -15,16 +15,20 @@ export const MAX_OSPATH = 128; // max length of a filesystem pathname
 
 export const ON_EPSILON = 0.1; // point on plane side epsilon
 
-export const MAX_MSGLEN = 8000; // max length of a reliable message
+/**
+ * Deliberate deviation, QuakeSpasm's and Ironwail's size (id: 8000). Big
+ * mods need it: an Arcane Dimensions map's serverinfo (the precache lists)
+ * is over 8000 bytes, and so are some messages in LibreQuake's demos.
+ */
+export const MAX_MSGLEN = 64000; // max length of a reliable message
 // Deliberate deviation, after FitzQuake/QuakeSpasm: MAX_DATAGRAM (id: 1024)
 // sizes the server's buffers and the local client's datagram, and a nonlocal
 // client gets at most DATAGRAM_MTU, so its datagrams aren't fragmented (see
 // SV_ClientDatagramSize). The big 2021 rerelease maps need more than 1024
 // bytes on the first frame after a teleport. It is 4096, not QuakeSpasm's
-// 32000+: the loopback driver puts the datagram and a reliable message sent
-// in the same frame in one NET_MAXMESSAGE (8192) buffer (Loop_SendMessage
-// calls Sys_Error when they don't fit), and demos reject messages over
-// MAX_MSGLEN.
+// 64000: only the local client ever gets more than DATAGRAM_MTU, and a frame
+// whose packet entities don't fit sends the rest on later frames
+// (SV_WritePacketEntities), so a bigger one buys little.
 export const MAX_DATAGRAM = 4096; // max length of unreliable message
 export const DATAGRAM_MTU = 1400; // FitzQuake: actual limit for unreliable messages to nonlocal clients
 // id's MAX_DATAGRAM: the limit for a nonlocal client whose path MTU is
