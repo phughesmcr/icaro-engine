@@ -9,6 +9,8 @@ const cl_input = await import("../src/cl_input.js");
 const input = await import("../src/in_web.js");
 const touch = await import("../src/touch.js");
 const webxr = await import("../src/webxr.js");
+const sound = await import("../src/snd_dma.js");
+const soundState = await import("../src/sound.js");
 
 function assertEqual(actual, expected, message) {
   if (actual !== expected) {
@@ -2619,4 +2621,23 @@ Deno.test("touch: portrait prompt shows in game only, and a tap dismisses it for
     windowTarget.innerWidth = oldW;
     windowTarget.innerHeight = oldH;
   }
+});
+
+Deno.test("audio is unlocked when a finger lifts, which browsers count as a gesture", () => {
+  withFakeDom((dom) => {
+    // earlier tests can leave sound blocked, which skips the callback
+    while (soundState.snd_blocked > 0) sound.S_UnblockSound();
+    let unlocks = 0;
+    sound.S_SetCallbacks({ onUnlockAudio: () => unlocks++ });
+    try {
+      dom.document.fire("touchend", makeEvent({}));
+      assertEqual(unlocks, 1, "touchend");
+
+      input.IN_Shutdown();
+      dom.document.fire("touchend", makeEvent({}));
+      assertEqual(unlocks, 1, "listener removed");
+    } finally {
+      sound.S_SetCallbacks({ onUnlockAudio: () => {} });
+    }
+  });
 });

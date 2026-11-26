@@ -1531,6 +1531,10 @@ export function IN_Init(element) {
   document.addEventListener("keydown", IN_ArmBackGuard, true);
   document.addEventListener("mousedown", IN_ArmBackGuard, true);
   document.addEventListener("touchend", IN_ArmBackGuard, true);
+  // Web-only: Chrome counts a touch as a user gesture only when the finger
+  // lifts, so the unlocks on touchstart and pointerdown can't start audio on
+  // the first tap.
+  document.addEventListener("touchend", S_UnlockAudio, true);
 
   // Initialize touch controls. Start in touch mode only on touch-first
   // devices; touchscreen laptops start with the mouse and switch on touch.
@@ -1586,6 +1590,7 @@ export function IN_Shutdown() {
   document.removeEventListener("keydown", IN_ArmBackGuard, true);
   document.removeEventListener("mousedown", IN_ArmBackGuard, true);
   document.removeEventListener("touchend", IN_ArmBackGuard, true);
+  document.removeEventListener("touchend", S_UnlockAudio, true);
 
   document.removeEventListener("pointerlockchange", handlePointerLockChange);
   document.removeEventListener("pointerlockerror", handlePointerLockError);
