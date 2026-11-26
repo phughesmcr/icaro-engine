@@ -1904,18 +1904,7 @@ const los_start = new Float32Array(3);
 const los_end = new Float32Array(3);
 
 function Agent_LineOfSight(from, to) {
-  if (cl.worldmodel === null || cl.worldmodel.hulls === undefined) return true;
-  los_trace.allsolid = false;
-  los_trace.startsolid = false;
-  los_trace.inopen = false;
-  los_trace.inwater = false;
-  los_trace.fraction = 1;
-  los_trace.ent = null;
-  los_trace.endpos[0] = to[0];
-  los_trace.endpos[1] = to[1];
-  los_trace.endpos[2] = to[2];
-  SV_RecursiveHullCheck(cl.worldmodel.hulls[0], 0, 0, 1, from, to, los_trace);
-  return los_trace.fraction === 1 && los_trace.allsolid === false;
+  return Agent_WorldTrace(from, to) === 1;
 }
 
 function Agent_ModelKind(ent) {
@@ -2175,11 +2164,42 @@ function Agent_MapOpen(a, b) {
  * level is loaded.
  */
 export function Agent_Map(size = MAP_DEFAULT_SIZE, truth = true) {
-  if (Agent_Ready() === false) return null;
+  const n = Agent_MapFill(size, truth);
+  if (n === 0) return null;
+  const centre = (n * n - 1) / 2;
+  const rows = [];
+  for (let r = 0; r < n; r++) {
+    let s = "";
+    for (let c = 0; c < n; c++) {
+      const i = r * n + c;
+      if (i === centre) s += "^";
+      else if ((map_state[i] & MAP_REACHED) === 0) s += " ";
+      else s += String.fromCharCode(map_glyph[i]);
+    }
+    rows.push(s.trimEnd());
+  }
+  return {
+    size: n,
+    cell: MAP_CELL,
+    yaw: Agent_AngleMod(Math.round(cl.viewangles[YAW])),
+    x: Math.round(map_me[0]),
+    y: Math.round(map_me[1]),
+    z: Math.round(map_me[2]),
+    rows,
+  };
+}
+
+/**
+ * Agent_Map's cells without the strings (the rl tier reads them): fills
+ * map_state and map_glyph for an n x n grid and returns n, or 0 before a
+ * level is loaded. A cell is drawn if MAP_REACHED is set in map_state.
+ */
+function Agent_MapFill(size, truth) {
+  if (Agent_Ready() === false) return 0;
   const me = cl_entities[cl.viewentity];
   const world = cl.worldmodel;
-  if (me === undefined || me === null || world === null) return null;
-  if (world.hulls === undefined) return null;
+  if (me === undefined || me === null || world === null) return 0;
+  if (world.hulls === undefined) return 0;
   let n = Number.isFinite(size) ? Math.floor(size) : MAP_DEFAULT_SIZE;
   n = Math.max(5, Math.min(MAP_MAX_SIZE, n));
   if ((n & 1) === 0) n++;
@@ -2361,27 +2381,7 @@ export function Agent_Map(size = MAP_DEFAULT_SIZE, truth = true) {
     if (map_glyph[i] === 77 || map_glyph[i] === 80) continue;
     map_glyph[i] = glyph;
   }
-
-  const rows = [];
-  for (let r = 0; r < n; r++) {
-    let s = "";
-    for (let c = 0; c < n; c++) {
-      const i = r * n + c;
-      if (i === centre) s += "^";
-      else if ((map_state[i] & MAP_REACHED) === 0) s += " ";
-      else s += String.fromCharCode(map_glyph[i]);
-    }
-    rows.push(s.trimEnd());
-  }
-  return {
-    size: n,
-    cell: MAP_CELL,
-    yaw: Agent_AngleMod(Math.round(yaw)),
-    x: Math.round(map_me[0]),
-    y: Math.round(map_me[1]),
-    z: Math.round(map_me[2]),
-    rows,
-  };
+  return n;
 }
 
 // The map as text: a header, then the rows with the blank rows above and
@@ -2487,6 +2487,592 @@ export function Agent_StateHash() {
     h = fnv(h, cl.stats[i]);
   }
   return h.toString(16).padStart(8, "0");
+}
+
+// RL TIER
+
+/** Layout version of the rl observation and action (Agent_RLSpec). */
+export const RL_VERSION = 1;
+export const RL_DEFAULT_ENTS = 16;
+export const RL_MAX_ENTS = 64;
+export const RL_DEFAULT_RAYS = 32;
+export const RL_MAX_RAYS = 128;
+export const RL_DEFAULT_TICS = 4;
+export const RL_MAX_TICS = 72 * 60;
+const RL_RANGE = 4096; // ray length, units
+const RL_COORD = 16384; // bound on map coordinates
+const RL_ENT_FIELDS = 8;
+
+// Status fields: name, low, high. Stats are bytes or shorts on the wire.
+// deno-fmt-ignore -- a table reads better in rows
+const RL_STATUS = [
+  ["health", -200, 255], ["armor", 0, 255], ["ammo", 0, 255],
+  ["shells", 0, 255], ["nails", 0, 255], ["rockets", 0, 255], ["cells", 0, 255],
+  ["weapon", 0, 8], // 0 none, 1 axe ... 8 thunderbolt (WEAPON_NAMES order)
+  ["has_axe", 0, 1], ["has_shotgun", 0, 1], ["has_super_shotgun", 0, 1],
+  ["has_nailgun", 0, 1], ["has_super_nailgun", 0, 1],
+  ["has_grenade_launcher", 0, 1], ["has_rocket_launcher", 0, 1],
+  ["has_thunderbolt", 0, 1],
+  ["armor_type", 0, 3], // 0 none, 1 green, 2 yellow, 3 red
+  ["silver_key", 0, 1], ["gold_key", 0, 1],
+  ["quad", 0, 1], ["pentagram", 0, 1], ["ring", 0, 1], ["biosuit", 0, 1],
+  ["onground", 0, 1], ["inwater", 0, 1], ["dead", 0, 1], ["intermission", 0, 1],
+  ["x", -RL_COORD, RL_COORD], ["y", -RL_COORD, RL_COORD], ["z", -RL_COORD, RL_COORD],
+  ["vx", -2000, 2000], ["vy", -2000, 2000], ["vz", -2000, 2000], // sv_maxvelocity
+  ["yaw_sin", -1, 1], ["yaw_cos", -1, 1], ["pitch", -90, 90],
+  ["kills", 0, 65535], ["total_monsters", 0, 65535],
+  ["secrets", 0, 65535], ["total_secrets", 0, 65535],
+  ["time", 0, 1e7],
+];
+
+// Per entity slot, egocentric (forward along your yaw, left, up from the eye)
+// deno-fmt-ignore -- a table reads better in rows
+const RL_ENT = [
+  ["present", 0, 1], ["class", 0, 16],
+  ["forward", -2 * RL_COORD, 2 * RL_COORD], ["left", -2 * RL_COORD, 2 * RL_COORD],
+  ["up", -2 * RL_COORD, 2 * RL_COORD], ["dist", 0, 4 * RL_COORD],
+  ["visible", 0, 1], ["hp", -1, 100000], // hp -1: not known (no truth, or not a monster)
+];
+
+/** Entity classes in the rl entity slots (index = class number). */
+export const RL_CLASSES = [
+  "none",
+  "monster",
+  "player",
+  "weapon",
+  "ammo",
+  "health",
+  "armor",
+  "key",
+  "powerup",
+  "projectile",
+  "explobox",
+  "door",
+  "button",
+  "lift",
+  "exit",
+  "teleport",
+  "other",
+];
+
+// Map tier glyphs to rl map codes: the code is the index in this string
+// (blank, unseen and the player's own cell '^' included)
+const RL_MAP_GLYPHS = " .+-#~!MPkwx*DBLETi^";
+const rl_glyph_code = new Uint8Array(128);
+for (let i = 0; i < RL_MAP_GLYPHS.length; i++) {
+  rl_glyph_code[RL_MAP_GLYPHS.charCodeAt(i)] = i;
+}
+
+// Action: one integer per component (a MultiDiscrete space)
+const RL_TURN = [-24, -12, -6, -3, -1, 0, 1, 3, 6, 12, 24]; // yaw degrees, + left
+const RL_LOOK = [-10, -5, 0, 5, 10]; // pitch degrees, + down
+// deno-fmt-ignore -- a table reads better in rows
+const RL_ACTION = [
+  ["move", ["none", "forward", "back"]],
+  ["strafe", ["none", "moveleft", "moveright"]],
+  ["turn", RL_TURN],
+  ["look", RL_LOOK],
+  ["attack", [0, 1]],
+  ["jump", [0, 1]],
+  ["speed", [0, 1]], // +speed: run
+  ["weapon", [0, 1, 2, 3, 4, 5, 6, 7, 8]], // impulse; 0 keeps the weapon
+];
+const RL_IMPULSE = ["", "1", "2", "3", "4", "5", "6", "7", "8"].map((n) =>
+  "impulse " + n
+);
+
+/** Default reward weights (rl_step's opts.reward overrides any of them). */
+export const RL_REWARD = Object.freeze({
+  kill: 1, // per monster killed (STAT_MONSTERS)
+  secret: 1, // per secret found
+  hurt: -0.01, // per point of health lost
+  death: -5,
+  exit: 10, // the level ended: intermission, or a changelevel to another map
+  tic: 0, // per tic stepped (a time penalty if negative)
+});
+
+let rl_obs = new Float32Array(0);
+const rl_d = new Float64Array(RL_MAX_ENTS);
+const rl_id = new Int32Array(RL_MAX_ENTS);
+const rl_cls = new Uint8Array(RL_MAX_ENTS);
+const rl_hp = new Float32Array(RL_MAX_ENTS);
+const rl_pos = new Float32Array(RL_MAX_ENTS * 3);
+let rl_count = 0;
+const rl_eye = new Float32Array(3);
+const rl_end = new Float32Array(3);
+/** Model name -> rl class (RL_CLASSES index); 0 for models never listed. */
+const rl_model_class = new Map();
+const rl_buttons = new Set();
+
+// The rl layout for opts { ents, rays, map }: checked, not clamped, so a
+// spec and the vectors it describes always agree
+function Agent_RLLayout(opts) {
+  const ents = opts.ents ?? RL_DEFAULT_ENTS;
+  const rays = opts.rays ?? RL_DEFAULT_RAYS;
+  const map = opts.map ?? 0;
+  if (!Number.isInteger(ents) || ents < 0 || ents > RL_MAX_ENTS) {
+    throw new Error("rl: ents must be an integer 0-" + RL_MAX_ENTS);
+  }
+  if (!Number.isInteger(rays) || rays < 0 || rays > RL_MAX_RAYS) {
+    throw new Error("rl: rays must be an integer 0-" + RL_MAX_RAYS);
+  }
+  if (
+    !Number.isInteger(map) ||
+    (map !== 0 && (map < 5 || map > MAP_MAX_SIZE || (map & 1) === 0))
+  ) {
+    throw new Error("rl: map must be 0 or odd, 5-" + MAP_MAX_SIZE);
+  }
+  return { ents, rays, map, truth: opts.truth !== false };
+}
+
+function Agent_RLSize(l) {
+  return RL_STATUS.length + l.ents * RL_ENT_FIELDS + l.rays + l.map * l.map;
+}
+
+/**
+ * The rl layout for opts { ents (16), rays (32), map (0) }: the vector size,
+ * each field's name, offset and size, per-element low and high bounds, the
+ * entity classes and map codes, the action components (a MultiDiscrete space:
+ * nvec, and the meaning of each value) and the default reward weights.
+ * Adapters build their spaces from it.
+ */
+export function Agent_RLSpec(opts = {}) {
+  const l = Agent_RLLayout(opts);
+  const size = Agent_RLSize(l);
+  const fields = [];
+  const low = [], high = [];
+  let off = 0;
+  for (const [name, lo, hi] of RL_STATUS) {
+    fields.push({ name, offset: off++, size: 1 });
+    low.push(lo);
+    high.push(hi);
+  }
+  fields.push({
+    name: "ents",
+    offset: off,
+    size: l.ents * RL_ENT_FIELDS,
+    slots: l.ents,
+    per_slot: RL_ENT.map((f) => f[0]),
+  });
+  for (let k = 0; k < l.ents; k++) {
+    for (const [, lo, hi] of RL_ENT) {
+      low.push(lo);
+      high.push(hi);
+    }
+  }
+  off += l.ents * RL_ENT_FIELDS;
+  fields.push({
+    name: "rays",
+    offset: off,
+    size: l.rays,
+    range: RL_RANGE,
+    first_yaw: 0,
+    step_yaw: l.rays > 0 ? 360 / l.rays : 0,
+  });
+  for (let k = 0; k < l.rays; k++) {
+    low.push(0);
+    high.push(RL_RANGE);
+  }
+  off += l.rays;
+  fields.push({ name: "map", offset: off, size: l.map * l.map, cells: l.map });
+  for (let k = 0; k < l.map * l.map; k++) {
+    low.push(0);
+    high.push(RL_MAP_GLYPHS.length - 1);
+  }
+  return {
+    version: RL_VERSION,
+    size,
+    fields,
+    low,
+    high,
+    classes: RL_CLASSES,
+    map_glyphs: RL_MAP_GLYPHS,
+    action: {
+      names: RL_ACTION.map((a) => a[0]),
+      nvec: RL_ACTION.map((a) => a[1].length),
+      values: RL_ACTION.map((a) => a[1]),
+      noop: [0, 0, RL_TURN.indexOf(0), RL_LOOK.indexOf(0), 0, 0, 0, 0],
+    },
+    reward: { ...RL_REWARD },
+    tics: RL_DEFAULT_TICS,
+  };
+}
+
+// Fraction of the way from a to b a hull 0 world trace gets (1: clear; 0
+// from inside a wall). Leaves the trace in los_trace.
+function Agent_WorldTrace(from, to) {
+  if (cl.worldmodel === null || cl.worldmodel.hulls === undefined) return 1;
+  los_trace.allsolid = false;
+  los_trace.startsolid = false;
+  los_trace.inopen = false;
+  los_trace.inwater = false;
+  los_trace.fraction = 1;
+  los_trace.ent = null;
+  los_trace.endpos[0] = to[0];
+  los_trace.endpos[1] = to[1];
+  los_trace.endpos[2] = to[2];
+  SV_RecursiveHullCheck(cl.worldmodel.hulls[0], 0, 0, 1, from, to, los_trace);
+  return los_trace.allsolid ? 0 : los_trace.fraction;
+}
+
+function Agent_RLClassOfKind(kind) {
+  if (MONSTER_KINDS.has(kind)) return 1;
+  if (kind === "player") return 2;
+  if (WEAPON_KINDS.has(kind)) return 3;
+  if (/^(shells|nails|rockets|cells)/.test(kind)) return 4;
+  if (kind.startsWith("health") || kind === "megahealth") return 5;
+  if (kind.endsWith("armor")) return 6;
+  if (kind.endsWith("_key")) return 7;
+  if (
+    kind === "quad" || kind === "pentagram" || kind === "ring" ||
+    kind === "biosuit"
+  ) return 8;
+  if (kind.endsWith("_proj") || kind === "lavaball") return 9;
+  if (kind === "explobox") return 10;
+  if (kind === "door" || kind === "secret_door" || kind === "gate") return 11;
+  if (kind === "button") return 12;
+  if (kind === "lift" || kind === "train") return 13;
+  if (kind === "exit") return 14;
+  if (kind === "teleport") return 15;
+  return 16;
+}
+
+function Agent_RLModelClass(ent) {
+  const name = ent.model.name;
+  let c = rl_model_class.get(name);
+  if (c === undefined) {
+    const kind = Agent_ModelKind(ent);
+    c = kind === null || kind === "" ? 0 : Agent_RLClassOfKind(kind);
+    rl_model_class.set(name, c);
+  }
+  return c;
+}
+
+// Keeps the k nearest offers, sorted by distance
+function Agent_RLOffer(k, id, cls, x, y, z, hp) {
+  const d = Math.hypot(x - rl_eye[0], y - rl_eye[1], z - rl_eye[2]);
+  if (rl_count === k && (k === 0 || d >= rl_d[k - 1])) return;
+  let j = rl_count < k ? rl_count++ : k - 1;
+  for (; j > 0 && rl_d[j - 1] > d; j--) {
+    rl_d[j] = rl_d[j - 1];
+    rl_id[j] = rl_id[j - 1];
+    rl_cls[j] = rl_cls[j - 1];
+    rl_hp[j] = rl_hp[j - 1];
+    rl_pos[j * 3] = rl_pos[j * 3 - 3];
+    rl_pos[j * 3 + 1] = rl_pos[j * 3 - 2];
+    rl_pos[j * 3 + 2] = rl_pos[j * 3 - 1];
+  }
+  rl_d[j] = d;
+  rl_id[j] = id;
+  rl_cls[j] = cls;
+  rl_hp[j] = hp;
+  rl_pos[j * 3] = x;
+  rl_pos[j * 3 + 1] = y;
+  rl_pos[j * 3 + 2] = z;
+}
+
+// The k nearest entities into rl_*: what Agent_Entities lists, without
+// allocating
+function Agent_RLGather(k, use_truth) {
+  rl_count = 0;
+  if (k === 0) return;
+  for (let i = 1; i < cl.num_entities; i++) {
+    if (i === cl.viewentity) continue;
+    const ent = cl_entities[i];
+    if (ent === undefined || ent === null || ent.model === null) continue;
+    if (ent.msgtime !== cl.mtime[0]) continue; // not in view
+    const m = ent.model;
+    const ed = use_truth ? Agent_Edict(i) : null;
+    if (m.name.charCodeAt(0) === 42) {
+      // '*': a brush entity, known only by its classname
+      if (ed === null) continue;
+      const kind = BRUSH_KINDS[PR_GetString(ed.v.classname)];
+      if (kind === undefined) continue;
+      Agent_RLOffer(
+        k,
+        i,
+        Agent_RLClassOfKind(kind),
+        (ed.v.absmin[0] + ed.v.absmax[0]) / 2,
+        (ed.v.absmin[1] + ed.v.absmax[1]) / 2,
+        (ed.v.absmin[2] + ed.v.absmax[2]) / 2,
+        -1,
+      );
+      continue;
+    }
+    const cls = Agent_RLModelClass(ent);
+    if (cls === 0) continue;
+    let hp = -1;
+    if (ed !== null && (ed.v.flags & FL_MONSTER) !== 0) {
+      if (ed.v.health <= 0) continue; // corpse
+      hp = Math.round(ed.v.health);
+    }
+    Agent_RLOffer(
+      k,
+      i,
+      cls,
+      ent.origin[0] + (m.mins[0] + m.maxs[0]) / 2,
+      ent.origin[1] + (m.mins[1] + m.maxs[1]) / 2,
+      ent.origin[2] + (m.mins[2] + m.maxs[2]) / 2,
+      hp,
+    );
+  }
+  if (use_truth) {
+    for (let i = 1; i < sv.num_edicts; i++) {
+      const ed = Agent_Edict(i);
+      if (ed === null) continue;
+      const kind = TRIGGER_KINDS[PR_GetString(ed.v.classname)];
+      if (kind === undefined) continue;
+      Agent_RLOffer(
+        k,
+        i,
+        Agent_RLClassOfKind(kind),
+        (ed.v.absmin[0] + ed.v.absmax[0]) / 2,
+        (ed.v.absmin[1] + ed.v.absmax[1]) / 2,
+        (ed.v.absmin[2] + ed.v.absmax[2]) / 2,
+        -1,
+      );
+    }
+  }
+}
+
+// Fills rl_obs for layout l (zeros before a level is loaded)
+function Agent_RLFill(l) {
+  const size = Agent_RLSize(l);
+  if (rl_obs.length !== size) rl_obs = new Float32Array(size);
+  const o = rl_obs;
+  o.fill(0);
+  if (Agent_Ready() === false) return o;
+  const me = cl_entities[cl.viewentity];
+  if (me === undefined || me === null) return o;
+  const st = cl.stats;
+  const items = cl.items;
+  const use_truth = l.truth && sv.active === true;
+
+  let p = 0;
+  o[p++] = st[STAT_HEALTH];
+  o[p++] = st[STAT_ARMOR];
+  o[p++] = st[STAT_AMMO];
+  o[p++] = st[STAT_SHELLS];
+  o[p++] = st[STAT_NAILS];
+  o[p++] = st[STAT_ROCKETS];
+  o[p++] = st[STAT_CELLS];
+  let weapon = 0;
+  if (Agent_HoldsAxe()) weapon = 1;
+  else {
+    for (let i = 0; i < WEAPON_NAMES.length; i++) {
+      if (st[STAT_ACTIVEWEAPON] === WEAPON_NAMES[i][0]) weapon = i + 1;
+    }
+  }
+  o[p++] = weapon;
+  for (let i = 0; i < WEAPON_NAMES.length; i++) {
+    o[p++] = (items & WEAPON_NAMES[i][0]) !== 0 ? 1 : 0;
+  }
+  o[p++] = (items & IT_ARMOR3) !== 0 ?
+    3 :
+    (items & IT_ARMOR2) !== 0 ?
+    2 :
+    (items & IT_ARMOR1) !== 0 ?
+    1 :
+    0;
+  o[p++] = (items & IT_KEY1) !== 0 ? 1 : 0;
+  o[p++] = (items & IT_KEY2) !== 0 ? 1 : 0;
+  o[p++] = (items & IT_QUAD) !== 0 ? 1 : 0;
+  o[p++] = (items & IT_INVULNERABILITY) !== 0 ? 1 : 0;
+  o[p++] = (items & IT_INVISIBILITY) !== 0 ? 1 : 0;
+  o[p++] = (items & IT_SUIT) !== 0 ? 1 : 0;
+  o[p++] = cl.onground ? 1 : 0;
+  o[p++] = cl.inwater ? 1 : 0;
+  o[p++] = st[STAT_HEALTH] <= 0 ? 1 : 0;
+  o[p++] = cl.intermission !== 0 ? 1 : 0;
+  o[p++] = me.origin[0];
+  o[p++] = me.origin[1];
+  o[p++] = me.origin[2];
+  o[p++] = cl.velocity[0];
+  o[p++] = cl.velocity[1];
+  o[p++] = cl.velocity[2];
+  const yaw = cl.viewangles[YAW] * Math.PI / 180;
+  const cos = Math.cos(yaw), sin = Math.sin(yaw);
+  o[p++] = sin;
+  o[p++] = cos;
+  o[p++] = cl.viewangles[PITCH];
+  o[p++] = st[STAT_MONSTERS];
+  o[p++] = st[STAT_TOTALMONSTERS];
+  o[p++] = st[STAT_SECRETS];
+  o[p++] = st[STAT_TOTALSECRETS];
+  o[p++] = cl.time;
+
+  rl_eye[0] = me.origin[0];
+  rl_eye[1] = me.origin[1];
+  rl_eye[2] = me.origin[2] + 22; // DEFAULT_VIEWHEIGHT, as Agent_Entities
+  Agent_RLGather(l.ents, use_truth);
+  for (let j = 0; j < l.ents; j++, p += RL_ENT_FIELDS) {
+    if (j >= rl_count) continue; // empty slot: zeros
+    const dx = rl_pos[j * 3] - rl_eye[0];
+    const dy = rl_pos[j * 3 + 1] - rl_eye[1];
+    const dz = rl_pos[j * 3 + 2] - rl_eye[2];
+    o[p] = 1;
+    o[p + 1] = rl_cls[j];
+    o[p + 2] = dx * cos + dy * sin;
+    o[p + 3] = dy * cos - dx * sin;
+    o[p + 4] = dz;
+    o[p + 5] = rl_d[j];
+    // Triggers (exits, teleporters) have no model to see
+    if (rl_cls[j] !== 14 && rl_cls[j] !== 15) {
+      rl_end[0] = rl_pos[j * 3];
+      rl_end[1] = rl_pos[j * 3 + 1];
+      rl_end[2] = rl_pos[j * 3 + 2];
+      o[p + 6] = Agent_WorldTrace(rl_eye, rl_end) === 1 ? 1 : 0;
+    }
+    o[p + 7] = rl_hp[j];
+  }
+
+  for (let r = 0; r < l.rays; r++) {
+    const a = yaw + r * 2 * Math.PI / l.rays; // counterclockwise: forward, then left
+    rl_end[0] = rl_eye[0] + Math.cos(a) * RL_RANGE;
+    rl_end[1] = rl_eye[1] + Math.sin(a) * RL_RANGE;
+    rl_end[2] = rl_eye[2];
+    o[p++] = Agent_WorldTrace(rl_eye, rl_end) * RL_RANGE;
+  }
+
+  if (l.map > 0) {
+    const n = Agent_MapFill(l.map, l.truth);
+    if (n !== 0) {
+      const centre = (n * n - 1) / 2;
+      for (let i = 0; i < n * n; i++) {
+        o[p + i] = i === centre ?
+          RL_MAP_GLYPHS.length - 1 :
+          (map_state[i] & MAP_REACHED) === 0 ?
+          0 :
+          rl_glyph_code[map_glyph[i]];
+      }
+    }
+  }
+  return o;
+}
+
+/**
+ * The rl observation for opts { ents, rays, map, truth } (Agent_RLSpec gives
+ * its layout), without advancing the game or reading the event log. The
+ * array is reused by the next rl call: copy it (slice()) to keep it.
+ */
+export function Agent_RLObserve(opts = {}) {
+  return Agent_RLFill(Agent_RLLayout(opts));
+}
+
+// Sets the buttons, look and impulse of an rl action vector
+function Agent_RLAct(action) {
+  if (action === null || typeof action !== "object") {
+    throw new Error("rl: action must be " + RL_ACTION.length + " integers");
+  }
+  if (action.length !== RL_ACTION.length) {
+    throw new Error("rl: action must be " + RL_ACTION.length + " integers");
+  }
+  for (let i = 0; i < RL_ACTION.length; i++) {
+    const v = action[i];
+    if (!Number.isInteger(v) || v < 0 || v >= RL_ACTION[i][1].length) {
+      throw new Error(
+        "rl: action[" + i + "] (" + RL_ACTION[i][0] + ") must be 0-" +
+          (RL_ACTION[i][1].length - 1),
+      );
+    }
+  }
+  rl_buttons.clear();
+  if (action[0] !== 0) rl_buttons.add(action[0] === 1 ? "forward" : "back");
+  if (action[1] !== 0) {
+    rl_buttons.add(action[1] === 1 ? "moveleft" : "moveright");
+  }
+  if (action[4] !== 0) rl_buttons.add("attack");
+  if (action[5] !== 0) rl_buttons.add("jump");
+  if (action[6] !== 0) rl_buttons.add("speed");
+  cl.viewangles[YAW] = Agent_AngleMod(cl.viewangles[YAW] + RL_TURN[action[2]]);
+  if (RL_LOOK[action[3]] !== 0) {
+    cl.viewangles[PITCH] += RL_LOOK[action[3]];
+    CL_ClampPitch();
+  }
+  if (action[7] !== 0) Cmd_ExecuteString(RL_IMPULSE[action[7]], src_command);
+  Agent_SetButtons(rl_buttons);
+}
+
+/**
+ * One rl step (lockstep only): applies an action vector (Agent_RLSpec's
+ * action components), runs `tics` tics (default 4) or until the episode
+ * ends, and returns { obs, reward, terminated, why, tics }. Buttons stay held
+ * between rl steps (the game is frozen between them) and are released when
+ * the episode ends. The reward is the weighted sum (opts.reward over
+ * RL_REWARD) of kills, secrets, health lost, death, the level's end and tics
+ * stepped, over this step only, so it never consumes the event log. why says
+ * how the episode ended: "died", "level done", "level changed" (to another
+ * map) or "level restarted"; "" while it runs. obs is reused (Agent_RLObserve).
+ */
+export function Agent_RLStep(action, tics = RL_DEFAULT_TICS, opts = {}) {
+  return Agent_Serial(() => Agent_RLStepNow(action, tics, opts));
+}
+
+async function Agent_RLStepNow(action, tics, opts) {
+  if (agent_mode !== "lockstep") {
+    throw new Error('rl_step needs lockstep mode: attach("lockstep") first');
+  }
+  const l = Agent_RLLayout(opts);
+  if (!Number.isInteger(tics) || tics < 0 || tics > RL_MAX_TICS) {
+    throw new Error("rl_step: tics must be an integer 0-" + RL_MAX_TICS);
+  }
+  const w = opts.reward ?? RL_REWARD;
+  const weight = (k) => typeof w[k] === "number" ? w[k] : RL_REWARD[k];
+  if (Agent_Loading()) await Agent_Settle();
+  if (Agent_Ready() === false) throw new Error("rl_step: no game running");
+  Agent_RLAct(action);
+
+  const map = Agent_MapName();
+  let health = cl.stats[STAT_HEALTH];
+  let kills = cl.stats[STAT_MONSTERS];
+  let secrets = cl.stats[STAT_SECRETS];
+  // The level's end pays once: stepping on in intermission doesn't
+  const intermission = cl.intermission;
+  let reward = 0;
+  let why = "";
+  let n = 0;
+  while (n < tics) {
+    Agent_Tic();
+    n++;
+    if (Agent_Loading() || Agent_MapName() !== map) {
+      // The level went away (its stats with it: rewards count to the last
+      // tic). A changelevel without intermission (start's exits) ends it
+      // too; the same map again is a restart (after death, or a reload).
+      if (Agent_Loading()) await Agent_Settle();
+      if (Agent_MapName() !== map) {
+        why = "level changed";
+        if (intermission === 0) reward += weight("exit");
+      } else why = "level restarted";
+      break;
+    }
+    const st = cl.stats;
+    reward += weight("kill") * (st[STAT_MONSTERS] - kills);
+    reward += weight("secret") * (st[STAT_SECRETS] - secrets);
+    if (st[STAT_HEALTH] < health) {
+      reward += weight("hurt") * (health - Math.max(0, st[STAT_HEALTH]));
+    }
+    kills = st[STAT_MONSTERS];
+    secrets = st[STAT_SECRETS];
+    if (st[STAT_HEALTH] <= 0 && health > 0) {
+      reward += weight("death");
+      why = "died";
+    }
+    health = st[STAT_HEALTH];
+    if (why === "" && cl.intermission !== 0 && intermission === 0) {
+      reward += weight("exit");
+      why = "level done";
+    }
+    if (why !== "") break;
+  }
+  reward += weight("tic") * n;
+  if (why !== "") Agent_ReleaseButtons();
+  return {
+    obs: Agent_RLFill(l),
+    reward,
+    terminated: why !== "",
+    why,
+    tics: n,
+  };
 }
 
 // SCREEN TIER
@@ -2608,4 +3194,7 @@ Console: await icaro.cmd('god')   // returns what it printed (lockstep, in game:
 Image:  use your browser's own screenshot tool (icaro.screenshot() returns a data URL)
 Pixels: icaro.screen_rgba(84, 0, true)  // { width, height, data }: RGBA bytes of the view at
         that width (height 0 keeps the aspect); false leaves out the HUD, menus and console
-Options: icaro.observe({ ents: 20, map: 21, format: 'json', truth: false })`;
+Options: icaro.observe({ ents: 20, map: 21, format: 'json', truth: false })
+RL:     icaro.rl_spec({ ents: 16, rays: 32, map: 0 })  // fixed-size vector layout and action space
+        await icaro.rl_step([1, 0, 5, 2, 0, 0, 1, 0], 4)  // -> { obs, reward, terminated, why }
+        icaro.rl_observe(opts)  // the vector now (Float32Array, reused: slice() to keep)`;
