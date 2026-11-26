@@ -31,7 +31,7 @@ On phones and tablets the game shows touch controls. Play in landscape.
 
 - **Left side:** a floating move stick ([nipplejs](https://github.com/yoannmoinet/nipplejs), loaded from jsDelivr). Push it to the edge to run.
 - **Right side:** drag to look. You can also drag on FIRE or JUMP to aim while holding them.
-- **Buttons:** FIRE, JUMP, next and previous weapon, and pause (which opens the menu).
+- **Buttons:** FIRE, JUMP, DOWN (swim down), next and previous weapon, and pause (which opens the menu). Hold the next-weapon button to open a weapon wheel, slide to a weapon and let go. Beside pause, SAVE and LOAD quick-save and quick-load in single player, CON opens the console, and CHAT types a message in multiplayer.
 - **Menus and console:** tap menu items directly. While a menu or the console is open, a bar at the top gives you Back and a keyboard button.
 - **Options → Touch controls:** look speed, gyro aiming, gyro speed, invert look, left-handed layout (swaps the sides and mirrors the buttons), button size and opacity, and vibration. Settings are saved as `touch_*` cvars, except Invert Look, which is `m_pitch`.
 - **Gyro aiming:** off by default. On iOS, the motion permission prompt appears the first time you tap after turning it on.

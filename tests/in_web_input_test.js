@@ -503,7 +503,9 @@ Deno.test( 'touch: weapon buttons queue impulse 10 / 12', () => {
 		const impulses = [];
 		cmd.Cmd_AddCommand( 'impulse', () => impulses.push( cmd.Cmd_Argv( 1 ) ) );
 
+		// WPN▶ cycles on release (a longer hold opens the weapon wheel)
 		byId( 'touch-weapon-next' ).fire( 'touchstart', touchEvent( 'touchstart', 1, 0, 0 ) );
+		byId( 'touch-weapon-next' ).fire( 'touchend', touchEvent( 'touchend', 1, 0, 0 ) );
 		byId( 'touch-weapon-prev' ).fire( 'touchstart', touchEvent( 'touchstart', 2, 0, 0 ) );
 		run();
 		assertEqual( impulses.join( ',' ), '10,12', 'next then previous weapon' );
