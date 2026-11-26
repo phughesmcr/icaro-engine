@@ -156,11 +156,10 @@ export function PR_SetEffectsMask(mask) {
  */
 export function ED_Alloc() {
   let i;
-  let e;
 
   // skip clients + world entity
   for (i = svs.maxclients + 1; i < sv.num_edicts; i++) {
-    e = EDICT_NUM(i);
+    const e = EDICT_NUM(i);
     // the first couple seconds of server time can involve a lot of
     // freeing and allocating, so relax the replacement policy
     if (e.free && (e.freetime < 2 || sv.time - e.freetime > 0.5)) {
@@ -178,7 +177,7 @@ export function ED_Alloc() {
 
   sv.num_edicts++;
   ED_GrowEdicts(sv.num_edicts + 1); // keep NEXT_EDICT of the last one valid
-  e = EDICT_NUM(i);
+  const e = EDICT_NUM(i);
   ED_ClearEdict(e);
 
   return e;
@@ -313,7 +312,7 @@ export function GetEdictFieldValue(ed, field) {
   for (let i = 0; i < GEFV_CACHESIZE; i++) {
     if (field === gefvCache[i].field) {
       def = gefvCache[i].pcache;
-      if (!def) {
+      if (def === null) {
         return null;
       }
       return { accessor: ed._fieldAccessor, ofs: def.ofs };
@@ -328,7 +327,7 @@ export function GetEdictFieldValue(ed, field) {
     gefvCache_rep ^= 1;
   }
 
-  if (!def) {
+  if (def === null) {
     return null;
   }
 
@@ -416,7 +415,7 @@ export function PR_GlobalString(ofs) {
   const def = ED_GlobalAtOfs(ofs);
   let line;
 
-  if (!def) {
+  if (def === null) {
     line = ofs + "(???)";
   } else {
     const s = PR_ValueString(def.type, pr_globals, ofs);
@@ -435,7 +434,7 @@ export function PR_GlobalStringNoContents(ofs) {
   const def = ED_GlobalAtOfs(ofs);
   let line;
 
-  if (!def) {
+  if (def === null) {
     line = ofs + "(???)";
   } else {
     line = ofs + "(" + PR_GetString(def.s_name) + ")";
@@ -644,7 +643,7 @@ export function ED_ParseGlobals(data) {
     }
 
     const key = ED_FindGlobal(keyname);
-    if (!key) {
+    if (key === null) {
       Con_Printf("'%s' is not a global\n", keyname);
       continue;
     }
@@ -712,7 +711,7 @@ export function ED_ParseEpair(accessor, key, s) {
 
     case ev_field: {
       const def = ED_FindField(s);
-      if (!def) {
+      if (def === null) {
         Con_Printf("Can't find field %s\n", s);
         return false;
       }
@@ -723,7 +722,7 @@ export function ED_ParseEpair(accessor, key, s) {
 
     case ev_function: {
       const func = ED_FindFunction(s);
-      if (!func) {
+      if (func === null) {
         Con_Printf("Can't find function %s\n", s);
         return false;
       }
@@ -745,7 +744,6 @@ export function ED_ParseEpair(accessor, key, s) {
  * Used for initial level load and for savegames.
  */
 export function ED_ParseEdict(data, ent) {
-  let anglehack;
   let init = false;
 
   // clear it
@@ -766,14 +764,8 @@ export function ED_ParseEdict(data, ent) {
 
     // anglehack is to allow QuakeEd to write single scalar angles
     // and allow them to be turned into vectors. (FIXME...)
-    let keyname;
-    if (com_token === "angle") {
-      keyname = "angles";
-      anglehack = true;
-    } else {
-      anglehack = false;
-      keyname = com_token;
-    }
+    const anglehack = com_token === "angle";
+    let keyname = anglehack ? "angles" : com_token;
 
     // FIXME: change light to _light to get rid of this hack
     if (keyname === "light") {
@@ -808,7 +800,7 @@ export function ED_ParseEdict(data, ent) {
     //johnfitz
 
     const key = ED_FindField(keyname);
-    if (!key) {
+    if (key === null) {
       // Deviation from id's C (Con_Printf): Ironwail/FitzQuake print this
       // only with developer set, and stay silent for the sky, fog and
       // alpha keys that map editors add but defs.qc may not declare.
@@ -864,7 +856,7 @@ export function ED_LoadFromFile(data) {
       PR_HostError("ED_LoadFromFile: found " + com_token + " when expecting {"); // id: Sys_Error; Ironwail's Host_Error (deliberate deviation)
     }
 
-    if (!ent) {
+    if (ent === null) {
       ent = EDICT_NUM(0);
     } else {
       ent = ED_Alloc();
@@ -938,7 +930,7 @@ export function PR_LoadProgs(fileData) {
   }
 
   // fileData is an ArrayBuffer of progs.dat
-  if (!fileData) {
+  if (fileData === null) {
     Sys_Error("PR_LoadProgs: couldn't load progs.dat");
   }
 
