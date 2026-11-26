@@ -3,10 +3,15 @@
 // without networking. Used for docs/always-on-hosting.md; not part of the
 // game or CI.
 //
-//   deno run -A --v8-flags=--expose-gc tools/room_memory_probe.js [map] [pak]
+//   deno run -A --v8-flags=--expose-gc tools/room_memory_probe.js [map] [pak] [--lazy]
+//
+// --lazy opens the pak lazily (COM_SetLazyPakSize( 0 )), reading only the
+// files the room asks for instead of holding the whole pak in memory.
 
-const map = Deno.args[ 0 ] ?? 'start';
-const pak = Deno.args[ 1 ] ?? 'static/pak0.pak';
+const lazy = Deno.args.includes( '--lazy' );
+const args = Deno.args.filter( ( a ) => a !== '--lazy' );
+const map = args[ 0 ] ?? 'start';
+const pak = args[ 1 ] ?? 'static/pak0.pak';
 const rows = [];
 const mb = ( x ) => +( x / 1048576 ).toFixed( 1 );
 
@@ -25,7 +30,7 @@ sample( 'empty' );
 // Everything game_server.js imports (its main() only runs as the entry point)
 await import( '../server/game_server.js' );
 const { COM_InitArgv, LOC_Init } = await import( '../src/common.js' );
-const { COM_AddPakSequence, COM_EnsureFile } = await import( '../src/pak.js' );
+const { COM_AddPakSequence, COM_EnsureFile, COM_SetLazyPakSize } = await import( '../src/pak.js' );
 const { Cbuf_Init, Cmd_Init } = await import( '../src/cmd.js' );
 const { Host_InitCommands } = await import( '../src/host_cmd.js' );
 const { deathmatch, campaign, horde, sv_cheats } = await import( '../src/host.js' );
@@ -65,6 +70,7 @@ console.log = quiet;
 sample( 'subsystems initialised (16 client slots)' );
 
 console.log = () => {};
+if ( lazy ) COM_SetLazyPakSize( 0 );
 if ( await COM_AddPakSequence( pak ) === 0 ) throw new Error( 'no pak' );
 LOC_Init();
 console.log = quiet;
@@ -79,4 +85,4 @@ console.log = quiet;
 if ( sv.active !== true ) throw new Error( 'map did not spawn' );
 sample( 'map ' + map + ' spawned' );
 
-console.log( JSON.stringify( { map, spawnMs: +spawnMs.toFixed( 1 ), rows } ) );
+console.log( JSON.stringify( { map, lazy, spawnMs: +spawnMs.toFixed( 1 ), rows } ) );
