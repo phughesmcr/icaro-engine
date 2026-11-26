@@ -26,7 +26,7 @@ Phase 1 is built: `src/agent.js`, exposed as `window.icaro` by `main.js`
   lift kinds, and the level's exits and teleporters. Secret triggers are left
   out as spoilers.
 - Not built yet: the `map`, `screen` (except `icaro.screenshot()`) and `rl`
-  tiers, macro actions, the render-skip flag, labels for the options menu,
+  tiers, macro actions other than `goto`, the render-skip flag, labels for the options menu,
   and every adapter except `window.icaro` and the stdio MCP server
   (below).
 
@@ -36,7 +36,7 @@ Parts of phases 2 and 3 are built too (status checked at `dev` `4e95d06`):
   and a loopback client under Deno with no rendering (#191). Its header
   gives the usage.
 - MCP server: `server/agent_mcp.ts` (stdio, `deno task agent-mcp`) runs
-  the headless host in lockstep and exposes `start`, `step`, `observe`,
+  the headless host in lockstep and exposes `start`, `step`, `goto`, `observe`,
   `cmd`, `key` and `menu`. Each result is the text observation plus
   `tic=N hash=H` (tics since `start`, and `Agent_StateHash`, a hash of
   the server's edicts and the client's stats). `start` with a `seed` turns
@@ -51,8 +51,32 @@ Parts of phases 2 and 3 are built too (status checked at `dev` `4e95d06`):
   `src/sys.js` seed the gameplay randomness and override the clock, both
   opt-in. `tests/determinism_test.js` checks them (#190).
 - Navigation: `src/nav.js` builds a walk graph from the BSP and answers A*
-  path queries; `tools/nav/nav_build.js` builds graphs offline (#194). It
-  isn't wired into map load or `window.icaro` yet, so `goto` doesn't exist.
+  path queries; `tools/nav/nav_build.js` builds graphs offline (#194).
+  `src/agent.js` builds one on each level event while an agent is
+  attached (`Agent_NavGraph()`), with the server's skill and deathmatch
+  filters.
+- `goto( id | [x, y, z], { max_tics, stop_on_damage } )`: in `src/agent.js`
+  (`icaro.goto`, and the MCP `goto` tool), lockstep only. It follows the
+  graph's path one tic at a time: yaw toward the next waypoint, `forward`
+  held, jump tapped on jump links, swim up on swim links, standing still
+  while a plat rises. The first line of the result is one of `arrived`
+  (an item by id also arrives when it is picked up), `blocked by #id
+  <kind> at x,y,z (...)`, `took damage (-N hp), stopped`, `died`,
+  `level changed`, `level done (intermission)`, `no path` or `timeout`.
+  Stuck means 36 tics without getting 8 units closer to the waypoint
+  (144 on door and plat links); goto hops, then replans, then reports
+  blocked. A blocked report names a monster in the way, or the graph's
+  entity on the link with how it opens (a key, `button #id`, shoot it),
+  and the next goto avoids that entity's links until it moves (or the
+  level changes). Damage means a `svc_damage` message (`cl.faceanimtime`
+  moved) with a health drop, so megahealth wearing off doesn't stop it.
+  Not built: a new-enemy interrupt and realtime mode. `tests/agent_goto_test.js`
+  covers it on e1m1; a scripted e1m1 run with god and notarget (goto the
+  exit; on a block, press the named button or shoot the monster) reached
+  the far water rooms but not the exit. Stalls left: from inside, the
+  shoot-to-open secret door #50 doesn't open to shots, and door #65 is
+  "opened by a trigger elsewhere" (its trigger isn't in the graph's
+  activators).
 
 Confidence labels on outside claims: **[V]** read on a primary source,
 **[S]** secondary source or search summary, **[U]** unverified. Claims about
@@ -311,9 +335,10 @@ document it. A useful `goto` needs a graph. Options, in order:
 - **`window.icaro`**, browser.
   - Calls (as built): `help()` returns about 300 tokens of usage. Also
     `attach( mode )`, `detach()`, `mode()`, `new_game( map, skill )`,
-    `step( action, tics )`, `observe( opts )`, `cmd( text )`, `key( name )`,
-    `menu( label )` and `screenshot( width )`. Events come back inside each
-    observation. Macro actions (`act`) are not built.
+    `step( action, tics )`, `goto( target, opts )`, `observe( opts )`,
+    `cmd( text )`, `key( name )`, `menu( label )` and `screenshot( width )`.
+    Events come back inside each observation. Of the macro actions only
+    `goto` is built (no `act`).
   - Typical use: one `javascript_tool` call does `icaro.step(...)` and gets
     the next observation back, so each turn is one round trip.
   - URL flags (as built): `window.icaro` is always present.

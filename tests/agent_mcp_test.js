@@ -135,10 +135,12 @@ Deno.test( { name: 'agent_mcp: a missing map fails at once and keeps the game', 
 
 } } );
 
-// Moves, turns, switches weapon, fires, jumps: player physics, QuakeC
-// weapon code and (with the noise) the monsters' reactions. It starts with
+// Moves, turns, switches weapon, fires, jumps, walks a path: player physics,
+// QuakeC weapon code, goto and (with the noise) the monsters' reactions. It starts with
 // buttons held from the game before, which start must release.
 const ACTION_LOG = [
+	[ 'cmd', { text: 'god' } ], // the goto meets grunts; stay alive for the weapon check
+	[ 'goto', { pos: [ 688, 480, 80 ], max_tics: 200 } ],
 	[ 'step', { buttons: 'forward', tics: 72 } ],
 	[ 'step', { yaw: 90, tics: 1 } ],
 	[ 'step', { buttons: 'forward,moveleft', tics: 36 } ],

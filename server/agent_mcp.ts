@@ -16,7 +16,7 @@
 // _meta gets the UnsupportedProtocolVersion error with that list, so the
 // client can fall back to initialize.
 //
-// The game runs in lockstep: it advances only inside start and step, one
+// The game runs in lockstep: it advances only inside start, step and goto, one
 // tic (1/72 s) at a time, so thinking time costs nothing. Tool calls run one
 // at a time, in order.
 //
@@ -53,7 +53,7 @@ const SERVER_INFO = { name: 'icaro-engine', version: '0.1.0' };
 // same on every seeded start)
 const CLOCK_BASE = 1;
 
-const INSTRUCTIONS = `Plays Quake (id1 shareware episode 1) headless. The game is frozen between calls and advances only in start and step (72 tics = 1 s of game time).
+const INSTRUCTIONS = `Plays Quake (id1 shareware episode 1) headless. The game is frozen between calls and advances only in start, step and goto (72 tics = 1 s of game time).
 Start with start {map: "e1m1", skill: 1}. Each result is an observation:
 - a status line (map, time, hp, armor, weapon, ammo, keys, kills, secrets, pos, yaw, pitch);
 - entity lines "#id kind distance yawN [pitchN] [hidden] [hpN]": step with {yaw: N} to face one;
@@ -61,6 +61,7 @@ Start with start {map: "e1m1", skill: 1}. Each result is an observation:
 - "tic=N hash=H": tics since start and a hash of the game state.
 step holds buttons for N tics, then releases them: buttons forward back moveleft moveright left right lookup lookdown jump attack speed up down strafe use. yaw: degrees, + turns left. pitch: + looks down. face: absolute yaw. impulse 1-8 selects a weapon.
 Quake has no use key: walk into buttons and doors; shoot some buttons. "exit" entities are level exits: walk into them.
+goto {id} or goto {pos: [x, y, z]} walks there along the level's walk graph (doors, lifts, teleporters, drops and jumps included) and stops early when hurt; when blocked it names what blocks the way and how it opens (a key, a button #id, shoot it).
 cmd runs console commands (god, give, map e1m2, ...). key and menu drive the menus.`;
 
 const BUTTONS_DESC = 'Buttons held for the step, comma separated: forward back moveleft moveright left right lookup lookdown jump attack speed up down strafe use';
@@ -93,6 +94,22 @@ export const MCP_TOOLS = [
 				impulse: { type: 'integer', minimum: 1, maximum: 255, description: '1-8 select a weapon (1 axe, 2 shotgun, ...)' },
 				tics: { type: 'integer', minimum: 0, maximum: 4320, description: 'Tics to run (default 1; 72 = 1 s)' },
 				hold: { type: 'boolean', description: 'Keep the buttons held after the step' },
+				ents: { type: 'integer', minimum: 0, maximum: 64, description: 'Entities to list (default 10)' },
+			},
+			additionalProperties: false,
+		},
+		annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+	},
+	{
+		name: 'goto',
+		description: 'Walks to an entity (#id from the observation) or a point along the level\'s walk graph, then returns the observation. The first line says how it ended: arrived, blocked (and by what), took damage, died, level changed, no path, or timeout.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				id: { type: 'integer', minimum: 1, description: 'Entity number, as #id in the observation' },
+				pos: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3, description: 'A point [x, y, z] instead of an entity' },
+				max_tics: { type: 'integer', minimum: 1, maximum: 8640, description: 'Give up after this many tics (default 2160 = 30 s; at most 8640)' },
+				stop_on_damage: { type: 'boolean', description: 'Stop when hurt (default true)' },
 				ents: { type: 'integer', minimum: 0, maximum: 64, description: 'Entities to list (default 10)' },
 			},
 			additionalProperties: false,
@@ -264,6 +281,25 @@ async function agent_mcp_call(name: string, args: Record<string, unknown>): Prom
 			if (args.hold !== undefined) action.hold = args.hold === true;
 			const tics = opt_int(args, 'tics', 1, 0, 72 * 60);
 			text = await e.agent.Agent_Step(action, tics, { ents: opt_int(args, 'ents', 10, 0, 64) });
+			break;
+		}
+		case 'goto': {
+			if ((args.id === undefined) === (args.pos === undefined)) throw new Error('goto takes id or pos (one of them)');
+			let target: number | number[];
+			if (args.id !== undefined) {
+				target = opt_int(args, 'id', 0, 1, 65535);
+			} else {
+				const p = args.pos;
+				if (!Array.isArray(p) || p.length !== 3 || !p.every((v) => typeof v === 'number' && Number.isFinite(v))) {
+					throw new Error('pos must be [x, y, z]');
+				}
+				target = p as number[];
+			}
+			text = await e.agent.Agent_Goto(target, {
+				max_tics: opt_int(args, 'max_tics', e.agent.GOTO_DEFAULT_TICS, 1, e.agent.GOTO_MAX_TICS),
+				stop_on_damage: args.stop_on_damage !== false,
+				ents: opt_int(args, 'ents', 10, 0, 64),
+			});
 			break;
 		}
 		case 'observe':

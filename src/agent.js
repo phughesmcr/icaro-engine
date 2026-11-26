@@ -14,7 +14,7 @@ import { STAT_HEALTH, STAT_ARMOR, STAT_AMMO, STAT_SHELLS, STAT_NAILS, STAT_ROCKE
 import { Cbuf_AddText, Cbuf_Execute, Cmd_ExecuteString, src_command } from './cmd.js';
 import { Cvar_FindVar } from './cvar.js';
 import { IN_SetAgentDriven } from './in_web.js';
-import { Host_Frame } from './host.js';
+import { Host_Frame, skill, deathmatch } from './host.js';
 import { Con_SetAgentHook } from './console.js';
 import { SCR_SetAgentHook, SCR_UpdateScreen } from './gl_screen.js';
 import { M_AgentState, m_none, m_main, m_singleplayer, m_multiplayer, m_quit, m_load, m_save,
@@ -27,6 +27,7 @@ import { PR_GetString, pr_globals_int } from './progs.js';
 import { SV_RecursiveHullCheck, trace_t } from './world.js';
 import { CL_ClampPitch } from './cl_input.js';
 import { COM_EnsureFile } from './pak.js';
+import { Nav_Build, Nav_FindPath, NAV_LINK_PLAT, NAV_LINK_SWIM, NAV_LINK_JUMP, NAV_LINK_DOOR, NAV_LINK_MOVER } from './nav.js';
 
 export const AGENT_TIC = 1 / 72; // one step tic: host_maxfps's default frame
 
@@ -239,6 +240,7 @@ function Agent_StatEvents() {
 		// A new level, or the same one reloaded after a disconnect
 		Agent_PushEvent( 'level: ' + map + ( cl.levelname !== '' ? ' "' + cl.levelname + '"' : '' ) );
 		prev_map = map;
+		Agent_NavBuild(); // a reload of the same map may differ in skill
 
 	} else {
 
@@ -582,6 +584,599 @@ async function Agent_StepNow( action, tics, opts ) {
 
 	if ( action.hold !== true ) Agent_ReleaseButtons();
 	return Agent_Observe( opts );
+
+}
+
+/*
+==============================================================================
+
+	NAVIGATION AND MACROS
+
+==============================================================================
+*/
+
+let nav_graph = null; // src/nav.js walk graph of the current level, or null
+
+// Builds the walk graph for the level just loaded (from Agent_StatEvents'
+// level event, so only games with an agent attached pay for it), with the
+// entity lump filtered for the game's skill and mode as the server did
+function Agent_NavBuild() {
+
+	nav_graph = null;
+	goto_avoid.length = 0;
+	goto_avoid_links.length = 0;
+	goto_base_cost = null;
+	const m = cl.worldmodel;
+	if ( m === null || m.hulls === undefined || m.entities === undefined ) return;
+	try {
+
+		nav_graph = Nav_Build( m, { skill: skill.value | 0, deathmatch: deathmatch.value !== 0 } );
+
+	} catch ( e ) {
+
+		Agent_PushEvent( 'nav: no graph for this level (' + ( e instanceof Error ? e.message : String( e ) ) + ')' );
+
+	}
+
+}
+
+// The current level's walk graph (src/nav.js), or null
+export function Agent_NavGraph() { return nav_graph; }
+
+export const GOTO_MAX_TICS = 72 * 120;
+export const GOTO_DEFAULT_TICS = 72 * 30;
+const GOTO_RADIUS = 20; // a waypoint counts as reached within this, flat
+const GOTO_STUCK_TICS = 36; // no progress for this long is stuck
+const GOTO_STUCK_DIST = 8;
+const GOTO_DOOR_WAIT = 108; // extra patience on door and plat links
+
+// Path being followed (Golden Rule #4: grown, never shrunk)
+let goto_pos = new Float32Array( 0 );
+let goto_flags = new Uint16Array( 0 );
+let goto_node = new Int32Array( 0 );
+let goto_count = 0;
+let goto_k = 0; // waypoint being walked to
+const goto_goal = new Float32Array( 3 );
+const goto_from = new Float32Array( 3 );
+const goto_me = new Float32Array( 3 );
+const goto_mins = new Float32Array( 3 );
+const goto_maxs = new Float32Array( 3 );
+let goto_hasbox = false;
+
+// Holds or releases one agent button, issuing the command only on a change
+function Agent_HoldButton( name, on ) {
+
+	if ( held_buttons.has( name ) === on ) return;
+	Cmd_ExecuteString( ( on ? '+' : '-' ) + AGENT_BUTTONS[ name ] + ' ' + AGENT_KEYNUM, src_command );
+	if ( on ) held_buttons.add( name );
+	else held_buttons.delete( name );
+
+}
+
+// The player's origin: the server's when it is local (the client's copy
+// lags a frame), else the client entity's
+function Agent_PlayerOrigin( out ) {
+
+	const ed = Agent_Edict( 1 );
+	const src = ed !== null && sv.active === true && cl.viewentity === 1 ? ed.v.origin : cl_entities[ cl.viewentity ].origin;
+	out[ 0 ] = src[ 0 ]; out[ 1 ] = src[ 1 ]; out[ 2 ] = src[ 2 ];
+
+}
+
+
+/*
+==================
+Agent_GotoTarget
+
+Sets goto_goal (and goto_mins/maxs for a brush or trigger) from an entity
+number or a point. Returns a short label, or throws.
+==================
+*/
+function Agent_GotoTarget( target ) {
+
+	goto_hasbox = false;
+	const list = Array.isArray( target ) || ArrayBuffer.isView( target );
+	if ( list || ( target !== null && typeof target === 'object' ) ) {
+
+		const v = list ? Array.from( target ) : [ target.x, target.y, target.z ];
+		if ( v.length !== 3 || v.every( ( x ) => typeof x === 'number' && Number.isFinite( x ) ) === false )
+			throw new Error( 'goto: a point is [ x, y, z ] (or { x, y, z })' );
+		goto_goal[ 0 ] = v[ 0 ]; goto_goal[ 1 ] = v[ 1 ]; goto_goal[ 2 ] = v[ 2 ];
+		return Math.round( v[ 0 ] ) + ',' + Math.round( v[ 1 ] ) + ',' + Math.round( v[ 2 ] );
+
+	}
+
+	if ( Number.isInteger( target ) === false || target <= 0 )
+		throw new Error( 'goto: target must be an entity id (#N) or [ x, y, z ]' );
+	if ( Agent_GotoEntityPos( target ) === false )
+		throw new Error( 'goto: no entity #' + target );
+	return '#' + target;
+
+}
+
+// Updates goto_goal from entity num; false if it is gone
+function Agent_GotoEntityPos( num ) {
+
+	const ed = Agent_Edict( num );
+	if ( ed !== null ) {
+
+		const model = PR_GetString( ed.v.model );
+		if ( model === '' || model.charCodeAt( 0 ) === 42 ) {
+
+			// A brush entity or a trigger (InitTrigger clears the model):
+			// aim at its centre, arrive on touching its box
+			for ( let k = 0; k < 3; k ++ ) {
+
+				goto_mins[ k ] = ed.v.absmin[ k ];
+				goto_maxs[ k ] = ed.v.absmax[ k ];
+				goto_goal[ k ] = ( ed.v.absmin[ k ] + ed.v.absmax[ k ] ) / 2;
+
+			}
+
+			goto_hasbox = goto_maxs[ 0 ] > goto_mins[ 0 ];
+			return goto_hasbox === true || model !== '';
+
+		}
+
+		goto_goal[ 0 ] = ed.v.origin[ 0 ]; goto_goal[ 1 ] = ed.v.origin[ 1 ]; goto_goal[ 2 ] = ed.v.origin[ 2 ];
+		return true;
+
+	}
+
+	if ( sv.active === true ) return false;
+	const ent = cl_entities[ num ];
+	if ( ent === undefined || ent === null || ent.model === null ) return false;
+	goto_goal[ 0 ] = ent.origin[ 0 ]; goto_goal[ 1 ] = ent.origin[ 1 ]; goto_goal[ 2 ] = ent.origin[ 2 ];
+	return true;
+
+}
+
+// An item picked up (or a monster gibbed) frees its edict or clears its model
+// (a trigger has no model to lose, so only targets that had one count)
+function Agent_GotoTargetGone( num, had_model ) {
+
+	if ( num <= 0 || sv.active !== true ) return false;
+	const ed = Agent_Edict( num );
+	return ed === null || ( had_model && PR_GetString( ed.v.model ) === '' );
+
+}
+
+function Agent_GotoArrived() {
+
+	const p = goto_me;
+	if ( goto_hasbox === true ) {
+
+		// player box (VEC_HULL_MIN/MAX) touching the target's
+		return p[ 0 ] - 16 <= goto_maxs[ 0 ] && p[ 0 ] + 16 >= goto_mins[ 0 ] &&
+			p[ 1 ] - 16 <= goto_maxs[ 1 ] && p[ 1 ] + 16 >= goto_mins[ 1 ] &&
+			p[ 2 ] - 24 <= goto_maxs[ 2 ] && p[ 2 ] + 32 >= goto_mins[ 2 ];
+
+	}
+
+	const dz = goto_goal[ 2 ] - p[ 2 ];
+	return Math.hypot( goto_goal[ 0 ] - p[ 0 ], goto_goal[ 1 ] - p[ 1 ] ) < 28 && dz > - 56 && dz < 40;
+
+}
+
+// Plans from the player to goto_goal into the goto_* buffers. False if the
+// graph has no path; with no graph, an empty path (walk straight at it).
+function Agent_GotoPlan() {
+
+	goto_count = 0;
+	goto_k = 0;
+	if ( nav_graph === null ) return true;
+	const path = Nav_FindPath( nav_graph, goto_me, goto_goal );
+	if ( path === null ) return false;
+	const n = path.count;
+	if ( goto_node.length < n ) {
+
+		const size = Math.max( n, goto_node.length * 2, 64 );
+		goto_pos = new Float32Array( size * 3 );
+		goto_flags = new Uint16Array( size );
+		goto_node = new Int32Array( size );
+
+	}
+
+	goto_pos.set( path.pos.subarray( 0, n * 3 ) );
+	goto_flags.set( path.flags.subarray( 0, n ) );
+	goto_node.set( path.node.subarray( 0, n ) );
+	goto_count = n;
+	return true;
+
+}
+
+// True once the player has reached or passed waypoint k, coming from the
+// previous one (or from where the walk started)
+function Agent_GotoPassed( k ) {
+
+	const wx = goto_pos[ k * 3 ], wy = goto_pos[ k * 3 + 1 ], wz = goto_pos[ k * 3 + 2 ];
+	const dx = wx - goto_me[ 0 ], dy = wy - goto_me[ 1 ];
+	const dz = wz - goto_me[ 2 ];
+	if ( dz > 40 || dz < - 64 ) return false; // a plat or a drop: not there yet
+	if ( dx * dx + dy * dy < GOTO_RADIUS * GOTO_RADIUS ) return true;
+	const px = k > 0 ? goto_pos[ k * 3 - 3 ] : goto_from[ 0 ];
+	const py = k > 0 ? goto_pos[ k * 3 - 2 ] : goto_from[ 1 ];
+	const sx = wx - px, sy = wy - py;
+	const len2 = sx * sx + sy * sy;
+	if ( len2 < 1 ) return false;
+	return ( ( goto_me[ 0 ] - px ) * sx + ( goto_me[ 1 ] - py ) * sy ) / len2 >= 1;
+
+}
+
+// The graph link into waypoint k (link_to and flags both match), or -1
+function Agent_GotoLink( k ) {
+
+	const g = nav_graph;
+	if ( g === null || k <= 0 || k >= goto_count ) return - 1;
+	const a = goto_node[ k - 1 ], b = goto_node[ k ];
+	for ( let l = g.link_start[ a ]; l < g.link_start[ a + 1 ]; l ++ )
+		if ( g.link_to[ l ] === b && g.link_flags[ l ] === goto_flags[ k ] ) return l;
+	return - 1;
+
+}
+
+// The graph entity on the link into waypoint k (link_to and flags both
+// match: two nodes can share a walk and a jump link), else the node's own
+function Agent_GotoLinkEnt( k ) {
+
+	const g = nav_graph;
+	const l = Agent_GotoLink( k );
+	if ( l < 0 ) return - 1;
+	if ( g.link_ent[ l ] >= 0 ) return g.link_ent[ l ];
+	const a = goto_node[ k - 1 ], b = goto_node[ k ];
+	if ( g.node_ent[ b ] >= 0 ) return g.node_ent[ b ];
+	return g.node_ent[ a ];
+
+}
+
+// The edict for a graph entity record: brush models by name, triggers
+// (whose model InitTrigger cleared) by their box
+function Agent_GraphEntEdict( rec ) {
+
+	if ( sv.active !== true ) return - 1;
+	const want = rec.model > 0 ? '*' + rec.model : null;
+	let by_box = - 1;
+	for ( let i = 1; i < sv.num_edicts; i ++ ) {
+
+		const ed = Agent_Edict( i );
+		if ( ed === null ) continue;
+		const model = PR_GetString( ed.v.model );
+		if ( want !== null && model === want ) return i;
+		// SV_LinkEdict widens absmin/absmax by 1
+		if ( by_box < 0 && model === '' && rec.mins !== null && rec.maxs !== null &&
+			Math.abs( ed.v.absmin[ 0 ] + 1 - rec.mins[ 0 ] ) < 2 && Math.abs( ed.v.absmin[ 1 ] + 1 - rec.mins[ 1 ] ) < 2 &&
+			Math.abs( ed.v.absmax[ 0 ] - 1 - rec.maxs[ 0 ] ) < 2 && Math.abs( ed.v.absmax[ 1 ] - 1 - rec.maxs[ 1 ] ) < 2 ) by_box = i;
+
+	}
+
+	return by_box;
+
+}
+
+/*
+Entities a goto was blocked by: their links cost GOTO_AVOID_COST more, so
+the next goto takes another way if there is one, until the entity moves
+(a door opening) or the level changes.
+*/
+const GOTO_AVOID_COST = 1000000;
+const goto_avoid = []; // { e: graph entity, num: edict or -1, x, y, z: its absmin then }
+const goto_avoid_links = []; // graph links a goto was blocked on with nothing to name
+let goto_base_cost = null; // nav_graph.link_cost as built
+
+function Agent_GotoAvoid( e, num ) {
+
+	for ( const a of goto_avoid ) if ( a.e === e ) return;
+	const ed = num > 0 ? Agent_Edict( num ) : null;
+	goto_avoid.push( { e, num: ed !== null ? num : - 1,
+		x: ed !== null ? ed.v.absmin[ 0 ] : 0, y: ed !== null ? ed.v.absmin[ 1 ] : 0, z: ed !== null ? ed.v.absmin[ 2 ] : 0 } );
+
+}
+
+// Sets the graph's link costs: as built, plus GOTO_AVOID_COST on the links
+// into what is avoided (the links Agent_GotoLinkEnt would blame it for)
+function Agent_GotoApplyAvoid() {
+
+	const g = nav_graph;
+	if ( goto_base_cost === null ) {
+
+		if ( goto_avoid.length === 0 && goto_avoid_links.length === 0 ) return;
+		goto_base_cost = g.link_cost.slice();
+
+	}
+
+	g.link_cost.set( goto_base_cost );
+	for ( const l of goto_avoid_links ) g.link_cost[ l ] += GOTO_AVOID_COST;
+	if ( goto_avoid.length === 0 ) return;
+	for ( let l = 0; l < g.link_ent.length; l ++ ) {
+
+		for ( const a of goto_avoid ) {
+
+			if ( g.link_ent[ l ] === a.e || g.node_ent[ g.link_to[ l ] ] === a.e ) {
+
+				g.link_cost[ l ] += GOTO_AVOID_COST;
+				break;
+
+			}
+
+		}
+
+	}
+
+}
+
+// Stops avoiding entities that have moved since they blocked a goto (the
+// costs follow at the next Agent_GotoApplyAvoid)
+function Agent_GotoAvoidUpdate() {
+
+	for ( let i = goto_avoid.length - 1; i >= 0; i -- ) {
+
+		const a = goto_avoid[ i ];
+		if ( a.num <= 0 ) continue; // no edict to watch: avoided until the level changes
+		const ed = Agent_Edict( a.num );
+		if ( ed === null || Math.abs( ed.v.absmin[ 0 ] - a.x ) + Math.abs( ed.v.absmin[ 1 ] - a.y ) + Math.abs( ed.v.absmin[ 2 ] - a.z ) > 2 ) {
+
+			goto_avoid.splice( i, 1 );
+
+		}
+
+	}
+
+}
+
+// A live monster whose box is within 8 units of the player's, or 0
+function Agent_GotoMonsterNear() {
+
+	if ( sv.active !== true ) return 0;
+	const p = goto_me;
+	for ( let i = 1; i < sv.num_edicts; i ++ ) {
+
+		const ed = Agent_Edict( i );
+		if ( ed === null || ( ed.v.flags & FL_MONSTER ) === 0 || ed.v.health <= 0 ) continue;
+		if ( p[ 0 ] - 24 <= ed.v.absmax[ 0 ] && p[ 0 ] + 24 >= ed.v.absmin[ 0 ] &&
+			p[ 1 ] - 24 <= ed.v.absmax[ 1 ] && p[ 1 ] + 24 >= ed.v.absmin[ 1 ] &&
+			p[ 2 ] - 32 <= ed.v.absmax[ 2 ] && p[ 2 ] + 40 >= ed.v.absmin[ 2 ] ) return i;
+
+	}
+
+	return 0;
+
+}
+
+// "blocked by #id door (needs the gold key)" from the graph's own data
+function Agent_GotoBlocked( k ) {
+
+	const at = ' at ' + Math.round( goto_me[ 0 ] ) + ',' + Math.round( goto_me[ 1 ] ) + ',' + Math.round( goto_me[ 2 ] );
+	// A monster in the way (one that doesn't attack: notarget, or asleep)
+	const m = Agent_GotoMonsterNear();
+	if ( m > 0 ) {
+
+		const ent = cl_entities[ m ];
+		const kind = ent !== undefined && ent.model !== null ? Agent_ModelKind( ent ) : null;
+		return 'blocked by #' + m + ' ' + ( kind !== null && kind !== '' ? kind : PR_GetString( Agent_Edict( m ).v.classname ) ) + at + ' (kill it, or wait for it to move)';
+
+	}
+
+	const e = Agent_GotoLinkEnt( k );
+	if ( e < 0 ) {
+
+		// Nothing to name: avoid the link itself from now on
+		const l = Agent_GotoLink( k );
+		if ( l >= 0 && goto_avoid_links.includes( l ) === false ) goto_avoid_links.push( l );
+		Agent_GotoApplyAvoid();
+		return 'blocked' + at + ' (the next goto tries another way; or jump, or step and look around)';
+
+	}
+
+	const rec = nav_graph.ents[ e ];
+	const num = Agent_GraphEntEdict( rec );
+	Agent_GotoAvoid( e, num );
+	Agent_GotoApplyAvoid();
+	const kind = BRUSH_KINDS[ rec.classname ] ?? TRIGGER_KINDS[ rec.classname ] ?? rec.classname;
+	let s = 'blocked by ' + ( num > 0 ? '#' + num + ' ' : '' ) + kind + at;
+	switch ( rec.opens ) {
+
+		case 'gold_key': return s + ' (needs the gold key)';
+		case 'silver_key': return s + ' (needs the silver key)';
+		case 'shoot': return s + ' (shoot it)';
+		case 'touch': return s + ' (walk into it; it may be opening)';
+		case 'trigger':
+		case 'trigger_or_shoot': {
+
+			const parts = [];
+			for ( const a of rec.activators ) {
+
+				if ( a.ent < 0 ) continue;
+				const an = Agent_GraphEntEdict( nav_graph.ents[ a.ent ] );
+				parts.push( ( BRUSH_KINDS[ a.classname ] ?? a.classname ) + ( an > 0 ? ' #' + an : '' ) );
+
+			}
+
+			s += ' (opened by ' + ( parts.length > 0 ? parts.join( ' or ' ) : 'a trigger elsewhere' );
+			return s + ( rec.opens === 'trigger_or_shoot' ? ', or shoot it)' : ')' );
+
+		}
+
+		default:
+			if ( rec.classname === 'func_plat' ) return s + ' (stand on the lift and wait)';
+			return s;
+
+	}
+
+}
+
+/*
+==================
+Agent_Goto
+
+Walks to an entity (#id, as in observations) or a point along the level's
+walk graph (src/nav.js), one lockstep tic at a time. opts: { max_tics (30 s),
+stop_on_damage (true), ents }. The first line of the result says how it
+ended: arrived, blocked (with what to try), took damage, died, level
+changed, no path, or timeout. The observation follows.
+==================
+*/
+export function Agent_Goto( target, opts = {} ) {
+
+	return Agent_Serial( () => Agent_GotoNow( target, opts ) );
+
+}
+
+async function Agent_GotoNow( target, opts ) {
+
+	if ( agent_mode !== 'lockstep' ) throw new Error( 'goto needs lockstep mode: attach("lockstep") first' );
+	if ( Agent_Loading() ) await Agent_Settle();
+	if ( Agent_Ready() === false ) throw new Error( 'goto: no game running' );
+
+	const max_tics = Math.max( 1, Math.min( GOTO_MAX_TICS, Math.floor( Number( opts.max_tics ?? GOTO_DEFAULT_TICS ) || 0 ) ) );
+	const stop_on_damage = opts.stop_on_damage !== false;
+	const label = Agent_GotoTarget( target );
+	const target_num = typeof target === 'number' ? target : 0;
+	const target_ed = target_num > 0 ? Agent_Edict( target_num ) : null;
+	const had_model = target_ed !== null && PR_GetString( target_ed.v.model ) !== '';
+	const map = Agent_MapName();
+	const finish = ( why, tics ) => 'goto ' + label + ': ' + why + ' (' + tics + ' tics)\n' + Agent_Observe( opts );
+
+	Agent_PlayerOrigin( goto_me );
+	goto_from.set( goto_me );
+	if ( nav_graph !== null ) {
+
+		Agent_GotoAvoidUpdate();
+		Agent_GotoApplyAvoid();
+
+	}
+
+	if ( Agent_GotoArrived() ) return finish( 'arrived', 0 );
+
+	if ( Agent_GotoPlan() === false ) return finish( 'no path from here (try another target)', 0 );
+
+	let health = cl.stats[ STAT_HEALTH ];
+	let face = cl.faceanimtime; // V_ParseDamage moves it: hurt, not megahealth wearing off
+	const planned = new Float32Array( goto_goal ); // once per call: the goal the path was planned to
+	let best = 0, best_k = - 1, still_tics = 0; // closest yet to the waypoint, and for how long not closer
+	let stuck = 0, stuck_x = 0, stuck_y = 0; // escalation, and where it began
+	let replans = 0; // stuck replans this call: a loop of them is blocked too
+	let jump_tic = - 1;
+	let why = 'timeout';
+	let tics = 0;
+
+	try {
+
+		for ( ; tics < max_tics; ) {
+
+			// Steer toward the current waypoint, or the goal after the last
+			while ( goto_k < goto_count && Agent_GotoPassed( goto_k ) ) goto_k ++;
+
+			const final = goto_k >= goto_count;
+			const wx = final ? goto_goal[ 0 ] : goto_pos[ goto_k * 3 ];
+			const wy = final ? goto_goal[ 1 ] : goto_pos[ goto_k * 3 + 1 ];
+			const wz = final ? goto_goal[ 2 ] : goto_pos[ goto_k * 3 + 2 ];
+			const flags = final ? 0 : goto_flags[ goto_k ];
+			const dx = wx - goto_me[ 0 ], dy = wy - goto_me[ 1 ], dz = wz - goto_me[ 2 ];
+			const flat = Math.hypot( dx, dy );
+			if ( flat > 1 ) cl.viewangles[ YAW ] = Agent_AngleMod( Math.atan2( dy, dx ) * 180 / Math.PI );
+			// In water, swim at it (Quake pitch is positive looking down);
+			// on land, look level
+			cl.viewangles[ PITCH ] = cl.inwater ? Math.max( - 70, Math.min( 70, - Math.atan2( dz, flat ) * 180 / Math.PI ) ) : 0;
+
+			// Riding a plat up: stand still until it arrives
+			const riding = ( flags & NAV_LINK_PLAT ) !== 0 && dz > 24 && flat < 48;
+			Agent_HoldButton( 'forward', riding === false );
+			// Swim links hold jump (swim up); jump links tap it on the ground
+			let jump = ( flags & NAV_LINK_SWIM ) !== 0;
+			if ( jump_tic >= 0 && tics === jump_tic ) jump = true;
+			else if ( ( flags & NAV_LINK_JUMP ) !== 0 && cl.onground && flat < 64 && held_buttons.has( 'jump' ) === false ) jump = true;
+			Agent_HoldButton( 'jump', jump );
+
+			Agent_Tic();
+			tics ++;
+
+			// Interrupts, before the path is touched again
+			if ( Agent_Loading() || Agent_MapName() !== map ) {
+
+				if ( Agent_Loading() ) await Agent_Settle();
+				why = 'level changed';
+				break;
+
+			}
+
+			const hp = cl.stats[ STAT_HEALTH ];
+			if ( hp <= 0 ) { why = 'died'; break; }
+			if ( cl.intermission !== 0 ) { why = 'level done (intermission)'; break; }
+			const hit = cl.faceanimtime !== face;
+			face = cl.faceanimtime;
+			if ( stop_on_damage && hit && hp < health ) { why = 'took damage (' + ( hp - health ) + ' hp), stopped'; break; }
+			health = hp;
+
+			Agent_PlayerOrigin( goto_me );
+			if ( goto_avoid.length > 0 ) Agent_GotoAvoidUpdate(); // a door opening while we walk counts
+			if ( target_num > 0 ) {
+
+				if ( Agent_GotoTargetGone( target_num, had_model ) ) { why = 'arrived (#' + target_num + ' is gone: picked up or killed)'; break; }
+				Agent_GotoEntityPos( target_num );
+				// A moving target: replan once it has gone a fair way
+				if ( Math.hypot( goto_goal[ 0 ] - planned[ 0 ], goto_goal[ 1 ] - planned[ 1 ], goto_goal[ 2 ] - planned[ 2 ] ) > 96 ) {
+
+					planned.set( goto_goal );
+					goto_from.set( goto_me );
+					if ( Agent_GotoPlan() === false ) { why = 'no path to where #' + target_num + ' went'; break; }
+
+				}
+
+			}
+
+			if ( Agent_GotoArrived() ) { why = 'arrived'; break; }
+
+			// Walking on a door that isn't where the map put it (open, or a
+			// bridge slid away): the player fell below it
+			if ( ( flags & NAV_LINK_MOVER ) !== 0 && ( flags & NAV_LINK_PLAT ) === 0 && wz - goto_me[ 2 ] > 48 ) {
+
+				why = Agent_GotoBlocked( goto_k );
+				break;
+
+			}
+
+			// Stuck: not getting closer to the waypoint (bobbing in water or
+			// sliding along a wall is not progress), unless riding a plat
+			const d = Math.hypot( wx - goto_me[ 0 ], wy - goto_me[ 1 ], wz - goto_me[ 2 ] );
+			if ( goto_k !== best_k || d < best - GOTO_STUCK_DIST || riding ) {
+
+				if ( goto_k !== best_k || d < best ) best = d;
+				best_k = goto_k;
+				still_tics = 0;
+				// Got clear of where it stuck: start the escalation over
+				if ( stuck > 0 && Math.hypot( goto_me[ 0 ] - stuck_x, goto_me[ 1 ] - stuck_y ) > 64 ) stuck = 0;
+
+			} else if ( ++ still_tics >= GOTO_STUCK_TICS + ( ( flags & ( NAV_LINK_DOOR | NAV_LINK_PLAT | NAV_LINK_MOVER ) ) !== 0 && stuck === 0 ? GOTO_DOOR_WAIT : 0 ) ) {
+
+				still_tics = 0;
+				if ( stuck ++ === 0 ) { stuck_x = goto_me[ 0 ]; stuck_y = goto_me[ 1 ]; }
+				if ( stuck === 1 ) {
+
+					jump_tic = tics; // hop: a lip or a step the walk caught on
+
+				} else if ( stuck === 2 && ++ replans <= 3 ) {
+
+					goto_from.set( goto_me );
+					if ( Agent_GotoPlan() === false ) { why = 'no path from here (try another target)'; break; }
+
+				} else {
+
+					why = Agent_GotoBlocked( Math.min( goto_k, goto_count - 1 ) );
+					break;
+
+				}
+
+			}
+
+		}
+
+	} finally {
+
+		Agent_ReleaseButtons();
+
+	}
+
+	return finish( why, tics );
 
 }
 
@@ -1110,6 +1705,9 @@ Act:    await icaro.step({ buttons: 'forward,attack', yaw: 30, pitch: 0, impulse
         yaw: degrees, + turns left. pitch: + looks down. face: absolute yaw.
         impulse: 1-8 weapon select (1 axe, 2 shotgun, 3 super shotgun, 4 nailgun, ...).
         Quake has no use key: walk into buttons and doors; shoot some buttons.
+Walk:   await icaro.goto(12) or icaro.goto([x, y, z], { max_tics: 2160 })  // lockstep only
+        walks to entity #12 or a point on the level's walk graph; the first line says
+        how it ended: arrived, blocked by #id (and what opens it), took damage, no path...
 Look:   icaro.observe()   // status line, ui, nearest entities, events since last call
         entity line: #id kind distance yawN [pitchN] [hidden] [hpN]
         yawN is the yaw change that faces it: step({ yaw: N }).

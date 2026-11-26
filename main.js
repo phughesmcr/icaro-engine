@@ -15,7 +15,7 @@ import { Draw_CachePicFromPNG, Draw_GetOverlayCanvas } from './src/gl_draw.js';
 import { XR_Init } from './src/webxr.js';
 import { CDAudio_SetTrackURLProvider, CDAudio_TrackURLs } from './src/cd_audio.js';
 import { AGENT_HELP, Agent_Attach, Agent_Detach, Agent_Mode, Agent_Lockstep, Agent_Step,
-	Agent_Observe, Agent_Command, Agent_NewGame, Agent_Key, Agent_MenuSelect, Agent_Screenshot } from './src/agent.js';
+	Agent_Observe, Agent_Command, Agent_NewGame, Agent_Key, Agent_MenuSelect, Agent_Screenshot, Agent_Goto } from './src/agent.js';
 
 const parms = {
 	basedir: '.',
@@ -68,6 +68,7 @@ function Agent_ExposeAPI() {
 		mode: () => Agent_Mode(),
 		new_game: ( map = 'e1m1', skill = 1 ) => Agent_NewGame( map, skill ),
 		step: ( action = {}, tics = 1, opts = {} ) => Agent_Step( action, tics, opts ),
+		goto: ( target, opts = {} ) => Agent_Goto( target, opts ),
 		observe: ( opts = {} ) => Agent_Observe( opts ),
 		cmd: ( text ) => Agent_Command( text ),
 		key: ( name, count = 1 ) => Agent_Key( name, count ),

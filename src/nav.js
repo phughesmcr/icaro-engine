@@ -4,8 +4,9 @@
 // Web-only addition: not in id's C. Quake has no navigation mesh (the 2021
 // rerelease's bot .nav files are commercial data and cover only id1), so
 // the graph is generated here from the loaded world model. It runs offline
-// (tools/nav/nav_build.js, under Deno) and is meant to run in the browser at
-// map load (not wired in yet). Nothing here touches window or document.
+// (tools/nav/nav_build.js, under Deno) and at map load in agent games
+// (src/agent.js builds it on the level event, and its goto follows it).
+// Nothing here touches window or document.
 //
 // How the graph is built (Nav_Build):
 //   1. Floor faces (plane normal z > 0.7, not sky or liquid) of the world,
