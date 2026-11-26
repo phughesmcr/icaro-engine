@@ -832,6 +832,8 @@ class WTConnectAttempt {
 
 		this.aborted = false;
 		this.transports = new Set();
+		// web-only: read once, so a later connect can't change how this one fails
+		this.quiet = NET_QuietConnect();
 		this._reject = null;
 		this.abortPromise = new Promise( ( _, reject ) => {
 
@@ -938,10 +940,11 @@ function _WT_ClearRoomFromUrl() {
 }
 
 // Return to the Join Game menu with a reason the player can read.
-function _WT_FailConnect( reason ) {
+function _WT_FailConnect( reason, quiet = NET_QuietConnect() ) {
 
-	// Web-only: a silent reconnect attempt (cl_reconnect.js) reports for itself
-	if ( NET_QuietConnect() === true ) return null;
+	// Web-only: a silent reconnect attempt (cl_reconnect.js) reports for itself.
+	// quiet is the attempt's, read when it started.
+	if ( quiet === true ) return null;
 
 	_WT_ClearRoomFromUrl();
 	set_key_dest( key_menu );
@@ -951,9 +954,9 @@ function _WT_FailConnect( reason ) {
 }
 
 // Generic failure: back to the main menu, as before.
-function _WT_FailConnectToMainMenu() {
+function _WT_FailConnectToMainMenu( quiet = NET_QuietConnect() ) {
 
-	if ( NET_QuietConnect() === true ) return null;
+	if ( quiet === true ) return null;
 
 	_WT_ClearRoomFromUrl();
 	M_Menu_Main_f();
@@ -1115,7 +1118,7 @@ async function _WT_ConnectViaLobby( url, host, roomId, attempt ) {
 		if ( firstMsg === null ) {
 
 			Con_Printf( 'Room join timed out after %d seconds\n', ROOM_JOIN_TIMEOUT_MS / 1000 );
-			return _WT_FailConnect( 'Connection timed out - server may be offline' );
+			return _WT_FailConnect( 'Connection timed out - server may be offline', attempt.quiet );
 
 		}
 
@@ -1123,7 +1126,7 @@ async function _WT_ConnectViaLobby( url, host, roomId, attempt ) {
 
 			const errMsg = new TextDecoder().decode( firstMsg.data );
 			Con_Printf( 'Join failed: ' + errMsg + '\n' );
-			return _WT_FailConnect( errMsg );
+			return _WT_FailConnect( errMsg, attempt.quiet );
 
 		}
 
@@ -1160,7 +1163,7 @@ async function _WT_ConnectViaLobby( url, host, roomId, attempt ) {
 		// port speaks the lobby protocol, so reconnecting there as a game client
 		// can't work.
 		Con_Printf( 'Lobby reply had no room port\n' );
-		return _WT_FailConnect( 'Server sent an invalid room reply' );
+		return _WT_FailConnect( 'Server sent an invalid room reply', attempt.quiet );
 
 	} catch ( error ) {
 
@@ -1173,12 +1176,12 @@ async function _WT_ConnectViaLobby( url, host, roomId, attempt ) {
 		if ( attempt.aborted === true ) {
 
 			Con_Printf( 'WebTransport connect timed out after %d seconds\n', WT_CONNECT_TIMEOUT_MS / 1000 );
-			return _WT_FailConnect( 'Connection timed out - server may be offline' );
+			return _WT_FailConnect( 'Connection timed out - server may be offline', attempt.quiet );
 
 		}
 
 		Con_Printf( 'WebTransport connect failed: ' + error.message + '\n' );
-		return _WT_FailConnectToMainMenu();
+		return _WT_FailConnectToMainMenu( attempt.quiet );
 
 	}
 
@@ -1254,7 +1257,7 @@ async function _WT_ConnectDirect( url, originalHost, roomId, attempt ) {
 			Con_Printf( 'Server refused connection: ' + reason + '\n' );
 			attempt.untrack( transport );
 			_WT_CloseConnection( conn );
-			return _WT_FailConnect( reason );
+			return _WT_FailConnect( reason, attempt.quiet );
 
 		}
 
@@ -1336,12 +1339,12 @@ async function _WT_ConnectDirect( url, originalHost, roomId, attempt ) {
 		if ( attempt.aborted === true ) {
 
 			Con_Printf( 'WebTransport connect timed out after %d seconds\n', WT_CONNECT_TIMEOUT_MS / 1000 );
-			return _WT_FailConnect( 'Connection timed out - server may be offline' );
+			return _WT_FailConnect( 'Connection timed out - server may be offline', attempt.quiet );
 
 		}
 
 		Con_Printf( 'WebTransport direct connect failed: ' + error.message + '\n' );
-		return _WT_FailConnectToMainMenu();
+		return _WT_FailConnectToMainMenu( attempt.quiet );
 
 	}
 

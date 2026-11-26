@@ -39,13 +39,23 @@ Deno.test( 'a dead connection flags the socket lost', () => {
 		assertEqual( NET_GetMessage( sock ), - 1, 'read fails' );
 		assertEqual( sock.lost, true, 'read marks lost' );
 
+		// A send that fails while the driver still holds the connection open
+		// (a message too large) is not a lost connection
+		const conn = { connected: true, error: null };
+		sock.driverdata = conn;
 		sock.lost = false;
+		assertEqual( NET_SendMessage( sock, net.net_message ), - 1, 'oversize send fails' );
+		assertEqual( sock.lost, false, 'a failed send on a live connection is not lost' );
+
+		conn.connected = false;
 		assertEqual( NET_SendUnreliableMessage( sock, net.net_message ), - 1, 'unreliable send fails' );
 		assertEqual( sock.lost, true, 'unreliable send marks lost' );
 
 		sock.lost = false;
+		conn.connected = true;
+		conn.error = new Error( 'reset' );
 		assertEqual( NET_SendMessage( sock, net.net_message ), - 1, 'send fails' );
-		assertEqual( sock.lost, true, 'send marks lost' );
+		assertEqual( sock.lost, true, 'send after a driver error marks lost' );
 
 	} finally {
 

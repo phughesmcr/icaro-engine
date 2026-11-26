@@ -232,8 +232,15 @@ export function CL_Disconnect() {
 
 	}
 
-	if ( lost === true )
+	if ( lost === true ) {
+
+		// Host_Error, which a lost connection used to reach, did this: a drop
+		// during a map change would otherwise hide the retries behind the
+		// loading plaque
+		SCR_EndLoadingPlaque();
 		CLR_ConnectionLost();
+
+	}
 	else if ( wasConnected === true )
 		CLR_Cancel();
 
@@ -313,13 +320,36 @@ export async function CL_EstablishConnection( host, quiet = false ) {
 			// are 25 s each, and a WebTransport that can't open is retried over
 			// WebSocket (NET_WebSocketFallback), so both must fit.
 			const CONNECTION_TIMEOUT_MS = 60000;
+			let timer = null;
+			let timedOut = false;
 			const timeoutPromise = new Promise( ( _, reject ) => {
 
-				setTimeout( () => reject( new Error( 'Connection timed out after 60 seconds' ) ), CONNECTION_TIMEOUT_MS );
+				timer = setTimeout( () => {
+
+					timedOut = true;
+					reject( new Error( 'Connection timed out after 60 seconds' ) );
+
+				}, CONNECTION_TIMEOUT_MS );
 
 			} );
 
-			connected_sock = await Promise.race( [ result, timeoutPromise ] );
+			// Web-only: a driver connect that finishes after the timeout gave up
+			// on it would leave an open socket nobody reads; close it
+			result.then( ( sock ) => {
+
+				if ( timedOut === true && sock != null ) NET_Close( sock );
+
+			}, () => {} );
+
+			try {
+
+				connected_sock = await Promise.race( [ result, timeoutPromise ] );
+
+			} finally {
+
+				clearTimeout( timer );
+
+			}
 
 		} else {
 

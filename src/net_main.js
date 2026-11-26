@@ -447,6 +447,21 @@ const slistPollProcedure = new PollProcedure( null, 0.0, Slist_Poll );
 
 /*
 ===================
+NET_ConnectionDead
+
+Web-only (no C counterpart). A send that fails is a lost connection only when
+the driver has given up on it; a message too large fails without that.
+===================
+*/
+function NET_ConnectionDead( sock ) {
+
+	const conn = sock.driverdata;
+	return conn == null || conn.connected === false || ( conn.error !== undefined && conn.error !== null );
+
+}
+
+/*
+===================
 NET_WebSocketFallbackAvailable
 
 Web-only (no C counterpart). True when a failed WebTransport connect may be
@@ -1073,7 +1088,7 @@ export function NET_SendMessage( sock, data ) {
 
 	SetNetTime();
 	const r = net_drivers[ sock.driver ].QSendMessage( sock, data );
-	if ( r === - 1 )
+	if ( r === - 1 && NET_ConnectionDead( sock ) === true )
 		sock.lost = true; // web-only, see NET_GetMessage
 
 	return r;
@@ -1099,7 +1114,7 @@ export function NET_SendUnreliableMessage( sock, data ) {
 
 	SetNetTime();
 	const r = net_drivers[ sock.driver ].SendUnreliableMessage( sock, data );
-	if ( r === - 1 )
+	if ( r === - 1 && NET_ConnectionDead( sock ) === true )
 		sock.lost = true; // web-only, see NET_GetMessage
 
 	return r;
