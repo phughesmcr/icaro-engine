@@ -6,9 +6,9 @@ relying on them.
 
 ## Status
 
-Checked at `dev` `c0ea1d7` (2026-11-26). Tier 2 is built, and so is tier 1 but
-for two leftovers in open PRs. Tier 3 is not started. None of it was tested on a
-real phone. The rest of this doc is the older snapshot.
+Checked at `dev` `c0ea1d7` (2026-11-26). Tier 2 is built but for offline music,
+and tier 1 but for two leftovers. Those, and two fixes found on a phone, are in
+open PRs. Tier 3 is not started. The rest of this doc is the older snapshot.
 
 - **Tier 1 in `dev`:** iOS audio resume (#180), the touch DPR cap (#181),
   `navigator.storage.persist()` after the first save (#183), the manifest's
@@ -23,13 +23,36 @@ real phone. The rest of this doc is the older snapshot.
   warm-up (16, #215) and quality presets (17, #212).
 - **Confirmed bugs:** each has a fix in `dev`: B1 #180, B2 #210, B3 #208, B4 and
   B8 #187, B5 #185, B6 #214, B7 #188. The B2 fix has the reconnect gaps below.
+- **Found on a phone, in open PRs:** a phone with a stylus got neither the DPR
+  cap nor touch mode (#230), and the first tap didn't start audio (#231).
+- **Offline music, in an open PR:** tracks in `static/music/` cached once played
+  (#232). It was not part of the phone test.
+
+Tested on one phone, a Galaxy S25 Ultra (Android 17, Chrome 158), on `dev`
+`c0ea1d7` with #224, #227, #230 and #231 merged locally, served over USB. The
+touches were a system tap through `adb` or injected through DevTools, not a
+finger:
+
+- **Worked:** fullscreen and landscape on the first tap; the stick, drag look,
+  fire, the weapon button and wheel, and the pause button; 60 fps in `e1m1`;
+  autosave and the menu on switching apps; the Continue offer after leaving a
+  running game; and, with the server stopped, a reload and `e1m1`.
+- **Manifest:** Chrome reported no parse or installability errors.
+- **Seen, not fixed:** the keyboard button covers the top of the menu's Quake
+  plaque, and in portrait the ENTER VR button covers the left end of the status
+  bar.
+- **Not tested:** installing the app, a second launch of it, rumble (no
+  controller), how vibration feels, audible sound, tier 2 items 10 (touch
+  menus), 13 (reconnect), 15 to 17 (context loss, shader warm-up, quality
+  presets), battery, heat, and any iOS device.
 
 What tier 2 leaves out:
 
 - three and nipplejs are not vendored (item 9). The service worker caches the
   pinned CDN URLs instead.
-- The service worker caches no music, no pak but `pak0.pak` and no Range
-  request, so offline play has none of those.
+- In `dev`, the service worker caches no music, no pak but `pak0.pak` and no
+  Range request, so offline play has none of those. #232 changes this only for
+  tracks in `static/music/`.
 - Reconnect (item 13) doesn't cover browser-hosted rooms (`rtc:<code>`). #210
   did not check it in a browser, which needs a server that drops the connection.
 
