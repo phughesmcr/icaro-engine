@@ -7,6 +7,7 @@ await import("../src/gl_rsurf.js");
 
 const gl_model = await import("../src/gl_model.js");
 const gl_mesh = await import("../src/gl_mesh.js");
+const { R183_MESHBASIC_FRAGMENT } = await import("./three_r183_shaders.js");
 const { entity_t } = await import("../src/client.js");
 const { COM_AddPack } = await import("../src/pak.js");
 const { d_8to24table, vid } = await import("../src/vid.js");
@@ -140,7 +141,7 @@ Deno.test("alias materials draw the fullbright mask and keep it when cloned", ()
   const shader = {
     uniforms: {},
     vertexShader: "#include <begin_vertex>",
-    fragmentShader: "void main() {\n\t#include <opaque_fragment>\n}",
+    fragmentShader: R183_MESHBASIC_FRAGMENT,
   };
   material.onBeforeCompile(shader);
   assertEqual(
@@ -163,6 +164,20 @@ Deno.test("alias materials draw the fullbright mask and keep it when cloned", ()
     shader.vertexShader.includes("r_lerpblend"),
     false,
     "no lerp without r_lerpmodels",
+  );
+  // the skin is lit by the vertex colour on encoded values, in place of
+  // three's linear color_fragment
+  assertEqual(
+    shader.fragmentShader.includes("#include <color_fragment>"),
+    false,
+    "color_fragment replaced",
+  );
+  assertEqual(
+    shader.fragmentShader.includes(
+      "sRGBTransferOETF( vec4( diffuseColor.rgb, 1.0 ) ).rgb * vColor.rgb",
+    ),
+    true,
+    "encoded modulate",
   );
   // the lit skin is clamped before the fullbright pixels are mixed in
   const clampAt = shader.fragmentShader.indexOf("min( outgoingLight");
@@ -196,14 +211,16 @@ Deno.test("alias materials draw the fullbright mask and keep it when cloned", ()
   const plainShader = {
     uniforms: {},
     vertexShader: "",
-    fragmentShader: "#include <opaque_fragment>",
+    fragmentShader: "#include <color_fragment>\n#include <opaque_fragment>",
   };
   plainMaterial.onBeforeCompile(plainShader);
-  // only the clamp to 1 that gl_overbright_models needs (QuakeSpasm, Ironwail)
+  // only the encoded-space modulate (GLQuake's GL_MODULATE) and the clamp to
+  // 1 that gl_overbright_models needs (QuakeSpasm, Ironwail)
   assertEqual(
     plainShader.fragmentShader,
-    "outgoingLight = min( outgoingLight, vec3( 1.0 ) );\n\t#include <opaque_fragment>",
-    "plain shader only clamped",
+    gl_mesh.ALIAS_MODULATE_GLSL +
+      "\noutgoingLight = min( outgoingLight, vec3( 1.0 ) );\n\t#include <opaque_fragment>",
+    "plain shader only modulated and clamped",
   );
   if (
     plainMaterial.customProgramCacheKey() === material.customProgramCacheKey()
@@ -220,7 +237,7 @@ Deno.test("a new fullbright map reaches the compiled uniform", () => {
   const shader = {
     uniforms: {},
     vertexShader: "",
-    fragmentShader: "#include <opaque_fragment>",
+    fragmentShader: R183_MESHBASIC_FRAGMENT,
   };
   material.onBeforeCompile(shader);
   material.fullbrightMap = b;

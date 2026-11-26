@@ -57,6 +57,7 @@ import { renderer } from "./vid.js";
 import { r_refdef as _r_refdef_canonical } from "./render.js";
 import { r_framecount } from "./glquake.js";
 import { R_WarpScreen, R_WaterWarp_Init } from "./gl_screenwarp.js";
+import { R_GammaCorrect } from "./gl_gamma.js";
 import { GL_ContextLoss_Init, GL_ContextLost } from "./gl_contextloss.js";
 
 // GL SCREEN STATE
@@ -1169,6 +1170,9 @@ export function SCR_UpdateScreen() {
 
   // Fitz/QS r_waterwarp 1: warp the 3D view while underwater
   R_WarpScreen(_cl.time);
+
+  // QuakeSpasm GLSLGamma_GammaCorrect: gamma and contrast on the finished view
+  R_GammaCorrect();
 
   GL_Set2D();
 

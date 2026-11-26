@@ -10,6 +10,7 @@ import {
   gl_doubleeyes,
   gl_nocolors,
   gl_overbright_models,
+  GL_PatchShader,
   GL_RegisterCullMaterial,
 } from "./glquake.js";
 import { r_avertexnormals } from "./anorm_dots.js";
@@ -736,6 +737,13 @@ export function R_SetupEntityTransform(e, lerpdata) {
  * model's depth-hack copy in gl_rmain.js) keeps them; copy() carries the map
  * and the r_lerpmodels blend.
  */
+export const ALIAS_MODULATE_GLSL = [
+  "#if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )",
+  "\tdiffuseColor.rgb = sRGBTransferEOTF( vec4( sRGBTransferOETF( vec4( diffuseColor.rgb, 1.0 ) ).rgb * vColor.rgb, 1.0 ) ).rgb;",
+  "\tdiffuseColor.a *= vColor.a;",
+  "#endif",
+].join("\n");
+
 export class AliasMaterial extends THREE.MeshBasicMaterial {
   constructor(parameters) {
     super(parameters);
@@ -765,9 +773,20 @@ export class AliasMaterial extends THREE.MeshBasicMaterial {
         );
     }
 
+    // GLQuake's GL_MODULATE multiplies the skin by the vertex colour on the
+    // gamma-encoded values, with no colour management: the vertex colour is
+    // display-space light (GL_AliasLight), so the skin is re-encoded for the
+    // product and decoded again for Three's sRGB output.
+    shader.fragmentShader = GL_PatchShader(
+      shader.fragmentShader,
+      "#include <color_fragment>",
+      ALIAS_MODULATE_GLSL,
+    );
+
     // QuakeSpasm and Ironwail clamp the lit skin to 1 before fog. Without
     // gl_overbright_models nothing here goes over 1.
-    shader.fragmentShader = shader.fragmentShader.replace(
+    shader.fragmentShader = GL_PatchShader(
+      shader.fragmentShader,
       "#include <opaque_fragment>",
       "outgoingLight = min( outgoingLight, vec3( 1.0 ) );\n\t#include <opaque_fragment>",
     );
@@ -1001,27 +1020,16 @@ const _DEG2RAD = Math.PI / 180;
 // Caches geometry per (model, pose), materials per (model, skin),
 // and reuses mesh objects per entity to minimize per-frame allocations.
 
-// sRGB decode of a display-space light level, clamped as glColor3f clamps.
-// GL keeps vertex colours at 8 bits per channel, so a 256-entry table is
-// exact enough and keeps Math.pow out of the per-vertex loop.
-// gl_overbright_models doubles the clamped level in display space, as
-// Ironwail's alias vertex shader does (clamp, then ldexp by 1), and decodes
-// that with the sRGB curve extended past 1: Three's vertex colours are floats.
-const _linearLight = new Float32Array(256);
-const _linearLightOverbright = new Float32Array(256);
-function _decodeLight(l) {
-  return l <= 0.04045 ? l / 12.92 : Math.pow((l + 0.055) / 1.055, 2.4);
-}
-for (let i = 0; i < 256; i++) {
-  _linearLight[i] = _decodeLight(i / 255);
-  _linearLightOverbright[i] = _decodeLight(2 * i / 255);
-}
-
-export function GL_LinearLight(l, overbright = false) {
-  const table = overbright === true ? _linearLightOverbright : _linearLight;
+/**
+ * A vertex's light level as glColor3f takes it: display-space, clamped to
+ * [0, 1]. AliasMaterial multiplies it into the skin on encoded values.
+ * gl_overbright_models doubles the clamped level, as Ironwail's alias vertex
+ * shader does (clamp, then ldexp by 1): Three's vertex colours are floats.
+ */
+export function GL_AliasLight(l, overbright = false) {
   if (!(l > 0)) return 0;
-  if (l >= 1) return table[255];
-  return table[(l * 255 + 0.5) | 0];
+  const c = l >= 1 ? 1 : l;
+  return overbright === true ? 2 * c : c;
 }
 
 /**
@@ -1039,17 +1047,17 @@ function R_NewAliasColorAttribute(array) {
 
 // shadecolor: r, g and b of the shade (gl_rmain.js R_SetupAliasLighting,
 // QuakeSpasm's lightcolor), already scaled by 1/200.
-// One vertex's colour: dot times each channel of the shade, decoded to linear.
+// One vertex's colour: dot times each channel of the shade (GL_AliasLight).
 function R_AliasSetVertexColor(colorArr, i, dot, r, g, b, mono, overbright) {
   if (mono) {
-    const l = GL_LinearLight(dot * r, overbright);
+    const l = GL_AliasLight(dot * r, overbright);
     colorArr[i * 3] = l;
     colorArr[i * 3 + 1] = l;
     colorArr[i * 3 + 2] = l;
   } else {
-    colorArr[i * 3] = GL_LinearLight(dot * r, overbright);
-    colorArr[i * 3 + 1] = GL_LinearLight(dot * g, overbright);
-    colorArr[i * 3 + 2] = GL_LinearLight(dot * b, overbright);
+    colorArr[i * 3] = GL_AliasLight(dot * r, overbright);
+    colorArr[i * 3 + 1] = GL_AliasLight(dot * g, overbright);
+    colorArr[i * 3 + 2] = GL_AliasLight(dot * b, overbright);
   }
 }
 

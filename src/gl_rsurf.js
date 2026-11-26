@@ -4,7 +4,7 @@
 // Ironwail Quake/gl_shaders.h keeps on always.
 
 import * as THREE from "three";
-import { GL_RegisterCullMaterial } from "./glquake.js";
+import { GL_PatchShader, GL_RegisterCullMaterial } from "./glquake.js";
 import { Sys_Error } from "./sys.js";
 import { Fog_PatchSkyShader } from "./gl_fog.js";
 import { Sky_GetSkyBox } from "./gl_sky.js";
@@ -26,47 +26,73 @@ const _lightmapOnly = { value: 0 };
 const _lightmapScale = { value: 1 };
 
 /**
- * The lightmap's texels are display-space light (decoded as sRGB for the linear
- * Lambert sum, see LIGHTMAP_INTENSITY), and the C doubles display-space light.
- * So the scale applies to the re-encoded texel, which is then decoded again (the
- * curve is extended past 1). With a scale of 1 this is today's lightMapIrradiance,
- * so the correction added after Three's lights_fragment_maps is skipped.
- * QuakeSpasm then clamps texture times light plus fullbright to 1 before fog.
- * Only the overbright path clamps here, so gl_overbright 0 renders as before.
+ * GLQuake modulates the texture by the lightmap on the gamma-encoded colours
+ * the card holds (GL_MODULATE, or R_BlendLightmaps' blend), with no colour
+ * management. Three's Lambert shading would decode both from sRGB and multiply
+ * in linear light, which leaves dim light at about a third of GLQuake's. So
+ * the patch lights a white surface, so that Three's sums hold the light alone,
+ * and does the C's sum itself on the encoded values:
+ * - the lightmap texel is the raw lightmap byte (NoColorSpace, see
+ *   GL_BuildLightmaps), and replaces Three's lightmap irradiance;
+ * - the PointLights' sum on white is display-space light in the same units
+ *   (gl_rlight.js R_DlightIntensity), as R_AddDynamicLights adds dlights to
+ *   the lightmap's blocklights;
+ * - their sum is clamped where R_BuildLightMap clamps the byte (255), then
+ *   doubled for gl_overbright;
+ * - texture times light, plus the fullbright texel, is clamped to 1 as the
+ *   framebuffer (and QuakeSpasm's world shader) clamps;
+ * - the result is decoded once, so that Three's sRGB output gives it back.
+ * The diffuse texture stays sRGB for the other materials that share it, so
+ * it is re-encoded here and filtered in linear light (a small difference at
+ * texel edges only).
  */
-const LIGHTMAP_SCALE_GLSL = [
-  "#include <lights_fragment_maps>",
-  "#if defined( RE_IndirectDiffuse ) && defined( USE_LIGHTMAP )",
-  "\tif ( quakeLightmapScale != 1.0 ) {",
-  "\t\tvec3 quakeLightmap = sRGBTransferOETF( lightMapTexel ).rgb * quakeLightmapScale;",
-  "\t\tirradiance += sRGBTransferEOTF( vec4( quakeLightmap, 1.0 ) ).rgb * lightMapIntensity - lightMapIrradiance;",
-  "\t}",
+const LIGHTMAP_TEXEL_GLSL = [
+  "#ifdef USE_LIGHTMAP",
+  "\tvec3 quakeLightmap = texture2D( lightMap, vLightMapUv ).rgb;",
+  "#else",
+  "\tvec3 quakeLightmap = vec3( 0.0 );",
   "#endif",
 ].join("\n");
 
-const LIGHTMAP_CLAMP_GLSL = [
-  "\tif ( quakeLightmapScale != 1.0 ) outgoingLight = min( outgoingLight, vec3( 1.0 ) );",
+const LIGHTMAP_MODULATE_GLSL = [
+  "\tvec3 quakeLight = min( quakeLightmap + ( reflectedLight.directDiffuse + reflectedLight.indirectDiffuse ) / quakeLightmapScale, vec3( 1.0 ) ) * quakeLightmapScale;",
+  "\tvec3 quakeColor = quakeTexel * quakeLight + sRGBTransferOETF( vec4( totalEmissiveRadiance, 1.0 ) ).rgb;",
+  "\toutgoingLight = sRGBTransferEOTF( vec4( min( quakeColor, vec3( 1.0 ) ), 1.0 ) ).rgb;",
   "#include <opaque_fragment>",
 ].join("\n");
 
 export function R_PatchLightmapShader(shader) {
   shader.uniforms.quakeLightmapOnly = _lightmapOnly;
   shader.uniforms.quakeLightmapScale = _lightmapScale;
-  shader.fragmentShader = shader.fragmentShader
-    .replace(
-      "uniform vec3 emissive;",
-      "uniform vec3 emissive;\nuniform float quakeLightmapOnly;\nuniform float quakeLightmapScale;",
-    )
-    .replace(
-      "#include <map_fragment>",
-      "#include <map_fragment>\n\tdiffuseColor.rgb = mix( diffuseColor.rgb, vec3( 1.0 ), quakeLightmapOnly );",
-    )
-    .replace(
-      "#include <emissivemap_fragment>",
-      "#include <emissivemap_fragment>\n\ttotalEmissiveRadiance *= 1.0 - quakeLightmapOnly;",
-    )
-    .replace("#include <lights_fragment_maps>", LIGHTMAP_SCALE_GLSL)
-    .replace("#include <opaque_fragment>", LIGHTMAP_CLAMP_GLSL);
+  let fs = shader.fragmentShader;
+  fs = GL_PatchShader(
+    fs,
+    "uniform vec3 emissive;",
+    "uniform vec3 emissive;\nuniform float quakeLightmapOnly;\nuniform float quakeLightmapScale;",
+  );
+  // the encoded texel, or white for r_lightmap
+  fs = GL_PatchShader(
+    fs,
+    "#include <map_fragment>",
+    "#include <map_fragment>\n\tvec3 quakeTexel = mix( sRGBTransferOETF( vec4( diffuseColor.rgb, 1.0 ) ).rgb, vec3( 1.0 ), quakeLightmapOnly );",
+  );
+  fs = GL_PatchShader(
+    fs,
+    "#include <emissivemap_fragment>",
+    "#include <emissivemap_fragment>\n\ttotalEmissiveRadiance *= 1.0 - quakeLightmapOnly;",
+  );
+  fs = GL_PatchShader(
+    fs,
+    "#include <lights_lambert_fragment>",
+    "#include <lights_lambert_fragment>\n\tmaterial.diffuseColor = vec3( 1.0 );",
+  );
+  fs = GL_PatchShader(
+    fs,
+    "#include <lights_fragment_maps>",
+    LIGHTMAP_TEXEL_GLSL,
+  );
+  fs = GL_PatchShader(fs, "#include <opaque_fragment>", LIGHTMAP_MODULATE_GLSL);
+  shader.fragmentShader = fs;
 }
 
 function R_LightmapProgramKey() {
@@ -316,7 +342,6 @@ function createQuakeLightmapMaterial(
   const matOptions = {
     map: diffuseMap,
     lightMap: lightmapTex,
-    lightMapIntensity: LIGHTMAP_INTENSITY,
     alphaTest: R_SurfaceAlphaTest(diffuseMap),
   };
 
@@ -413,7 +438,7 @@ import {
 } from "./gl_model.js";
 import { COM_Parse, com_token } from "./common.js";
 import { realtime } from "./host.js";
-import { gl_overbright, LIGHTMAP_INTENSITY } from "./glquake.js";
+import { gl_overbright } from "./glquake.js";
 import { MAX_MODELS } from "./quakedef.js";
 import { R_MirrorGate } from "./gl_rmirror.js";
 import { isXRActive } from "./webxr.js";
@@ -3510,8 +3535,9 @@ export function GL_BuildLightmaps() {
     texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
     texture.flipY = false;
-    // GLQuake's lightmap scales display-space colour; see LIGHTMAP_INTENSITY.
-    texture.colorSpace = THREE.SRGBColorSpace;
+    // The raw lightmap byte: R_PatchLightmapShader modulates on encoded
+    // values, as GLQuake does
+    texture.colorSpace = THREE.NoColorSpace;
     texture.needsUpdate = true;
 
     lightmapTextures[i] = texture;

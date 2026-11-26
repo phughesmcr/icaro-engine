@@ -1617,9 +1617,9 @@ export function R_PolyBlend() {
     polyBlendCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
     const geometry = new THREE.PlaneGeometry(2, 2);
-    // toneMapped: false keeps the blend out of the gamma exposure, like
-    // GLQuake, where gamma is baked into textures and R_PolyBlend's
-    // glColor4fv( v_blend ) is drawn as is.
+    // toneMapped: false draws R_PolyBlend's glColor4fv( v_blend ) as is, as
+    // GLQuake does. (The exposure is 1 anyway: the gamma cvar is gl_gamma.js's
+    // pass, which runs after the blend, as QuakeSpasm's does.)
     const material = new THREE.MeshBasicMaterial({
       transparent: true,
       depthTest: false,

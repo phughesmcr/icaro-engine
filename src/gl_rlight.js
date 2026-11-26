@@ -6,7 +6,6 @@ import { MAX_LIGHTSTYLES } from "./quakedef.js";
 import {
   d_lightstylevalue,
   gl_flashblend,
-  LIGHTMAP_INTENSITY,
   MAXLIGHTMAPS,
   r_framecount,
   v_blend,
@@ -107,13 +106,17 @@ export const lightcolor = new Float32Array(3);
 const _dlightPool = [];
 
 // The PointLights' colour for an uncoloured (white) dlight, standing in for
-// the orange of GLQuake's flashblend corona
+// the orange of GLQuake's flashblend corona. Display-space, as every dlight
+// colour here: R_PatchLightmapShader (gl_rsurf.js) adds the PointLights to
+// the lightmap on encoded values, so colours are set without the sRGB decode
+// (LinearSRGBColorSpace is three.js's "as is").
 const DLIGHT_FLASHBLEND_COLOR = 0xffaa44;
 
 function _getDlight(index) {
   if (_dlightPool[index] != null) return _dlightPool[index];
 
   const light = new THREE.PointLight(DLIGHT_FLASHBLEND_COLOR, 1, 300, 0);
+  light.color.setHex(DLIGHT_FLASHBLEND_COLOR, THREE.LinearSRGBColorSpace);
   _dlightPool[index] = light;
   return light;
 }
@@ -122,21 +125,23 @@ function _getDlight(index) {
  * Brightness of a dynamic light, matched to the gl_flashblend 0 lightmap path.
  *
  * R_AddDynamicLights adds ( rad - dist ) light units to a texel. R_BuildLightMap
- * turns L units into a lightmap byte of 2L (blocklights >> 7), and the world
- * material reads the lightmap with lightMapIntensity LIGHTMAP_INTENSITY, so one
- * Quake light unit is 2 * LIGHTMAP_INTENSITY / 255 of Three.js irradiance. (The
- * lightmap is decoded as sRGB and a PointLight adds linear irradiance, so this
- * matches at full brightness and is only approximate below it.)
+ * turns L units into a lightmap byte of 2L (blocklights >> 7), so one Quake
+ * light unit is 2 / 255 of the lightmap's display-space light. The world shader
+ * (gl_rsurf.js R_PatchLightmapShader) adds the PointLights' sum on a white
+ * surface to the lightmap texel as is, and Three's Lambert divides a light's
+ * intensity by PI (BRDF_Lambert), so one unit is 2 * PI / 255 of intensity.
+ * (With gl_overbright the lightmap holds half the light and the shader halves
+ * the dlights to match before the clamp and the doubling.)
  *
  * Three.js has no linear falloff. With decay 0 a PointLight gives
  * intensity * ( 1 - ( d / distance )^4 )^2. Setting distance to the light's
  * reach and matching the light delivered over the lit disc,
  * 	∫ ( 1 - x ) x dx = 1/6  against  ∫ ( 1 - x^4 )^2 x dx = 4/15,
- * gives intensity = radius * 2 * LIGHTMAP_INTENSITY / 255 * ( 1/6 ) / ( 4/15 ).
+ * gives intensity = radius * 2 * PI / 255 * ( 1/6 ) / ( 4/15 ).
  * The radius already shrinks by dl.decay in CL_DecayLights, which is the only
  * fade C has; how long the light has left to live plays no part.
  */
-const DLIGHT_IRRADIANCE_PER_UNIT = 2 * LIGHTMAP_INTENSITY / 255;
+const DLIGHT_IRRADIANCE_PER_UNIT = 2 * Math.PI / 255;
 const DLIGHT_WINDOW_FIT = (1 / 6) / (4 / 15);
 
 export function R_DlightIntensity(light) {
@@ -170,9 +175,17 @@ export function R_RenderDlight(light, dlightIndex) {
   // its own colour; a white one keeps the flashblend orange
   const color = light.color;
   if (color[0] === 1 && color[1] === 1 && color[2] === 1) {
-    pointLight.color.setHex(DLIGHT_FLASHBLEND_COLOR);
+    pointLight.color.setHex(
+      DLIGHT_FLASHBLEND_COLOR,
+      THREE.LinearSRGBColorSpace,
+    );
   } else {
-    pointLight.color.setRGB(color[0], color[1], color[2], THREE.SRGBColorSpace);
+    pointLight.color.setRGB(
+      color[0],
+      color[1],
+      color[2],
+      THREE.LinearSRGBColorSpace,
+    );
   }
 
   // Brightness comes from the radius only (see R_DlightIntensity)
