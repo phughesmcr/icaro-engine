@@ -2313,6 +2313,14 @@ const touchItems = [
     step: 0.1,
   },
   { label: "             Vibration", cvar: "touch_haptics" },
+  // Web-only: the autoaim cone of this browser's own server (touch.js)
+  {
+    label: "            Aim Assist",
+    cvar: "touch_aimassist",
+    min: 0,
+    max: 4,
+    step: 1,
+  },
 ];
 const TOUCH_ITEMS = touchItems.length;
 const TOUCH_TOP = 48;

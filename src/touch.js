@@ -37,12 +37,20 @@ import {
 } from "./quakedef.js";
 import { S_UnlockAudio } from "./snd_dma.js";
 import { VID_IsTouchPrimary } from "./vid.js";
-import { Cvar_RegisterVariable, cvar_t } from "./cvar.js";
+import {
+  Cvar_FindVar,
+  Cvar_RegisterVariable,
+  Cvar_SetValue,
+  cvar_t,
+} from "./cvar.js";
 import { Cbuf_AddText } from "./cmd.js";
 import { Con_SetNotifyTop } from "./console.js";
 
 // CVARS (archived, set from the Touch Controls menu)
 
+// Web-only: how wide the server's autoaim cone is, 0 (off) to 4. See
+// Touch_AimAssistFrame.
+export const touch_aimassist = new cvar_t("touch_aimassist", "2", true);
 export const touch_sensitivity = new cvar_t("touch_sensitivity", "1", true); // drag look speed
 export const touch_gyro = new cvar_t("touch_gyro", "0", true); // gyro aiming on/off
 export const touch_gyro_sensitivity = new cvar_t(
@@ -56,6 +64,7 @@ export const touch_lefthanded = new cvar_t("touch_lefthanded", "0", true); // mi
 export const touch_haptics = new cvar_t("touch_haptics", "1", true); // vibrate on button press (Android)
 
 export function Touch_RegisterCvars() {
+  Cvar_RegisterVariable(touch_aimassist);
   Cvar_RegisterVariable(touch_sensitivity);
   Cvar_RegisterVariable(touch_gyro);
   Cvar_RegisterVariable(touch_gyro_sensitivity);
@@ -1542,6 +1551,8 @@ function Gyro_Stop() {
 export function Touch_Frame() {
   if (!initialized) return;
 
+  Touch_AimAssistFrame();
+
   const key = touch_size.string + "|" + touch_opacity.string + "|" +
     touch_lefthanded.string;
   if (key !== layoutKey) Touch_Layout();
@@ -1549,6 +1560,48 @@ export function Touch_Frame() {
   if ((touch_gyro.value !== 0) !== gyroListening) Gyro_Update(false);
 
   Touch_UpdateBar();
+}
+
+// AIM ASSIST
+//
+// Web-only, no C counterpart. Touch aiming is coarse, so touch_aimassist
+// widens or narrows the cone PF_aim searches for a target, by setting the
+// server's sv_aim (the cosine of the cone's half-angle). PF_aim is unchanged:
+// it keeps the view's heading and only takes the target's height, so a wider
+// cone helps with vertical aim. Only the browser's own server reads sv_aim
+// (single player and games this browser hosts, where it applies to every
+// player); an online room runs its own.
+
+// sv_aim for each level, about 0, 14, 22, 30 and 37 degrees each side;
+// level 2 is Quake's default
+const AIM_ASSIST_CONES = [1, 0.97, 0.93, 0.87, 0.8];
+const AIM_ASSIST_DEFAULT = 2;
+
+// The level last written to sv_aim. Starting at the default means a player
+// who never moves the slider keeps sv_aim as the console or a config set it,
+// and a saved level other than the default is applied on the first frame.
+let aimAssistApplied = AIM_ASSIST_DEFAULT;
+
+/** touch_aimassist's value as a level, rounded and clamped */
+export function Touch_AimAssistLevel(v) {
+  const level = Math.round(v);
+  if (level < 0) return 0;
+  if (level >= AIM_ASSIST_CONES.length) return AIM_ASSIST_CONES.length - 1;
+  return level;
+}
+
+/** sv_aim for a touch_aimassist level */
+export function Touch_AimAssistCone(level) {
+  return AIM_ASSIST_CONES[Touch_AimAssistLevel(level)];
+}
+
+/** Writes sv_aim when touch_aimassist changes (from the menu or the console) */
+export function Touch_AimAssistFrame() {
+  const level = Touch_AimAssistLevel(touch_aimassist.value);
+  if (level === aimAssistApplied) return;
+  if (Cvar_FindVar("sv_aim") === null) return;
+  aimAssistApplied = level;
+  Cvar_SetValue("sv_aim", AIM_ASSIST_CONES[level]);
 }
 
 /**
