@@ -730,10 +730,6 @@ export function Draw_TransPicTranslate(x, y, pic, translation) {
 }
 
 /**
- * gl_draw.c: opaque below three quarters of the screen, otherwise blended
- * with alpha 1.2 * lines / y (GL clamps it to 1).
- */
-/**
  * FitzQuake/Ironwail (johnfitz): the console background's alpha, 1 while the
  * console is forced up. Deviation: Ironwail defaults it to 0.5; the default
  * here, -1 (any value below 0), keeps id's fade by console height, which no
@@ -746,6 +742,11 @@ export const scr_conalpha = {
   archive: true,
 };
 
+/**
+ * gl_draw.c: opaque below three quarters of the screen, otherwise blended
+ * with alpha 1.2 * lines / y (GL clamps it to 1). scr_conalpha 0 or more
+ * uses Ironwail's alpha instead.
+ */
 export function Draw_ConsoleBackground(lines) {
   if (!overlayCtx) return;
 

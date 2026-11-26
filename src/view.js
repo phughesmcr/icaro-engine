@@ -930,16 +930,17 @@ export function V_CalcRefdef() {
 
   // fudge position around to keep amount of weapon visible
   // roughly equal with different FOV
-  if (r_viewmodel_quake.value === 0) {
-    // QuakeSpasm: r_viewmodel_quake 0 skips the fudge
-  } else if (scr_viewsize.value === 110) {
-    view.origin[2] += 1;
-  } else if (scr_viewsize.value === 100) {
-    view.origin[2] += 2;
-  } else if (scr_viewsize.value === 90) {
-    view.origin[2] += 1;
-  } else if (scr_viewsize.value === 80) {
-    view.origin[2] += 0.5;
+  // (MarkV, in QuakeSpasm: only while r_viewmodel_quake is set)
+  if (r_viewmodel_quake.value !== 0) {
+    if (scr_viewsize.value === 110) {
+      view.origin[2] += 1;
+    } else if (scr_viewsize.value === 100) {
+      view.origin[2] += 2;
+    } else if (scr_viewsize.value === 90) {
+      view.origin[2] += 1;
+    } else if (scr_viewsize.value === 80) {
+      view.origin[2] += 0.5;
+    }
   }
 
   view.model = cl.model_precache[cl.stats[STAT_WEAPON]];
