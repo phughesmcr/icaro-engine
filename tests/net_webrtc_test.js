@@ -99,7 +99,13 @@ assertEqual( rtc.RTC_Init(), 0, 'RTC_Init' );
 delete globalThis.window;
 assert( typeof pageHandlers.pagehide === 'function', 'pagehide handler registered' );
 
-const TIMEOUTS = { connectMs: 1500, handshakeMs: 300, pendingAcceptMs: 400, closeFlushMs: 300 };
+// The handshake and pending-accept timers run from the offer and the hello, so
+// a slow CI runner can stall past a short one and drop a joiner a test is
+// still talking to. They stay long here; the two tests that wait for them
+// set short ones (teardown restores these, so keep every key).
+const TIMEOUTS = { connectMs: 1500, handshakeMs: 5000, pendingAcceptMs: 5000, closeFlushMs: 300 };
+const SHORT_HANDSHAKE_MS = 300;
+const SHORT_PENDING_ACCEPT_MS = 400;
 rtc.RTC_SetTimeouts( TIMEOUTS );
 
 const ROOM = 'ROOM1';
@@ -537,6 +543,8 @@ Deno.test( 'RTC: a joiner that never says hello is dropped at the handshake time
 	const teardown = setup();
 	try {
 
+		rtc.RTC_SetTimeouts( { handshakeMs: SHORT_HANDSHAKE_MS } );
+
 		const lobby = makeLobby( { relay: false } );
 		rtc.RTC_SetSignaller( lobby );
 
@@ -561,6 +569,8 @@ Deno.test( 'RTC: a hello the server never accepts is freed after the pending tim
 
 	const teardown = setup();
 	try {
+
+		rtc.RTC_SetTimeouts( { pendingAcceptMs: SHORT_PENDING_ACCEPT_MS } );
 
 		const lobby = makeLobby( { relay: false } );
 		rtc.RTC_SetSignaller( lobby );

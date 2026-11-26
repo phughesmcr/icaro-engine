@@ -7,7 +7,9 @@
 // ends open. Messages are delivered after a small delay. send() copies the
 // bytes at call time, as browsers do. Tests can drop or delay the next
 // messages on a channel (dropNext, extraDelayMs) and set bufferedAmount.
-// close() on a channel closes both ends after the messages in flight; close()
+// close() on a channel closes both ends after the messages in flight, in
+// either direction: it delivers them first rather than trusting timer order,
+// since a 1 ms timer can fire after a 2 ms one set later under load. close()
 // on a peer connection closes its channels without local events, and the
 // remote ends see their channels close.
 
@@ -36,6 +38,7 @@ export class FakeRTCDataChannel {
 		this.dropNext = 0; // drop this many of the next sends
 		this.extraDelayMs = 0; // added to each delivery while set
 		this.sendError = null; // thrown by send() while set
+		this.inFlight = new Set(); // deliveries not yet run, in send order
 
 	}
 
@@ -68,13 +71,29 @@ export class FakeRTCDataChannel {
 
 		const peer = this.peer;
 		if ( peer === null ) return;
-		setTimeout( () => {
+		const delivery = { timer: 0, run: null };
+		delivery.run = () => {
 
+			this.inFlight.delete( delivery );
 			// Messages in flight still arrive while the remote end closes
 			if ( peer.readyState === 'closed' || peer.readyState === 'connecting' ) return;
 			if ( peer.onmessage !== null ) peer.onmessage( { data: copy } );
 
-		}, this.delayMs + this.extraDelayMs );
+		};
+		delivery.timer = setTimeout( delivery.run, this.delayMs + this.extraDelayMs );
+		this.inFlight.add( delivery );
+
+	}
+
+	// Run the deliveries still in flight now, in send order
+	_deliverInFlight() {
+
+		for ( const delivery of this.inFlight ) {
+
+			clearTimeout( delivery.timer );
+			delivery.run();
+
+		}
 
 	}
 
@@ -86,6 +105,8 @@ export class FakeRTCDataChannel {
 		const peer = this.peer;
 		setTimeout( () => {
 
+			this._deliverInFlight();
+			if ( peer !== null ) peer._deliverInFlight();
 			this._closed();
 			if ( peer !== null ) peer._closed();
 
