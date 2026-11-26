@@ -40,4 +40,4 @@ feature PR (see AGENTS.md, Git workflow).
 - `style-cleanup-plan.md`: plan to adopt `deno fmt`
   (two-space indent, 80 columns) and collapse the C-style comment banners,
   with trial results, tiers, neutrality checks and how open PRs catch up.
-  The style rules in AGENTS.md apply until it lands.
+  Its status line says which tiers are done.

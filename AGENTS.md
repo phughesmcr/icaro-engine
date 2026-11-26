@@ -91,8 +91,9 @@ process per room. It was forked from mrdoob's three-quake.
 
 ## Commands
 
-- `deno task ci` runs what CI's main job runs: `deno task test`,
-  `deno task lint` and `deno task check`. Run it before calling work done.
+- `deno task ci` runs what CI's main job runs: `deno fmt --check`,
+  `deno task test`, `deno task lint` and `deno task check`. Run it before
+  calling work done.
   CI's second job is `deno task image-check` (needs Docker).
 - `deno task test`: the whole suite (about 30 s). Its permissions are
   scoped: no network, env limited to the `FAKE_ROOM_*` variables, and run
@@ -123,7 +124,7 @@ process per room. It was forked from mrdoob's three-quake.
   in the page.
 - CI (`.github/workflows/ci.yml`) runs on PRs to `dev` and `main` and on
   pushes to them: a check that no pak but `static/pak0.pak` is tracked, then
-  test, lint and check, on the Deno version pinned in `.tool-versions`, and,
+  `deno fmt --check`, test, lint and check, on the Deno version pinned in `.tool-versions`, and,
   in a second job, `tools/check_container_image.sh`. The Dockerfile pins the
   same Deno version: bump both together (`tests/deno_version_pin_test.js`
   fails if they differ). Actions are
