@@ -130,7 +130,7 @@ Deno.test("parseCreateConfig validates LOBBY_CREATE payloads (SRV-2, SRV-3)", ()
     },
   );
   assert.deepEqual(parse({}), {
-    map: "rapture1",
+    map: "start",
     maxPlayers: undefined,
     hostName: "Player",
   });

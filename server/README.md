@@ -555,8 +555,7 @@ data (`static/pak1.pak`, `hipnotic/`, `rogue/`, `rerelease/`, `id1/`, `mg1/` and
 the other add-ons) must never reach an image or a registry. The root
 `.dockerignore` is a second guard: it excludes everything but the allowlist,
 then every `.pak` but `static/pak0.pak`, and TLS and env files. Keep both when
-you change either. The custom maps in `static/maps/` are not in the image, so a
-room can only start on maps in `pak0.pak`.
+you change either. A room can only start on maps in `pak0.pak`.
 
 The entry point is `deno run` on
 `server/game_server.js -pak /app/static/pak0.pak`, as the unprivileged `deno`

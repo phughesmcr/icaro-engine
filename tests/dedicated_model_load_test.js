@@ -7,7 +7,9 @@
 await import("../src/gl_rsurf.js");
 const gl_model = await import("../src/gl_model.js");
 const { cls, ca_dedicated } = await import("../src/client.js");
-const { COM_AddPack } = await import("../src/pak.js");
+const { COM_AddPack, COM_AddPakSequence, COM_FindFile } = await import(
+  "../src/pak.js"
+);
 
 function assertEqual(actual, expected, message) {
   if (actual !== expected) {
@@ -107,11 +109,14 @@ Deno.test("an alias model loads what the server reads in both modes, and drawing
   );
 });
 
-// A real map: the loose deathmatch map beside the shareware pak
+// A real map with water: e1m1 from the shareware pak
 Deno.test("a brush model keeps its hulls and extents in both modes, and warp polygons only for a client", async () => {
-  const bytes = await Deno.readFile(
-    new URL("../static/maps/edc.bsp", import.meta.url),
+  await COM_AddPakSequence(
+    new URL("../static/pak0.pak", import.meta.url).pathname,
   );
+  const found = COM_FindFile("maps/e1m1.bsp");
+  if (found === null) throw new Error("maps/e1m1.bsp not in pak0");
+  const bytes = found.data.slice();
   const old = cls.state;
   const results = [];
   try {
