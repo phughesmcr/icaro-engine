@@ -14,8 +14,9 @@
 //   it is answered here: 200, or a 206 cut from the whole copy. A track
 //   is cached once played, so one never played has no offline music.
 //   Exception: a page that was open before the worker controlled it (a first
-//   visit) is network first until it is reloaded, because its music may
-//   already be loading straight from the server (see SW_Music).
+//   visit), or while a worker without a music cache did, is network first
+//   until it is reloaded, because its music may already be loading with the
+//   server's own responses (see SW_Music).
 //   A track is not stored if it is larger than MUSIC_MAX_BYTES or would leave
 //   less than MUSIC_RESERVE_BYTES of the storage quota free; it still streams.
 //   A rip replaced under the same name stays cached until the site's data is
@@ -35,7 +36,8 @@
 // On install it fetches the shell and pak0. The first page load runs before
 // this worker controls it, so once the page has loaded it posts the URLs it
 // fetched (main.js, src/*.js, three's files) and the worker caches those
-// too. No file list is kept here, so new modules need no change to this file.
+// too, music last. No file list is kept here, so new modules need no change to
+// this file.
 //
 // Bump CACHE_NAME to drop everything cached by an older worker. Bump it
 // whenever static/pak0.pak changes: it is cache first under the same URL, so
@@ -306,32 +308,39 @@ async function SW_FetchTrack(url) {
   }
 
   const length = response.headers.get("content-length");
-  if (length !== null && !await SW_MusicFits(Number(length))) {
-    await response.body?.cancel();
+  if (length !== null) {
+    if (await SW_MusicFits(Number(length))) {
+      await putIfOk(cache, url, response);
+    } else {
+      unfitTracks.add(url);
+      await response.body?.cancel();
+    }
+
     return;
   }
 
-  if (length === null) {
-    const blob = await response.blob();
-    if (!await SW_MusicFits(blob.size)) return;
-    await putIfOk(
-      cache,
-      url,
-      new Response(blob, { headers: response.headers }),
-    );
+  // the size is known only once the body has arrived
+  const blob = await response.blob();
+  if (!await SW_MusicFits(blob.size)) {
+    unfitTracks.add(url);
     return;
   }
 
-  await putIfOk(cache, url, response);
+  await putIfOk(cache, url, new Response(blob, { headers: response.headers }));
 }
 
 // url -> the fetch in progress: a media element sends several requests for
 // one track
 const trackFetches = new Map();
+// Tracks that didn't fit, not fetched again until the worker restarts: without
+// a Content-Length, finding that out downloads the whole file
+const unfitTracks = new Set();
 
 // Store a whole track. Never rejects: a track that can't be stored (offline,
 // over quota) is tried again the next time it is requested.
 function SW_CacheTrack(url) {
+  if (unfitTracks.has(url)) return Promise.resolve();
+
   let pending = trackFetches.get(url);
   if (pending === undefined) {
     pending = SW_FetchTrack(url)
@@ -343,34 +352,40 @@ function SW_CacheTrack(url) {
   return pending;
 }
 
-// The pages that were open and uncontrolled when a worker claimed them, as a
+// The pages whose music may be loading with the network's own responses, as a
 // list of client ids. Kept in the music cache: the browser stops idle workers,
 // and a CACHE_NAME bump must not forget it.
 const CLAIMED_KEY = "sw-claimed-pages";
 let claimedPages = null; // Promise<Set<string>>
 
+// null if no list has been saved
 async function SW_ReadClaimedPages() {
   const cache = await caches.open(MUSIC_CACHE_NAME);
   const saved = await cache.match(new URL(CLAIMED_KEY, scopeURL()).href);
-  return new Set(saved === undefined ? [] : await saved.json());
+  return saved === undefined ? null : new Set(await saved.json());
 }
 
 function SW_ClaimedPages() {
-  claimedPages ??= SW_ReadClaimedPages().catch(() => new Set());
+  claimedPages ??= SW_ReadClaimedPages()
+    .then((pages) => pages ?? new Set())
+    .catch(() => new Set());
   return claimedPages;
 }
 
 // Called on activate, before clients.claim(). Pages already listed stay listed
-// while they are open; pages without a worker now are added.
+// while they are open; pages without a worker now are added. With no saved
+// list, every open page is: a controlled one had a worker that passed music on
+// as the network's own response.
 async function SW_NoteClaimedPages() {
   const controlled = new Set(
     (await self.clients.matchAll()).map((client) => client.id),
   );
   const open = await self.clients.matchAll({ includeUncontrolled: true });
-  const before = await SW_ClaimedPages();
+  const before = await SW_ReadClaimedPages();
   const pages = new Set(
-    open.map((client) => client.id)
-      .filter((id) => before.has(id) || !controlled.has(id)),
+    open.map((client) => client.id).filter((id) =>
+      before === null || before.has(id) || !controlled.has(id)
+    ),
   );
   claimedPages = Promise.resolve(pages);
 

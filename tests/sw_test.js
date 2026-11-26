@@ -102,15 +102,16 @@ function makeNet(files) {
         status: 206,
       });
     }
-    return new Response(files[path], {
-      status: 200,
-      headers: {
-        "content-length": String(files[path].length),
-        ...net.headers,
-      },
+    const headers = new Headers({
+      "content-length": String(files[path].length),
     });
+    for (const [name, value] of Object.entries(net.headers)) {
+      if (value === null) headers.delete(name);
+      else headers.set(name, value);
+    }
+    return new Response(files[path], { status: 200, headers });
   };
-  net.headers = {}; // added to every 200, overriding
+  net.headers = {}; // set on every 200; null removes one
   return net;
 }
 
@@ -121,7 +122,10 @@ function loadWorker(files, caches = new FakeCaches()) {
     location: new URL(SCOPE + "sw.js"),
     registration: { scope: SCOPE },
     clients: {
-      claim: () => Promise.resolve(),
+      claim: () => {
+        windows.controlled = [...windows.open];
+        return Promise.resolve();
+      },
       matchAll: (options) =>
         Promise.resolve(
           (options?.includeUncontrolled ? windows.open : windows.controlled)
@@ -524,13 +528,16 @@ Deno.test("sw: a streamed track is passed on as the worker's own Response", asyn
 
 Deno.test("sw: a page claimed mid-load is network first until reloaded", async () => {
   const w = loadWorker(MUSIC_FILES);
+  w.windows.open = ["first-visit"];
+  await w.lifecycle("activate");
+  // opened since, then this worker's next version activates
   w.windows.open = ["first-visit", "updated"];
-  w.windows.controlled = ["updated"]; // had a worker already
+  w.windows.controlled = ["first-visit", "updated"];
   await w.lifecycle("activate");
 
   const spy = spyNetwork(w);
   const range = () => trackRequest("bytes=0-3");
-  let got = await w.fetch(range(), "first-visit");
+  const got = await w.fetch(range(), "first-visit");
   if (got !== spy.last) fail("claimed page: not the network's own response");
   await w.settle();
   if (!(await musicEntries(w)).has(TRACK_URL)) fail("track not cached");
@@ -560,6 +567,16 @@ Deno.test("sw: a page claimed mid-load is network first until reloaded", async (
   // offline, the cache is all there is
   again.net.online = false;
   await expectResponse(await again.fetch(range(), "first-visit"), 206, "0123");
+});
+
+Deno.test("sw: replacing a worker with no list claims the pages it controlled", async () => {
+  const w = loadWorker(MUSIC_FILES);
+  w.windows.open = ["old-worker-page"];
+  w.windows.controlled = ["old-worker-page"];
+  await w.lifecycle("activate");
+  const spy = spyNetwork(w);
+  const got = await w.fetch(trackRequest("bytes=0-3"), "old-worker-page");
+  if (got !== spy.last) fail("not the network's own response");
 });
 
 Deno.test("sw: one whole fetch per track, however many requests", async () => {
@@ -596,15 +613,18 @@ Deno.test("sw: a missing or offline track is a 404 and is not cached", async () 
 
 Deno.test("sw: a track that doesn't fit streams but isn't stored", async () => {
   const MB = 1024 * 1024;
+  const noLength = { "content-length": null };
+  const room = { quota: 100 * MB, usage: MB };
+  // leaves the reserve free for an empty file, not for the 10-byte track
+  const full = { quota: 100 * MB, usage: 50 * MB - 5 };
   const cases = [
-    ["over the per-track cap", { "content-length": String(65 * MB) }, null],
-    ["would eat the reserve", {}, { quota: 100 * MB, usage: 51 * MB }],
-    ["no content-length, no room", { "content-length": "" }, {
-      quota: 10,
-      usage: 0,
-    }],
+    ["over the per-track cap", { "content-length": String(65 * MB) }, null, 0],
+    ["would eat the reserve", {}, full, 0],
+    ["no content-length, no room", noLength, full, 0],
+    ["room", {}, room, 1],
+    ["no content-length, room", noLength, room, 1],
   ];
-  for (const [name, headers, estimate] of cases) {
+  for (const [name, headers, estimate, stored] of cases) {
     const w = loadWorker(MUSIC_FILES);
     w.net.headers = headers;
     if (estimate !== null) {
@@ -614,18 +634,15 @@ Deno.test("sw: a track that doesn't fit streams but isn't stored", async () => {
     }
     await expectResponse(await w.fetch(trackRequest("bytes=0-1")), 206, "01");
     await w.settle();
-    if ((await musicEntries(w)).size !== 0) fail(name + ": stored");
-  }
+    const entries = await musicEntries(w);
+    if (entries.size !== stored) fail(`${name}: ${entries.size} stored`);
 
-  const w = loadWorker(MUSIC_FILES);
-  w.self.navigator = {
-    storage: {
-      estimate: () => Promise.resolve({ quota: 100 * MB, usage: MB }),
-    },
-  };
-  await w.fetch(trackRequest("bytes=0-1"));
-  await w.settle();
-  if ((await musicEntries(w)).size !== 1) fail("a track with room not stored");
+    // neither a stored track nor one that didn't fit is downloaded again
+    await w.fetch(trackRequest("bytes=2-3"));
+    await w.settle();
+    const whole = w.net.requests.filter((r) => r.range === null).length;
+    if (whole !== 1) fail(`${name}: ${whole} whole fetches`);
+  }
 });
 
 Deno.test("sw: a full origin fails neither music nor code", async () => {
