@@ -44,6 +44,7 @@ export const advancedPages = [
 		items: [
 			{ label: 'Quality preset', cvar: 'vid_quality', values: [ 3, 0, 1, 2 ], names: [ 'custom', 'saver', 'medium', 'high' ] },
 			{ label: 'Resolution cap', cvar: 'vid_dprcap', values: [ 0, 1, 1.5, 2, 3 ], names: [ 'auto', '1x', '1.5x', '2x', '3x' ] },
+			{ label: 'Dynamic res', cvar: 'vid_dynres' },
 			{ label: 'Draw distance', cvar: 'gl_farclip', values: [ 2048, 4096, 8192, 16384 ] },
 			{ label: 'Anisotropy', cvar: 'gl_texture_anisotropy', values: [ 1, 2, 4, 8, 16 ] },
 			{ label: 'Water opacity', cvar: 'r_wateralpha', min: 0, max: 1, step: 0.1 },

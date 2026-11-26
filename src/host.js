@@ -83,6 +83,7 @@ import { sv_gravity, SV_Physics, SV_SetFrametime } from "./sv_phys.js";
 import { client_t, host_client, set_host_client, sv, svs } from "./server.js";
 import { D_FlushCaches, R_Init } from "./gl_rmisc.js";
 import { R_CheckQuality } from "./gl_rmain.js";
+import { VID_DynResFrame } from "./vid_dynres.js";
 import { VID_Init, VID_Shutdown } from "./vid.js";
 import {
   Draw_CachePic,
@@ -740,6 +741,9 @@ function _Host_Frame_Internal(time) {
 
   // Web-only: vid_quality presets; every frame, also with no map drawn
   R_CheckQuality();
+
+  // Web-only: dynamic resolution, applied before the frame is drawn
+  VID_DynResFrame(host_maxfps.value, cls.timedemo === true || isXRActive());
 
   SCR_UpdateScreen();
 

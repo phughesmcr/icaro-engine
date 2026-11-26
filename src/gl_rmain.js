@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { Sys_FloatTime } from "./sys.js";
 import { Con_Printf } from "./common.js";
 import { renderer, vid, VID_CheckPixelRatio, vid_renderscale } from "./vid.js";
+import { VID_DynResInit } from "./vid_dynres.js";
 import {
   entity_t,
   r_lerpmodels,
@@ -1826,6 +1827,7 @@ export function R_Init() {
   Cvar_RegisterVariable(vid_quality);
   Cvar_RegisterVariable(r_particlecap);
   Cvar_RegisterVariable(gl_dlightcap);
+  VID_DynResInit(); // web-only: vid_dynres
 
   // create the Three.js scene
   scene = new THREE.Scene();
