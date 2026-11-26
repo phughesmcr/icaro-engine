@@ -22,9 +22,12 @@ FROM denoland/deno:debian-2.9.8@sha256:a0d88a7fcbd44f062cba2748e19df67d30290ad12
 
 # Stage 1: fetch LibreQuake. The task's permissions are limited to GitHub and
 # static/librequake; zip.js comes from the import map (pinned in deno.lock).
+# src/librequake.js imports engine modules that import "three", which the
+# import map points at server/browser_shim.js.
 WORKDIR /fetch
 COPY deno.json deno.lock ./
 COPY src/ src/
+COPY server/browser_shim.js server/
 COPY tools/fetch_data.js tools/
 RUN deno task fetch-data
 
