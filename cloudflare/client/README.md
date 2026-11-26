@@ -56,11 +56,10 @@ their next load: `sw.js` fetches the page and code network-first, and caches
 changes.
 
 LibreQuake's release zips are too big for static assets (25 MiB a file) and
-aren't deployed here. Serve `static/librequake/v0.09-beta/` some other way, or
-change `LQ_DOWNLOAD_BASE` in `src/librequake.js`; see
-`docs/librequake-content.md`, Hosting. Until then the intro page's download
-button reports the download isn't available, and the shareware episode still
-plays.
+aren't deployed here: `../librequake/` serves `static/librequake/v0.09-beta/`
+from R2 on a route in front of this Worker (see `docs/librequake-content.md`,
+Hosting). Until it is deployed the intro page's download button reports the
+download isn't available, and the shareware episode still plays.
 
 ### First deploy
 
