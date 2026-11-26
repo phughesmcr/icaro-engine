@@ -81,6 +81,7 @@ import {
   R_ClearParticles,
   R_DrawParticles as R_DrawParticles_impl,
   R_InitParticles,
+  r_particles,
   R_SetParticleExternals,
   R_SetParticleLimit,
 } from "./r_part.js";
@@ -1826,6 +1827,7 @@ export function R_Init() {
   Cvar_RegisterVariable(gl_farclip);
   Cvar_RegisterVariable(vid_quality);
   Cvar_RegisterVariable(r_particlecap);
+  Cvar_RegisterVariable(r_particles); // QuakeSpasm registers it in R_InitParticles
   Cvar_RegisterVariable(gl_dlightcap);
   VID_DynResInit(); // web-only: vid_dynres
 

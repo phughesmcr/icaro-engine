@@ -1,7 +1,7 @@
 // Ported from: WinQuake/gl_draw.c -- GL 2D drawing functions
 // In browser port: uses a canvas 2D overlay context for HUD/menu/console drawing
 
-import { Con_Printf } from "./console.js";
+import { con_forcedup, Con_Printf } from "./console.js";
 import { Sbar_Changed } from "./sbar.js";
 import { W_GetLumpName } from "./wad.js";
 import { d_8to24table as vid_d_8to24table, VID_GetPixelRatio } from "./vid.js";
@@ -733,11 +733,33 @@ export function Draw_TransPicTranslate(x, y, pic, translation) {
  * gl_draw.c: opaque below three quarters of the screen, otherwise blended
  * with alpha 1.2 * lines / y (GL clamps it to 1).
  */
+/**
+ * FitzQuake/Ironwail (johnfitz): the console background's alpha, 1 while the
+ * console is forced up. Deviation: Ironwail defaults it to 0.5; the default
+ * here, -1 (any value below 0), keeps id's fade by console height, which no
+ * single alpha reproduces. Registered in gl_screen.js SCR_Init.
+ */
+export const scr_conalpha = {
+  name: "scr_conalpha",
+  string: "-1",
+  value: -1,
+  archive: true,
+};
+
 export function Draw_ConsoleBackground(lines) {
   if (!overlayCtx) return;
 
-  const y = (_vid.height * 3) >> 2;
-  const alpha = lines > y ? 1 : Math.min(1, (1.2 * lines) / y);
+  let alpha;
+  if (scr_conalpha.value < 0) {
+    // id's gl_draw.c: opaque below three quarters of the screen, else a fade
+    const y = (_vid.height * 3) >> 2;
+    alpha = lines > y ? 1 : Math.min(1, (1.2 * lines) / y);
+  } else {
+    // Ironwail Draw_ConsoleBackground
+    alpha = con_forcedup ? 1 : Math.min(1, scr_conalpha.value);
+    if (!(alpha > 0)) return;
+  }
+
   const oldAlpha = overlayCtx.globalAlpha;
   overlayCtx.globalAlpha = alpha;
 

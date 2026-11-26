@@ -93,6 +93,23 @@ let pointsGeometry = null;
 let pointsMaterial = null;
 let pointsMesh = null;
 let particleTexture = null;
+// QuakeSpasm (johnfitz) particletexture2, for r_particles 2
+let particleSquareTexture = null;
+
+/**
+ * QuakeSpasm and Ironwail (johnfitz): 0 draws no particles, 1 the round dot
+ * and 2 square ones. Ironwail defaults to 2; QuakeSpasm's 1 is kept here.
+ * Deviation: QuakeSpasm's 1 is its own 32x32 antialiased circle; here 1 is
+ * id's 8x8 dot, so the default looks as id's did. Other values draw the dot
+ * (QuakeSpasm keeps whichever texture was last chosen). Registered in
+ * gl_rmain.js R_Init.
+ */
+export const r_particles = {
+  name: "r_particles",
+  string: "1",
+  value: 1,
+  archive: true,
+};
 
 /**
  * Particle size, from gl_rmisc.c R_DrawParticles:
@@ -178,6 +195,33 @@ function R_InitParticleTexture() {
 
   // Register for filter updates when setting changes
   GL_RegisterTexture(particleTexture);
+
+  // QuakeSpasm's particletexture2 is 2x2 with only the first texel solid,
+  // drawn with GL_NEAREST: a square over the dot's corner of the triangle.
+  // Here it is the dot's 4x4 corner of an 8x8 texture, filled.
+  if (particleSquareTexture === null) {
+    const square = new Uint8Array(8 * 8 * 4);
+    for (let x = 0; x < 8; x++) {
+      for (let y = 0; y < 8; y++) {
+        const idx = (y * 8 + x) * 4;
+        square[idx] = 255;
+        square[idx + 1] = 255;
+        square[idx + 2] = 255;
+        square[idx + 3] = x < 4 && y < 4 ? 255 : 0;
+      }
+    }
+
+    particleSquareTexture = new THREE.DataTexture(
+      square,
+      8,
+      8,
+      THREE.RGBAFormat,
+    );
+    particleSquareTexture.magFilter = THREE.NearestFilter;
+    particleSquareTexture.minFilter = THREE.NearestFilter;
+    particleSquareTexture.colorSpace = THREE.SRGBColorSpace;
+    particleSquareTexture.needsUpdate = true;
+  }
 }
 
 /**
@@ -898,8 +942,10 @@ export function R_DrawParticles() {
     idx = nextIdx;
   }
 
-  // Render particles as THREE.Points
-  if (count === 0) {
+  // Render particles as THREE.Points. QuakeSpasm's R_DrawParticles returns
+  // at once for r_particles 0; the physics above is its CL_RunParticles,
+  // which still runs.
+  if (count === 0 || r_particles.value === 0) {
     if (pointsMesh && pointsMesh.parent) {
       _scene.remove(pointsMesh);
     }
@@ -908,6 +954,12 @@ export function R_DrawParticles() {
   }
 
   R_EnsureParticleMesh();
+
+  // QuakeSpasm R_SetParticleTexture_f
+  const tex = (r_particles.value | 0) === 2 ?
+    particleSquareTexture :
+    particleTexture;
+  if (pointsMaterial.map !== tex) pointsMaterial.map = tex;
 
   // In XR mode, scene.scale = 1/XR_SCALE but PointsMaterial.size is not
   // affected by parent scale. Divide size to match meter-space distances,
