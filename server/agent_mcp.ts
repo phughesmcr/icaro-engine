@@ -19,10 +19,10 @@
 // zod schemas below before a handler runs. A bad argument comes back as a
 // tool result with isError, and so does an error a handler throws.
 //
-// The game runs in lockstep: it advances only inside start, step, goto and attack, one
-// tic (1/72 s) at a time, so thinking time costs nothing. The SDK runs
-// requests concurrently, so tool calls are queued here and run one at a
-// time, in arrival order.
+// The game runs in lockstep: it advances only inside start, step, goto,
+// attack and rl_step, one tic (1/72 s) at a time, so thinking time costs
+// nothing. The SDK runs requests concurrently, so tool calls are queued here
+// and run one at a time, in arrival order.
 //
 // Determinism: start with a seed seeds the server's gameplay randomness
 // (Sys_SetRandomSeed) and replaces the clock with a virtual one that
@@ -80,7 +80,8 @@ Quake has no use key: walk into buttons and doors; shoot some buttons. "exit" en
 goto {id} or goto {pos: [x, y, z]} walks there along the level's walk graph (doors, lifts, teleporters, drops and jumps included) and stops early when hurt; when blocked it names what blocks the way and how it opens (a key, a button #id, shoot it).
 turn_to {id} faces an entity (or {yaw} an absolute yaw) without advancing the game. attack {id} aims at it every tic and fires while it is in sight, until it is killed, gone, out of sight, you are out of ammo (or have only the axe and are out of reach), hurt to death, or max_tics; it doesn't move.
 goto and attack also stop when a monster comes into sight ("new enemy #id kind ..."): attack it, or call again with stop_on_enemy: false. Each monster stops only one call.
-cmd runs console commands (god, give, map e1m2, ...). key and menu drive the menus.`;
+cmd runs console commands (god, give, map e1m2, ...). key and menu drive the menus.
+rl_spec and rl_step are for RL programs, not for reading: a fixed-size numeric observation (JSON), a MultiDiscrete action and a reward.`;
 
 const BUTTONS_DESC =
   "Buttons held for the step, comma separated: forward back moveleft moveright left right lookup lookdown jump attack speed up down strafe use";
@@ -166,6 +167,48 @@ const ATTACK_ARGS = z.strictObject({
   stop_on_enemy,
   ents,
   map,
+});
+
+// rl limits: RL_MAX_ENTS, RL_MAX_RAYS, RL_MAX_TICS and RL_DEFAULT_TICS in
+// src/agent.js (tests/agent_rl_test.js checks that they agree)
+const RL_MAX_ENTS = 64;
+const RL_MAX_RAYS = 128;
+const RL_MAX_TICS = 72 * 60;
+const RL_DEFAULT_TICS = 4;
+
+const RL_LAYOUT = {
+  ents: int(0, RL_MAX_ENTS).optional().describe(
+    "Entity slots, nearest first (default 16)",
+  ),
+  rays: int(0, RL_MAX_RAYS).optional().describe(
+    "Wall-distance rays at eye height, evenly round from straight ahead (default 32)",
+  ),
+  map: int(0, MAP_MAX_SIZE).optional().describe(
+    "Map tier cells across as codes (0 none, the default; else odd, 5 or more)",
+  ),
+  truth: z.boolean().optional().describe(
+    "Server-side facts (monster hp, doors, exits). Default true",
+  ),
+};
+
+const RL_SPEC_ARGS = z.strictObject(RL_LAYOUT);
+
+const RL_STEP_ARGS = z.strictObject({
+  action: z.array(z.number().int().min(0)).length(8).describe(
+    "move strafe turn look attack jump speed weapon: one index each (rl_spec's action.values)",
+  ),
+  tics: int(0, RL_MAX_TICS).optional().describe(
+    "Tics to run (default " + RL_DEFAULT_TICS + "); fewer if the episode ends",
+  ),
+  reward: z.strictObject({
+    kill: z.number().optional(),
+    secret: z.number().optional(),
+    hurt: z.number().optional(),
+    death: z.number().optional(),
+    exit: z.number().optional(),
+    tic: z.number().optional(),
+  }).optional().describe("Reward weights over the defaults in rl_spec"),
+  ...RL_LAYOUT,
 });
 
 const OBSERVE_ARGS = z.strictObject({
@@ -409,6 +452,44 @@ export function agent_mcp_server(): McpServer {
         map: args.map ?? 0,
       })
     ),
+  );
+
+  server.registerTool(
+    "rl_spec",
+    {
+      description:
+        "For RL programs: the layout of rl_step's numeric observation (size, field offsets, per-element low and high), its action components, and the default reward weights, as JSON.",
+      inputSchema: RL_SPEC_ARGS,
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    tool((e, args: z.infer<typeof RL_SPEC_ARGS>) =>
+      JSON.stringify(e.agent.Agent_RLSpec(args))
+    ),
+  );
+
+  server.registerTool(
+    "rl_step",
+    {
+      description:
+        "For RL programs: applies an action vector for some tics and returns one line of JSON {obs, reward, terminated, why, tics} (layout from rl_spec, values to 3 decimals). Start a game with start first; after terminated, start again.",
+      inputSchema: RL_STEP_ARGS,
+      annotations: { ...LOCAL, idempotentHint: false },
+    },
+    tool(async (e, args: z.infer<typeof RL_STEP_ARGS>) => {
+      const { action, tics, ...opts } = args;
+      const r = await e.agent.Agent_RLStep(
+        action,
+        tics ?? RL_DEFAULT_TICS,
+        opts,
+      );
+      return JSON.stringify({
+        obs: Array.from(r.obs, (v: number) => Math.round(v * 1000) / 1000),
+        reward: Math.round(r.reward * 1e6) / 1e6,
+        terminated: r.terminated,
+        why: r.why,
+        tics: r.tics,
+      });
+    }),
   );
 
   server.registerTool(

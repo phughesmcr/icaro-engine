@@ -25,6 +25,8 @@ const TOOL_NAMES = [
   "turn_to",
   "attack",
   "observe",
+  "rl_spec",
+  "rl_step",
   "cmd",
   "key",
   "menu",
