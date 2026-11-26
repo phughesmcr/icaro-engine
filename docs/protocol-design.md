@@ -1,7 +1,7 @@
 # Icaro protocol design
 
 Status: design only. Nothing here is built. Icaro citations are `file:line` on
-`dev` at `a84c8e6` (2026-11-26).
+`dev` at `bbcb183` (2026-11-26).
 
 Reference sources were read at pinned commits. Their citations are
 `repo/path:line` at these commits:
@@ -102,11 +102,11 @@ as Hexen II and custom Icaro games.
 - **Transports.** WebTransport, WebSocket and WebRTC open with an `"ICARO"`
   hello carrying `WT_PROTOCOL_VERSION` 1 (`src/net.js:258-271`). On a version
   mismatch the host rejects the client with "Protocol version N not supported
-  (server uses M)" before any game data (`src/net_webrtc.js:621-632`; the
+  (server uses M)" before any game data (`src/net_webrtc.js:626-638`; the
   WebSocket and WebTransport servers do the same). `NET_PROTOCOL_VERSION` and
   `CCREQ_CONNECT` (`src/net.js:23`, `:26`) are defined but nothing uses them.
   Loopback games and demos have no transport hello at all.
-- **Demos.** Recording must start before connecting (`src/cl_demo.js:292-297`),
+- **Demos.** Recording must start before connecting (`src/cl_demo.js:297-302`),
   so a demo always starts with `svc_serverinfo`. Demos from builds before 1015
   stopped playing when 1015 arrived (`src/protocol.js:24-25`).
 
@@ -573,7 +573,7 @@ adds escape ids from `0x8000`, or registers its own profile id.
   WebTransport, WebSocket and WebRTC before any game data. Bump it whenever the
   revision changes, so a stale client (for example a cached PWA joining a newer
   browser-hosted room) is turned away with "Protocol version N not supported"
-  (`src/net_webrtc.js:631-632`) before the hello. Don't rely on the hello for
+  (`src/net_webrtc.js:636-637`) before the hello. Don't rely on the hello for
   that.
 - **Loopback and demos.** These have no transport hello. The hello is their only
   source of truth, and the capability check is the backstop for everyone.
