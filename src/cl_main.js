@@ -1468,6 +1468,7 @@ export function CL_Init() {
   Cvar_RegisterVariable(cl_yawspeed);
   Cvar_RegisterVariable(cl_pitchspeed);
   Cvar_RegisterVariable(cl_anglespeedkey);
+  Cvar_RegisterVariable(cl_alwaysrun); // QuakeSpasm
   Cvar_RegisterVariable(cl_shownet);
   Cvar_RegisterVariable(cl_nolerp);
   Cvar_RegisterVariable(lookspring);
@@ -1499,6 +1500,7 @@ function CL_InitInput() {
 
 // Forward declarations for cvars and functions defined in cl_input.js
 import {
+  cl_alwaysrun,
   cl_anglespeedkey,
   cl_backspeed,
   CL_BaseMove,

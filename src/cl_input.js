@@ -329,11 +329,17 @@ export const cl_pitchspeed = new cvar_t("cl_pitchspeed", "150");
 
 export const cl_anglespeedkey = new cvar_t("cl_anglespeedkey", "1.5");
 
+// QuakeSpasm cl_input.c: 1 runs without holding the speed key, which then
+// walks. Deviation: Ironwail defaults it to 1; QuakeSpasm's 0 keeps id's
+// behaviour (the menu's Always Run sets cl_forwardspeed 400 instead).
+export const cl_alwaysrun = new cvar_t("cl_alwaysrun", "0", true);
+
 /** Moves the local angle positions */
 export function CL_AdjustAngles() {
   let speed;
 
-  if (in_speed.state & 1) {
+  // QuakeSpasm: cl_alwaysrun flips the speed key
+  if ((in_speed.state & 1) ^ (cl_alwaysrun.value !== 0 ? 1 : 0)) {
     speed = host_frametime * cl_anglespeedkey.value;
   } else {
     speed = host_frametime;
@@ -401,8 +407,8 @@ export function CL_BaseMove(cmd) {
     cmd.forwardmove -= cl_backspeed.value * CL_KeyState(in_back);
   }
 
-  // adjust for speed key
-  if (in_speed.state & 1) {
+  // adjust for speed key (QuakeSpasm: cl_alwaysrun flips it)
+  if ((in_speed.state & 1) ^ (cl_alwaysrun.value !== 0 ? 1 : 0)) {
     cmd.forwardmove *= cl_movespeedkey.value;
     cmd.sidemove *= cl_movespeedkey.value;
     cmd.upmove *= cl_movespeedkey.value;

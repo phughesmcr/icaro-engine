@@ -137,6 +137,9 @@ const cshiftpercent_cvars = [
 // FitzQuake/Ironwail v_gunkick: 0 no kick, 1 id's kick, 2 kick lerped
 // between server updates. Ironwail defaults to 2; 1 keeps id's behaviour.
 export const v_gunkick = new cvar_t("v_gunkick", "1", true); //johnfitz
+// QuakeSpasm/Ironwail (from MarkV): 1 keeps id's gun position fudging below.
+// Deviation: they default it to 0, which drops the fudge; 1 keeps id's view.
+export const r_viewmodel_quake = new cvar_t("r_viewmodel_quake", "1", true);
 
 //johnfitz -- copied from cl.punchangle. 0 is current, 1 is previous value.
 // Never the same unless the map just loaded. v_punchtime is Ironwail's
@@ -927,14 +930,17 @@ export function V_CalcRefdef() {
 
   // fudge position around to keep amount of weapon visible
   // roughly equal with different FOV
-  if (scr_viewsize.value === 110) {
-    view.origin[2] += 1;
-  } else if (scr_viewsize.value === 100) {
-    view.origin[2] += 2;
-  } else if (scr_viewsize.value === 90) {
-    view.origin[2] += 1;
-  } else if (scr_viewsize.value === 80) {
-    view.origin[2] += 0.5;
+  // (MarkV, in QuakeSpasm: only while r_viewmodel_quake is set)
+  if (r_viewmodel_quake.value !== 0) {
+    if (scr_viewsize.value === 110) {
+      view.origin[2] += 1;
+    } else if (scr_viewsize.value === 100) {
+      view.origin[2] += 2;
+    } else if (scr_viewsize.value === 90) {
+      view.origin[2] += 1;
+    } else if (scr_viewsize.value === 80) {
+      view.origin[2] += 0.5;
+    }
   }
 
   view.model = cl.model_precache[cl.stats[STAT_WEAPON]];
@@ -1046,6 +1052,7 @@ export function V_Init() {
 
   Cvar_RegisterVariable(crosshair);
   Cvar_RegisterVariable(v_gunkick); //johnfitz
+  Cvar_RegisterVariable(r_viewmodel_quake);
   Cvar_RegisterVariable(cl_crossx);
   Cvar_RegisterVariable(cl_crossy);
 

@@ -121,3 +121,43 @@ Deno.test("G5: the crosshair is centred on scr_vrect, ignores cl_crossx/y and sh
     });
   }
 });
+
+Deno.test("Ironwail scr_crosshairscale draws on its own canvas, centred as before", () => {
+  const r_refdef = {
+    vrect: { x: 0, y: 0, width: 0, height: 0 },
+    vrectScale: 1,
+    fov_x: 0,
+    fov_y: 0,
+  };
+  const cl = { intermission: 0, paused: false, worldmodel: null, time: 0 };
+  const cls = { state: 2, signon: 4, demoplayback: false };
+  scr.SCR_SetExternals({ r_refdef, cl });
+  if (cvar.Cvar_FindVar("scr_crosshairscale") === null) {
+    cvar.Cvar_RegisterVariable(scr.scr_crosshairscale);
+  }
+
+  const oldCrosshair = view.crosshair.string;
+  try {
+    cvar.Cvar_Set("crosshair", "1");
+    scr.SCR_CalcRefdef();
+    assertEqual(scr.scr_crosshairscale.string, "0", "default: the UI scale");
+    assertEqual(crosshairAt(cl, cls), "+@156,92", "UI scale (2)");
+
+    // The centre ( 160, 96 ) is ( 320, 192 ) physical pixels on 640x480
+    cvar.Cvar_Set("scr_crosshairscale", "1");
+    assertEqual(crosshairAt(cl, cls), "+@316,188", "scale 1");
+    cvar.Cvar_Set("scr_crosshairscale", "1.6");
+    assertEqual(crosshairAt(cl, cls), "+@196,116", "scale 1.6");
+    // Clamped to width / 320, as the other canvas scales are
+    cvar.Cvar_Set("scr_crosshairscale", "3");
+    assertEqual(crosshairAt(cl, cls), "+@156,92", "scale 3 clamps to 2");
+    assertEqual(draw.Draw_GetVirtualWidth(), 320, "canvas scale reset");
+  } finally {
+    cvar.Cvar_Set("scr_crosshairscale", "0");
+    cvar.Cvar_Set("crosshair", oldCrosshair);
+    scr.SCR_SetExternals({
+      cl: { intermission: 0, paused: false, worldmodel: null, time: 0 },
+      cls: { state: 0, signon: 0, demoplayback: false },
+    });
+  }
+});

@@ -2910,3 +2910,100 @@ Deno.test("audio is unlocked when a finger lifts, which browsers count as a gest
     }
   });
 });
+
+Deno.test("QuakeSpasm: the mouse back and forward buttons are MOUSE4 and MOUSE5", () => {
+  const oldDest = keys.key_dest;
+  try {
+    withFakeDom((dom) => {
+      unbindAll();
+      keys.set_key_dest(keys.key_game);
+      bind(keys.K_MOUSE4, "+ta");
+      bind(keys.K_MOUSE5, "+tb");
+
+      for (const [button, out] of [[3, "+ta,-ta"], [4, "+tb,-tb"]]) {
+        const down = makeEvent({ button });
+        dom.body.fire("mousedown", down);
+        const up = makeEvent({ button });
+        dom.window.fire("mouseup", up);
+        assertEqual(run().join(","), out, "button " + button);
+        assertEqual(down.defaultPrevented, true, "down kept from the page");
+        assertEqual(up.defaultPrevented, true, "up kept from the page");
+      }
+
+      unbindAll();
+    });
+  } finally {
+    keys.set_key_dest(oldDest);
+  }
+});
+
+Deno.test("QuakeSpasm: in game, pad buttons send the controller keys while they are bound", async () => {
+  const { cls, ca_connected } = await import("../src/client.js");
+  const { Cvar_Set } = await import("../src/cvar.js");
+  const oldDest = keys.key_dest;
+  const oldState = cls.state;
+  const savedNav = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const pad = {
+    index: 0,
+    connected: true,
+    axes: [0, 0, 0, 0],
+    buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 })),
+  };
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { getGamepads: () => [pad] },
+  });
+  const press = (i, down) => {
+    pad.buttons[i] = { pressed: down, value: down ? 1 : 0 };
+    input.IN_Move({ forwardmove: 0, sidemove: 0, upmove: 0 });
+  };
+
+  try {
+    withFakeDom(() => {
+      unbindAll();
+      keys.set_key_dest(keys.key_game);
+      cls.state = ca_connected;
+
+      // Bound: A sends ABUTTON, a stick click LTHUMB
+      bind(keys.K_ABUTTON, "+ta");
+      bind(keys.K_SPACE, "+tb");
+      bind(keys.K_LTHUMB, "+tc");
+      press(0, true);
+      press(0, false);
+      press(10, true);
+      press(10, false);
+      assertEqual(run().join(","), "+ta,-ta,+tc,-tc", "controller keys");
+
+      // Unbound: A falls back to Space
+      keys.Key_SetBinding(keys.K_ABUTTON, "");
+      press(0, true);
+      press(0, false);
+      assertEqual(run().join(","), "+tb,-tb", "keyboard fallback");
+
+      // The key released is the one pressed, even if key_dest changes
+      bind(keys.K_ABUTTON, "+ta");
+      press(0, true);
+      keys.set_key_dest(keys.key_console);
+      press(0, false);
+      keys.set_key_dest(keys.key_game);
+      assertEqual(run().join(","), "+ta,-ta", "released after console");
+
+      // joy_enable 0 ignores the pad
+      Cvar_Set("joy_enable", "0");
+      try {
+        press(0, true);
+        press(0, false);
+        assertEqual(run().join(","), "", "joy_enable 0");
+      } finally {
+        Cvar_Set("joy_enable", "1");
+      }
+
+      unbindAll();
+    });
+  } finally {
+    keys.set_key_dest(oldDest);
+    cls.state = oldState;
+    if (savedNav) Object.defineProperty(globalThis, "navigator", savedNav);
+    else delete globalThis.navigator;
+  }
+});

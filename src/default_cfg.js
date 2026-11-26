@@ -7,8 +7,6 @@
 // Deviations: lines this port can't run are left out, since each would print
 // an error at every start:
 //   "contrast 1.2" and "scr_autoscale" (no such cvars here),
-//   the PRINTSCREEN bind and the LSHOULDER, RSHOULDER, LTRIGGER and RTRIGGER
-//   gamepad binds (no such key names here),
 //   and the F11 zoom_in alias and bind (no togglezoom command here).
 
 export const default_cfg = "unbindall\n" +
@@ -53,6 +51,7 @@ export const default_cfg = "unbindall\n" +
   'bind F9 "echo Quickloading...; wait; load quick"\n' +
   'bind F10 "quit"\n' +
   'bind F12 "screenshot"\n' +
+  'bind PRINTSCREEN "screenshot"\n' +
   "bind \\ +mlook\n" +
   'bind PAUSE "pause"\n' +
   'bind ESCAPE "togglemenu"\n' +
@@ -65,6 +64,10 @@ export const default_cfg = "unbindall\n" +
   "bind INS +klook\n" +
   "bind MOUSE1 +attack\n" +
   "bind MOUSE2 +jump\n" +
+  'bind LSHOULDER "impulse 12"\n' +
+  'bind RSHOULDER "impulse 10"\n' +
+  "bind LTRIGGER +jump\n" +
+  "bind RTRIGGER +attack\n" +
   "gamma 0.95\n" +
   "volume 0.7\n" +
   "sensitivity 3\n" +

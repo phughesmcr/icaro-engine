@@ -6,6 +6,7 @@
 await import("../src/gl_rsurf.js");
 
 const view = await import("../src/view.js");
+const { scr_viewsize } = await import("../src/gl_screen.js");
 const { CL_Disconnect } = await import("../src/cl_main.js");
 const { Chase_Init, Chase_Update } = await import("../src/chase.js");
 const { CL_KeepaliveMessage } = await import("../src/cl_parse.js");
@@ -510,6 +511,62 @@ Deno.test("stair smoothing is skipped in noclip", () => {
     assertNear(stepLag(), 0, 1, "noclip view lag");
   } finally {
     setNoclip(saved.flags);
+    sv.active = saved.active;
+    cl.viewentity = saved.viewentity;
+    cl.onground = saved.onground;
+    cl.time = saved.time;
+    cl.oldtime = saved.oldtime;
+    cl.viewheight = saved.viewheight;
+    ent.origin.set(saved.origin);
+    r_refdef.vieworg.set(saved.vieworg);
+    r_refdef.viewangles.set(saved.refangles);
+  }
+});
+
+Deno.test("QuakeSpasm r_viewmodel_quake 0 drops id's gun height fudge", () => {
+  if (Cvar_FindVar("cl_bobcycle") === null) {
+    view.V_Init();
+  }
+  if (Cvar_FindVar("r_viewmodel_quake") === null) {
+    throw new Error("V_Init did not register r_viewmodel_quake");
+  }
+
+  const ent = client.cl_entities[1];
+  const saved = {
+    active: sv.active,
+    viewentity: cl.viewentity,
+    onground: cl.onground,
+    time: cl.time,
+    oldtime: cl.oldtime,
+    viewheight: cl.viewheight,
+    origin: Float32Array.from(ent.origin),
+    vieworg: Float32Array.from(r_refdef.vieworg),
+    refangles: Float32Array.from(r_refdef.viewangles),
+    viewsize: scr_viewsize.value,
+  };
+
+  const gunZ = () => {
+    view.V_CalcRefdef();
+    return cl.viewent.origin[2] - r_refdef.vieworg[2];
+  };
+
+  try {
+    sv.active = true;
+    cl.viewentity = 1;
+    cl.viewheight = 22;
+    cl.onground = false;
+    cl.time = 2;
+    cl.oldtime = 1.99;
+    ent.origin.fill(0);
+    scr_viewsize.value = 100;
+
+    assertEqual(view.r_viewmodel_quake.string, "1", "default keeps id's view");
+    const fudged = gunZ();
+    Cvar_Set("r_viewmodel_quake", "0");
+    assertNear(fudged - gunZ(), 2, 1e-4, "viewsize 100 raises the gun by 2");
+  } finally {
+    Cvar_Set("r_viewmodel_quake", "1");
+    scr_viewsize.value = saved.viewsize;
     sv.active = saved.active;
     cl.viewentity = saved.viewentity;
     cl.onground = saved.onground;

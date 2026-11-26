@@ -66,6 +66,10 @@ export class cvar_t {
     this.server = server || false; // notifies players when changed
     this.value = Q_atof(this.string);
     this.default_string = null; // johnfitz: the value "reset" restores, set by Cvar_RegisterVariable
+    // Quakespasm-Spiked's CVAR_USERDEFINED: made by set or seta (Cvar_Create)
+    this.userdefined = false;
+    // Quakespasm-Spiked's CVAR_SETA: seta archived it, so the config says seta
+    this.seta = false;
     this.next = null;
   }
 }
@@ -195,7 +199,24 @@ export function Cvar_SetValue(var_name, value) {
 /** Adds a freestanding variable to the variable list. */
 export function Cvar_RegisterVariable(variable) {
   // first check to see if it has already been defined
-  if (Cvar_FindVar(variable.name)) {
+  const existing = Cvar_FindVar(variable.name);
+  if (existing !== null && existing.userdefined === true) {
+    // Deviation from Quakespasm-Spiked, which refuses: a set or seta that
+    // ran before the engine registered this cvar made a stand-in. The
+    // engine's cvar replaces it and takes its value, so the code doesn't
+    // keep reading an unlinked cvar.
+    Cvar_Unlink(existing);
+    variable.default_string = variable.string;
+    variable.string = existing.string;
+    if (existing.seta === true) {
+      variable.archive = true;
+      variable.seta = true;
+    }
+    variable.value = Q_atof(variable.string);
+    Cvar_Link(variable);
+    return;
+  }
+  if (existing !== null) {
     Con_Printf(
       "Can't register variable " + variable.name + ", already defined\n",
     );
@@ -225,10 +246,86 @@ export function Cvar_RegisterVariable(variable) {
   // parse the value
   variable.value = Q_atof(variable.string);
 
-  // link the variable in
+  Cvar_Link(variable);
+}
+
+// link the variable in
+function Cvar_Link(variable) {
   variable.next = cvar_vars;
   cvar_vars = variable;
   cvar_map.set(variable.name, variable);
+}
+
+function Cvar_Unlink(variable) {
+  if (cvar_vars === variable) {
+    cvar_vars = variable.next;
+  } else {
+    let prev = cvar_vars;
+    while (prev !== null && prev.next !== variable) {
+      prev = prev.next;
+    }
+    if (prev !== null) prev.next = variable.next;
+  }
+  variable.next = null;
+  cvar_map.delete(variable.name);
+}
+
+/**
+ * Cvar_Create -- spike (Quakespasm-Spiked): creates a cvar if it does not
+ * already exist, otherwise does nothing. Returns null if the name is a
+ * command (Quakespasm-Spiked's callers don't check for that; this port's do).
+ */
+export function Cvar_Create(name, value) {
+  const existing = Cvar_FindVar(name);
+  if (existing !== null) {
+    return existing; // already exists.
+  }
+  if (Cmd_Exists(name)) {
+    return null;
+  }
+
+  const newvar = new cvar_t(name, value);
+  newvar.userdefined = true;
+  Cvar_RegisterVariable(newvar);
+  return newvar;
+}
+
+/**
+ * Cvar_Set_f -- spike (Quakespasm-Spiked): the set and seta commands. Both
+ * create the cvar if it is missing; seta also archives it. Takes a name and
+ * a value only, as Quakespasm-Spiked does. Its setfl is not ported: the
+ * userinfo and serverinfo flags it sets don't exist here.
+ */
+function Cvar_Set_f() {
+  // q2: set name value flags
+  // dp: set name value description
+  // fte: set name some freeform value with spaces or whatever //description
+  // to avoid politics, its easier to just stick with name+value only.
+  const varname = Cmd_Argv(1);
+  const varvalue = Cmd_Argv(2);
+  if (Cmd_Argc() < 3) {
+    Con_Printf(Cmd_Argv(0) + " <cvar> <value>\n");
+    return;
+  }
+  if (Cmd_Argc() > 3) {
+    // dp conflicts with fte/q2. play safe
+    Con_Printf(
+      "Warning: " + Cmd_Argv(0) + ' "' + varname +
+        '" command with extra args\n',
+    );
+    return;
+  }
+
+  const _var = Cvar_Create(varname, varvalue);
+  if (_var === null) {
+    Con_Printf(Cmd_Argv(0) + ': "' + varname + '" is a command\n');
+    return;
+  }
+  if (Cmd_Argv(0).toLowerCase() === "seta") {
+    _var.archive = true;
+    _var.seta = true;
+  }
+  Cvar_Set(_var.name, varvalue);
 }
 
 /** Handles variable inspection and changing from the console */
@@ -269,10 +366,15 @@ export function Cvar_WriteVariables() {
   let _var = cvar_vars;
   while (_var) {
     if (_var.archive) {
+      // Quakespasm-Spiked: a cvar made by set or seta exists only once seta
+      // runs again
+      const prefix = _var.userdefined === true || _var.seta === true ?
+        "seta " :
+        "";
       // a remote server's value is not saved (Cvar_RestoreServerChanges)
       const saved = cvar_server_saved.get(_var.name);
       const string = saved === undefined ? _var.string : saved;
-      lines.push(_var.name + ' "' + string + '"\n');
+      lines.push(prefix + _var.name + ' "' + string + '"\n');
     }
     _var = _var.next;
   }
@@ -462,4 +564,6 @@ export function Cvar_Init() {
   Cmd_AddCommand("reset", Cvar_Reset_f);
   Cmd_AddCommand("resetall", Cvar_ResetAll_f);
   Cmd_AddCommand("resetcfg", Cvar_ResetCfg_f);
+  Cmd_AddCommand("set", Cvar_Set_f); // Quakespasm-Spiked
+  Cmd_AddCommand("seta", Cvar_Set_f); // Quakespasm-Spiked
 }

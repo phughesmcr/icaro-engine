@@ -13,6 +13,8 @@ import {
   K_MOUSE1,
   K_MOUSE2,
   K_MOUSE3,
+  K_MOUSE4,
+  K_MOUSE5,
   K_MWHEELDOWN,
   K_MWHEELUP,
   K_RIGHTARROW,
@@ -28,7 +30,7 @@ import {
   Key_SetModalYes,
   keybindings,
 } from "./keys.js";
-import { cl_forwardspeed } from "./cl_input.js";
+import { cl_alwaysrun, cl_forwardspeed } from "./cl_input.js";
 import {
   cl_color,
   lookspring,
@@ -2086,7 +2088,9 @@ function M_AdjustSliders(dir) {
       break;
 
     case 9: // always run
-      if (cl_forwardspeed.value > 200) {
+      // QuakeSpasm's cl_alwaysrun also counts as on, and turning off clears it
+      if (cl_forwardspeed.value > 200 || cl_alwaysrun.value !== 0) {
+        Cvar_SetValue("cl_alwaysrun", 0);
         Cvar_SetValue("cl_forwardspeed", 200);
         Cvar_SetValue("cl_backspeed", 200);
       } else {
@@ -2160,7 +2164,11 @@ function M_Options_Draw() {
   M_DrawSlider(220, 96, r);
 
   M_Print(16, 104, "            Always Run");
-  M_DrawCheckbox(220, 104, cl_forwardspeed.value > 200);
+  M_DrawCheckbox(
+    220,
+    104,
+    cl_forwardspeed.value > 200 || cl_alwaysrun.value !== 0,
+  );
 
   M_Print(16, 112, "          Invert Mouse");
   M_DrawCheckbox(220, 112, m_pitch.value < 0);
@@ -3461,6 +3469,7 @@ export function M_Keydown(key) {
         }
         return;
       case K_MOUSE2:
+      case K_MOUSE4: // Ironwail: the back button goes back too
         if (ui_mouse.value === 0) return;
         key = K_ESCAPE;
         break;
@@ -3473,7 +3482,7 @@ export function M_Keydown(key) {
         if (m_state !== m_keys) key = K_DOWNARROW;
         break;
       default:
-        if (key >= K_MOUSE1 && key <= K_MOUSE3) return;
+        if ((key >= K_MOUSE1 && key <= K_MOUSE3) || key === K_MOUSE5) return;
         break;
     }
   }
