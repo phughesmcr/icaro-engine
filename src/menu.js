@@ -2128,7 +2128,7 @@ function M_AdjustSliders(dir) {
 
 // OPTIONS MENU
 
-const OPTIONS_ITEMS = 17;
+const OPTIONS_ITEMS = 18;
 let m_options_cursor = 0;
 
 function M_Menu_Options_f() {
@@ -2195,7 +2195,11 @@ function M_Options_Draw() {
   // Port addition: the main menu's fourth row is C's Help again, so the
   // credits screen (attribution and source link) is reached from here,
   // which mouse and touch players can use without the console.
-  M_Print(16, 160, "               Credits");
+  // Web-only: the Game data panel (src/userdata.js), where a player adds
+  // their own registered or mission-pack paks and moves saves and demos
+  M_Print(16, 160, "             Game data");
+
+  M_Print(16, 168, "               Credits");
 
   // cursor
   M_DrawCharacter(
@@ -2227,6 +2231,9 @@ function M_Options_Key(key) {
           M_Menu_Advanced_f();
           break;
         case 16:
+          Cbuf_AddText("menu_gamedata\n");
+          break;
+        case 17:
           M_Menu_Credits_f();
           break;
         case 2:
@@ -2284,7 +2291,11 @@ const touchItems = [
     max: 3,
     step: 0.25,
   },
-  { label: "           Gyro Aiming", cvar: "touch_gyro" },
+  {
+    label: "           Gyro Aiming",
+    cvar: "touch_gyro",
+    names: ["off", "always", "touching", "firing"],
+  },
   {
     label: "            Gyro Speed",
     cvar: "touch_gyro_sensitivity",
@@ -2293,11 +2304,33 @@ const touchItems = [
     step: 0.25,
   },
   {
+    label: "        Gyro Dead Zone",
+    cvar: "touch_gyro_deadzone",
+    min: 0,
+    max: 5,
+    step: 0.5,
+  },
+  {
+    label: "        Gyro Smoothing",
+    cvar: "touch_gyro_smooth",
+    min: 0,
+    max: 0.1,
+    step: 0.02,
+  },
+  {
     label: "           Invert Look",
     get: () => m_pitch.value < 0,
     set: () => Cvar_SetValue("m_pitch", -m_pitch.value),
   },
   { label: "           Left-Handed", cvar: "touch_lefthanded" },
+  { label: "      Look Screen-Size", cvar: "touch_look_screen" },
+  {
+    label: "     Look Acceleration",
+    cvar: "touch_look_accel",
+    min: 0,
+    max: 2,
+    step: 0.25,
+  },
   {
     label: "           Button Size",
     cvar: "touch_size",
@@ -2312,9 +2345,28 @@ const touchItems = [
     max: 1,
     step: 0.1,
   },
+  // Web-only: opens the layout editor (touch_editor.js)
+  {
+    label: "           Edit Layout",
+    set: () => Cbuf_AddText("touch_editlayout\n"),
+    link: true,
+  },
   { label: "             Vibration", cvar: "touch_haptics" },
+  // Web-only: the autoaim cone of this browser's own server (touch.js)
+  {
+    label: "            Aim Assist",
+    cvar: "touch_aimassist",
+    min: 0,
+    max: 4,
+    step: 1,
+  },
 ];
 const TOUCH_ITEMS = touchItems.length;
+
+/** The Touch Controls row that sets cvar, or -1 (for tests). */
+export function M_TouchRow(cvar) {
+  return touchItems.findIndex((item) => item.cvar === cvar);
+}
 const TOUCH_TOP = 48;
 let m_touch_cursor = 0;
 
@@ -2348,6 +2400,11 @@ function M_TouchItem_Adjust(item, dir) {
     M_TouchItem_SetFraction(item, (v - item.min) / (item.max - item.min));
   } else if (item.set) {
     item.set();
+  } else if (item.names !== undefined) {
+    // a choice: step through the names, wrapping
+    const n = item.names.length;
+    const v = Math.trunc(Cvar_VariableValue(item.cvar));
+    Cvar_SetValue(item.cvar, (((v + dir) % n) + n) % n);
   } else {
     Cvar_SetValue(item.cvar, Cvar_VariableValue(item.cvar) ? 0 : 1);
   }
@@ -2369,7 +2426,11 @@ function M_Touch_Draw() {
 
     if (M_TouchItem_IsSlider(item)) {
       M_DrawSlider(220, y, M_TouchItem_Fraction(item));
+    } else if (item.names !== undefined) {
+      const v = Math.trunc(Cvar_VariableValue(item.cvar));
+      M_Print(220, y, item.names[v] !== undefined ? item.names[v] : String(v));
     } else {
+      if (item.link === true) continue; // opens something: no value
       M_DrawCheckbox(
         220,
         y,
@@ -2403,9 +2464,12 @@ function M_Touch_Key(key) {
       m_touch_cursor = (m_touch_cursor + 1) % TOUCH_ITEMS;
       break;
     case K_LEFTARROW:
+      // Arrows don't open a link row; Enter does (as in M_Options_Key)
+      if (touchItems[m_touch_cursor].link === true) break;
       M_TouchItem_Adjust(touchItems[m_touch_cursor], -1);
       break;
     case K_RIGHTARROW:
+      if (touchItems[m_touch_cursor].link === true) break;
       M_TouchItem_Adjust(touchItems[m_touch_cursor], 1);
       break;
   }

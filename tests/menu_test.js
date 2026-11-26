@@ -117,17 +117,46 @@ Deno.test("touch menus: Touch Controls page, slider taps and Setup rows", async 
     tap(256, 52);
     near(touch.touch_sensitivity.value, 1.75, "middle snaps to a step");
 
+    // Gyro Aiming (row 1) is a choice: a tap steps it, wrapping, and
+    // left from off wraps to the last
+    const gyro = touch.touch_gyro.value;
+    try {
+      cvar.Cvar_SetValue("touch_gyro", 2);
+      tap(100, 48 + 8 + 4);
+      assertEqual(touch.touch_gyro.value, 3, "tap steps the choice");
+      tap(100, 48 + 8 + 4);
+      assertEqual(touch.touch_gyro.value, 0, "and wraps to off");
+      menu.M_Keydown(keys.K_LEFTARROW);
+      assertEqual(touch.touch_gyro.value, 3, "left from off wraps");
+    } finally {
+      cvar.Cvar_SetValue("touch_gyro", gyro);
+    }
+
     // Tapping a label steps a slider up and flips a toggle
     tap(100, 52);
     near(touch.touch_sensitivity.value, 2, "label tap steps up");
     const lefty = touch.touch_lefthanded.value;
-    tap(100, 48 + 4 * 8 + 4);
+    tap(100, 48 + 6 * 8 + 4);
     assertEqual(
       touch.touch_lefthanded.value,
       lefty ? 0 : 1,
       "Left-Handed toggles",
     );
-    tap(100, 48 + 4 * 8 + 4);
+    tap(100, 48 + 6 * 8 + 4);
+
+    // Look Screen-Size toggles; Look Acceleration slides
+    const screenOn = touch.touch_look_screen.value;
+    const accel = touch.touch_look_accel.value;
+    try {
+      cvar.Cvar_SetValue("touch_look_screen", 1);
+      tap(100, 48 + menu.M_TouchRow("touch_look_screen") * 8 + 4);
+      assertEqual(touch.touch_look_screen.value, 0, "Look Screen-Size toggles");
+      tap(300, 48 + menu.M_TouchRow("touch_look_accel") * 8 + 4);
+      near(touch.touch_look_accel.value, 2, "Look Acceleration maximum");
+    } finally {
+      cvar.Cvar_SetValue("touch_look_screen", screenOn);
+      cvar.Cvar_SetValue("touch_look_accel", accel);
+    }
 
     // Escape goes back to Options; a tap on the Sound Volume slider (row 8) sets it
     menu.M_Keydown(keys.K_ESCAPE);
@@ -234,7 +263,7 @@ Deno.test("touch taps on dense menus select first, then act; taps just outside a
 
     // Snap: a finger just outside the Options list takes its nearest row
     menu.M_Keydown(keys.K_ESCAPE);
-    const listEnd = 32 + 17 * 8; // OPTIONS_ITEMS rows of 8 units
+    const listEnd = 32 + 18 * 8; // OPTIONS_ITEMS rows of 8 units
     assertEqual(
       menu.M_MenuRowAt(100, 1000),
       -1,
@@ -247,7 +276,7 @@ Deno.test("touch taps on dense menus select first, then act; taps just outside a
     );
     assertEqual(
       menu.M_MenuRowAt(100, listEnd + 3, 4),
-      16,
+      17,
       "just below the list snaps to the last row",
     );
     assertEqual(menu.M_MenuRowAt(100, 31), -1, "without slack, no row");
@@ -255,7 +284,7 @@ Deno.test("touch taps on dense menus select first, then act; taps just outside a
     finger(100, listEnd + 3);
     assertEqual(
       cursor(),
-      16,
+      17,
       "a finger just below the list selects the last row",
     );
 

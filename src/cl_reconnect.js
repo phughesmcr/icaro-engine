@@ -9,10 +9,11 @@
 // backing-off retries. The player gets a fresh slot: NetQuake has no identity
 // to resume, so score and inventory start over.
 //
-// Not covered: browser-hosted WebRTC rooms ("rtc:<code>"). Joining one runs a
-// signalling exchange through the lobby and the host's tab has to accept a new
-// peer, so a silent retry from here would need driver work of its own
-// (docs/browser-hosted-rooms.md). Those connections end as before.
+// Browser-hosted WebRTC rooms ("rtc:<code>") are retried the same way: each
+// attempt joins the room by code through the lobby again and offers the host a
+// new peer connection (net_webrtc.js). When the lobby says the room is gone
+// (its host left), the driver calls CLR_GiveUp, which ends the retries at once
+// with that reason instead of running through the remaining attempts.
 //
 // The module touches no browser global at import time: CL_Init calls
 // CLR_Init, which registers the page listeners if the page has them.
@@ -32,13 +33,12 @@ export function CLR_BackoffMs(n) {
 }
 
 /**
- * True for an address a plain connect can be repeated for: a remote WebTransport
- * or WebSocket address, not the loopback "local", not a WebRTC room.
+ * True for an address a plain connect can be repeated for: a remote
+ * WebTransport, WebSocket or WebRTC room address, not the loopback "local".
  */
 export function CLR_IsReconnectable(host) {
   if (typeof host !== "string" || host.length === 0) return false;
   if (host.toLowerCase() === "local") return false;
-  if (/^rtc:/i.test(host)) return false;
   return true;
 }
 
@@ -209,6 +209,20 @@ async function _attempt() {
   }
 
   _schedule(CLR_BackoffMs(attempts));
+}
+
+/**
+ * A retry's connect learnt that the server is gone for good (a browser-hosted
+ * room whose host left): stop retrying and tell the player why. Only a retry in
+ * flight is ended; returns false (and does nothing) otherwise, so a connect the
+ * player started reports its own failure.
+ */
+export function CLR_GiveUp(reason) {
+  if (deps === null || session === null || phase !== "connecting") return false;
+  CLR_Cancel();
+  deps.notify("");
+  deps.giveUp(reason);
+  return true;
 }
 
 /**
