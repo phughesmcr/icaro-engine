@@ -1,7 +1,7 @@
 # Style cleanup plan
 
-Status: tier 0 done (#217); tier 1 on `refactor/deno-fmt`; tiers 2–4 not
-started. Measured on `dev` at b8f46e7 (2026-11-26),
+Status: tier 0 done (#217); tier 1 done on `refactor/deno-fmt` (see its
+results below); tiers 2–4 not started. Measured on `dev` at b8f46e7 (2026-11-26),
 after #205–#215 merged.
 
 Decisions made: adopt `deno fmt` with the settings below, collapse comment
@@ -193,6 +193,21 @@ Done on `refactor/fmt-prep`:
   - A browser smoke test of the client: serve with the `static` preview, load
     e1m1, and open the menu and the console. `src/` touches `window` and
     `document`, and CI doesn't cover rendering.
+- Add the commit 2 SHA to `.git-blame-ignore-revs`.
+
+Results, on `refactor/deno-fmt` (commit 2 is 21dc0a3):
+
+- `deno fmt` changed 307 files (+107,587/−103,827 lines).
+- `tools/fmt_ast_check.js` against `dev` (1c690bd): 303 of 303 changed
+  `.js`/`.ts` files match. The other four are `deno.json`,
+  `server/deno.json` and the two `wrangler.jsonc` files.
+- `deno fmt --check` is clean, and `deno task ci` passes (963 tests, lint,
+  type-check).
+- Every checksum and hash from the server, build, model and net benchmarks
+  is identical before and after.
+- Browser smoke test with the `static` preview: e1m1 loads and plays, and
+  the main menu, the Options menu and the console work. The only console
+  errors are 404s for `pak1.pak`, which isn't present.
 
 ### Tier 2: banners and comment boxes (comments only)
 
