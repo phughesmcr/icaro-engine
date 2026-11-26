@@ -117,6 +117,20 @@ Deno.test("touch menus: Touch Controls page, slider taps and Setup rows", async 
     tap(256, 52);
     near(touch.touch_sensitivity.value, 1.75, "middle snaps to a step");
 
+    // Look Screen-Size (row 4) toggles; Look Acceleration (row 5) slides
+    const screenOn = touch.touch_look_screen.value;
+    const accel = touch.touch_look_accel.value;
+    try {
+      cvar.Cvar_SetValue("touch_look_screen", 1);
+      tap(100, 48 + 4 * 8 + 4);
+      assertEqual(touch.touch_look_screen.value, 0, "Look Screen-Size toggles");
+      tap(300, 48 + 5 * 8 + 4);
+      near(touch.touch_look_accel.value, 2, "Look Acceleration maximum");
+    } finally {
+      cvar.Cvar_SetValue("touch_look_screen", screenOn);
+      cvar.Cvar_SetValue("touch_look_accel", accel);
+    }
+
     // Tapping a label steps a slider up and flips a toggle
     tap(100, 52);
     near(touch.touch_sensitivity.value, 2, "label tap steps up");

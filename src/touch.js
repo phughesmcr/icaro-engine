@@ -75,9 +75,12 @@ export function Touch_RegisterCvars() {
 // Degrees of view rotation per CSS pixel of drag at touch_sensitivity 1
 // (the same speed as before touch_sensitivity existed)
 const LOOK_DEGREES_PER_PX = 0.4;
-// Short side, in CSS pixels, of the largest phone screens: drag look is scaled
-// up by short side / this on bigger screens, and never scaled down
+// Short side, in CSS pixels, of the largest phone screens: on a touch-first
+// device with a bigger screen (a tablet), drag look is scaled up by short
+// side / this, at most LOOK_SCREEN_MAX (the largest tablets), and never down.
+// Touchscreen laptops and desktops (a fine pointer too) aren't scaled.
 export const LOOK_SCREEN_REF = 430;
+export const LOOK_SCREEN_MAX = 2.5;
 // Drag speed (reference pixels per second) at which touch_look_accel 1
 // doubles the turn, and the largest gain it can reach
 export const LOOK_ACCEL_SPEED = 1000;
@@ -108,6 +111,7 @@ let stickManager = null;
 // Look area (drag to look)
 let lookTouch = null;
 const lastLookPos = { x: 0, y: 0, t: 0 };
+let lookScale = 1; // Touch_LookScreenScale, set when an aiming touch starts
 
 // Menu touch (tap to select, drag to send arrow keys)
 const MENU_DRAG_STEP = 24; // px of drag per arrow key
@@ -959,7 +963,16 @@ function haptic(ms) {
  */
 export function Touch_LookScreenScale(width, height) {
   const side = Math.min(width, height);
-  return side > LOOK_SCREEN_REF ? side / LOOK_SCREEN_REF : 1;
+  if (!(side > LOOK_SCREEN_REF)) return 1;
+  return Math.min(side / LOOK_SCREEN_REF, LOOK_SCREEN_MAX);
+}
+
+/** Sets lookScale for a new aiming touch (not per move: matchMedia allocates). */
+function Touch_UpdateLookScale() {
+  lookScale = touch_look_screen.value !== 0 && typeof window !== "undefined" &&
+      Touch_IsMobile() ?
+    Touch_LookScreenScale(window.innerWidth, window.innerHeight) :
+    1;
 }
 
 /**
@@ -975,11 +988,8 @@ export function Touch_LookGain(dx, dy, dt, accel) {
 
 /** Turns the view for a drag of (dx, dy) CSS pixels over dt seconds. */
 function addLook(dx, dy, dt) {
-  if (touch_look_screen.value !== 0 && typeof window !== "undefined") {
-    const scale = Touch_LookScreenScale(window.innerWidth, window.innerHeight);
-    dx *= scale;
-    dy *= scale;
-  }
+  dx *= lookScale;
+  dy *= lookScale;
   const k = LOOK_DEGREES_PER_PX * touch_sensitivity.value *
     Touch_LookGain(dx, dy, dt, touch_look_accel.value);
   lookYaw -= dx * k;
@@ -996,6 +1006,7 @@ function onLookTouchStart(e) {
     lastLookPos.x = touch.clientX;
     lastLookPos.y = touch.clientY;
     lastLookPos.t = e.timeStamp;
+    Touch_UpdateLookScale();
   }
 }
 
@@ -1051,6 +1062,7 @@ function onHoldTouchStart(b, e) {
       y: touch.clientY,
       t: e.timeStamp,
     });
+    Touch_UpdateLookScale();
   }
 }
 

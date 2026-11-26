@@ -525,6 +525,11 @@ Deno.test("touch: look curve scales with screen size and drag speed", () => {
     820 / touch.LOOK_SCREEN_REF,
     "tablet",
   );
+  near(
+    touch.Touch_LookScreenScale(3840, 2160),
+    touch.LOOK_SCREEN_MAX,
+    "capped",
+  );
 
   // Acceleration: off is 1; speed adds accel * speed / LOOK_ACCEL_SPEED,
   // up to LOOK_ACCEL_MAX; a zero or missing gap counts as the shortest
@@ -535,12 +540,18 @@ Deno.test("touch: look curve scales with screen size and drag speed", () => {
   near(touch.Touch_LookGain(4, 0, 0, 1), 2, "zero gap");
   near(touch.Touch_LookGain(4, 0, undefined, 1), 2, "missing timestamp");
 
-  // Wired into drag look: a 1024x768 window and accel 1
+  // Wired into drag look: a touch-first 1024x768 screen (a tablet), accel 1
   const accel = touch.touch_look_accel.value;
+  const screenOn = touch.touch_look_screen.value;
   withFakeDom(() => {
     const saved = [windowTarget.innerWidth, windowTarget.innerHeight];
     windowTarget.innerWidth = 1024;
     windowTarget.innerHeight = 768;
+    const desktopMatch = globalThis.matchMedia;
+    Object.defineProperty(globalThis, "matchMedia", {
+      configurable: true,
+      value: (q) => ({ matches: q === "(pointer: coarse)" }),
+    });
     try {
       touch.touch_look_accel.value = 1;
       touch.Touch_Init(document.body);
@@ -564,8 +575,61 @@ Deno.test("touch: look curve scales with screen size and drag speed", () => {
         "scaled and accelerated",
       );
       look.fire("touchend", touchEvent("touchend", 1, 310, 100));
+
+      // A drag from FIRE accelerates the same way
+      const fire = byId("touch-fire");
+      fire.fire(
+        "touchstart",
+        touchEvent("touchstart", 2, 100, 100, { timeStamp: 2000 }),
+      );
+      fire.fire(
+        "touchmove",
+        touchEvent("touchmove", 2, 110, 100, { timeStamp: 2020 }),
+      );
+      near(
+        touch.Touch_GetLookDelta().yaw,
+        -10 * scale * 0.4 * sens * gain,
+        "FIRE drag scaled and accelerated",
+      );
+      fire.fire("touchend", touchEvent("touchend", 2, 110, 100));
+
+      // touch_look_screen 0, accel 0: per pixel, as before
+      touch.touch_look_screen.value = 0;
+      touch.touch_look_accel.value = 0;
+      look.fire(
+        "touchstart",
+        touchEvent("touchstart", 3, 300, 100, { timeStamp: 3000 }),
+      );
+      look.fire(
+        "touchmove",
+        touchEvent("touchmove", 3, 310, 100, { timeStamp: 3020 }),
+      );
+      near(touch.Touch_GetLookDelta().yaw, -10 * 0.4 * sens, "per pixel");
+      look.fire("touchend", touchEvent("touchend", 3, 310, 100));
+
+      // A desktop touchscreen (a fine pointer too) isn't scaled
+      touch.touch_look_screen.value = 1;
+      Object.defineProperty(globalThis, "matchMedia", {
+        configurable: true,
+        value: desktopMatch,
+      });
+      look.fire(
+        "touchstart",
+        touchEvent("touchstart", 4, 300, 100, { timeStamp: 4000 }),
+      );
+      look.fire(
+        "touchmove",
+        touchEvent("touchmove", 4, 310, 100, { timeStamp: 4020 }),
+      );
+      near(touch.Touch_GetLookDelta().yaw, -10 * 0.4 * sens, "desktop");
+      look.fire("touchend", touchEvent("touchend", 4, 310, 100));
       touch.Touch_Disable();
     } finally {
+      Object.defineProperty(globalThis, "matchMedia", {
+        configurable: true,
+        value: desktopMatch,
+      });
+      touch.touch_look_screen.value = screenOn;
       touch.touch_look_accel.value = accel;
       windowTarget.innerWidth = saved[0];
       windowTarget.innerHeight = saved[1];
@@ -580,13 +644,7 @@ Deno.test("touch: dragging from FIRE aims while it stays held; a second finger k
     touch.Touch_GetLookDelta();
 
     const fireButton = byId("touch-fire");
-    // the fake 640x480 window is bigger than a phone: touch_look_screen
-    // scales the drag
-    const sens = touch.touch_sensitivity.value *
-      touch.Touch_LookScreenScale(
-        windowTarget.innerWidth,
-        windowTarget.innerHeight,
-      );
+    const sens = touch.touch_sensitivity.value;
 
     cl_input.in_attack.state = 0;
     fireButton.fire("touchstart", touchEvent("touchstart", 1, 100, 100));
