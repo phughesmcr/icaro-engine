@@ -31,7 +31,7 @@
 // engine. Engine modules are loaded on the first tool call.
 
 // deno-lint-ignore no-explicit-any
-type Engine = { agent: any; host: any; sys: any; cmd: any };
+type Engine = { agent: any; sys: any; cmd: any; pak: any };
 
 type JsonRpcId = string | number | null;
 type JsonRpcMessage = {
@@ -169,7 +169,7 @@ export function agent_mcp_engine(): Promise<Engine> {
 		await headless.headless_init();
 		const e: Engine = {
 			agent: await import('../src/agent.js'),
-			host: await import('../src/host.js'),
+			pak: await import('../src/pak.js'),
 			sys: await import('../src/sys.js'),
 			cmd: await import('../src/cmd.js'),
 		};
@@ -189,11 +189,15 @@ function footer(e: Engine): string {
 	return 'tic=' + (e.agent.Agent_Tics() - game_origin) + (hash !== '' ? ' hash=' + hash : '');
 }
 
+// Out-of-range values are errors, not clamped, so a logged call replays as
+// it was written
 function opt_int(args: Record<string, unknown>, name: string, def: number, min: number, max: number): number {
 	const v = args[name];
 	if (v === undefined) return def;
-	if (typeof v !== 'number' || Number.isInteger(v) !== true) throw new Error(name + ' must be an integer');
-	return Math.max(min, Math.min(max, v));
+	if (typeof v !== 'number' || Number.isInteger(v) !== true || v < min || v > max) {
+		throw new Error(name + ' must be an integer from ' + min + ' to ' + max);
+	}
+	return v;
 }
 
 function opt_num(args: Record<string, unknown>, name: string): number | undefined {
@@ -224,6 +228,9 @@ async function agent_mcp_start(e: Engine, args: Record<string, unknown>): Promis
 	const skill = opt_int(args, 'skill', 1, 0, 3);
 	const seed = args.seed;
 	if (seed !== undefined && (typeof seed !== 'number' || Number.isInteger(seed) !== true)) throw new Error('seed must be an integer');
+	// Check the map before ending the running game
+	if (/^[A-Za-z0-9_]+$/.test(map) !== true) throw new Error('bad map name ' + JSON.stringify(map));
+	if (await e.pak.COM_EnsureFile('maps/' + map + '.bsp') !== true) throw new Error('no map "' + map + '"');
 
 	e.cmd.Cmd_ExecuteString('disconnect', e.cmd.src_command);
 	game_origin = e.agent.Agent_Tics();

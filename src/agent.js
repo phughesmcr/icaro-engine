@@ -26,6 +26,7 @@ import { sv } from './server.js';
 import { PR_GetString, pr_globals_int } from './progs.js';
 import { SV_RecursiveHullCheck, trace_t } from './world.js';
 import { CL_ClampPitch } from './cl_input.js';
+import { COM_EnsureFile } from './pak.js';
 
 export const AGENT_TIC = 1 / 72; // one step tic: host_maxfps's default frame
 
@@ -412,14 +413,20 @@ export function Agent_Serial( fn ) {
 
 }
 
+// Longest wait in lockstep, in tics: a load that fails (a Host_Error while
+// spawning) gives up after this, not after timeout_ms of frames run as fast
+// as they go, which headless is hundreds of thousands of tics
+const AGENT_WAIT_TICS = 72 * 120;
+
 // Runs frames (lockstep) or waits (realtime) until done() is true, letting
 // fetches settle between frames. Returns done().
 async function Agent_WaitFor( done, timeout_ms = 15000 ) {
 
 	const start = performance.now();
-	while ( done() === false && performance.now() - start < timeout_ms ) {
+	let tics = 0;
+	while ( done() === false && performance.now() - start < timeout_ms && tics < AGENT_WAIT_TICS ) {
 
-		if ( agent_mode === 'lockstep' ) Agent_Tic();
+		if ( agent_mode === 'lockstep' ) { Agent_Tic(); tics ++; }
 		await Agent_Yield();
 		if ( agent_mode !== 'lockstep' ) await new Promise( ( r ) => setTimeout( r, 1000 / 72 ) );
 
@@ -653,6 +660,11 @@ async function Agent_NewGameNow( map, skill ) {
 	if ( /^[A-Za-z0-9_]+$/.test( map ) === false ) throw new Error( 'bad map name' );
 	skill = Math.max( 0, Math.min( 3, Math.floor( Number( skill ) || 0 ) ) );
 	if ( agent_mode === 'off' ) Agent_Attach( 'realtime' );
+	// A missing map leaves the running game alone (and fails at once, not
+	// after the load timeout)
+	if ( await COM_EnsureFile( 'maps/' + map + '.bsp' ) !== true )
+		return 'no map "' + map + '"\n' + Agent_Observe();
+	Agent_ReleaseButtons(); // a held step's buttons don't carry into the new game
 	const first = Math.min( event_seq, event_read );
 	// Disconnect first, so the level counts as loaded only once the new one is
 	// (the same map reloaded keeps its cached world model)

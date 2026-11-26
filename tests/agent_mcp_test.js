@@ -109,7 +109,11 @@ Deno.test( 'agent_mcp: stdio framing, one JSON reply per line', async () => {
 
 Deno.test( { name: 'agent_mcp: bad tool arguments come back as tool errors', ...ENGINE_TEST, fn: async () => {
 
-	for ( const [ name, args ] of [ [ 'start', { map: 'e1m1;quit' } ], [ 'start', { seed: 1.5 } ], [ 'cmd', {} ], [ 'step', { tics: 'many' } ] ] ) {
+	const bad = [
+		[ 'start', { map: 'e1m1;quit' } ], [ 'start', { seed: 1.5 } ], [ 'start', { map: 'nope' } ], [ 'start', { skill: 4 } ],
+		[ 'cmd', {} ], [ 'step', { tics: 'many' } ], [ 'step', { tics: 99999 } ], [ 'step', { impulse: 0 } ],
+	];
+	for ( const [ name, args ] of bad ) {
 
 		const r = await agent_mcp_handle( { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name, arguments: args } } );
 		assert( r.result !== undefined && r.result.isError === true, name + ' ' + JSON.stringify( args ) + ': ' + JSON.stringify( r ) );
@@ -118,8 +122,22 @@ Deno.test( { name: 'agent_mcp: bad tool arguments come back as tool errors', ...
 
 } } );
 
+Deno.test( { name: 'agent_mcp: a missing map fails at once and keeps the game', ...ENGINE_TEST, fn: async () => {
+
+	const before = footer( await call( 'start', { map: 'e1m1', skill: 1 } ) );
+	const t0 = performance.now();
+	const r = await agent_mcp_handle( { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'start', arguments: { map: 'e1m9x' } } } );
+	assert( r.result.isError === true && r.result.content[ 0 ].text.includes( 'no map' ), JSON.stringify( r ) );
+	assert( performance.now() - t0 < 1000, 'took ' + Math.round( performance.now() - t0 ) + ' ms' );
+	const after = await call( 'observe', { ents: 0 } );
+	assert( after.startsWith( 'e1m1 ' ), 'the game ended: ' + after );
+	assert( footer( after ).tic === before.tic, 'tics ran' );
+
+} } );
+
 // Moves, turns, switches weapon, fires, jumps: player physics, QuakeC
-// weapon code and (with the noise) the monsters' reactions
+// weapon code and (with the noise) the monsters' reactions. It starts with
+// buttons held from the game before, which start must release.
 const ACTION_LOG = [
 	[ 'step', { buttons: 'forward', tics: 72 } ],
 	[ 'step', { yaw: 90, tics: 1 } ],
@@ -130,10 +148,14 @@ const ACTION_LOG = [
 	[ 'cmd', { text: 'give h 10' } ],
 	[ 'step', { buttons: 'attack', tics: 72 } ],
 	[ 'step', { tics: 144 } ],
+	[ 'cmd', { text: 'impulse 1' } ],
+	[ 'step', { tics: 10 } ],
 ];
 
 async function playLog( seed ) {
 
+	// Leave buttons held in whatever game is running
+	await call( 'step', { buttons: 'moveright,attack', hold: true, tics: 0 } );
 	const start = footer( await call( 'start', { map: 'e1m1', skill: 1, seed } ) );
 	let last = '';
 	for ( const [ name, args ] of ACTION_LOG )
@@ -153,6 +175,8 @@ Deno.test( { name: 'agent_mcp: a seeded action log replays to the same state has
 	assert( a.end.tic === b.end.tic, 'tics ' + a.end.tic + ' vs ' + b.end.tic );
 	assert( a.end.hash === b.end.hash, 'replay diverged:\n' + a.text + '\n---\n' + b.text );
 	assert( a.end.tic > a.start.tic + 400, 'the log ran ' + ( a.end.tic - a.start.tic ) + ' tics' );
+	// The axe arrives as weapon 0 (a byte): Agent_Weapon names it
+	assert( / weapon=axe /.test( a.text ), 'weapon after impulse 1: ' + a.text.split( '\n' )[ 0 ] );
 
 	// A different seed is a different game (monsters' first thinks are random)
 	const c = await playLog( 99 );
@@ -161,7 +185,10 @@ Deno.test( { name: 'agent_mcp: a seeded action log replays to the same state has
 
 	// Unseeded: both hooks are off again
 	await call( 'start', { map: 'e1m1', skill: 1 } );
-	assert( Math.abs( Sys_FloatTime() - performance.now() / 1000 ) < 1, 'the virtual clock is still on' );
+	// The virtual clock only moves with tics; the wall clock moves while we wait
+	const c0 = Sys_FloatTime();
+	await new Promise( ( r ) => setTimeout( r, 20 ) );
+	assert( Sys_FloatTime() - c0 > 0.01, 'the virtual clock is still on' );
 	const realRandom = Math.random;
 	Math.random = () => 0.125;
 	try {

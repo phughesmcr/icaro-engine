@@ -326,11 +326,9 @@ document it. A useful `goto` needs a graph. Options, in order:
   - Runs the same core headless, with stdio and Streamable HTTP transports.
   - Tools stay few and coarse, as in doom-mcp: `start`, `step`, `act`,
     `observe` and `screenshot`. Each returns the default text observation.
-  - **Unverified prerequisite.** A full `Host_Init` plus a client running
-    headless under Deno is not tested today. Tests call `Host_Frame` on a
-    partially initialised host (`tests/host_cmd_inventory_test.js:164`), and
-    the benches build the server side by hand. Proving a headless loopback
-    client (`net_loop.js`) with the `three` shim is the first task.
+  - The headless loopback client this needed is built
+    (`server/headless_host.js`), and the stdio server is
+    (`server/agent_mcp.ts`; see Status).
   - Without rendering, the `screen` and `rl` pixel tiers are unavailable, but
     the text tiers work, and this is where uncapped speed matters.
 - **Gymnasium bridge** (`tools/gym/`, Python):
