@@ -55,7 +55,10 @@ Deno.test("the manifest has a wide and a narrow screenshot", () => {
   }
 });
 
-Deno.test("the manifest keeps one window and leaves a launch to the page", () => {
+Deno.test("main.js takes the launches the manifest leaves to the page", async () => {
+  const main = await Deno.readTextFile(new URL("main.js", root));
+  assert(/^PWA_InitLaunchQueue\(\s*window,/m.test(main), "no consumer");
+
   const mode = manifest.launch_handler.client_mode;
   // focus-existing needs pwa_launch.js's launchQueue consumer, or a tapped
   // room link would only focus the running game
@@ -86,6 +89,7 @@ Deno.test("each iOS launch image matches its media query's screen", async () => 
   // and no image is left over
   const hrefs = new Set(links.map((l) => l.match(/href="([^"]*)"/)[1]));
   for await (const entry of Deno.readDir(new URL("static/splash/", root))) {
+    if (!entry.name.endsWith(".png")) continue; // .DS_Store
     assert(hrefs.has(`static/splash/${entry.name}`), `unused ${entry.name}`);
   }
 });

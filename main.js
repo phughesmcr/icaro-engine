@@ -11,7 +11,7 @@ import {
 } from "./src/pak.js";
 import { Cbuf_AddText } from "./src/cmd.js";
 import { NET_LobbyJoinURL, NET_LobbyServer } from "./src/net_main.js";
-import { cl, cls } from "./src/client.js";
+import { ca_connected, cl, cls } from "./src/client.js";
 import { sv } from "./src/server.js";
 import { camera, scene } from "./src/gl_rmain.js";
 import { renderer } from "./src/vid.js";
@@ -39,7 +39,10 @@ import {
 } from "./src/agent.js";
 
 // web-only: set up before the game can rewrite the page's URL
-PWA_InitLaunchQueue(window);
+PWA_InitLaunchQueue(
+  window,
+  () => cls.state === ca_connected && cls.demoplayback === false,
+);
 
 const parms = {
   basedir: ".",
