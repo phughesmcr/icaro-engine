@@ -7,6 +7,9 @@ import {
   Client_CheckDist,
   Client_DenyReason,
   CLIENT_FILES,
+  Client_Headers,
+  Client_InlineScripts,
+  Client_ScriptHash,
   Client_SelectFiles,
   Client_Sha256,
   CLIENT_SHAREWARE_PAK,
@@ -159,4 +162,46 @@ Deno.test("client build: the tracked pak0.pak is the pinned shareware pak", asyn
   const pak = await Deno.readFile(new URL(CLIENT_SHAREWARE_PAK, root));
   const sha = await Client_Sha256(pak);
   assert(sha === CLIENT_SHAREWARE_PAK_SHA256, `pak0.pak SHA-256 ${sha}`);
+});
+
+Deno.test("client build: _headers hashes every inline script in index.html", async () => {
+  const html = await Deno.readTextFile(new URL("index.html", root));
+  const scripts = Client_InlineScripts(html);
+  assert(scripts.length >= 2, `inline scripts: ${scripts.length}`);
+  assert(
+    scripts.some((s) => s.includes('"imports"')),
+    "the import map is an inline script",
+  );
+  const headers = await Client_Headers(html);
+  const lines = headers.split("\n");
+  assert(lines[1] === "/*", "one rule for every path");
+  const csp = lines.find((l) => l.startsWith("  Content-Security-Policy: "));
+  assert(csp !== undefined, "no CSP");
+  for (const script of scripts) {
+    const hash = await Client_ScriptHash(script);
+    assert(csp.includes(hash), `CSP lacks ${hash}`);
+  }
+  for (
+    const needed of [
+      "https://cdn.jsdelivr.net",
+      "frame-src https://challenges.cloudflare.com",
+      "frame-ancestors 'none'",
+      "object-src 'none'",
+    ]
+  ) {
+    assert(csp.includes(needed), `CSP lacks ${needed}`);
+  }
+  assert(csp.includes("'unsafe-inline'; img-src"), "inline styles only");
+  assert(/script-src[^;]*unsafe/.test(csp) === false, "no unsafe scripts");
+  // Workers static assets: 100 rules, 2,000 characters a line
+  for (const line of lines) {
+    assert(line.length <= 2000, `line of ${line.length} characters`);
+  }
+});
+
+Deno.test("client build: an external script is not hashed", () => {
+  const scripts = Client_InlineScripts(
+    '<script type="module" src="main.js"></script><script>a()</script>',
+  );
+  assert(scripts.length === 1 && scripts[0] === "a()", `${scripts}`);
 });

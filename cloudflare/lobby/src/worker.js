@@ -5,6 +5,7 @@
 // tests can run it. See ../README.md to deploy.
 
 import { DurableObject } from "cloudflare:workers";
+import { Lobby_Gate } from "./gate.js";
 import { LobbyCore } from "./lobby_core.js";
 
 export class Lobby extends DurableObject {
@@ -43,20 +44,10 @@ export class Lobby extends DurableObject {
 }
 
 export default {
-  fetch(request, env) {
-    const url = new URL(request.url);
-    if (/\/lobby\/?$/.test(url.pathname) === false) {
-      return new Response(
-        "Icaro Engine lobby: the WebSocket endpoint is /lobby. Rooms here are hosted in browsers.\n",
-        { status: 404 },
-      );
-    }
-    if ((request.headers.get("upgrade") ?? "").toLowerCase() !== "websocket") {
-      return new Response("WebSocket only\n", {
-        status: 426,
-        headers: { upgrade: "websocket" },
-      });
-    }
+  async fetch(request, env) {
+    // Path, upgrade, Origin and the per-IP connection rate (gate.js)
+    const refused = await Lobby_Gate(request, env);
+    if (refused !== null) return refused;
     // One lobby for every client: rooms are listed and joined by code
     return env.LOBBY.get(env.LOBBY.idFromName("lobby")).fetch(request);
   },

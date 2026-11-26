@@ -524,6 +524,9 @@ deno run '--allow-net=0.0.0.0:8080' --allow-read=static server/game_server.js -n
   may signal whom, limits, pruning and restoring after hibernation
 - `../tests/cloudflare_lobby_test.js` — The Cloudflare lobby's Durable Object
   logic (`../cloudflare/lobby/src/lobby_core.js`) with a fake `ctx`
+- `../tests/cloudflare_lobby_gate_test.js` — The Cloudflare lobby Worker's
+  checks before the Durable Object (`../cloudflare/lobby/src/gate.js`: path,
+  upgrade, Origin, per-IP connection limit) and its TURN minting limit
 - `../tests/quic_listen_test.ts` — IPv6/IPv4 bind fallback tests for
   `quic_listen.ts`
 - `../tests/server_lobby_test.js` — Lobby and room-manager tests

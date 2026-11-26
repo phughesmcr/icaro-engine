@@ -12,6 +12,12 @@
       "runtimeExecutable": "deno",
       "runtimeArgs": ["task", "lobby"],
       "port": 4433
+    },
+    {
+      "name": "client-worker",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "cd cloudflare/client && npx --yes wrangler@4 dev --port 8788"],
+      "port": 8788
     }
   ]
 }

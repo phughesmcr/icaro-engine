@@ -25,6 +25,7 @@ import {
   Lobby_WantsRtcRooms,
   RtcLobby,
 } from "../../../server/lobby_rtc.js";
+import { Lobby_RateLimitOk } from "./gate.js";
 import {
   Turnstile_Check,
   Turnstile_ConfigFrom,
@@ -179,14 +180,20 @@ export class LobbyCore {
    * secrets), else STUN only (lobby_rtc.js falls back to it on any
    * failure). The lobby only asks after a LOBBY_HOST or LOBBY_JOIN passes
    * its limits, so a client can't mint credentials by connecting alone.
+   * Those limits live in memory and start again when the object
+   * hibernates, so the LOBBY_TURN_LIMIT binding also caps minting per IP;
+   * past it, the client gets STUN only.
    */
-  async iceServers(_ip, _role) {
+  async iceServers(ip, _role) {
     const keyId = this.env.TURN_KEY_ID;
     const token = this.env.TURN_KEY_API_TOKEN;
     if (
       typeof keyId !== "string" || keyId === "" || typeof token !== "string" ||
       token === ""
     ) return [];
+    if (await Lobby_RateLimitOk(this.env.LOBBY_TURN_LIMIT, ip) === false) {
+      return [];
+    }
 
     const ttl = Number.parseInt(this.env.TURN_TTL_SECONDS ?? "", 10);
     const response = await this.fetch(

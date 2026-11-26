@@ -79,7 +79,30 @@ browsers.
 
 ## Headers and caching
 
-Cloudflare's defaults apply: no long-lived caching (`max-age=0`,
+`build.js` writes `dist/_headers`, which Workers static assets apply to every
+response (`Client_Headers`):
+
+- `Content-Security-Policy`: scripts from this origin, jsDelivr (the import map)
+  and Turnstile only, plus a SHA-256 hash of each inline script in `index.html`
+  (the import map and the service worker's registration). The build computes
+  those hashes, so editing either script needs no other change. No framing
+  (`frame-ancestors 'none'`), no plugins, no `<base>`. `connect-src` allows any
+  `https:` or `wss:` host, since `?server=` may name any lobby. Inline styles
+  are allowed (the `<style>` block, touch controls).
+- `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: strict-origin-when-cross-origin`,
+  `Cross-Origin-Opener-Policy: same-origin`, a `Permissions-Policy` that turns
+  off camera, microphone, geolocation, payment and USB, and
+  `Strict-Transport-Security` for a year (this hostname only, no preload).
+
+The policy was checked in a browser against `wrangler dev` (the `client-worker`
+preview in `.claude/launch.json`): E1M1 loads and renders, the service worker
+registers and caches, and the Turnstile widget renders, with no policy
+violations. `connect-src` refuses `ws://` lobbies, so this page (deployed or
+under `wrangler dev`) can't reach a local lobby such as `ws://127.0.0.1:4433`,
+even with `?server=`. Use `deno task serve` for local multiplayer work.
+
+Caching is Cloudflare's default: no long-lived caching (`max-age=0`,
 `must-revalidate`) and an `ETag`, so a repeat load costs a 304 per file. No
 cross-origin isolation headers are set or needed (the engine doesn't use
 `SharedArrayBuffer`), and adding `Cross-Origin-Embedder-Policy` would put the
@@ -99,6 +122,22 @@ navigation to `/index.html` while offline would use it.
   with Workers Scripts edit (and Zone, Workers Routes and DNS edit for the first
   deploy's Custom Domain) and a `CLOUDFLARE_ACCOUNT_ID` secret. Never commit
   either.
-- No rate-limiting rule on `/mp/lobby`. TURN credentials go to every joiner
-  without Turnstile, and relay traffic past the free allowance is billed. A WAF
-  rate-limiting rule on the route caps that.
+- The optional WAF rate-limiting rule on `/mp/lobby` (`../lobby/README.md`,
+  "Abuse limits"); the lobby's own limits are in its code and config.
+
+## Dashboard settings
+
+Settings outside the repository that matter for this hostname:
+
+- SSL/TLS, Edge Certificates: Always Use HTTPS on, minimum TLS version 1.2.
+  (HSTS comes from `_headers`; leave the dashboard's HSTS off or set it the
+  same.)
+- Turnstile: the widget's hostnames are `quake.anglezarke.games` only, as is the
+  lobby's `TURNSTILE_HOSTNAMES`.
+- Billing: if the account has a payment method, a billing notification warns
+  before TURN relay traffic passes the free allowance (not checked which
+  notification types the account offers).
+- API tokens: a deploy token scoped to this account's Workers (and the zone's
+  Workers Routes for the first deploy), nothing wider. Once the tunnel is gone,
+  delete it in the dashboard and its credentials file
+  (`~/.cloudflared/<id>.json`): anyone holding that file can run the tunnel.

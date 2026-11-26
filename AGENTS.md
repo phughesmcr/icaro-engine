@@ -51,7 +51,8 @@ process per room. It was forked from mrdoob's three-quake.
 - `cloudflare/lobby/`: the lobby Worker and Durable Object for rooms hosted in
   browsers, with TURN credentials and the Turnstile check (its README says how
   to deploy). `src/worker.js` imports `cloudflare:workers`, so tests run
-  `src/lobby_core.js` instead. Its route serves it at
+  `src/lobby_core.js` and `src/gate.js` (the Origin check and rate limits before
+  the Durable Object) instead. Its route serves it at
   `quake.anglezarke.games/mp/lobby`. Run wrangler only from that folder: from
   the repository root it offers to upload the whole repository, registered data
   included.
@@ -130,9 +131,11 @@ process per room. It was forked from mrdoob's three-quake.
   `deno.lock`), bound to 127.0.0.1 so registered data in `static/` isn't served
   to the network, and it honours HTTP Range, which the rerelease's lazily loaded
   paks need. Any static file server works otherwise. `.claude/launch.json`
-  defines the preview servers for Claude Code: `static` (`deno task serve`) and
-  `lobby` (`deno task lobby`: port 4433, the client's default, with rooms on
-  4434–4443; it needs the certs). To drive it as an agent, open
+  defines the preview servers for Claude Code: `static` (`deno task serve`),
+  `client-worker` (`wrangler dev` on `cloudflare/client/dist/`, port 8788, with
+  its security headers; run `deno task client-build` first) and `lobby`
+  (`deno task lobby`: port 4433, the client's default, with rooms on 4434–4443;
+  it needs the certs). To drive it as an agent, open
   `?agent=lockstep&map=e1m1&skill=1` and call `icaro.help()` in the page.
 - CI (`.github/workflows/ci.yml`) runs on PRs to `dev` and `main` and on pushes
   to them: a check that no pak but `static/pak0.pak` is tracked, then
