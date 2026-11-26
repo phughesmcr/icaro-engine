@@ -1,9 +1,8 @@
 # Style cleanup plan
 
 Status: tier 0 done (#217); tier 1 done (#218); tier 2 done (#219); tier 3 done
-on `refactor/markdown-fmt` (see its results below); tier 4 piloted on one file
-(see its results below), not swept. Measured on `dev` at b8f46e7 (2026-11-26),
-after #205–#215 merged.
+(#220); tier 4 piloted on one file (#225; see its results below), not swept.
+Measured on `dev` at b8f46e7 (2026-11-26), after #205–#215 merged.
 
 Decisions made: adopt `deno fmt` with the settings below, and include `tests/`.
 Comment banners go: `/** */` documents a declaration, and every other comment is
@@ -127,7 +126,7 @@ hand edits go in an earlier commit.
 
 ### Tier 0: preparation (no formatting)
 
-Done on `refactor/fmt-prep`:
+Done (#217):
 
 1. The two source-reading tests accept either layout: any spacing around `(`,
    `[` and `{`, and either quote. `menu_advanced_test.js` still finds the same
@@ -193,7 +192,7 @@ Done on `refactor/fmt-prep`:
     `document`, and CI doesn't cover rendering.
 - Add the commit 2 SHA to `.git-blame-ignore-revs`.
 
-Results, on `refactor/deno-fmt` (commit 2 is 21dc0a3):
+Results (#218; commit 2 is 21dc0a3):
 
 - `deno fmt` changed 307 files (+107,587/−103,827 lines).
 - `tools/fmt_ast_check.js` against `dev` (1c690bd): 303 of 303 changed
@@ -247,7 +246,7 @@ Verify:
 - `deno fmt --check` and `deno task ci` pass. The code is unchanged, so the
   benchmarks and a browser check add nothing.
 
-Results, on `refactor/comment-banners`:
+Results (#219):
 
 - The codemod deleted 301 name-only banners and 2 blocks of rules only. It made
   633 banners into doc comments (name line dropped) and 28 plain blocks into doc
@@ -270,7 +269,7 @@ PR because the status docs collect most merge conflicts (AGENTS.md "Git
 workflow"). That PR removes `**/*.md` from `fmt.exclude`. `.claude/` stays
 excluded, so the YAML front matter of its skills and agents isn't touched.
 
-Results (`refactor/markdown-fmt`):
+Results (#220):
 
 - One sweep commit: 17 Markdown files, +4,222 / -3,060 lines, the `exclude`
   change in `deno.json` included. Of the other 5 tracked Markdown files, the 4
@@ -292,8 +291,8 @@ change behaviour or mirror the C on purpose. `!x` is not `x === null` when `x`
 can be `0`, `''` or `undefined`. Fix them file by file, when a PR is already
 editing that file and its tests cover the change.
 
-Pilot results (`refactor/tier4-pr-edict`): `src/pr_edict.js`. `cmd.js`,
-`cvar.js` and `common.js` have only 4 to 8 `!` operators each.
+Pilot results (#225): `src/pr_edict.js`. `cmd.js`, `cvar.js` and `common.js`
+have only 4 to 8 `!` operators each.
 
 - `!`: 10 of 16 became `=== null`. Each value is an object or `null` (`fileData`
   is an `ArrayBuffer` or `null`), so behaviour is unchanged. The other 6 test
@@ -309,9 +308,10 @@ pass: keep the rule above.
 
 ## Sequencing with open PRs
 
-One PR is open: #216 (MCP SDK), which touches `server/agent_mcp.ts`,
-`tests/agent_mcp_*.js`, `tests/agent_goto_test.js`, `deno.json`, `deno.lock`,
-`server/deno.json` and docs.
+When this was written one PR was open: #216 (MCP SDK, since merged), which
+touched `server/agent_mcp.ts`, `tests/agent_mcp_*.js`,
+`tests/agent_goto_test.js`, `deno.json`, `deno.lock`, `server/deno.json` and
+docs.
 
 1. Land #216 (or any PR close to done) before tier 1 commit 2, and hold new
    feature PRs until tiers 1 and 2 land.
@@ -384,8 +384,8 @@ commits.
 ## Side effects to expect
 
 - `src/x.js:123` line references in the snapshot docs (`docs/port-review.md` and
-  others) go stale. They are snapshots, so leave them. Tier 3 only reformatted
-  the docs and fixed none of them.
+  others) go stale. Tier 3 only reformatted the docs; #228 then updated the
+  references.
 - Reading the port side by side with the C changes: C uses tabs and `foo( a )`
   spacing. The `quake-c-reference` skill finds functions by name and compares
   behaviour, not layout, so its steps still apply.
