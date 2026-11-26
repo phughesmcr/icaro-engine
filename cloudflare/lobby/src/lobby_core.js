@@ -12,7 +12,8 @@
 // a connection drops.
 //
 // This lobby only knows rooms hosted in browsers. LOBBY_CREATE is refused,
-// since nothing here can start a Deno room.
+// since nothing here can start a Deno room. With TURNSTILE_SITEKEY set, a
+// LOBBY_HOST needs a Turnstile token (server/turnstile.js).
 
 import {
 	RtcLobby,
@@ -24,6 +25,7 @@ import {
 	Lobby_DecodeFrame,
 	Lobby_WantsRtcRooms,
 } from '../../../server/lobby_rtc.js';
+import { Turnstile_Check, Turnstile_ConfigFrom } from '../../../server/turnstile.js';
 
 export const ALARM_INTERVAL_MS = 30 * 1000;
 
@@ -38,14 +40,20 @@ export class LobbyCore {
 
 	/**
 	 * ctx and env as a Durable Object gets them. fetch is for TURN
-	 * credentials (tests pass a fake); now is the clock.
+	 * credentials and Turnstile's Siteverify (tests pass a fake); now is
+	 * the clock.
 	 */
 	constructor( ctx, env, { fetch = ( ...args ) => globalThis.fetch( ...args ), now = () => Date.now() } = {} ) {
 		this.ctx = ctx;
 		this.env = env;
 		this.fetch = fetch;
 		this.now = now;
-		this.lobby = new RtcLobby( { iceServers: ( ip, role ) => this.iceServers( ip, role ) } );
+		// TURNSTILE_HOSTNAMES is a var; TURNSTILE_SITEKEY and TURNSTILE_SECRET are secrets
+		this.turnstileConfig = Turnstile_ConfigFrom( ( name ) => env[ name ] );
+		this.lobby = new RtcLobby( {
+			iceServers: ( ip, role ) => this.iceServers( ip, role ),
+			turnstile: ( token, ip, action ) => Turnstile_Check( this.turnstileConfig, token, ip, action, this.fetch ),
+		} );
 		this.sockets = new Map(); // session id -> WebSocket
 
 		for ( const ws of ctx.getWebSockets() ) {

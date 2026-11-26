@@ -56,8 +56,9 @@ deno task lobby
 which runs:
 
 ```bash
-deno run '--allow-net=[::]:4433,0.0.0.0:4433,127.0.0.1:4433,127.0.0.1:4434,127.0.0.1:4435,127.0.0.1:4436,127.0.0.1:4437,127.0.0.1:4438,127.0.0.1:4439,127.0.0.1:4440,127.0.0.1:4441,127.0.0.1:4442,127.0.0.1:4443' \
-  --allow-read=server/cert.pem,server/key.pem --allow-run=deno --unstable-net \
+deno run '--allow-net=[::]:4433,0.0.0.0:4433,127.0.0.1:4433,127.0.0.1:4434,127.0.0.1:4435,127.0.0.1:4436,127.0.0.1:4437,127.0.0.1:4438,127.0.0.1:4439,127.0.0.1:4440,127.0.0.1:4441,127.0.0.1:4442,127.0.0.1:4443,challenges.cloudflare.com:443' \
+  --allow-read=server/cert.pem,server/key.pem --allow-run=deno \
+  --allow-env=TURNSTILE_SITEKEY,TURNSTILE_SECRET,TURNSTILE_HOSTNAMES --unstable-net \
   server/lobby_server.js -cert server/cert.pem -key server/key.pem -pak static/pak0.pak -wsport 4433
 ```
 
@@ -73,6 +74,8 @@ The lobby and the rooms run with scoped permissions:
 | Lobby | `--allow-net` | `<ws host>:<ws port>`, and `127.0.0.1:4434` to `127.0.0.1:4443` (each listed) | With `-wsport`: the WebSocket listener, and the proxy's connections to the rooms |
 | Lobby | `--allow-read` | the cert and key files | TLS |
 | Lobby | `--allow-run` | the Deno binary | Spawning room processes |
+| Lobby | `--allow-net` | `challenges.cloudflare.com:443` | Turnstile's Siteverify (see [Turnstile](#turnstile)) |
+| Lobby | `--allow-env` | `TURNSTILE_SITEKEY`, `TURNSTILE_SECRET`, `TURNSTILE_HOSTNAMES` | Turnstile settings; without them the check is off |
 | Room | `--allow-net` | `[::]:<room port>` and `0.0.0.0:<room port>`, plus `127.0.0.1:<room port>` when the lobby has `-wsport` | QUIC listener (IPv6 and IPv4), and the loopback WebSocket listener |
 | Room | `--allow-read` | `static/`, the pak, the cert and key, and `rogue/`, `hipnotic/` or the `-game` directory in the pak's basedir when set | Game data and TLS |
 
@@ -135,7 +138,7 @@ Both `--allow-net` grants are needed in every case: a missing grant fails startu
 
 ## Connecting from Browser
 
-- **Multiplayer menu (lobby mode):** Queries `lobby_server.js` on port `4433` to list, create, or join rooms, then connects directly to the assigned room's `game_server.js` port (`4434`–`4443`). A WebSocket client instead connects to the lobby's `<prefix>/room/<id>` path, which the lobby proxies to the room, so only the lobby's port needs to be reachable. Joining a valid 6-character shared room code for an expired room re-creates it, subject to the same limits as creating a room.
+- **Multiplayer menu (lobby mode):** Queries `lobby_server.js` on port `4433` to list, create, or join rooms, then connects directly to the assigned room's `game_server.js` port (`4434`–`4443`). A WebSocket client instead connects to the lobby's `<prefix>/room/<id>` path, which the lobby proxies to the room, so only the lobby's port needs to be reachable. Joining a valid 6-character shared room code for an expired room re-creates it, subject to the same limits as creating a room (not when [Turnstile](#turnstile) is on).
 - **Rooms hosted in browsers:** the WebSocket lobby also serves the lobby side of rooms that a player's tab hosts over WebRTC (`lobby_rtc.js`, shared with `cloudflare/lobby/`): a host registers with `LOBBY_HOST` and keeps its lobby socket open, joiners `LOBBY_JOIN` its 8-character code, and the lobby relays their signals. The lobby gives these clients STUN only; TURN credentials come from the Cloudflare lobby. The client's WebRTC driver is `src/net_webrtc.js`, but no signaller connects it to the lobby yet (see `docs/browser-hosted-rooms.md`).
 - **Direct console connection:** In the Icaro Engine console, connect directly to a `game_server.js` instance:
 
@@ -225,7 +228,7 @@ deno run '--allow-net=0.0.0.0:8080' --allow-read=static server/game_server.js -n
 ### Transport & Protocol
 
 - **WebTransport over HTTP/3 (QUIC)** via `Deno.QuicEndpoint` and `Deno.upgradeWebTransport`.
-- **Lobby protocol (`lobby_server.js`)**: Single bidirectional stream per request using `[type:1][length:2][payload:N]` frames (`LOBBY_LIST`, `LOBBY_JOIN`, `LOBBY_CREATE`, `LOBBY_ROOMS`, `LOBBY_ERROR`). Requests over 4 KB are rejected.
+- **Lobby protocol (`lobby_server.js`)**: Single bidirectional stream per request using `[type:1][length:2][payload:N]` frames (`LOBBY_LIST`, `LOBBY_JOIN`, `LOBBY_CREATE`, `LOBBY_ROOMS`, `LOBBY_ERROR`, and `LOBBY_VERIFY` when [Turnstile](#turnstile) is on). Requests over 4 KB are rejected.
 - **Lobby limits** (`LIMITS` in `lobby_server.js`):
   - 64 concurrent lobby sessions, 8 per client IP.
   - Room creation (including re-creating a shared room on join) is limited to 3 per minute per IP and 10 per minute overall. Attempts whose room fails to start still count.
@@ -320,6 +323,29 @@ docker run --rm -v "$PWD/server/cert.pem:/certs/cert.pem:ro" -v "$PWD/server/key
 
 `deno task image-check` (`tools/check_container_image.sh`, needs Docker) checks the build context of your working tree and of a copy with decoy paks and keys planted, builds the image, fails if it holds any `.pak` but `/app/static/pak0.pak` or any TLS or env file, and starts a room in it (`--no-run` skips that). CI runs it on PRs to `dev` and `main`. Run it before building an image from a working tree that has registered data in it. Nothing here pushes the image; publishing it is a later step of the hosting plan.
 
+## Turnstile
+
+The lobby can require a [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) token to create a room, against spam rooms and automated clients (`server/turnstile.js`). It is off unless `TURNSTILE_SITEKEY` is set:
+
+| Variable | Value |
+|---|---|
+| `TURNSTILE_SITEKEY` | The widget's sitekey, from the Cloudflare dashboard. It is public (browsers receive it), but keep it out of the repository |
+| `TURNSTILE_SECRET` | The widget's secret, from the Cloudflare dashboard. Never commit it |
+| `TURNSTILE_HOSTNAMES` | Comma-separated hostnames of the page that serves the game, e.g. `quake.anglezarke.games`. Siteverify reports the page's exact hostname, not the lobby's, so list each subdomain that serves it. Never include `localhost` or `127.0.0.1` in production |
+
+With a sitekey but no secret or no hostnames, the lobby still sends the challenge but refuses every token, so no room can be created. Without `--allow-env` for these names the check is off; the lobby prints a warning. It prints the state at startup.
+
+When it is on:
+
+- A `LOBBY_CREATE` without a `turnstile` field gets `LOBBY_VERIFY` (`0x86`), `{ "sitekey": ..., "action": "create_room" }`. The client (`src/net_main.js`, `src/turnstile.js`) shows the widget over the game and sends the request again with the token in `turnstile`. The lobby redeems it at Siteverify and creates the room only if Cloudflare reports success, the action `create_room` and one of `TURNSTILE_HOSTNAMES`. Tokens are single-use, so each room needs a new one.
+- A request with a token spends its per-IP creation budget before Siteverify sees it; the global budget is spent only by verified requests.
+- `LOBBY_JOIN` for an expired 6-character room code no longer re-creates the room, since a join carries no token. The player gets "Room not found".
+- `LOBBY_HOST` (a room hosted in a browser) needs a token the same way. No client hosts that way yet.
+
+Listing and joining live rooms need no token.
+
+To try it locally, the widget's hostname list in the Cloudflare dashboard must include `localhost`; then run `deno task lobby` with the real sitekey and secret and `TURNSTILE_HOSTNAMES=localhost`. Cloudflare's [test keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/) (sitekey `1x00000000000000000000AA`, secret `1x0000000000000000000000000000000AA`) show the widget and reach Siteverify, but their answer has no `action` and the hostname `example.com`, so the lobby refuses every room: they test the wiring, not a successful create.
+
 ## Production Deployment
 
 Use valid TLS certificates (e.g. Let's Encrypt) and open UDP ports `4433` (lobby) and `4434`–`4443` (room servers), for IPv6 as well as IPv4 if the host has an IPv6 address:
@@ -329,6 +355,8 @@ deno run --unstable-net \
   '--allow-net=[::]:4433,0.0.0.0:4433' \
   --allow-read=/etc/letsencrypt/live/your-domain.com/fullchain.pem,/etc/letsencrypt/live/your-domain.com/privkey.pem \
   --allow-run="$(command -v deno)" \
+  '--allow-net=challenges.cloudflare.com:443' \
+  --allow-env=TURNSTILE_SITEKEY,TURNSTILE_SECRET,TURNSTILE_HOSTNAMES \
   /opt/icaro-engine/server/lobby_server.js \
   -port 4433 \
   -cert /etc/letsencrypt/live/your-domain.com/fullchain.pem \
@@ -337,6 +365,8 @@ deno run --unstable-net \
 ```
 
 Rooms need to read `static/`, the pak, and the cert and key, so the user running the lobby must be able to read all of them.
+
+Set the three `TURNSTILE_*` variables in the lobby's environment (a systemd `EnvironmentFile` readable only by the service user, for example) to turn on [Turnstile](#turnstile). Never put `TURNSTILE_SECRET` in a file under the repository.
 
 The lobby only tells clients a room's port. The client reuses the host it reached the lobby on, so a remote client reaches its room over the same address family it used for the lobby.
 

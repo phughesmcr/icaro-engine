@@ -2,7 +2,7 @@
 // New module for browser-based WebTransport client connections
 
 import { Con_Printf, Con_DPrintf, SZ_Clear, SZ_Write } from './common.js';
-import { NET_NewQSocket } from './net_main.js';
+import { NET_NewQSocket, NET_LobbyVerifyError } from './net_main.js';
 import { Sys_PageURL } from './sys.js';
 import {
 	net_message,
@@ -361,6 +361,7 @@ const LOBBY_JOIN = 0x02;
 const LOBBY_CREATE = 0x03;
 const LOBBY_ROOMS = 0x81;
 const LOBBY_ERROR = 0x82;
+const LOBBY_VERIFY = 0x86;
 
 /*
 =============
@@ -588,6 +589,16 @@ export async function WT_CreateRoom( serverUrl, config ) {
 
 			const errorMsg = await _readLobbyErrorMessage( reader, msgLen, 'Room create error payload timed out' );
 			throw new Error( errorMsg );
+
+		}
+
+		if ( msgType === LOBBY_VERIFY ) {
+
+			const data = msgLen > 0
+				? await _readExactWithTimeout( reader, msgLen, LOBBY_IO_TIMEOUT_MS, 'Room create response timed out' )
+				: new Uint8Array( 0 );
+			if ( data === null ) throw new Error( 'Connection closed' );
+			throw NET_LobbyVerifyError( data );
 
 		}
 
