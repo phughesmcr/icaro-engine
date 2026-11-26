@@ -91,8 +91,9 @@ process per room. It was forked from mrdoob's three-quake.
 
 ## Commands
 
-- `deno task ci` runs what CI's main job runs: `deno task test`,
-  `deno task lint` and `deno task check`. Run it before calling work done.
+- `deno task ci` runs what CI's main job runs: `deno fmt --check`,
+  `deno task test`, `deno task lint` and `deno task check`. Run it before
+  calling work done.
   CI's second job is `deno task image-check` (needs Docker).
 - `deno task test`: the whole suite (about 30 s). Its permissions are
   scoped: no network, env limited to the `FAKE_ROOM_*` variables, and run
@@ -123,7 +124,7 @@ process per room. It was forked from mrdoob's three-quake.
   in the page.
 - CI (`.github/workflows/ci.yml`) runs on PRs to `dev` and `main` and on
   pushes to them: a check that no pak but `static/pak0.pak` is tracked, then
-  test, lint and check, on the Deno version pinned in `.tool-versions`, and,
+  `deno fmt --check`, test, lint and check, on the Deno version pinned in `.tool-versions`, and,
   in a second job, `tools/check_container_image.sh`. The Dockerfile pins the
   same Deno version: bump both together (`tests/deno_version_pin_test.js`
   fails if they differ). Actions are
@@ -137,11 +138,13 @@ process per room. It was forked from mrdoob's three-quake.
   `tests/`, `cloudflare/`; `no-window` rules off) passes with zero problems. The bar is
   **lint passes**; CI enforces it.
 - Unused parameters kept for C-signature parity get a `_` prefix
-  (`Z_Free( _ptr )`). Use a line-level `// deno-lint-ignore no-unused-vars`
+  (`Z_Free(_ptr)`). Use a line-level `// deno-lint-ignore no-unused-vars`
   with a reason only for C-parity state that has no reader in the port.
-- `deno fmt` is off: `deno.json` excludes every file, because the code
-  doesn't follow its style and it would rewrite every file. Don't remove the
-  exclusion.
+- `deno fmt` sets the layout (settings in root `deno.json`): run it before
+  committing. CI runs `deno fmt --check`, and `deno task ci` runs it first.
+  Markdown, HTML, CSS, SVG, `static/`, `tests/fixtures/`, `.claude/` and
+  `.vscode/` are excluded. A data table that reads better in rows gets a
+  `// deno-fmt-ignore` line with a reason above it.
 
 ## Port fidelity
 
@@ -167,9 +170,8 @@ process per room. It was forked from mrdoob's three-quake.
 
 ## Code style
 
-- Use tabs, spaces inside parentheses and brackets (`foo( a, b )`,
-  `v[ 0 ]`), and snake_case for ported identifiers. Match the surrounding file.
-  `server/` keeps its own existing formatting.
+- `deno fmt` decides layout (two-space indent, 80 columns, double quotes).
+  Use snake_case for ported identifiers.
 - **Golden Rule #2**: use explicit null checks (`x !== null`), not falsy
   checks.
 - **Golden Rule #4**: don't allocate in per-frame or per-call hot paths.

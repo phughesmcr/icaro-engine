@@ -4,8 +4,14 @@
 	// The Worker entry imports cloudflare:workers, which Deno can't resolve
 	// (tests run src/lobby_core.js instead).
 	"deno.disablePaths": ["cloudflare/lobby/src/worker.js"],
-	"editor.insertSpaces": false,
-	"editor.detectIndentation": false,
+	"editor.insertSpaces": true,
+	"editor.tabSize": 2,
+	"editor.detectIndentation": true,
+	// deno fmt (settings in deno.json) formats JS, TS and JSON on save
 	"editor.formatOnSave": false,
+	"[javascript][typescript][json][jsonc]": {
+		"editor.defaultFormatter": "denoland.vscode-deno",
+		"editor.formatOnSave": true
+	},
 	"files.eol": "\n"
 }

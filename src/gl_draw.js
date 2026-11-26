@@ -1,18 +1,24 @@
 // Ported from: WinQuake/gl_draw.c -- GL 2D drawing functions
 // In browser port: uses a canvas 2D overlay context for HUD/menu/console drawing
 
-import { Con_Printf } from './console.js';
-import { Sbar_Changed } from './sbar.js';
-import { W_GetLumpName } from './wad.js';
-import { d_8to24table as vid_d_8to24table, VID_GetPixelRatio } from './vid.js';
-import { COM_FindFile } from './pak.js';
-import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from './cmd.js';
-import { VERSION, GLQUAKE_VERSION } from './quakedef.js';
+import { Con_Printf } from "./console.js";
+import { Sbar_Changed } from "./sbar.js";
+import { W_GetLumpName } from "./wad.js";
+import { d_8to24table as vid_d_8to24table, VID_GetPixelRatio } from "./vid.js";
+import { COM_FindFile } from "./pak.js";
+import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from "./cmd.js";
+import { GLQUAKE_VERSION, VERSION } from "./quakedef.js";
 import {
-	GL_NEAREST, GL_LINEAR, GL_NEAREST_MIPMAP_NEAREST, GL_LINEAR_MIPMAP_NEAREST,
-	GL_NEAREST_MIPMAP_LINEAR, GL_LINEAR_MIPMAP_LINEAR,
-	gl_filter_min, set_gl_filter, GL_UpdateTextureFiltering
-} from './glquake.js';
+  gl_filter_min,
+  GL_LINEAR,
+  GL_LINEAR_MIPMAP_LINEAR,
+  GL_LINEAR_MIPMAP_NEAREST,
+  GL_NEAREST,
+  GL_NEAREST_MIPMAP_LINEAR,
+  GL_NEAREST_MIPMAP_NEAREST,
+  GL_UpdateTextureFiltering,
+  set_gl_filter,
+} from "./glquake.js";
 
 /*
 ==============================================================================
@@ -25,22 +31,19 @@ import {
 const MAX_GLTEXTURES = 1024;
 
 class gltexture_t {
-
-	constructor() {
-
-		this.identifier = '';
-		this.texnum = 0;
-		this.width = 0;
-		this.height = 0;
-		this.mipmap = false;
-
-	}
-
+  constructor() {
+    this.identifier = "";
+    this.texnum = 0;
+    this.width = 0;
+    this.height = 0;
+    this.mipmap = false;
+  }
 }
 
 const gltextures = [];
-for ( let i = 0; i < MAX_GLTEXTURES; i ++ )
-	gltextures[ i ] = new gltexture_t();
+for (let i = 0; i < MAX_GLTEXTURES; i++) {
+  gltextures[i] = new gltexture_t();
+}
 
 let numgltextures = 0;
 let texture_extension_number = 1;
@@ -117,29 +120,25 @@ allocating a result object.
 ================
 */
 function _calculateUIScale() {
+  const dpr = VID_GetPixelRatio();
+  const physicalWidth = Math.floor(_realVid.width * dpr);
+  const physicalHeight = Math.floor(_realVid.height * dpr);
+  _physicalWidth = physicalWidth;
+  _physicalHeight = physicalHeight;
 
-	const dpr = VID_GetPixelRatio();
-	const physicalWidth = Math.floor( _realVid.width * dpr );
-	const physicalHeight = Math.floor( _realVid.height * dpr );
-	_physicalWidth = physicalWidth;
-	_physicalHeight = physicalHeight;
+  // Calculate scale from physical pixels
+  // Use floor to avoid fractional scaling (sharper pixels)
+  _uiScale = Math.max(1, Math.floor(physicalHeight / scr_conheight));
 
-	// Calculate scale from physical pixels
-	// Use floor to avoid fractional scaling (sharper pixels)
-	_uiScale = Math.max( 1, Math.floor( physicalHeight / scr_conheight ) );
+  // Ensure minimum 320px virtual width so Quake's menus fit
+  while (_uiScale > 1 && Math.floor(physicalWidth / _uiScale) < 320) {
+    _uiScale--;
+  }
 
-	// Ensure minimum 320px virtual width so Quake's menus fit
-	while ( _uiScale > 1 && Math.floor( physicalWidth / _uiScale ) < 320 ) {
-
-		_uiScale --;
-
-	}
-
-	// A canvas scale (Draw_SetCanvasScale) sizes the virtual screen while it is set
-	const scale = _canvasScale > 0 ? _canvasScale : _uiScale;
-	_virtualWidth = Math.ceil( physicalWidth / scale );
-	_virtualHeight = Math.ceil( physicalHeight / scale );
-
+  // A canvas scale (Draw_SetCanvasScale) sizes the virtual screen while it is set
+  const scale = _canvasScale > 0 ? _canvasScale : _uiScale;
+  _virtualWidth = Math.ceil(physicalWidth / scale);
+  _virtualHeight = Math.ceil(physicalHeight / scale);
 }
 
 /*
@@ -151,16 +150,14 @@ Lower values = larger UI, higher values = smaller UI.
 Minimum: 200, Maximum: physical screen height.
 ================
 */
-export function SCR_SetConHeight( height ) {
+export function SCR_SetConHeight(height) {
+  const dpr = VID_GetPixelRatio();
+  const physicalHeight = Math.floor(_realVid.height * dpr);
 
-	const dpr = VID_GetPixelRatio();
-	const physicalHeight = Math.floor( _realVid.height * dpr );
-
-	// Clamp to reasonable range
-	scr_conheight = Math.max( 200, Math.min( height, physicalHeight ) );
-	_calculateUIScale();
-	_realVid.recalc_refdef = 1;
-
+  // Clamp to reasonable range
+  scr_conheight = Math.max(200, Math.min(height, physicalHeight));
+  _calculateUIScale();
+  _realVid.recalc_refdef = 1;
 }
 
 /*
@@ -171,9 +168,7 @@ Get the current target virtual height.
 ================
 */
 export function SCR_GetConHeight() {
-
-	return scr_conheight;
-
+  return scr_conheight;
 }
 
 /*
@@ -184,10 +179,8 @@ Get the current UI scale factor.
 ================
 */
 export function Draw_GetUIScale() {
-
-	_calculateUIScale();
-	return _uiScale;
-
+  _calculateUIScale();
+  return _uiScale;
 }
 
 /*
@@ -200,19 +193,18 @@ in Ironwail Draw_GetCanvasTransform. Deviation: Ironwail defaults those cvars
 to 1; here a value of 0 or less (the default) keeps the automatic _uiScale.
 ================
 */
-export function Draw_GetCanvasScale( value ) {
+export function Draw_GetCanvasScale(value) {
+  const saved = _canvasScale;
+  _canvasScale = 0;
+  _calculateUIScale();
+  _canvasScale = saved;
 
-	const saved = _canvasScale;
-	_canvasScale = 0;
-	_calculateUIScale();
-	_canvasScale = saved;
+  if (!(value > 0)) {
+    return _uiScale;
+  }
 
-	if ( ! ( value > 0 ) )
-		return _uiScale;
-
-	const max = _physicalWidth / 320;
-	return value < 1 ? 1 : ( value > max ? max : value ); // CLAMP( 1, value, max )
-
+  const max = _physicalWidth / 320;
+  return value < 1 ? 1 : (value > max ? max : value); // CLAMP( 1, value, max )
 }
 
 /*
@@ -224,18 +216,14 @@ and the overlay transform follow it, so code laid out from the virtual size
 (sbar.js, console.js) needs no changes.
 ================
 */
-export function Draw_SetCanvasScale( value ) {
+export function Draw_SetCanvasScale(value) {
+  _canvasScale = value > 0 ? Draw_GetCanvasScale(value) : 0;
+  _calculateUIScale();
 
-	_canvasScale = value > 0 ? Draw_GetCanvasScale( value ) : 0;
-	_calculateUIScale();
-
-	if ( overlayCtx ) {
-
-		const scale = _canvasScale > 0 ? _canvasScale : _uiScale;
-		overlayCtx.setTransform( scale, 0, 0, scale, 0, 0 );
-
-	}
-
+  if (overlayCtx) {
+    const scale = _canvasScale > 0 ? _canvasScale : _uiScale;
+    overlayCtx.setTransform(scale, 0, 0, scale, 0, 0);
+  }
 }
 
 /*
@@ -247,17 +235,13 @@ Used by other modules instead of computing locally.
 ================
 */
 export function Draw_GetVirtualWidth() {
-
-	_calculateUIScale();
-	return _virtualWidth;
-
+  _calculateUIScale();
+  return _virtualWidth;
 }
 
 export function Draw_GetVirtualHeight() {
-
-	_calculateUIScale();
-	return _virtualHeight;
-
+  _calculateUIScale();
+  return _virtualHeight;
 }
 
 /*
@@ -271,29 +255,33 @@ Higher values = smaller UI (480 = modern size)
 ================
 */
 function SCR_ConHeight_f() {
+  if (Cmd_Argc() === 1) {
+    // No argument - print current value
+    _calculateUIScale();
+    Con_Printf(
+      "scr_conheight is %d (virtual: %dx%d, scale: %dx)\n",
+      scr_conheight,
+      _virtualWidth,
+      _virtualHeight,
+      _uiScale,
+    );
+    return;
+  }
 
-	if ( Cmd_Argc() === 1 ) {
+  const val = parseInt(Cmd_Argv(1), 10);
+  if (isNaN(val) || val < 200) {
+    Con_Printf("scr_conheight must be at least 200\n");
+    return;
+  }
 
-		// No argument - print current value
-		_calculateUIScale();
-		Con_Printf( 'scr_conheight is %d (virtual: %dx%d, scale: %dx)\n',
-			scr_conheight, _virtualWidth, _virtualHeight, _uiScale );
-		return;
-
-	}
-
-	const val = parseInt( Cmd_Argv( 1 ), 10 );
-	if ( isNaN( val ) || val < 200 ) {
-
-		Con_Printf( 'scr_conheight must be at least 200\n' );
-		return;
-
-	}
-
-	SCR_SetConHeight( val );
-	_calculateUIScale();
-	Con_Printf( 'UI scale: %dx (virtual: %dx%d)\n', _uiScale, _virtualWidth, _virtualHeight );
-
+  SCR_SetConHeight(val);
+  _calculateUIScale();
+  Con_Printf(
+    "UI scale: %dx (virtual: %dx%d)\n",
+    _uiScale,
+    _virtualWidth,
+    _virtualHeight,
+  );
 }
 
 /*
@@ -304,12 +292,15 @@ Increase UI size (decrease scr_conheight).
 ================
 */
 function SCR_UIScaleUp_f() {
-
-	// Decrease conheight by ~40 (makes UI bigger)
-	SCR_SetConHeight( scr_conheight - 40 );
-	_calculateUIScale();
-	Con_Printf( 'UI scale: %dx (virtual: %dx%d)\n', _uiScale, _virtualWidth, _virtualHeight );
-
+  // Decrease conheight by ~40 (makes UI bigger)
+  SCR_SetConHeight(scr_conheight - 40);
+  _calculateUIScale();
+  Con_Printf(
+    "UI scale: %dx (virtual: %dx%d)\n",
+    _uiScale,
+    _virtualWidth,
+    _virtualHeight,
+  );
 }
 
 /*
@@ -320,22 +311,41 @@ Decrease UI size (increase scr_conheight).
 ================
 */
 function SCR_UIScaleDown_f() {
-
-	// Increase conheight by ~40 (makes UI smaller)
-	SCR_SetConHeight( scr_conheight + 40 );
-	_calculateUIScale();
-	Con_Printf( 'UI scale: %dx (virtual: %dx%d)\n', _uiScale, _virtualWidth, _virtualHeight );
-
+  // Increase conheight by ~40 (makes UI smaller)
+  SCR_SetConHeight(scr_conheight + 40);
+  _calculateUIScale();
+  Con_Printf(
+    "UI scale: %dx (virtual: %dx%d)\n",
+    _uiScale,
+    _virtualWidth,
+    _virtualHeight,
+  );
 }
 
 // gl_draw.c glmode_t modes[]
 const modes = [
-	{ name: 'GL_NEAREST', minimize: GL_NEAREST, maximize: GL_NEAREST },
-	{ name: 'GL_LINEAR', minimize: GL_LINEAR, maximize: GL_LINEAR },
-	{ name: 'GL_NEAREST_MIPMAP_NEAREST', minimize: GL_NEAREST_MIPMAP_NEAREST, maximize: GL_NEAREST },
-	{ name: 'GL_LINEAR_MIPMAP_NEAREST', minimize: GL_LINEAR_MIPMAP_NEAREST, maximize: GL_LINEAR },
-	{ name: 'GL_NEAREST_MIPMAP_LINEAR', minimize: GL_NEAREST_MIPMAP_LINEAR, maximize: GL_NEAREST },
-	{ name: 'GL_LINEAR_MIPMAP_LINEAR', minimize: GL_LINEAR_MIPMAP_LINEAR, maximize: GL_LINEAR }
+  { name: "GL_NEAREST", minimize: GL_NEAREST, maximize: GL_NEAREST },
+  { name: "GL_LINEAR", minimize: GL_LINEAR, maximize: GL_LINEAR },
+  {
+    name: "GL_NEAREST_MIPMAP_NEAREST",
+    minimize: GL_NEAREST_MIPMAP_NEAREST,
+    maximize: GL_NEAREST,
+  },
+  {
+    name: "GL_LINEAR_MIPMAP_NEAREST",
+    minimize: GL_LINEAR_MIPMAP_NEAREST,
+    maximize: GL_LINEAR,
+  },
+  {
+    name: "GL_NEAREST_MIPMAP_LINEAR",
+    minimize: GL_NEAREST_MIPMAP_LINEAR,
+    maximize: GL_NEAREST,
+  },
+  {
+    name: "GL_LINEAR_MIPMAP_LINEAR",
+    minimize: GL_LINEAR_MIPMAP_LINEAR,
+    maximize: GL_LINEAR,
+  },
 ];
 
 /*
@@ -344,47 +354,36 @@ Draw_TextureMode_f
 ===============
 */
 export function Draw_TextureMode_f() {
+  let i;
 
-	let i;
+  if (Cmd_Argc() === 1) {
+    for (i = 0; i < 6; i++) {
+      if (gl_filter_min === modes[i].minimize) {
+        Con_Printf("%s\n", modes[i].name);
+        return;
+      }
+    }
 
-	if ( Cmd_Argc() === 1 ) {
+    Con_Printf("current filter is unknown???\n");
+    return;
+  }
 
-		for ( i = 0; i < 6; i ++ ) {
+  const arg = Cmd_Argv(1).toLowerCase(); // Q_strcasecmp
+  for (i = 0; i < 6; i++) {
+    if (modes[i].name.toLowerCase() === arg) {
+      break;
+    }
+  }
 
-			if ( gl_filter_min === modes[ i ].minimize ) {
+  if (i === 6) {
+    Con_Printf("bad filter name\n");
+    return;
+  }
 
-				Con_Printf( '%s\n', modes[ i ].name );
-				return;
+  set_gl_filter(modes[i].minimize, modes[i].maximize);
 
-			}
-
-		}
-
-		Con_Printf( 'current filter is unknown???\n' );
-		return;
-
-	}
-
-	const arg = Cmd_Argv( 1 ).toLowerCase(); // Q_strcasecmp
-	for ( i = 0; i < 6; i ++ ) {
-
-		if ( modes[ i ].name.toLowerCase() === arg )
-			break;
-
-	}
-
-	if ( i === 6 ) {
-
-		Con_Printf( 'bad filter name\n' );
-		return;
-
-	}
-
-	set_gl_filter( modes[ i ].minimize, modes[ i ].maximize );
-
-	// change all the existing mipmap texture objects
-	GL_UpdateTextureFiltering();
-
+  // change all the existing mipmap texture objects
+  GL_UpdateTextureFiltering();
 }
 
 /*
@@ -397,12 +396,10 @@ Called from Draw_Init.
 ================
 */
 function Draw_InitCommands() {
-
-	Cmd_AddCommand( 'gl_texturemode', Draw_TextureMode_f );
-	Cmd_AddCommand( 'scr_conheight', SCR_ConHeight_f );
-	Cmd_AddCommand( 'uiscale+', SCR_UIScaleUp_f );
-	Cmd_AddCommand( 'uiscale-', SCR_UIScaleDown_f );
-
+  Cmd_AddCommand("gl_texturemode", Draw_TextureMode_f);
+  Cmd_AddCommand("scr_conheight", SCR_ConHeight_f);
+  Cmd_AddCommand("uiscale+", SCR_UIScaleUp_f);
+  Cmd_AddCommand("uiscale-", SCR_UIScaleDown_f);
 }
 
 /*
@@ -415,25 +412,21 @@ function Draw_InitCommands() {
 
 let _realVid = { width: 640, height: 480 };
 const _vid = {
-	get width() {
-
-		return _virtualWidth;
-
-	},
-	get height() {
-
-		return _virtualHeight;
-
-	},
-	get numpages() { return _realVid.numpages; }
+  get width() {
+    return _virtualWidth;
+  },
+  get height() {
+    return _virtualHeight;
+  },
+  get numpages() {
+    return _realVid.numpages;
+  },
 };
 
-export function Draw_SetExternals( externals ) {
-
-	if ( externals.vid ) _realVid = externals.vid;
-	if ( externals.host_basepal ) host_basepal = externals.host_basepal;
-	if ( externals.d_8to24table ) d_8to24table = externals.d_8to24table;
-
+export function Draw_SetExternals(externals) {
+  if (externals.vid) _realVid = externals.vid;
+  if (externals.host_basepal) host_basepal = externals.host_basepal;
+  if (externals.d_8to24table) d_8to24table = externals.d_8to24table;
 }
 
 /*
@@ -445,50 +438,42 @@ conchars is 128x128 pixels, 8-bit indexed (16x16 grid of 8x8 characters).
 ===============
 */
 function _loadCharset() {
+  const pal = d_8to24table || vid_d_8to24table;
+  if (!pal) return;
 
-	const pal = d_8to24table || vid_d_8to24table;
-	if ( ! pal ) return;
+  const lump = W_GetLumpName("conchars");
+  if (!lump) return;
 
-	const lump = W_GetLumpName( 'conchars' );
-	if ( ! lump ) return;
+  let data;
+  if (lump.data instanceof Uint8Array) {
+    data = lump.data.subarray(lump.offset, lump.offset + lump.size);
+  } else {
+    data = new Uint8Array(lump.data, lump.offset, lump.size);
+  }
 
-	let data;
-	if ( lump.data instanceof Uint8Array ) {
+  const charWidth = 128;
+  const charHeight = 128;
+  const cs = document.createElement("canvas");
+  cs.width = charWidth;
+  cs.height = charHeight;
+  const ctx = cs.getContext("2d");
+  const imageData = ctx.createImageData(charWidth, charHeight);
+  const pixels = imageData.data;
 
-		data = lump.data.subarray( lump.offset, lump.offset + lump.size );
+  for (let i = 0; i < charWidth * charHeight; i++) {
+    // C turns index 0 into 255 (Draw_Init) and uploads through GL_Upload8,
+    // so the transparent texels carry the palette RGB with alpha 0.
+    const palIdx = data[i] === 0 ? 255 : data[i];
+    const rgba = pal[palIdx];
+    pixels[i * 4] = rgba & 0xff;
+    pixels[i * 4 + 1] = (rgba >> 8) & 0xff;
+    pixels[i * 4 + 2] = (rgba >> 16) & 0xff;
+    pixels[i * 4 + 3] = palIdx === 255 ? 0 : 255;
+  }
 
-	} else {
-
-		data = new Uint8Array( lump.data, lump.offset, lump.size );
-
-	}
-
-	const charWidth = 128;
-	const charHeight = 128;
-	const cs = document.createElement( 'canvas' );
-	cs.width = charWidth;
-	cs.height = charHeight;
-	const ctx = cs.getContext( '2d' );
-	const imageData = ctx.createImageData( charWidth, charHeight );
-	const pixels = imageData.data;
-
-	for ( let i = 0; i < charWidth * charHeight; i ++ ) {
-
-		// C turns index 0 into 255 (Draw_Init) and uploads through GL_Upload8,
-		// so the transparent texels carry the palette RGB with alpha 0.
-		const palIdx = data[ i ] === 0 ? 255 : data[ i ];
-		const rgba = pal[ palIdx ];
-		pixels[ i * 4 ] = rgba & 0xff;
-		pixels[ i * 4 + 1 ] = ( rgba >> 8 ) & 0xff;
-		pixels[ i * 4 + 2 ] = ( rgba >> 16 ) & 0xff;
-		pixels[ i * 4 + 3 ] = palIdx === 255 ? 0 : 255;
-
-	}
-
-	ctx.putImageData( imageData, 0, 0 );
-	char_canvas = cs;
-	draw_chars = data;
-
+  ctx.putImageData(imageData, 0, 0);
+  char_canvas = cs;
+  draw_chars = data;
 }
 
 /*
@@ -499,30 +484,25 @@ gl_draw.c. C's dest is a byte pointer into the conback; here it is the
 conback's pixels and an offset into them, and chars is draw_chars.
 ================
 */
-export function Draw_CharToConback( num, dest, destofs, chars ) {
+export function Draw_CharToConback(num, dest, destofs, chars) {
+  const row = num >> 4;
+  const col = num & 15;
+  let source = (row << 10) + (col << 3);
 
-	const row = num >> 4;
-	const col = num & 15;
-	let source = ( row << 10 ) + ( col << 3 );
+  let drawline = 8;
 
-	let drawline = 8;
+  while (drawline--) {
+    for (let x = 0; x < 8; x++) {
+      // C tests != 255 after Draw_Init's 0 -> 255 pass
+      const c = chars[source + x];
+      if (c !== 0 && c !== 255) {
+        dest[destofs + x] = 0x60 + c; // Uint8Array wraps like C's byte
+      }
+    }
 
-	while ( drawline -- ) {
-
-		for ( let x = 0; x < 8; x ++ ) {
-
-			// C tests != 255 after Draw_Init's 0 -> 255 pass
-			const c = chars[ source + x ];
-			if ( c !== 0 && c !== 255 )
-				dest[ destofs + x ] = 0x60 + c; // Uint8Array wraps like C's byte
-
-		}
-
-		source += 128;
-		destofs += 320;
-
-	}
-
+    source += 128;
+    destofs += 320;
+  }
 }
 
 /*
@@ -535,16 +515,17 @@ Draw_Init: stamps "(gl 1.00) 1.09" into the bottom-right corner of the
 other size is left alone.
 ================
 */
-export function Draw_ConbackVersion( pixels, width, height, chars ) {
+export function Draw_ConbackVersion(pixels, width, height, chars) {
+  if (width !== 320 || height !== 200 || chars === null) {
+    return;
+  }
 
-	if ( width !== 320 || height !== 200 || chars === null )
-		return;
-
-	const ver = '(gl ' + GLQUAKE_VERSION.toFixed( 2 ).padStart( 4 ) + ') ' + VERSION.toFixed( 2 ).padStart( 4 );
-	const dest = 320 * 186 + 320 - 11 - 8 * ver.length;
-	for ( let x = 0; x < ver.length; x ++ )
-		Draw_CharToConback( ver.charCodeAt( x ), pixels, dest + ( x << 3 ), chars );
-
+  const ver = "(gl " + GLQUAKE_VERSION.toFixed(2).padStart(4) + ") " +
+    VERSION.toFixed(2).padStart(4);
+  const dest = 320 * 186 + 320 - 11 - 8 * ver.length;
+  for (let x = 0; x < ver.length; x++) {
+    Draw_CharToConback(ver.charCodeAt(x), pixels, dest + (x << 3), chars);
+  }
 }
 
 /*
@@ -556,36 +537,40 @@ conback.lmp is a qpic_t: int32 width (320), int32 height (200), then 320*200 pal
 ===============
 */
 function _loadConback() {
+  const pal = d_8to24table || vid_d_8to24table;
+  if (!pal) return;
 
-	const pal = d_8to24table || vid_d_8to24table;
-	if ( ! pal ) return;
+  const result = COM_FindFile("gfx/conback.lmp");
+  if (!result) {
+    Con_Printf("Couldn't load gfx/conback.lmp\n");
+    return;
+  }
 
-	const result = COM_FindFile( 'gfx/conback.lmp' );
-	if ( ! result ) {
+  const view = new DataView(
+    result.data.buffer,
+    result.data.byteOffset,
+    result.size,
+  );
+  const width = view.getInt32(0, true);
+  const height = view.getInt32(4, true);
 
-		Con_Printf( 'Couldn\'t load gfx/conback.lmp\n' );
-		return;
+  // A copy: the version is stamped into it, and the PAK's buffer must stay
+  // as loaded (C stamps a temp-file copy)
+  const pixels = new Uint8Array(
+    result.data.buffer,
+    result.data.byteOffset + 8,
+    width * height,
+  ).slice();
+  Draw_ConbackVersion(pixels, width, height, draw_chars);
 
-	}
+  const cs = _qpicToCanvas(width, height, pixels, false);
+  if (!cs) return;
 
-	const view = new DataView( result.data.buffer, result.data.byteOffset, result.size );
-	const width = view.getInt32( 0, true );
-	const height = view.getInt32( 4, true );
-
-	// A copy: the version is stamped into it, and the PAK's buffer must stay
-	// as loaded (C stamps a temp-file copy)
-	const pixels = new Uint8Array( result.data.buffer, result.data.byteOffset + 8, width * height ).slice();
-	Draw_ConbackVersion( pixels, width, height, draw_chars );
-
-	const cs = _qpicToCanvas( width, height, pixels, false );
-	if ( ! cs ) return;
-
-	conback = {
-		width: _vid.width,
-		height: _vid.height,
-		canvas: cs
-	};
-
+  conback = {
+    width: _vid.width,
+    height: _vid.height,
+    canvas: cs,
+  };
 }
 
 /*
@@ -593,55 +578,50 @@ function _loadConback() {
 Draw_Init
 ===============
 */
-export function Draw_Init( canvas ) {
+export function Draw_Init(canvas) {
+  if (canvas) {
+    overlayCanvas = canvas;
+    overlayCtx = canvas.getContext("2d");
+  } else {
+    // Create an overlay canvas positioned on top of the WebGL canvas
+    // Size to physical pixels (CSS * dpr) for crisp HiDPI rendering
+    const dpr = VID_GetPixelRatio();
+    overlayCanvas = document.createElement("canvas");
+    overlayCanvas.width = Math.floor((_realVid.width || 640) * dpr);
+    overlayCanvas.height = Math.floor((_realVid.height || 480) * dpr);
+    overlayCanvas.style.cssText =
+      "position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;";
+    overlayCtx = overlayCanvas.getContext("2d");
+    document.body.appendChild(overlayCanvas);
 
-	if ( canvas ) {
+    // Resize overlay when window resizes (use physical pixels)
+    window.addEventListener("resize", function () {
+      const dpr = VID_GetPixelRatio();
+      overlayCanvas.width = Math.floor(_realVid.width * dpr);
+      overlayCanvas.height = Math.floor(_realVid.height * dpr);
+      // Scale is applied per-frame in Draw_BeginFrame
+    });
+  }
 
-		overlayCanvas = canvas;
-		overlayCtx = canvas.getContext( '2d' );
+  // Initial scale calculation
+  _calculateUIScale();
 
-	} else {
+  // Register console commands
+  Draw_InitCommands();
 
-		// Create an overlay canvas positioned on top of the WebGL canvas
-		// Size to physical pixels (CSS * dpr) for crisp HiDPI rendering
-		const dpr = VID_GetPixelRatio();
-		overlayCanvas = document.createElement( 'canvas' );
-		overlayCanvas.width = Math.floor( ( _realVid.width || 640 ) * dpr );
-		overlayCanvas.height = Math.floor( ( _realVid.height || 480 ) * dpr );
-		overlayCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
-		overlayCtx = overlayCanvas.getContext( '2d' );
-		document.body.appendChild( overlayCanvas );
+  // Load charset from WAD for character drawing
+  _loadCharset();
 
-		// Resize overlay when window resizes (use physical pixels)
-		window.addEventListener( 'resize', function () {
+  // Load conback from PAK (gfx/conback.lmp)
+  _loadConback();
 
-			const dpr = VID_GetPixelRatio();
-			overlayCanvas.width = Math.floor( _realVid.width * dpr );
-			overlayCanvas.height = Math.floor( _realVid.height * dpr );
-			// Scale is applied per-frame in Draw_BeginFrame
+  // Load disc and backtile from WAD
+  draw_disc = Draw_PicFromWad("disc");
+  draw_backtile = Draw_PicFromWad("backtile");
 
-		} );
-
-	}
-
-	// Initial scale calculation
-	_calculateUIScale();
-
-	// Register console commands
-	Draw_InitCommands();
-
-	// Load charset from WAD for character drawing
-	_loadCharset();
-
-	// Load conback from PAK (gfx/conback.lmp)
-	_loadConback();
-
-	// Load disc and backtile from WAD
-	draw_disc = Draw_PicFromWad( 'disc' );
-	draw_backtile = Draw_PicFromWad( 'backtile' );
-
-	Con_Printf( 'GL_Draw initialized (canvas 2D overlay, scale=' + _uiScale + 'x)\n' );
-
+  Con_Printf(
+    "GL_Draw initialized (canvas 2D overlay, scale=" + _uiScale + "x)\n",
+  );
 }
 
 /*
@@ -652,9 +632,7 @@ Returns the overlay canvas for compositing
 ===============
 */
 export function Draw_GetOverlayCanvas() {
-
-	return overlayCanvas;
-
+  return overlayCanvas;
 }
 
 /*
@@ -666,24 +644,20 @@ Applies UI scaling transform so all drawing happens in virtual coordinates.
 ===============
 */
 export function Draw_BeginFrame() {
+  if (overlayCtx) {
+    // Reset transform and clear
+    overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
-	if ( overlayCtx ) {
+    // Apply UI scale transform
+    // This maps virtual coordinates to canvas pixels
+    _canvasScale = 0;
+    _calculateUIScale();
+    overlayCtx.setTransform(_uiScale, 0, 0, _uiScale, 0, 0);
 
-		// Reset transform and clear
-		overlayCtx.setTransform( 1, 0, 0, 1, 0, 0 );
-		overlayCtx.clearRect( 0, 0, overlayCanvas.width, overlayCanvas.height );
-
-		// Apply UI scale transform
-		// This maps virtual coordinates to canvas pixels
-		_canvasScale = 0;
-		_calculateUIScale();
-		overlayCtx.setTransform( _uiScale, 0, 0, _uiScale, 0, 0 );
-
-		// Disable image smoothing for crisp pixels
-		overlayCtx.imageSmoothingEnabled = false;
-
-	}
-
+    // Disable image smoothing for crisp pixels
+    overlayCtx.imageSmoothingEnabled = false;
+  }
 }
 
 /*
@@ -695,49 +669,48 @@ It can be clipped to the top of the screen to allow the console to be
 smoothly scrolled off.
 ================
 */
-export function Draw_Character( x, y, num ) {
+export function Draw_Character(x, y, num) {
+  if (!overlayCtx) return;
 
-	if ( ! overlayCtx ) return;
+  num &= 255;
 
-	num &= 255;
+  if (num === 32) return; // space
 
-	if ( num === 32 ) return; // space
+  if (y <= -8) {
+    return; // totally off screen
+  }
 
-	if ( y <= - 8 )
-		return; // totally off screen
+  // Draw character using the charset texture
+  // The charset is a 16x16 grid of 8x8 characters (256 total)
+  // Characters 0-127 are normal, 128-255 are the alternate (brown/gold) set
+  if (char_canvas) {
+    // Character sheet is 16x16 grid of 8x8 chars
+    const row = num >> 4; // num is 0..255
+    const col = num & 15;
 
-	// Draw character using the charset texture
-	// The charset is a 16x16 grid of 8x8 characters (256 total)
-	// Characters 0-127 are normal, 128-255 are the alternate (brown/gold) set
-	if ( char_canvas ) {
+    overlayCtx.drawImage(
+      char_canvas,
+      col * 8,
+      row * 8,
+      8,
+      8,
+      x,
+      y,
+      8,
+      8,
+    );
+  } else {
+    // Fallback: render as text
+    const charCode = num & 127;
+    const isAlt = num > 127;
+    overlayCtx.fillStyle = isAlt ? "#ff8800" : "#ffffff";
+    overlayCtx.font = "8px monospace";
+    overlayCtx.textBaseline = "top";
 
-		// Character sheet is 16x16 grid of 8x8 chars
-		const row = num >> 4; // num is 0..255
-		const col = num & 15;
-
-		overlayCtx.drawImage(
-			char_canvas,
-			col * 8, row * 8, 8, 8,
-			x, y, 8, 8
-		);
-
-	} else {
-
-		// Fallback: render as text
-		const charCode = num & 127;
-		const isAlt = num > 127;
-		overlayCtx.fillStyle = isAlt ? '#ff8800' : '#ffffff';
-		overlayCtx.font = '8px monospace';
-		overlayCtx.textBaseline = 'top';
-
-		if ( charCode >= 32 && charCode < 127 ) {
-
-			overlayCtx.fillText( String.fromCharCode( charCode ), x, y );
-
-		}
-
-	}
-
+    if (charCode >= 32 && charCode < 127) {
+      overlayCtx.fillText(String.fromCharCode(charCode), x, y);
+    }
+  }
 }
 
 /*
@@ -745,15 +718,11 @@ export function Draw_Character( x, y, num ) {
 Draw_String
 ================
 */
-export function Draw_String( x, y, str ) {
-
-	for ( let i = 0; i < str.length; i ++ ) {
-
-		Draw_Character( x, y, str.charCodeAt( i ) );
-		x += 8;
-
-	}
-
+export function Draw_String(x, y, str) {
+  for (let i = 0; i < str.length; i++) {
+    Draw_Character(x, y, str.charCodeAt(i));
+    x += 8;
+  }
 }
 
 /*
@@ -763,15 +732,11 @@ Draw_Alt_String
 Draw string with alternate (gold) coloring
 ================
 */
-export function Draw_Alt_String( x, y, str ) {
-
-	for ( let i = 0; i < str.length; i ++ ) {
-
-		Draw_Character( x, y, str.charCodeAt( i ) | 128 );
-		x += 8;
-
-	}
-
+export function Draw_Alt_String(x, y, str) {
+  for (let i = 0; i < str.length; i++) {
+    Draw_Character(x, y, str.charCodeAt(i) | 128);
+    x += 8;
+  }
 }
 
 /*
@@ -779,20 +744,14 @@ export function Draw_Alt_String( x, y, str ) {
 Draw_Pic
 =============
 */
-export function Draw_Pic( x, y, pic ) {
+export function Draw_Pic(x, y, pic) {
+  if (!overlayCtx || !pic) return;
 
-	if ( ! overlayCtx || ! pic ) return;
-
-	if ( pic.canvas ) {
-
-		overlayCtx.drawImage( pic.canvas, x, y );
-
-	} else if ( pic.imageData ) {
-
-		overlayCtx.putImageData( pic.imageData, x, y );
-
-	}
-
+  if (pic.canvas) {
+    overlayCtx.drawImage(pic.canvas, x, y);
+  } else if (pic.imageData) {
+    overlayCtx.putImageData(pic.imageData, x, y);
+  }
 }
 
 /*
@@ -803,12 +762,10 @@ Same as Draw_Pic but with transparency (index 255 = transparent)
 In GL mode this is the same as Draw_Pic since alpha is handled by texture
 =============
 */
-export function Draw_TransPic( x, y, pic ) {
+export function Draw_TransPic(x, y, pic) {
+  if (x < 0 || y < 0) return;
 
-	if ( x < 0 || y < 0 ) return;
-
-	Draw_Pic( x, y, pic );
-
+  Draw_Pic(x, y, pic);
 }
 
 /*
@@ -819,16 +776,22 @@ Draws a vertical sub-region of a pic. Used for the extended main menu image
 where we sometimes need to skip the "Continue" row at the top.
 =============
 */
-export function Draw_SubPic( x, y, pic, srcY, srcH ) {
+export function Draw_SubPic(x, y, pic, srcY, srcH) {
+  if (x < 0 || y < 0 || pic == null) return;
 
-	if ( x < 0 || y < 0 || pic == null ) return;
-
-	if ( pic.canvas ) {
-
-		overlayCtx.drawImage( pic.canvas, 0, srcY, pic.width, srcH, x, y, pic.width, srcH );
-
-	}
-
+  if (pic.canvas) {
+    overlayCtx.drawImage(
+      pic.canvas,
+      0,
+      srcY,
+      pic.width,
+      srcH,
+      x,
+      y,
+      pic.width,
+      srcH,
+    );
+  }
 }
 
 /*
@@ -851,69 +814,57 @@ let _transCanvas = null;
 let _transCtx = null;
 let _transImageData = null;
 
-export function Draw_TransPicTranslate( x, y, pic, translation ) {
+export function Draw_TransPicTranslate(x, y, pic, translation) {
+  if (menuplyr_pixels == null || pic == null) return;
+  if (overlayCtx == null) return;
 
-	if ( menuplyr_pixels == null || pic == null ) return;
-	if ( overlayCtx == null ) return;
+  const pal = d_8to24table || vid_d_8to24table;
+  if (pal == null) return;
 
-	const pal = d_8to24table || vid_d_8to24table;
-	if ( pal == null ) return;
+  // Create or reuse cached canvas
+  if (_transCanvas == null) {
+    _transCanvas = document.createElement("canvas");
+    _transCanvas.width = 64;
+    _transCanvas.height = 64;
+    _transCtx = _transCanvas.getContext("2d");
+    _transImageData = _transCtx.createImageData(64, 64);
+  }
 
-	// Create or reuse cached canvas
-	if ( _transCanvas == null ) {
+  // The original C code resamples the menuplyr pic to 64x64.
+  // menuplyr.lmp is typically larger, so we scale down.
+  const srcW = menuplyr_width;
+  const srcH = menuplyr_height;
+  const dest = _transImageData.data;
 
-		_transCanvas = document.createElement( 'canvas' );
-		_transCanvas.width = 64;
-		_transCanvas.height = 64;
-		_transCtx = _transCanvas.getContext( '2d' );
-		_transImageData = _transCtx.createImageData( 64, 64 );
+  for (let v = 0; v < 64; v++) {
+    const srcRow = ((v * srcH) >> 6) * srcW;
 
-	}
+    for (let u = 0; u < 64; u++) {
+      const srcCol = (u * srcW) >> 6;
+      const p = menuplyr_pixels[srcRow + srcCol];
 
-	// The original C code resamples the menuplyr pic to 64x64.
-	// menuplyr.lmp is typically larger, so we scale down.
-	const srcW = menuplyr_width;
-	const srcH = menuplyr_height;
-	const dest = _transImageData.data;
+      // C tests the source pixel before translating (gl_draw.c
+      // Draw_TransPicTranslate): dest[u] = p for 255, i.e. the bytes
+      // ( 255, 0, 0, 0 ), alpha 0; otherwise d_8to24table[ translation[ p ] ]
+      if (p === 255) {
+        dest[(v * 64 + u) * 4] = 255;
+        dest[(v * 64 + u) * 4 + 1] = 0;
+        dest[(v * 64 + u) * 4 + 2] = 0;
+        dest[(v * 64 + u) * 4 + 3] = 0;
+      } else {
+        const rgba = pal[translation[p]];
+        dest[(v * 64 + u) * 4] = rgba & 0xff;
+        dest[(v * 64 + u) * 4 + 1] = (rgba >> 8) & 0xff;
+        dest[(v * 64 + u) * 4 + 2] = (rgba >> 16) & 0xff;
+        dest[(v * 64 + u) * 4 + 3] = 255;
+      }
+    }
+  }
 
-	for ( let v = 0; v < 64; v ++ ) {
+  _transCtx.putImageData(_transImageData, 0, 0);
 
-		const srcRow = ( ( v * srcH ) >> 6 ) * srcW;
-
-		for ( let u = 0; u < 64; u ++ ) {
-
-			const srcCol = ( u * srcW ) >> 6;
-			const p = menuplyr_pixels[ srcRow + srcCol ];
-
-			// C tests the source pixel before translating (gl_draw.c
-			// Draw_TransPicTranslate): dest[u] = p for 255, i.e. the bytes
-			// ( 255, 0, 0, 0 ), alpha 0; otherwise d_8to24table[ translation[ p ] ]
-			if ( p === 255 ) {
-
-				dest[ ( v * 64 + u ) * 4 ] = 255;
-				dest[ ( v * 64 + u ) * 4 + 1 ] = 0;
-				dest[ ( v * 64 + u ) * 4 + 2 ] = 0;
-				dest[ ( v * 64 + u ) * 4 + 3 ] = 0;
-
-			} else {
-
-				const rgba = pal[ translation[ p ] ];
-				dest[ ( v * 64 + u ) * 4 ] = rgba & 0xff;
-				dest[ ( v * 64 + u ) * 4 + 1 ] = ( rgba >> 8 ) & 0xff;
-				dest[ ( v * 64 + u ) * 4 + 2 ] = ( rgba >> 16 ) & 0xff;
-				dest[ ( v * 64 + u ) * 4 + 3 ] = 255;
-
-			}
-
-		}
-
-	}
-
-	_transCtx.putImageData( _transImageData, 0, 0 );
-
-	// Draw at (x, y) stretched to pic dimensions, matching original GL quad
-	overlayCtx.drawImage( _transCanvas, x, y, pic.width, pic.height );
-
+  // Draw at (x, y) stretched to pic dimensions, matching original GL quad
+  overlayCtx.drawImage(_transCanvas, x, y, pic.width, pic.height);
 }
 
 /*
@@ -924,29 +875,29 @@ gl_draw.c: opaque below three quarters of the screen, otherwise blended
 with alpha 1.2 * lines / y (GL clamps it to 1).
 ================
 */
-export function Draw_ConsoleBackground( lines ) {
+export function Draw_ConsoleBackground(lines) {
+  if (!overlayCtx) return;
 
-	if ( ! overlayCtx ) return;
+  const y = (_vid.height * 3) >> 2;
+  const alpha = lines > y ? 1 : Math.min(1, (1.2 * lines) / y);
+  const oldAlpha = overlayCtx.globalAlpha;
+  overlayCtx.globalAlpha = alpha;
 
-	const y = ( _vid.height * 3 ) >> 2;
-	const alpha = lines > y ? 1 : Math.min( 1, ( 1.2 * lines ) / y );
-	const oldAlpha = overlayCtx.globalAlpha;
-	overlayCtx.globalAlpha = alpha;
+  if (conback && conback.canvas) {
+    overlayCtx.drawImage(
+      conback.canvas,
+      0,
+      lines - _vid.height,
+      _vid.width,
+      _vid.height,
+    );
+  } else {
+    // Fallback: solid black background
+    overlayCtx.fillStyle = "rgb(0, 0, 0)";
+    overlayCtx.fillRect(0, 0, _vid.width, lines);
+  }
 
-	if ( conback && conback.canvas ) {
-
-		overlayCtx.drawImage( conback.canvas, 0, lines - _vid.height, _vid.width, _vid.height );
-
-	} else {
-
-		// Fallback: solid black background
-		overlayCtx.fillStyle = 'rgb(0, 0, 0)';
-		overlayCtx.fillRect( 0, 0, _vid.width, lines );
-
-	}
-
-	overlayCtx.globalAlpha = oldAlpha;
-
+  overlayCtx.globalAlpha = oldAlpha;
 }
 
 let _tile_pattern = null; // CanvasPattern of draw_backtile (Draw_TileClear)
@@ -961,35 +912,30 @@ This repeats a 64*64 tile graphic to fill the screen around a sized down
 refresh window.
 =============
 */
-export function Draw_TileClear( x, y, w, h ) {
+export function Draw_TileClear(x, y, w, h) {
+  if (!overlayCtx) return;
 
-	if ( ! overlayCtx ) return;
+  if (draw_backtile && draw_backtile.canvas) {
+    // the pattern only changes with the context or the tile canvas
+    if (
+      _tile_pattern === null || _tile_pattern_ctx !== overlayCtx ||
+      _tile_pattern_canvas !== draw_backtile.canvas
+    ) {
+      _tile_pattern = overlayCtx.createPattern(draw_backtile.canvas, "repeat");
+      _tile_pattern_ctx = overlayCtx;
+      _tile_pattern_canvas = draw_backtile.canvas;
+    }
 
-	if ( draw_backtile && draw_backtile.canvas ) {
-
-		// the pattern only changes with the context or the tile canvas
-		if ( _tile_pattern === null || _tile_pattern_ctx !== overlayCtx || _tile_pattern_canvas !== draw_backtile.canvas ) {
-
-			_tile_pattern = overlayCtx.createPattern( draw_backtile.canvas, 'repeat' );
-			_tile_pattern_ctx = overlayCtx;
-			_tile_pattern_canvas = draw_backtile.canvas;
-
-		}
-
-		overlayCtx.fillStyle = _tile_pattern;
-		overlayCtx.fillRect( x, y, w, h );
-
-	} else {
-
-		overlayCtx.fillStyle = '#202020';
-		overlayCtx.fillRect( x, y, w, h );
-
-	}
-
+    overlayCtx.fillStyle = _tile_pattern;
+    overlayCtx.fillRect(x, y, w, h);
+  } else {
+    overlayCtx.fillStyle = "#202020";
+    overlayCtx.fillRect(x, y, w, h);
+  }
 }
 
-const _fill_keys = new Int32Array( 256 ); // 0 = not built yet
-const _fill_styles = new Array( 256 ).fill( '' );
+const _fill_keys = new Int32Array(256); // 0 = not built yet
+const _fill_styles = new Array(256).fill("");
 
 /*
 =============
@@ -998,35 +944,27 @@ Draw_Fill
 Fills a box of pixels with a single color
 =============
 */
-export function Draw_Fill( x, y, w, h, c ) {
+export function Draw_Fill(x, y, w, h, c) {
+  if (!overlayCtx) return;
 
-	if ( ! overlayCtx ) return;
+  if (host_basepal && c >= 0 && c < 256) {
+    const r = host_basepal[c * 3];
+    const g = host_basepal[c * 3 + 1];
+    const b = host_basepal[c * 3 + 2];
+    // colour strings cached per palette index. The palette is rewritten in
+    // place (VID_ShiftPalette), so the rgb values are the cache key.
+    const key = (r << 16 | g << 8 | b) + 1;
+    if (_fill_keys[c] !== key) {
+      _fill_keys[c] = key;
+      _fill_styles[c] = "rgb(" + r + "," + g + "," + b + ")";
+    }
 
-	if ( host_basepal && c >= 0 && c < 256 ) {
+    overlayCtx.fillStyle = _fill_styles[c];
+  } else {
+    overlayCtx.fillStyle = "#ffffff";
+  }
 
-		const r = host_basepal[ c * 3 ];
-		const g = host_basepal[ c * 3 + 1 ];
-		const b = host_basepal[ c * 3 + 2 ];
-		// colour strings cached per palette index. The palette is rewritten in
-		// place (VID_ShiftPalette), so the rgb values are the cache key.
-		const key = ( r << 16 | g << 8 | b ) + 1;
-		if ( _fill_keys[ c ] !== key ) {
-
-			_fill_keys[ c ] = key;
-			_fill_styles[ c ] = 'rgb(' + r + ',' + g + ',' + b + ')';
-
-		}
-
-		overlayCtx.fillStyle = _fill_styles[ c ];
-
-	} else {
-
-		overlayCtx.fillStyle = '#ffffff';
-
-	}
-
-	overlayCtx.fillRect( x, y, w, h );
-
+  overlayCtx.fillRect(x, y, w, h);
 }
 
 /*
@@ -1036,14 +974,12 @@ Draw_FadeScreen
 ================
 */
 export function Draw_FadeScreen() {
+  if (!overlayCtx) return;
 
-	if ( ! overlayCtx ) return;
+  overlayCtx.fillStyle = "rgba(0, 0, 0, 0.8)";
+  overlayCtx.fillRect(0, 0, _vid.width, _vid.height);
 
-	overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-	overlayCtx.fillRect( 0, 0, _vid.width, _vid.height );
-
-	Sbar_Changed();
-
+  Sbar_Changed();
 }
 
 /*
@@ -1055,10 +991,8 @@ Call before beginning any disc IO.
 ================
 */
 export function Draw_BeginDisc() {
-
-	if ( ! draw_disc ) return;
-	Draw_Pic( _vid.width - 24, 0, draw_disc );
-
+  if (!draw_disc) return;
+  Draw_Pic(_vid.width - 24, 0, draw_disc);
 }
 
 /*
@@ -1070,9 +1004,7 @@ Call after completing any disc IO
 ================
 */
 export function Draw_EndDisc() {
-
-	// Nothing to do in GL mode
-
+  // Nothing to do in GL mode
 }
 
 /*
@@ -1085,17 +1017,15 @@ scissor; the overlay canvas clips its 2D context instead.
 */
 let _clipping = false;
 
-export function Draw_SetClipRect( x, y, width, height ) {
+export function Draw_SetClipRect(x, y, width, height) {
+  if (!overlayCtx) return;
 
-	if ( ! overlayCtx ) return;
-
-	if ( _clipping ) overlayCtx.restore(); // a scissor replaces the last one; keep save/restore balanced
-	overlayCtx.save();
-	overlayCtx.beginPath();
-	overlayCtx.rect( x, y, width, height );
-	overlayCtx.clip();
-	_clipping = true;
-
+  if (_clipping) overlayCtx.restore(); // a scissor replaces the last one; keep save/restore balanced
+  overlayCtx.save();
+  overlayCtx.beginPath();
+  overlayCtx.rect(x, y, width, height);
+  overlayCtx.clip();
+  _clipping = true;
 }
 
 /*
@@ -1104,12 +1034,10 @@ Draw_ResetClipping -- Ironwail
 ================
 */
 export function Draw_ResetClipping() {
+  if (!overlayCtx || !_clipping) return;
 
-	if ( ! overlayCtx || ! _clipping ) return;
-
-	overlayCtx.restore();
-	_clipping = false;
-
+  overlayCtx.restore();
+  _clipping = false;
 }
 
 /*
@@ -1121,9 +1049,7 @@ In canvas 2D overlay mode, this is implicit.
 ================
 */
 export function GL_Set2D() {
-
-	// Canvas 2D context is always in 2D mode
-
+  // Canvas 2D context is always in 2D mode
 }
 
 /*
@@ -1134,34 +1060,30 @@ Convert palette-indexed qpic_t pixel data to a canvas.
 If alpha is true, palette index 255 is treated as transparent.
 ================
 */
-function _qpicToCanvas( width, height, data, alpha ) {
+function _qpicToCanvas(width, height, data, alpha) {
+  const pal = d_8to24table || vid_d_8to24table;
+  if (!pal) return null;
 
-	const pal = d_8to24table || vid_d_8to24table;
-	if ( ! pal ) return null;
+  const cs = document.createElement("canvas");
+  cs.width = width;
+  cs.height = height;
+  const ctx = cs.getContext("2d");
+  const imageData = ctx.createImageData(width, height);
+  const pixels = imageData.data;
 
-	const cs = document.createElement( 'canvas' );
-	cs.width = width;
-	cs.height = height;
-	const ctx = cs.getContext( '2d' );
-	const imageData = ctx.createImageData( width, height );
-	const pixels = imageData.data;
+  for (let i = 0; i < width * height; i++) {
+    // GL_Upload8 copies d_8to24table[ p ] for every texel: index 255
+    // keeps its palette RGB and has alpha 0 (alpha textures only)
+    const palIdx = data[i];
+    const rgba = pal[palIdx];
+    pixels[i * 4] = rgba & 0xff;
+    pixels[i * 4 + 1] = (rgba >> 8) & 0xff;
+    pixels[i * 4 + 2] = (rgba >> 16) & 0xff;
+    pixels[i * 4 + 3] = alpha && palIdx === 255 ? 0 : 255;
+  }
 
-	for ( let i = 0; i < width * height; i ++ ) {
-
-		// GL_Upload8 copies d_8to24table[ p ] for every texel: index 255
-		// keeps its palette RGB and has alpha 0 (alpha textures only)
-		const palIdx = data[ i ];
-		const rgba = pal[ palIdx ];
-		pixels[ i * 4 ] = rgba & 0xff;
-		pixels[ i * 4 + 1 ] = ( rgba >> 8 ) & 0xff;
-		pixels[ i * 4 + 2 ] = ( rgba >> 16 ) & 0xff;
-		pixels[ i * 4 + 3 ] = alpha && palIdx === 255 ? 0 : 255;
-
-	}
-
-	ctx.putImageData( imageData, 0, 0 );
-	return cs;
-
+  ctx.putImageData(imageData, 0, 0);
+  return cs;
 }
 
 /*
@@ -1173,41 +1095,33 @@ Call this during initialization to make custom images available via Draw_CachePi
 Returns a Promise that resolves when the image is loaded.
 ================
 */
-export function Draw_CachePicFromPNG( path, url ) {
+export function Draw_CachePicFromPNG(path, url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = function () {
+      const cs = document.createElement("canvas");
+      cs.width = img.width;
+      cs.height = img.height;
+      const ctx = cs.getContext("2d");
+      ctx.drawImage(img, 0, 0);
 
-	return new Promise( ( resolve, reject ) => {
+      const pic = {
+        width: img.width,
+        height: img.height,
+        canvas: cs,
+      };
 
-		const img = new Image();
-		img.onload = function () {
+      cachepics[path] = pic;
+      resolve(pic);
+    };
 
-			const cs = document.createElement( 'canvas' );
-			cs.width = img.width;
-			cs.height = img.height;
-			const ctx = cs.getContext( '2d' );
-			ctx.drawImage( img, 0, 0 );
+    img.onerror = function () {
+      Con_Printf("Draw_CachePicFromPNG: failed to load " + url + "\n");
+      reject(new Error("Failed to load " + url));
+    };
 
-			const pic = {
-				width: img.width,
-				height: img.height,
-				canvas: cs
-			};
-
-			cachepics[ path ] = pic;
-			resolve( pic );
-
-		};
-
-		img.onerror = function () {
-
-			Con_Printf( 'Draw_CachePicFromPNG: failed to load ' + url + '\n' );
-			reject( new Error( 'Failed to load ' + url ) );
-
-		};
-
-		img.src = url;
-
-	} );
-
+    img.src = url;
+  });
 }
 
 /*
@@ -1218,47 +1132,50 @@ Loads and caches a pic from the game data (PAK files).
 qpic_t format: int32 width, int32 height, then width*height palette indices.
 ================
 */
-export function Draw_CachePic( path ) {
+export function Draw_CachePic(path) {
+  if (cachepics[path]) {
+    return cachepics[path];
+  }
 
-	if ( cachepics[ path ] )
-		return cachepics[ path ];
+  const result = COM_FindFile(path);
+  if (!result) {
+    Con_Printf("Draw_CachePic: failed to load " + path + "\n");
+    return null;
+  }
 
-	const result = COM_FindFile( path );
-	if ( ! result ) {
+  // COM_FindFile returns { data: Uint8Array view into pak buffer, size }
+  // qpic_t: first 8 bytes are width + height (int32 LE), then pixel data
+  const view = new DataView(
+    result.data.buffer,
+    result.data.byteOffset,
+    result.size,
+  );
+  const width = view.getInt32(0, true);
+  const height = view.getInt32(4, true);
+  const pixels = new Uint8Array(
+    result.data.buffer,
+    result.data.byteOffset + 8,
+    width * height,
+  );
 
-		Con_Printf( 'Draw_CachePic: failed to load ' + path + '\n' );
-		return null;
+  // Save raw pixel data for menuplyr.lmp (used by Draw_TransPicTranslate)
+  if (path === "gfx/menuplyr.lmp") {
+    menuplyr_pixels = new Uint8Array(width * height);
+    menuplyr_pixels.set(pixels);
+    menuplyr_width = width;
+    menuplyr_height = height;
+  }
 
-	}
+  const cs = _qpicToCanvas(width, height, pixels, true);
 
-	// COM_FindFile returns { data: Uint8Array view into pak buffer, size }
-	// qpic_t: first 8 bytes are width + height (int32 LE), then pixel data
-	const view = new DataView( result.data.buffer, result.data.byteOffset, result.size );
-	const width = view.getInt32( 0, true );
-	const height = view.getInt32( 4, true );
-	const pixels = new Uint8Array( result.data.buffer, result.data.byteOffset + 8, width * height );
+  const pic = {
+    width: width,
+    height: height,
+    canvas: cs,
+  };
 
-	// Save raw pixel data for menuplyr.lmp (used by Draw_TransPicTranslate)
-	if ( path === 'gfx/menuplyr.lmp' ) {
-
-		menuplyr_pixels = new Uint8Array( width * height );
-		menuplyr_pixels.set( pixels );
-		menuplyr_width = width;
-		menuplyr_height = height;
-
-	}
-
-	const cs = _qpicToCanvas( width, height, pixels, true );
-
-	const pic = {
-		width: width,
-		height: height,
-		canvas: cs
-	};
-
-	cachepics[ path ] = pic;
-	return pic;
-
+  cachepics[path] = pic;
+  return pic;
 }
 
 /*
@@ -1269,37 +1186,38 @@ Loads a pic from the gfx.wad file.
 WAD lumps for qpic_t: int32 width, int32 height, then width*height palette indices.
 ================
 */
-export function Draw_PicFromWad( name ) {
+export function Draw_PicFromWad(name) {
+  let lump;
+  try {
+    lump = W_GetLumpName(name);
+  } catch {
+    Con_Printf("Draw_PicFromWad: " + name + " not found\n");
+    return null;
+  }
 
-	let lump;
-	try {
+  if (!lump) return null;
 
-		lump = W_GetLumpName( name );
+  // Parse qpic_t header from WAD lump data
+  const view = new DataView(
+    lump.data.buffer,
+    lump.data.byteOffset + lump.offset,
+  );
+  const width = view.getInt32(0, true);
+  const height = view.getInt32(4, true);
 
-	} catch {
+  const pixels = new Uint8Array(
+    lump.data.buffer,
+    lump.data.byteOffset + lump.offset + 8,
+    width * height,
+  );
 
-		Con_Printf( 'Draw_PicFromWad: ' + name + ' not found\n' );
-		return null;
+  const cs = _qpicToCanvas(width, height, pixels, true);
 
-	}
-
-	if ( ! lump ) return null;
-
-	// Parse qpic_t header from WAD lump data
-	const view = new DataView( lump.data.buffer, lump.data.byteOffset + lump.offset );
-	const width = view.getInt32( 0, true );
-	const height = view.getInt32( 4, true );
-
-	const pixels = new Uint8Array( lump.data.buffer, lump.data.byteOffset + lump.offset + 8, width * height );
-
-	const cs = _qpicToCanvas( width, height, pixels, true );
-
-	return {
-		width: width,
-		height: height,
-		canvas: cs
-	};
-
+  return {
+    width: width,
+    height: height,
+    canvas: cs,
+  };
 }
 
 /*
@@ -1307,66 +1225,55 @@ export function Draw_PicFromWad( name ) {
 GL_LoadTexture
 ================
 */
-export function GL_LoadTexture( identifier, width, height, data, mipmap, alpha ) {
+export function GL_LoadTexture(identifier, width, height, data, mipmap, alpha) {
+  // See if the texture is already present
+  if (identifier && identifier.length > 0) {
+    for (let i = 0; i < numgltextures; i++) {
+      if (gltextures[i].identifier === identifier) {
+        if (width !== gltextures[i].width || height !== gltextures[i].height) {
+          Con_Printf("GL_LoadTexture: cache mismatch for " + identifier + "\n");
+        }
+        return gltextures[i].texnum;
+      }
+    }
+  }
 
-	// See if the texture is already present
-	if ( identifier && identifier.length > 0 ) {
+  const glt = gltextures[numgltextures];
+  numgltextures++;
 
-		for ( let i = 0; i < numgltextures; i ++ ) {
+  glt.identifier = identifier;
+  glt.texnum = texture_extension_number;
+  glt.width = width;
+  glt.height = height;
+  glt.mipmap = mipmap;
 
-			if ( gltextures[ i ].identifier === identifier ) {
+  // In canvas 2D mode, create an ImageData or canvas for the texture
+  if (data && d_8to24table) {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    const imageData = ctx.createImageData(width, height);
 
-				if ( width !== gltextures[ i ].width || height !== gltextures[ i ].height )
-					Con_Printf( 'GL_LoadTexture: cache mismatch for ' + identifier + '\n' );
-				return gltextures[ i ].texnum;
+    for (let i = 0; i < width * height; i++) {
+      // GL_Upload8: index 255 keeps its palette RGB, alpha 0
+      const palIdx = data[i];
+      const rgba = d_8to24table[palIdx];
+      imageData.data[i * 4] = rgba & 0xff;
+      imageData.data[i * 4 + 1] = (rgba >> 8) & 0xff;
+      imageData.data[i * 4 + 2] = (rgba >> 16) & 0xff;
+      imageData.data[i * 4 + 3] = alpha && palIdx === 255 ? 0 : 255;
+    }
 
-			}
+    ctx.putImageData(imageData, 0, 0);
 
-		}
+    // Store canvas reference on the texture
+    glt.canvas = canvas;
+  }
 
-	}
+  texture_extension_number++;
 
-	const glt = gltextures[ numgltextures ];
-	numgltextures ++;
-
-	glt.identifier = identifier;
-	glt.texnum = texture_extension_number;
-	glt.width = width;
-	glt.height = height;
-	glt.mipmap = mipmap;
-
-	// In canvas 2D mode, create an ImageData or canvas for the texture
-	if ( data && d_8to24table ) {
-
-		const canvas = document.createElement( 'canvas' );
-		canvas.width = width;
-		canvas.height = height;
-		const ctx = canvas.getContext( '2d' );
-		const imageData = ctx.createImageData( width, height );
-
-		for ( let i = 0; i < width * height; i ++ ) {
-
-			// GL_Upload8: index 255 keeps its palette RGB, alpha 0
-			const palIdx = data[ i ];
-			const rgba = d_8to24table[ palIdx ];
-			imageData.data[ i * 4 ] = rgba & 0xff;
-			imageData.data[ i * 4 + 1 ] = ( rgba >> 8 ) & 0xff;
-			imageData.data[ i * 4 + 2 ] = ( rgba >> 16 ) & 0xff;
-			imageData.data[ i * 4 + 3 ] = alpha && palIdx === 255 ? 0 : 255;
-
-		}
-
-		ctx.putImageData( imageData, 0, 0 );
-
-		// Store canvas reference on the texture
-		glt.canvas = canvas;
-
-	}
-
-	texture_extension_number ++;
-
-	return texture_extension_number - 1;
-
+  return texture_extension_number - 1;
 }
 
 /*
@@ -1376,38 +1283,28 @@ GL_Upload8
 Convert 8-bit palettized data to RGBA and upload
 ================
 */
-export function GL_Upload8( data, width, height, mipmap, alpha ) {
+export function GL_Upload8(data, width, height, mipmap, alpha) {
+  if (!d_8to24table) return;
 
-	if ( ! d_8to24table ) return;
+  const s = width * height;
+  const trans = new Uint32Array(s);
+  let noalpha = true;
 
-	const s = width * height;
-	const trans = new Uint32Array( s );
-	let noalpha = true;
+  if (alpha) {
+    for (let i = 0; i < s; i++) {
+      const p = data[i];
+      if (p === 255) noalpha = false;
+      trans[i] = d_8to24table[p];
+    }
 
-	if ( alpha ) {
+    if (noalpha) alpha = false;
+  } else {
+    for (let i = 0; i < s; i++) {
+      trans[i] = d_8to24table[data[i]];
+    }
+  }
 
-		for ( let i = 0; i < s; i ++ ) {
-
-			const p = data[ i ];
-			if ( p === 255 ) noalpha = false;
-			trans[ i ] = d_8to24table[ p ];
-
-		}
-
-		if ( noalpha ) alpha = false;
-
-	} else {
-
-		for ( let i = 0; i < s; i ++ ) {
-
-			trans[ i ] = d_8to24table[ data[ i ] ];
-
-		}
-
-	}
-
-	GL_Upload32( trans, width, height, mipmap, alpha );
-
+  GL_Upload32(trans, width, height, mipmap, alpha);
 }
 
 /*
@@ -1415,11 +1312,9 @@ export function GL_Upload8( data, width, height, mipmap, alpha ) {
 GL_Upload32
 ================
 */
-export function GL_Upload32( _data, _width, _height, _mipmap, _alpha ) {
-
-	// In canvas 2D mode, texture upload is handled differently
-	// This is a stub for compatibility
-
+export function GL_Upload32(_data, _width, _height, _mipmap, _alpha) {
+  // In canvas 2D mode, texture upload is handled differently
+  // This is a stub for compatibility
 }
 
 /*
@@ -1427,17 +1322,14 @@ export function GL_Upload32( _data, _width, _height, _mipmap, _alpha ) {
 GL_FindTexture
 ================
 */
-export function GL_FindTexture( identifier ) {
+export function GL_FindTexture(identifier) {
+  for (let i = 0; i < numgltextures; i++) {
+    if (gltextures[i].identifier === identifier) {
+      return gltextures[i].texnum;
+    }
+  }
 
-	for ( let i = 0; i < numgltextures; i ++ ) {
-
-		if ( gltextures[ i ].identifier === identifier )
-			return gltextures[ i ].texnum;
-
-	}
-
-	return - 1;
-
+  return -1;
 }
 
 /*
@@ -1447,10 +1339,8 @@ Draw_SetCharset
 Set the character set bitmap for console/HUD text rendering
 ================
 */
-export function Draw_SetCharset( charsetCanvas ) {
-
-	char_canvas = charsetCanvas;
-
+export function Draw_SetCharset(charsetCanvas) {
+  char_canvas = charsetCanvas;
 }
 
 /*
@@ -1460,10 +1350,8 @@ Draw_SetConback
 Set the console background image
 ================
 */
-export function Draw_SetConback( conbackPic ) {
-
-	conback = conbackPic;
-
+export function Draw_SetConback(conbackPic) {
+  conback = conbackPic;
 }
 
 /*
@@ -1473,8 +1361,6 @@ Draw_SetDisc
 Set the disc (loading) icon
 ================
 */
-export function Draw_SetDisc( discPic ) {
-
-	draw_disc = discPic;
-
+export function Draw_SetDisc(discPic) {
+  draw_disc = discPic;
 }

@@ -1,12 +1,10 @@
 // Ported from: WinQuake/progs.h -- program execution definitions
 
-import { link_t } from './common.js';
-import { Sys_Error } from './sys.js';
-import { entity_state_t } from './quakedef.js';
-import {
-	OFS_RETURN,
-} from './pr_comp.js';
-import { entvars_t } from './progdefs.js';
+import { link_t } from "./common.js";
+import { Sys_Error } from "./sys.js";
+import { entity_state_t } from "./quakedef.js";
+import { OFS_RETURN } from "./pr_comp.js";
+import { entvars_t } from "./progdefs.js";
 
 export const MAX_ENT_LEAFS = 16;
 
@@ -21,143 +19,115 @@ export const MAX_ENT_LEAFS = 16;
 // Used for both pr_globals and per-edict field data.
 //
 export class EdictFieldAccessor {
+  constructor(buffer, byteOffset, length) {
+    // buffer: ArrayBuffer
+    // byteOffset: starting byte offset
+    // length: number of 32-bit slots
+    this._buffer = buffer;
+    this._byteOffset = byteOffset;
+    this._length = length;
+    this._floatView = new Float32Array(buffer, byteOffset, length);
+    this._intView = new Int32Array(buffer, byteOffset, length);
+    this._vectors = null; // lazily allocated cache of getVector views, by slot
+  }
 
-	constructor( buffer, byteOffset, length ) {
+  getFloat(ofs) {
+    return this._floatView[ofs];
+  }
 
-		// buffer: ArrayBuffer
-		// byteOffset: starting byte offset
-		// length: number of 32-bit slots
-		this._buffer = buffer;
-		this._byteOffset = byteOffset;
-		this._length = length;
-		this._floatView = new Float32Array( buffer, byteOffset, length );
-		this._intView = new Int32Array( buffer, byteOffset, length );
-		this._vectors = null; // lazily allocated cache of getVector views, by slot
+  setFloat(ofs, v) {
+    this._floatView[ofs] = v;
+  }
 
-	}
+  getInt32(ofs) {
+    return this._intView[ofs];
+  }
 
-	getFloat( ofs ) {
+  setInt32(ofs, v) {
+    this._intView[ofs] = v;
+  }
 
-		return this._floatView[ ofs ];
+  getVector(ofs) {
+    // The view aliases the same bytes every time, so build it once per slot
+    // instead of allocating a typed array on every field read.
+    let vectors = this._vectors;
+    if (vectors === null) {
+      vectors = this._vectors = new Array(this._length).fill(null);
+    }
 
-	}
+    let v = vectors[ofs];
+    if (v === null || v === undefined) {
+      v = new Float32Array(this._buffer, this._byteOffset + ofs * 4, 3);
+      if (ofs >= 0 && ofs < vectors.length) vectors[ofs] = v;
+    }
 
-	setFloat( ofs, v ) {
+    return v;
+  }
 
-		this._floatView[ ofs ] = v;
+  setVector(ofs, v) {
+    this._floatView[ofs] = v[0];
+    this._floatView[ofs + 1] = v[1];
+    this._floatView[ofs + 2] = v[2];
+  }
 
-	}
+  // Clear a range of slots to zero
+  clear(startOfs, count) {
+    for (let i = 0; i < count; i++) {
+      this._intView[startOfs + i] = 0;
+    }
+  }
 
-	getInt32( ofs ) {
-
-		return this._intView[ ofs ];
-
-	}
-
-	setInt32( ofs, v ) {
-
-		this._intView[ ofs ] = v;
-
-	}
-
-	getVector( ofs ) {
-
-		// The view aliases the same bytes every time, so build it once per slot
-		// instead of allocating a typed array on every field read.
-		let vectors = this._vectors;
-		if ( vectors === null ) {
-
-			vectors = this._vectors = new Array( this._length ).fill( null );
-
-		}
-
-		let v = vectors[ ofs ];
-		if ( v === null || v === undefined ) {
-
-			v = new Float32Array( this._buffer, this._byteOffset + ofs * 4, 3 );
-			if ( ofs >= 0 && ofs < vectors.length ) vectors[ ofs ] = v;
-
-		}
-
-		return v;
-
-	}
-
-	setVector( ofs, v ) {
-
-		this._floatView[ ofs ] = v[ 0 ];
-		this._floatView[ ofs + 1 ] = v[ 1 ];
-		this._floatView[ ofs + 2 ] = v[ 2 ];
-
-	}
-
-	// Clear a range of slots to zero
-	clear( startOfs, count ) {
-
-		for ( let i = 0; i < count; i ++ ) {
-
-			this._intView[ startOfs + i ] = 0;
-
-		}
-
-	}
-
-	// Clear all slots
-	clearAll() {
-
-		this._intView.fill( 0 );
-
-	}
-
+  // Clear all slots
+  clearAll() {
+    this._intView.fill(0);
+  }
 }
 
 //
 // edict_t - entity dictionary entry
 //
 export class edict_t {
+  constructor(index, entityfields) {
+    this.index = index; // entity number (replaces pointer arithmetic)
+    this.free = false;
 
-	constructor( index, entityfields ) {
+    this.area = new link_t(); // linked to a division node or leaf
 
-		this.index = index; // entity number (replaces pointer arithmetic)
-		this.free = false;
+    this.num_leafs = 0;
+    // Deliberate deviation (Ironwail edict_t): int leaf numbers, since
+    // BSP2 maps may have more than 32767 leafs. The C holds shorts.
+    this.leafnums = new Int32Array(MAX_ENT_LEAFS);
 
-		this.area = new link_t(); // linked to a division node or leaf
+    this.baseline = new entity_state_t();
 
-		this.num_leafs = 0;
-		// Deliberate deviation (Ironwail edict_t): int leaf numbers, since
-		// BSP2 maps may have more than 32767 leafs. The C holds shorts.
-		this.leafnums = new Int32Array( MAX_ENT_LEAFS );
+    this.freetime = 0.0; // sv.time when the object was freed
 
-		this.baseline = new entity_state_t();
+    this.alpha = 0; // johnfitz -- ENTALPHA_* byte, from the "alpha" key or field (Ironwail edict_t)
 
-		this.freetime = 0.0; // sv.time when the object was freed
+    // Allocate field data backing buffer
+    // entityfields is the number of int/float slots for the v (entvars) fields
+    // Additional fields from progs come immediately after
+    this._fieldBuffer = new ArrayBuffer(entityfields * 4);
+    this._fieldAccessor = new EdictFieldAccessor(
+      this._fieldBuffer,
+      0,
+      entityfields,
+    );
+    // The accessor's views, for the interpreter's field opcodes
+    this._intView = this._fieldAccessor._intView;
+    this._floatView = this._fieldAccessor._floatView;
 
-		this.alpha = 0; // johnfitz -- ENTALPHA_* byte, from the "alpha" key or field (Ironwail edict_t)
+    // C exported fields from progs (entvars_t)
+    this.v = new entvars_t(this._fieldAccessor);
 
-		// Allocate field data backing buffer
-		// entityfields is the number of int/float slots for the v (entvars) fields
-		// Additional fields from progs come immediately after
-		this._fieldBuffer = new ArrayBuffer( entityfields * 4 );
-		this._fieldAccessor = new EdictFieldAccessor( this._fieldBuffer, 0, entityfields );
-		// The accessor's views, for the interpreter's field opcodes
-		this._intView = this._fieldAccessor._intView;
-		this._floatView = this._fieldAccessor._floatView;
+    // Store entityfields count for clearing
+    this._entityfields = entityfields;
+  }
 
-		// C exported fields from progs (entvars_t)
-		this.v = new entvars_t( this._fieldAccessor );
-
-		// Store entityfields count for clearing
-		this._entityfields = entityfields;
-
-	}
-
-	// Clear entity variable fields (memset &e->v to 0)
-	clearFields() {
-
-		this._fieldAccessor.clearAll();
-
-	}
-
+  // Clear entity variable fields (memset &e->v to 0)
+  clearFields() {
+    this._fieldAccessor.clearAll();
+  }
 }
 
 //============================================================================
@@ -166,7 +136,7 @@ export class edict_t {
 
 export let progs = null; // dprograms_t
 export let pr_functions = null; // dfunction_t[]
-export let pr_strings = ''; // string table (raw string data)
+export let pr_strings = ""; // string table (raw string data)
 export let pr_strings_data = null; // Uint8Array of raw string bytes
 export let pr_strings_size = 0; // bytes in use; pr_strings_data may have zeroed spare capacity past this
 export let pr_globaldefs = null; // ddef_t[]
@@ -195,100 +165,110 @@ export let pr_crc = 0;
 // argv) need; id's 128 was only ever filled by ftos and vtos.
 export const STRINGTEMP_BUFFERS = 256;
 export const STRINGTEMP_LENGTH = 1024;
-export let pr_string_temp_ofs = - 1;
+export let pr_string_temp_ofs = -1;
 let pr_string_tempindex = 0; // C: static byte pr_string_tempindex
 
 // type_size[etype] - number of int/float slots per type
-export const type_size = [ 1, 1, 1, 3, 1, 1, 1, 1 ];
+export const type_size = [1, 1, 1, 3, 1, 1, 1, 1];
 
 //============================================================================
 // Setter functions for module state (since we use export let)
 //============================================================================
 
-export function PR_SetProgs( p ) { progs = p; }
-export function PR_SetFunctions( f ) { pr_functions = f; }
-export function PR_SetStrings( s ) { pr_strings = s; }
-export function PR_SetStringsData( d ) {
-
-	pr_strings_data = d;
-	pr_strings_size = d != null ? d.length : 0;
-
+export function PR_SetProgs(p) {
+  progs = p;
 }
-export function PR_SetGlobalDefs( g ) { pr_globaldefs = g; }
-export function PR_SetFieldDefs( f ) { pr_fielddefs = f; }
-export function PR_SetStatements( s ) {
-
-	pr_statements = s;
-	if ( s === null || s === undefined ) {
-
-		pr_code = null;
-		return;
-
-	}
-
-	const code = new Int32Array( s.length * 4 );
-	for ( let i = 0; i < s.length; i ++ ) {
-
-		const st = s[ i ];
-		code[ i * 4 ] = st.op;
-		code[ i * 4 + 1 ] = st.a;
-		code[ i * 4 + 2 ] = st.b;
-		code[ i * 4 + 3 ] = st.c;
-
-	}
-
-	pr_code = code;
-
+export function PR_SetFunctions(f) {
+  pr_functions = f;
 }
-export function PR_SetGlobalStruct( g ) { pr_global_struct = g; }
-export function PR_SetGlobals( g ) { pr_globals = g; }
-export function PR_SetGlobalsFloat( f ) { pr_globals_float = f; }
-export function PR_SetGlobalsInt( i ) { pr_globals_int = i; }
-export function PR_SetEdictSize( s ) { pr_edict_size = s; }
-export function PR_SetCRC( c ) { pr_crc = c; }
-export function PR_SetStringTempOfs( o ) { pr_string_temp_ofs = o; }
+export function PR_SetStrings(s) {
+  pr_strings = s;
+}
+export function PR_SetStringsData(d) {
+  pr_strings_data = d;
+  pr_strings_size = d != null ? d.length : 0;
+}
+export function PR_SetGlobalDefs(g) {
+  pr_globaldefs = g;
+}
+export function PR_SetFieldDefs(f) {
+  pr_fielddefs = f;
+}
+export function PR_SetStatements(s) {
+  pr_statements = s;
+  if (s === null || s === undefined) {
+    pr_code = null;
+    return;
+  }
+
+  const code = new Int32Array(s.length * 4);
+  for (let i = 0; i < s.length; i++) {
+    const st = s[i];
+    code[i * 4] = st.op;
+    code[i * 4 + 1] = st.a;
+    code[i * 4 + 2] = st.b;
+    code[i * 4 + 3] = st.c;
+  }
+
+  pr_code = code;
+}
+export function PR_SetGlobalStruct(g) {
+  pr_global_struct = g;
+}
+export function PR_SetGlobals(g) {
+  pr_globals = g;
+}
+export function PR_SetGlobalsFloat(f) {
+  pr_globals_float = f;
+}
+export function PR_SetGlobalsInt(i) {
+  pr_globals_int = i;
+}
+export function PR_SetEdictSize(s) {
+  pr_edict_size = s;
+}
+export function PR_SetCRC(c) {
+  pr_crc = c;
+}
+export function PR_SetStringTempOfs(o) {
+  pr_string_temp_ofs = o;
+}
 
 // Host_Error lives in host.js, which imports the server and client; the
 // server installs it here (SV_Init) so the QuakeC VM can raise it without an
 // import cycle. Kept in progs.js so EDICT_NUM and NUM_FOR_EDICT can use it.
 let Host_Error = null;
 
-export function PR_SetHostError( callback ) {
-
-	const previous = Host_Error;
-	Host_Error = callback;
-	return previous;
-
+export function PR_SetHostError(callback) {
+  const previous = Host_Error;
+  Host_Error = callback;
+  return previous;
 }
 
-export function PR_HostError( error ) {
+export function PR_HostError(error) {
+  if (Host_Error === null) {
+    Sys_Error("PR_HostError: Host_Error callback not set");
+  }
 
-	if ( Host_Error === null )
-		Sys_Error( 'PR_HostError: Host_Error callback not set' );
-
-	Host_Error( error );
-	Sys_Error( 'PR_HostError: Host_Error returned' );
-
+  Host_Error(error);
+  Sys_Error("PR_HostError: Host_Error returned");
 }
 
 // Write a string into the next pr_string_temp buffer (STRINGTEMP_LENGTH bytes
 // with its NUL) and return its offset into pr_strings_data. Mirrors Ironwail's
 // PR_GetTempString: pre-increment a byte index, so the first buffer used is 1.
-export function PR_SetTempString( str ) {
+export function PR_SetTempString(str) {
+  pr_string_tempindex = (pr_string_tempindex + 1) & 0xff;
+  const ofs = pr_string_temp_ofs +
+    ((STRINGTEMP_BUFFERS - 1) & pr_string_tempindex) * STRINGTEMP_LENGTH;
 
-	pr_string_tempindex = ( pr_string_tempindex + 1 ) & 0xff;
-	const ofs = pr_string_temp_ofs + ( ( STRINGTEMP_BUFFERS - 1 ) & pr_string_tempindex ) * STRINGTEMP_LENGTH;
+  const len = Math.min(str.length, STRINGTEMP_LENGTH - 1); // leave room for the NUL
+  for (let i = 0; i < len; i++) {
+    pr_strings_data[ofs + i] = str.charCodeAt(i);
+  }
 
-	const len = Math.min( str.length, STRINGTEMP_LENGTH - 1 ); // leave room for the NUL
-	for ( let i = 0; i < len; i ++ ) {
-
-		pr_strings_data[ ofs + i ] = str.charCodeAt( i );
-
-	}
-
-	pr_strings_data[ ofs + len ] = 0; // null terminator
-	return ofs;
-
+  pr_strings_data[ofs + len] = 0; // null terminator
+  return ofs;
 }
 
 // Zoned strings for the strzone/strunzone builtins. Ironwail Z_Mallocs each
@@ -300,83 +280,73 @@ export function PR_SetTempString( str ) {
 const pr_zone_live = new Map(); // offset -> block size in bytes, with the NUL
 const pr_zone_free = []; // { ofs, size }
 
-export function PR_ZoneString( str ) {
+export function PR_ZoneString(str) {
+  const need = str.length + 1;
 
-	const need = str.length + 1;
+  // best fit among the freed blocks
+  let best = -1;
+  for (let i = 0; i < pr_zone_free.length; i++) {
+    const size = pr_zone_free[i].size;
+    if (size >= need && (best < 0 || size < pr_zone_free[best].size)) {
+      best = i;
+    }
+  }
 
-	// best fit among the freed blocks
-	let best = - 1;
-	for ( let i = 0; i < pr_zone_free.length; i ++ ) {
+  if (best < 0) {
+    const ofs = PR_AppendString(str);
+    pr_zone_live.set(ofs, need);
+    return ofs;
+  }
 
-		const size = pr_zone_free[ i ].size;
-		if ( size >= need && ( best < 0 || size < pr_zone_free[ best ].size ) )
-			best = i;
-
-	}
-
-	if ( best < 0 ) {
-
-		const ofs = PR_AppendString( str );
-		pr_zone_live.set( ofs, need );
-		return ofs;
-
-	}
-
-	const block = pr_zone_free[ best ];
-	pr_zone_free.splice( best, 1 );
-	for ( let i = 0; i < str.length; i ++ )
-		pr_strings_data[ block.ofs + i ] = str.charCodeAt( i ) & 0xff;
-	pr_strings_data[ block.ofs + str.length ] = 0;
-	pr_zone_live.set( block.ofs, block.size );
-	return block.ofs;
-
+  const block = pr_zone_free[best];
+  pr_zone_free.splice(best, 1);
+  for (let i = 0; i < str.length; i++) {
+    pr_strings_data[block.ofs + i] = str.charCodeAt(i) & 0xff;
+  }
+  pr_strings_data[block.ofs + str.length] = 0;
+  pr_zone_live.set(block.ofs, block.size);
+  return block.ofs;
 }
 
 // Returns false if ofs is not a live zoned string
-export function PR_UnzoneString( ofs ) {
+export function PR_UnzoneString(ofs) {
+  const size = pr_zone_live.get(ofs);
+  if (size === undefined) {
+    return false;
+  }
 
-	const size = pr_zone_live.get( ofs );
-	if ( size === undefined )
-		return false;
-
-	pr_zone_live.delete( ofs );
-	pr_zone_free.push( { ofs, size } );
-	pr_strings_data[ ofs ] = 0; // a stale reference now reads as ""
-	return true;
-
+  pr_zone_live.delete(ofs);
+  pr_zone_free.push({ ofs, size });
+  pr_strings_data[ofs] = 0; // a stale reference now reads as ""
+  return true;
 }
 
 export function PR_ClearZoneStrings() {
-
-	pr_zone_live.clear();
-	pr_zone_free.length = 0;
-
+  pr_zone_live.clear();
+  pr_zone_free.length = 0;
 }
 
 // Append a NUL-terminated string (one byte per character, Latin-1, as
 // PR_GetString decodes it) and return its offset. This stands in for C's
 // Hunk_Alloc in ED_NewString. Capacity doubles, so spawning a map's entities
 // reallocates the table a few times rather than once per string.
-export function PR_AppendString( str ) {
+export function PR_AppendString(str) {
+  const ofs = pr_strings_size;
+  const end = ofs + str.length + 1;
 
-	const ofs = pr_strings_size;
-	const end = ofs + str.length + 1;
+  if (end > pr_strings_data.length) {
+    const grown = new Uint8Array(Math.max(end, pr_strings_data.length * 2));
+    grown.set(pr_strings_data.subarray(0, pr_strings_size));
+    pr_strings_data = grown;
+  }
 
-	if ( end > pr_strings_data.length ) {
+  for (let i = 0; i < str.length; i++) {
+    pr_strings_data[ofs + i] = str.charCodeAt(i) & 0xff;
+  }
+  pr_strings_data[end - 1] = 0;
 
-		const grown = new Uint8Array( Math.max( end, pr_strings_data.length * 2 ) );
-		grown.set( pr_strings_data.subarray( 0, pr_strings_size ) );
-		pr_strings_data = grown;
-
-	}
-
-	for ( let i = 0; i < str.length; i ++ )
-		pr_strings_data[ ofs + i ] = str.charCodeAt( i ) & 0xff;
-	pr_strings_data[ end - 1 ] = 0;
-
-	pr_strings_size = end;
-	return ofs;
-
+  pr_strings_size = end;
+  return ofs;
 }
 
 //============================================================================
@@ -384,28 +354,20 @@ export function PR_AppendString( str ) {
 // These match the C macros: G_FLOAT, G_INT, G_VECTOR, G_STRING, etc.
 //============================================================================
 
-export function G_FLOAT( o ) {
-
-	return pr_globals_float[ o ];
-
+export function G_FLOAT(o) {
+  return pr_globals_float[o];
 }
 
-export function G_FLOAT_SET( o, v ) {
-
-	pr_globals_float[ o ] = v;
-
+export function G_FLOAT_SET(o, v) {
+  pr_globals_float[o] = v;
 }
 
-export function G_INT( o ) {
-
-	return pr_globals_int[ o ];
-
+export function G_INT(o) {
+  return pr_globals_int[o];
 }
 
-export function G_INT_SET( o, v ) {
-
-	pr_globals_int[ o ] = v;
-
+export function G_INT_SET(o, v) {
+  pr_globals_int[o] = v;
 }
 
 // The views G_VECTOR has made, by slot, for the pr_globals_float they were made
@@ -415,60 +377,46 @@ export function G_INT_SET( o, v ) {
 let g_vector_views = null;
 let g_vector_floats = null;
 
-export function G_VECTOR( o ) {
+export function G_VECTOR(o) {
+  const floats = pr_globals_float;
+  if (g_vector_floats !== floats) {
+    g_vector_floats = floats;
+    g_vector_views = new Array(floats.length).fill(null);
+  }
 
-	const floats = pr_globals_float;
-	if ( g_vector_floats !== floats ) {
+  let v = g_vector_views[o];
+  if (v === null || v === undefined) {
+    v = new Float32Array(floats.buffer, floats.byteOffset + o * 4, 3);
+    if (o >= 0 && o < g_vector_views.length) g_vector_views[o] = v;
+  }
 
-		g_vector_floats = floats;
-		g_vector_views = new Array( floats.length ).fill( null );
-
-	}
-
-	let v = g_vector_views[ o ];
-	if ( v === null || v === undefined ) {
-
-		v = new Float32Array( floats.buffer, floats.byteOffset + o * 4, 3 );
-		if ( o >= 0 && o < g_vector_views.length ) g_vector_views[ o ] = v;
-
-	}
-
-	return v;
-
+  return v;
 }
 
-export function G_STRING( o ) {
-
-	return PR_GetString( pr_globals_int[ o ] );
-
+export function G_STRING(o) {
+  return PR_GetString(pr_globals_int[o]);
 }
 
-export function G_FUNCTION( o ) {
-
-	return pr_globals_int[ o ];
-
+export function G_FUNCTION(o) {
+  return pr_globals_int[o];
 }
 
 //============================================================================
 // String table helpers
 //============================================================================
 
-export function PR_GetString( ofs ) {
+export function PR_GetString(ofs) {
+  // Bound by the bytes in use, not the buffer: PR_AppendString leaves zeroed
+  // spare capacity past pr_strings_size.
+  if (ofs < 0 || ofs >= pr_strings_size) return "";
 
-	// Bound by the bytes in use, not the buffer: PR_AppendString leaves zeroed
-	// spare capacity past pr_strings_size.
-	if ( ofs < 0 || ofs >= pr_strings_size ) return '';
+  let s = "";
+  for (let i = ofs; i < pr_strings_size; i++) {
+    if (pr_strings_data[i] === 0) break;
+    s += String.fromCharCode(pr_strings_data[i]);
+  }
 
-	let s = '';
-	for ( let i = ofs; i < pr_strings_size; i ++ ) {
-
-		if ( pr_strings_data[ i ] === 0 ) break;
-		s += String.fromCharCode( pr_strings_data[ i ] );
-
-	}
-
-	return s;
-
+  return s;
 }
 
 /*
@@ -481,27 +429,26 @@ outside the table reads as "", and so does a string with no NUL before the end
 of the table, as in PR_GetString.
 ============
 */
-export function PR_strcmp_ofs( a, b ) {
+export function PR_strcmp_ofs(a, b) {
+  if (a === b) {
+    return 0;
+  }
 
-	if ( a === b )
-		return 0;
+  const data = pr_strings_data;
+  const size = pr_strings_size;
+  if (!(a >= 0 && a < size)) a = size;
+  if (!(b >= 0 && b < size)) b = size;
 
-	const data = pr_strings_data;
-	const size = pr_strings_size;
-	if ( ! ( a >= 0 && a < size ) ) a = size;
-	if ( ! ( b >= 0 && b < size ) ) b = size;
-
-	for ( ; ; a ++, b ++ ) {
-
-		const ca = a < size ? data[ a ] : 0;
-		const cb = b < size ? data[ b ] : 0;
-		if ( ca !== cb )
-			return ca < cb ? - 1 : 1;
-		if ( ca === 0 )
-			return 0;
-
-	}
-
+  for (;; a++, b++) {
+    const ca = a < size ? data[a] : 0;
+    const cb = b < size ? data[b] : 0;
+    if (ca !== cb) {
+      return ca < cb ? -1 : 1;
+    }
+    if (ca === 0) {
+      return 0;
+    }
+  }
 }
 
 //============================================================================
@@ -514,20 +461,24 @@ export function PR_strcmp_ofs( a, b ) {
 export let sv = null; // will reference the server state
 export let svs = null; // will reference the persistent server state
 
-export function PR_SetSV( s ) { sv = s; }
-export function PR_SetSVS( s ) { svs = s; }
+export function PR_SetSV(s) {
+  sv = s;
+}
+export function PR_SetSVS(s) {
+  svs = s;
+}
 
-export function EDICT_NUM( n ) {
+export function EDICT_NUM(n) {
+  // id has Sys_Error; Host_Error is Ironwail's (deliberate deviation)
+  if (n < 0 || n >= sv.max_edicts) {
+    PR_HostError("EDICT_NUM: bad number " + n);
+  }
 
-	// id has Sys_Error; Host_Error is Ironwail's (deliberate deviation)
-	if ( n < 0 || n >= sv.max_edicts )
-		PR_HostError( 'EDICT_NUM: bad number ' + n );
+  if (n >= sv.edicts.length) {
+    ED_GrowEdicts(n + 1);
+  }
 
-	if ( n >= sv.edicts.length )
-		ED_GrowEdicts( n + 1 );
-
-	return sv.edicts[ n ];
-
+  return sv.edicts[n];
 }
 
 /*
@@ -541,39 +492,34 @@ sv.max_edicts. ED_Alloc keeps one edict past sv.num_edicts, so NEXT_EDICT
 of the last edict is a free one, as with C's fixed array.
 =================
 */
-export function ED_GrowEdicts( count ) {
-
-	const edicts = sv.edicts;
-	if ( count > sv.max_edicts )
-		count = sv.max_edicts;
-	const entityfields = edicts[ 0 ]._entityfields;
-	for ( let i = edicts.length; i < count; i ++ )
-		edicts.push( new edict_t( i, entityfields ) );
-
+export function ED_GrowEdicts(count) {
+  const edicts = sv.edicts;
+  if (count > sv.max_edicts) {
+    count = sv.max_edicts;
+  }
+  const entityfields = edicts[0]._entityfields;
+  for (let i = edicts.length; i < count; i++) {
+    edicts.push(new edict_t(i, entityfields));
+  }
 }
 
-export function NUM_FOR_EDICT( e ) {
+export function NUM_FOR_EDICT(e) {
+  const n = e.index;
 
-	const n = e.index;
+  // id has Sys_Error; Host_Error is Ironwail's (deliberate deviation)
+  if (n < 0 || n >= sv.num_edicts) {
+    PR_HostError("NUM_FOR_EDICT: bad pointer");
+  }
 
-	// id has Sys_Error; Host_Error is Ironwail's (deliberate deviation)
-	if ( n < 0 || n >= sv.num_edicts )
-		PR_HostError( 'NUM_FOR_EDICT: bad pointer' );
-
-	return n;
-
+  return n;
 }
 
-export function NEXT_EDICT( e ) {
-
-	return sv.edicts[ e.index + 1 ];
-
+export function NEXT_EDICT(e) {
+  return sv.edicts[e.index + 1];
 }
 
-export function EDICT_TO_PROG( e ) {
-
-	return e.index;
-
+export function EDICT_TO_PROG(e) {
+  return e.index;
 }
 
 /*
@@ -584,15 +530,14 @@ sv.max_edicts grows the array, as EDICT_NUM does, and reads a zeroed edict.
 Numbers outside [0, sv.max_edicts) still return undefined: C reads past the
 array there, and PR_ExecuteProgram turns the TypeError into a PR_RunError.
 */
-export function PROG_TO_EDICT( e ) {
+export function PROG_TO_EDICT(e) {
+  const ed = sv.edicts[e];
+  if (ed !== undefined || e < sv.edicts.length || e >= sv.max_edicts) {
+    return ed;
+  }
 
-	const ed = sv.edicts[ e ];
-	if ( ed !== undefined || e < sv.edicts.length || e >= sv.max_edicts )
-		return ed;
-
-	ED_GrowEdicts( e + 1 );
-	return sv.edicts[ e ];
-
+  ED_GrowEdicts(e + 1);
+  return sv.edicts[e];
 }
 
 //============================================================================
@@ -600,62 +545,44 @@ export function PROG_TO_EDICT( e ) {
 // E_FLOAT, E_INT, E_VECTOR, E_STRING
 //============================================================================
 
-export function E_FLOAT( e, o ) {
-
-	return e._fieldAccessor.getFloat( o );
-
+export function E_FLOAT(e, o) {
+  return e._fieldAccessor.getFloat(o);
 }
 
-export function E_FLOAT_SET( e, o, v ) {
-
-	e._fieldAccessor.setFloat( o, v );
-
+export function E_FLOAT_SET(e, o, v) {
+  e._fieldAccessor.setFloat(o, v);
 }
 
-export function E_INT( e, o ) {
-
-	return e._fieldAccessor.getInt32( o );
-
+export function E_INT(e, o) {
+  return e._fieldAccessor.getInt32(o);
 }
 
-export function E_INT_SET( e, o, v ) {
-
-	e._fieldAccessor.setInt32( o, v );
-
+export function E_INT_SET(e, o, v) {
+  e._fieldAccessor.setInt32(o, v);
 }
 
-export function E_VECTOR( e, o ) {
-
-	return e._fieldAccessor.getVector( o );
-
+export function E_VECTOR(e, o) {
+  return e._fieldAccessor.getVector(o);
 }
 
-export function E_STRING( e, o ) {
-
-	return PR_GetString( e._fieldAccessor.getInt32( o ) );
-
+export function E_STRING(e, o) {
+  return PR_GetString(e._fieldAccessor.getInt32(o));
 }
 
 //============================================================================
 // G_EDICT, G_EDICTNUM - read edict from globals
 //============================================================================
 
-export function G_EDICT( o ) {
-
-	return PROG_TO_EDICT( pr_globals_int[ o ] );
-
+export function G_EDICT(o) {
+  return PROG_TO_EDICT(pr_globals_int[o]);
 }
 
-export function G_EDICTNUM( o ) {
-
-	return NUM_FOR_EDICT( G_EDICT( o ) );
-
+export function G_EDICTNUM(o) {
+  return NUM_FOR_EDICT(G_EDICT(o));
 }
 
-export function RETURN_EDICT( e ) {
-
-	pr_globals_int[ OFS_RETURN ] = EDICT_TO_PROG( e );
-
+export function RETURN_EDICT(e) {
+  pr_globals_int[OFS_RETURN] = EDICT_TO_PROG(e);
 }
 
 //============================================================================
@@ -665,21 +592,27 @@ export function RETURN_EDICT( e ) {
 export let pr_builtins = null; // Function[]
 export let pr_numbuiltins = 0;
 
-export function PR_SetBuiltins( b, n ) {
-
-	pr_builtins = b;
-	pr_numbuiltins = n;
-
+export function PR_SetBuiltins(b, n) {
+  pr_builtins = b;
+  pr_numbuiltins = n;
 }
 
 export let pr_argc = 0;
 
-export function PR_SetArgc( n ) { pr_argc = n; }
+export function PR_SetArgc(n) {
+  pr_argc = n;
+}
 
 export let pr_trace = false;
 export let pr_xfunction = null; // dfunction_t
 export let pr_xstatement = 0;
 
-export function PR_SetTrace( t ) { pr_trace = t; }
-export function PR_SetXFunction( f ) { pr_xfunction = f; }
-export function PR_SetXStatement( s ) { pr_xstatement = s; }
+export function PR_SetTrace(t) {
+  pr_trace = t;
+}
+export function PR_SetXFunction(f) {
+  pr_xfunction = f;
+}
+export function PR_SetXStatement(s) {
+  pr_xstatement = s;
+}

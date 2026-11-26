@@ -1,9 +1,9 @@
 // Ported from: WinQuake/gl_warp.c -- sky and water polygons
 
-import * as THREE from 'three';
-import { Sys_Error } from './sys.js';
-import { VERTEXSIZE, glpoly_t, gl_subdivide_size } from './glquake.js';
-import { Con_Printf } from './common.js';
+import * as THREE from "three";
+import { Sys_Error } from "./sys.js";
+import { gl_subdivide_size, glpoly_t, VERTEXSIZE } from "./glquake.js";
+import { Con_Printf } from "./common.js";
 
 // <float.h> FLT_MAX: the largest finite 32-bit float
 const FLT_MAX = 3.4028234663852886e+38;
@@ -18,10 +18,8 @@ let warpface = null; // msurface_t *
 // external reference
 let loadmodel = null;
 
-export function GL_Warp_SetLoadmodel( m ) {
-
-	loadmodel = m;
-
+export function GL_Warp_SetLoadmodel(m) {
+  loadmodel = m;
 }
 
 // speed up sin calculations - Ed
@@ -68,27 +66,23 @@ export const turbsin = new Float32Array( [
 BoundPoly
 =============
 */
-export function BoundPoly( numverts, verts, mins, maxs ) {
+export function BoundPoly(numverts, verts, mins, maxs) {
+  // id's gl_warp.c starts at +/-9999, which gives wrong bounds for any
+  // vertex beyond 9999 units. QuakeSpasm starts at FLT_MAX instead.
+  mins[0] = mins[1] = mins[2] = FLT_MAX;
+  maxs[0] = maxs[1] = maxs[2] = -FLT_MAX;
 
-	// id's gl_warp.c starts at +/-9999, which gives wrong bounds for any
-	// vertex beyond 9999 units. QuakeSpasm starts at FLT_MAX instead.
-	mins[ 0 ] = mins[ 1 ] = mins[ 2 ] = FLT_MAX;
-	maxs[ 0 ] = maxs[ 1 ] = maxs[ 2 ] = - FLT_MAX;
-
-	let vIdx = 0;
-	for ( let i = 0; i < numverts; i ++ ) {
-
-		for ( let j = 0; j < 3; j ++, vIdx ++ ) {
-
-			if ( verts[ vIdx ] < mins[ j ] )
-				mins[ j ] = verts[ vIdx ];
-			if ( verts[ vIdx ] > maxs[ j ] )
-				maxs[ j ] = verts[ vIdx ];
-
-		}
-
-	}
-
+  let vIdx = 0;
+  for (let i = 0; i < numverts; i++) {
+    for (let j = 0; j < 3; j++, vIdx++) {
+      if (verts[vIdx] < mins[j]) {
+        mins[j] = verts[vIdx];
+      }
+      if (verts[vIdx] > maxs[j]) {
+        maxs[j] = verts[vIdx];
+      }
+    }
+  }
 }
 
 /*
@@ -96,117 +90,107 @@ export function BoundPoly( numverts, verts, mins, maxs ) {
 SubdividePolygon
 =============
 */
-const subdivide_mins = new Float32Array( 3 );
-const subdivide_maxs = new Float32Array( 3 );
-const subdivide_dist = new Float32Array( 65 );
+const subdivide_mins = new Float32Array(3);
+const subdivide_maxs = new Float32Array(3);
+const subdivide_dist = new Float32Array(65);
 
-export function SubdividePolygon( numverts, verts ) {
+export function SubdividePolygon(numverts, verts) {
+  if (numverts > 60) {
+    Sys_Error("numverts = " + numverts);
+  }
 
-	if ( numverts > 60 )
-		Sys_Error( 'numverts = ' + numverts );
+  // the scratch is dead before the recursive calls below
+  const mins = subdivide_mins;
+  const maxs = subdivide_maxs;
+  BoundPoly(numverts, verts, mins, maxs);
 
-	// the scratch is dead before the recursive calls below
-	const mins = subdivide_mins;
-	const maxs = subdivide_maxs;
-	BoundPoly( numverts, verts, mins, maxs );
+  for (let i = 0; i < 3; i++) {
+    let m = (mins[i] + maxs[i]) * 0.5;
+    m = gl_subdivide_size.value * Math.floor(m / gl_subdivide_size.value + 0.5);
+    if (maxs[i] - m < 8) {
+      continue;
+    }
+    if (m - mins[i] < 8) {
+      continue;
+    }
 
-	for ( let i = 0; i < 3; i ++ ) {
+    // cut it
+    const dist = subdivide_dist;
+    for (let j = 0; j < numverts; j++) {
+      dist[j] = verts[j * 3 + i] - m;
+    }
 
-		let m = ( mins[ i ] + maxs[ i ] ) * 0.5;
-		m = gl_subdivide_size.value * Math.floor( m / gl_subdivide_size.value + 0.5 );
-		if ( maxs[ i ] - m < 8 )
-			continue;
-		if ( m - mins[ i ] < 8 )
-			continue;
+    // wrap cases
+    dist[numverts] = dist[0];
+    // copy first vert to end
+    const wrapIdx = numverts * 3;
+    verts[wrapIdx] = verts[0];
+    verts[wrapIdx + 1] = verts[1];
+    verts[wrapIdx + 2] = verts[2];
 
-		// cut it
-		const dist = subdivide_dist;
-		for ( let j = 0; j < numverts; j ++ )
-			dist[ j ] = verts[ j * 3 + i ] - m;
+    const front = []; // flat array of vec3
+    const back = [];
+    let f = 0, b = 0;
 
-		// wrap cases
-		dist[ numverts ] = dist[ 0 ];
-		// copy first vert to end
-		const wrapIdx = numverts * 3;
-		verts[ wrapIdx ] = verts[ 0 ];
-		verts[ wrapIdx + 1 ] = verts[ 1 ];
-		verts[ wrapIdx + 2 ] = verts[ 2 ];
+    for (let j = 0; j < numverts; j++) {
+      const vOff = j * 3;
+      if (dist[j] >= 0) {
+        front.push(verts[vOff], verts[vOff + 1], verts[vOff + 2]);
+        f++;
+      }
 
-		const front = []; // flat array of vec3
-		const back = [];
-		let f = 0, b = 0;
+      if (dist[j] <= 0) {
+        back.push(verts[vOff], verts[vOff + 1], verts[vOff + 2]);
+        b++;
+      }
 
-		for ( let j = 0; j < numverts; j ++ ) {
+      if (dist[j] === 0 || dist[j + 1] === 0) {
+        continue;
+      }
+      if ((dist[j] > 0) !== (dist[j + 1] > 0)) {
+        // clip point
+        const frac = dist[j] / (dist[j] - dist[j + 1]);
+        for (let k = 0; k < 3; k++) {
+          const clipVal = verts[vOff + k] +
+            frac * (verts[vOff + 3 + k] - verts[vOff + k]);
+          front.push(clipVal);
+          back.push(clipVal);
+        }
 
-			const vOff = j * 3;
-			if ( dist[ j ] >= 0 ) {
+        f++;
+        b++;
+      }
+    }
 
-				front.push( verts[ vOff ], verts[ vOff + 1 ], verts[ vOff + 2 ] );
-				f ++;
+    // Allocate extra room for the wrap vertex
+    const frontArr = new Float32Array((f + 1) * 3);
+    for (let fi = 0; fi < f * 3; fi++) frontArr[fi] = front[fi];
+    const backArr = new Float32Array((b + 1) * 3);
+    for (let bi = 0; bi < b * 3; bi++) backArr[bi] = back[bi];
+    SubdividePolygon(f, frontArr);
+    SubdividePolygon(b, backArr);
+    return;
+  }
 
-			}
-
-			if ( dist[ j ] <= 0 ) {
-
-				back.push( verts[ vOff ], verts[ vOff + 1 ], verts[ vOff + 2 ] );
-				b ++;
-
-			}
-
-			if ( dist[ j ] === 0 || dist[ j + 1 ] === 0 )
-				continue;
-			if ( ( dist[ j ] > 0 ) !== ( dist[ j + 1 ] > 0 ) ) {
-
-				// clip point
-				const frac = dist[ j ] / ( dist[ j ] - dist[ j + 1 ] );
-				for ( let k = 0; k < 3; k ++ ) {
-
-					const clipVal = verts[ vOff + k ] + frac * ( verts[ vOff + 3 + k ] - verts[ vOff + k ] );
-					front.push( clipVal );
-					back.push( clipVal );
-
-				}
-
-				f ++;
-				b ++;
-
-			}
-
-		}
-
-		// Allocate extra room for the wrap vertex
-		const frontArr = new Float32Array( ( f + 1 ) * 3 );
-		for ( let fi = 0; fi < f * 3; fi ++ ) frontArr[ fi ] = front[ fi ];
-		const backArr = new Float32Array( ( b + 1 ) * 3 );
-		for ( let bi = 0; bi < b * 3; bi ++ ) backArr[ bi ] = back[ bi ];
-		SubdividePolygon( f, frontArr );
-		SubdividePolygon( b, backArr );
-		return;
-
-	}
-
-	// No more subdivision needed - create a polygon
-	const poly = new glpoly_t();
-	poly.next = warpface.polys;
-	warpface.polys = poly;
-	poly.numverts = numverts;
-	for ( let i = 0; i < numverts; i ++ ) {
-
-		const vOff = i * 3;
-		const vert = new Float32Array( VERTEXSIZE );
-		vert[ 0 ] = verts[ vOff ];
-		vert[ 1 ] = verts[ vOff + 1 ];
-		vert[ 2 ] = verts[ vOff + 2 ];
-		const x = verts[ vOff ], y = verts[ vOff + 1 ], z = verts[ vOff + 2 ];
-		const vec0 = warpface.texinfo.vecs[ 0 ], vec1 = warpface.texinfo.vecs[ 1 ];
-		const s = x * vec0[ 0 ] + y * vec0[ 1 ] + z * vec0[ 2 ];
-		const t = x * vec1[ 0 ] + y * vec1[ 1 ] + z * vec1[ 2 ];
-		vert[ 3 ] = s;
-		vert[ 4 ] = t;
-		poly.verts.push( vert );
-
-	}
-
+  // No more subdivision needed - create a polygon
+  const poly = new glpoly_t();
+  poly.next = warpface.polys;
+  warpface.polys = poly;
+  poly.numverts = numverts;
+  for (let i = 0; i < numverts; i++) {
+    const vOff = i * 3;
+    const vert = new Float32Array(VERTEXSIZE);
+    vert[0] = verts[vOff];
+    vert[1] = verts[vOff + 1];
+    vert[2] = verts[vOff + 2];
+    const x = verts[vOff], y = verts[vOff + 1], z = verts[vOff + 2];
+    const vec0 = warpface.texinfo.vecs[0], vec1 = warpface.texinfo.vecs[1];
+    const s = x * vec0[0] + y * vec0[1] + z * vec0[2];
+    const t = x * vec1[0] + y * vec1[1] + z * vec1[2];
+    vert[3] = s;
+    vert[4] = t;
+    poly.verts.push(vert);
+  }
 }
 
 /*
@@ -218,35 +202,32 @@ boundaries so that turbulent and sky warps
 can be done reasonably.
 ================
 */
-export function GL_SubdivideSurface( fa ) {
+export function GL_SubdivideSurface(fa) {
+  warpface = fa;
 
-	warpface = fa;
+  //
+  // convert edges back to a normal polygon
+  //
+  const verts = [];
+  let numverts = 0;
+  for (let i = 0; i < fa.numedges; i++) {
+    const lindex = loadmodel.surfedges[fa.firstedge + i];
 
-	//
-	// convert edges back to a normal polygon
-	//
-	const verts = [];
-	let numverts = 0;
-	for ( let i = 0; i < fa.numedges; i ++ ) {
+    let vec;
+    if (lindex > 0) {
+      vec = loadmodel.vertexes[loadmodel.edges[lindex].v[0]].position;
+    } else {
+      vec = loadmodel.vertexes[loadmodel.edges[-lindex].v[1]].position;
+    }
 
-		const lindex = loadmodel.surfedges[ fa.firstedge + i ];
+    verts.push(vec[0], vec[1], vec[2]);
+    numverts++;
+  }
 
-		let vec;
-		if ( lindex > 0 )
-			vec = loadmodel.vertexes[ loadmodel.edges[ lindex ].v[ 0 ] ].position;
-		else
-			vec = loadmodel.vertexes[ loadmodel.edges[ - lindex ].v[ 1 ] ].position;
-
-		verts.push( vec[ 0 ], vec[ 1 ], vec[ 2 ] );
-		numverts ++;
-
-	}
-
-	// Allocate extra room for the wrap vertex (numverts+1) * 3
-	const arr = new Float32Array( ( numverts + 1 ) * 3 );
-	for ( let i = 0; i < numverts * 3; i ++ ) arr[ i ] = verts[ i ];
-	SubdividePolygon( numverts, arr );
-
+  // Allocate extra room for the wrap vertex (numverts+1) * 3
+  const arr = new Float32Array((numverts + 1) * 3);
+  for (let i = 0; i < numverts * 3; i++) arr[i] = verts[i];
+  SubdividePolygon(numverts, arr);
 }
 
 /*
@@ -265,104 +246,103 @@ sky (null). mt.width and mt.height default to 256 and 128 when the caller
 doesn't pass them.
 ==============
 */
-export function R_InitSky( mt, d_8to24table ) {
+export function R_InitSky(mt, d_8to24table) {
+  const src = mt.data;
+  const srcOffset = mt.offsets[0];
+  const width = mt.width !== undefined ? mt.width : 256;
+  const height = mt.height !== undefined ? mt.height : 128;
 
-	const src = mt.data;
-	const srcOffset = mt.offsets[ 0 ];
-	const width = mt.width !== undefined ? mt.width : 256;
-	const height = mt.height !== undefined ? mt.height : 128;
+  if (width !== 256 || height !== 128) {
+    const name = mt.name !== undefined ? mt.name : "";
+    Con_Printf(
+      "Sky texture " + name + " is " + width + " x " + height +
+        ", expected 256 x 128\n",
+    );
+    if (width < 2 || height < 1) {
+      return null;
+    }
+  }
 
-	if ( width !== 256 || height !== 128 ) {
+  const halfwidth = width >> 1;
+  const texels = halfwidth * height;
 
-		const name = mt.name !== undefined ? mt.name : '';
-		Con_Printf( 'Sky texture ' + name + ' is ' + width + ' x ' + height + ', expected 256 x 128\n' );
-		if ( width < 2 || height < 1 )
-			return null;
+  // make an average value for the back to avoid
+  // a fringe on the top level
+  const trans = new Uint32Array(texels);
+  let r = 0, g = 0, b = 0;
 
-	}
+  for (let i = 0; i < height; i++) {
+    for (let j = 0; j < halfwidth; j++) {
+      const p = src[srcOffset + i * width + j + halfwidth];
+      const rgba = d_8to24table[p];
+      trans[(i * halfwidth) + j] = rgba;
+      r += rgba & 0xff;
+      g += (rgba >> 8) & 0xff;
+      b += (rgba >> 16) & 0xff;
+    }
+  }
 
-	const halfwidth = width >> 1;
-	const texels = halfwidth * height;
+  const transpix = ((r / texels) | 0) |
+    (((g / texels) | 0) << 8) |
+    (((b / texels) | 0) << 16) |
+    0; // alpha = 0
 
-	// make an average value for the back to avoid
-	// a fringe on the top level
-	const trans = new Uint32Array( texels );
-	let r = 0, g = 0, b = 0;
+  // Create solid sky texture data (RGBA)
+  const solidData = new Uint8Array(texels * 4);
+  for (let i = 0; i < texels; i++) {
+    const rgba = trans[i];
+    solidData[i * 4] = rgba & 0xff;
+    solidData[i * 4 + 1] = (rgba >> 8) & 0xff;
+    solidData[i * 4 + 2] = (rgba >> 16) & 0xff;
+    solidData[i * 4 + 3] = 255;
+  }
 
-	for ( let i = 0; i < height; i ++ ) {
+  const solidTexture = new THREE.DataTexture(
+    solidData,
+    halfwidth,
+    height,
+    THREE.RGBAFormat,
+  );
+  solidTexture.magFilter = THREE.LinearFilter;
+  solidTexture.minFilter = THREE.LinearFilter;
+  solidTexture.wrapS = THREE.RepeatWrapping;
+  solidTexture.wrapT = THREE.RepeatWrapping;
+  solidTexture.colorSpace = THREE.SRGBColorSpace;
+  solidTexture.needsUpdate = true;
 
-		for ( let j = 0; j < halfwidth; j ++ ) {
+  // Build alpha sky layer
+  for (let i = 0; i < height; i++) {
+    for (let j = 0; j < halfwidth; j++) {
+      const p = src[srcOffset + i * width + j];
+      if (p === 0) {
+        trans[(i * halfwidth) + j] = transpix;
+      } else {
+        trans[(i * halfwidth) + j] = d_8to24table[p];
+      }
+    }
+  }
 
-			const p = src[ srcOffset + i * width + j + halfwidth ];
-			const rgba = d_8to24table[ p ];
-			trans[ ( i * halfwidth ) + j ] = rgba;
-			r += ( rgba ) & 0xff;
-			g += ( rgba >> 8 ) & 0xff;
-			b += ( rgba >> 16 ) & 0xff;
+  const alphaData = new Uint8Array(texels * 4);
+  for (let i = 0; i < texels; i++) {
+    const rgba = trans[i];
+    alphaData[i * 4] = rgba & 0xff;
+    alphaData[i * 4 + 1] = (rgba >> 8) & 0xff;
+    alphaData[i * 4 + 2] = (rgba >> 16) & 0xff;
+    alphaData[i * 4 + 3] = (rgba >> 24) & 0xff;
+  }
 
-		}
+  const alphaTexture = new THREE.DataTexture(
+    alphaData,
+    halfwidth,
+    height,
+    THREE.RGBAFormat,
+  );
+  alphaTexture.magFilter = THREE.LinearFilter;
+  alphaTexture.minFilter = THREE.LinearFilter;
+  alphaTexture.wrapS = THREE.RepeatWrapping;
+  alphaTexture.wrapT = THREE.RepeatWrapping;
+  alphaTexture.colorSpace = THREE.SRGBColorSpace;
+  alphaTexture.needsUpdate = true;
 
-	}
-
-	const transpix = ( ( r / texels ) | 0 )
-		| ( ( ( g / texels ) | 0 ) << 8 )
-		| ( ( ( b / texels ) | 0 ) << 16 )
-		| 0; // alpha = 0
-
-	// Create solid sky texture data (RGBA)
-	const solidData = new Uint8Array( texels * 4 );
-	for ( let i = 0; i < texels; i ++ ) {
-
-		const rgba = trans[ i ];
-		solidData[ i * 4 ] = rgba & 0xff;
-		solidData[ i * 4 + 1 ] = ( rgba >> 8 ) & 0xff;
-		solidData[ i * 4 + 2 ] = ( rgba >> 16 ) & 0xff;
-		solidData[ i * 4 + 3 ] = 255;
-
-	}
-
-	const solidTexture = new THREE.DataTexture( solidData, halfwidth, height, THREE.RGBAFormat );
-	solidTexture.magFilter = THREE.LinearFilter;
-	solidTexture.minFilter = THREE.LinearFilter;
-	solidTexture.wrapS = THREE.RepeatWrapping;
-	solidTexture.wrapT = THREE.RepeatWrapping;
-	solidTexture.colorSpace = THREE.SRGBColorSpace;
-	solidTexture.needsUpdate = true;
-
-	// Build alpha sky layer
-	for ( let i = 0; i < height; i ++ ) {
-
-		for ( let j = 0; j < halfwidth; j ++ ) {
-
-			const p = src[ srcOffset + i * width + j ];
-			if ( p === 0 )
-				trans[ ( i * halfwidth ) + j ] = transpix;
-			else
-				trans[ ( i * halfwidth ) + j ] = d_8to24table[ p ];
-
-		}
-
-	}
-
-	const alphaData = new Uint8Array( texels * 4 );
-	for ( let i = 0; i < texels; i ++ ) {
-
-		const rgba = trans[ i ];
-		alphaData[ i * 4 ] = rgba & 0xff;
-		alphaData[ i * 4 + 1 ] = ( rgba >> 8 ) & 0xff;
-		alphaData[ i * 4 + 2 ] = ( rgba >> 16 ) & 0xff;
-		alphaData[ i * 4 + 3 ] = ( rgba >> 24 ) & 0xff;
-
-	}
-
-	const alphaTexture = new THREE.DataTexture( alphaData, halfwidth, height, THREE.RGBAFormat );
-	alphaTexture.magFilter = THREE.LinearFilter;
-	alphaTexture.minFilter = THREE.LinearFilter;
-	alphaTexture.wrapS = THREE.RepeatWrapping;
-	alphaTexture.wrapT = THREE.RepeatWrapping;
-	alphaTexture.colorSpace = THREE.SRGBColorSpace;
-	alphaTexture.needsUpdate = true;
-
-	return { solidTexture, alphaTexture };
-
+  return { solidTexture, alphaTexture };
 }

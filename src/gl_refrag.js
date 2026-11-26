@@ -1,7 +1,7 @@
 // Ported from: WinQuake/gl_refrag.c -- entity fragment functions
 
-import { CONTENTS_SOLID } from './bspfile.js';
-import { efrag_t } from './client.js';
+import { CONTENTS_SOLID } from "./bspfile.js";
+import { efrag_t } from "./client.js";
 
 /*
 ===============================================================================
@@ -13,17 +13,15 @@ import { efrag_t } from './client.js';
 
 let r_pefragtopnode = null;
 let lastlink = null;
-const r_emins = new Float32Array( 3 );
-const r_emaxs = new Float32Array( 3 );
+const r_emins = new Float32Array(3);
+const r_emaxs = new Float32Array(3);
 let r_addent = null;
 
 // External references (set via setters)
 let _cl = null;
 
-export function R_Efrag_SetExternals( externals ) {
-
-	if ( externals.cl ) _cl = externals.cl;
-
+export function R_Efrag_SetExternals(externals) {
+  if (externals.cl) _cl = externals.cl;
 }
 
 /*
@@ -34,71 +32,83 @@ Returns 1 if box is entirely on front side of plane,
 2 if entirely on back side, or 3 if crossing the plane
 ================
 */
-function BOX_ON_PLANE_SIDE( emins, emaxs, p ) {
+function BOX_ON_PLANE_SIDE(emins, emaxs, p) {
+  const normal = p.normal;
+  const dist = p.dist;
 
-	const normal = p.normal;
-	const dist = p.dist;
+  // Fast axial cases
+  if (p.type < 3) {
+    if (dist <= emins[p.type]) {
+      return 1;
+    }
+    if (dist >= emaxs[p.type]) {
+      return 2;
+    }
+    return 3;
+  }
 
-	// Fast axial cases
-	if ( p.type < 3 ) {
+  // General case
+  let dist1, dist2;
 
-		if ( dist <= emins[ p.type ] )
-			return 1;
-		if ( dist >= emaxs[ p.type ] )
-			return 2;
-		return 3;
+  switch (p.signbits) {
+    case 0:
+      dist1 = normal[0] * emaxs[0] + normal[1] * emaxs[1] +
+        normal[2] * emaxs[2];
+      dist2 = normal[0] * emins[0] + normal[1] * emins[1] +
+        normal[2] * emins[2];
+      break;
+    case 1:
+      dist1 = normal[0] * emins[0] + normal[1] * emaxs[1] +
+        normal[2] * emaxs[2];
+      dist2 = normal[0] * emaxs[0] + normal[1] * emins[1] +
+        normal[2] * emins[2];
+      break;
+    case 2:
+      dist1 = normal[0] * emaxs[0] + normal[1] * emins[1] +
+        normal[2] * emaxs[2];
+      dist2 = normal[0] * emins[0] + normal[1] * emaxs[1] +
+        normal[2] * emins[2];
+      break;
+    case 3:
+      dist1 = normal[0] * emins[0] + normal[1] * emins[1] +
+        normal[2] * emaxs[2];
+      dist2 = normal[0] * emaxs[0] + normal[1] * emaxs[1] +
+        normal[2] * emins[2];
+      break;
+    case 4:
+      dist1 = normal[0] * emaxs[0] + normal[1] * emaxs[1] +
+        normal[2] * emins[2];
+      dist2 = normal[0] * emins[0] + normal[1] * emins[1] +
+        normal[2] * emaxs[2];
+      break;
+    case 5:
+      dist1 = normal[0] * emins[0] + normal[1] * emaxs[1] +
+        normal[2] * emins[2];
+      dist2 = normal[0] * emaxs[0] + normal[1] * emins[1] +
+        normal[2] * emaxs[2];
+      break;
+    case 6:
+      dist1 = normal[0] * emaxs[0] + normal[1] * emins[1] +
+        normal[2] * emins[2];
+      dist2 = normal[0] * emins[0] + normal[1] * emaxs[1] +
+        normal[2] * emaxs[2];
+      break;
+    case 7:
+      dist1 = normal[0] * emins[0] + normal[1] * emins[1] +
+        normal[2] * emins[2];
+      dist2 = normal[0] * emaxs[0] + normal[1] * emaxs[1] +
+        normal[2] * emaxs[2];
+      break;
+    default:
+      dist1 = dist2 = 0; // shut up compiler
+      break;
+  }
 
-	}
+  let sides = 0;
+  if (dist1 >= dist) sides = 1;
+  if (dist2 < dist) sides |= 2;
 
-	// General case
-	let dist1, dist2;
-
-	switch ( p.signbits ) {
-
-		case 0:
-			dist1 = normal[ 0 ] * emaxs[ 0 ] + normal[ 1 ] * emaxs[ 1 ] + normal[ 2 ] * emaxs[ 2 ];
-			dist2 = normal[ 0 ] * emins[ 0 ] + normal[ 1 ] * emins[ 1 ] + normal[ 2 ] * emins[ 2 ];
-			break;
-		case 1:
-			dist1 = normal[ 0 ] * emins[ 0 ] + normal[ 1 ] * emaxs[ 1 ] + normal[ 2 ] * emaxs[ 2 ];
-			dist2 = normal[ 0 ] * emaxs[ 0 ] + normal[ 1 ] * emins[ 1 ] + normal[ 2 ] * emins[ 2 ];
-			break;
-		case 2:
-			dist1 = normal[ 0 ] * emaxs[ 0 ] + normal[ 1 ] * emins[ 1 ] + normal[ 2 ] * emaxs[ 2 ];
-			dist2 = normal[ 0 ] * emins[ 0 ] + normal[ 1 ] * emaxs[ 1 ] + normal[ 2 ] * emins[ 2 ];
-			break;
-		case 3:
-			dist1 = normal[ 0 ] * emins[ 0 ] + normal[ 1 ] * emins[ 1 ] + normal[ 2 ] * emaxs[ 2 ];
-			dist2 = normal[ 0 ] * emaxs[ 0 ] + normal[ 1 ] * emaxs[ 1 ] + normal[ 2 ] * emins[ 2 ];
-			break;
-		case 4:
-			dist1 = normal[ 0 ] * emaxs[ 0 ] + normal[ 1 ] * emaxs[ 1 ] + normal[ 2 ] * emins[ 2 ];
-			dist2 = normal[ 0 ] * emins[ 0 ] + normal[ 1 ] * emins[ 1 ] + normal[ 2 ] * emaxs[ 2 ];
-			break;
-		case 5:
-			dist1 = normal[ 0 ] * emins[ 0 ] + normal[ 1 ] * emaxs[ 1 ] + normal[ 2 ] * emins[ 2 ];
-			dist2 = normal[ 0 ] * emaxs[ 0 ] + normal[ 1 ] * emins[ 1 ] + normal[ 2 ] * emaxs[ 2 ];
-			break;
-		case 6:
-			dist1 = normal[ 0 ] * emaxs[ 0 ] + normal[ 1 ] * emins[ 1 ] + normal[ 2 ] * emins[ 2 ];
-			dist2 = normal[ 0 ] * emins[ 0 ] + normal[ 1 ] * emaxs[ 1 ] + normal[ 2 ] * emaxs[ 2 ];
-			break;
-		case 7:
-			dist1 = normal[ 0 ] * emins[ 0 ] + normal[ 1 ] * emins[ 1 ] + normal[ 2 ] * emins[ 2 ];
-			dist2 = normal[ 0 ] * emaxs[ 0 ] + normal[ 1 ] * emaxs[ 1 ] + normal[ 2 ] * emaxs[ 2 ];
-			break;
-		default:
-			dist1 = dist2 = 0; // shut up compiler
-			break;
-
-	}
-
-	let sides = 0;
-	if ( dist1 >= dist ) sides = 1;
-	if ( dist2 < dist ) sides |= 2;
-
-	return sides;
-
+  return sides;
 }
 
 /*
@@ -108,52 +118,38 @@ R_RemoveEfrags
 Call when removing an object from the world or moving it to another position
 ================
 */
-export function R_RemoveEfrags( ent ) {
+export function R_RemoveEfrags(ent) {
+  if (_cl == null) return;
 
-	if ( _cl == null ) return;
+  let ef = ent.efrag;
 
-	let ef = ent.efrag;
+  while (ef != null) {
+    // Remove from leaf's efrag list
+    const leaf = ef.leaf;
+    if (leaf != null && leaf.efrags != null) {
+      if (leaf.efrags === ef) {
+        leaf.efrags = ef.leafnext;
+      } else {
+        let prev = leaf.efrags;
+        while (prev != null && prev.leafnext !== ef) {
+          prev = prev.leafnext;
+        }
 
-	while ( ef != null ) {
+        if (prev != null) {
+          prev.leafnext = ef.leafnext;
+        }
+      }
+    }
 
-		// Remove from leaf's efrag list
-		const leaf = ef.leaf;
-		if ( leaf != null && leaf.efrags != null ) {
+    const old = ef;
+    ef = ef.entnext;
 
-			if ( leaf.efrags === ef ) {
+    // Put it on the free list
+    old.entnext = _cl.free_efrags;
+    _cl.free_efrags = old;
+  }
 
-				leaf.efrags = ef.leafnext;
-
-			} else {
-
-				let prev = leaf.efrags;
-				while ( prev != null && prev.leafnext !== ef ) {
-
-					prev = prev.leafnext;
-
-				}
-
-				if ( prev != null ) {
-
-					prev.leafnext = ef.leafnext;
-
-				}
-
-			}
-
-		}
-
-		const old = ef;
-		ef = ef.entnext;
-
-		// Put it on the free list
-		old.entnext = _cl.free_efrags;
-		_cl.free_efrags = old;
-
-	}
-
-	ent.efrag = null;
-
+  ent.efrag = null;
 }
 
 /*
@@ -170,26 +166,20 @@ efrags last until the next map, as QuakeSpasm's hunk allocations do.
 const EXTRA_EFRAGS = 128;
 
 function R_GetEfrag() {
+  if (_cl.free_efrags === null) {
+    let head = null;
+    for (let i = 0; i < EXTRA_EFRAGS; i++) {
+      const ef = new efrag_t();
+      ef.entnext = head;
+      head = ef;
+    }
 
-	if ( _cl.free_efrags === null ) {
+    _cl.free_efrags = head;
+  }
 
-		let head = null;
-		for ( let i = 0; i < EXTRA_EFRAGS; i ++ ) {
-
-			const ef = new efrag_t();
-			ef.entnext = head;
-			head = ef;
-
-		}
-
-		_cl.free_efrags = head;
-
-	}
-
-	const ef = _cl.free_efrags;
-	_cl.free_efrags = ef.entnext;
-	return ef;
-
+  const ef = _cl.free_efrags;
+  _cl.free_efrags = ef.entnext;
+  return ef;
 }
 
 /*
@@ -197,66 +187,60 @@ function R_GetEfrag() {
 R_SplitEntityOnNode
 ===================
 */
-function R_SplitEntityOnNode( node ) {
+function R_SplitEntityOnNode(node) {
+  if (node == null) return;
+  if (node.contents === CONTENTS_SOLID) return;
 
-	if ( node == null ) return;
-	if ( node.contents === CONTENTS_SOLID ) return;
+  // Add an efrag if the node is a leaf
+  if (node.contents < 0) {
+    if (r_pefragtopnode == null) {
+      r_pefragtopnode = node;
+    }
 
-	// Add an efrag if the node is a leaf
-	if ( node.contents < 0 ) {
+    const leaf = node;
 
-		if ( r_pefragtopnode == null )
-			r_pefragtopnode = node;
+    // Grab an efrag off the free list
+    const ef = R_GetEfrag();
 
-		const leaf = node;
+    ef.entity = r_addent;
 
-		// Grab an efrag off the free list
-		const ef = R_GetEfrag();
+    // Add the entity link
+    if (lastlink != null) {
+      lastlink.entnext = ef;
+    } else {
+      r_addent.efrag = ef;
+    }
 
-		ef.entity = r_addent;
+    lastlink = ef;
+    ef.entnext = null;
 
-		// Add the entity link
-		if ( lastlink != null ) {
+    // Set the leaf links
+    ef.leaf = leaf;
+    ef.leafnext = leaf.efrags;
+    leaf.efrags = ef;
 
-			lastlink.entnext = ef;
+    return;
+  }
 
-		} else {
+  // NODE_MIXED - recurse down the contacted sides
+  const splitplane = node.plane;
+  const sides = BOX_ON_PLANE_SIDE(r_emins, r_emaxs, splitplane);
 
-			r_addent.efrag = ef;
+  if (sides === 3) {
+    // Split on this plane
+    if (r_pefragtopnode == null) {
+      r_pefragtopnode = node;
+    }
+  }
 
-		}
+  // Recurse down the contacted sides
+  if (sides & 1) {
+    R_SplitEntityOnNode(node.children[0]);
+  }
 
-		lastlink = ef;
-		ef.entnext = null;
-
-		// Set the leaf links
-		ef.leaf = leaf;
-		ef.leafnext = leaf.efrags;
-		leaf.efrags = ef;
-
-		return;
-
-	}
-
-	// NODE_MIXED - recurse down the contacted sides
-	const splitplane = node.plane;
-	const sides = BOX_ON_PLANE_SIDE( r_emins, r_emaxs, splitplane );
-
-	if ( sides === 3 ) {
-
-		// Split on this plane
-		if ( r_pefragtopnode == null )
-			r_pefragtopnode = node;
-
-	}
-
-	// Recurse down the contacted sides
-	if ( sides & 1 )
-		R_SplitEntityOnNode( node.children[ 0 ] );
-
-	if ( sides & 2 )
-		R_SplitEntityOnNode( node.children[ 1 ] );
-
+  if (sides & 2) {
+    R_SplitEntityOnNode(node.children[1]);
+  }
 }
 
 /*
@@ -264,34 +248,28 @@ function R_SplitEntityOnNode( node ) {
 R_AddEfrags
 ===========
 */
-export function R_AddEfrags( ent ) {
+export function R_AddEfrags(ent) {
+  if (_cl == null) return;
+  if (ent.model == null) return;
 
-	if ( _cl == null ) return;
-	if ( ent.model == null ) return;
+  r_addent = ent;
 
-	r_addent = ent;
+  // Initialize the entity's efrag chain
+  lastlink = null;
+  r_pefragtopnode = null;
 
-	// Initialize the entity's efrag chain
-	lastlink = null;
-	r_pefragtopnode = null;
+  const entmodel = ent.model;
 
-	const entmodel = ent.model;
+  for (let i = 0; i < 3; i++) {
+    r_emins[i] = ent.origin[i] + entmodel.mins[i];
+    r_emaxs[i] = ent.origin[i] + entmodel.maxs[i];
+  }
 
-	for ( let i = 0; i < 3; i ++ ) {
+  if (_cl.worldmodel != null && _cl.worldmodel.nodes != null) {
+    R_SplitEntityOnNode(_cl.worldmodel.nodes[0]);
+  }
 
-		r_emins[ i ] = ent.origin[ i ] + entmodel.mins[ i ];
-		r_emaxs[ i ] = ent.origin[ i ] + entmodel.maxs[ i ];
-
-	}
-
-	if ( _cl.worldmodel != null && _cl.worldmodel.nodes != null ) {
-
-		R_SplitEntityOnNode( _cl.worldmodel.nodes[ 0 ] );
-
-	}
-
-	ent.topnode = r_pefragtopnode;
-
+  ent.topnode = r_pefragtopnode;
 }
 
 /*
@@ -301,29 +279,32 @@ R_StoreEfrags
 Add efrags to the visible entity list
 ================
 */
-export function R_StoreEfrags( ppefrag, cl_visedicts, cl_numvisedicts, MAX_VISEDICTS, r_framecount ) {
+export function R_StoreEfrags(
+  ppefrag,
+  cl_visedicts,
+  cl_numvisedicts,
+  MAX_VISEDICTS,
+  r_framecount,
+) {
+  let pefrag = ppefrag;
 
-	let pefrag = ppefrag;
+  while (pefrag != null) {
+    const pent = pefrag.entity;
+    const clmodel = pent.model;
 
-	while ( pefrag != null ) {
+    if (
+      clmodel != null && pent.visframe !== r_framecount &&
+      cl_numvisedicts < MAX_VISEDICTS
+    ) {
+      cl_visedicts[cl_numvisedicts] = pent;
+      cl_numvisedicts++;
 
-		const pent = pefrag.entity;
-		const clmodel = pent.model;
+      // Mark that we've recorded this entity for this frame
+      pent.visframe = r_framecount;
+    }
 
-		if ( clmodel != null && pent.visframe !== r_framecount && cl_numvisedicts < MAX_VISEDICTS ) {
+    pefrag = pefrag.leafnext;
+  }
 
-			cl_visedicts[ cl_numvisedicts ] = pent;
-			cl_numvisedicts ++;
-
-			// Mark that we've recorded this entity for this frame
-			pent.visframe = r_framecount;
-
-		}
-
-		pefrag = pefrag.leafnext;
-
-	}
-
-	return cl_numvisedicts;
-
+  return cl_numvisedicts;
 }

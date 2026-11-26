@@ -1,65 +1,188 @@
 // Ported from: WinQuake/gl_rmain.c -- main GL renderer
 // + WinQuake/glquake.h -- GL definitions
 
-import * as THREE from 'three';
-import { Sys_FloatTime } from './sys.js';
-import { Con_Printf } from './common.js';
-import { vid, renderer, vid_renderscale, VID_CheckPixelRatio } from './vid.js';
-import { r_refdef, r_origin, vpn, vright, vup, entity_t, r_lerpmodels, r_lerpmove, r_nolerp_list } from './render.js';
-import { Cvar_RegisterVariable, Cvar_SetValue } from './cvar.js';
+import * as THREE from "three";
+import { Sys_FloatTime } from "./sys.js";
+import { Con_Printf } from "./common.js";
+import { renderer, vid, VID_CheckPixelRatio, vid_renderscale } from "./vid.js";
 import {
-	M_PI, DotProduct, VectorCopy, VectorAdd, VectorSubtract, VectorNormalize,
-	AngleVectors, Length, RotatePointAroundVector, BoxOnPlaneSide
-} from './mathlib.js';
-import { R_DrawWorld as R_DrawWorld_impl, R_MarkLeaves as R_MarkLeaves_impl, GL_BuildLightmaps as GL_BuildLightmaps_rsurf, R_DrawBrushModel as R_DrawBrushModel_rsurf, R_DrawWaterSurfaces as R_DrawWaterSurfaces_rsurf, R_CleanupWaterMeshes as R_CleanupWaterMeshes_rsurf, R_GetMirrorItems } from './gl_rsurf.js';
-import { R_MirrorGate, R_MirrorPass, R_MirrorCleanup } from './gl_rmirror.js';
-import { R_EntAlpha_Apply, R_EntAlpha_ApplyMesh, R_EntAlpha_IsClone } from './gl_entalpha.js';
-import { Fog_SetupFrame } from './gl_fog.js';
-import { ENTALPHA_ZERO } from './protocol.js';
+  entity_t,
+  r_lerpmodels,
+  r_lerpmove,
+  r_nolerp_list,
+  r_origin,
+  r_refdef,
+  vpn,
+  vright,
+  vup,
+} from "./render.js";
+import { Cvar_RegisterVariable, Cvar_SetValue } from "./cvar.js";
 import {
-	Mod_PointInLeaf, SPR_SINGLE, SPR_VP_PARALLEL_UPRIGHT, SPR_FACING_UPRIGHT,
-	SPR_VP_PARALLEL, SPR_ORIENTED, SPR_VP_PARALLEL_ORIENTED, Mod_EnhancedAliasHeader
-} from './gl_model.js';
-import { R_AnimateLight as R_AnimateLight_impl, R_RenderDlights as R_RenderDlights_impl, R_SetDlightLimit, R_DlightDistance, R_LightPoint, lightspot, lightcolor } from './gl_rlight.js';
-import { R_DrawAliasModel as R_DrawAliasModel_mesh, GL_DrawAliasShadow, alias_lerpdata } from './gl_mesh.js';
-import { r_avertexnormal_dots } from './anorm_dots.js';
-import { V_SetContentsColor as V_SetContentsColor_view, V_CalcBlend as V_CalcBlend_view } from './view.js';
-import { chase_active } from './chase.js';
+  AngleVectors,
+  BoxOnPlaneSide,
+  DotProduct,
+  Length,
+  M_PI,
+  RotatePointAroundVector,
+  VectorAdd,
+  VectorCopy,
+  VectorNormalize,
+  VectorSubtract,
+} from "./mathlib.js";
 import {
-	R_InitParticles, R_SetParticleLimit, R_SetParticleExternals, R_ClearParticles,
-	R_DrawParticles as R_DrawParticles_impl
-} from './r_part.js';
-import { isXRActive, getXRRig, XR_SetCamera, XR_SCALE, XR_GetControllerWorldPose, XR_RenderHUD, XR_SetupFrusta, XR_PolyBlend, XR_GetHeadOrigin, XR_ResetHeadOrigin } from './webxr.js';
+  GL_BuildLightmaps as GL_BuildLightmaps_rsurf,
+  R_CleanupWaterMeshes as R_CleanupWaterMeshes_rsurf,
+  R_DrawBrushModel as R_DrawBrushModel_rsurf,
+  R_DrawWaterSurfaces as R_DrawWaterSurfaces_rsurf,
+  R_DrawWorld as R_DrawWorld_impl,
+  R_GetMirrorItems,
+  R_MarkLeaves as R_MarkLeaves_impl,
+} from "./gl_rsurf.js";
+import { R_MirrorCleanup, R_MirrorGate, R_MirrorPass } from "./gl_rmirror.js";
 import {
-	cl, cl_visedicts, cl_numvisedicts, cl_dlights, cl_entities,
-	cl_static_entities, cl_temp_entities, cl_lightstyle,
-	MAX_DLIGHTS, MAX_VISEDICTS
-} from './client.js';
-import { d_lightstylevalue, r_framecount, set_r_framecount, inc_r_framecount,
-	v_blend, mirrortexturenum, set_mirrortexturenum,
-	r_norefresh, r_drawentities, r_drawviewmodel, r_speeds,
-	r_fullbright, r_lightmap, r_shadows, r_mirroralpha,
-	r_wateralpha, r_dynamic, r_novis, r_drawworld, r_waterwarp,
-	gl_clear, gl_cull, gl_texsort, gl_smoothmodels, gl_affinemodels,
-	gl_polyblend, gl_flashblend, gl_playermip, gl_nocolors,
-	gl_keeptjunctions, gl_reporttjunctions,
-	gl_doubleeyes, gl_max_size, gl_finish, GL_UpdateCull, GL_RegisterCullMaterial
-} from './glquake.js';
+  R_EntAlpha_Apply,
+  R_EntAlpha_ApplyMesh,
+  R_EntAlpha_IsClone,
+} from "./gl_entalpha.js";
+import { Fog_SetupFrame } from "./gl_fog.js";
+import { ENTALPHA_ZERO } from "./protocol.js";
+import {
+  Mod_EnhancedAliasHeader,
+  Mod_PointInLeaf,
+  SPR_FACING_UPRIGHT,
+  SPR_ORIENTED,
+  SPR_SINGLE,
+  SPR_VP_PARALLEL,
+  SPR_VP_PARALLEL_ORIENTED,
+  SPR_VP_PARALLEL_UPRIGHT,
+} from "./gl_model.js";
+import {
+  lightcolor,
+  lightspot,
+  R_AnimateLight as R_AnimateLight_impl,
+  R_DlightDistance,
+  R_LightPoint,
+  R_RenderDlights as R_RenderDlights_impl,
+  R_SetDlightLimit,
+} from "./gl_rlight.js";
+import {
+  alias_lerpdata,
+  GL_DrawAliasShadow,
+  R_DrawAliasModel as R_DrawAliasModel_mesh,
+} from "./gl_mesh.js";
+import { r_avertexnormal_dots } from "./anorm_dots.js";
+import {
+  V_CalcBlend as V_CalcBlend_view,
+  V_SetContentsColor as V_SetContentsColor_view,
+} from "./view.js";
+import { chase_active } from "./chase.js";
+import {
+  R_ClearParticles,
+  R_DrawParticles as R_DrawParticles_impl,
+  R_InitParticles,
+  R_SetParticleExternals,
+  R_SetParticleLimit,
+} from "./r_part.js";
+import {
+  getXRRig,
+  isXRActive,
+  XR_GetControllerWorldPose,
+  XR_GetHeadOrigin,
+  XR_PolyBlend,
+  XR_RenderHUD,
+  XR_ResetHeadOrigin,
+  XR_SCALE,
+  XR_SetCamera,
+  XR_SetupFrusta,
+} from "./webxr.js";
+import {
+  cl,
+  cl_dlights,
+  cl_entities,
+  cl_lightstyle,
+  cl_numvisedicts,
+  cl_static_entities,
+  cl_temp_entities,
+  cl_visedicts,
+  MAX_DLIGHTS,
+  MAX_VISEDICTS,
+} from "./client.js";
+import {
+  d_lightstylevalue,
+  gl_affinemodels,
+  gl_clear,
+  gl_cull,
+  gl_doubleeyes,
+  gl_finish,
+  gl_flashblend,
+  gl_keeptjunctions,
+  gl_max_size,
+  gl_nocolors,
+  gl_playermip,
+  gl_polyblend,
+  GL_RegisterCullMaterial,
+  gl_reporttjunctions,
+  gl_smoothmodels,
+  gl_texsort,
+  GL_UpdateCull,
+  inc_r_framecount,
+  mirrortexturenum,
+  r_drawentities,
+  r_drawviewmodel,
+  r_drawworld,
+  r_dynamic,
+  r_framecount,
+  r_fullbright,
+  r_lightmap,
+  r_mirroralpha,
+  r_norefresh,
+  r_novis,
+  r_shadows,
+  r_speeds,
+  r_wateralpha,
+  r_waterwarp,
+  set_mirrortexturenum,
+  set_r_framecount,
+  v_blend,
+} from "./glquake.js";
 export { GL_BuildLightmaps_rsurf as GL_BuildLightmaps };
-export { r_norefresh, r_drawentities, r_drawviewmodel, r_speeds,
-	v_blend, mirrortexturenum, set_mirrortexturenum,
-	r_fullbright, r_lightmap, r_shadows, r_mirroralpha,
-	r_wateralpha, r_dynamic, r_novis, r_drawworld, r_waterwarp,
-	gl_clear, gl_cull, gl_texsort, gl_smoothmodels, gl_affinemodels,
-	gl_polyblend, gl_flashblend, gl_playermip, gl_nocolors,
-	gl_keeptjunctions, gl_reporttjunctions,
-	gl_doubleeyes, gl_max_size };
+export {
+  gl_affinemodels,
+  gl_clear,
+  gl_cull,
+  gl_doubleeyes,
+  gl_flashblend,
+  gl_keeptjunctions,
+  gl_max_size,
+  gl_nocolors,
+  gl_playermip,
+  gl_polyblend,
+  gl_reporttjunctions,
+  gl_smoothmodels,
+  gl_texsort,
+  mirrortexturenum,
+  r_drawentities,
+  r_drawviewmodel,
+  r_drawworld,
+  r_dynamic,
+  r_fullbright,
+  r_lightmap,
+  r_mirroralpha,
+  r_norefresh,
+  r_novis,
+  r_shadows,
+  r_speeds,
+  r_wateralpha,
+  r_waterwarp,
+  set_mirrortexturenum,
+  v_blend,
+};
 
 //============================================================================
 // glquake.h constants
 //============================================================================
 
-export const ALIAS_BASE_SIZE_RATIO = ( 1.0 / 11.0 );
+export const ALIAS_BASE_SIZE_RATIO = 1.0 / 11.0;
 export const MAX_LBM_HEIGHT = 480;
 
 export const TILE_SIZE = 128;
@@ -71,10 +194,15 @@ QuakeSpasm and Ironwail default to 65536 for large custom maps. With
 zNear 4 the far plane barely changes depth precision: a 24-bit depth step
 at distance z is about z * z / ( 4 * 2^24 ) units whatever the far plane.
 */
-export const gl_farclip = { name: 'gl_farclip', string: '4096', value: 4096, archive: true };
+export const gl_farclip = {
+  name: "gl_farclip",
+  string: "4096",
+  value: 4096,
+  archive: true,
+};
 export const SKYSHIFT = 7;
-export const SKYSIZE = ( 1 << SKYSHIFT );
-export const SKYMASK = ( SKYSIZE - 1 );
+export const SKYSIZE = 1 << SKYSHIFT;
+export const SKYMASK = SKYSIZE - 1;
 
 export const BACKFACE_EPSILON = 0.01;
 
@@ -115,44 +243,48 @@ export let r_worldentity = null;
 
 export let r_cache_thrash = false; // compatability
 
-export const modelorg = new Float32Array( 3 );
-export const r_entorigin = new Float32Array( 3 );
+export const modelorg = new Float32Array(3);
+export const r_entorigin = new Float32Array(3);
 export let currententity = null; // entity_t pointer
 
 export let r_visframecount = 0; // bumped when going to a new PVS
 
 // frustum planes (4 planes for view frustum)
 export class mplane_t {
-
-	constructor() {
-
-		this.normal = new Float32Array( 3 );
-		this.dist = 0;
-		this.type = 0; // for texture axis selection and fast side tests
-		this.signbits = 0; // signx + signy<<1 + signz<<2
-
-	}
-
+  constructor() {
+    this.normal = new Float32Array(3);
+    this.dist = 0;
+    this.type = 0; // for texture axis selection and fast side tests
+    this.signbits = 0; // signx + signy<<1 + signz<<2
+  }
 }
 
 export const frustum = [
-	new mplane_t(), new mplane_t(), new mplane_t(), new mplane_t()
+  new mplane_t(),
+  new mplane_t(),
+  new mplane_t(),
+  new mplane_t(),
 ];
 
 // WebXR: one frustum per eye, built from the headset pose by
 // R_SetupXRFrustum. Four views covers stereo and quad-view headsets.
 const MAX_XR_VIEWS = 4;
 const r_xrfrustum = [];
-for ( let v = 0; v < MAX_XR_VIEWS; v ++ )
-	r_xrfrustum.push( [ new mplane_t(), new mplane_t(), new mplane_t(), new mplane_t() ] );
-let r_xrviews = - 1; // -1: not in XR, R_CullBox uses frustum[]
+for (let v = 0; v < MAX_XR_VIEWS; v++) {
+  r_xrfrustum.push([
+    new mplane_t(),
+    new mplane_t(),
+    new mplane_t(),
+    new mplane_t(),
+  ]);
+}
+let r_xrviews = -1; // -1: not in XR, R_CullBox uses frustum[]
 
 export let c_brush_polys = 0;
 export let c_alias_polys = 0;
 
-
-export let currenttexture = - 1; // to avoid unnecessary texture sets
-export const cnttextures = [ - 1, - 1 ]; // cached
+export let currenttexture = -1; // to avoid unnecessary texture sets
+export const cnttextures = [-1, -1]; // cached
 
 export const particletexture = 0; // little dot for particles
 export const playertextures = 0; // up to 16 color translated skins
@@ -160,7 +292,7 @@ export const playertextures = 0; // up to 16 color translated skins
 export let mirror = false;
 export let mirror_plane = null; // mplane_t pointer
 
-export const r_world_matrix = new Float32Array( 16 );
+export const r_world_matrix = new Float32Array(16);
 
 export let r_viewleaf = null; // mleaf_t
 export let r_oldviewleaf = null; // mleaf_t
@@ -169,24 +301,46 @@ export const r_notexture_mip = null;
 
 // Shared renderer state is imported from glquake.js and re-exported here so
 // gl_rsurf.js keeps its existing dependency without adding a gl_rlight cycle.
-export { d_lightstylevalue, r_framecount, set_r_framecount, inc_r_framecount };
+export { d_lightstylevalue, inc_r_framecount, r_framecount, set_r_framecount };
 export { chase_active };
 
 export let gldepthmin = 0;
 export let gldepthmax = 1;
 
 // Setter functions for mutable state (ES module imports are read-only)
-export function set_r_visframecount( v ) { r_visframecount = v; }
-export function inc_r_visframecount() { return ++ r_visframecount; }
-export function set_r_worldentity( value ) { r_worldentity = value; }
-export function set_currententity( value ) { currententity = value; }
-export function set_c_brush_polys( v ) { c_brush_polys = v; }
-export function inc_c_brush_polys() { return ++ c_brush_polys; }
-export function set_currenttexture( v ) { currenttexture = v; }
-export function set_r_oldviewleaf( v ) { r_oldviewleaf = v; }
-export function set_r_viewleaf( v ) { r_viewleaf = v; }
-export function set_mirror( v ) { mirror = v; }
-export function set_mirror_plane( v ) { mirror_plane = v; }
+export function set_r_visframecount(v) {
+  r_visframecount = v;
+}
+export function inc_r_visframecount() {
+  return ++r_visframecount;
+}
+export function set_r_worldentity(value) {
+  r_worldentity = value;
+}
+export function set_currententity(value) {
+  currententity = value;
+}
+export function set_c_brush_polys(v) {
+  c_brush_polys = v;
+}
+export function inc_c_brush_polys() {
+  return ++c_brush_polys;
+}
+export function set_currenttexture(v) {
+  currenttexture = v;
+}
+export function set_r_oldviewleaf(v) {
+  r_oldviewleaf = v;
+}
+export function set_r_viewleaf(v) {
+  r_viewleaf = v;
+}
+export function set_mirror(v) {
+  mirror = v;
+}
+export function set_mirror_plane(v) {
+  mirror_plane = v;
+}
 
 export let glx = 0, gly = 0, glwidth = 0, glheight = 0;
 
@@ -210,50 +364,41 @@ export let camera = null; // THREE.PerspectiveCamera
 // Returns true if the box is completely outside the frustum
 //============================================================================
 
-export function R_CullBox( mins, maxs ) {
+export function R_CullBox(mins, maxs) {
+  // WebXR: the headset's eyes, not the body (see R_SetupXRFrustum)
+  if (r_xrviews >= 0) {
+    return R_CullBoxViews(mins, maxs, r_xrfrustum, r_xrviews);
+  }
 
-	// WebXR: the headset's eyes, not the body (see R_SetupXRFrustum)
-	if ( r_xrviews >= 0 )
-		return R_CullBoxViews( mins, maxs, r_xrfrustum, r_xrviews );
+  for (let i = 0; i < 4; i++) {
+    if (BoxOnPlaneSide(mins, maxs, frustum[i]) === 2) {
+      return true;
+    }
+  }
 
-	for ( let i = 0; i < 4; i ++ ) {
-
-		if ( BoxOnPlaneSide( mins, maxs, frustum[ i ] ) === 2 )
-			return true;
-
-	}
-
-	return false;
-
+  return false;
 }
 
 // Web addition for WebXR: true if the box is outside each of the first
 // numviews four-plane frusta in views, so a box any eye can see is kept.
 // With no views (no headset pose yet) nothing is culled.
-export function R_CullBoxViews( mins, maxs, views, numviews ) {
+export function R_CullBoxViews(mins, maxs, views, numviews) {
+  for (let v = 0; v < numviews; v++) {
+    const planes = views[v];
+    let outside = false;
+    for (let i = 0; i < 4; i++) {
+      if (BoxOnPlaneSide(mins, maxs, planes[i]) === 2) {
+        outside = true;
+        break;
+      }
+    }
 
-	for ( let v = 0; v < numviews; v ++ ) {
+    if (outside === false) {
+      return false;
+    }
+  }
 
-		const planes = views[ v ];
-		let outside = false;
-		for ( let i = 0; i < 4; i ++ ) {
-
-			if ( BoxOnPlaneSide( mins, maxs, planes[ i ] ) === 2 ) {
-
-				outside = true;
-				break;
-
-			}
-
-		}
-
-		if ( outside === false )
-			return false;
-
-	}
-
-	return numviews > 0;
-
+  return numviews > 0;
 }
 
 //============================================================================
@@ -269,47 +414,36 @@ export function R_CullBoxViews( mins, maxs, views, numviews ) {
 //============================================================================
 
 export function R_SetupXRFrustum() {
+  if (isXRActive() === false) {
+    r_xrviews = -1;
+    return;
+  }
 
-	if ( isXRActive() === false ) {
+  r_xrviews = XR_SetupFrusta(r_xrfrustum);
 
-		r_xrviews = - 1;
-		return;
-
-	}
-
-	r_xrviews = XR_SetupFrusta( r_xrfrustum );
-
-	for ( let v = 0; v < r_xrviews; v ++ ) {
-
-		for ( let i = 0; i < 4; i ++ ) {
-
-			const p = r_xrfrustum[ v ][ i ];
-			p.type = PLANE_ANYZ;
-			p.signbits = SignbitsForPlane( p );
-
-		}
-
-	}
-
+  for (let v = 0; v < r_xrviews; v++) {
+    for (let i = 0; i < 4; i++) {
+      const p = r_xrfrustum[v][i];
+      p.type = PLANE_ANYZ;
+      p.signbits = SignbitsForPlane(p);
+    }
+  }
 }
 
 //============================================================================
 // SignbitsForPlane
 //============================================================================
 
-function SignbitsForPlane( out ) {
+function SignbitsForPlane(out) {
+  // for fast box on planeside test
+  let bits = 0;
+  for (let j = 0; j < 3; j++) {
+    if (out.normal[j] < 0) {
+      bits |= 1 << j;
+    }
+  }
 
-	// for fast box on planeside test
-	let bits = 0;
-	for ( let j = 0; j < 3; j ++ ) {
-
-		if ( out.normal[ j ] < 0 )
-			bits |= 1 << j;
-
-	}
-
-	return bits;
-
+  return bits;
 }
 
 //============================================================================
@@ -317,37 +451,49 @@ function SignbitsForPlane( out ) {
 //============================================================================
 
 export function R_SetFrustum() {
+  if (r_refdef.fov_x === 90) {
+    // front side is visible
+    VectorAdd(vpn, vright, frustum[0].normal);
+    VectorSubtract(vpn, vright, frustum[1].normal);
 
-	if ( r_refdef.fov_x === 90 ) {
+    VectorAdd(vpn, vup, frustum[2].normal);
+    VectorSubtract(vpn, vup, frustum[3].normal);
+  } else {
+    // rotate VPN right by FOV_X/2 degrees
+    RotatePointAroundVector(
+      frustum[0].normal,
+      vup,
+      vpn,
+      -(90 - r_refdef.fov_x / 2),
+    );
+    // rotate VPN left by FOV_X/2 degrees
+    RotatePointAroundVector(
+      frustum[1].normal,
+      vup,
+      vpn,
+      90 - r_refdef.fov_x / 2,
+    );
+    // rotate VPN up by FOV_Y/2 degrees
+    RotatePointAroundVector(
+      frustum[2].normal,
+      vright,
+      vpn,
+      90 - r_refdef.fov_y / 2,
+    );
+    // rotate VPN down by FOV_Y/2 degrees
+    RotatePointAroundVector(
+      frustum[3].normal,
+      vright,
+      vpn,
+      -(90 - r_refdef.fov_y / 2),
+    );
+  }
 
-		// front side is visible
-		VectorAdd( vpn, vright, frustum[ 0 ].normal );
-		VectorSubtract( vpn, vright, frustum[ 1 ].normal );
-
-		VectorAdd( vpn, vup, frustum[ 2 ].normal );
-		VectorSubtract( vpn, vup, frustum[ 3 ].normal );
-
-	} else {
-
-		// rotate VPN right by FOV_X/2 degrees
-		RotatePointAroundVector( frustum[ 0 ].normal, vup, vpn, - ( 90 - r_refdef.fov_x / 2 ) );
-		// rotate VPN left by FOV_X/2 degrees
-		RotatePointAroundVector( frustum[ 1 ].normal, vup, vpn, 90 - r_refdef.fov_x / 2 );
-		// rotate VPN up by FOV_Y/2 degrees
-		RotatePointAroundVector( frustum[ 2 ].normal, vright, vpn, 90 - r_refdef.fov_y / 2 );
-		// rotate VPN down by FOV_Y/2 degrees
-		RotatePointAroundVector( frustum[ 3 ].normal, vright, vpn, - ( 90 - r_refdef.fov_y / 2 ) );
-
-	}
-
-	for ( let i = 0; i < 4; i ++ ) {
-
-		frustum[ i ].type = PLANE_ANYZ;
-		frustum[ i ].dist = DotProduct( r_origin, frustum[ i ].normal );
-		frustum[ i ].signbits = SignbitsForPlane( frustum[ i ] );
-
-	}
-
+  for (let i = 0; i < 4; i++) {
+    frustum[i].type = PLANE_ANYZ;
+    frustum[i].dist = DotProduct(r_origin, frustum[i].normal);
+    frustum[i].signbits = SignbitsForPlane(frustum[i]);
+  }
 }
 
 //============================================================================
@@ -355,58 +501,52 @@ export function R_SetFrustum() {
 //============================================================================
 
 export function R_SetupFrame() {
+  // don't allow cheats in multiplayer
+  if (cl && cl.maxclients > 1) {
+    r_fullbright.value = 0;
+    r_fullbright.string = "0";
+  }
 
-	// don't allow cheats in multiplayer
-	if ( cl && cl.maxclients > 1 ) {
+  R_AnimateLight();
 
-		r_fullbright.value = 0;
-		r_fullbright.string = '0';
+  inc_r_framecount();
 
-	}
+  // build the transformation matrix for the given view angles
+  // Deviation (web-only): C's camera is r_refdef.vieworg. In an XR session
+  // the camera is the head, which leans away from the body, so r_origin,
+  // the view leaf (PVS) and the contents colour use the previous frame's
+  // head position (the pose is only known inside render()).
+  if (isXRActive()) {
+    // A teleport or other jump of the view origin makes last frame's head
+    // stale: fall back to the body for this frame.
+    const dx = r_refdef.vieworg[0] - _xr_lastvieworg[0];
+    const dy = r_refdef.vieworg[1] - _xr_lastvieworg[1];
+    const dz = r_refdef.vieworg[2] - _xr_lastvieworg[2];
+    VectorCopy(r_refdef.vieworg, _xr_lastvieworg);
+    if (dx * dx + dy * dy + dz * dz > XR_ORIGIN_JUMP * XR_ORIGIN_JUMP) {
+      XR_ResetHeadOrigin();
+    }
+  }
 
-	R_AnimateLight();
+  if (isXRActive() === false || XR_GetHeadOrigin(r_origin) === false) {
+    VectorCopy(r_refdef.vieworg, r_origin);
+  }
 
-	inc_r_framecount();
+  AngleVectors(r_refdef.viewangles, vpn, vright, vup);
 
-	// build the transformation matrix for the given view angles
-	// Deviation (web-only): C's camera is r_refdef.vieworg. In an XR session
-	// the camera is the head, which leans away from the body, so r_origin,
-	// the view leaf (PVS) and the contents colour use the previous frame's
-	// head position (the pose is only known inside render()).
-	if ( isXRActive() ) {
+  // current viewleaf
+  r_oldviewleaf = r_viewleaf;
+  if (cl && cl.worldmodel) {
+    r_viewleaf = Mod_PointInLeaf(r_origin, cl.worldmodel);
+  }
 
-		// A teleport or other jump of the view origin makes last frame's head
-		// stale: fall back to the body for this frame.
-		const dx = r_refdef.vieworg[ 0 ] - _xr_lastvieworg[ 0 ];
-		const dy = r_refdef.vieworg[ 1 ] - _xr_lastvieworg[ 1 ];
-		const dz = r_refdef.vieworg[ 2 ] - _xr_lastvieworg[ 2 ];
-		VectorCopy( r_refdef.vieworg, _xr_lastvieworg );
-		if ( dx * dx + dy * dy + dz * dz > XR_ORIGIN_JUMP * XR_ORIGIN_JUMP )
-			XR_ResetHeadOrigin();
+  V_SetContentsColor(r_viewleaf ? r_viewleaf.contents : 0);
+  V_CalcBlend();
 
-	}
+  r_cache_thrash = false;
 
-	if ( isXRActive() === false || XR_GetHeadOrigin( r_origin ) === false )
-		VectorCopy( r_refdef.vieworg, r_origin );
-
-	AngleVectors( r_refdef.viewangles, vpn, vright, vup );
-
-	// current viewleaf
-	r_oldviewleaf = r_viewleaf;
-	if ( cl && cl.worldmodel ) {
-
-		r_viewleaf = Mod_PointInLeaf( r_origin, cl.worldmodel );
-
-	}
-
-	V_SetContentsColor( r_viewleaf ? r_viewleaf.contents : 0 );
-	V_CalcBlend();
-
-	r_cache_thrash = false;
-
-	c_brush_polys = 0;
-	c_alias_polys = 0;
-
+  c_brush_polys = 0;
+  c_alias_polys = 0;
 }
 
 //============================================================================
@@ -417,202 +557,227 @@ export function R_SetupFrame() {
 //============================================================================
 
 export function R_SetupGL() {
+  const screenaspect = r_refdef.vrect.width / r_refdef.vrect.height;
 
-	const screenaspect = r_refdef.vrect.width / r_refdef.vrect.height;
+  // set drawing parms: glEnable/glDisable(GL_CULL_FACE) from gl_cull
+  GL_UpdateCull();
 
-	// set drawing parms: glEnable/glDisable(GL_CULL_FACE) from gl_cull
-	GL_UpdateCull();
+  // set up Three.js camera to match Quake's perspective
+  if (camera == null) {
+    camera = new THREE.PerspectiveCamera(
+      r_refdef.fov_y,
+      screenaspect,
+      4, // zNear
+      gl_farclip.value, // zFar
+    );
 
-	// set up Three.js camera to match Quake's perspective
-	if ( camera == null ) {
+    // Parent camera to XR rig (if available).
+    // In non-XR: parent doesn't matter (matrixAutoUpdate = false).
+    // In XR: Three.js composes rig.matrixWorld × camera.matrix (headset pose).
+    XR_SetCamera(camera);
+  } else {
+    camera.fov = r_refdef.fov_y;
+    camera.aspect = screenaspect;
 
-		camera = new THREE.PerspectiveCamera(
-			r_refdef.fov_y,
-			screenaspect,
-			4, // zNear
-			gl_farclip.value // zFar
-		);
+    // In XR mode, scene is in meters (1/XR_SCALE). Three.js XR uses
+    // camera.near/far for clipping, so convert to meters.
+    if (isXRActive()) {
+      camera.near = 4 / XR_SCALE;
+      camera.far = gl_farclip.value / XR_SCALE;
+    } else {
+      camera.near = 4;
+      camera.far = gl_farclip.value;
+    }
 
-		// Parent camera to XR rig (if available).
-		// In non-XR: parent doesn't matter (matrixAutoUpdate = false).
-		// In XR: Three.js composes rig.matrixWorld × camera.matrix (headset pose).
-		XR_SetCamera( camera );
+    camera.updateProjectionMatrix();
+  }
 
-	} else {
+  //
+  // Quake's coordinate system:
+  //   X = forward, Y = left, Z = up
+  //
+  // Three.js coordinate system:
+  //   X = right, Y = up, Z = backward (out of screen)
+  //
+  // The original GL code does:
+  //   glRotatef(-90, 1, 0, 0) -- put Z going up
+  //   glRotatef(90, 0, 0, 1)  -- put Z going up
+  //   glRotatef(-viewangles[ROLL], 1, 0, 0)
+  //   glRotatef(-viewangles[PITCH], 0, 1, 0)
+  //   glRotatef(-viewangles[YAW], 0, 0, 1)
+  //   glTranslatef(-vieworg[0], -vieworg[1], -vieworg[2])
+  //
+  // We replicate this with Three.js by setting camera position and rotation.
 
-		camera.fov = r_refdef.fov_y;
-		camera.aspect = screenaspect;
+  //
+  // Position the camera in Quake world coordinates.
+  // Geometry vertices are in Quake coords (X=forward, Y=left, Z=up).
+  // Three.js camera looks down -Z with Y=up.
+  //
+  // We keep all geometry in Quake coordinate space and set up the camera
+  // to match, using the same modelview matrix as the original GL code:
+  //
+  //   glRotatef(-90, 1, 0, 0)   -- maps Quake Z-up to GL Y-up
+  //   glRotatef(90, 0, 0, 1)    -- maps Quake X-forward to GL -Z-forward
+  //   glRotatef(-roll, 1, 0, 0)
+  //   glRotatef(-pitch, 0, 1, 0)
+  //   glRotatef(-yaw, 0, 0, 1)
+  //   glTranslatef(-vieworg)
+  //
 
-		// In XR mode, scene is in meters (1/XR_SCALE). Three.js XR uses
-		// camera.near/far for clipping, so convert to meters.
-		if ( isXRActive() ) {
+  // Set camera position directly in Quake coordinates
+  camera.position.set(
+    r_refdef.vieworg[0],
+    r_refdef.vieworg[1],
+    r_refdef.vieworg[2],
+  );
 
-			camera.near = 4 / XR_SCALE;
-			camera.far = gl_farclip.value / XR_SCALE;
+  // Build orientation using AngleVectors to get forward/right/up
+  // Deviation (web-only): in XR the headset supplies pitch, so the rig takes
+  // only yaw (and roll) from the body. cl.viewangles pitch can be non-zero
+  // (svc_setangle, V_DriftPitch toward idealpitch, the chase camera) and
+  // would tilt the world around the player.
+  if (isXRActive()) {
+    _setupgl_angles[0] = 0;
+    _setupgl_angles[1] = r_refdef.viewangles[1];
+    _setupgl_angles[2] = r_refdef.viewangles[2];
+    AngleVectors(
+      _setupgl_angles,
+      _setupgl_forward,
+      _setupgl_right,
+      _setupgl_up,
+    );
+  } else {
+    AngleVectors(
+      r_refdef.viewangles,
+      _setupgl_forward,
+      _setupgl_right,
+      _setupgl_up,
+    );
+  }
 
-		} else {
+  // Build a rotation matrix from the Quake basis vectors.
+  // In Quake: forward = where camera looks, right = camera right, up = camera up.
+  // Three.js camera looks down -Z, X=right, Y=up.
+  // GLQuake culls with glCullFace(GL_FRONT) because its polygons wind the
+  // other way; the port's meshes face the camera under Three's default
+  // FrontSide. gl_cull 0 turns culling off (glDisable(GL_CULL_FACE)) by
+  // switching registered materials to DoubleSide in GL_UpdateCull.
+  const forward = _setupgl_forward, right = _setupgl_right, up = _setupgl_up;
+  const m = _setupgl_matrix;
 
-			camera.near = 4;
-			camera.far = gl_farclip.value;
+  if (isXRActive()) {
+    // In XR mode: scene.scale = 1/XR_SCALE puts everything in meters.
+    // The rig is NOT in the scene, so it operates in meter space directly.
+    // Three.js XR composes: rig.matrixWorld × camera.matrix (headset pose).
+    //
+    // Position the rig at vieworg (player eye level).
+    // With 'local' reference space, the XR origin is at the headset's
+    // starting position (no floor offset), so the rig position directly
+    // corresponds to where the user sees from in the Quake world.
+    const rig = getXRRig();
+    if (rig != null) {
+      const s = 1 / XR_SCALE;
+      rig.position.set(
+        r_refdef.vieworg[0] * s,
+        r_refdef.vieworg[1] * s,
+        r_refdef.vieworg[2] * s,
+      );
 
-		}
+      // Build rotation-only matrix (coord conversion + viewangles)
+      m.set(
+        right[0],
+        up[0],
+        -forward[0],
+        0,
+        right[1],
+        up[1],
+        -forward[1],
+        0,
+        right[2],
+        up[2],
+        -forward[2],
+        0,
+        0,
+        0,
+        0,
+        1,
+      );
+      rig.quaternion.setFromRotationMatrix(m);
 
-		camera.updateProjectionMatrix();
+      // Rig is not in the scene graph, so manually update its matrixWorld
+      rig.updateMatrixWorld(true);
+    }
 
-	}
+    // Let Three.js compose matrixWorld from rig × headset pose
+    camera.matrixWorldAutoUpdate = true;
+  } else {
+    // Non-XR mode: set camera matrixWorld directly (existing behavior).
+    // matrixWorldAutoUpdate must be false so Three.js doesn't overwrite
+    // our manually-set matrixWorld from the parent rig's transform.
+    m.set(
+      right[0],
+      up[0],
+      -forward[0],
+      r_refdef.vieworg[0],
+      right[1],
+      up[1],
+      -forward[1],
+      r_refdef.vieworg[1],
+      right[2],
+      up[2],
+      -forward[2],
+      r_refdef.vieworg[2],
+      0,
+      0,
+      0,
+      1,
+    );
 
-	//
-	// Quake's coordinate system:
-	//   X = forward, Y = left, Z = up
-	//
-	// Three.js coordinate system:
-	//   X = right, Y = up, Z = backward (out of screen)
-	//
-	// The original GL code does:
-	//   glRotatef(-90, 1, 0, 0) -- put Z going up
-	//   glRotatef(90, 0, 0, 1)  -- put Z going up
-	//   glRotatef(-viewangles[ROLL], 1, 0, 0)
-	//   glRotatef(-viewangles[PITCH], 0, 1, 0)
-	//   glRotatef(-viewangles[YAW], 0, 0, 1)
-	//   glTranslatef(-vieworg[0], -vieworg[1], -vieworg[2])
-	//
-	// We replicate this with Three.js by setting camera position and rotation.
+    camera.matrixAutoUpdate = false;
+    camera.matrixWorldAutoUpdate = false;
+    camera.matrixWorld.copy(m);
+    camera.matrixWorldInverse.copy(m).invert();
+    camera.matrixWorld.decompose(
+      camera.position,
+      camera.quaternion,
+      camera.scale,
+    );
+  }
 
-	//
-	// Position the camera in Quake world coordinates.
-	// Geometry vertices are in Quake coords (X=forward, Y=left, Z=up).
-	// Three.js camera looks down -Z with Y=up.
-	//
-	// We keep all geometry in Quake coordinate space and set up the camera
-	// to match, using the same modelview matrix as the original GL code:
-	//
-	//   glRotatef(-90, 1, 0, 0)   -- maps Quake Z-up to GL Y-up
-	//   glRotatef(90, 0, 0, 1)    -- maps Quake X-forward to GL -Z-forward
-	//   glRotatef(-roll, 1, 0, 0)
-	//   glRotatef(-pitch, 0, 1, 0)
-	//   glRotatef(-yaw, 0, 0, 1)
-	//   glTranslatef(-vieworg)
-	//
+  // Store world matrix for later use (mirror rendering, etc.)
+  const elements = camera.matrixWorldInverse.elements;
+  for (let i = 0; i < 16; i++) {
+    r_world_matrix[i] = elements[i];
+  }
 
-	// Set camera position directly in Quake coordinates
-	camera.position.set(
-		r_refdef.vieworg[ 0 ],
-		r_refdef.vieworg[ 1 ],
-		r_refdef.vieworg[ 2 ]
-	);
+  // The view rectangle uses virtual 2D coordinates with a top-left origin.
+  // Recreate Quake's physical-pixel viewport, then convert back to the logical
+  // coordinates Three.js expects before it reapplies the renderer pixel ratio.
+  if (isXRActive() === false && renderer !== null) {
+    renderer.getDrawingBufferSize(_setupgl_drawingBufferSize);
+    R_VrectToViewport(
+      _setupgl_viewport,
+      r_refdef.vrect,
+      r_refdef.vrectScale,
+      vid_renderscale,
+      _setupgl_drawingBufferSize.x,
+      _setupgl_drawingBufferSize.y,
+      renderer.getPixelRatio(),
+    );
+    renderer.setViewport(
+      _setupgl_viewport[0],
+      _setupgl_viewport[1],
+      _setupgl_viewport[2],
+      _setupgl_viewport[3],
+    );
+  }
 
-	// Build orientation using AngleVectors to get forward/right/up
-	// Deviation (web-only): in XR the headset supplies pitch, so the rig takes
-	// only yaw (and roll) from the body. cl.viewangles pitch can be non-zero
-	// (svc_setangle, V_DriftPitch toward idealpitch, the chase camera) and
-	// would tilt the world around the player.
-	if ( isXRActive() ) {
-
-		_setupgl_angles[ 0 ] = 0;
-		_setupgl_angles[ 1 ] = r_refdef.viewangles[ 1 ];
-		_setupgl_angles[ 2 ] = r_refdef.viewangles[ 2 ];
-		AngleVectors( _setupgl_angles, _setupgl_forward, _setupgl_right, _setupgl_up );
-
-	} else {
-
-		AngleVectors( r_refdef.viewangles, _setupgl_forward, _setupgl_right, _setupgl_up );
-
-	}
-
-	// Build a rotation matrix from the Quake basis vectors.
-	// In Quake: forward = where camera looks, right = camera right, up = camera up.
-	// Three.js camera looks down -Z, X=right, Y=up.
-	// GLQuake culls with glCullFace(GL_FRONT) because its polygons wind the
-	// other way; the port's meshes face the camera under Three's default
-	// FrontSide. gl_cull 0 turns culling off (glDisable(GL_CULL_FACE)) by
-	// switching registered materials to DoubleSide in GL_UpdateCull.
-	const forward = _setupgl_forward, right = _setupgl_right, up = _setupgl_up;
-	const m = _setupgl_matrix;
-
-	if ( isXRActive() ) {
-
-		// In XR mode: scene.scale = 1/XR_SCALE puts everything in meters.
-		// The rig is NOT in the scene, so it operates in meter space directly.
-		// Three.js XR composes: rig.matrixWorld × camera.matrix (headset pose).
-		//
-		// Position the rig at vieworg (player eye level).
-		// With 'local' reference space, the XR origin is at the headset's
-		// starting position (no floor offset), so the rig position directly
-		// corresponds to where the user sees from in the Quake world.
-		const rig = getXRRig();
-		if ( rig != null ) {
-
-			const s = 1 / XR_SCALE;
-			rig.position.set(
-				r_refdef.vieworg[ 0 ] * s,
-				r_refdef.vieworg[ 1 ] * s,
-				r_refdef.vieworg[ 2 ] * s
-			);
-
-			// Build rotation-only matrix (coord conversion + viewangles)
-			m.set(
-				right[ 0 ], up[ 0 ], - forward[ 0 ], 0,
-				right[ 1 ], up[ 1 ], - forward[ 1 ], 0,
-				right[ 2 ], up[ 2 ], - forward[ 2 ], 0,
-				0, 0, 0, 1
-			);
-			rig.quaternion.setFromRotationMatrix( m );
-
-			// Rig is not in the scene graph, so manually update its matrixWorld
-			rig.updateMatrixWorld( true );
-
-		}
-
-		// Let Three.js compose matrixWorld from rig × headset pose
-		camera.matrixWorldAutoUpdate = true;
-
-	} else {
-
-		// Non-XR mode: set camera matrixWorld directly (existing behavior).
-		// matrixWorldAutoUpdate must be false so Three.js doesn't overwrite
-		// our manually-set matrixWorld from the parent rig's transform.
-		m.set(
-			right[ 0 ], up[ 0 ], - forward[ 0 ], r_refdef.vieworg[ 0 ],
-			right[ 1 ], up[ 1 ], - forward[ 1 ], r_refdef.vieworg[ 1 ],
-			right[ 2 ], up[ 2 ], - forward[ 2 ], r_refdef.vieworg[ 2 ],
-			0, 0, 0, 1
-		);
-
-		camera.matrixAutoUpdate = false;
-		camera.matrixWorldAutoUpdate = false;
-		camera.matrixWorld.copy( m );
-		camera.matrixWorldInverse.copy( m ).invert();
-		camera.matrixWorld.decompose( camera.position, camera.quaternion, camera.scale );
-
-	}
-
-	// Store world matrix for later use (mirror rendering, etc.)
-	const elements = camera.matrixWorldInverse.elements;
-	for ( let i = 0; i < 16; i ++ ) {
-
-		r_world_matrix[ i ] = elements[ i ];
-
-	}
-
-	// The view rectangle uses virtual 2D coordinates with a top-left origin.
-	// Recreate Quake's physical-pixel viewport, then convert back to the logical
-	// coordinates Three.js expects before it reapplies the renderer pixel ratio.
-	if ( isXRActive() === false && renderer !== null ) {
-
-		renderer.getDrawingBufferSize( _setupgl_drawingBufferSize );
-		R_VrectToViewport( _setupgl_viewport, r_refdef.vrect, r_refdef.vrectScale, vid_renderscale,
-			_setupgl_drawingBufferSize.x, _setupgl_drawingBufferSize.y, renderer.getPixelRatio() );
-		renderer.setViewport( _setupgl_viewport[ 0 ], _setupgl_viewport[ 1 ],
-			_setupgl_viewport[ 2 ], _setupgl_viewport[ 3 ] );
-
-	}
-
-	// Update viewport dimensions
-	glx = 0;
-	gly = 0;
-	glwidth = vid.width;
-	glheight = vid.height;
-
+  // Update viewport dimensions
+  glx = 0;
+  gly = 0;
+  glwidth = vid.width;
+  glheight = vid.height;
 }
 
 //============================================================================
@@ -620,29 +785,23 @@ export function R_SetupGL() {
 //============================================================================
 
 // Scene background while XR is presenting (see R_RenderView)
-const _xrBackground = new THREE.Color( 0x000000 );
+const _xrBackground = new THREE.Color(0x000000);
 
 export function R_Clear() {
+  if (!renderer) return;
 
-	if ( ! renderer ) return;
+  // In Three.js, clearing is handled by renderer.clear()
+  // We configure the clear behavior based on cvars
 
-	// In Three.js, clearing is handled by renderer.clear()
-	// We configure the clear behavior based on cvars
+  if (gl_clear.value) {
+    renderer.setClearColor(0x000000, 1);
+    renderer.clear(true, true, false);
+  } else {
+    renderer.clear(false, true, false); // depth only
+  }
 
-	if ( gl_clear.value ) {
-
-		renderer.setClearColor( 0x000000, 1 );
-		renderer.clear( true, true, false );
-
-	} else {
-
-		renderer.clear( false, true, false ); // depth only
-
-	}
-
-	gldepthmin = 0;
-	gldepthmax = 1;
-
+  gldepthmin = 0;
+  gldepthmax = 1;
 }
 
 //============================================================================
@@ -650,60 +809,55 @@ export function R_Clear() {
 //============================================================================
 
 export function R_DrawEntitiesOnList() {
+  if (!r_drawentities.value) {
+    return;
+  }
 
-	if ( ! r_drawentities.value )
-		return;
+  // first pass: draw alias and brush models
+  for (let i = 0; i < cl_numvisedicts; i++) {
+    currententity = cl_visedicts[i];
 
-	// first pass: draw alias and brush models
-	for ( let i = 0; i < cl_numvisedicts; i ++ ) {
+    if (!currententity || !currententity.model) {
+      continue;
+    }
 
-		currententity = cl_visedicts[ i ];
+    // Ironwail R_SortEntities: entities at ENTALPHA_ZERO are not drawn
+    if (currententity.alpha === ENTALPHA_ZERO) {
+      continue;
+    }
 
-		if ( ! currententity || ! currententity.model )
-			continue;
+    switch (currententity.model.type) {
+      case mod_alias:
+        R_DrawAliasModel(currententity);
+        break;
 
-		// Ironwail R_SortEntities: entities at ENTALPHA_ZERO are not drawn
-		if ( currententity.alpha === ENTALPHA_ZERO )
-			continue;
+      case mod_brush:
+        R_DrawBrushModel(currententity);
+        break;
 
-		switch ( currententity.model.type ) {
+      default:
+        break;
+    }
+  }
 
-			case mod_alias:
-				R_DrawAliasModel( currententity );
-				break;
+  // second pass: draw sprites separately because of alpha blending
+  for (let i = 0; i < cl_numvisedicts; i++) {
+    currententity = cl_visedicts[i];
 
-			case mod_brush:
-				R_DrawBrushModel( currententity );
-				break;
+    if (!currententity || !currententity.model) {
+      continue;
+    }
 
-			default:
-				break;
+    if (currententity.alpha === ENTALPHA_ZERO) {
+      continue;
+    }
 
-		}
-
-	}
-
-	// second pass: draw sprites separately because of alpha blending
-	for ( let i = 0; i < cl_numvisedicts; i ++ ) {
-
-		currententity = cl_visedicts[ i ];
-
-		if ( ! currententity || ! currententity.model )
-			continue;
-
-		if ( currententity.alpha === ENTALPHA_ZERO )
-			continue;
-
-		switch ( currententity.model.type ) {
-
-			case mod_sprite:
-				R_DrawSpriteModel( currententity );
-				break;
-
-		}
-
-	}
-
+    switch (currententity.model.type) {
+      case mod_sprite:
+        R_DrawSpriteModel(currententity);
+        break;
+    }
+  }
 }
 
 //============================================================================
@@ -713,16 +867,12 @@ export function R_DrawEntitiesOnList() {
 const SHADEDOT_QUANT = 16;
 
 // Cached callbacks for viewmodel depthRange hack (no closures in render loop)
-function _viewmodelBeforeRender( r ) {
-
-	r.getContext().depthRange( 0, 0.3 );
-
+function _viewmodelBeforeRender(r) {
+  r.getContext().depthRange(0, 0.3);
 }
 
-function _viewmodelAfterRender( r ) {
-
-	r.getContext().depthRange( 0, 1 );
-
+function _viewmodelAfterRender(r) {
+  r.getContext().depthRange(0, 1);
 }
 
 // No-op callback (Three.js requires onBeforeRender/onAfterRender to be functions, never null)
@@ -737,138 +887,137 @@ const _xrControllerQuat = new THREE.Quaternion();
 // XR pointer:  -Z = forward,       -X = left,  +Y = up
 // Rotation matrix: model→controller = [[0,-1,0],[0,0,1],[-1,0,0]]
 const _xrWeaponAlignQuat = new THREE.Quaternion().setFromRotationMatrix(
-	new THREE.Matrix4().set(
-		0, - 1, 0, 0,
-		0, 0, 1, 0,
-		- 1, 0, 0, 0,
-		0, 0, 0, 1
-	)
+  new THREE.Matrix4().set(
+    0,
+    -1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    -1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+  ),
 );
 
 export function R_DrawViewModel() {
+  if (r_drawviewmodel.value === 0) {
+    return;
+  }
 
-	if ( r_drawviewmodel.value === 0 )
-		return;
+  if (chase_active.value !== 0) {
+    return;
+  }
 
-	if ( chase_active.value !== 0 )
-		return;
+  if (r_drawentities.value === 0) {
+    return;
+  }
 
-	if ( r_drawentities.value === 0 )
-		return;
+  if (cl == null) {
+    return;
+  }
 
-	if ( cl == null )
-		return;
+  if (cl.items & 524288) { // IT_INVISIBILITY
+    return;
+  }
 
-	if ( cl.items & 524288 ) // IT_INVISIBILITY
-		return;
+  if (cl.stats != null && cl.stats[0] <= 0) { // STAT_HEALTH
+    return;
+  }
 
-	if ( cl.stats != null && cl.stats[ 0 ] <= 0 ) // STAT_HEALTH
-		return;
+  currententity = cl.viewent;
+  if (currententity == null || currententity.model == null) {
+    return;
+  }
 
-	currententity = cl.viewent;
-	if ( currententity == null || currententity.model == null )
-		return;
+  // Ironwail r_alias.c R_DrawAliasModel: "if (entalpha == 0) return;"
+  if (currententity.alpha === ENTALPHA_ZERO) {
+    return;
+  }
 
-	// Ironwail r_alias.c R_DrawAliasModel: "if (entalpha == 0) return;"
-	if ( currententity.alpha === ENTALPHA_ZERO )
-		return;
+  // Draw normally — stays in main scene with all lights
+  R_DrawAliasModel(currententity);
 
-	// Draw normally — stays in main scene with all lights
-	R_DrawAliasModel( currententity );
+  const mesh = currententity._aliasMesh;
+  if (mesh == null) {
+    return;
+  }
 
-	const mesh = currententity._aliasMesh;
-	if ( mesh == null )
-		return;
+  // In XR mode: position weapon at controller.
+  // Scene is scaled 1/XR_SCALE (meters). Controller world pos is in meters.
+  // Weapon mesh is a child of scene, so its position is in scene-local Quake units.
+  // Convert: controller meters * XR_SCALE = Quake units.
+  if (isXRActive()) {
+    // Ensure weapon mesh is in the scene
+    if (mesh.parent !== scene && scene != null) {
+      scene.add(mesh);
+      _entityMeshesInScene.add(mesh);
+    }
 
-	// In XR mode: position weapon at controller.
-	// Scene is scaled 1/XR_SCALE (meters). Controller world pos is in meters.
-	// Weapon mesh is a child of scene, so its position is in scene-local Quake units.
-	// Convert: controller meters * XR_SCALE = Quake units.
-	if ( isXRActive() ) {
+    if (XR_GetControllerWorldPose(_xrControllerWorldPos, _xrControllerQuat)) {
+      // Controller world pos is in meters → multiply by XR_SCALE for scene-local Quake units
+      mesh.position.copy(_xrControllerWorldPos).multiplyScalar(XR_SCALE);
 
-		// Ensure weapon mesh is in the scene
-		if ( mesh.parent !== scene && scene != null ) {
+      // Rotation: controller world quat * alignment to orient Quake model axes
+      mesh.quaternion.copy(_xrControllerQuat).multiply(_xrWeaponAlignQuat);
 
-			scene.add( mesh );
-			_entityMeshesInScene.add( mesh );
+      // Scale 1: geometry is in Quake units, scene.scale handles the rest
+      mesh.scale.setScalar(1);
+    }
 
-		}
+    // No depthRange hack in XR — weapon renders at actual world position
+    mesh.renderOrder = 0;
+    mesh.onBeforeRender = _noop;
+    mesh.onAfterRender = _noop;
+  } else {
+    // Non-XR: ensure mesh is in scene (handles returning from XR too)
+    if (mesh.parent !== scene && scene != null) {
+      scene.add(mesh);
+      mesh.scale.setScalar(1);
+      _entityMeshesInScene.add(mesh);
+    }
 
-		if ( XR_GetControllerWorldPose( _xrControllerWorldPos, _xrControllerQuat ) ) {
+    // Non-XR: apply depthRange hack so weapon renders on top of world
+    const baseMaterial = mesh.material;
+    if (R_EntAlpha_IsClone(baseMaterial)) {
+      // SU_WEAPONALPHA: gl_entalpha.js's clone is already transparent
+    } else if (baseMaterial === currententity._aliasLerpMaterial) {
+      // r_lerpmodels: the gun's own lerp material (gl_mesh.js), not
+      // shared, so mark it directly. A clone would lose its
+      // onBeforeCompile and the blend.
+      baseMaterial.transparent = true;
+    } else {
+      // One transparent clone per base material, kept until the map
+      // changes: an animated skin or a weapon change switches the base,
+      // and replacing a single clone made a new one each switch and
+      // leaked the old. Registered so gl_cull reaches the clones.
+      let clones = currententity._viewmodelMaterials;
+      if (clones == null) {
+        clones = new Map();
+        currententity._viewmodelMaterials = clones;
+      }
 
-			// Controller world pos is in meters → multiply by XR_SCALE for scene-local Quake units
-			mesh.position.copy( _xrControllerWorldPos ).multiplyScalar( XR_SCALE );
+      let clone = clones.get(baseMaterial);
+      if (clone === undefined) {
+        clone = GL_RegisterCullMaterial(baseMaterial.clone());
+        clone.transparent = true;
+        clones.set(baseMaterial, clone);
+      }
 
-			// Rotation: controller world quat * alignment to orient Quake model axes
-			mesh.quaternion.copy( _xrControllerQuat ).multiply( _xrWeaponAlignQuat );
+      mesh.material = clone;
+    }
+    mesh.renderOrder = 999;
 
-			// Scale 1: geometry is in Quake units, scene.scale handles the rest
-			mesh.scale.setScalar( 1 );
-
-		}
-
-		// No depthRange hack in XR — weapon renders at actual world position
-		mesh.renderOrder = 0;
-		mesh.onBeforeRender = _noop;
-		mesh.onAfterRender = _noop;
-
-	} else {
-
-		// Non-XR: ensure mesh is in scene (handles returning from XR too)
-		if ( mesh.parent !== scene && scene != null ) {
-
-			scene.add( mesh );
-			mesh.scale.setScalar( 1 );
-			_entityMeshesInScene.add( mesh );
-
-		}
-
-		// Non-XR: apply depthRange hack so weapon renders on top of world
-		const baseMaterial = mesh.material;
-		if ( R_EntAlpha_IsClone( baseMaterial ) ) {
-
-			// SU_WEAPONALPHA: gl_entalpha.js's clone is already transparent
-
-		} else if ( baseMaterial === currententity._aliasLerpMaterial ) {
-
-			// r_lerpmodels: the gun's own lerp material (gl_mesh.js), not
-			// shared, so mark it directly. A clone would lose its
-			// onBeforeCompile and the blend.
-			baseMaterial.transparent = true;
-
-		} else {
-
-			// One transparent clone per base material, kept until the map
-			// changes: an animated skin or a weapon change switches the base,
-			// and replacing a single clone made a new one each switch and
-			// leaked the old. Registered so gl_cull reaches the clones.
-			let clones = currententity._viewmodelMaterials;
-			if ( clones == null ) {
-
-				clones = new Map();
-				currententity._viewmodelMaterials = clones;
-
-			}
-
-			let clone = clones.get( baseMaterial );
-			if ( clone === undefined ) {
-
-				clone = GL_RegisterCullMaterial( baseMaterial.clone() );
-				clone.transparent = true;
-				clones.set( baseMaterial, clone );
-
-			}
-
-			mesh.material = clone;
-
-		}
-		mesh.renderOrder = 999;
-
-		mesh.onBeforeRender = _viewmodelBeforeRender;
-		mesh.onAfterRender = _viewmodelAfterRender;
-
-	}
-
+    mesh.onBeforeRender = _viewmodelBeforeRender;
+    mesh.onAfterRender = _viewmodelAfterRender;
+  }
 }
 
 //============================================================================
@@ -880,95 +1029,91 @@ const _entityMeshesInScene = new Set();
 const _entityMeshesThisFrame = new Set();
 const _entityMeshCacheOwners = new Set();
 
-function _disposeEntityGeometry( geometry, geometries ) {
-
-	if ( geometry == null || geometries.has( geometry ) ) return;
-	geometries.add( geometry );
-	geometry.dispose();
-
+function _disposeEntityGeometry(geometry, geometries) {
+  if (geometry == null || geometries.has(geometry)) return;
+  geometries.add(geometry);
+  geometry.dispose();
 }
 
-function _disposeEntityMaterial( material, materials ) {
-
-	if ( material == null || materials.has( material ) ) return;
-	materials.add( material );
-	material.dispose();
-
+function _disposeEntityMaterial(material, materials) {
+  if (material == null || materials.has(material)) return;
+  materials.add(material);
+  material.dispose();
 }
 
-function _detachEntityMesh( mesh ) {
-
-	if ( mesh == null ) return;
-	if ( mesh.parent != null ) mesh.parent.remove( mesh );
-	mesh._quakeOwner = null;
-
+function _detachEntityMesh(mesh) {
+  if (mesh == null) return;
+  if (mesh.parent != null) mesh.parent.remove(mesh);
+  mesh._quakeOwner = null;
 }
 
-function _clearEntityMeshCache( entity, geometries, materials ) {
+function _clearEntityMeshCache(entity, geometries, materials) {
+  if (entity == null) return;
 
-	if ( entity == null ) return;
+  const spriteMesh = entity._spriteMesh;
+  const aliasMesh = entity._aliasMesh;
+  const shadowMesh = entity._aliasShadowMesh;
+  const aliasGeometry = entity._aliasGeo;
+  const shadowGeometry = entity._aliasShadowGeo;
+  const viewmodelMaterials = entity._viewmodelMaterials;
+  const playerMaterial = entity._playerMaterial;
+  const lerpMaterial = entity._aliasLerpMaterial;
+  if (
+    spriteMesh == null && aliasMesh == null && shadowMesh == null &&
+    aliasGeometry == null && shadowGeometry == null &&
+    viewmodelMaterials == null && playerMaterial == null && lerpMaterial == null
+  ) return;
 
-	const spriteMesh = entity._spriteMesh;
-	const aliasMesh = entity._aliasMesh;
-	const shadowMesh = entity._aliasShadowMesh;
-	const aliasGeometry = entity._aliasGeo;
-	const shadowGeometry = entity._aliasShadowGeo;
-	const viewmodelMaterials = entity._viewmodelMaterials;
-	const playerMaterial = entity._playerMaterial;
-	const lerpMaterial = entity._aliasLerpMaterial;
-	if ( spriteMesh == null && aliasMesh == null && shadowMesh == null &&
-		aliasGeometry == null && shadowGeometry == null &&
-		viewmodelMaterials == null && playerMaterial == null && lerpMaterial == null ) return;
+  _detachEntityMesh(spriteMesh);
+  _detachEntityMesh(aliasMesh);
+  _detachEntityMesh(shadowMesh);
 
-	_detachEntityMesh( spriteMesh );
-	_detachEntityMesh( aliasMesh );
-	_detachEntityMesh( shadowMesh );
+  _disposeEntityGeometry(
+    spriteMesh != null ? spriteMesh.geometry : null,
+    geometries,
+  );
+  _disposeEntityGeometry(aliasGeometry, geometries);
+  _disposeEntityGeometry(shadowGeometry, geometries);
+  if (viewmodelMaterials != null) {
+    for (const clone of viewmodelMaterials.values()) {
+      _disposeEntityMaterial(clone, materials);
+    }
+  }
 
-	_disposeEntityGeometry( spriteMesh != null ? spriteMesh.geometry : null, geometries );
-	_disposeEntityGeometry( aliasGeometry, geometries );
-	_disposeEntityGeometry( shadowGeometry, geometries );
-	if ( viewmodelMaterials != null ) {
+  _disposeEntityMaterial(playerMaterial, materials);
+  _disposeEntityMaterial(lerpMaterial, materials);
 
-		for ( const clone of viewmodelMaterials.values() )
-			_disposeEntityMaterial( clone, materials );
-
-	}
-
-	_disposeEntityMaterial( playerMaterial, materials );
-	_disposeEntityMaterial( lerpMaterial, materials );
-
-	entity._spriteMesh = null;
-	entity._aliasMesh = null;
-	entity._aliasGeo = null;
-	entity._aliasColorArray = null;
-	entity._aliasPaliashdr = null;
-	entity._aliasPosenum = undefined;
-	entity._aliasPose1 = undefined;
-	entity._aliasShadowMesh = null;
-	entity._aliasShadowGeo = null;
-	entity._aliasShadowPosArray = null;
-	entity._aliasShadowVertCount = undefined;
-	entity._viewmodelMaterials = null;
-	entity._playerMaterial = null;
-	entity._playerSkinTexture = null;
-	entity._aliasLerpMaterial = null;
-
+  entity._spriteMesh = null;
+  entity._aliasMesh = null;
+  entity._aliasGeo = null;
+  entity._aliasColorArray = null;
+  entity._aliasPaliashdr = null;
+  entity._aliasPosenum = undefined;
+  entity._aliasPose1 = undefined;
+  entity._aliasShadowMesh = null;
+  entity._aliasShadowGeo = null;
+  entity._aliasShadowPosArray = null;
+  entity._aliasShadowVertCount = undefined;
+  entity._viewmodelMaterials = null;
+  entity._playerMaterial = null;
+  entity._playerSkinTexture = null;
+  entity._aliasLerpMaterial = null;
 }
 
 // Pre-allocated vector for dynamic light distance calculation (avoid per-frame allocation)
-const _dlightDist = [ 0, 0, 0 ];
-const _shadevector = new Float32Array( 3 );
+const _dlightDist = [0, 0, 0];
+const _shadevector = new Float32Array(3);
 
 // Cached buffers for R_SetupGL (Golden Rule #4)
-const _xr_lastvieworg = new Float32Array( 3 ); // vieworg of the last XR frame
+const _xr_lastvieworg = new Float32Array(3); // vieworg of the last XR frame
 const XR_ORIGIN_JUMP = 128; // units moved in one frame that count as a teleport
-const _setupgl_angles = new Float32Array( 3 ); // XR: viewangles without pitch
-const _setupgl_forward = new Float32Array( 3 );
-const _setupgl_right = new Float32Array( 3 );
-const _setupgl_up = new Float32Array( 3 );
+const _setupgl_angles = new Float32Array(3); // XR: viewangles without pitch
+const _setupgl_forward = new Float32Array(3);
+const _setupgl_right = new Float32Array(3);
+const _setupgl_up = new Float32Array(3);
 const _setupgl_matrix = new THREE.Matrix4();
 const _setupgl_drawingBufferSize = new THREE.Vector2();
-const _setupgl_viewport = new Float64Array( 4 );
+const _setupgl_viewport = new Float64Array(4);
 
 /*
 =============
@@ -981,26 +1126,32 @@ renderScale (vid_renderscale, from ?scale=) is the WebGL buffer's size
 relative to the overlay, so the result is the same at every render scale.
 =============
 */
-export function R_VrectToViewport( out, vrect, vrectScale, renderScale, bufferWidth, bufferHeight, pixelRatio ) {
+export function R_VrectToViewport(
+  out,
+  vrect,
+  vrectScale,
+  renderScale,
+  bufferWidth,
+  bufferHeight,
+  pixelRatio,
+) {
+  const scale = vrectScale * renderScale;
+  let x = vrect.x * scale;
+  let x2 = (vrect.x + vrect.width) * scale;
+  let y = bufferHeight - vrect.y * scale;
+  let y2 = bufferHeight - (vrect.y + vrect.height) * scale;
 
-	const scale = vrectScale * renderScale;
-	let x = vrect.x * scale;
-	let x2 = ( vrect.x + vrect.width ) * scale;
-	let y = bufferHeight - vrect.y * scale;
-	let y2 = bufferHeight - ( vrect.y + vrect.height ) * scale;
+  // Match GLQuake's one-pixel expansion around fractional view boundaries.
+  if (x > 0) x--;
+  if (x2 < bufferWidth) x2++;
+  if (y2 < 0) y2--;
+  if (y < bufferHeight) y++;
 
-	// Match GLQuake's one-pixel expansion around fractional view boundaries.
-	if ( x > 0 ) x --;
-	if ( x2 < bufferWidth ) x2 ++;
-	if ( y2 < 0 ) y2 --;
-	if ( y < bufferHeight ) y ++;
-
-	out[ 0 ] = x / pixelRatio;
-	out[ 1 ] = y2 / pixelRatio;
-	out[ 2 ] = ( x2 - x ) / pixelRatio;
-	out[ 3 ] = ( y - y2 ) / pixelRatio;
-	return out;
-
+  out[0] = x / pixelRatio;
+  out[1] = y2 / pixelRatio;
+  out[2] = (x2 - x) / pixelRatio;
+  out[3] = (y - y2) / pixelRatio;
+  return out;
 }
 
 /*
@@ -1015,28 +1166,24 @@ computes alias bounds from the vertices; this port keeps id's fixed +/-16
 bounds (Mod_LoadAliasModel), so the retry starts 8 units up.
 =================
 */
-export function R_AliasLightPoint( e ) {
-
-	const light = R_LightPoint( e.origin, cl );
-	if ( light !== 0 ) return light;
-	return R_LightPoint( e.origin, cl, e.model.maxs[ 2 ] * 0.5 );
-
+export function R_AliasLightPoint(e) {
+  const light = R_LightPoint(e.origin, cl);
+  if (light !== 0) return light;
+  return R_LightPoint(e.origin, cl, e.model.maxs[2] * 0.5);
 }
 
 // QuakeSpasm r_alias.c lightcolor ("replaces float shadelight for lit
 // support"): the shade R_SetupAliasLighting leaves for gl_mesh.js, r, g and b
 // on shadelight's final scale. A double, as id's float shadelight is here.
-export const shadecolor = new Float64Array( 3 );
+export const shadecolor = new Float64Array(3);
 
 // Lift every channel of shadecolor by what lifts the scalar from shadelight
 // to `floor`: QuakeSpasm's `add / 3` on each channel, measured against id's
 // scalar so a mono shade lands on `floor` exactly.
-function R_ShadeColorFloor( shadelight, floor ) {
-
-	shadecolor[ 0 ] = floor + ( shadecolor[ 0 ] - shadelight );
-	shadecolor[ 1 ] = floor + ( shadecolor[ 1 ] - shadelight );
-	shadecolor[ 2 ] = floor + ( shadecolor[ 2 ] - shadelight );
-
+function R_ShadeColorFloor(shadelight, floor) {
+  shadecolor[0] = floor + (shadecolor[0] - shadelight);
+  shadecolor[1] = floor + (shadecolor[1] - shadelight);
+  shadecolor[2] = floor + (shadecolor[2] - shadelight);
 }
 
 /*
@@ -1057,181 +1204,159 @@ clamp scales them. Without a .lit every channel equals shadelight at each step,
 so the shade is exactly id's.
 =================
 */
-export function R_SetupAliasLighting( e ) {
+export function R_SetupAliasLighting(e) {
+  if (!cl || !e.origin) return null;
 
-	if ( ! cl || ! e.origin ) return null;
+  let ambientlight, shadelight;
+  ambientlight = shadelight = R_AliasLightPoint(e);
+  shadecolor[0] = lightcolor[0];
+  shadecolor[1] = lightcolor[1];
+  shadecolor[2] = lightcolor[2];
 
-	let ambientlight, shadelight;
-	ambientlight = shadelight = R_AliasLightPoint( e );
-	shadecolor[ 0 ] = lightcolor[ 0 ];
-	shadecolor[ 1 ] = lightcolor[ 1 ];
-	shadecolor[ 2 ] = lightcolor[ 2 ];
+  // always give the gun some light
+  if (e === cl.viewent && ambientlight < 24) {
+    R_ShadeColorFloor(shadelight, 24);
+    ambientlight = shadelight = 24;
+  }
 
-	// always give the gun some light
-	if ( e === cl.viewent && ambientlight < 24 ) {
+  // add dynamic lights to ambient/shade (gl_rmain.c:482-497)
+  for (let lnum = 0; lnum < MAX_DLIGHTS; lnum++) {
+    if (cl_dlights[lnum].die >= cl.time) {
+      VectorSubtract(e.origin, cl_dlights[lnum].origin, _dlightDist);
+      const add = cl_dlights[lnum].radius - Length(_dlightDist);
 
-		R_ShadeColorFloor( shadelight, 24 );
-		ambientlight = shadelight = 24;
+      if (add > 0) {
+        ambientlight += add;
+        shadelight += add;
+        // QuakeSpasm R_SetupAliasLighting: lightcolor += add * color
+        const color = cl_dlights[lnum].color;
+        shadecolor[0] += add * color[0];
+        shadecolor[1] += add * color[1];
+        shadecolor[2] += add * color[2];
+      }
+    }
+  }
 
-	}
+  // clamp lighting so it doesn't overbright as much
+  if (ambientlight > 128) {
+    ambientlight = 128;
+  }
+  if (ambientlight + shadelight > 192) {
+    // shadelight > 64 here. Dividing first keeps a mono channel exact.
+    const clamped = 192 - ambientlight;
+    shadecolor[0] = clamped * (shadecolor[0] / shadelight);
+    shadecolor[1] = clamped * (shadecolor[1] / shadelight);
+    shadecolor[2] = clamped * (shadecolor[2] / shadelight);
+    shadelight = clamped;
+  }
 
-	// add dynamic lights to ambient/shade (gl_rmain.c:482-497)
-	for ( let lnum = 0; lnum < MAX_DLIGHTS; lnum ++ ) {
+  // ZOID: never allow players to go totally black
+  if (cl_entities != null && cl.maxclients > 0) {
+    const idx = e._entityIndex;
+    if (idx !== undefined && idx >= 1 && idx <= cl.maxclients) {
+      if (ambientlight < 8) {
+        R_ShadeColorFloor(shadelight, 8);
+        ambientlight = shadelight = 8;
+      }
+    }
+  }
 
-		if ( cl_dlights[ lnum ].die >= cl.time ) {
+  // HACK HACK HACK -- no fullbright colors, so make torches full light
+  const clmodel = e.model;
+  if (
+    clmodel.name === "progs/flame2.mdl" || clmodel.name === "progs/flame.mdl"
+  ) {
+    ambientlight = shadelight = 256;
+    shadecolor[0] = shadecolor[1] = shadecolor[2] = 256;
+  }
 
-			VectorSubtract( e.origin, cl_dlights[ lnum ].origin, _dlightDist );
-			const add = cl_dlights[ lnum ].radius - Length( _dlightDist );
+  shadecolor[0] /= 200.0;
+  shadecolor[1] /= 200.0;
+  shadecolor[2] /= 200.0;
 
-			if ( add > 0 ) {
-
-				ambientlight += add;
-				shadelight += add;
-				// QuakeSpasm R_SetupAliasLighting: lightcolor += add * color
-				const color = cl_dlights[ lnum ].color;
-				shadecolor[ 0 ] += add * color[ 0 ];
-				shadecolor[ 1 ] += add * color[ 1 ];
-				shadecolor[ 2 ] += add * color[ 2 ];
-
-			}
-
-		}
-
-	}
-
-	// clamp lighting so it doesn't overbright as much
-	if ( ambientlight > 128 )
-		ambientlight = 128;
-	if ( ambientlight + shadelight > 192 ) {
-
-		// shadelight > 64 here. Dividing first keeps a mono channel exact.
-		const clamped = 192 - ambientlight;
-		shadecolor[ 0 ] = clamped * ( shadecolor[ 0 ] / shadelight );
-		shadecolor[ 1 ] = clamped * ( shadecolor[ 1 ] / shadelight );
-		shadecolor[ 2 ] = clamped * ( shadecolor[ 2 ] / shadelight );
-		shadelight = clamped;
-
-	}
-
-	// ZOID: never allow players to go totally black
-	if ( cl_entities != null && cl.maxclients > 0 ) {
-
-		const idx = e._entityIndex;
-		if ( idx !== undefined && idx >= 1 && idx <= cl.maxclients ) {
-
-			if ( ambientlight < 8 ) {
-
-				R_ShadeColorFloor( shadelight, 8 );
-				ambientlight = shadelight = 8;
-
-			}
-
-		}
-
-	}
-
-	// HACK HACK HACK -- no fullbright colors, so make torches full light
-	const clmodel = e.model;
-	if ( clmodel.name === 'progs/flame2.mdl' || clmodel.name === 'progs/flame.mdl' ) {
-
-		ambientlight = shadelight = 256;
-		shadecolor[ 0 ] = shadecolor[ 1 ] = shadecolor[ 2 ] = 256;
-
-	}
-
-	shadecolor[ 0 ] /= 200.0;
-	shadecolor[ 1 ] /= 200.0;
-	shadecolor[ 2 ] /= 200.0;
-
-	// select shadedots row based on yaw angle
-	const yaw = e.angles ? e.angles[ 1 ] : 0;
-	return r_avertexnormal_dots[ ( ( yaw * ( SHADEDOT_QUANT / 360.0 ) ) | 0 ) & ( SHADEDOT_QUANT - 1 ) ];
-
+  // select shadedots row based on yaw angle
+  const yaw = e.angles ? e.angles[1] : 0;
+  return r_avertexnormal_dots[
+    ((yaw * (SHADEDOT_QUANT / 360.0)) | 0) & (SHADEDOT_QUANT - 1)
+  ];
 }
 
-function R_DrawAliasModel( e ) {
+function R_DrawAliasModel(e) {
+  if (!e || !e.model) return;
+  // the .mdl, or its MD5 replacement (r_enhancedmodels)
+  const paliashdr = e.model.cache ? Mod_EnhancedAliasHeader(e.model) : null;
+  if (!paliashdr || (!paliashdr.posedata && !paliashdr.md5)) return;
 
-	if ( ! e || ! e.model ) return;
-	// the .mdl, or its MD5 replacement (r_enhancedmodels)
-	const paliashdr = e.model.cache ? Mod_EnhancedAliasHeader( e.model ) : null;
-	if ( ! paliashdr || ( ! paliashdr.posedata && ! paliashdr.md5 ) ) return;
+  //
+  // get lighting information
+  //
+  const shadedots = R_SetupAliasLighting(e);
 
-	//
-	// get lighting information
-	//
-	const shadedots = R_SetupAliasLighting( e );
+  // Compute shadevector from entity yaw (for shadows, computed before mesh call)
+  // Ported from WinQuake/gl_rmain.c:519-523
+  const an = (e.angles ? e.angles[1] : 0) / 180 * M_PI;
+  _shadevector[0] = Math.cos(-an);
+  _shadevector[1] = Math.sin(-an);
+  _shadevector[2] = 1;
+  const svLen = Math.sqrt(
+    _shadevector[0] * _shadevector[0] + _shadevector[1] * _shadevector[1] +
+      _shadevector[2] * _shadevector[2],
+  );
+  if (svLen > 0) {
+    _shadevector[0] /= svLen;
+    _shadevector[1] /= svLen;
+    _shadevector[2] /= svLen;
+  }
 
-	// Compute shadevector from entity yaw (for shadows, computed before mesh call)
-	// Ported from WinQuake/gl_rmain.c:519-523
-	const an = ( e.angles ? e.angles[ 1 ] : 0 ) / 180 * M_PI;
-	_shadevector[ 0 ] = Math.cos( - an );
-	_shadevector[ 1 ] = Math.sin( - an );
-	_shadevector[ 2 ] = 1;
-	const svLen = Math.sqrt( _shadevector[ 0 ] * _shadevector[ 0 ] + _shadevector[ 1 ] * _shadevector[ 1 ] + _shadevector[ 2 ] * _shadevector[ 2 ] );
-	if ( svLen > 0 ) {
+  const mesh = R_DrawAliasModel_mesh(e, paliashdr, shadedots, shadecolor);
+  if (mesh != null) {
+    R_EntAlpha_ApplyMesh(e, mesh); //johnfitz -- entity alpha (gl_entalpha.js)
+    mesh._quakeOwner = e;
+    _entityMeshCacheOwners.add(e);
+  }
+  if (mesh && scene) {
+    if (!_entityMeshesInScene.has(mesh)) {
+      scene.add(mesh);
+      _entityMeshesInScene.add(mesh);
+    }
 
-		_shadevector[ 0 ] /= svLen;
-		_shadevector[ 1 ] /= svLen;
-		_shadevector[ 2 ] /= svLen;
+    _entityMeshesThisFrame.add(mesh);
+  }
 
-	}
+  // Draw shadow (Ported from WinQuake/gl_rmain.c:579-591)
+  if (
+    r_shadows.value !== 0 && e !== cl.viewent && mesh != null && scene != null
+  ) {
+    const shadowMesh = GL_DrawAliasShadow(
+      e,
+      paliashdr,
+      alias_lerpdata,
+      lightspot,
+      _shadevector,
+    );
+    if (shadowMesh != null) {
+      shadowMesh._quakeOwner = e;
+      _entityMeshCacheOwners.add(e);
 
-	const mesh = R_DrawAliasModel_mesh( e, paliashdr, shadedots, shadecolor );
-	if ( mesh != null ) {
+      if (!_entityMeshesInScene.has(shadowMesh)) {
+        scene.add(shadowMesh);
+        _entityMeshesInScene.add(shadowMesh);
+      }
 
-		R_EntAlpha_ApplyMesh( e, mesh ); //johnfitz -- entity alpha (gl_entalpha.js)
-		mesh._quakeOwner = e;
-		_entityMeshCacheOwners.add( e );
+      _entityMeshesThisFrame.add(shadowMesh);
+    }
+  }
 
-	}
-	if ( mesh && scene ) {
-
-		if ( ! _entityMeshesInScene.has( mesh ) ) {
-
-			scene.add( mesh );
-			_entityMeshesInScene.add( mesh );
-
-		}
-
-		_entityMeshesThisFrame.add( mesh );
-
-	}
-
-	// Draw shadow (Ported from WinQuake/gl_rmain.c:579-591)
-	if ( r_shadows.value !== 0 && e !== cl.viewent && mesh != null && scene != null ) {
-
-		const shadowMesh = GL_DrawAliasShadow( e, paliashdr, alias_lerpdata, lightspot, _shadevector );
-		if ( shadowMesh != null ) {
-
-			shadowMesh._quakeOwner = e;
-			_entityMeshCacheOwners.add( e );
-
-			if ( ! _entityMeshesInScene.has( shadowMesh ) ) {
-
-				scene.add( shadowMesh );
-				_entityMeshesInScene.add( shadowMesh );
-
-			}
-
-			_entityMeshesThisFrame.add( shadowMesh );
-
-		}
-
-	}
-
-	c_alias_polys ++;
-
+  c_alias_polys++;
 }
 
 //============================================================================
 // R_DrawBrushModel (stub -- full implementation in gl_rsurf.js)
 //============================================================================
 
-function R_DrawBrushModel( e ) {
-
-	R_DrawBrushModel_rsurf( e );
-	R_EntAlpha_Apply( e ); //johnfitz -- entity alpha (gl_entalpha.js)
-
+function R_DrawBrushModel(e) {
+  R_DrawBrushModel_rsurf(e);
+  R_EntAlpha_Apply(e); //johnfitz -- entity alpha (gl_entalpha.js)
 }
 
 //============================================================================
@@ -1245,47 +1370,38 @@ R_GetSpriteFrame
 Ported from: WinQuake/gl_rmain.c:144-188
 ================
 */
-function R_GetSpriteFrame( e ) {
+function R_GetSpriteFrame(e) {
+  const psprite = e.model.cache.data;
+  let frame = e.frame;
 
-	const psprite = e.model.cache.data;
-	let frame = e.frame;
+  if (frame >= psprite.numframes || frame < 0) {
+    Con_Printf("R_DrawSprite: no such frame " + frame + "\n");
+    frame = 0;
+  }
 
-	if ( frame >= psprite.numframes || frame < 0 ) {
+  if (psprite.frames[frame].type === SPR_SINGLE) {
+    return psprite.frames[frame].frameptr;
+  } else {
+    const pspritegroup = psprite.frames[frame].frameptr;
+    const pintervals = pspritegroup.intervals;
+    const numframes = pspritegroup.numframes;
+    const fullinterval = pintervals[numframes - 1];
 
-		Con_Printf( 'R_DrawSprite: no such frame ' + frame + '\n' );
-		frame = 0;
+    const time = cl.time + e.syncbase;
 
-	}
+    // when loading in Mod_LoadSpriteGroup, we guaranteed all interval values
+    // are positive, so we don't have to worry about division by 0
+    const targettime = time - ((time / fullinterval) | 0) * fullinterval;
 
-	if ( psprite.frames[ frame ].type === SPR_SINGLE ) {
+    let i;
+    for (i = 0; i < (numframes - 1); i++) {
+      if (pintervals[i] > targettime) {
+        break;
+      }
+    }
 
-		return psprite.frames[ frame ].frameptr;
-
-	} else {
-
-		const pspritegroup = psprite.frames[ frame ].frameptr;
-		const pintervals = pspritegroup.intervals;
-		const numframes = pspritegroup.numframes;
-		const fullinterval = pintervals[ numframes - 1 ];
-
-		const time = cl.time + e.syncbase;
-
-		// when loading in Mod_LoadSpriteGroup, we guaranteed all interval values
-		// are positive, so we don't have to worry about division by 0
-		const targettime = time - ( ( time / fullinterval ) | 0 ) * fullinterval;
-
-		let i;
-		for ( i = 0; i < ( numframes - 1 ); i ++ ) {
-
-			if ( pintervals[ i ] > targettime )
-				break;
-
-		}
-
-		return pspritegroup.frames[ i ];
-
-	}
-
+    return pspritegroup.frames[i];
+  }
 }
 
 // Sprite material caches: texture -> material. Decals (SPR_ORIENTED) get
@@ -1293,9 +1409,9 @@ function R_GetSpriteFrame( e ) {
 const _spriteMaterialCache = new Map();
 const _spriteDecalMaterialCache = new Map();
 // Scratch axes for R_SpriteAxes
-const _sprite_v_forward = new Float32Array( 3 );
-const _sprite_v_right = new Float32Array( 3 );
-const _sprite_v_up = new Float32Array( 3 );
+const _sprite_v_forward = new Float32Array(3);
+const _sprite_v_right = new Float32Array(3);
+const _sprite_v_up = new Float32Array(3);
 
 /*
 ================
@@ -1313,206 +1429,186 @@ or down. Deliberate deviation: an unknown type is skipped, as in QuakeSpasm,
 rather than a Sys_Error.
 ================
 */
-export function R_SpriteAxes( type, e, up, right ) {
+export function R_SpriteAxes(type, e, up, right) {
+  switch (type) {
+    case SPR_FACING_UPRIGHT: {
+      // vup straight up in worldspace, vright perpendicular to the
+      // line from the viewer to the sprite
+      const tvec = _sprite_v_forward;
+      VectorSubtract(e.origin, r_origin, tvec);
+      VectorNormalize(tvec);
+      const dot = tvec[2];
+      if ((dot > 0.999848) || (dot < -0.999848)) { // cos(1 degree) = 0.999848
+        return false;
+      }
+      up[0] = 0;
+      up[1] = 0;
+      up[2] = 1;
+      right[0] = tvec[1];
+      right[1] = -tvec[0];
+      right[2] = 0;
+      VectorNormalize(right);
+      return true;
+    }
 
-	switch ( type ) {
+    case SPR_VP_PARALLEL:
+      VectorCopy(vup, up);
+      VectorCopy(vright, right);
+      return true;
 
-		case SPR_FACING_UPRIGHT: {
+    case SPR_VP_PARALLEL_UPRIGHT: {
+      // vup straight up in worldspace, vright parallel to the viewplane
+      const dot = vpn[2];
+      if ((dot > 0.999848) || (dot < -0.999848)) { // cos(1 degree) = 0.999848
+        return false;
+      }
+      up[0] = 0;
+      up[1] = 0;
+      up[2] = 1;
+      right[0] = vpn[1];
+      right[1] = -vpn[0];
+      right[2] = 0;
+      VectorNormalize(right);
+      return true;
+    }
 
-			// vup straight up in worldspace, vright perpendicular to the
-			// line from the viewer to the sprite
-			const tvec = _sprite_v_forward;
-			VectorSubtract( e.origin, r_origin, tvec );
-			VectorNormalize( tvec );
-			const dot = tvec[ 2 ];
-			if ( ( dot > 0.999848 ) || ( dot < - 0.999848 ) ) // cos(1 degree) = 0.999848
-				return false;
-			up[ 0 ] = 0;
-			up[ 1 ] = 0;
-			up[ 2 ] = 1;
-			right[ 0 ] = tvec[ 1 ];
-			right[ 1 ] = - tvec[ 0 ];
-			right[ 2 ] = 0;
-			VectorNormalize( right );
-			return true;
+    case SPR_ORIENTED:
+      // the sprite's world orientation (bullet marks on walls)
+      AngleVectors(e.angles, _sprite_v_forward, right, up);
+      return true;
 
-		}
+    case SPR_VP_PARALLEL_ORIENTED: {
+      // parallel to the viewplane, rotated by the entity's roll
+      const angle = e.angles[2] * (M_PI * 2 / 360); // ROLL
+      const sr = Math.sin(angle);
+      const cr = Math.cos(angle);
+      for (let i = 0; i < 3; i++) {
+        right[i] = vright[i] * cr + vup[i] * sr;
+        up[i] = vright[i] * -sr + vup[i] * cr;
+      }
 
-		case SPR_VP_PARALLEL:
-			VectorCopy( vup, up );
-			VectorCopy( vright, right );
-			return true;
+      return true;
+    }
 
-		case SPR_VP_PARALLEL_UPRIGHT: {
-
-			// vup straight up in worldspace, vright parallel to the viewplane
-			const dot = vpn[ 2 ];
-			if ( ( dot > 0.999848 ) || ( dot < - 0.999848 ) ) // cos(1 degree) = 0.999848
-				return false;
-			up[ 0 ] = 0;
-			up[ 1 ] = 0;
-			up[ 2 ] = 1;
-			right[ 0 ] = vpn[ 1 ];
-			right[ 1 ] = - vpn[ 0 ];
-			right[ 2 ] = 0;
-			VectorNormalize( right );
-			return true;
-
-		}
-
-		case SPR_ORIENTED:
-			// the sprite's world orientation (bullet marks on walls)
-			AngleVectors( e.angles, _sprite_v_forward, right, up );
-			return true;
-
-		case SPR_VP_PARALLEL_ORIENTED: {
-
-			// parallel to the viewplane, rotated by the entity's roll
-			const angle = e.angles[ 2 ] * ( M_PI * 2 / 360 ); // ROLL
-			const sr = Math.sin( angle );
-			const cr = Math.cos( angle );
-			for ( let i = 0; i < 3; i ++ ) {
-
-				right[ i ] = vright[ i ] * cr + vup[ i ] * sr;
-				up[ i ] = vright[ i ] * - sr + vup[ i ] * cr;
-
-			}
-
-			return true;
-
-		}
-
-		default:
-			return false;
-
-	}
-
+    default:
+      return false;
+  }
 }
 
-export function R_SpriteMaterial( texture, decal ) {
+export function R_SpriteMaterial(texture, decal) {
+  const cache = decal ? _spriteDecalMaterialCache : _spriteMaterialCache;
+  let material = cache.get(texture);
+  if (material === undefined) {
+    material = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      alphaTest: 0.5,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
 
-	const cache = decal ? _spriteDecalMaterialCache : _spriteMaterialCache;
-	let material = cache.get( texture );
-	if ( material === undefined ) {
+    if (decal) {
+      // Deliberate deviation, from QuakeSpasm (r_sprite.c,
+      // GL_PolygonOffset( OFFSET_DECAL )): pull decals towards the
+      // viewer so they don't z-fight with the wall they're on.
+      material.polygonOffset = true;
+      material.polygonOffsetFactor = -1;
+      material.polygonOffsetUnits = -1;
+    }
 
-		material = new THREE.MeshBasicMaterial( {
-			map: texture,
-			transparent: true,
-			alphaTest: 0.5,
-			depthWrite: false,
-			side: THREE.DoubleSide
-		} );
+    cache.set(texture, material);
+  }
 
-		if ( decal ) {
-
-			// Deliberate deviation, from QuakeSpasm (r_sprite.c,
-			// GL_PolygonOffset( OFFSET_DECAL )): pull decals towards the
-			// viewer so they don't z-fight with the wall they're on.
-			material.polygonOffset = true;
-			material.polygonOffsetFactor = - 1;
-			material.polygonOffsetUnits = - 1;
-
-		}
-
-		cache.set( texture, material );
-
-	}
-
-	return material;
-
+  return material;
 }
 
-function R_DrawSpriteModel( e ) {
+function R_DrawSpriteModel(e) {
+  if (e == null || e.model == null) return;
+  const psprite = e.model.cache ? e.model.cache.data : null;
+  if (
+    psprite == null || psprite.frames == null || psprite.frames.length === 0
+  ) return;
 
-	if ( e == null || e.model == null ) return;
-	const psprite = e.model.cache ? e.model.cache.data : null;
-	if ( psprite == null || psprite.frames == null || psprite.frames.length === 0 ) return;
+  const frame = R_GetSpriteFrame(e);
+  if (frame == null) return;
 
-	const frame = R_GetSpriteFrame( e );
-	if ( frame == null ) return;
+  const texture = frame.gl_texturenum;
+  if (texture == null) return;
 
-	const texture = frame.gl_texturenum;
-	if ( texture == null ) return;
+  if (R_SpriteAxes(psprite.type, e, _sprite_v_up, _sprite_v_right) === false) {
+    return;
+  }
 
-	if ( R_SpriteAxes( psprite.type, e, _sprite_v_up, _sprite_v_right ) === false ) return;
+  const material = R_SpriteMaterial(texture, psprite.type === SPR_ORIENTED);
 
-	const material = R_SpriteMaterial( texture, psprite.type === SPR_ORIENTED );
+  // Get or create cached geometry for this entity
+  let mesh = e._spriteMesh;
+  let positions;
 
-	// Get or create cached geometry for this entity
-	let mesh = e._spriteMesh;
-	let positions;
+  if (!mesh) {
+    // First time: create geometry with pre-allocated buffers
+    positions = new Float32Array(12); // 4 vertices * 3
+    const uvs = new Float32Array([0, 1, 1, 1, 1, 0, 0, 0]);
 
-	if ( ! mesh ) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+    geometry.setIndex([0, 1, 2, 0, 2, 3]);
 
-		// First time: create geometry with pre-allocated buffers
-		positions = new Float32Array( 12 ); // 4 vertices * 3
-		const uvs = new Float32Array( [ 0, 1, 1, 1, 1, 0, 0, 0 ] );
+    mesh = new THREE.Mesh(geometry, material);
+    // The four positions are rewritten in world space every frame, but
+    // Three.js computes the bounding sphere only once, so frustum culling
+    // would test a moving sprite (or a reused entity slot) against where
+    // it was first drawn. C submits sprites without culling them.
+    mesh.frustumCulled = false;
+    e._spriteMesh = mesh;
+  } else if (mesh.material !== material) {
+    mesh.material = material;
+  }
 
-		const geometry = new THREE.BufferGeometry();
-		geometry.setAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
-		geometry.setAttribute( 'uv', new THREE.BufferAttribute( uvs, 2 ) );
-		geometry.setIndex( [ 0, 1, 2, 0, 2, 3 ] );
+  mesh._quakeOwner = e;
+  _entityMeshCacheOwners.add(e);
 
-		mesh = new THREE.Mesh( geometry, material );
-		// The four positions are rewritten in world space every frame, but
-		// Three.js computes the bounding sphere only once, so frustum culling
-		// would test a moving sprite (or a reused entity slot) against where
-		// it was first drawn. C submits sprites without culling them.
-		mesh.frustumCulled = false;
-		e._spriteMesh = mesh;
+  // Update billboard vertex positions every frame
+  const posAttr = mesh.geometry.attributes.position;
+  positions = posAttr.array;
 
-	} else if ( mesh.material !== material ) {
+  const ox = e.origin[0];
+  const oy = e.origin[1];
+  const oz = e.origin[2];
 
-		mesh.material = material;
+  const ux = _sprite_v_up[0], uy = _sprite_v_up[1], uz = _sprite_v_up[2];
+  const rx = _sprite_v_right[0],
+    ry = _sprite_v_right[1],
+    rz = _sprite_v_right[2];
+  const l = frame.left, r = frame.right, u = frame.up, d = frame.down;
 
-	}
+  positions[0] = ox + ux * d + rx * l;
+  positions[1] = oy + uy * d + ry * l;
+  positions[2] = oz + uz * d + rz * l;
 
-	mesh._quakeOwner = e;
-	_entityMeshCacheOwners.add( e );
+  positions[3] = ox + ux * d + rx * r;
+  positions[4] = oy + uy * d + ry * r;
+  positions[5] = oz + uz * d + rz * r;
 
-	// Update billboard vertex positions every frame
-	const posAttr = mesh.geometry.attributes.position;
-	positions = posAttr.array;
+  positions[6] = ox + ux * u + rx * r;
+  positions[7] = oy + uy * u + ry * r;
+  positions[8] = oz + uz * u + rz * r;
 
-	const ox = e.origin[ 0 ];
-	const oy = e.origin[ 1 ];
-	const oz = e.origin[ 2 ];
+  positions[9] = ox + ux * u + rx * l;
+  positions[10] = oy + uy * u + ry * l;
+  positions[11] = oz + uz * u + rz * l;
 
-	const ux = _sprite_v_up[ 0 ], uy = _sprite_v_up[ 1 ], uz = _sprite_v_up[ 2 ];
-	const rx = _sprite_v_right[ 0 ], ry = _sprite_v_right[ 1 ], rz = _sprite_v_right[ 2 ];
-	const l = frame.left, r = frame.right, u = frame.up, d = frame.down;
+  posAttr.needsUpdate = true;
 
-	positions[ 0 ] = ox + ux * d + rx * l;
-	positions[ 1 ] = oy + uy * d + ry * l;
-	positions[ 2 ] = oz + uz * d + rz * l;
+  if (scene) {
+    if (!_entityMeshesInScene.has(mesh)) {
+      scene.add(mesh);
+      _entityMeshesInScene.add(mesh);
+    }
 
-	positions[ 3 ] = ox + ux * d + rx * r;
-	positions[ 4 ] = oy + uy * d + ry * r;
-	positions[ 5 ] = oz + uz * d + rz * r;
-
-	positions[ 6 ] = ox + ux * u + rx * r;
-	positions[ 7 ] = oy + uy * u + ry * r;
-	positions[ 8 ] = oz + uz * u + rz * r;
-
-	positions[ 9 ] = ox + ux * u + rx * l;
-	positions[ 10 ] = oy + uy * u + ry * l;
-	positions[ 11 ] = oz + uz * u + rz * l;
-
-	posAttr.needsUpdate = true;
-
-	if ( scene ) {
-
-		if ( ! _entityMeshesInScene.has( mesh ) ) {
-
-			scene.add( mesh );
-			_entityMeshesInScene.add( mesh );
-
-		}
-
-		_entityMeshesThisFrame.add( mesh );
-
-	}
-
+    _entityMeshesThisFrame.add(mesh);
+  }
 }
 
 //============================================================================
@@ -1531,50 +1627,52 @@ let polyBlendScene = null;
 let polyBlendCamera = null;
 
 export function R_PolyBlend() {
+  if (gl_polyblend.value === 0) {
+    return;
+  }
 
-	if ( gl_polyblend.value === 0 )
-		return;
+  if (v_blend[3] === 0) {
+    return;
+  }
 
-	if ( v_blend[ 3 ] === 0 )
-		return;
+  if (isXRActive()) {
+    XR_PolyBlend(v_blend);
+    return;
+  }
 
-	if ( isXRActive() ) {
+  if (renderer == null) {
+    return;
+  }
 
-		XR_PolyBlend( v_blend );
-		return;
+  // create overlay geometry on first use
+  if (polyBlendScene == null) {
+    polyBlendScene = new THREE.Scene();
+    polyBlendCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-	}
+    const geometry = new THREE.PlaneGeometry(2, 2);
+    // toneMapped: false keeps the blend out of the gamma exposure, like
+    // GLQuake, where gamma is baked into textures and R_PolyBlend's
+    // glColor4fv( v_blend ) is drawn as is.
+    const material = new THREE.MeshBasicMaterial({
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    polyBlendMesh = new THREE.Mesh(geometry, material);
+    polyBlendScene.add(polyBlendMesh);
+  }
 
-	if ( renderer == null )
-		return;
+  // update blend color (values are sRGB from Quake's palette, tell Three.js to convert)
+  polyBlendMesh.material.color.setRGB(
+    v_blend[0],
+    v_blend[1],
+    v_blend[2],
+    THREE.SRGBColorSpace,
+  );
+  polyBlendMesh.material.opacity = v_blend[3];
 
-	// create overlay geometry on first use
-	if ( polyBlendScene == null ) {
-
-		polyBlendScene = new THREE.Scene();
-		polyBlendCamera = new THREE.OrthographicCamera( - 1, 1, 1, - 1, 0, 1 );
-
-		const geometry = new THREE.PlaneGeometry( 2, 2 );
-		// toneMapped: false keeps the blend out of the gamma exposure, like
-		// GLQuake, where gamma is baked into textures and R_PolyBlend's
-		// glColor4fv( v_blend ) is drawn as is.
-		const material = new THREE.MeshBasicMaterial( {
-			transparent: true,
-			depthTest: false,
-			depthWrite: false,
-			toneMapped: false
-		} );
-		polyBlendMesh = new THREE.Mesh( geometry, material );
-		polyBlendScene.add( polyBlendMesh );
-
-	}
-
-	// update blend color (values are sRGB from Quake's palette, tell Three.js to convert)
-	polyBlendMesh.material.color.setRGB( v_blend[ 0 ], v_blend[ 1 ], v_blend[ 2 ], THREE.SRGBColorSpace );
-	polyBlendMesh.material.opacity = v_blend[ 3 ];
-
-	renderer.render( polyBlendScene, polyBlendCamera );
-
+  renderer.render(polyBlendScene, polyBlendCamera);
 }
 
 //============================================================================
@@ -1584,47 +1682,41 @@ export function R_PolyBlend() {
 //============================================================================
 
 export function R_RenderScene() {
+  // Begin new frame: clear the "this frame" set
+  _entityMeshesThisFrame.clear();
 
-	// Begin new frame: clear the "this frame" set
-	_entityMeshesThisFrame.clear();
+  // Dynamic lights are managed by R_RenderDlights - it updates intensity
+  // each frame and removes expired lights from scene
 
-	// Dynamic lights are managed by R_RenderDlights - it updates intensity
-	// each frame and removes expired lights from scene
+  R_SetupFrame();
 
-	R_SetupFrame();
+  R_SetFrustum();
 
-	R_SetFrustum();
+  R_SetupGL();
 
-	R_SetupGL();
+  R_SetupXRFrustum(); // WebXR: cull with the headset's eyes, not frustum[]
 
-	R_SetupXRFrustum(); // WebXR: cull with the headset's eyes, not frustum[]
+  Fog_SetupFrame(scene); // johnfitz (Ironwail R_SetupView)
 
-	Fog_SetupFrame( scene ); // johnfitz (Ironwail R_SetupView)
+  R_MarkLeaves(); // done here so we know if we're in water
 
-	R_MarkLeaves(); // done here so we know if we're in water
+  R_DrawWorld(); // adds static entities to the list
 
-	R_DrawWorld(); // adds static entities to the list
+  S_ExtraUpdate(); // don't let sound get messed up if going slow
 
-	S_ExtraUpdate(); // don't let sound get messed up if going slow
+  R_DrawEntitiesOnList();
 
-	R_DrawEntitiesOnList();
+  // Remove entity meshes that were in the scene last frame but not this frame
+  for (const mesh of _entityMeshesInScene) {
+    if (!_entityMeshesThisFrame.has(mesh)) {
+      if (scene) scene.remove(mesh);
+      _entityMeshesInScene.delete(mesh);
+    }
+  }
 
-	// Remove entity meshes that were in the scene last frame but not this frame
-	for ( const mesh of _entityMeshesInScene ) {
+  R_RenderDlights();
 
-		if ( ! _entityMeshesThisFrame.has( mesh ) ) {
-
-			if ( scene ) scene.remove( mesh );
-			_entityMeshesInScene.delete( mesh );
-
-		}
-
-	}
-
-	R_RenderDlights();
-
-	R_DrawParticles();
-
+  R_DrawParticles();
 }
 
 //============================================================================
@@ -1634,76 +1726,72 @@ export function R_RenderScene() {
 //============================================================================
 
 export function R_RenderView() {
+  let time1, time2;
 
-	let time1, time2;
+  if (r_norefresh.value) {
+    return;
+  }
 
-	if ( r_norefresh.value )
-		return;
+  if (!r_worldentity.model || (cl && !cl.worldmodel)) {
+    return; // worldmodel not loaded yet
+  }
 
-	if ( ! r_worldentity.model || ( cl && ! cl.worldmodel ) )
-		return; // worldmodel not loaded yet
+  if (r_speeds.value) {
+    time1 = Sys_FloatTime();
+    c_brush_polys = 0;
+    c_alias_polys = 0;
+  }
 
-	if ( r_speeds.value ) {
+  mirror = false;
 
-		time1 = Sys_FloatTime();
-		c_brush_polys = 0;
-		c_alias_polys = 0;
+  // glFinish blocks until the GPU is done; WebGL's finish() is the same call
+  // (R_TimeRefresh_f uses it too). Only useful for timing, as in GLQuake.
+  if (gl_finish.value && renderer !== null) {
+    renderer.getContext().finish();
+  }
 
-	}
+  R_Clear();
 
-	mirror = false;
+  // render normal view
+  R_RenderScene();
+  R_DrawViewModel();
+  R_DrawWaterSurfaces();
 
-	// glFinish blocks until the GPU is done; WebGL's finish() is the same call
-	// (R_TimeRefresh_f uses it too). Only useful for timing, as in GLQuake.
-	if ( gl_finish.value && renderer !== null )
-		renderer.getContext().finish();
+  // render mirror view
+  R_Mirror();
 
-	R_Clear();
+  // Present the frame via Three.js
+  if (renderer && scene && camera) {
+    // GL_BeginRendering and R_Clear have already cleared the canvas, so
+    // the scene has no background, which would make render() clear it a
+    // third time. In XR those clears don't reach the headset's eye
+    // buffers, so the background does that.
+    scene.background = isXRActive() ? _xrBackground : null;
+    renderer.render(scene, camera);
+  }
 
-	// render normal view
-	R_RenderScene();
-	R_DrawViewModel();
-	R_DrawWaterSurfaces();
+  R_MirrorCleanup();
+  mirror = false;
 
-	// render mirror view
-	R_Mirror();
+  // Draw screen blend overlay AFTER main scene (damage flash, powerups, underwater tint).
+  // In XR this only hands v_blend to XR_RenderHUD, which draws it.
+  R_PolyBlend();
 
-	// Present the frame via Three.js
-	if ( renderer && scene && camera ) {
+  if (isXRActive() && camera) {
+    // The blend, then the 2D overlay quad, on top of the world and particles
+    XR_RenderHUD(camera);
+  }
 
-		// GL_BeginRendering and R_Clear have already cleared the canvas, so
-		// the scene has no background, which would make render() clear it a
-		// third time. In XR those clears don't reach the headset's eye
-		// buffers, so the background does that.
-		scene.background = isXRActive() ? _xrBackground : null;
-		renderer.render( scene, camera );
+  // Clean up water meshes AFTER rendering (they need to exist during render)
+  R_CleanupWaterMeshes_rsurf();
 
-	}
-
-	R_MirrorCleanup();
-	mirror = false;
-
-	// Draw screen blend overlay AFTER main scene (damage flash, powerups, underwater tint).
-	// In XR this only hands v_blend to XR_RenderHUD, which draws it.
-	R_PolyBlend();
-
-	if ( isXRActive() && camera ) {
-
-		// The blend, then the 2D overlay quad, on top of the world and particles
-		XR_RenderHUD( camera );
-
-	}
-
-	// Clean up water meshes AFTER rendering (they need to exist during render)
-	R_CleanupWaterMeshes_rsurf();
-
-	if ( r_speeds.value ) {
-
-		time2 = Sys_FloatTime();
-		Con_Printf( ( ( ( time2 - time1 ) * 1000 ) | 0 ) + ' ms  ' + c_brush_polys + ' wpoly ' + c_alias_polys + ' epoly' );
-
-	}
-
+  if (r_speeds.value) {
+    time2 = Sys_FloatTime();
+    Con_Printf(
+      (((time2 - time1) * 1000) | 0) + " ms  " + c_brush_polys + " wpoly " +
+        c_alias_polys + " epoly",
+    );
+  }
 }
 
 //============================================================================
@@ -1721,58 +1809,68 @@ export function R_RenderView() {
 //============================================================================
 
 function R_Mirror() {
+  if (mirror === false) {
+    return;
+  }
 
-	if ( mirror === false )
-		return;
+  if (renderer == null || scene == null || camera == null) {
+    return;
+  }
 
-	if ( renderer == null || scene == null || camera == null )
-		return;
+  if (R_MirrorGate(r_mirroralpha.value, isXRActive()) === false) {
+    return;
+  }
 
-	if ( R_MirrorGate( r_mirroralpha.value, isXRActive() ) === false )
-		return;
+  const alpha = Math.max(0, r_mirroralpha.value);
+  _mirrorHide[0] = cl && cl.viewent ? cl.viewent._aliasMesh : null;
 
-	const alpha = Math.max( 0, r_mirroralpha.value );
-	_mirrorHide[ 0 ] = cl && cl.viewent ? cl.viewent._aliasMesh : null;
+  // gl_rmain.c: the player is added to the entity list for the reflected
+  // view (cl_visedicts[cl_numvisedicts++] = &cl_entities[cl.viewentity]).
+  // Here its mesh joins the scene for the reflection pass only, unless the
+  // chase camera has already drawn it this frame. It is drawn at the view
+  // entity's origin, the server's (CL_LinkPlayers): with client prediction
+  // the reflection trails the predicted camera by about one round trip.
+  const ent = cl != null ? cl_entities[cl.viewentity] : null;
+  let playerMesh = null;
+  let shadowMesh = null;
+  if (
+    r_drawentities.value && ent != null && ent.model != null &&
+    ent.model.type === mod_alias &&
+    (ent._aliasMesh == null ||
+      _entityMeshesThisFrame.has(ent._aliasMesh) === false)
+  ) {
+    currententity = ent;
+    R_DrawAliasModel(ent);
+    playerMesh = ent._aliasMesh;
+    shadowMesh = ent._aliasShadowMesh;
+  }
 
-	// gl_rmain.c: the player is added to the entity list for the reflected
-	// view (cl_visedicts[cl_numvisedicts++] = &cl_entities[cl.viewentity]).
-	// Here its mesh joins the scene for the reflection pass only, unless the
-	// chase camera has already drawn it this frame. It is drawn at the view
-	// entity's origin, the server's (CL_LinkPlayers): with client prediction
-	// the reflection trails the predicted camera by about one round trip.
-	const ent = cl != null ? cl_entities[ cl.viewentity ] : null;
-	let playerMesh = null;
-	let shadowMesh = null;
-	if ( r_drawentities.value && ent != null && ent.model != null && ent.model.type === mod_alias &&
-		( ent._aliasMesh == null || _entityMeshesThisFrame.has( ent._aliasMesh ) === false ) ) {
+  R_MirrorPass(
+    renderer,
+    scene,
+    camera,
+    mirror_plane,
+    R_GetMirrorItems(),
+    alpha,
+    _mirrorHide,
+  );
 
-		currententity = ent;
-		R_DrawAliasModel( ent );
-		playerMesh = ent._aliasMesh;
-		shadowMesh = ent._aliasShadowMesh;
-
-	}
-
-	R_MirrorPass( renderer, scene, camera, mirror_plane, R_GetMirrorItems(), alpha, _mirrorHide );
-
-	_mirrorHide[ 0 ] = null;
-	_R_MirrorRemovePlayerMesh( playerMesh );
-	_R_MirrorRemovePlayerMesh( shadowMesh );
-
+  _mirrorHide[0] = null;
+  _R_MirrorRemovePlayerMesh(playerMesh);
+  _R_MirrorRemovePlayerMesh(shadowMesh);
 }
 
-const _mirrorHide = [ null ];
+const _mirrorHide = [null];
 
 // Take a mesh R_Mirror drew for the reflection out of the main view.
-function _R_MirrorRemovePlayerMesh( mesh ) {
+function _R_MirrorRemovePlayerMesh(mesh) {
+  if (mesh == null || _entityMeshesThisFrame.has(mesh) === false) {
+    return;
+  }
 
-	if ( mesh == null || _entityMeshesThisFrame.has( mesh ) === false )
-		return;
-
-	if ( mesh.parent !== null ) mesh.parent.remove( mesh );
-	_entityMeshesInScene.delete( mesh );
-	_entityMeshesThisFrame.delete( mesh );
-
+  if (mesh.parent !== null) mesh.parent.remove(mesh);
+  _entityMeshesInScene.delete(mesh);
+  _entityMeshesThisFrame.delete(mesh);
 }
 
 //============================================================================
@@ -1782,37 +1880,33 @@ function _R_MirrorRemovePlayerMesh( mesh ) {
 //============================================================================
 
 export function R_Init() {
+  Con_Printf("R_Init");
 
-	Con_Printf( 'R_Init' );
+  // Initialize r_worldentity here (deferred from module scope to avoid circular dep crash)
+  r_worldentity = new entity_t();
 
-	// Initialize r_worldentity here (deferred from module scope to avoid circular dep crash)
-	r_worldentity = new entity_t();
+  // johnfitz -- lerping; QS registers these in gl_rmisc.c R_Init
+  Cvar_RegisterVariable(r_lerpmodels);
+  Cvar_RegisterVariable(r_lerpmove);
+  Cvar_RegisterVariable(r_nolerp_list);
+  // QuakeSpasm and Ironwail register this in gl_rmisc.c R_Init
+  Cvar_RegisterVariable(gl_farclip);
+  Cvar_RegisterVariable(vid_quality);
+  Cvar_RegisterVariable(r_particlecap);
+  Cvar_RegisterVariable(gl_dlightcap);
 
-	// johnfitz -- lerping; QS registers these in gl_rmisc.c R_Init
-	Cvar_RegisterVariable( r_lerpmodels );
-	Cvar_RegisterVariable( r_lerpmove );
-	Cvar_RegisterVariable( r_nolerp_list );
-	// QuakeSpasm and Ironwail register this in gl_rmisc.c R_Init
-	Cvar_RegisterVariable( gl_farclip );
-	Cvar_RegisterVariable( vid_quality );
-	Cvar_RegisterVariable( r_particlecap );
-	Cvar_RegisterVariable( gl_dlightcap );
+  // create the Three.js scene
+  scene = new THREE.Scene();
 
-	// create the Three.js scene
-	scene = new THREE.Scene();
+  // initialize light style values to default
+  for (let i = 0; i < 256; i++) {
+    d_lightstylevalue[i] = 264; // 'm' is normal light (char 109, 109-'a' = 12, 12*22 = 264)
+  }
 
-	// initialize light style values to default
-	for ( let i = 0; i < 256; i ++ ) {
+  R_InitParticles();
+  R_SetParticleExternals({ scene: scene });
 
-		d_lightstylevalue[ i ] = 264; // 'm' is normal light (char 109, 109-'a' = 12, 12*22 = 264)
-
-	}
-
-	R_InitParticles();
-	R_SetParticleExternals( { scene: scene } );
-
-	Con_Printf( 'R_Init: Three.js renderer ready' );
-
+  Con_Printf("R_Init: Three.js renderer ready");
 }
 
 //============================================================================
@@ -1822,84 +1916,73 @@ export function R_Init() {
 //============================================================================
 
 export function R_NewMap() {
+  XR_ResetHeadOrigin(); // web-only: the old map's head position is meaningless
 
-	XR_ResetHeadOrigin(); // web-only: the old map's head position is meaningless
+  // clear old data
+  r_viewleaf = null;
+  r_oldviewleaf = null;
+  const resetWorldEntity = new entity_t();
+  if (r_worldentity == null) {
+    r_worldentity = resetWorldEntity;
+  } else {
+    // WinQuake memsets one static entity, so preserve its published identity.
+    for (const key of Object.keys(r_worldentity)) {
+      delete r_worldentity[key];
+    }
+    Object.assign(r_worldentity, resetWorldEntity);
+  }
+  r_worldentity.model = cl != null ? cl.worldmodel : null;
 
-	// clear old data
-	r_viewleaf = null;
-	r_oldviewleaf = null;
-	const resetWorldEntity = new entity_t();
-	if ( r_worldentity == null ) {
+  // reset framecount
+  set_r_framecount(1);
+  r_visframecount = 0;
 
-		r_worldentity = resetWorldEntity;
+  R_ClearParticles();
 
-	} else {
+  // Clean up all cached entity resources from the previous map. Static
+  // entities keep their JS identity across CL_ClearState, so invalidate the
+  // owner-side caches as well as the scene tracking sets.
+  const geometries = new Set();
+  const materials = new Set();
+  for (const owner of _entityMeshCacheOwners) {
+    _clearEntityMeshCache(owner, geometries, materials);
+  }
+  _entityMeshCacheOwners.clear();
 
-		// WinQuake memsets one static entity, so preserve its published identity.
-		for ( const key of Object.keys( r_worldentity ) )
-			delete r_worldentity[ key ];
-		Object.assign( r_worldentity, resetWorldEntity );
+  for (let i = 0; i < cl_entities.length; i++) {
+    _clearEntityMeshCache(cl_entities[i], geometries, materials);
+  }
+  for (let i = 0; i < cl_static_entities.length; i++) {
+    _clearEntityMeshCache(cl_static_entities[i], geometries, materials);
+  }
+  for (let i = 0; i < cl_temp_entities.length; i++) {
+    _clearEntityMeshCache(cl_temp_entities[i], geometries, materials);
+  }
+  if (cl != null) _clearEntityMeshCache(cl.viewent, geometries, materials);
 
-	}
-	r_worldentity.model = cl != null ? cl.worldmodel : null;
+  for (const mesh of _entityMeshesInScene) {
+    if (mesh.parent != null) mesh.parent.remove(mesh);
+    if (mesh.geometry != null && geometries.has(mesh.geometry) === false) {
+      geometries.add(mesh.geometry);
+      mesh.geometry.dispose();
+    }
+  }
 
-	// reset framecount
-	set_r_framecount( 1 );
-	r_visframecount = 0;
+  _entityMeshesInScene.clear();
+  _entityMeshesThisFrame.clear();
+  for (const cache of [_spriteMaterialCache, _spriteDecalMaterialCache]) {
+    for (const material of cache.values()) {
+      if (materials.has(material) === false) {
+        materials.add(material);
+        material.dispose();
+      }
+    }
 
-	R_ClearParticles();
+    cache.clear();
+  }
 
-	// Clean up all cached entity resources from the previous map. Static
-	// entities keep their JS identity across CL_ClearState, so invalidate the
-	// owner-side caches as well as the scene tracking sets.
-	const geometries = new Set();
-	const materials = new Set();
-	for ( const owner of _entityMeshCacheOwners )
-		_clearEntityMeshCache( owner, geometries, materials );
-	_entityMeshCacheOwners.clear();
-
-	for ( let i = 0; i < cl_entities.length; i ++ )
-		_clearEntityMeshCache( cl_entities[ i ], geometries, materials );
-	for ( let i = 0; i < cl_static_entities.length; i ++ )
-		_clearEntityMeshCache( cl_static_entities[ i ], geometries, materials );
-	for ( let i = 0; i < cl_temp_entities.length; i ++ )
-		_clearEntityMeshCache( cl_temp_entities[ i ], geometries, materials );
-	if ( cl != null ) _clearEntityMeshCache( cl.viewent, geometries, materials );
-
-	for ( const mesh of _entityMeshesInScene ) {
-
-		if ( mesh.parent != null ) mesh.parent.remove( mesh );
-		if ( mesh.geometry != null && geometries.has( mesh.geometry ) === false ) {
-
-			geometries.add( mesh.geometry );
-			mesh.geometry.dispose();
-
-		}
-
-	}
-
-	_entityMeshesInScene.clear();
-	_entityMeshesThisFrame.clear();
-	for ( const cache of [ _spriteMaterialCache, _spriteDecalMaterialCache ] ) {
-
-		for ( const material of cache.values() ) {
-
-			if ( materials.has( material ) === false ) {
-
-				materials.add( material );
-				material.dispose();
-
-			}
-
-		}
-
-		cache.clear();
-
-	}
-
-	// rebuild lightmaps
-	GL_BuildLightmaps_rsurf();
-
+  // rebuild lightmaps
+  GL_BuildLightmaps_rsurf();
 }
 
 //============================================================================
@@ -1908,59 +1991,41 @@ export function R_NewMap() {
 //============================================================================
 
 function R_AnimateLight() {
-
-	if ( cl ) R_AnimateLight_impl( cl, cl_lightstyle );
-
+  if (cl) R_AnimateLight_impl(cl, cl_lightstyle);
 }
 
 // Mod_PointInLeaf: imported from gl_model.js
 
-function V_SetContentsColor( contents ) {
-
-	V_SetContentsColor_view( contents );
-
+function V_SetContentsColor(contents) {
+  V_SetContentsColor_view(contents);
 }
 
 function V_CalcBlend() {
-
-	V_CalcBlend_view();
-
+  V_CalcBlend_view();
 }
 
 function R_MarkLeaves() {
-
-	R_MarkLeaves_impl();
-
+  R_MarkLeaves_impl();
 }
 
 function R_DrawWorld() {
-
-	R_DrawWorld_impl();
-
+  R_DrawWorld_impl();
 }
 
 function R_DrawWaterSurfaces() {
-
-	R_DrawWaterSurfaces_rsurf();
-
+  R_DrawWaterSurfaces_rsurf();
 }
 
 function S_ExtraUpdate() {
-
-	// Sound system updates independently via S_Update() in the frame loop
-
+  // Sound system updates independently via S_Update() in the frame loop
 }
 
 function R_RenderDlights() {
-
-	if ( cl != null ) {
-
-		R_SetDlightLimit( R_DlightBucketCap() );
-		R_RenderDlights_impl( cl, scene );
-		R_PadDlights( scene );
-
-	}
-
+  if (cl != null) {
+    R_SetDlightLimit(R_DlightBucketCap());
+    R_RenderDlights_impl(cl, scene);
+    R_PadDlights(scene);
+  }
 }
 
 /*
@@ -1982,32 +2047,30 @@ cost stays near what the frame actually uses.
 const _dlightFillers = [];
 
 export function R_CountRenderedDlights() {
+  if (gl_flashblend.value === 0 || cl == null) {
+    return 0;
+  }
 
-	if ( gl_flashblend.value === 0 || cl == null )
-		return 0;
+  // Same test as R_RenderDlights in gl_rlight.js
+  let count = 0;
+  for (let i = 0; i < MAX_DLIGHTS; i++) {
+    const l = cl_dlights[i];
+    if (
+      l != null && l.die >= cl.time && l.radius > 0 && R_DlightDistance(l) > 0
+    ) {
+      count++;
+    }
+  }
 
-	// Same test as R_RenderDlights in gl_rlight.js
-	let count = 0;
-	for ( let i = 0; i < MAX_DLIGHTS; i ++ ) {
-
-		const l = cl_dlights[ i ];
-		if ( l != null && l.die >= cl.time && l.radius > 0 && R_DlightDistance( l ) > 0 )
-			count ++;
-
-	}
-
-	// gl_rlight.js R_RenderDlights leaves out lights past the cap
-	return Math.min( count, R_DlightBucketCap() );
-
+  // gl_rlight.js R_RenderDlights leaves out lights past the cap
+  return Math.min(count, R_DlightBucketCap());
 }
 
-export function R_DlightBucket( count ) {
-
-	if ( count === 0 ) return 0;
-	let bucket = 4;
-	while ( bucket < count ) bucket *= 2;
-	return Math.min( bucket, R_DlightBucketCap() );
-
+export function R_DlightBucket(count) {
+  if (count === 0) return 0;
+  let bucket = 4;
+  while (bucket < count) bucket *= 2;
+  return Math.min(bucket, R_DlightBucketCap());
 }
 
 // Web-only: gl_dlightcap (no Quake counterpart; a vid_quality preset sets
@@ -2015,14 +2078,17 @@ export function R_DlightBucket( count ) {
 // value rounded up to 4, 8, 16, 32 or 64. Fewer buckets mean fewer shader
 // program sets and a shorter per-pixel light loop. R_DlightBucketCap is
 // exported for a shader warm-up to use.
-export const gl_dlightcap = { name: 'gl_dlightcap', string: '64', value: 64, archive: true };
+export const gl_dlightcap = {
+  name: "gl_dlightcap",
+  string: "64",
+  value: 64,
+  archive: true,
+};
 
 export function R_DlightBucketCap() {
-
-	let bucket = 4;
-	while ( bucket < 64 && bucket < gl_dlightcap.value ) bucket *= 2;
-	return bucket;
-
+  let bucket = 4;
+  while (bucket < 64 && bucket < gl_dlightcap.value) bucket *= 2;
+  return bucket;
 }
 
 // Web-only, no C equivalent. vid_quality sets the cvars below as a group,
@@ -2035,87 +2101,79 @@ export function R_DlightBucketCap() {
 // so a saved preset does not overwrite hand-tuned values on the next start.
 // Columns: vid_dprcap (0 = default rule), host_maxfps, gl_dlightcap,
 // r_particlecap (0 = the whole pool), gl_texture_anisotropy.
-export const vid_quality = { name: 'vid_quality', string: '3', value: 3, archive: true };
-export const r_particlecap = { name: 'r_particlecap', string: '0', value: 0, archive: true };
+export const vid_quality = {
+  name: "vid_quality",
+  string: "3",
+  value: 3,
+  archive: true,
+};
+export const r_particlecap = {
+  name: "r_particlecap",
+  string: "0",
+  value: 0,
+  archive: true,
+};
 
 export const VID_QUALITY_PRESETS = [
-	[ 1, 30, 4, 2048, 1 ], // 0: saver
-	[ 1.5, 60, 8, 8192, 2 ], // 1: medium
-	[ 0, 72, 64, 0, 4 ] // 2: high (the engine's defaults, plus anisotropy)
+  [1, 30, 4, 2048, 1], // 0: saver
+  [1.5, 60, 8, 8192, 2], // 1: medium
+  [0, 72, 64, 0, 4], // 2: high (the engine's defaults, plus anisotropy)
 ];
 
-let _appliedQuality = - 1;
+let _appliedQuality = -1;
 
-export function R_ApplyQualityPreset( preset ) {
-
-	const row = VID_QUALITY_PRESETS[ preset ];
-	if ( row === undefined ) return;
-	Cvar_SetValue( 'vid_dprcap', row[ 0 ] );
-	Cvar_SetValue( 'host_maxfps', row[ 1 ] );
-	Cvar_SetValue( 'gl_dlightcap', row[ 2 ] );
-	Cvar_SetValue( 'r_particlecap', row[ 3 ] );
-	Cvar_SetValue( 'gl_texture_anisotropy', row[ 4 ] );
-
+export function R_ApplyQualityPreset(preset) {
+  const row = VID_QUALITY_PRESETS[preset];
+  if (row === undefined) return;
+  Cvar_SetValue("vid_dprcap", row[0]);
+  Cvar_SetValue("host_maxfps", row[1]);
+  Cvar_SetValue("gl_dlightcap", row[2]);
+  Cvar_SetValue("r_particlecap", row[3]);
+  Cvar_SetValue("gl_texture_anisotropy", row[4]);
 }
 
 // Once a frame (Host_Frame calls it, so it also runs on the title screen): applies a changed vid_quality, and the live cvars it drives
 // (the DPR cap, the particle limit). The anisotropy change is picked up by
 // GL_CheckAnisotropy, and host_maxfps by the frame filter.
 export function R_CheckQuality() {
+  if (_appliedQuality === -1) {
+    _appliedQuality = vid_quality.value;
+  } else if (vid_quality.value !== _appliedQuality) {
+    _appliedQuality = vid_quality.value;
+    R_ApplyQualityPreset(_appliedQuality);
+  }
 
-	if ( _appliedQuality === - 1 ) {
-
-		_appliedQuality = vid_quality.value;
-
-	} else if ( vid_quality.value !== _appliedQuality ) {
-
-		_appliedQuality = vid_quality.value;
-		R_ApplyQualityPreset( _appliedQuality );
-
-	}
-
-	VID_CheckPixelRatio();
-	R_SetParticleLimit( r_particlecap.value );
-
+  VID_CheckPixelRatio();
+  R_SetParticleLimit(r_particlecap.value);
 }
 
 // For tests
 export function R_ResetQuality() {
-
-	_appliedQuality = - 1;
-
+  _appliedQuality = -1;
 }
 
-export function R_PadDlights( targetScene ) {
+export function R_PadDlights(targetScene) {
+  const active = R_CountRenderedDlights();
+  const fillers = active === 0 ? 0 : R_DlightBucket(active) - active;
 
-	const active = R_CountRenderedDlights();
-	const fillers = active === 0 ? 0 : R_DlightBucket( active ) - active;
+  for (let i = 0; i < fillers; i++) {
+    let light = _dlightFillers[i];
+    if (light === undefined) {
+      light = new THREE.PointLight(0xffffff, 0, 1, 0);
+      _dlightFillers[i] = light;
+    }
 
-	for ( let i = 0; i < fillers; i ++ ) {
+    if (light.parent !== targetScene && targetScene !== null) {
+      targetScene.add(light);
+    }
+  }
 
-		let light = _dlightFillers[ i ];
-		if ( light === undefined ) {
-
-			light = new THREE.PointLight( 0xffffff, 0, 1, 0 );
-			_dlightFillers[ i ] = light;
-
-		}
-
-		if ( light.parent !== targetScene && targetScene !== null ) targetScene.add( light );
-
-	}
-
-	for ( let i = fillers; i < _dlightFillers.length; i ++ ) {
-
-		const light = _dlightFillers[ i ];
-		if ( light.parent !== null ) light.parent.remove( light );
-
-	}
-
+  for (let i = fillers; i < _dlightFillers.length; i++) {
+    const light = _dlightFillers[i];
+    if (light.parent !== null) light.parent.remove(light);
+  }
 }
 
 function R_DrawParticles() {
-
-	R_DrawParticles_impl();
-
+  R_DrawParticles_impl();
 }

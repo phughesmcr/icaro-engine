@@ -1,29 +1,54 @@
 {
-	"imports": {
-		"three": "./server/browser_shim.js",
-		"@modelcontextprotocol/server": "npm:@modelcontextprotocol/server@2.4.0",
-		"@modelcontextprotocol/server/stdio": "npm:@modelcontextprotocol/server@2.4.0/stdio",
-		"zod": "npm:zod@4.6.7"
-	},
-	"lint": {
-		"include": ["main.js", "sw.js", "src/", "server/", "tests/", "cloudflare/"],
-		"exclude": ["static/", "docs/", "tests/fixtures/"],
-		"rules": {
-			"exclude": ["no-window", "no-window-prefix"]
-		}
-	},
-	"fmt": {
-		"exclude": ["./"]
-	},
-	"tasks": {
-		"lint": "deno lint",
-		"lobby": "deno run '--allow-net=[::]:4433,0.0.0.0:4433,127.0.0.1:4433,127.0.0.1:4434,127.0.0.1:4435,127.0.0.1:4436,127.0.0.1:4437,127.0.0.1:4438,127.0.0.1:4439,127.0.0.1:4440,127.0.0.1:4441,127.0.0.1:4442,127.0.0.1:4443,challenges.cloudflare.com:443' --allow-read=server/cert.pem,server/key.pem --allow-run=deno --allow-env=TURNSTILE_SITEKEY,TURNSTILE_SECRET,TURNSTILE_HOSTNAMES --unstable-net server/lobby_server.js -cert server/cert.pem -key server/key.pem -pak static/pak0.pak -wsport 4433",
-		"game": "deno run '--allow-net=[::]:4433,0.0.0.0:4433,127.0.0.1:4433' --allow-read=static,server/cert.pem,server/key.pem --unstable-net server/game_server.js -cert server/cert.pem -key server/key.pem -pak static/pak0.pak -map start -wsport 4433",
-		"test": "deno test --allow-read --allow-write --allow-env=FAKE_ROOM_PLAYERS_FILE,FAKE_ROOM_ARGS_FILE --allow-run=./tests/fixtures/fake_room_server.sh tests/",
-		"serve": "deno run --allow-net=127.0.0.1:8137 --allow-read=. --allow-sys=networkInterfaces jsr:@std/http@1.1.4/file-server --host 127.0.0.1 --port 8137 --no-dotfiles",
-		"agent-mcp": "deno run --no-prompt --allow-read=static server/agent_mcp.ts",
-		"check": "deno check main.js server/game_server.js server/lobby_server.js server/agent_mcp.ts server/room_process_manager.ts server/net_websocket_server.ts tests/net_webtransport_server_test.ts tests/quic_listen_test.ts",
-		"ci": "deno task test && deno task lint && deno task check",
-		"image-check": "sh tools/check_container_image.sh"
-	}
+  "imports": {
+    "three": "./server/browser_shim.js",
+    "@modelcontextprotocol/server": "npm:@modelcontextprotocol/server@2.4.0",
+    "@modelcontextprotocol/server/stdio": "npm:@modelcontextprotocol/server@2.4.0/stdio",
+    "zod": "npm:zod@4.6.7"
+  },
+  "lint": {
+    "include": ["main.js", "sw.js", "src/", "server/", "tests/", "cloudflare/"],
+    "exclude": ["static/", "docs/", "tests/fixtures/"],
+    "rules": {
+      "exclude": ["no-window", "no-window-prefix"]
+    }
+  },
+  "fmt": {
+    "useTabs": false,
+    "indentWidth": 2,
+    "lineWidth": 80,
+    "semiColons": true,
+    "singleQuote": false,
+    "proseWrap": "always",
+    "bracePosition": "sameLine",
+    "nextControlFlowPosition": "sameLine",
+    "operatorPosition": "sameLine",
+    "useBraces": "whenNotSingleLine",
+    "trailingCommas": "onlyMultiLine",
+    "quoteProps": "asNeeded",
+    "typeLiteral.separatorKind": "semiColon",
+    "sortNamedImports": "caseInsensitive",
+    "sortNamedExports": "caseInsensitive",
+    "newLineKind": "lf",
+    "exclude": [
+      "static/",
+      "tests/fixtures/",
+      ".claude/",
+      ".vscode/",
+      "**/*.html",
+      "**/*.css",
+      "**/*.svg",
+      "**/*.md"
+    ]
+  },
+  "tasks": {
+    "lint": "deno lint",
+    "lobby": "deno run '--allow-net=[::]:4433,0.0.0.0:4433,127.0.0.1:4433,127.0.0.1:4434,127.0.0.1:4435,127.0.0.1:4436,127.0.0.1:4437,127.0.0.1:4438,127.0.0.1:4439,127.0.0.1:4440,127.0.0.1:4441,127.0.0.1:4442,127.0.0.1:4443,challenges.cloudflare.com:443' --allow-read=server/cert.pem,server/key.pem --allow-run=deno --allow-env=TURNSTILE_SITEKEY,TURNSTILE_SECRET,TURNSTILE_HOSTNAMES --unstable-net server/lobby_server.js -cert server/cert.pem -key server/key.pem -pak static/pak0.pak -wsport 4433",
+    "game": "deno run '--allow-net=[::]:4433,0.0.0.0:4433,127.0.0.1:4433' --allow-read=static,server/cert.pem,server/key.pem --unstable-net server/game_server.js -cert server/cert.pem -key server/key.pem -pak static/pak0.pak -map start -wsport 4433",
+    "test": "deno test --allow-read --allow-write --allow-env=FAKE_ROOM_PLAYERS_FILE,FAKE_ROOM_ARGS_FILE --allow-run=./tests/fixtures/fake_room_server.sh tests/",
+    "serve": "deno run --allow-net=127.0.0.1:8137 --allow-read=. --allow-sys=networkInterfaces jsr:@std/http@1.1.4/file-server --host 127.0.0.1 --port 8137 --no-dotfiles",
+    "agent-mcp": "deno run --no-prompt --allow-read=static server/agent_mcp.ts",
+    "check": "deno check main.js server/game_server.js server/lobby_server.js server/agent_mcp.ts server/room_process_manager.ts server/net_websocket_server.ts tests/net_webtransport_server_test.ts tests/quic_listen_test.ts",
+    "ci": "deno fmt --check && deno task test && deno task lint && deno task check",
+    "image-check": "sh tools/check_container_image.sh"
+  }
 }

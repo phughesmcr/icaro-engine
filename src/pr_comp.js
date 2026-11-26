@@ -105,87 +105,71 @@ export const OP_BITOR = 65;
 
 // dstatement_t - bytecode statement
 export class dstatement_t {
-
-	constructor() {
-
-		this.op = 0; // unsigned short
-		this.a = 0; // short
-		this.b = 0; // short
-		this.c = 0; // short
-
-	}
-
+  constructor() {
+    this.op = 0; // unsigned short
+    this.a = 0; // short
+    this.b = 0; // short
+    this.c = 0; // short
+  }
 }
 
 // DEF_SAVEGLOBAL flag
-export const DEF_SAVEGLOBAL = ( 1 << 15 );
+export const DEF_SAVEGLOBAL = 1 << 15;
 
 // ddef_t - definition of a global or field
 export class ddef_t {
-
-	constructor() {
-
-		this.type = 0; // unsigned short - if DEF_SAVEGLOBAL bit is set, needs saving
-		this.ofs = 0; // unsigned short
-		this.s_name = 0; // int - offset into pr_strings
-
-	}
-
+  constructor() {
+    this.type = 0; // unsigned short - if DEF_SAVEGLOBAL bit is set, needs saving
+    this.ofs = 0; // unsigned short
+    this.s_name = 0; // int - offset into pr_strings
+  }
 }
 
 export const MAX_PARMS = 8;
 
 // dfunction_t - QuakeC function definition
 export class dfunction_t {
+  constructor() {
+    this.first_statement = 0; // int - negative numbers are builtins
+    this.parm_start = 0; // int
+    this.locals = 0; // int - total ints of parms + locals
 
-	constructor() {
+    this.profile = 0; // int - runtime profiling
 
-		this.first_statement = 0; // int - negative numbers are builtins
-		this.parm_start = 0; // int
-		this.locals = 0; // int - total ints of parms + locals
+    this.s_name = 0; // int - offset into pr_strings
+    this.s_file = 0; // int - source file defined in
 
-		this.profile = 0; // int - runtime profiling
-
-		this.s_name = 0; // int - offset into pr_strings
-		this.s_file = 0; // int - source file defined in
-
-		this.numparms = 0; // int
-		this.parm_size = new Uint8Array( MAX_PARMS ); // byte[8]
-
-	}
-
+    this.numparms = 0; // int
+    this.parm_size = new Uint8Array(MAX_PARMS); // byte[8]
+  }
 }
 
 export const PROG_VERSION = 6;
 
 // dprograms_t - progs.dat file header
 export class dprograms_t {
+  constructor() {
+    this.version = 0;
+    this.crc = 0; // check of header file
 
-	constructor() {
+    this.ofs_statements = 0;
+    this.numstatements = 0; // statement 0 is an error
 
-		this.version = 0;
-		this.crc = 0; // check of header file
+    this.ofs_globaldefs = 0;
+    this.numglobaldefs = 0;
 
-		this.ofs_statements = 0;
-		this.numstatements = 0; // statement 0 is an error
+    this.ofs_fielddefs = 0;
+    this.numfielddefs = 0;
 
-		this.ofs_globaldefs = 0;
-		this.numglobaldefs = 0;
+    this.ofs_functions = 0;
+    this.numfunctions = 0; // function 0 is an empty
 
-		this.ofs_fielddefs = 0;
-		this.numfielddefs = 0;
+    this.ofs_strings = 0;
+    this.numstrings = 0; // first string is a null string
 
-		this.ofs_functions = 0;
-		this.numfunctions = 0; // function 0 is an empty
+    this.ofs_globals = 0;
+    this.numglobals = 0;
 
-		this.ofs_strings = 0;
-		this.numstrings = 0; // first string is a null string
-
-		this.ofs_globals = 0;
-		this.numglobals = 0;
-
-		this.entityfields = 0;
-
-	}
-
+    this.entityfields = 0;
+  }
 }

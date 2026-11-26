@@ -1,16 +1,29 @@
 // Ported from: WinQuake/gl_mesh.c -- triangle model functions (alias models)
 
-import * as THREE from 'three';
-import { Con_Printf, Con_DPrintf } from './common.js';
-import { cl } from './client.js';
-import { R_GetPlayerSkinTexture, R_TranslatePlayerSkin } from './gl_rmisc.js';
-import { GL_DrawMD5Frame } from './gl_md5.js';
-import { gl_nocolors, gl_doubleeyes, GL_RegisterCullMaterial } from './glquake.js';
-import { r_avertexnormals } from './anorm_dots.js';
-import { VectorCopy, VectorCompare } from './mathlib.js';
-import { r_refdef, r_lerpmodels, r_lerpmove, r_nolerp_list,
-	LERP_MOVESTEP, LERP_RESETANIM, LERP_RESETANIM2, LERP_RESETMOVE, LERP_FINISH } from './render.js';
-import { MOD_NOLERP, MF_HOLEY, Mod_SetExtraFlags } from './gl_model.js';
+import * as THREE from "three";
+import { Con_DPrintf, Con_Printf } from "./common.js";
+import { cl } from "./client.js";
+import { R_GetPlayerSkinTexture, R_TranslatePlayerSkin } from "./gl_rmisc.js";
+import { GL_DrawMD5Frame } from "./gl_md5.js";
+import {
+  gl_doubleeyes,
+  gl_nocolors,
+  GL_RegisterCullMaterial,
+} from "./glquake.js";
+import { r_avertexnormals } from "./anorm_dots.js";
+import { VectorCompare, VectorCopy } from "./mathlib.js";
+import {
+  LERP_FINISH,
+  LERP_MOVESTEP,
+  LERP_RESETANIM,
+  LERP_RESETANIM2,
+  LERP_RESETMOVE,
+  r_lerpmodels,
+  r_lerpmove,
+  r_nolerp_list,
+  r_refdef,
+} from "./render.js";
+import { MF_HOLEY, MOD_NOLERP, Mod_SetExtraFlags } from "./gl_model.js";
 
 /*
 =================================================================
@@ -30,23 +43,23 @@ export const MAXALIASTRIS = 4096;
 // MAXALIASTRIS. GLQuake's fixed 8192 commands and 128-long strips overflow
 // for big models (one strip per triangle takes 7 commands each), and a typed
 // array drops the writes past its end.
-const used = new Uint8Array( MAXALIASTRIS );
+const used = new Uint8Array(MAXALIASTRIS);
 
 // the command list holds counts and s/t values that are valid for
 // every frame
-const commands = new Int32Array( MAXALIASTRIS * 7 + 1 );
+const commands = new Int32Array(MAXALIASTRIS * 7 + 1);
 let numcommands = 0;
 
 // all frames will have their vertexes rearranged and expanded
 // so they are in the order expected by the command list
-const vertexorder = new Int32Array( MAXALIASTRIS * 3 );
+const vertexorder = new Int32Array(MAXALIASTRIS * 3);
 let numorder = 0;
 
 let allverts = 0;
 let alltris = 0;
 
-const stripverts = new Int32Array( MAXALIASTRIS + 2 );
-const striptris = new Int32Array( MAXALIASTRIS );
+const stripverts = new Int32Array(MAXALIASTRIS + 2);
+const striptris = new Int32Array(MAXALIASTRIS);
 let stripcount = 0;
 
 // References to model data set during BuildTris
@@ -62,76 +75,75 @@ let poseverts = null; // trivertx_t[][]
 StripLength
 ================
 */
-function StripLength( starttri, startv ) {
+function StripLength(starttri, startv) {
+  used[starttri] = 2;
 
-	used[ starttri ] = 2;
+  const last = triangles[starttri];
 
-	const last = triangles[ starttri ];
+  stripverts[0] = last.vertindex[startv % 3];
+  stripverts[1] = last.vertindex[(startv + 1) % 3];
+  stripverts[2] = last.vertindex[(startv + 2) % 3];
 
-	stripverts[ 0 ] = last.vertindex[ ( startv ) % 3 ];
-	stripverts[ 1 ] = last.vertindex[ ( startv + 1 ) % 3 ];
-	stripverts[ 2 ] = last.vertindex[ ( startv + 2 ) % 3 ];
+  striptris[0] = starttri;
+  stripcount = 1;
 
-	striptris[ 0 ] = starttri;
-	stripcount = 1;
+  let m1 = last.vertindex[(startv + 2) % 3];
+  let m2 = last.vertindex[(startv + 1) % 3];
 
-	let m1 = last.vertindex[ ( startv + 2 ) % 3 ];
-	let m2 = last.vertindex[ ( startv + 1 ) % 3 ];
+  // look for a matching triangle
+  let found = true;
+  while (found) {
+    found = false;
+    search: for (let j = starttri + 1; j < pheader.numtris; j++) {
+      const check = triangles[j];
 
-	// look for a matching triangle
-	let found = true;
-	while ( found ) {
+      if (check.facesfront !== last.facesfront) {
+        continue;
+      }
+      for (let k = 0; k < 3; k++) {
+        if (check.vertindex[k] !== m1) {
+          continue;
+        }
+        if (check.vertindex[(k + 1) % 3] !== m2) {
+          continue;
+        }
 
-		found = false;
-		search: for ( let j = starttri + 1; j < pheader.numtris; j ++ ) {
+        // this is the next part of the fan
 
-			const check = triangles[ j ];
+        // if we can't use this triangle, this tristrip is done
+        // (C: goto done, which leaves the j loop too)
+        if (used[j]) {
+          break search;
+        }
 
-			if ( check.facesfront !== last.facesfront )
-				continue;
-			for ( let k = 0; k < 3; k ++ ) {
+        // the new edge
+        if (stripcount & 1) {
+          m2 = check.vertindex[(k + 2) % 3];
+        } else {
+          m1 = check.vertindex[(k + 2) % 3];
+        }
 
-				if ( check.vertindex[ k ] !== m1 )
-					continue;
-				if ( check.vertindex[ ( k + 1 ) % 3 ] !== m2 )
-					continue;
+        stripverts[stripcount + 2] = check.vertindex[(k + 2) % 3];
+        striptris[stripcount] = j;
+        stripcount++;
 
-				// this is the next part of the fan
+        used[j] = 2;
+        found = true;
+        break;
+      }
 
-				// if we can't use this triangle, this tristrip is done
-				// (C: goto done, which leaves the j loop too)
-				if ( used[ j ] )
-					break search;
+      if (found) break;
+    }
+  }
 
-				// the new edge
-				if ( stripcount & 1 )
-					m2 = check.vertindex[ ( k + 2 ) % 3 ];
-				else
-					m1 = check.vertindex[ ( k + 2 ) % 3 ];
+  // clear the temp used flags
+  for (let j = starttri + 1; j < pheader.numtris; j++) {
+    if (used[j] === 2) {
+      used[j] = 0;
+    }
+  }
 
-				stripverts[ stripcount + 2 ] = check.vertindex[ ( k + 2 ) % 3 ];
-				striptris[ stripcount ] = j;
-				stripcount ++;
-
-				used[ j ] = 2;
-				found = true;
-				break;
-
-			}
-
-			if ( found ) break;
-
-		}
-
-	}
-
-	// clear the temp used flags
-	for ( let j = starttri + 1; j < pheader.numtris; j ++ )
-		if ( used[ j ] === 2 )
-			used[ j ] = 0;
-
-	return stripcount;
-
+  return stripcount;
 }
 
 /*
@@ -139,73 +151,71 @@ function StripLength( starttri, startv ) {
 FanLength
 ===========
 */
-function FanLength( starttri, startv ) {
+function FanLength(starttri, startv) {
+  used[starttri] = 2;
 
-	used[ starttri ] = 2;
+  const last = triangles[starttri];
 
-	const last = triangles[ starttri ];
+  stripverts[0] = last.vertindex[startv % 3];
+  stripverts[1] = last.vertindex[(startv + 1) % 3];
+  stripverts[2] = last.vertindex[(startv + 2) % 3];
 
-	stripverts[ 0 ] = last.vertindex[ ( startv ) % 3 ];
-	stripverts[ 1 ] = last.vertindex[ ( startv + 1 ) % 3 ];
-	stripverts[ 2 ] = last.vertindex[ ( startv + 2 ) % 3 ];
+  striptris[0] = starttri;
+  stripcount = 1;
 
-	striptris[ 0 ] = starttri;
-	stripcount = 1;
+  const m1 = last.vertindex[(startv + 0) % 3];
+  let m2 = last.vertindex[(startv + 2) % 3];
 
-	const m1 = last.vertindex[ ( startv + 0 ) % 3 ];
-	let m2 = last.vertindex[ ( startv + 2 ) % 3 ];
+  // look for a matching triangle
+  let found = true;
+  while (found) {
+    found = false;
+    search: for (let j = starttri + 1; j < pheader.numtris; j++) {
+      const check = triangles[j];
 
-	// look for a matching triangle
-	let found = true;
-	while ( found ) {
+      if (check.facesfront !== last.facesfront) {
+        continue;
+      }
+      for (let k = 0; k < 3; k++) {
+        if (check.vertindex[k] !== m1) {
+          continue;
+        }
+        if (check.vertindex[(k + 1) % 3] !== m2) {
+          continue;
+        }
 
-		found = false;
-		search: for ( let j = starttri + 1; j < pheader.numtris; j ++ ) {
+        // this is the next part of the fan
 
-			const check = triangles[ j ];
+        // if we can't use this triangle, this tristrip is done
+        // (C: goto done, which leaves the j loop too)
+        if (used[j]) {
+          break search;
+        }
 
-			if ( check.facesfront !== last.facesfront )
-				continue;
-			for ( let k = 0; k < 3; k ++ ) {
+        // the new edge
+        m2 = check.vertindex[(k + 2) % 3];
 
-				if ( check.vertindex[ k ] !== m1 )
-					continue;
-				if ( check.vertindex[ ( k + 1 ) % 3 ] !== m2 )
-					continue;
+        stripverts[stripcount + 2] = m2;
+        striptris[stripcount] = j;
+        stripcount++;
 
-				// this is the next part of the fan
+        used[j] = 2;
+        found = true;
+        break;
+      }
 
-				// if we can't use this triangle, this tristrip is done
-				// (C: goto done, which leaves the j loop too)
-				if ( used[ j ] )
-					break search;
+      if (found) break;
+    }
+  }
 
-				// the new edge
-				m2 = check.vertindex[ ( k + 2 ) % 3 ];
+  // clear the temp used flags
+  for (let j = starttri + 1; j < pheader.numtris; j++) {
+    if (used[j] === 2) {
+      used[j] = 0;
+    }
+  }
 
-				stripverts[ stripcount + 2 ] = m2;
-				striptris[ stripcount ] = j;
-				stripcount ++;
-
-				used[ j ] = 2;
-				found = true;
-				break;
-
-			}
-
-			if ( found ) break;
-
-		}
-
-	}
-
-	// clear the temp used flags
-	for ( let j = starttri + 1; j < pheader.numtris; j ++ )
-		if ( used[ j ] === 2 )
-			used[ j ] = 0;
-
-	return stripcount;
-
+  return stripcount;
 }
 
 /*
@@ -217,92 +227,92 @@ for the model, which holds for all frames
 ================
 */
 export function BuildTris() {
+  const bestverts = new Int32Array(MAXALIASTRIS + 2);
+  const besttris = new Int32Array(MAXALIASTRIS);
 
-	const bestverts = new Int32Array( MAXALIASTRIS + 2 );
-	const besttris = new Int32Array( MAXALIASTRIS );
+  //
+  // build tristrips
+  //
+  numorder = 0;
+  numcommands = 0;
+  used.fill(0);
 
-	//
-	// build tristrips
-	//
-	numorder = 0;
-	numcommands = 0;
-	used.fill( 0 );
+  for (let i = 0; i < pheader.numtris; i++) {
+    // pick an unused triangle and start the trifan
+    if (used[i]) {
+      continue;
+    }
 
-	for ( let i = 0; i < pheader.numtris; i ++ ) {
+    let bestlen = 0;
+    let besttype = 0;
 
-		// pick an unused triangle and start the trifan
-		if ( used[ i ] )
-			continue;
+    for (let type = 0; type < 2; type++) {
+      for (let startv = 0; startv < 3; startv++) {
+        let len;
+        if (type === 1) {
+          len = StripLength(i, startv);
+        } else {
+          len = FanLength(i, startv);
+        }
+        if (len > bestlen) {
+          besttype = type;
+          bestlen = len;
+          for (let j = 0; j < bestlen + 2; j++) {
+            bestverts[j] = stripverts[j];
+          }
+          for (let j = 0; j < bestlen; j++) {
+            besttris[j] = striptris[j];
+          }
+        }
+      }
+    }
 
-		let bestlen = 0;
-		let besttype = 0;
+    // mark the tris on the best strip as used
+    for (let j = 0; j < bestlen; j++) {
+      used[besttris[j]] = 1;
+    }
 
-		for ( let type = 0; type < 2; type ++ ) {
+    if (besttype === 1) {
+      commands[numcommands++] = bestlen + 2;
+    } else {
+      commands[numcommands++] = -(bestlen + 2);
+    }
 
-			for ( let startv = 0; startv < 3; startv ++ ) {
+    for (let j = 0; j < bestlen + 2; j++) {
+      // emit a vertex into the reorder buffer
+      const k = bestverts[j];
+      vertexorder[numorder++] = k;
 
-				let len;
-				if ( type === 1 )
-					len = StripLength( i, startv );
-				else
-					len = FanLength( i, startv );
-				if ( len > bestlen ) {
+      // emit s/t coords into the commands stream
+      let s = stverts[k].s;
+      let t = stverts[k].t;
+      if (!triangles[besttris[0]].facesfront && stverts[k].onseam) {
+        s += (pheader.skinwidth / 2) | 0; // on back side (C int division)
+      }
+      s = (s + 0.5) / pheader.skinwidth;
+      t = (t + 0.5) / pheader.skinheight;
 
-					besttype = type;
-					bestlen = len;
-					for ( let j = 0; j < bestlen + 2; j ++ )
-						bestverts[ j ] = stripverts[ j ];
-					for ( let j = 0; j < bestlen; j ++ )
-						besttris[ j ] = striptris[ j ];
+      // Store float as int bits (mimicking *(float *)&commands)
+      const floatBuf = new Float32Array(1);
+      floatBuf[0] = s;
+      const intView = new Int32Array(floatBuf.buffer);
+      commands[numcommands++] = intView[0];
+      floatBuf[0] = t;
+      commands[numcommands++] = intView[0];
+    }
+  }
 
-				}
+  commands[numcommands++] = 0; // end of list marker
 
-			}
+  Con_DPrintf(
+    "%d tri %d vert %d cmd\n",
+    pheader.numtris,
+    numorder,
+    numcommands,
+  );
 
-		}
-
-		// mark the tris on the best strip as used
-		for ( let j = 0; j < bestlen; j ++ )
-			used[ besttris[ j ] ] = 1;
-
-		if ( besttype === 1 )
-			commands[ numcommands ++ ] = ( bestlen + 2 );
-		else
-			commands[ numcommands ++ ] = - ( bestlen + 2 );
-
-		for ( let j = 0; j < bestlen + 2; j ++ ) {
-
-			// emit a vertex into the reorder buffer
-			const k = bestverts[ j ];
-			vertexorder[ numorder ++ ] = k;
-
-			// emit s/t coords into the commands stream
-			let s = stverts[ k ].s;
-			let t = stverts[ k ].t;
-			if ( ! triangles[ besttris[ 0 ] ].facesfront && stverts[ k ].onseam )
-				s += ( pheader.skinwidth / 2 ) | 0; // on back side (C int division)
-			s = ( s + 0.5 ) / pheader.skinwidth;
-			t = ( t + 0.5 ) / pheader.skinheight;
-
-			// Store float as int bits (mimicking *(float *)&commands)
-			const floatBuf = new Float32Array( 1 );
-			floatBuf[ 0 ] = s;
-			const intView = new Int32Array( floatBuf.buffer );
-			commands[ numcommands ++ ] = intView[ 0 ];
-			floatBuf[ 0 ] = t;
-			commands[ numcommands ++ ] = intView[ 0 ];
-
-		}
-
-	}
-
-	commands[ numcommands ++ ] = 0; // end of list marker
-
-	Con_DPrintf( '%d tri %d vert %d cmd\n', pheader.numtris, numorder, numcommands );
-
-	allverts += numorder;
-	alltris += pheader.numtris;
-
+  allverts += numorder;
+  alltris += pheader.numtris;
 }
 
 /*
@@ -314,42 +324,36 @@ The original code generates GL command lists (triangle strips/fans);
 we instead build indexed triangle geometry.
 ================
 */
-export function GL_MakeAliasModelDisplayLists( m, hdr ) {
+export function GL_MakeAliasModelDisplayLists(m, hdr) {
+  paliashdr = hdr;
+  pheader = hdr;
+  triangles = hdr.triangles;
+  stverts = hdr.stverts;
+  poseverts = hdr.poseverts;
 
-	paliashdr = hdr;
-	pheader = hdr;
-	triangles = hdr.triangles;
-	stverts = hdr.stverts;
-	poseverts = hdr.poseverts;
+  // Build command lists from scratch
+  Con_Printf("meshing %s...\n", m.name);
+  BuildTris();
 
-	// Build command lists from scratch
-	Con_Printf( 'meshing %s...\n', m.name );
-	BuildTris();
+  // save the data out
+  paliashdr.poseverts_count = numorder;
 
-	// save the data out
-	paliashdr.poseverts_count = numorder;
+  // Copy commands
+  paliashdr.commands = new Int32Array(numcommands);
+  paliashdr.commands.set(commands.subarray(0, numcommands));
 
-	// Copy commands
-	paliashdr.commands = new Int32Array( numcommands );
-	paliashdr.commands.set( commands.subarray( 0, numcommands ) );
+  // Copy reordered pose vertices
+  paliashdr.posedata = [];
+  for (let i = 0; i < paliashdr.numposes; i++) {
+    const frameVerts = [];
+    for (let j = 0; j < numorder; j++) {
+      frameVerts.push(poseverts[i][vertexorder[j]]);
+    }
 
-	// Copy reordered pose vertices
-	paliashdr.posedata = [];
-	for ( let i = 0; i < paliashdr.numposes; i ++ ) {
+    paliashdr.posedata.push(frameVerts);
+  }
 
-		const frameVerts = [];
-		for ( let j = 0; j < numorder; j ++ ) {
-
-			frameVerts.push( poseverts[ i ][ vertexorder[ j ] ] );
-
-		}
-
-		paliashdr.posedata.push( frameVerts );
-
-	}
-
-	GL_AliasCullSphere( paliashdr );
-
+  GL_AliasCullSphere(paliashdr);
 }
 
 /*
@@ -364,67 +368,55 @@ screen edge. Work out one sphere, in model space, that holds every vertex
 of every pose; R_DrawAliasModel gives it to the entity's geometry.
 ================
 */
-function GL_AliasCullSphere( hdr ) {
+function GL_AliasCullSphere(hdr) {
+  const scale = hdr.scale;
+  const origin = hdr.scale_origin;
+  let minx = Infinity, miny = Infinity, minz = Infinity;
+  let maxx = -Infinity, maxy = -Infinity, maxz = -Infinity;
 
-	const scale = hdr.scale;
-	const origin = hdr.scale_origin;
-	let minx = Infinity, miny = Infinity, minz = Infinity;
-	let maxx = - Infinity, maxy = - Infinity, maxz = - Infinity;
+  for (let i = 0; i < hdr.posedata.length; i++) {
+    const verts = hdr.posedata[i];
+    for (let j = 0; j < verts.length; j++) {
+      // GL_DrawAliasFrame places a missing vertex at the model origin
+      const vert = verts[j];
+      const x = vert != null ? vert.v[0] * scale[0] + origin[0] : 0;
+      const y = vert != null ? vert.v[1] * scale[1] + origin[1] : 0;
+      const z = vert != null ? vert.v[2] * scale[2] + origin[2] : 0;
+      if (x < minx) minx = x;
+      if (x > maxx) maxx = x;
+      if (y < miny) miny = y;
+      if (y > maxy) maxy = y;
+      if (z < minz) minz = z;
+      if (z > maxz) maxz = z;
+    }
+  }
 
-	for ( let i = 0; i < hdr.posedata.length; i ++ ) {
+  if (minx > maxx) {
+    // no vertices: an empty sphere at the model origin
+    hdr._cullCenter = [0, 0, 0];
+    hdr._cullRadius = 0;
+    return;
+  }
 
-		const verts = hdr.posedata[ i ];
-		for ( let j = 0; j < verts.length; j ++ ) {
+  const cx = (minx + maxx) * 0.5;
+  const cy = (miny + maxy) * 0.5;
+  const cz = (minz + maxz) * 0.5;
+  let radiusSq = 0;
 
-			// GL_DrawAliasFrame places a missing vertex at the model origin
-			const vert = verts[ j ];
-			const x = vert != null ? vert.v[ 0 ] * scale[ 0 ] + origin[ 0 ] : 0;
-			const y = vert != null ? vert.v[ 1 ] * scale[ 1 ] + origin[ 1 ] : 0;
-			const z = vert != null ? vert.v[ 2 ] * scale[ 2 ] + origin[ 2 ] : 0;
-			if ( x < minx ) minx = x;
-			if ( x > maxx ) maxx = x;
-			if ( y < miny ) miny = y;
-			if ( y > maxy ) maxy = y;
-			if ( z < minz ) minz = z;
-			if ( z > maxz ) maxz = z;
+  for (let i = 0; i < hdr.posedata.length; i++) {
+    const verts = hdr.posedata[i];
+    for (let j = 0; j < verts.length; j++) {
+      const vert = verts[j];
+      const dx = (vert != null ? vert.v[0] * scale[0] + origin[0] : 0) - cx;
+      const dy = (vert != null ? vert.v[1] * scale[1] + origin[1] : 0) - cy;
+      const dz = (vert != null ? vert.v[2] * scale[2] + origin[2] : 0) - cz;
+      const d = dx * dx + dy * dy + dz * dz;
+      if (d > radiusSq) radiusSq = d;
+    }
+  }
 
-		}
-
-	}
-
-	if ( minx > maxx ) {
-
-		// no vertices: an empty sphere at the model origin
-		hdr._cullCenter = [ 0, 0, 0 ];
-		hdr._cullRadius = 0;
-		return;
-
-	}
-
-	const cx = ( minx + maxx ) * 0.5;
-	const cy = ( miny + maxy ) * 0.5;
-	const cz = ( minz + maxz ) * 0.5;
-	let radiusSq = 0;
-
-	for ( let i = 0; i < hdr.posedata.length; i ++ ) {
-
-		const verts = hdr.posedata[ i ];
-		for ( let j = 0; j < verts.length; j ++ ) {
-
-			const vert = verts[ j ];
-			const dx = ( vert != null ? vert.v[ 0 ] * scale[ 0 ] + origin[ 0 ] : 0 ) - cx;
-			const dy = ( vert != null ? vert.v[ 1 ] * scale[ 1 ] + origin[ 1 ] : 0 ) - cy;
-			const dz = ( vert != null ? vert.v[ 2 ] * scale[ 2 ] + origin[ 2 ] : 0 ) - cz;
-			const d = dx * dx + dy * dy + dz * dz;
-			if ( d > radiusSq ) radiusSq = d;
-
-		}
-
-	}
-
-	hdr._cullCenter = [ cx, cy, cz ];
-	hdr._cullRadius = Math.sqrt( radiusSq );
-
+  hdr._cullCenter = [cx, cy, cz];
+  hdr._cullRadius = Math.sqrt(radiusSq);
 }
 
 /*
@@ -441,146 +433,131 @@ are updated in place from a pre-allocated buffer.
 */
 
 // Shared buffers for int-to-float bit casting
-const _castIntBuf = new Int32Array( 1 );
-const _castFloatView = new Float32Array( _castIntBuf.buffer );
+const _castIntBuf = new Int32Array(1);
+const _castFloatView = new Float32Array(_castIntBuf.buffer);
 
-export function GL_DrawAliasFrame( paliashdr, posenum ) {
+export function GL_DrawAliasFrame(paliashdr, posenum) {
+  // an MD5 replacement (r_enhancedmodels) makes its templates by skinning
+  if (paliashdr.md5 != null) {
+    return GL_DrawMD5Frame(paliashdr, posenum);
+  }
 
-	// an MD5 replacement (r_enhancedmodels) makes its templates by skinning
-	if ( paliashdr.md5 != null )
-		return GL_DrawMD5Frame( paliashdr, posenum );
+  const verts = paliashdr.posedata[posenum];
+  if (!verts) return null;
 
-	const verts = paliashdr.posedata[ posenum ];
-	if ( ! verts ) return null;
+  // Check geometry template cache
+  if (!paliashdr._geoCache) paliashdr._geoCache = new Map();
 
-	// Check geometry template cache
-	if ( ! paliashdr._geoCache ) paliashdr._geoCache = new Map();
+  let cached = paliashdr._geoCache.get(posenum);
 
-	let cached = paliashdr._geoCache.get( posenum );
+  if (cached == null) {
+    // Build geometry template for this pose (done once, cached)
+    const cmds = paliashdr.commands;
+    const positions = [];
+    const normals = [];
+    const uvs = [];
+    const indices = [];
+    const lightnormalindices = [];
 
-	if ( cached == null ) {
+    let cmdIndex = 0;
+    let vertexCount = 0;
 
-		// Build geometry template for this pose (done once, cached)
-		const cmds = paliashdr.commands;
-		const positions = [];
-		const normals = [];
-		const uvs = [];
-		const indices = [];
-		const lightnormalindices = [];
+    while (true) {
+      let count = cmds[cmdIndex++];
+      if (count === 0) {
+        break;
+      }
 
-		let cmdIndex = 0;
-		let vertexCount = 0;
+      const isStrip = count > 0;
+      if (count < 0) {
+        count = -count;
+      }
 
-		while ( true ) {
+      const firstVertex = vertexCount;
 
-			let count = cmds[ cmdIndex ++ ];
-			if ( count === 0 )
-				break;
+      // Read all vertices for this strip/fan
+      for (let i = 0; i < count; i++) {
+        // Read s/t from command stream (stored as int bits of float)
+        _castIntBuf[0] = cmds[cmdIndex++];
+        const s = _castFloatView[0];
+        _castIntBuf[0] = cmds[cmdIndex++];
+        const t = _castFloatView[0];
 
-			const isStrip = count > 0;
-			if ( count < 0 )
-				count = - count;
+        const vert = verts[vertexCount - firstVertex + firstVertex];
+        if (vert) {
+          const x = vert.v[0] * paliashdr.scale[0] + paliashdr.scale_origin[0];
+          const y = vert.v[1] * paliashdr.scale[1] + paliashdr.scale_origin[1];
+          const z = vert.v[2] * paliashdr.scale[2] + paliashdr.scale_origin[2];
 
-			const firstVertex = vertexCount;
+          positions.push(x, y, z);
+          uvs.push(s, t);
+          lightnormalindices.push(vert.lightnormalindex);
 
-			// Read all vertices for this strip/fan
-			for ( let i = 0; i < count; i ++ ) {
+          // Look up pre-baked normal from MDL file's normal table
+          const normalIndex = vert.lightnormalindex;
+          const n = r_avertexnormals[normalIndex] || r_avertexnormals[0];
+          normals.push(n[0], n[1], n[2]);
+        } else {
+          positions.push(0, 0, 0);
+          uvs.push(s, t);
+          lightnormalindices.push(0);
+          normals.push(0, 0, 1); // Default normal
+        }
 
-				// Read s/t from command stream (stored as int bits of float)
-				_castIntBuf[ 0 ] = cmds[ cmdIndex ++ ];
-				const s = _castFloatView[ 0 ];
-				_castIntBuf[ 0 ] = cmds[ cmdIndex ++ ];
-				const t = _castFloatView[ 0 ];
+        vertexCount++;
+      }
 
-				const vert = verts[ vertexCount - firstVertex + firstVertex ];
-				if ( vert ) {
+      // Generate triangle indices from strip or fan (inverted winding for correct backface culling)
+      if (isStrip) {
+        for (let i = 2; i < count; i++) {
+          if (i & 1) {
+            indices.push(
+              firstVertex + i - 1,
+              firstVertex + i,
+              firstVertex + i - 2,
+            );
+          } else {
+            indices.push(
+              firstVertex + i - 2,
+              firstVertex + i,
+              firstVertex + i - 1,
+            );
+          }
+        }
+      } else {
+        for (let i = 2; i < count; i++) {
+          indices.push(firstVertex, firstVertex + i, firstVertex + i - 1);
+        }
+      }
+    }
 
-					const x = vert.v[ 0 ] * paliashdr.scale[ 0 ] + paliashdr.scale_origin[ 0 ];
-					const y = vert.v[ 1 ] * paliashdr.scale[ 1 ] + paliashdr.scale_origin[ 1 ];
-					const z = vert.v[ 2 ] * paliashdr.scale[ 2 ] + paliashdr.scale_origin[ 2 ];
+    // Build shared BufferAttributes for the template (no color — color is per-entity)
+    const posAttr = new THREE.BufferAttribute(new Float32Array(positions), 3);
+    const normalAttr = new THREE.BufferAttribute(new Float32Array(normals), 3);
+    const uvAttr = new THREE.BufferAttribute(new Float32Array(uvs), 2);
 
-					positions.push( x, y, z );
-					uvs.push( s, t );
-					lightnormalindices.push( vert.lightnormalindex );
+    // The triangle list comes from paliashdr.commands alone, so every
+    // pose has the same one. Build one index attribute per model and
+    // share it: setIndex( array ) would make a new attribute, and the
+    // renderer a new GL buffer, on every pose change.
+    if (paliashdr._indexAttr == null) {
+      paliashdr._indexAttr = vertexCount > 65535 ?
+        new THREE.Uint32BufferAttribute(indices, 1) :
+        new THREE.Uint16BufferAttribute(indices, 1);
+    }
 
-					// Look up pre-baked normal from MDL file's normal table
-					const normalIndex = vert.lightnormalindex;
-					const n = r_avertexnormals[ normalIndex ] || r_avertexnormals[ 0 ];
-					normals.push( n[ 0 ], n[ 1 ], n[ 2 ] );
+    cached = {
+      posAttr,
+      normalAttr,
+      uvAttr,
+      indexAttr: paliashdr._indexAttr,
+      lightnormalindices,
+      vertexCount,
+    };
+    paliashdr._geoCache.set(posenum, cached);
+  }
 
-				} else {
-
-					positions.push( 0, 0, 0 );
-					uvs.push( s, t );
-					lightnormalindices.push( 0 );
-					normals.push( 0, 0, 1 ); // Default normal
-
-				}
-
-				vertexCount ++;
-
-			}
-
-			// Generate triangle indices from strip or fan (inverted winding for correct backface culling)
-			if ( isStrip ) {
-
-				for ( let i = 2; i < count; i ++ ) {
-
-					if ( i & 1 ) {
-
-						indices.push( firstVertex + i - 1, firstVertex + i, firstVertex + i - 2 );
-
-					} else {
-
-						indices.push( firstVertex + i - 2, firstVertex + i, firstVertex + i - 1 );
-
-					}
-
-				}
-
-			} else {
-
-				for ( let i = 2; i < count; i ++ ) {
-
-					indices.push( firstVertex, firstVertex + i, firstVertex + i - 1 );
-
-				}
-
-			}
-
-		}
-
-		// Build shared BufferAttributes for the template (no color — color is per-entity)
-		const posAttr = new THREE.BufferAttribute( new Float32Array( positions ), 3 );
-		const normalAttr = new THREE.BufferAttribute( new Float32Array( normals ), 3 );
-		const uvAttr = new THREE.BufferAttribute( new Float32Array( uvs ), 2 );
-
-		// The triangle list comes from paliashdr.commands alone, so every
-		// pose has the same one. Build one index attribute per model and
-		// share it: setIndex( array ) would make a new attribute, and the
-		// renderer a new GL buffer, on every pose change.
-		if ( paliashdr._indexAttr == null ) {
-
-			paliashdr._indexAttr = vertexCount > 65535
-				? new THREE.Uint32BufferAttribute( indices, 1 )
-				: new THREE.Uint16BufferAttribute( indices, 1 );
-
-		}
-
-		cached = {
-			posAttr,
-			normalAttr,
-			uvAttr,
-			indexAttr: paliashdr._indexAttr,
-			lightnormalindices,
-			vertexCount
-		};
-		paliashdr._geoCache.set( posenum, cached );
-
-	}
-
-	return cached;
-
+  return cached;
 }
 
 /*
@@ -591,12 +568,10 @@ Port-only hook for clearing cached alias model geometries. Unused.
 ================
 */
 export function GL_ClearAliasCache() {
-
-	// Caches are stored on paliashdr objects. Mod_ClearAll keeps alias
-	// models across map changes, as C does, so the caches stay valid and
-	// are reused. Nothing calls this; it is a hook if explicit cleanup is
-	// ever needed.
-
+  // Caches are stored on paliashdr objects. Mod_ClearAll keeps alias
+  // models across map changes, as C does, so the caches stay valid and
+  // are reused. Nothing calls this; it is a hook if explicit cleanup is
+  // ever needed.
 }
 
 /*
@@ -608,27 +583,21 @@ R_SetupEntityTransform work out for one draw of one entity.
 =================
 */
 export class lerpdata_t {
-
-	constructor() {
-
-		this.pose1 = 0;
-		this.pose2 = 0;
-		this.blend = 0;
-		this.origin = new Float32Array( 3 );
-		this.angles = new Float32Array( 3 );
-
-	}
-
+  constructor() {
+    this.pose1 = 0;
+    this.pose2 = 0;
+    this.blend = 0;
+    this.origin = new Float32Array(3);
+    this.angles = new Float32Array(3);
+  }
 }
 
 // The lerpdata of the entity R_DrawAliasModel drew last; gl_rmain.js hands
 // it to GL_DrawAliasShadow for the same entity (QS passes it on the stack).
 export const alias_lerpdata = new lerpdata_t();
 
-function CLAMP( min, x, max ) {
-
-	return x < min ? min : ( x > max ? max : x );
-
+function CLAMP(min, x, max) {
+  return x < min ? min : (x > max ? max : x);
 }
 
 /*
@@ -642,107 +611,100 @@ single-pose frame. With r_lerpmodels 0, pose1 = pose2 = id's pose.
 QS takes currententity; this takes the entity as its first argument.
 =================
 */
-export function R_SetupAliasFrame( e, paliashdr, frame, lerpdata ) {
+export function R_SetupAliasFrame(e, paliashdr, frame, lerpdata) {
+  const time = cl != null ? cl.time : 0;
 
-	const time = cl != null ? cl.time : 0;
+  if (frame >= paliashdr.numframes || frame < 0) {
+    Con_DPrintf(
+      "R_AliasSetupFrame: no such frame " + frame + " for '" +
+        (e.model != null ? e.model.name : "") + "'\n",
+    );
+    frame = 0;
+  }
 
-	if ( frame >= paliashdr.numframes || frame < 0 ) {
+  let posenum;
+  let numposes;
+  const frameInfo = paliashdr.frames != null ?
+    paliashdr.frames[frame] :
+    undefined;
+  if (frameInfo != null) {
+    posenum = frameInfo.firstpose;
+    numposes = frameInfo.numposes;
+  } else {
+    posenum = frame;
+    numposes = 1;
+  }
 
-		Con_DPrintf( 'R_AliasSetupFrame: no such frame ' + frame + ' for \'' + ( e.model != null ? e.model.name : '' ) + '\'\n' );
-		frame = 0;
+  if (numposes > 1) {
+    e.lerptime = frameInfo.interval;
+    posenum += ((time / e.lerptime) | 0) % numposes;
+  } else {
+    e.lerptime = 0.1;
+  }
 
-	}
+  if (posenum >= paliashdr.numposes) {
+    posenum = 0;
+  }
 
-	let posenum;
-	let numposes;
-	const frameInfo = paliashdr.frames != null ? paliashdr.frames[ frame ] : undefined;
-	if ( frameInfo != null ) {
+  // Not in QS: something that sets e.model directly (view.js, cl_tent.js)
+  // doesn't set LERP_RESETANIM, and the stored poses would index the old
+  // model. Don't lerp across a model change, as QS's model-change sites do.
+  if (e._lerphdr !== paliashdr) {
+    e._lerphdr = paliashdr;
+    e.lerpflags |= LERP_RESETANIM;
+  }
 
-		posenum = frameInfo.firstpose;
-		numposes = frameInfo.numposes;
+  if ((e.lerpflags & LERP_RESETANIM) !== 0) {
+    //kill any lerp in progress
+    e.lerpstart = 0;
+    e.previouspose = posenum;
+    e.currentpose = posenum;
+    e.lerpflags &= ~LERP_RESETANIM;
+  } else if (e.currentpose !== posenum) {
+    // pose changed, start new lerp
+    if ((e.lerpflags & LERP_RESETANIM2) !== 0) {
+      //defer lerping one more time
+      e.lerpstart = 0;
+      e.previouspose = posenum;
+      e.currentpose = posenum;
+      e.lerpflags &= ~LERP_RESETANIM2;
+    } else {
+      e.lerpstart = time;
+      e.previouspose = e.currentpose;
+      e.currentpose = posenum;
+    }
+  }
 
-	} else {
+  // QS sets MOD_NOLERP from a cvar callback when r_nolerp_list changes
+  if (e.model.extraflags_list !== r_nolerp_list.string) {
+    Mod_SetExtraFlags(e.model);
+  }
 
-		posenum = frame;
-		numposes = 1;
-
-	}
-
-	if ( numposes > 1 ) {
-
-		e.lerptime = frameInfo.interval;
-		posenum += ( ( time / e.lerptime ) | 0 ) % numposes;
-
-	} else
-		e.lerptime = 0.1;
-
-	if ( posenum >= paliashdr.numposes )
-		posenum = 0;
-
-	// Not in QS: something that sets e.model directly (view.js, cl_tent.js)
-	// doesn't set LERP_RESETANIM, and the stored poses would index the old
-	// model. Don't lerp across a model change, as QS's model-change sites do.
-	if ( e._lerphdr !== paliashdr ) {
-
-		e._lerphdr = paliashdr;
-		e.lerpflags |= LERP_RESETANIM;
-
-	}
-
-	if ( ( e.lerpflags & LERP_RESETANIM ) !== 0 ) {
-
-		//kill any lerp in progress
-		e.lerpstart = 0;
-		e.previouspose = posenum;
-		e.currentpose = posenum;
-		e.lerpflags &= ~ LERP_RESETANIM;
-
-	} else if ( e.currentpose !== posenum ) {
-
-		// pose changed, start new lerp
-		if ( ( e.lerpflags & LERP_RESETANIM2 ) !== 0 ) {
-
-			//defer lerping one more time
-			e.lerpstart = 0;
-			e.previouspose = posenum;
-			e.currentpose = posenum;
-			e.lerpflags &= ~ LERP_RESETANIM2;
-
-		} else {
-
-			e.lerpstart = time;
-			e.previouspose = e.currentpose;
-			e.currentpose = posenum;
-
-		}
-
-	}
-
-	// QS sets MOD_NOLERP from a cvar callback when r_nolerp_list changes
-	if ( e.model.extraflags_list !== r_nolerp_list.string )
-		Mod_SetExtraFlags( e.model );
-
-	//set up values
-	if ( r_lerpmodels.value !== 0 && ! ( ( e.model.flags & MOD_NOLERP ) !== 0 && r_lerpmodels.value !== 2 ) ) {
-
-		if ( ( e.lerpflags & LERP_FINISH ) !== 0 && numposes === 1 )
-			lerpdata.blend = CLAMP( 0.0, ( time - e.lerpstart ) / ( e.lerpfinish - e.lerpstart ), 1.0 );
-		else
-			lerpdata.blend = CLAMP( 0.0, ( time - e.lerpstart ) / e.lerptime, 1.0 );
-		if ( lerpdata.blend === 1.0 )
-			e.previouspose = e.currentpose;
-		lerpdata.pose1 = e.previouspose;
-		lerpdata.pose2 = e.currentpose;
-
-	} else {
-
-		//don't lerp
-		lerpdata.blend = 1;
-		lerpdata.pose1 = posenum;
-		lerpdata.pose2 = posenum;
-
-	}
-
+  //set up values
+  if (
+    r_lerpmodels.value !== 0 &&
+    !((e.model.flags & MOD_NOLERP) !== 0 && r_lerpmodels.value !== 2)
+  ) {
+    if ((e.lerpflags & LERP_FINISH) !== 0 && numposes === 1) {
+      lerpdata.blend = CLAMP(
+        0.0,
+        (time - e.lerpstart) / (e.lerpfinish - e.lerpstart),
+        1.0,
+      );
+    } else {
+      lerpdata.blend = CLAMP(0.0, (time - e.lerpstart) / e.lerptime, 1.0);
+    }
+    if (lerpdata.blend === 1.0) {
+      e.previouspose = e.currentpose;
+    }
+    lerpdata.pose1 = e.previouspose;
+    lerpdata.pose2 = e.currentpose;
+  } else {
+    //don't lerp
+    lerpdata.blend = 1;
+    lerpdata.pose1 = posenum;
+    lerpdata.pose2 = posenum;
+  }
 }
 
 /*
@@ -756,61 +718,62 @@ receives no lerpfinish (no U_LERPFINISH), so LERP_FINISH is never set
 and QS's 0.1 s fallback applies.
 =================
 */
-export function R_SetupEntityTransform( e, lerpdata ) {
+export function R_SetupEntityTransform(e, lerpdata) {
+  // if LERP_RESETMOVE, kill any lerps in progress
+  if ((e.lerpflags & LERP_RESETMOVE) !== 0) {
+    e.movelerpstart = 0;
+    VectorCopy(e.origin, e.previousorigin);
+    VectorCopy(e.origin, e.currentorigin);
+    VectorCopy(e.angles, e.previousangles);
+    VectorCopy(e.angles, e.currentangles);
+    e.lerpflags &= ~LERP_RESETMOVE;
+  } else if (
+    !VectorCompare(e.origin, e.currentorigin) ||
+    !VectorCompare(e.angles, e.currentangles)
+  ) {
+    // origin/angles changed, start new lerp
+    e.movelerpstart = cl != null ? cl.time : 0;
+    VectorCopy(e.currentorigin, e.previousorigin);
+    VectorCopy(e.origin, e.currentorigin);
+    VectorCopy(e.currentangles, e.previousangles);
+    VectorCopy(e.angles, e.currentangles);
+  }
 
-	// if LERP_RESETMOVE, kill any lerps in progress
-	if ( ( e.lerpflags & LERP_RESETMOVE ) !== 0 ) {
+  //set up values
+  if (
+    r_lerpmove.value !== 0 && (cl == null || e !== cl.viewent) &&
+    (e.lerpflags & LERP_MOVESTEP) !== 0
+  ) {
+    const time = cl != null ? cl.time : 0;
+    let blend;
+    if ((e.lerpflags & LERP_FINISH) !== 0) {
+      blend = CLAMP(
+        0.0,
+        (time - e.movelerpstart) / (e.lerpfinish - e.movelerpstart),
+        1.0,
+      );
+    } else {
+      blend = CLAMP(0.0, (time - e.movelerpstart) / 0.1, 1.0);
+    }
 
-		e.movelerpstart = 0;
-		VectorCopy( e.origin, e.previousorigin );
-		VectorCopy( e.origin, e.currentorigin );
-		VectorCopy( e.angles, e.previousangles );
-		VectorCopy( e.angles, e.currentangles );
-		e.lerpflags &= ~ LERP_RESETMOVE;
+    //translation
+    for (let i = 0; i < 3; i++) {
+      lerpdata.origin[i] = e.previousorigin[i] +
+        (e.currentorigin[i] - e.previousorigin[i]) * blend;
+    }
 
-	} else if ( ! VectorCompare( e.origin, e.currentorigin ) || ! VectorCompare( e.angles, e.currentangles ) ) {
-
-		// origin/angles changed, start new lerp
-		e.movelerpstart = cl != null ? cl.time : 0;
-		VectorCopy( e.currentorigin, e.previousorigin );
-		VectorCopy( e.origin, e.currentorigin );
-		VectorCopy( e.currentangles, e.previousangles );
-		VectorCopy( e.angles, e.currentangles );
-
-	}
-
-	//set up values
-	if ( r_lerpmove.value !== 0 && ( cl == null || e !== cl.viewent ) && ( e.lerpflags & LERP_MOVESTEP ) !== 0 ) {
-
-		const time = cl != null ? cl.time : 0;
-		let blend;
-		if ( ( e.lerpflags & LERP_FINISH ) !== 0 )
-			blend = CLAMP( 0.0, ( time - e.movelerpstart ) / ( e.lerpfinish - e.movelerpstart ), 1.0 );
-		else
-			blend = CLAMP( 0.0, ( time - e.movelerpstart ) / 0.1, 1.0 );
-
-		//translation
-		for ( let i = 0; i < 3; i ++ )
-			lerpdata.origin[ i ] = e.previousorigin[ i ] + ( e.currentorigin[ i ] - e.previousorigin[ i ] ) * blend;
-
-		//rotation
-		for ( let i = 0; i < 3; i ++ ) {
-
-			let d = e.currentangles[ i ] - e.previousangles[ i ];
-			if ( d > 180 ) d -= 360;
-			if ( d < - 180 ) d += 360;
-			lerpdata.angles[ i ] = e.previousangles[ i ] + d * blend;
-
-		}
-
-	} else {
-
-		//don't lerp
-		VectorCopy( e.origin, lerpdata.origin );
-		VectorCopy( e.angles, lerpdata.angles );
-
-	}
-
+    //rotation
+    for (let i = 0; i < 3; i++) {
+      let d = e.currentangles[i] - e.previousangles[i];
+      if (d > 180) d -= 360;
+      if (d < -180) d += 360;
+      lerpdata.angles[i] = e.previousangles[i] + d * blend;
+    }
+  } else {
+    //don't lerp
+    VectorCopy(e.origin, lerpdata.origin);
+    VectorCopy(e.angles, lerpdata.angles);
+  }
 }
 
 /*
@@ -828,102 +791,90 @@ and the r_lerpmodels blend.
 =================
 */
 export class AliasMaterial extends THREE.MeshBasicMaterial {
+  constructor(parameters) {
+    super(parameters);
+    // one uniform object per material, so a new fullbrightMap reaches
+    // the compiled program without a recompile
+    this._fullbrightUniform = { value: null };
+    this._lerpblend = null; // { value } when r_lerpmodels blends poses
+  }
 
-	constructor( parameters ) {
+  get fullbrightMap() {
+    return this._fullbrightUniform.value;
+  }
 
-		super( parameters );
-		// one uniform object per material, so a new fullbrightMap reaches
-		// the compiled program without a recompile
-		this._fullbrightUniform = { value: null };
-		this._lerpblend = null;	// { value } when r_lerpmodels blends poses
+  set fullbrightMap(texture) {
+    this._fullbrightUniform.value = texture;
+  }
 
-	}
+  onBeforeCompile(shader) {
+    if (this._lerpblend !== null) {
+      // r_lerpmodels: see R_GetAliasLerpMaterial
+      shader.uniforms.r_lerpblend = this._lerpblend;
+      shader.vertexShader =
+        "attribute vec3 pose1;\nuniform float r_lerpblend;\n" +
+        shader.vertexShader.replace(
+          "#include <begin_vertex>",
+          "#include <begin_vertex>\n\ttransformed = mix( pose1, position, r_lerpblend );",
+        );
+    }
 
-	get fullbrightMap() {
+    if (this.fullbrightMap !== null && this.map !== null) {
+      shader.uniforms.fullbrightMap = this._fullbrightUniform;
+      shader.fragmentShader = "uniform sampler2D fullbrightMap;\n" +
+        shader.fragmentShader.replace(
+          "#include <opaque_fragment>",
+          "outgoingLight = mix( outgoingLight, texture2D( map, vMapUv ).rgb,\n" +
+            "\t\ttexture2D( fullbrightMap, vMapUv ).a );\n" +
+            "\t#include <opaque_fragment>",
+        );
+    }
+  }
 
-		return this._fullbrightUniform.value;
+  customProgramCacheKey() {
+    return "alias" + (this._lerpblend !== null ? "-lerp" : "") +
+      (this.fullbrightMap !== null && this.map !== null ? "-fullbright" : "");
+  }
 
-	}
-
-	set fullbrightMap( texture ) {
-
-		this._fullbrightUniform.value = texture;
-
-	}
-
-	onBeforeCompile( shader ) {
-
-		if ( this._lerpblend !== null ) {
-
-			// r_lerpmodels: see R_GetAliasLerpMaterial
-			shader.uniforms.r_lerpblend = this._lerpblend;
-			shader.vertexShader = 'attribute vec3 pose1;\nuniform float r_lerpblend;\n' +
-				shader.vertexShader.replace( '#include <begin_vertex>',
-					'#include <begin_vertex>\n\ttransformed = mix( pose1, position, r_lerpblend );' );
-
-		}
-
-		if ( this.fullbrightMap !== null && this.map !== null ) {
-
-			shader.uniforms.fullbrightMap = this._fullbrightUniform;
-			shader.fragmentShader = 'uniform sampler2D fullbrightMap;\n' +
-				shader.fragmentShader.replace( '#include <opaque_fragment>',
-					'outgoingLight = mix( outgoingLight, texture2D( map, vMapUv ).rgb,\n' +
-					'\t\ttexture2D( fullbrightMap, vMapUv ).a );\n' +
-					'\t#include <opaque_fragment>' );
-
-		}
-
-	}
-
-	customProgramCacheKey() {
-
-		return 'alias' + ( this._lerpblend !== null ? '-lerp' : '' ) +
-			( this.fullbrightMap !== null && this.map !== null ? '-fullbright' : '' );
-
-	}
-
-	copy( source ) {
-
-		super.copy( source );
-		this.fullbrightMap = source.fullbrightMap;
-		this._lerpblend = source._lerpblend;
-		return this;
-
-	}
-
+  copy(source) {
+    super.copy(source);
+    this.fullbrightMap = source.fullbrightMap;
+    this._lerpblend = source._lerpblend;
+    return this;
+  }
 }
 
 // MF_HOLEY skins: Ironwail's alias shader discards texels with alpha
 // below 0.666 (QuakeSpasm: glAlphaFunc GL_GREATER 0.666)
 const HOLEY_ALPHATEST = 0.666;
 
-function _skinAlphaTest( entity ) {
-
-	return entity !== null && entity.model !== null && ( entity.model.flags & MF_HOLEY ) !== 0
-		? HOLEY_ALPHATEST : 0;
-
+function _skinAlphaTest(entity) {
+  return entity !== null && entity.model !== null &&
+      (entity.model.flags & MF_HOLEY) !== 0 ?
+    HOLEY_ALPHATEST :
+    0;
 }
 
 // A skin's fullbright mask, or null. Unloaded gl_texturenum slots hold 0.
-function _skinFullbright( texture ) {
-
-	if ( texture === null || texture === 0 || texture._fullbright === undefined ) return null;
-	return texture._fullbright;
-
+function _skinFullbright(texture) {
+  if (texture === null || texture === 0 || texture._fullbright === undefined) {
+    return null;
+  }
+  return texture._fullbright;
 }
 
 // The skin texture for an entity's skinnum and animation frame. Unloaded
 // gl_texturenum slots hold 0 (as in the C), hence the falsy fallbacks.
-function R_GetAliasSkinTexture( paliashdr, entity, anim ) {
-
-	if ( ! paliashdr.gl_texturenum ) return null;
-	const skinnum = entity && entity.skinnum ? entity.skinnum : 0;
-	const skinGroup = paliashdr.gl_texturenum[ skinnum ] || paliashdr.gl_texturenum[ 0 ];
-	if ( ! skinGroup ) return null;
-	// Select animated frame if skin group is an array
-	return Array.isArray( skinGroup ) ? ( skinGroup[ anim ] || skinGroup[ 0 ] ) : skinGroup;
-
+function R_GetAliasSkinTexture(paliashdr, entity, anim) {
+  if (!paliashdr.gl_texturenum) return null;
+  const skinnum = entity && entity.skinnum ? entity.skinnum : 0;
+  const skinGroup = paliashdr.gl_texturenum[skinnum] ||
+    paliashdr.gl_texturenum[0];
+  if (!skinGroup) return null;
+  // Select animated frame if skin group is an array
+  return Array.isArray(skinGroup) ?
+    (skinGroup[anim] || skinGroup[0]) :
+    skinGroup;
 }
 
 /*
@@ -935,82 +886,80 @@ Materials are cached per (paliashdr, skin texture, hasLighting) to avoid
 per-frame material creation and shader compilation.
 =================
 */
-export function R_GetAliasMaterial( paliashdr, entity, hasLighting, playerSkinTexture ) {
+export function R_GetAliasMaterial(
+  paliashdr,
+  entity,
+  hasLighting,
+  playerSkinTexture,
+) {
+  // Player skin textures are per-entity, not cached on the model
+  if (playerSkinTexture != null) {
+    // Cache the player material on the entity to avoid per-frame creation
+    if (
+      entity._playerMaterial == null ||
+      entity._playerSkinTexture !== playerSkinTexture
+    ) {
+      if (entity._playerMaterial != null) {
+        entity._playerMaterial.dispose();
+      }
 
-	// Player skin textures are per-entity, not cached on the model
-	if ( playerSkinTexture != null ) {
+      entity._playerMaterial = GL_RegisterCullMaterial(
+        new AliasMaterial({
+          map: playerSkinTexture,
+          vertexColors: hasLighting,
+        }),
+      );
+      // the translated skin has the model skin's layout, so its
+      // fullbright mask lines up
+      entity._playerMaterial.fullbrightMap = _skinFullbright(
+        R_GetAliasSkinTexture(paliashdr, entity, 0),
+      );
+      // MF_HOLEY isn't applied here: R_TranslatePlayerSkin (gl_rmisc.js)
+      // builds the translated skin fully opaque
+      entity._playerSkinTexture = playerSkinTexture;
+    }
 
-		// Cache the player material on the entity to avoid per-frame creation
-		if ( entity._playerMaterial == null || entity._playerSkinTexture !== playerSkinTexture ) {
+    return entity._playerMaterial;
+  }
 
-			if ( entity._playerMaterial != null ) {
+  if (!paliashdr._materialCache) paliashdr._materialCache = new Map();
 
-				entity._playerMaterial.dispose();
+  // Animated skins cycle through frames 0-3 every 0.1 seconds
+  // Original: anim = (int)(cl.time*10) & 3
+  const anim = cl && cl.time ? (Math.floor(cl.time * 10) & 3) : 0;
 
-			}
+  // Cache by the skin texture, not by anim: Mod_LoadAllSkins fills all
+  // four gl_texturenum slots of a single-frame skin with one texture, so
+  // keying by anim built four identical materials and switched between
+  // them every 0.1 seconds.
+  const texture = R_GetAliasSkinTexture(paliashdr, entity, anim) || null;
+  let pair = paliashdr._materialCache.get(texture);
+  if (pair === undefined) {
+    pair = [null, null]; // [ unlit, lit ]
+    paliashdr._materialCache.set(texture, pair);
+  }
 
-			entity._playerMaterial = GL_RegisterCullMaterial( new AliasMaterial( {
-				map: playerSkinTexture,
-				vertexColors: hasLighting
-			} ) );
-			// the translated skin has the model skin's layout, so its
-			// fullbright mask lines up
-			entity._playerMaterial.fullbrightMap = _skinFullbright( R_GetAliasSkinTexture( paliashdr, entity, 0 ) );
-			// MF_HOLEY isn't applied here: R_TranslatePlayerSkin (gl_rmisc.js)
-			// builds the translated skin fully opaque
-			entity._playerSkinTexture = playerSkinTexture;
+  const lit = hasLighting ? 1 : 0;
+  let material = pair[lit];
+  if (material !== null) return material;
 
-		}
+  if (texture !== null) {
+    material = new AliasMaterial({
+      map: texture,
+      vertexColors: hasLighting,
+    });
+    material.fullbrightMap = _skinFullbright(texture);
+    material.alphaTest = _skinAlphaTest(entity);
+  } else {
+    material = new AliasMaterial({
+      color: 0xcccccc,
+      vertexColors: hasLighting,
+    });
+  }
 
-		return entity._playerMaterial;
-
-	}
-
-	if ( ! paliashdr._materialCache ) paliashdr._materialCache = new Map();
-
-	// Animated skins cycle through frames 0-3 every 0.1 seconds
-	// Original: anim = (int)(cl.time*10) & 3
-	const anim = cl && cl.time ? ( Math.floor( cl.time * 10 ) & 3 ) : 0;
-
-	// Cache by the skin texture, not by anim: Mod_LoadAllSkins fills all
-	// four gl_texturenum slots of a single-frame skin with one texture, so
-	// keying by anim built four identical materials and switched between
-	// them every 0.1 seconds.
-	const texture = R_GetAliasSkinTexture( paliashdr, entity, anim ) || null;
-	let pair = paliashdr._materialCache.get( texture );
-	if ( pair === undefined ) {
-
-		pair = [ null, null ]; // [ unlit, lit ]
-		paliashdr._materialCache.set( texture, pair );
-
-	}
-
-	const lit = hasLighting ? 1 : 0;
-	let material = pair[ lit ];
-	if ( material !== null ) return material;
-
-	if ( texture !== null ) {
-
-		material = new AliasMaterial( {
-			map: texture,
-			vertexColors: hasLighting
-		} );
-		material.fullbrightMap = _skinFullbright( texture );
-		material.alphaTest = _skinAlphaTest( entity );
-
-	} else {
-
-		material = new AliasMaterial( {
-			color: 0xcccccc,
-			vertexColors: hasLighting
-		} );
-
-	}
-
-	GL_RegisterCullMaterial( material );
-	pair[ lit ] = material;
-	return material;
-
+  GL_RegisterCullMaterial(material);
+  pair[lit] = material;
+  return material;
 }
 
 /*
@@ -1027,40 +976,37 @@ material, kept in step with the cached one R_GetAliasMaterial picked.
 With r_lerpmodels 0 the cached materials are used, as before.
 =================
 */
-export function R_GetAliasLerpMaterial( entity, base, blend ) {
+export function R_GetAliasLerpMaterial(entity, base, blend) {
+  let material = entity._aliasLerpMaterial;
+  if (material == null) {
+    // AliasMaterial.onBeforeCompile adds the blend; every lerp material
+    // shares one program per fullbright on/off (customProgramCacheKey)
+    material = GL_RegisterCullMaterial(new AliasMaterial());
+    material._lerpblend = { value: 1 };
+    material._lerpbase = null;
+    entity._aliasLerpMaterial = material;
+  }
 
-	let material = entity._aliasLerpMaterial;
-	if ( material == null ) {
+  if (material._lerpbase !== base) {
+    // map on/off, the fullbright pass and vertexColors are compiled into
+    // the program
+    if (
+      (material.map === null) !== (base.map === null) ||
+      (material.fullbrightMap === null) !== (base.fullbrightMap === null) ||
+      material.vertexColors !== base.vertexColors
+    ) {
+      material.needsUpdate = true;
+    }
+    material.map = base.map;
+    material.fullbrightMap = base.fullbrightMap;
+    material.alphaTest = base.alphaTest; // Three recompiles when it turns on or off
+    material.color.copy(base.color);
+    material.vertexColors = base.vertexColors;
+    material._lerpbase = base;
+  }
 
-		// AliasMaterial.onBeforeCompile adds the blend; every lerp material
-		// shares one program per fullbright on/off (customProgramCacheKey)
-		material = GL_RegisterCullMaterial( new AliasMaterial() );
-		material._lerpblend = { value: 1 };
-		material._lerpbase = null;
-		entity._aliasLerpMaterial = material;
-
-	}
-
-	if ( material._lerpbase !== base ) {
-
-		// map on/off, the fullbright pass and vertexColors are compiled into
-		// the program
-		if ( ( material.map === null ) !== ( base.map === null ) ||
-			( material.fullbrightMap === null ) !== ( base.fullbrightMap === null ) ||
-			material.vertexColors !== base.vertexColors )
-			material.needsUpdate = true;
-		material.map = base.map;
-		material.fullbrightMap = base.fullbrightMap;
-		material.alphaTest = base.alphaTest;	// Three recompiles when it turns on or off
-		material.color.copy( base.color );
-		material.vertexColors = base.vertexColors;
-		material._lerpbase = base;
-
-	}
-
-	material._lerpblend.value = blend;
-	return material;
-
+  material._lerpblend.value = blend;
+  return material;
 }
 
 // Reusable matrix objects for R_DrawAliasModel transform computation
@@ -1082,7 +1028,12 @@ this port defaults to 0, GLQuake's unscaled gun. Ironwail registers it in
 SCR_Init; here gl_model.js Mod_Init does.
 =================
 */
-export const cl_gun_fovscale = { name: 'cl_gun_fovscale', string: '0', value: 0, archive: true };
+export const cl_gun_fovscale = {
+  name: "cl_gun_fovscale",
+  string: "0",
+  value: 0,
+  archive: true,
+};
 
 // Ironwail r_alias.c R_DrawAliasModel_Real: fovscale for the view model.
 // Ironwail reads r_refdef.basefov, the fov cvar before the "Hor+" widening.
@@ -1090,16 +1041,16 @@ export const cl_gun_fovscale = { name: 'cl_gun_fovscale', string: '0', value: 0,
 // so tan( basefov / 2 ) = tan( fov_y / 2 ) * 4 / 3, and basefov > 90 exactly
 // when that is above 1.
 export function R_GunFovScale() {
+  if (cl_gun_fovscale.value === 0) {
+    return 1;
+  }
 
-	if ( cl_gun_fovscale.value === 0 )
-		return 1;
+  const fovscale = Math.tan(r_refdef.fov_y * (Math.PI / 360)) * (4 / 3);
+  if (fovscale <= 1) {
+    return 1;
+  }
 
-	const fovscale = Math.tan( r_refdef.fov_y * ( Math.PI / 360 ) ) * ( 4 / 3 );
-	if ( fovscale <= 1 )
-		return 1;
-
-	return 1 + ( fovscale - 1 ) * cl_gun_fovscale.value;
-
+  return 1 + (fovscale - 1) * cl_gun_fovscale.value;
 }
 const _DEG2RAD = Math.PI / 180;
 
@@ -1115,20 +1066,18 @@ and reuses mesh objects per entity to minimize per-frame allocations.
 // sRGB decode of a display-space light level, clamped as glColor3f clamps.
 // GL keeps vertex colours at 8 bits per channel, so a 256-entry table is
 // exact enough and keeps Math.pow out of the per-vertex loop.
-const _linearLight = new Float32Array( 256 );
-for ( let i = 0; i < 256; i ++ ) {
-
-	const l = i / 255;
-	_linearLight[ i ] = l <= 0.04045 ? l / 12.92 : Math.pow( ( l + 0.055 ) / 1.055, 2.4 );
-
+const _linearLight = new Float32Array(256);
+for (let i = 0; i < 256; i++) {
+  const l = i / 255;
+  _linearLight[i] = l <= 0.04045 ?
+    l / 12.92 :
+    Math.pow((l + 0.055) / 1.055, 2.4);
 }
 
-export function GL_LinearLight( l ) {
-
-	if ( ! ( l > 0 ) ) return 0;
-	if ( l >= 1 ) return 1;
-	return _linearLight[ ( l * 255 + 0.5 ) | 0 ];
-
+export function GL_LinearLight(l) {
+  if (!(l > 0)) return 0;
+  if (l >= 1) return 1;
+  return _linearLight[(l * 255 + 0.5) | 0];
 }
 
 /*
@@ -1136,290 +1085,280 @@ Port-only: the per-entity vertex colour attribute R_DrawAliasModel rewrites
 whenever the lighting changes, marked dynamic for the GL driver. (The server's
 Three.js shim has no setUsage, hence the check.)
 */
-function R_NewAliasColorAttribute( array ) {
-
-	const attribute = new THREE.BufferAttribute( array, 3 );
-	if ( attribute.setUsage !== undefined ) attribute.setUsage( THREE.DynamicDrawUsage );
-	return attribute;
-
+function R_NewAliasColorAttribute(array) {
+  const attribute = new THREE.BufferAttribute(array, 3);
+  if (attribute.setUsage !== undefined) {
+    attribute.setUsage(THREE.DynamicDrawUsage);
+  }
+  return attribute;
 }
 
 // shadecolor: r, g and b of the shade (gl_rmain.js R_SetupAliasLighting,
 // QuakeSpasm's lightcolor), already scaled by 1/200.
 // One vertex's colour: dot times each channel of the shade, decoded to linear.
-function R_AliasSetVertexColor( colorArr, i, dot, r, g, b, mono ) {
-
-	if ( mono ) {
-
-		const l = GL_LinearLight( dot * r );
-		colorArr[ i * 3 ] = l;
-		colorArr[ i * 3 + 1 ] = l;
-		colorArr[ i * 3 + 2 ] = l;
-
-	} else {
-
-		colorArr[ i * 3 ] = GL_LinearLight( dot * r );
-		colorArr[ i * 3 + 1 ] = GL_LinearLight( dot * g );
-		colorArr[ i * 3 + 2 ] = GL_LinearLight( dot * b );
-
-	}
-
+function R_AliasSetVertexColor(colorArr, i, dot, r, g, b, mono) {
+  if (mono) {
+    const l = GL_LinearLight(dot * r);
+    colorArr[i * 3] = l;
+    colorArr[i * 3 + 1] = l;
+    colorArr[i * 3 + 2] = l;
+  } else {
+    colorArr[i * 3] = GL_LinearLight(dot * r);
+    colorArr[i * 3 + 1] = GL_LinearLight(dot * g);
+    colorArr[i * 3 + 2] = GL_LinearLight(dot * b);
+  }
 }
 
-export function R_DrawAliasModel( entity, paliashdr, shadedots, shadecolor ) {
-
-	if ( ! paliashdr || ( ! paliashdr.posedata && ! paliashdr.md5 ) )
-		return null;
-
-	const lerpdata = alias_lerpdata;
-	R_SetupAliasFrame( entity, paliashdr, entity.frame, lerpdata );
-	R_SetupEntityTransform( entity, lerpdata );
-	const posenum = lerpdata.pose2;
-	const pose1 = lerpdata.pose1;
-	const hasLighting = shadedots && shadecolor !== undefined;
-
-	// Get cached template (shared positions/normals/uvs/indices per model+pose)
-	const template = GL_DrawAliasFrame( paliashdr, posenum );
-	if ( ! template )
-		return null;
-	// the pose r_lerpmodels blends from; the same template when not lerping
-	const template1 = pose1 === posenum ? template : GL_DrawAliasFrame( paliashdr, pose1 );
-	if ( ! template1 )
-		return null;
-
-	// Build or update per-entity geometry (shares template attributes, owns color buffer)
-	let geometry = entity ? entity._aliasGeo : null;
-	if ( geometry == null ) {
-
-		geometry = new THREE.BufferGeometry();
-		// Allocate per-entity color buffer (will be resized if needed)
-		entity._aliasColorArray = new Float32Array( template.vertexCount * 3 );
-		geometry.setAttribute( 'color', R_NewAliasColorAttribute( entity._aliasColorArray ) );
-		entity._aliasLitDots = null;
-		if ( entity != null ) entity._aliasGeo = geometry;
-
-	}
-
-	// When pose or model changes, swap to the new template's shared attributes
-	if ( entity._aliasPosenum !== posenum || entity._aliasPose1 !== pose1 || entity._aliasPaliashdr !== paliashdr ) {
-
-		// Cull by a sphere that holds every pose (GL_AliasCullSphere), not
-		// the one Three would compute from whichever pose came first. A
-		// blend of two poses stays inside it too.
-		if ( entity._aliasPaliashdr !== paliashdr && paliashdr._cullCenter !== undefined ) {
-
-			if ( geometry.boundingSphere === null )
-				geometry.boundingSphere = new THREE.Sphere();
-			const c = paliashdr._cullCenter;
-			geometry.boundingSphere.center.set( c[ 0 ], c[ 1 ], c[ 2 ] );
-			geometry.boundingSphere.radius = paliashdr._cullRadius;
-
-		}
-
-		geometry.setAttribute( 'position', template.posAttr );
-		// r_lerpmodels: the previous pose, read only by the lerp material
-		geometry.setAttribute( 'pose1', template1.posAttr );
-		geometry.setAttribute( 'normal', template.normalAttr );
-		geometry.setAttribute( 'uv', template.uvAttr );
-		if ( geometry.index !== template.indexAttr ) geometry.setIndex( template.indexAttr );
-
-		// Resize color buffer if vertex count changed between poses
-		if ( entity._aliasColorArray.length < template.vertexCount * 3 ) {
-
-			entity._aliasColorArray = new Float32Array( template.vertexCount * 3 );
-			geometry.setAttribute( 'color', R_NewAliasColorAttribute( entity._aliasColorArray ) );
-		entity._aliasLitDots = null;
-
-		}
-
-		entity._aliasPosenum = posenum;
-		entity._aliasPose1 = pose1;
-		entity._aliasPaliashdr = paliashdr;
-
-	}
-
-	// Update per-entity vertex colors from lighting data. They depend only on
-	// the shade table, shadecolor, the two poses and the blend, so skip the
-	// loop and the upload when none of those changed since the last frame.
-	// shadecolor is one scratch array, so compare its values.
-	const shadeR = hasLighting ? shadecolor[ 0 ] : 0;
-	const shadeG = hasLighting ? shadecolor[ 1 ] : 0;
-	const shadeB = hasLighting ? shadecolor[ 2 ] : 0;
-	if ( hasLighting && (
-		entity._aliasLitDots !== shadedots ||
-		entity._aliasLitR !== shadeR ||
-		entity._aliasLitG !== shadeG ||
-		entity._aliasLitB !== shadeB ||
-		entity._aliasLitTemplate !== template ||
-		entity._aliasLitTemplate1 !== template1 ||
-		entity._aliasLitBlend !== lerpdata.blend ) ) {
-
-		entity._aliasLitDots = shadedots;
-		entity._aliasLitR = shadeR;
-		entity._aliasLitG = shadeG;
-		entity._aliasLitB = shadeB;
-		entity._aliasLitTemplate = template;
-		entity._aliasLitTemplate1 = template1;
-		entity._aliasLitBlend = lerpdata.blend;
-
-		// without a .lit the channels are equal: decode once per vertex
-		const mono = shadeR === shadeG && shadeG === shadeB;
-
-		const colorArr = entity._aliasColorArray;
-		const lni = template.lightnormalindices;
-		if ( template1 === template || lerpdata.blend >= 1 ) {
-
-			for ( let i = 0; i < template.vertexCount; i ++ ) {
-
-				// glColor3f clamps to [0, 1], and GL modulates in display space;
-				// Three multiplies vertex colours in linear space, so decode.
-				// QS r_alias.c GL_DrawAliasFrame: shadedots * lightcolor
-				const dot = shadedots[ lni[ i ] ];
-				R_AliasSetVertexColor( colorArr, i, dot, shadeR, shadeG, shadeB, mono );
-
-			}
-
-		} else {
-
-			// QS r_alias.c GL_DrawAliasFrame: lerp the shading of the two poses
-			const lni1 = template1.lightnormalindices;
-			const blend = lerpdata.blend;
-			const iblend = 1.0 - blend;
-			for ( let i = 0; i < template.vertexCount; i ++ ) {
-
-				const dot = shadedots[ lni1[ i ] ] * iblend + shadedots[ lni[ i ] ] * blend;
-				R_AliasSetVertexColor( colorArr, i, dot, shadeR, shadeG, shadeB, mono );
-
-			}
-
-		}
-
-		geometry.attributes.color.needsUpdate = true;
-
-	}
-
-	// Check if this is a player entity with custom colors
-	let playerSkinTexture = null;
-	if ( entity != null && entity.colormap != null && gl_nocolors.value === 0 ) {
-
-		// Use stored entity index (equivalent to C pointer arithmetic: i = currententity - cl_entities)
-		const entIdx = entity._entityIndex;
-		if ( entIdx !== undefined && entIdx >= 1 && cl != null && entIdx <= cl.maxclients ) {
-
-			playerSkinTexture = R_GetPlayerSkinTexture( entIdx - 1 );
-
-			// translated from another header's skin (the .mdl's, before its
-			// MD5 replacement arrived or r_enhancedmodels changed): its
-			// layout doesn't match these uvs, so translate again, once per
-			// header change
-			if ( playerSkinTexture != null && playerSkinTexture._paliashdr !== paliashdr ) {
-
-				if ( entity._skinRetranslated !== paliashdr ) {
-
-					entity._skinRetranslated = paliashdr;
-					R_TranslatePlayerSkin( entIdx - 1 );
-					playerSkinTexture = R_GetPlayerSkinTexture( entIdx - 1 );
-
-				}
-
-				if ( playerSkinTexture != null && playerSkinTexture._paliashdr !== paliashdr )
-					playerSkinTexture = null;	// no skin to translate: the base skin
-
-			}
-
-		}
-
-	}
-
-	// Get cached material
-	let material = R_GetAliasMaterial( paliashdr, entity, hasLighting, playerSkinTexture );
-	if ( r_lerpmodels.value !== 0 )
-		material = R_GetAliasLerpMaterial( entity, material, lerpdata.blend );
-
-	// Get or create mesh for this entity
-	let mesh = entity ? entity._aliasMesh : null;
-	if ( mesh == null ) {
-
-		mesh = new THREE.Mesh( geometry, material );
-		if ( entity != null ) entity._aliasMesh = mesh;
-
-	} else {
-
-		// Reuse existing mesh, update geometry and material if changed
-		if ( mesh.geometry !== geometry ) mesh.geometry = geometry;
-		if ( mesh.material !== material ) mesh.material = material;
-
-	}
-
-	// Apply entity transform — R_RotateForEntity equivalent
-	if ( entity ) {
-
-		// QS R_DrawAliasModel: R_RotateForEntity( lerpdata.origin, lerpdata.angles )
-		mesh.position.set(
-			lerpdata.origin[ 0 ],
-			lerpdata.origin[ 1 ],
-			lerpdata.origin[ 2 ]
-		);
-
-		{
-
-			const yaw = lerpdata.angles[ 1 ] * _DEG2RAD;
-			const pitch = - lerpdata.angles[ 0 ] * _DEG2RAD;
-			const roll = lerpdata.angles[ 2 ] * _DEG2RAD;
-
-			_aliasMat.identity();
-			_aliasRZ.makeRotationZ( yaw );
-			_aliasRY.makeRotationY( pitch );
-			_aliasRX.makeRotationX( roll );
-			_aliasMat.multiply( _aliasRZ ).multiply( _aliasRY ).multiply( _aliasRX );
-			mesh.setRotationFromMatrix( _aliasMat );
-
-		}
-
-		// gl_rmain.c R_DrawAliasModel: eyes are drawn at double size, moved
-		// down 30 units ("they are really hard to see in gl"). C translates to
-		// scale_origin - ( 0, 0, 30 ) and scales by scale * 2. The template
-		// already holds scale * v + scale_origin, so scale it by 2 and move
-		// it by -scale_origin - ( 0, 0, 30 ) in the entity's frame.
-		if ( gl_doubleeyes.value !== 0 && entity.model != null &&
-			entity.model.name === 'progs/eyes.mdl' ) {
-
-			mesh.scale.setScalar( 2 );
-			_eyesOffset.set(
-				- paliashdr.scale_origin[ 0 ],
-				- paliashdr.scale_origin[ 1 ],
-				- paliashdr.scale_origin[ 2 ] - ( 22 + 8 )
-			).applyQuaternion( mesh.quaternion );
-			mesh.position.add( _eyesOffset );
-
-		} else if ( entity === cl.viewent ) {
-
-			// Ironwail scales the model's y and z, and scale_origin's,
-			// by fovscale. The template holds scale * v + scale_origin,
-			// so scaling the mesh's local y and z does both.
-			const fovscale = R_GunFovScale();
-			mesh.scale.set( 1, fovscale, fovscale );
-
-		} else {
-
-			mesh.scale.setScalar( 1 );
-
-		}
-
-	}
-
-	// Reset render overrides (viewmodel sets these)
-	mesh.renderOrder = 0;
-	if ( mesh.material.depthTest === false ) {
-
-		// Clone material for weapon so it doesn't affect shared material
-		// (Only needed when transitioning away from weapon rendering)
-		mesh.material.depthTest = true;
-
-	}
-
-	return mesh;
-
+export function R_DrawAliasModel(entity, paliashdr, shadedots, shadecolor) {
+  if (!paliashdr || (!paliashdr.posedata && !paliashdr.md5)) {
+    return null;
+  }
+
+  const lerpdata = alias_lerpdata;
+  R_SetupAliasFrame(entity, paliashdr, entity.frame, lerpdata);
+  R_SetupEntityTransform(entity, lerpdata);
+  const posenum = lerpdata.pose2;
+  const pose1 = lerpdata.pose1;
+  const hasLighting = shadedots && shadecolor !== undefined;
+
+  // Get cached template (shared positions/normals/uvs/indices per model+pose)
+  const template = GL_DrawAliasFrame(paliashdr, posenum);
+  if (!template) {
+    return null;
+  }
+  // the pose r_lerpmodels blends from; the same template when not lerping
+  const template1 = pose1 === posenum ?
+    template :
+    GL_DrawAliasFrame(paliashdr, pose1);
+  if (!template1) {
+    return null;
+  }
+
+  // Build or update per-entity geometry (shares template attributes, owns color buffer)
+  let geometry = entity ? entity._aliasGeo : null;
+  if (geometry == null) {
+    geometry = new THREE.BufferGeometry();
+    // Allocate per-entity color buffer (will be resized if needed)
+    entity._aliasColorArray = new Float32Array(template.vertexCount * 3);
+    geometry.setAttribute(
+      "color",
+      R_NewAliasColorAttribute(entity._aliasColorArray),
+    );
+    entity._aliasLitDots = null;
+    if (entity != null) entity._aliasGeo = geometry;
+  }
+
+  // When pose or model changes, swap to the new template's shared attributes
+  if (
+    entity._aliasPosenum !== posenum || entity._aliasPose1 !== pose1 ||
+    entity._aliasPaliashdr !== paliashdr
+  ) {
+    // Cull by a sphere that holds every pose (GL_AliasCullSphere), not
+    // the one Three would compute from whichever pose came first. A
+    // blend of two poses stays inside it too.
+    if (
+      entity._aliasPaliashdr !== paliashdr &&
+      paliashdr._cullCenter !== undefined
+    ) {
+      if (geometry.boundingSphere === null) {
+        geometry.boundingSphere = new THREE.Sphere();
+      }
+      const c = paliashdr._cullCenter;
+      geometry.boundingSphere.center.set(c[0], c[1], c[2]);
+      geometry.boundingSphere.radius = paliashdr._cullRadius;
+    }
+
+    geometry.setAttribute("position", template.posAttr);
+    // r_lerpmodels: the previous pose, read only by the lerp material
+    geometry.setAttribute("pose1", template1.posAttr);
+    geometry.setAttribute("normal", template.normalAttr);
+    geometry.setAttribute("uv", template.uvAttr);
+    if (geometry.index !== template.indexAttr) {
+      geometry.setIndex(template.indexAttr);
+    }
+
+    // Resize color buffer if vertex count changed between poses
+    if (entity._aliasColorArray.length < template.vertexCount * 3) {
+      entity._aliasColorArray = new Float32Array(template.vertexCount * 3);
+      geometry.setAttribute(
+        "color",
+        R_NewAliasColorAttribute(entity._aliasColorArray),
+      );
+      entity._aliasLitDots = null;
+    }
+
+    entity._aliasPosenum = posenum;
+    entity._aliasPose1 = pose1;
+    entity._aliasPaliashdr = paliashdr;
+  }
+
+  // Update per-entity vertex colors from lighting data. They depend only on
+  // the shade table, shadecolor, the two poses and the blend, so skip the
+  // loop and the upload when none of those changed since the last frame.
+  // shadecolor is one scratch array, so compare its values.
+  const shadeR = hasLighting ? shadecolor[0] : 0;
+  const shadeG = hasLighting ? shadecolor[1] : 0;
+  const shadeB = hasLighting ? shadecolor[2] : 0;
+  if (
+    hasLighting && (
+      entity._aliasLitDots !== shadedots ||
+      entity._aliasLitR !== shadeR ||
+      entity._aliasLitG !== shadeG ||
+      entity._aliasLitB !== shadeB ||
+      entity._aliasLitTemplate !== template ||
+      entity._aliasLitTemplate1 !== template1 ||
+      entity._aliasLitBlend !== lerpdata.blend
+    )
+  ) {
+    entity._aliasLitDots = shadedots;
+    entity._aliasLitR = shadeR;
+    entity._aliasLitG = shadeG;
+    entity._aliasLitB = shadeB;
+    entity._aliasLitTemplate = template;
+    entity._aliasLitTemplate1 = template1;
+    entity._aliasLitBlend = lerpdata.blend;
+
+    // without a .lit the channels are equal: decode once per vertex
+    const mono = shadeR === shadeG && shadeG === shadeB;
+
+    const colorArr = entity._aliasColorArray;
+    const lni = template.lightnormalindices;
+    if (template1 === template || lerpdata.blend >= 1) {
+      for (let i = 0; i < template.vertexCount; i++) {
+        // glColor3f clamps to [0, 1], and GL modulates in display space;
+        // Three multiplies vertex colours in linear space, so decode.
+        // QS r_alias.c GL_DrawAliasFrame: shadedots * lightcolor
+        const dot = shadedots[lni[i]];
+        R_AliasSetVertexColor(colorArr, i, dot, shadeR, shadeG, shadeB, mono);
+      }
+    } else {
+      // QS r_alias.c GL_DrawAliasFrame: lerp the shading of the two poses
+      const lni1 = template1.lightnormalindices;
+      const blend = lerpdata.blend;
+      const iblend = 1.0 - blend;
+      for (let i = 0; i < template.vertexCount; i++) {
+        const dot = shadedots[lni1[i]] * iblend + shadedots[lni[i]] * blend;
+        R_AliasSetVertexColor(colorArr, i, dot, shadeR, shadeG, shadeB, mono);
+      }
+    }
+
+    geometry.attributes.color.needsUpdate = true;
+  }
+
+  // Check if this is a player entity with custom colors
+  let playerSkinTexture = null;
+  if (entity != null && entity.colormap != null && gl_nocolors.value === 0) {
+    // Use stored entity index (equivalent to C pointer arithmetic: i = currententity - cl_entities)
+    const entIdx = entity._entityIndex;
+    if (
+      entIdx !== undefined && entIdx >= 1 && cl != null &&
+      entIdx <= cl.maxclients
+    ) {
+      playerSkinTexture = R_GetPlayerSkinTexture(entIdx - 1);
+
+      // translated from another header's skin (the .mdl's, before its
+      // MD5 replacement arrived or r_enhancedmodels changed): its
+      // layout doesn't match these uvs, so translate again, once per
+      // header change
+      if (
+        playerSkinTexture != null && playerSkinTexture._paliashdr !== paliashdr
+      ) {
+        if (entity._skinRetranslated !== paliashdr) {
+          entity._skinRetranslated = paliashdr;
+          R_TranslatePlayerSkin(entIdx - 1);
+          playerSkinTexture = R_GetPlayerSkinTexture(entIdx - 1);
+        }
+
+        if (
+          playerSkinTexture != null &&
+          playerSkinTexture._paliashdr !== paliashdr
+        ) {
+          playerSkinTexture = null; // no skin to translate: the base skin
+        }
+      }
+    }
+  }
+
+  // Get cached material
+  let material = R_GetAliasMaterial(
+    paliashdr,
+    entity,
+    hasLighting,
+    playerSkinTexture,
+  );
+  if (r_lerpmodels.value !== 0) {
+    material = R_GetAliasLerpMaterial(entity, material, lerpdata.blend);
+  }
+
+  // Get or create mesh for this entity
+  let mesh = entity ? entity._aliasMesh : null;
+  if (mesh == null) {
+    mesh = new THREE.Mesh(geometry, material);
+    if (entity != null) entity._aliasMesh = mesh;
+  } else {
+    // Reuse existing mesh, update geometry and material if changed
+    if (mesh.geometry !== geometry) mesh.geometry = geometry;
+    if (mesh.material !== material) mesh.material = material;
+  }
+
+  // Apply entity transform — R_RotateForEntity equivalent
+  if (entity) {
+    // QS R_DrawAliasModel: R_RotateForEntity( lerpdata.origin, lerpdata.angles )
+    mesh.position.set(
+      lerpdata.origin[0],
+      lerpdata.origin[1],
+      lerpdata.origin[2],
+    );
+
+    {
+      const yaw = lerpdata.angles[1] * _DEG2RAD;
+      const pitch = -lerpdata.angles[0] * _DEG2RAD;
+      const roll = lerpdata.angles[2] * _DEG2RAD;
+
+      _aliasMat.identity();
+      _aliasRZ.makeRotationZ(yaw);
+      _aliasRY.makeRotationY(pitch);
+      _aliasRX.makeRotationX(roll);
+      _aliasMat.multiply(_aliasRZ).multiply(_aliasRY).multiply(_aliasRX);
+      mesh.setRotationFromMatrix(_aliasMat);
+    }
+
+    // gl_rmain.c R_DrawAliasModel: eyes are drawn at double size, moved
+    // down 30 units ("they are really hard to see in gl"). C translates to
+    // scale_origin - ( 0, 0, 30 ) and scales by scale * 2. The template
+    // already holds scale * v + scale_origin, so scale it by 2 and move
+    // it by -scale_origin - ( 0, 0, 30 ) in the entity's frame.
+    if (
+      gl_doubleeyes.value !== 0 && entity.model != null &&
+      entity.model.name === "progs/eyes.mdl"
+    ) {
+      mesh.scale.setScalar(2);
+      _eyesOffset.set(
+        -paliashdr.scale_origin[0],
+        -paliashdr.scale_origin[1],
+        -paliashdr.scale_origin[2] - (22 + 8),
+      ).applyQuaternion(mesh.quaternion);
+      mesh.position.add(_eyesOffset);
+    } else if (entity === cl.viewent) {
+      // Ironwail scales the model's y and z, and scale_origin's,
+      // by fovscale. The template holds scale * v + scale_origin,
+      // so scaling the mesh's local y and z does both.
+      const fovscale = R_GunFovScale();
+      mesh.scale.set(1, fovscale, fovscale);
+    } else {
+      mesh.scale.setScalar(1);
+    }
+  }
+
+  // Reset render overrides (viewmodel sets these)
+  mesh.renderOrder = 0;
+  if (mesh.material.depthTest === false) {
+    // Clone material for weapon so it doesn't affect shared material
+    // (Only needed when transitioning away from weapon rendering)
+    mesh.material.depthTest = true;
+  }
+
+  return mesh;
 }
 
 /*
@@ -1432,13 +1371,13 @@ Ported from WinQuake/gl_rmain.c:347-405
 */
 
 // Shared shadow material (Golden Rule #4 — one for all entities)
-const _shadowMaterial = new THREE.MeshBasicMaterial( {
-	color: 0x000000,
-	transparent: true,
-	opacity: 0.5,
-	depthWrite: false,
-	side: THREE.DoubleSide
-} );
+const _shadowMaterial = new THREE.MeshBasicMaterial({
+  color: 0x000000,
+  transparent: true,
+  opacity: 0.5,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+});
 
 // Cached matrix objects for shadow transform (Golden Rule #4)
 const _shadowMat = new THREE.Matrix4();
@@ -1449,96 +1388,102 @@ const _shadowRX = new THREE.Matrix4();
 // lerpdata is what R_DrawAliasModel worked out for this entity this frame
 // (alias_lerpdata): QS r_alias.c GL_DrawAliasShadow lerps the pose and the
 // transform as the model does.
-export function GL_DrawAliasShadow( entity, paliashdr, lerpdata, lightspot, shadevector ) {
+export function GL_DrawAliasShadow(
+  entity,
+  paliashdr,
+  lerpdata,
+  lightspot,
+  shadevector,
+) {
+  if (
+    paliashdr == null || (paliashdr.posedata == null && paliashdr.md5 == null)
+  ) return null;
 
-	if ( paliashdr == null || ( paliashdr.posedata == null && paliashdr.md5 == null ) ) return null;
+  const template = GL_DrawAliasFrame(paliashdr, lerpdata.pose2);
+  if (template == null) return null;
+  const template1 = lerpdata.pose1 === lerpdata.pose2 ?
+    template :
+    GL_DrawAliasFrame(paliashdr, lerpdata.pose1);
+  if (template1 == null) return null;
 
-	const template = GL_DrawAliasFrame( paliashdr, lerpdata.pose2 );
-	if ( template == null ) return null;
-	const template1 = lerpdata.pose1 === lerpdata.pose2 ? template : GL_DrawAliasFrame( paliashdr, lerpdata.pose1 );
-	if ( template1 == null ) return null;
+  const lheight = entity.origin[2] - lightspot[2];
+  const height = -lheight + 1.0;
 
-	const lheight = entity.origin[ 2 ] - lightspot[ 2 ];
-	const height = - lheight + 1.0;
+  // Get or create shadow geometry for this entity
+  let shadowGeo = entity._aliasShadowGeo;
+  let shadowPosArray = entity._aliasShadowPosArray;
 
-	// Get or create shadow geometry for this entity
-	let shadowGeo = entity._aliasShadowGeo;
-	let shadowPosArray = entity._aliasShadowPosArray;
+  // the index too: an .mdl and its MD5 replacement can have as many vertices
+  if (
+    shadowGeo == null ||
+    entity._aliasShadowVertCount !== template.vertexCount ||
+    shadowGeo.index !== template.indexAttr
+  ) {
+    // The renderer keeps a geometry's GL buffers until dispose()
+    if (shadowGeo != null) shadowGeo.dispose();
 
-	// the index too: an .mdl and its MD5 replacement can have as many vertices
-	if ( shadowGeo == null || entity._aliasShadowVertCount !== template.vertexCount ||
-		shadowGeo.index !== template.indexAttr ) {
+    shadowPosArray = new Float32Array(template.vertexCount * 3);
+    shadowGeo = new THREE.BufferGeometry();
+    shadowGeo.setAttribute(
+      "position",
+      new THREE.BufferAttribute(shadowPosArray, 3),
+    );
+    shadowGeo.setIndex(template.indexAttr);
+    entity._aliasShadowGeo = shadowGeo;
+    entity._aliasShadowPosArray = shadowPosArray;
+    entity._aliasShadowVertCount = template.vertexCount;
+  }
 
-		// The renderer keeps a geometry's GL buffers until dispose()
-		if ( shadowGeo != null ) shadowGeo.dispose();
+  // Project vertices onto ground plane (same as C code)
+  const srcPos = template.posAttr.array;
+  const srcPos1 = template1.posAttr.array;
+  const blend = lerpdata.blend;
+  for (let i = 0; i < template.vertexCount; i++) {
+    // pose1 + ( pose2 - pose1 ) * blend; pose2 itself when not lerping
+    const px = srcPos1[i * 3] + (srcPos[i * 3] - srcPos1[i * 3]) * blend;
+    const py = srcPos1[i * 3 + 1] +
+      (srcPos[i * 3 + 1] - srcPos1[i * 3 + 1]) * blend;
+    const pz = srcPos1[i * 3 + 2] +
+      (srcPos[i * 3 + 2] - srcPos1[i * 3 + 2]) * blend;
 
-		shadowPosArray = new Float32Array( template.vertexCount * 3 );
-		shadowGeo = new THREE.BufferGeometry();
-		shadowGeo.setAttribute( 'position', new THREE.BufferAttribute( shadowPosArray, 3 ) );
-		shadowGeo.setIndex( template.indexAttr );
-		entity._aliasShadowGeo = shadowGeo;
-		entity._aliasShadowPosArray = shadowPosArray;
-		entity._aliasShadowVertCount = template.vertexCount;
+    shadowPosArray[i * 3] = px - shadevector[0] * (pz + lheight);
+    shadowPosArray[i * 3 + 1] = py - shadevector[1] * (pz + lheight);
+    shadowPosArray[i * 3 + 2] = height;
+  }
 
-	}
+  shadowGeo.attributes.position.needsUpdate = true;
 
-	// Project vertices onto ground plane (same as C code)
-	const srcPos = template.posAttr.array;
-	const srcPos1 = template1.posAttr.array;
-	const blend = lerpdata.blend;
-	for ( let i = 0; i < template.vertexCount; i ++ ) {
+  // Get or create shadow mesh
+  let shadowMesh = entity._aliasShadowMesh;
+  if (shadowMesh == null) {
+    shadowMesh = new THREE.Mesh(shadowGeo, _shadowMaterial);
+    // Its vertices move every frame with the light and the ground, and
+    // Three would cull it by the sphere of the first frame's shadow.
+    shadowMesh.frustumCulled = false;
+    entity._aliasShadowMesh = shadowMesh;
+  } else {
+    if (shadowMesh.geometry !== shadowGeo) shadowMesh.geometry = shadowGeo;
+  }
 
-		// pose1 + ( pose2 - pose1 ) * blend; pose2 itself when not lerping
-		const px = srcPos1[ i * 3 ] + ( srcPos[ i * 3 ] - srcPos1[ i * 3 ] ) * blend;
-		const py = srcPos1[ i * 3 + 1 ] + ( srcPos[ i * 3 + 1 ] - srcPos1[ i * 3 + 1 ] ) * blend;
-		const pz = srcPos1[ i * 3 + 2 ] + ( srcPos[ i * 3 + 2 ] - srcPos1[ i * 3 + 2 ] ) * blend;
+  // Apply same transform as entity (R_RotateForEntity equivalent)
+  shadowMesh.position.set(
+    lerpdata.origin[0],
+    lerpdata.origin[1],
+    lerpdata.origin[2],
+  );
 
-		shadowPosArray[ i * 3 ] = px - shadevector[ 0 ] * ( pz + lheight );
-		shadowPosArray[ i * 3 + 1 ] = py - shadevector[ 1 ] * ( pz + lheight );
-		shadowPosArray[ i * 3 + 2 ] = height;
+  {
+    const yaw = lerpdata.angles[1] * _DEG2RAD;
+    const pitch = -lerpdata.angles[0] * _DEG2RAD;
+    const roll = lerpdata.angles[2] * _DEG2RAD;
 
-	}
+    _shadowMat.identity();
+    _shadowRZ.makeRotationZ(yaw);
+    _shadowRY.makeRotationY(pitch);
+    _shadowRX.makeRotationX(roll);
+    _shadowMat.multiply(_shadowRZ).multiply(_shadowRY).multiply(_shadowRX);
+    shadowMesh.setRotationFromMatrix(_shadowMat);
+  }
 
-	shadowGeo.attributes.position.needsUpdate = true;
-
-	// Get or create shadow mesh
-	let shadowMesh = entity._aliasShadowMesh;
-	if ( shadowMesh == null ) {
-
-		shadowMesh = new THREE.Mesh( shadowGeo, _shadowMaterial );
-		// Its vertices move every frame with the light and the ground, and
-		// Three would cull it by the sphere of the first frame's shadow.
-		shadowMesh.frustumCulled = false;
-		entity._aliasShadowMesh = shadowMesh;
-
-	} else {
-
-		if ( shadowMesh.geometry !== shadowGeo ) shadowMesh.geometry = shadowGeo;
-
-	}
-
-	// Apply same transform as entity (R_RotateForEntity equivalent)
-	shadowMesh.position.set(
-		lerpdata.origin[ 0 ],
-		lerpdata.origin[ 1 ],
-		lerpdata.origin[ 2 ]
-	);
-
-	{
-
-		const yaw = lerpdata.angles[ 1 ] * _DEG2RAD;
-		const pitch = - lerpdata.angles[ 0 ] * _DEG2RAD;
-		const roll = lerpdata.angles[ 2 ] * _DEG2RAD;
-
-		_shadowMat.identity();
-		_shadowRZ.makeRotationZ( yaw );
-		_shadowRY.makeRotationY( pitch );
-		_shadowRX.makeRotationX( roll );
-		_shadowMat.multiply( _shadowRZ ).multiply( _shadowRY ).multiply( _shadowRX );
-		shadowMesh.setRotationFromMatrix( _shadowMat );
-
-	}
-
-	return shadowMesh;
-
+  return shadowMesh;
 }

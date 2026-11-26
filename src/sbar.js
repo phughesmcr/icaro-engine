@@ -1,29 +1,59 @@
 // Ported from: WinQuake/sbar.c, WinQuake/sbar.h -- status bar / HUD code
 
-import { Cmd_AddCommand } from './cmd.js';
-import { teamplay, skill, realtime } from './host.js';
-import { Con_Printf } from './console.js';
-import { Draw_GetVirtualWidth, Draw_GetVirtualHeight, Draw_GetOverlayCanvas, Draw_SetClipRect, Draw_ResetClipping } from './gl_draw.js';
-import { COM_SkipPath, COM_StripExtension } from './common.js';
-import { scr_sbaralpha } from './gl_screen.js';
-import { CL_GetDisplayPing } from './cl_pred.js';
+import { Cmd_AddCommand } from "./cmd.js";
+import { realtime, skill, teamplay } from "./host.js";
+import { Con_Printf } from "./console.js";
 import {
-	IT_SHOTGUN,
-	IT_SHELLS, IT_NAILS, IT_ROCKETS, IT_CELLS,
-	IT_ARMOR1, IT_ARMOR2, IT_ARMOR3,
-	IT_KEY1, IT_KEY2, IT_INVISIBILITY, IT_INVULNERABILITY, IT_QUAD,
-	STAT_HEALTH, STAT_AMMO, STAT_ARMOR,
-	STAT_SHELLS,
-	STAT_ACTIVEWEAPON, STAT_TOTALSECRETS, STAT_TOTALMONSTERS,
-	STAT_SECRETS, STAT_MONSTERS, STAT_PING,
-	MAX_SCOREBOARD,
-	HIT_PROXIMITY_GUN_BIT, HIT_MJOLNIR_BIT, HIT_LASER_CANNON_BIT,
-	HIT_PROXIMITY_GUN,
-	RIT_SHELLS, RIT_NAILS, RIT_ROCKETS, RIT_CELLS,
-	RIT_LAVA_NAILGUN,
-	RIT_ARMOR1, RIT_ARMOR2, RIT_ARMOR3,
-	RIT_LAVA_NAILS, RIT_PLASMA_AMMO, RIT_MULTI_ROCKETS,
-} from './quakedef.js';
+  Draw_GetOverlayCanvas,
+  Draw_GetVirtualHeight,
+  Draw_GetVirtualWidth,
+  Draw_ResetClipping,
+  Draw_SetClipRect,
+} from "./gl_draw.js";
+import { COM_SkipPath, COM_StripExtension } from "./common.js";
+import { scr_sbaralpha } from "./gl_screen.js";
+import { CL_GetDisplayPing } from "./cl_pred.js";
+import {
+  HIT_LASER_CANNON_BIT,
+  HIT_MJOLNIR_BIT,
+  HIT_PROXIMITY_GUN,
+  HIT_PROXIMITY_GUN_BIT,
+  IT_ARMOR1,
+  IT_ARMOR2,
+  IT_ARMOR3,
+  IT_CELLS,
+  IT_INVISIBILITY,
+  IT_INVULNERABILITY,
+  IT_KEY1,
+  IT_KEY2,
+  IT_NAILS,
+  IT_QUAD,
+  IT_ROCKETS,
+  IT_SHELLS,
+  IT_SHOTGUN,
+  MAX_SCOREBOARD,
+  RIT_ARMOR1,
+  RIT_ARMOR2,
+  RIT_ARMOR3,
+  RIT_CELLS,
+  RIT_LAVA_NAILGUN,
+  RIT_LAVA_NAILS,
+  RIT_MULTI_ROCKETS,
+  RIT_NAILS,
+  RIT_PLASMA_AMMO,
+  RIT_ROCKETS,
+  RIT_SHELLS,
+  STAT_ACTIVEWEAPON,
+  STAT_AMMO,
+  STAT_ARMOR,
+  STAT_HEALTH,
+  STAT_MONSTERS,
+  STAT_PING,
+  STAT_SECRETS,
+  STAT_SHELLS,
+  STAT_TOTALMONSTERS,
+  STAT_TOTALSECRETS,
+} from "./quakedef.js";
 
 /*
 ==============================================================================
@@ -53,7 +83,7 @@ const GAME_DEATHMATCH = 1;
 let sb_updates = 0; // if >= vid.numpages, no update needed
 
 // Pic references (loaded in Sbar_Init)
-const sb_nums = [ new Array( 11 ).fill( null ), new Array( 11 ).fill( null ) ];
+const sb_nums = [new Array(11).fill(null), new Array(11).fill(null)];
 let sb_colon = null;
 let sb_slash = null;
 let sb_ibar = null;
@@ -61,16 +91,16 @@ let sb_sbar = null;
 let sb_scorebar = null;
 
 const sb_weapons = [];
-for ( let i = 0; i < 7; i ++ ) sb_weapons[ i ] = new Array( 8 ).fill( null );
+for (let i = 0; i < 7; i++) sb_weapons[i] = new Array(8).fill(null);
 
-const sb_ammo = new Array( 4 ).fill( null );
-const sb_sigil = new Array( 4 ).fill( null );
-const sb_armor = new Array( 3 ).fill( null );
+const sb_ammo = new Array(4).fill(null);
+const sb_sigil = new Array(4).fill(null);
+const sb_armor = new Array(3).fill(null);
 let sb_disc = null; // draw_disc, which gl_draw.js keeps private
-const sb_items = new Array( 32 ).fill( null );
+const sb_items = new Array(32).fill(null);
 
 const sb_faces = [];
-for ( let i = 0; i < 7; i ++ ) sb_faces[ i ] = new Array( 2 ).fill( null );
+for (let i = 0; i < 7; i++) sb_faces[i] = new Array(2).fill(null);
 
 let sb_face_invis = null;
 let sb_face_quad = null;
@@ -79,23 +109,30 @@ let sb_face_invis_invuln = null;
 
 let sb_showscores = false;
 export let sb_lines = 0; // scan lines to draw
-export function set_sb_lines( v ) { sb_lines = v; }
+export function set_sb_lines(v) {
+  sb_lines = v;
+}
 
 // Rogue mission pack
-const rsb_invbar = new Array( 2 ).fill( null );
-const rsb_weapons = new Array( 5 ).fill( null );
-const rsb_items = new Array( 2 ).fill( null );
-const rsb_ammo = new Array( 3 ).fill( null );
+const rsb_invbar = new Array(2).fill(null);
+const rsb_weapons = new Array(5).fill(null);
+const rsb_items = new Array(2).fill(null);
+const rsb_ammo = new Array(3).fill(null);
 let rsb_teambord = null;
 
 // Hipnotic mission pack
 const hsb_weapons = [];
-for ( let i = 0; i < 7; i ++ ) hsb_weapons[ i ] = new Array( 5 ).fill( null );
-const hipweapons = [ HIT_LASER_CANNON_BIT, HIT_MJOLNIR_BIT, 4, HIT_PROXIMITY_GUN_BIT ];
-const hsb_items = new Array( 2 ).fill( null );
+for (let i = 0; i < 7; i++) hsb_weapons[i] = new Array(5).fill(null);
+const hipweapons = [
+  HIT_LASER_CANNON_BIT,
+  HIT_MJOLNIR_BIT,
+  4,
+  HIT_PROXIMITY_GUN_BIT,
+];
+const hsb_items = new Array(2).fill(null);
 
 // Scoreboard state
-const fragsort = new Array( MAX_SCOREBOARD ).fill( 0 );
+const fragsort = new Array(MAX_SCOREBOARD).fill(0);
 let scoreboardlines = 0;
 
 /*
@@ -106,12 +143,29 @@ let scoreboardlines = 0;
 ==============================================================================
 */
 
-let _cl = { stats: new Int32Array( 32 ), items: 0, gametype: 0, scores: [], time: 0, faceanimtime: 0, maxclients: 16, levelname: '', item_gettime: new Float32Array( 32 ), viewentity: 0 };
+let _cl = {
+  stats: new Int32Array(32),
+  items: 0,
+  gametype: 0,
+  scores: [],
+  time: 0,
+  faceanimtime: 0,
+  maxclients: 16,
+  levelname: "",
+  item_gettime: new Float32Array(32),
+  viewentity: 0,
+};
 let _realVid = { width: 640, height: 480, numpages: 1 };
 const _vid = {
-	get width() { return Draw_GetVirtualWidth(); },
-	get height() { return Draw_GetVirtualHeight(); },
-	get numpages() { return _realVid.numpages; }
+  get width() {
+    return Draw_GetVirtualWidth();
+  },
+  get height() {
+    return Draw_GetVirtualHeight();
+  },
+  get numpages() {
+    return _realVid.numpages;
+  },
 };
 let _Draw_Pic = null;
 let _Draw_TransPic = null;
@@ -123,20 +177,18 @@ let _Draw_CachePic = null;
 let _hipnotic = false;
 let _rogue = false;
 
-export function Sbar_SetExternals( externals ) {
-
-	if ( externals.cl ) _cl = externals.cl;
-	if ( externals.vid ) _realVid = externals.vid;
-	if ( externals.Draw_Pic ) _Draw_Pic = externals.Draw_Pic;
-	if ( externals.Draw_TransPic ) _Draw_TransPic = externals.Draw_TransPic;
-	if ( externals.Draw_Character ) _Draw_Character = externals.Draw_Character;
-	if ( externals.Draw_String ) _Draw_String = externals.Draw_String;
-	if ( externals.Draw_Fill ) _Draw_Fill = externals.Draw_Fill;
-	if ( externals.Draw_PicFromWad ) _Draw_PicFromWad = externals.Draw_PicFromWad;
-	if ( externals.Draw_CachePic ) _Draw_CachePic = externals.Draw_CachePic;
-	if ( externals.hipnotic !== undefined ) _hipnotic = externals.hipnotic;
-	if ( externals.rogue !== undefined ) _rogue = externals.rogue;
-
+export function Sbar_SetExternals(externals) {
+  if (externals.cl) _cl = externals.cl;
+  if (externals.vid) _realVid = externals.vid;
+  if (externals.Draw_Pic) _Draw_Pic = externals.Draw_Pic;
+  if (externals.Draw_TransPic) _Draw_TransPic = externals.Draw_TransPic;
+  if (externals.Draw_Character) _Draw_Character = externals.Draw_Character;
+  if (externals.Draw_String) _Draw_String = externals.Draw_String;
+  if (externals.Draw_Fill) _Draw_Fill = externals.Draw_Fill;
+  if (externals.Draw_PicFromWad) _Draw_PicFromWad = externals.Draw_PicFromWad;
+  if (externals.Draw_CachePic) _Draw_CachePic = externals.Draw_CachePic;
+  if (externals.hipnotic !== undefined) _hipnotic = externals.hipnotic;
+  if (externals.rogue !== undefined) _rogue = externals.rogue;
 }
 
 /*
@@ -147,18 +199,14 @@ Tab key down/up
 ===============
 */
 export function Sbar_ShowScores() {
-
-	if ( sb_showscores ) return;
-	sb_showscores = true;
-	sb_updates = 0;
-
+  if (sb_showscores) return;
+  sb_showscores = true;
+  sb_updates = 0;
 }
 
 export function Sbar_DontShowScores() {
-
-	sb_showscores = false;
-	sb_updates = 0;
-
+  sb_showscores = false;
+  sb_updates = 0;
 }
 
 /*
@@ -167,9 +215,7 @@ Sbar_Changed
 ===============
 */
 export function Sbar_Changed() {
-
-	sb_updates = 0; // update next frame
-
+  sb_updates = 0; // update next frame
 }
 
 /*
@@ -178,155 +224,141 @@ Sbar_Init
 ===============
 */
 export function Sbar_Init() {
+  if (!_Draw_PicFromWad) {
+    Con_Printf("Sbar_Init: Draw_PicFromWad not available yet\n");
+    return;
+  }
 
-	if ( ! _Draw_PicFromWad ) {
+  for (let i = 0; i < 10; i++) {
+    sb_nums[0][i] = _Draw_PicFromWad("num_" + i);
+    sb_nums[1][i] = _Draw_PicFromWad("anum_" + i);
+  }
 
-		Con_Printf( 'Sbar_Init: Draw_PicFromWad not available yet\n' );
-		return;
+  sb_nums[0][10] = _Draw_PicFromWad("num_minus");
+  sb_nums[1][10] = _Draw_PicFromWad("anum_minus");
 
-	}
+  sb_colon = _Draw_PicFromWad("num_colon");
+  sb_slash = _Draw_PicFromWad("num_slash");
 
-	for ( let i = 0; i < 10; i ++ ) {
+  sb_weapons[0][0] = _Draw_PicFromWad("inv_shotgun");
+  sb_weapons[0][1] = _Draw_PicFromWad("inv_sshotgun");
+  sb_weapons[0][2] = _Draw_PicFromWad("inv_nailgun");
+  sb_weapons[0][3] = _Draw_PicFromWad("inv_snailgun");
+  sb_weapons[0][4] = _Draw_PicFromWad("inv_rlaunch");
+  sb_weapons[0][5] = _Draw_PicFromWad("inv_srlaunch");
+  sb_weapons[0][6] = _Draw_PicFromWad("inv_lightng");
 
-		sb_nums[ 0 ][ i ] = _Draw_PicFromWad( 'num_' + i );
-		sb_nums[ 1 ][ i ] = _Draw_PicFromWad( 'anum_' + i );
+  sb_weapons[1][0] = _Draw_PicFromWad("inv2_shotgun");
+  sb_weapons[1][1] = _Draw_PicFromWad("inv2_sshotgun");
+  sb_weapons[1][2] = _Draw_PicFromWad("inv2_nailgun");
+  sb_weapons[1][3] = _Draw_PicFromWad("inv2_snailgun");
+  sb_weapons[1][4] = _Draw_PicFromWad("inv2_rlaunch");
+  sb_weapons[1][5] = _Draw_PicFromWad("inv2_srlaunch");
+  sb_weapons[1][6] = _Draw_PicFromWad("inv2_lightng");
 
-	}
+  for (let i = 0; i < 5; i++) {
+    sb_weapons[2 + i][0] = _Draw_PicFromWad("inva" + (i + 1) + "_shotgun");
+    sb_weapons[2 + i][1] = _Draw_PicFromWad("inva" + (i + 1) + "_sshotgun");
+    sb_weapons[2 + i][2] = _Draw_PicFromWad("inva" + (i + 1) + "_nailgun");
+    sb_weapons[2 + i][3] = _Draw_PicFromWad("inva" + (i + 1) + "_snailgun");
+    sb_weapons[2 + i][4] = _Draw_PicFromWad("inva" + (i + 1) + "_rlaunch");
+    sb_weapons[2 + i][5] = _Draw_PicFromWad("inva" + (i + 1) + "_srlaunch");
+    sb_weapons[2 + i][6] = _Draw_PicFromWad("inva" + (i + 1) + "_lightng");
+  }
 
-	sb_nums[ 0 ][ 10 ] = _Draw_PicFromWad( 'num_minus' );
-	sb_nums[ 1 ][ 10 ] = _Draw_PicFromWad( 'anum_minus' );
+  sb_ammo[0] = _Draw_PicFromWad("sb_shells");
+  sb_ammo[1] = _Draw_PicFromWad("sb_nails");
+  sb_ammo[2] = _Draw_PicFromWad("sb_rocket");
+  sb_ammo[3] = _Draw_PicFromWad("sb_cells");
 
-	sb_colon = _Draw_PicFromWad( 'num_colon' );
-	sb_slash = _Draw_PicFromWad( 'num_slash' );
+  sb_armor[0] = _Draw_PicFromWad("sb_armor1");
+  sb_armor[1] = _Draw_PicFromWad("sb_armor2");
+  sb_armor[2] = _Draw_PicFromWad("sb_armor3");
 
-	sb_weapons[ 0 ][ 0 ] = _Draw_PicFromWad( 'inv_shotgun' );
-	sb_weapons[ 0 ][ 1 ] = _Draw_PicFromWad( 'inv_sshotgun' );
-	sb_weapons[ 0 ][ 2 ] = _Draw_PicFromWad( 'inv_nailgun' );
-	sb_weapons[ 0 ][ 3 ] = _Draw_PicFromWad( 'inv_snailgun' );
-	sb_weapons[ 0 ][ 4 ] = _Draw_PicFromWad( 'inv_rlaunch' );
-	sb_weapons[ 0 ][ 5 ] = _Draw_PicFromWad( 'inv_srlaunch' );
-	sb_weapons[ 0 ][ 6 ] = _Draw_PicFromWad( 'inv_lightng' );
+  // Draw_Init loads this as draw_disc; sbar.c draws it over the armour icon
+  sb_disc = _Draw_PicFromWad("disc");
 
-	sb_weapons[ 1 ][ 0 ] = _Draw_PicFromWad( 'inv2_shotgun' );
-	sb_weapons[ 1 ][ 1 ] = _Draw_PicFromWad( 'inv2_sshotgun' );
-	sb_weapons[ 1 ][ 2 ] = _Draw_PicFromWad( 'inv2_nailgun' );
-	sb_weapons[ 1 ][ 3 ] = _Draw_PicFromWad( 'inv2_snailgun' );
-	sb_weapons[ 1 ][ 4 ] = _Draw_PicFromWad( 'inv2_rlaunch' );
-	sb_weapons[ 1 ][ 5 ] = _Draw_PicFromWad( 'inv2_srlaunch' );
-	sb_weapons[ 1 ][ 6 ] = _Draw_PicFromWad( 'inv2_lightng' );
+  sb_items[0] = _Draw_PicFromWad("sb_key1");
+  sb_items[1] = _Draw_PicFromWad("sb_key2");
+  sb_items[2] = _Draw_PicFromWad("sb_invis");
+  sb_items[3] = _Draw_PicFromWad("sb_invuln");
+  sb_items[4] = _Draw_PicFromWad("sb_suit");
+  sb_items[5] = _Draw_PicFromWad("sb_quad");
 
-	for ( let i = 0; i < 5; i ++ ) {
+  sb_sigil[0] = _Draw_PicFromWad("sb_sigil1");
+  sb_sigil[1] = _Draw_PicFromWad("sb_sigil2");
+  sb_sigil[2] = _Draw_PicFromWad("sb_sigil3");
+  sb_sigil[3] = _Draw_PicFromWad("sb_sigil4");
 
-		sb_weapons[ 2 + i ][ 0 ] = _Draw_PicFromWad( 'inva' + ( i + 1 ) + '_shotgun' );
-		sb_weapons[ 2 + i ][ 1 ] = _Draw_PicFromWad( 'inva' + ( i + 1 ) + '_sshotgun' );
-		sb_weapons[ 2 + i ][ 2 ] = _Draw_PicFromWad( 'inva' + ( i + 1 ) + '_nailgun' );
-		sb_weapons[ 2 + i ][ 3 ] = _Draw_PicFromWad( 'inva' + ( i + 1 ) + '_snailgun' );
-		sb_weapons[ 2 + i ][ 4 ] = _Draw_PicFromWad( 'inva' + ( i + 1 ) + '_rlaunch' );
-		sb_weapons[ 2 + i ][ 5 ] = _Draw_PicFromWad( 'inva' + ( i + 1 ) + '_srlaunch' );
-		sb_weapons[ 2 + i ][ 6 ] = _Draw_PicFromWad( 'inva' + ( i + 1 ) + '_lightng' );
+  sb_faces[4][0] = _Draw_PicFromWad("face1");
+  sb_faces[4][1] = _Draw_PicFromWad("face_p1");
+  sb_faces[3][0] = _Draw_PicFromWad("face2");
+  sb_faces[3][1] = _Draw_PicFromWad("face_p2");
+  sb_faces[2][0] = _Draw_PicFromWad("face3");
+  sb_faces[2][1] = _Draw_PicFromWad("face_p3");
+  sb_faces[1][0] = _Draw_PicFromWad("face4");
+  sb_faces[1][1] = _Draw_PicFromWad("face_p4");
+  sb_faces[0][0] = _Draw_PicFromWad("face5");
+  sb_faces[0][1] = _Draw_PicFromWad("face_p5");
 
-	}
+  sb_face_invis = _Draw_PicFromWad("face_invis");
+  sb_face_invuln = _Draw_PicFromWad("face_invul2");
+  sb_face_invis_invuln = _Draw_PicFromWad("face_inv2");
+  sb_face_quad = _Draw_PicFromWad("face_quad");
 
-	sb_ammo[ 0 ] = _Draw_PicFromWad( 'sb_shells' );
-	sb_ammo[ 1 ] = _Draw_PicFromWad( 'sb_nails' );
-	sb_ammo[ 2 ] = _Draw_PicFromWad( 'sb_rocket' );
-	sb_ammo[ 3 ] = _Draw_PicFromWad( 'sb_cells' );
+  Cmd_AddCommand("+showscores", Sbar_ShowScores);
+  Cmd_AddCommand("-showscores", Sbar_DontShowScores);
 
-	sb_armor[ 0 ] = _Draw_PicFromWad( 'sb_armor1' );
-	sb_armor[ 1 ] = _Draw_PicFromWad( 'sb_armor2' );
-	sb_armor[ 2 ] = _Draw_PicFromWad( 'sb_armor3' );
+  sb_sbar = _Draw_PicFromWad("sbar");
+  sb_ibar = _Draw_PicFromWad("ibar");
+  sb_scorebar = _Draw_PicFromWad("scorebar");
 
-	// Draw_Init loads this as draw_disc; sbar.c draws it over the armour icon
-	sb_disc = _Draw_PicFromWad( 'disc' );
+  //MED 01/04/97 added new hipnotic weapons
+  if (_hipnotic) {
+    hsb_weapons[0][0] = _Draw_PicFromWad("inv_laser");
+    hsb_weapons[0][1] = _Draw_PicFromWad("inv_mjolnir");
+    hsb_weapons[0][2] = _Draw_PicFromWad("inv_gren_prox");
+    hsb_weapons[0][3] = _Draw_PicFromWad("inv_prox_gren");
+    hsb_weapons[0][4] = _Draw_PicFromWad("inv_prox");
 
-	sb_items[ 0 ] = _Draw_PicFromWad( 'sb_key1' );
-	sb_items[ 1 ] = _Draw_PicFromWad( 'sb_key2' );
-	sb_items[ 2 ] = _Draw_PicFromWad( 'sb_invis' );
-	sb_items[ 3 ] = _Draw_PicFromWad( 'sb_invuln' );
-	sb_items[ 4 ] = _Draw_PicFromWad( 'sb_suit' );
-	sb_items[ 5 ] = _Draw_PicFromWad( 'sb_quad' );
+    hsb_weapons[1][0] = _Draw_PicFromWad("inv2_laser");
+    hsb_weapons[1][1] = _Draw_PicFromWad("inv2_mjolnir");
+    hsb_weapons[1][2] = _Draw_PicFromWad("inv2_gren_prox");
+    hsb_weapons[1][3] = _Draw_PicFromWad("inv2_prox_gren");
+    hsb_weapons[1][4] = _Draw_PicFromWad("inv2_prox");
 
-	sb_sigil[ 0 ] = _Draw_PicFromWad( 'sb_sigil1' );
-	sb_sigil[ 1 ] = _Draw_PicFromWad( 'sb_sigil2' );
-	sb_sigil[ 2 ] = _Draw_PicFromWad( 'sb_sigil3' );
-	sb_sigil[ 3 ] = _Draw_PicFromWad( 'sb_sigil4' );
+    for (let i = 0; i < 5; i++) {
+      hsb_weapons[2 + i][0] = _Draw_PicFromWad("inva" + (i + 1) + "_laser");
+      hsb_weapons[2 + i][1] = _Draw_PicFromWad("inva" + (i + 1) + "_mjolnir");
+      hsb_weapons[2 + i][2] = _Draw_PicFromWad("inva" + (i + 1) + "_gren_prox");
+      hsb_weapons[2 + i][3] = _Draw_PicFromWad("inva" + (i + 1) + "_prox_gren");
+      hsb_weapons[2 + i][4] = _Draw_PicFromWad("inva" + (i + 1) + "_prox");
+    }
 
-	sb_faces[ 4 ][ 0 ] = _Draw_PicFromWad( 'face1' );
-	sb_faces[ 4 ][ 1 ] = _Draw_PicFromWad( 'face_p1' );
-	sb_faces[ 3 ][ 0 ] = _Draw_PicFromWad( 'face2' );
-	sb_faces[ 3 ][ 1 ] = _Draw_PicFromWad( 'face_p2' );
-	sb_faces[ 2 ][ 0 ] = _Draw_PicFromWad( 'face3' );
-	sb_faces[ 2 ][ 1 ] = _Draw_PicFromWad( 'face_p3' );
-	sb_faces[ 1 ][ 0 ] = _Draw_PicFromWad( 'face4' );
-	sb_faces[ 1 ][ 1 ] = _Draw_PicFromWad( 'face_p4' );
-	sb_faces[ 0 ][ 0 ] = _Draw_PicFromWad( 'face5' );
-	sb_faces[ 0 ][ 1 ] = _Draw_PicFromWad( 'face_p5' );
+    hsb_items[0] = _Draw_PicFromWad("sb_wsuit");
+    hsb_items[1] = _Draw_PicFromWad("sb_eshld");
+  }
 
-	sb_face_invis = _Draw_PicFromWad( 'face_invis' );
-	sb_face_invuln = _Draw_PicFromWad( 'face_invul2' );
-	sb_face_invis_invuln = _Draw_PicFromWad( 'face_inv2' );
-	sb_face_quad = _Draw_PicFromWad( 'face_quad' );
+  if (_rogue) {
+    rsb_invbar[0] = _Draw_PicFromWad("r_invbar1");
+    rsb_invbar[1] = _Draw_PicFromWad("r_invbar2");
 
-	Cmd_AddCommand( '+showscores', Sbar_ShowScores );
-	Cmd_AddCommand( '-showscores', Sbar_DontShowScores );
+    rsb_weapons[0] = _Draw_PicFromWad("r_lava");
+    rsb_weapons[1] = _Draw_PicFromWad("r_superlava");
+    rsb_weapons[2] = _Draw_PicFromWad("r_gren");
+    rsb_weapons[3] = _Draw_PicFromWad("r_multirock");
+    rsb_weapons[4] = _Draw_PicFromWad("r_plasma");
 
-	sb_sbar = _Draw_PicFromWad( 'sbar' );
-	sb_ibar = _Draw_PicFromWad( 'ibar' );
-	sb_scorebar = _Draw_PicFromWad( 'scorebar' );
+    rsb_items[0] = _Draw_PicFromWad("r_shield1");
+    rsb_items[1] = _Draw_PicFromWad("r_agrav1");
 
-	//MED 01/04/97 added new hipnotic weapons
-	if ( _hipnotic ) {
+    // PGM 01/19/97 - team color border
+    rsb_teambord = _Draw_PicFromWad("r_teambord");
 
-		hsb_weapons[ 0 ][ 0 ] = _Draw_PicFromWad( 'inv_laser' );
-		hsb_weapons[ 0 ][ 1 ] = _Draw_PicFromWad( 'inv_mjolnir' );
-		hsb_weapons[ 0 ][ 2 ] = _Draw_PicFromWad( 'inv_gren_prox' );
-		hsb_weapons[ 0 ][ 3 ] = _Draw_PicFromWad( 'inv_prox_gren' );
-		hsb_weapons[ 0 ][ 4 ] = _Draw_PicFromWad( 'inv_prox' );
-
-		hsb_weapons[ 1 ][ 0 ] = _Draw_PicFromWad( 'inv2_laser' );
-		hsb_weapons[ 1 ][ 1 ] = _Draw_PicFromWad( 'inv2_mjolnir' );
-		hsb_weapons[ 1 ][ 2 ] = _Draw_PicFromWad( 'inv2_gren_prox' );
-		hsb_weapons[ 1 ][ 3 ] = _Draw_PicFromWad( 'inv2_prox_gren' );
-		hsb_weapons[ 1 ][ 4 ] = _Draw_PicFromWad( 'inv2_prox' );
-
-		for ( let i = 0; i < 5; i ++ ) {
-
-			hsb_weapons[ 2 + i ][ 0 ] = _Draw_PicFromWad( 'inva' + ( i + 1 ) + '_laser' );
-			hsb_weapons[ 2 + i ][ 1 ] = _Draw_PicFromWad( 'inva' + ( i + 1 ) + '_mjolnir' );
-			hsb_weapons[ 2 + i ][ 2 ] = _Draw_PicFromWad( 'inva' + ( i + 1 ) + '_gren_prox' );
-			hsb_weapons[ 2 + i ][ 3 ] = _Draw_PicFromWad( 'inva' + ( i + 1 ) + '_prox_gren' );
-			hsb_weapons[ 2 + i ][ 4 ] = _Draw_PicFromWad( 'inva' + ( i + 1 ) + '_prox' );
-
-		}
-
-		hsb_items[ 0 ] = _Draw_PicFromWad( 'sb_wsuit' );
-		hsb_items[ 1 ] = _Draw_PicFromWad( 'sb_eshld' );
-
-	}
-
-	if ( _rogue ) {
-
-		rsb_invbar[ 0 ] = _Draw_PicFromWad( 'r_invbar1' );
-		rsb_invbar[ 1 ] = _Draw_PicFromWad( 'r_invbar2' );
-
-		rsb_weapons[ 0 ] = _Draw_PicFromWad( 'r_lava' );
-		rsb_weapons[ 1 ] = _Draw_PicFromWad( 'r_superlava' );
-		rsb_weapons[ 2 ] = _Draw_PicFromWad( 'r_gren' );
-		rsb_weapons[ 3 ] = _Draw_PicFromWad( 'r_multirock' );
-		rsb_weapons[ 4 ] = _Draw_PicFromWad( 'r_plasma' );
-
-		rsb_items[ 0 ] = _Draw_PicFromWad( 'r_shield1' );
-		rsb_items[ 1 ] = _Draw_PicFromWad( 'r_agrav1' );
-
-		// PGM 01/19/97 - team color border
-		rsb_teambord = _Draw_PicFromWad( 'r_teambord' );
-
-		rsb_ammo[ 0 ] = _Draw_PicFromWad( 'r_ammolava' );
-		rsb_ammo[ 1 ] = _Draw_PicFromWad( 'r_ammomulti' );
-		rsb_ammo[ 2 ] = _Draw_PicFromWad( 'r_ammoplasma' );
-
-	}
-
+    rsb_ammo[0] = _Draw_PicFromWad("r_ammolava");
+    rsb_ammo[1] = _Draw_PicFromWad("r_ammomulti");
+    rsb_ammo[2] = _Draw_PicFromWad("r_ammoplasma");
+  }
 }
 
 /*
@@ -344,15 +376,18 @@ drawing routines are relative to the status bar location
 Sbar_DrawPic
 =============
 */
-function Sbar_DrawPic( x, y, pic ) {
+function Sbar_DrawPic(x, y, pic) {
+  if (!_Draw_Pic || !pic) return;
 
-	if ( ! _Draw_Pic || ! pic ) return;
-
-	if ( _cl.gametype === GAME_DEATHMATCH )
-		_Draw_Pic( x, y + ( _vid.height - SBAR_HEIGHT ), pic );
-	else
-		_Draw_Pic( x + ( ( _vid.width - 320 ) >> 1 ), y + ( _vid.height - SBAR_HEIGHT ), pic );
-
+  if (_cl.gametype === GAME_DEATHMATCH) {
+    _Draw_Pic(x, y + (_vid.height - SBAR_HEIGHT), pic);
+  } else {
+    _Draw_Pic(
+      x + ((_vid.width - 320) >> 1),
+      y + (_vid.height - SBAR_HEIGHT),
+      pic,
+    );
+  }
 }
 
 /*
@@ -363,24 +398,20 @@ Ported from QuakeSpasm Quake/sbar.c: the status bar backgrounds are drawn
 with scr_sbaralpha
 ================
 */
-function Sbar_DrawPicAlpha( x, y, pic, alpha ) {
+function Sbar_DrawPicAlpha(x, y, pic, alpha) {
+  if (alpha >= 1) {
+    Sbar_DrawPic(x, y, pic);
+    return;
+  }
 
-	if ( alpha >= 1 ) {
+  const canvas = Draw_GetOverlayCanvas();
+  if (canvas === null) return;
 
-		Sbar_DrawPic( x, y, pic );
-		return;
-
-	}
-
-	const canvas = Draw_GetOverlayCanvas();
-	if ( canvas === null ) return;
-
-	const ctx = canvas.getContext( '2d' );
-	const oldAlpha = ctx.globalAlpha;
-	ctx.globalAlpha = alpha > 0 ? alpha : 0;
-	Sbar_DrawPic( x, y, pic );
-	ctx.globalAlpha = oldAlpha;
-
+  const ctx = canvas.getContext("2d");
+  const oldAlpha = ctx.globalAlpha;
+  ctx.globalAlpha = alpha > 0 ? alpha : 0;
+  Sbar_DrawPic(x, y, pic);
+  ctx.globalAlpha = oldAlpha;
 }
 
 /*
@@ -390,15 +421,18 @@ Sbar_DrawCharacter
 Draws one solid graphics character
 ================
 */
-function Sbar_DrawCharacter( x, y, num ) {
+function Sbar_DrawCharacter(x, y, num) {
+  if (!_Draw_Character) return;
 
-	if ( ! _Draw_Character ) return;
-
-	if ( _cl.gametype === GAME_DEATHMATCH )
-		_Draw_Character( x + 4, y + _vid.height - SBAR_HEIGHT, num );
-	else
-		_Draw_Character( x + ( ( _vid.width - 320 ) >> 1 ) + 4, y + _vid.height - SBAR_HEIGHT, num );
-
+  if (_cl.gametype === GAME_DEATHMATCH) {
+    _Draw_Character(x + 4, y + _vid.height - SBAR_HEIGHT, num);
+  } else {
+    _Draw_Character(
+      x + ((_vid.width - 320) >> 1) + 4,
+      y + _vid.height - SBAR_HEIGHT,
+      num,
+    );
+  }
 }
 
 /*
@@ -406,22 +440,26 @@ function Sbar_DrawCharacter( x, y, num ) {
 Sbar_DrawString
 ================
 */
-function Sbar_DrawString( x, y, str ) {
+function Sbar_DrawString(x, y, str) {
+  if (!_Draw_Character) return;
 
-	if ( ! _Draw_Character ) return;
-
-	if ( _cl.gametype === GAME_DEATHMATCH ) {
-
-		for ( let i = 0; i < str.length; i ++ )
-			_Draw_Character( x + i * 8, y + _vid.height - SBAR_HEIGHT, str.charCodeAt( i ) );
-
-	} else {
-
-		for ( let i = 0; i < str.length; i ++ )
-			_Draw_Character( x + ( ( _vid.width - 320 ) >> 1 ) + i * 8, y + _vid.height - SBAR_HEIGHT, str.charCodeAt( i ) );
-
-	}
-
+  if (_cl.gametype === GAME_DEATHMATCH) {
+    for (let i = 0; i < str.length; i++) {
+      _Draw_Character(
+        x + i * 8,
+        y + _vid.height - SBAR_HEIGHT,
+        str.charCodeAt(i),
+      );
+    }
+  } else {
+    for (let i = 0; i < str.length; i++) {
+      _Draw_Character(
+        x + ((_vid.width - 320) >> 1) + i * 8,
+        y + _vid.height - SBAR_HEIGHT,
+        str.charCodeAt(i),
+      );
+    }
+  }
 }
 
 /*
@@ -431,29 +469,27 @@ Sbar_DrawNum
 Draws a number with the large status bar font
 =============
 */
-export function Sbar_DrawNum( x, y, num, digits, color ) {
+export function Sbar_DrawNum(x, y, num, digits, color) {
+  // Sbar_itoa: integer to decimal, with a leading '-' for negatives
+  const str = String(Math.trunc(num));
+  const l = str.length;
+  let ptr = 0;
 
-	// Sbar_itoa: integer to decimal, with a leading '-' for negatives
-	const str = String( Math.trunc( num ) );
-	const l = str.length;
-	let ptr = 0;
+  if (l > digits) {
+    ptr += l - digits; // keep the rightmost digits
+  }
+  if (l < digits) {
+    x += (digits - l) * 24;
+  }
 
-	if ( l > digits )
-		ptr += ( l - digits ); // keep the rightmost digits
-	if ( l < digits )
-		x += ( digits - l ) * 24;
+  while (ptr < l) {
+    const c = str.charCodeAt(ptr);
+    const frame = (c === 45) ? STAT_MINUS : c - 48; // '-' : '0'
 
-	while ( ptr < l ) {
-
-		const c = str.charCodeAt( ptr );
-		const frame = ( c === 45 ) ? STAT_MINUS : c - 48; // '-' : '0'
-
-		Sbar_DrawPic( x, y, sb_nums[ color ] ? sb_nums[ color ][ frame ] : null );
-		x += 24;
-		ptr ++;
-
-	}
-
+    Sbar_DrawPic(x, y, sb_nums[color] ? sb_nums[color][frame] : null);
+    x += 24;
+    ptr++;
+  }
 }
 
 /*
@@ -462,267 +498,193 @@ Sbar_DrawInventory
 ===============
 */
 function Sbar_DrawInventory() {
-
-	if ( _rogue ) {
-
-		if ( _cl.stats[ STAT_ACTIVEWEAPON ] >= RIT_LAVA_NAILGUN )
-			Sbar_DrawPicAlpha( 0, - 24, rsb_invbar[ 0 ], scr_sbaralpha.value ); //johnfitz -- scr_sbaralpha
-		else
-			Sbar_DrawPicAlpha( 0, - 24, rsb_invbar[ 1 ], scr_sbaralpha.value ); //johnfitz -- scr_sbaralpha
-
-	} else {
-
-		Sbar_DrawPicAlpha( 0, - 24, sb_ibar, scr_sbaralpha.value ); //johnfitz -- scr_sbaralpha
-
-	}
-
-	// flashon is function-scope as in sbar.c; the weapons loops set it and
-	// the items loops below reset it first (sbar.c: flashon = 0 before items).
-	let flashon = 0;
-
-	// weapons
-	for ( let i = 0; i < 7; i ++ ) {
-
-		if ( _cl.items & ( IT_SHOTGUN << i ) ) {
-
-			const time = _cl.item_gettime[ i ];
-			flashon = Math.floor( ( _cl.time - time ) * 10 );
-			if ( flashon >= 10 ) {
-
-				if ( _cl.stats[ STAT_ACTIVEWEAPON ] === ( IT_SHOTGUN << i ) )
-					flashon = 1;
-				else
-					flashon = 0;
-
-			} else {
-
-				flashon = ( flashon % 5 ) + 2;
-
-			}
-
-			Sbar_DrawPic( i * 24, - 16, sb_weapons[ flashon ][ i ] );
-
-			if ( flashon > 1 )
-				sb_updates = 0; // force update to remove flash
-
-		}
-
-	}
-
-	// MED 01/04/97
-	// hipnotic weapons
-	if ( _hipnotic ) {
-
-		let grenadeflashing = 0;
-		for ( let i = 0; i < 4; i ++ ) {
-
-			if ( _cl.items & ( 1 << hipweapons[ i ] ) ) {
-
-				const time = _cl.item_gettime[ hipweapons[ i ] ];
-				flashon = Math.floor( ( _cl.time - time ) * 10 );
-				if ( flashon >= 10 ) {
-
-					if ( _cl.stats[ STAT_ACTIVEWEAPON ] === ( 1 << hipweapons[ i ] ) )
-						flashon = 1;
-					else
-						flashon = 0;
-
-				} else {
-
-					flashon = ( flashon % 5 ) + 2;
-
-				}
-
-				// check grenade launcher
-				if ( i === 2 ) {
-
-					if ( _cl.items & HIT_PROXIMITY_GUN ) {
-
-						if ( flashon ) {
-
-							grenadeflashing = 1;
-							Sbar_DrawPic( 96, - 16, hsb_weapons[ flashon ][ 2 ] );
-
-						}
-
-					}
-
-				} else if ( i === 3 ) {
-
-					if ( _cl.items & ( IT_SHOTGUN << 4 ) ) {
-
-						if ( flashon && ! grenadeflashing ) {
-
-							Sbar_DrawPic( 96, - 16, hsb_weapons[ flashon ][ 3 ] );
-
-						} else if ( ! grenadeflashing ) {
-
-							Sbar_DrawPic( 96, - 16, hsb_weapons[ 0 ][ 3 ] );
-
-						}
-
-					} else {
-
-						Sbar_DrawPic( 96, - 16, hsb_weapons[ flashon ][ 4 ] );
-
-					}
-
-				} else {
-
-					Sbar_DrawPic( 176 + ( i * 24 ), - 16, hsb_weapons[ flashon ][ i ] );
-
-				}
-
-				if ( flashon > 1 )
-					sb_updates = 0; // force update to remove flash
-
-			}
-
-		}
-
-	}
-
-	if ( _rogue ) {
-
-		// check for powered up weapon.
-		if ( _cl.stats[ STAT_ACTIVEWEAPON ] >= RIT_LAVA_NAILGUN ) {
-
-			for ( let i = 0; i < 5; i ++ ) {
-
-				if ( _cl.stats[ STAT_ACTIVEWEAPON ] === ( RIT_LAVA_NAILGUN << i ) )
-					Sbar_DrawPic( ( i + 2 ) * 24, - 16, rsb_weapons[ i ] );
-
-			}
-
-		}
-
-	}
-
-	// ammo counts
-	for ( let i = 0; i < 4; i ++ ) {
-
-		const num = String( _cl.stats[ STAT_SHELLS + i ] ).padStart( 3, ' ' );
-		if ( num[ 0 ] !== ' ' )
-			Sbar_DrawCharacter( ( 6 * i + 1 ) * 8 - 2, - 24, 18 + num.charCodeAt( 0 ) - 48 );
-		if ( num[ 1 ] !== ' ' )
-			Sbar_DrawCharacter( ( 6 * i + 2 ) * 8 - 2, - 24, 18 + num.charCodeAt( 1 ) - 48 );
-		if ( num[ 2 ] !== ' ' )
-			Sbar_DrawCharacter( ( 6 * i + 3 ) * 8 - 2, - 24, 18 + num.charCodeAt( 2 ) - 48 );
-
-	}
-
-	// As in sbar.c, items never flash: flashon is reset here, so the flash
-	// test below is always false and new items are drawn at once.
-	flashon = 0;
-	// items
-	for ( let i = 0; i < 6; i ++ ) {
-
-		if ( _cl.items & ( 1 << ( 17 + i ) ) ) {
-
-			const time = _cl.item_gettime[ 17 + i ];
-			if ( time !== 0 && time > _cl.time - 2 && flashon ) {
-
-				// flash frame
-				sb_updates = 0;
-
-			} else {
-
-				//MED 01/04/97 changed keys
-				if ( ! _hipnotic || ( i > 1 ) )
-					Sbar_DrawPic( 192 + i * 16, - 16, sb_items[ i ] );
-
-			}
-
-			if ( time !== 0 && time > _cl.time - 2 )
-				sb_updates = 0;
-
-		}
-
-	}
-
-	//MED 01/04/97 added hipnotic items
-	// hipnotic items
-	if ( _hipnotic ) {
-
-		for ( let i = 0; i < 2; i ++ ) {
-
-			if ( _cl.items & ( 1 << ( 24 + i ) ) ) {
-
-				const time = _cl.item_gettime[ 24 + i ];
-				if ( time !== 0 && time > _cl.time - 2 && flashon ) {
-
-					// flash frame
-					sb_updates = 0;
-
-				} else {
-
-					Sbar_DrawPic( 288 + i * 16, - 16, hsb_items[ i ] );
-
-				}
-
-				if ( time !== 0 && time > _cl.time - 2 )
-					sb_updates = 0;
-
-			}
-
-		}
-
-	}
-
-	if ( _rogue ) {
-
-		// new rogue items
-		for ( let i = 0; i < 2; i ++ ) {
-
-			if ( _cl.items & ( 1 << ( 29 + i ) ) ) {
-
-				const time = _cl.item_gettime[ 29 + i ];
-				if ( time !== 0 && time > _cl.time - 2 && flashon ) {
-
-					// flash frame
-					sb_updates = 0;
-
-				} else {
-
-					Sbar_DrawPic( 288 + i * 16, - 16, rsb_items[ i ] );
-
-				}
-
-				if ( time !== 0 && time > _cl.time - 2 )
-					sb_updates = 0;
-
-			}
-
-		}
-
-	} else {
-
-		// sigils
-		for ( let i = 0; i < 4; i ++ ) {
-
-			if ( _cl.items & ( 1 << ( 28 + i ) ) ) {
-
-				const time = _cl.item_gettime[ 28 + i ];
-				if ( time !== 0 && time > _cl.time - 2 && flashon ) {
-
-					// flash frame
-					sb_updates = 0;
-
-				} else {
-
-					Sbar_DrawPic( 320 - 32 + i * 8, - 16, sb_sigil[ i ] );
-
-				}
-
-				if ( time !== 0 && time > _cl.time - 2 )
-					sb_updates = 0;
-
-			}
-
-		}
-
-	}
-
+  if (_rogue) {
+    if (_cl.stats[STAT_ACTIVEWEAPON] >= RIT_LAVA_NAILGUN) {
+      Sbar_DrawPicAlpha(0, -24, rsb_invbar[0], scr_sbaralpha.value); //johnfitz -- scr_sbaralpha
+    } else {
+      Sbar_DrawPicAlpha(0, -24, rsb_invbar[1], scr_sbaralpha.value); //johnfitz -- scr_sbaralpha
+    }
+  } else {
+    Sbar_DrawPicAlpha(0, -24, sb_ibar, scr_sbaralpha.value); //johnfitz -- scr_sbaralpha
+  }
+
+  // flashon is function-scope as in sbar.c; the weapons loops set it and
+  // the items loops below reset it first (sbar.c: flashon = 0 before items).
+  let flashon = 0;
+
+  // weapons
+  for (let i = 0; i < 7; i++) {
+    if (_cl.items & (IT_SHOTGUN << i)) {
+      const time = _cl.item_gettime[i];
+      flashon = Math.floor((_cl.time - time) * 10);
+      if (flashon >= 10) {
+        if (_cl.stats[STAT_ACTIVEWEAPON] === (IT_SHOTGUN << i)) {
+          flashon = 1;
+        } else {
+          flashon = 0;
+        }
+      } else {
+        flashon = (flashon % 5) + 2;
+      }
+
+      Sbar_DrawPic(i * 24, -16, sb_weapons[flashon][i]);
+
+      if (flashon > 1) {
+        sb_updates = 0; // force update to remove flash
+      }
+    }
+  }
+
+  // MED 01/04/97
+  // hipnotic weapons
+  if (_hipnotic) {
+    let grenadeflashing = 0;
+    for (let i = 0; i < 4; i++) {
+      if (_cl.items & (1 << hipweapons[i])) {
+        const time = _cl.item_gettime[hipweapons[i]];
+        flashon = Math.floor((_cl.time - time) * 10);
+        if (flashon >= 10) {
+          if (_cl.stats[STAT_ACTIVEWEAPON] === (1 << hipweapons[i])) {
+            flashon = 1;
+          } else {
+            flashon = 0;
+          }
+        } else {
+          flashon = (flashon % 5) + 2;
+        }
+
+        // check grenade launcher
+        if (i === 2) {
+          if (_cl.items & HIT_PROXIMITY_GUN) {
+            if (flashon) {
+              grenadeflashing = 1;
+              Sbar_DrawPic(96, -16, hsb_weapons[flashon][2]);
+            }
+          }
+        } else if (i === 3) {
+          if (_cl.items & (IT_SHOTGUN << 4)) {
+            if (flashon && !grenadeflashing) {
+              Sbar_DrawPic(96, -16, hsb_weapons[flashon][3]);
+            } else if (!grenadeflashing) {
+              Sbar_DrawPic(96, -16, hsb_weapons[0][3]);
+            }
+          } else {
+            Sbar_DrawPic(96, -16, hsb_weapons[flashon][4]);
+          }
+        } else {
+          Sbar_DrawPic(176 + (i * 24), -16, hsb_weapons[flashon][i]);
+        }
+
+        if (flashon > 1) {
+          sb_updates = 0; // force update to remove flash
+        }
+      }
+    }
+  }
+
+  if (_rogue) {
+    // check for powered up weapon.
+    if (_cl.stats[STAT_ACTIVEWEAPON] >= RIT_LAVA_NAILGUN) {
+      for (let i = 0; i < 5; i++) {
+        if (_cl.stats[STAT_ACTIVEWEAPON] === (RIT_LAVA_NAILGUN << i)) {
+          Sbar_DrawPic((i + 2) * 24, -16, rsb_weapons[i]);
+        }
+      }
+    }
+  }
+
+  // ammo counts
+  for (let i = 0; i < 4; i++) {
+    const num = String(_cl.stats[STAT_SHELLS + i]).padStart(3, " ");
+    if (num[0] !== " ") {
+      Sbar_DrawCharacter((6 * i + 1) * 8 - 2, -24, 18 + num.charCodeAt(0) - 48);
+    }
+    if (num[1] !== " ") {
+      Sbar_DrawCharacter((6 * i + 2) * 8 - 2, -24, 18 + num.charCodeAt(1) - 48);
+    }
+    if (num[2] !== " ") {
+      Sbar_DrawCharacter((6 * i + 3) * 8 - 2, -24, 18 + num.charCodeAt(2) - 48);
+    }
+  }
+
+  // As in sbar.c, items never flash: flashon is reset here, so the flash
+  // test below is always false and new items are drawn at once.
+  flashon = 0;
+  // items
+  for (let i = 0; i < 6; i++) {
+    if (_cl.items & (1 << (17 + i))) {
+      const time = _cl.item_gettime[17 + i];
+      if (time !== 0 && time > _cl.time - 2 && flashon) {
+        // flash frame
+        sb_updates = 0;
+      } else {
+        //MED 01/04/97 changed keys
+        if (!_hipnotic || (i > 1)) {
+          Sbar_DrawPic(192 + i * 16, -16, sb_items[i]);
+        }
+      }
+
+      if (time !== 0 && time > _cl.time - 2) {
+        sb_updates = 0;
+      }
+    }
+  }
+
+  //MED 01/04/97 added hipnotic items
+  // hipnotic items
+  if (_hipnotic) {
+    for (let i = 0; i < 2; i++) {
+      if (_cl.items & (1 << (24 + i))) {
+        const time = _cl.item_gettime[24 + i];
+        if (time !== 0 && time > _cl.time - 2 && flashon) {
+          // flash frame
+          sb_updates = 0;
+        } else {
+          Sbar_DrawPic(288 + i * 16, -16, hsb_items[i]);
+        }
+
+        if (time !== 0 && time > _cl.time - 2) {
+          sb_updates = 0;
+        }
+      }
+    }
+  }
+
+  if (_rogue) {
+    // new rogue items
+    for (let i = 0; i < 2; i++) {
+      if (_cl.items & (1 << (29 + i))) {
+        const time = _cl.item_gettime[29 + i];
+        if (time !== 0 && time > _cl.time - 2 && flashon) {
+          // flash frame
+          sb_updates = 0;
+        } else {
+          Sbar_DrawPic(288 + i * 16, -16, rsb_items[i]);
+        }
+
+        if (time !== 0 && time > _cl.time - 2) {
+          sb_updates = 0;
+        }
+      }
+    }
+  } else {
+    // sigils
+    for (let i = 0; i < 4; i++) {
+      if (_cl.items & (1 << (28 + i))) {
+        const time = _cl.item_gettime[28 + i];
+        if (time !== 0 && time > _cl.time - 2 && flashon) {
+          // flash frame
+          sb_updates = 0;
+        } else {
+          Sbar_DrawPic(320 - 32 + i * 8, -16, sb_sigil[i]);
+        }
+
+        if (time !== 0 && time > _cl.time - 2) {
+          sb_updates = 0;
+        }
+      }
+    }
+  }
 }
 
 /*
@@ -731,61 +693,55 @@ Sbar_DrawFrags
 ===============
 */
 function Sbar_DrawFrags() {
+  if (_cl.scores == null) return;
 
-	if ( _cl.scores == null ) return;
+  Sbar_SortFrags();
 
-	Sbar_SortFrags();
+  // draw the text
+  const l = scoreboardlines <= 4 ? scoreboardlines : 4;
 
-	// draw the text
-	const l = scoreboardlines <= 4 ? scoreboardlines : 4;
+  let x = 23;
+  let xofs;
+  if (_cl.gametype === GAME_DEATHMATCH) {
+    xofs = 0;
+  } else {
+    xofs = (_vid.width - 320) >> 1;
+  }
+  const y = _vid.height - SBAR_HEIGHT - 23;
 
-	let x = 23;
-	let xofs;
-	if ( _cl.gametype === GAME_DEATHMATCH )
-		xofs = 0;
-	else
-		xofs = ( _vid.width - 320 ) >> 1;
-	const y = _vid.height - SBAR_HEIGHT - 23;
+  for (let i = 0; i < l; i++) {
+    const k = fragsort[i];
+    const s = _cl.scores[k];
+    if (s == null || s.name == null || s.name.length === 0) {
+      continue;
+    }
 
-	for ( let i = 0; i < l; i ++ ) {
+    // draw background
+    let top = s.colors & 0xf0;
+    let bottom = (s.colors & 15) << 4;
+    top = Sbar_ColorForMap(top);
+    bottom = Sbar_ColorForMap(bottom);
 
-		const k = fragsort[ i ];
-		const s = _cl.scores[ k ];
-		if ( s == null || s.name == null || s.name.length === 0 )
-			continue;
+    if (_Draw_Fill != null) {
+      _Draw_Fill(xofs + x * 8 + 10, y, 28, 4, top);
+      _Draw_Fill(xofs + x * 8 + 10, y + 4, 28, 3, bottom);
+    }
 
-		// draw background
-		let top = s.colors & 0xf0;
-		let bottom = ( s.colors & 15 ) << 4;
-		top = Sbar_ColorForMap( top );
-		bottom = Sbar_ColorForMap( bottom );
+    // draw number
+    const f = s.frags;
+    const num = String(f).padStart(3, " ");
 
-		if ( _Draw_Fill != null ) {
+    Sbar_DrawCharacter((x + 1) * 8, -24, num.charCodeAt(0));
+    Sbar_DrawCharacter((x + 2) * 8, -24, num.charCodeAt(1));
+    Sbar_DrawCharacter((x + 3) * 8, -24, num.charCodeAt(2));
 
-			_Draw_Fill( xofs + x * 8 + 10, y, 28, 4, top );
-			_Draw_Fill( xofs + x * 8 + 10, y + 4, 28, 3, bottom );
+    if (k === _cl.viewentity - 1) {
+      Sbar_DrawCharacter(x * 8 + 2, -24, 16);
+      Sbar_DrawCharacter((x + 4) * 8 - 4, -24, 17);
+    }
 
-		}
-
-		// draw number
-		const f = s.frags;
-		const num = String( f ).padStart( 3, ' ' );
-
-		Sbar_DrawCharacter( ( x + 1 ) * 8, - 24, num.charCodeAt( 0 ) );
-		Sbar_DrawCharacter( ( x + 2 ) * 8, - 24, num.charCodeAt( 1 ) );
-		Sbar_DrawCharacter( ( x + 3 ) * 8, - 24, num.charCodeAt( 2 ) );
-
-		if ( k === _cl.viewentity - 1 ) {
-
-			Sbar_DrawCharacter( x * 8 + 2, - 24, 16 );
-			Sbar_DrawCharacter( ( x + 4 ) * 8 - 4, - 24, 17 );
-
-		}
-
-		x += 4;
-
-	}
-
+    x += 4;
+  }
 }
 
 /*
@@ -794,39 +750,30 @@ Sbar_SortFrags
 ===============
 */
 function Sbar_SortFrags() {
+  // sort by frags
+  scoreboardlines = 0;
+  const maxclients = _cl.maxclients || 16;
 
-	// sort by frags
-	scoreboardlines = 0;
-	const maxclients = _cl.maxclients || 16;
+  for (let i = 0; i < maxclients; i++) {
+    if (
+      _cl.scores && _cl.scores[i] && _cl.scores[i].name &&
+      _cl.scores[i].name.length > 0
+    ) {
+      fragsort[scoreboardlines] = i;
+      scoreboardlines++;
+    }
+  }
 
-	for ( let i = 0; i < maxclients; i ++ ) {
-
-		if ( _cl.scores && _cl.scores[ i ] && _cl.scores[ i ].name && _cl.scores[ i ].name.length > 0 ) {
-
-			fragsort[ scoreboardlines ] = i;
-			scoreboardlines ++;
-
-		}
-
-	}
-
-	// bubble sort by frags (descending)
-	for ( let i = 0; i < scoreboardlines; i ++ ) {
-
-		for ( let j = 0; j < scoreboardlines - 1 - i; j ++ ) {
-
-			if ( _cl.scores[ fragsort[ j ] ].frags < _cl.scores[ fragsort[ j + 1 ] ].frags ) {
-
-				const k = fragsort[ j ];
-				fragsort[ j ] = fragsort[ j + 1 ];
-				fragsort[ j + 1 ] = k;
-
-			}
-
-		}
-
-	}
-
+  // bubble sort by frags (descending)
+  for (let i = 0; i < scoreboardlines; i++) {
+    for (let j = 0; j < scoreboardlines - 1 - i; j++) {
+      if (_cl.scores[fragsort[j]].frags < _cl.scores[fragsort[j + 1]].frags) {
+        const k = fragsort[j];
+        fragsort[j] = fragsort[j + 1];
+        fragsort[j + 1] = k;
+      }
+    }
+  }
 }
 
 /*
@@ -834,10 +781,8 @@ function Sbar_SortFrags() {
 Sbar_ColorForMap
 ===============
 */
-function Sbar_ColorForMap( m ) {
-
-	return m < 128 ? m + 8 : m + 8;
-
+function Sbar_ColorForMap(m) {
+  return m < 128 ? m + 8 : m + 8;
 }
 
 /*
@@ -847,22 +792,20 @@ Sbar_DrawScrollString -- johnfitz
 scroll the string inside a glscissor region
 ===============
 */
-function Sbar_DrawScrollString( x, y, width, str ) {
+function Sbar_DrawScrollString(x, y, width, str) {
+  // Sbar_DrawString centres the 320-wide bar outside deathmatch; clip the same way
+  const xofs = _cl.gametype === GAME_DEATHMATCH ? 0 : (_vid.width - 320) >> 1;
+  Draw_SetClipRect(x + xofs, 0, width, _vid.height);
 
-	// Sbar_DrawString centres the 320-wide bar outside deathmatch; clip the same way
-	const xofs = _cl.gametype === GAME_DEATHMATCH ? 0 : ( _vid.width - 320 ) >> 1;
-	Draw_SetClipRect( x + xofs, 0, width, _vid.height );
+  const len = str.length * 8 + 40;
+  const ofs = Math.floor(realtime * 30) % len;
+  Sbar_DrawString(x - ofs, y, str);
+  // Ironwail draws three '/' with Sbar_DrawCharacter, which has no +4 there;
+  // the port's keeps id's +4, so draw them as a string to line up
+  Sbar_DrawString(x - ofs + len - 32, y, "///");
+  Sbar_DrawString(x - ofs + len, y, str);
 
-	const len = str.length * 8 + 40;
-	const ofs = Math.floor( realtime * 30 ) % len;
-	Sbar_DrawString( x - ofs, y, str );
-	// Ironwail draws three '/' with Sbar_DrawCharacter, which has no +4 there;
-	// the port's keeps id's +4, so draw them as a string to line up
-	Sbar_DrawString( x - ofs + len - 32, y, '///' );
-	Sbar_DrawString( x - ofs + len, y, str );
-
-	Draw_ResetClipping();
-
+  Draw_ResetClipping();
 }
 
 /*
@@ -874,48 +817,44 @@ replaces newlines (and a literal backslash-n) with spaces, collapses runs of
 spaces and trims both ends.
 =================
 */
-function Sbar_SanitizeMapDescription( src ) {
+function Sbar_SanitizeMapDescription(src) {
+  let dst = "";
+  for (let i = 0; i < src.length; i++) {
+    let c = src.charCodeAt(i) & 0x7f; // remove color
+    if (c === 10 || c === 13) { // replace newlines with spaces
+      c = 32;
+    } else if (c === 92 && src.charCodeAt(i + 1) === 110) { // replace '\\' followed by 'n' with space
+      c = 32;
+      i++;
+    }
 
-	let dst = '';
-	for ( let i = 0; i < src.length; i ++ ) {
+    // remove leading spaces, replace consecutive spaces with single one
+    if (c !== 32 || (dst.length > 0 && dst.charCodeAt(dst.length - 1) !== c)) {
+      dst += String.fromCharCode(c);
+    }
+  }
 
-		let c = src.charCodeAt( i ) & 0x7f; // remove color
-		if ( c === 10 || c === 13 ) // replace newlines with spaces
-			c = 32;
-		else if ( c === 92 && src.charCodeAt( i + 1 ) === 110 ) { // replace '\\' followed by 'n' with space
+  // remove trailing space, if any
+  if (dst.length > 0 && dst.charCodeAt(dst.length - 1) === 32) {
+    dst = dst.substring(0, dst.length - 1);
+  }
 
-			c = 32;
-			i ++;
-
-		}
-
-		// remove leading spaces, replace consecutive spaces with single one
-		if ( c !== 32 || ( dst.length > 0 && dst.charCodeAt( dst.length - 1 ) !== c ) )
-			dst += String.fromCharCode( c );
-
-	}
-
-	// remove trailing space, if any
-	if ( dst.length > 0 && dst.charCodeAt( dst.length - 1 ) === 32 )
-		dst = dst.substring( 0, dst.length - 1 );
-
-	return dst;
-
+  return dst;
 }
 
 // Sbar_SoloScoreboard strings, rebuilt only when what they show changes
 // (Golden Rule #4: the scoreboard is drawn every frame while it is up)
-let solo_monsters = - 1;
-let solo_totalmonsters = - 1;
-let solo_kills = '';
-let solo_secrets = - 1;
-let solo_totalsecrets = - 1;
-let solo_secretsstr = '';
-let solo_skill = - 1;
-let solo_skillstr = '';
+let solo_monsters = -1;
+let solo_totalmonsters = -1;
+let solo_kills = "";
+let solo_secrets = -1;
+let solo_totalsecrets = -1;
+let solo_secretsstr = "";
+let solo_skill = -1;
+let solo_skillstr = "";
 let solo_levelname = null;
 let solo_worldmodel = null;
-let solo_title = '';
+let solo_title = "";
 
 /*
 ===============
@@ -928,61 +867,66 @@ The Time field is gone, as in QuakeSpasm and Ironwail; scr_clock shows it.
 ===============
 */
 export function Sbar_SoloScoreboard() {
+  if (
+    _cl.stats[STAT_MONSTERS] !== solo_monsters ||
+    _cl.stats[STAT_TOTALMONSTERS] !== solo_totalmonsters
+  ) {
+    solo_monsters = _cl.stats[STAT_MONSTERS];
+    solo_totalmonsters = _cl.stats[STAT_TOTALMONSTERS];
+    solo_kills = "Kills: " + solo_monsters + "/" + solo_totalmonsters;
+  }
 
-	if ( _cl.stats[ STAT_MONSTERS ] !== solo_monsters || _cl.stats[ STAT_TOTALMONSTERS ] !== solo_totalmonsters ) {
+  const left = 8 + solo_kills.length * 8;
+  Sbar_DrawString(8, 12, solo_kills);
 
-		solo_monsters = _cl.stats[ STAT_MONSTERS ];
-		solo_totalmonsters = _cl.stats[ STAT_TOTALMONSTERS ];
-		solo_kills = 'Kills: ' + solo_monsters + '/' + solo_totalmonsters;
+  if (
+    _cl.stats[STAT_SECRETS] !== solo_secrets ||
+    _cl.stats[STAT_TOTALSECRETS] !== solo_totalsecrets
+  ) {
+    solo_secrets = _cl.stats[STAT_SECRETS];
+    solo_totalsecrets = _cl.stats[STAT_TOTALSECRETS];
+    solo_secretsstr = "Secrets: " + solo_secrets + "/" + solo_totalsecrets;
+  }
 
-	}
+  const right = 312 - solo_secretsstr.length * 8;
+  Sbar_DrawString(right, 12, solo_secretsstr);
 
-	const left = 8 + solo_kills.length * 8;
-	Sbar_DrawString( 8, 12, solo_kills );
+  /* QuakeSpasm customization: */
+  const sk = Math.trunc(skill.value + 0.5);
+  if (sk !== solo_skill) {
+    solo_skill = sk;
+    solo_skillstr = "skill " + sk;
+  }
 
-	if ( _cl.stats[ STAT_SECRETS ] !== solo_secrets || _cl.stats[ STAT_TOTALSECRETS ] !== solo_totalsecrets ) {
+  Sbar_DrawString(
+    ((left + right) >> 1) - solo_skillstr.length * 4,
+    12,
+    solo_skillstr,
+  );
 
-		solo_secrets = _cl.stats[ STAT_SECRETS ];
-		solo_totalsecrets = _cl.stats[ STAT_TOTALSECRETS ];
-		solo_secretsstr = 'Secrets: ' + solo_secrets + '/' + solo_totalsecrets;
+  // cl.mapname (Ironwail CL_ParseServerInfo) isn't kept by the port's client
+  // state; derive it from the world model's name the same way
+  const worldmodel = _cl.worldmodel;
+  if (_cl.levelname !== solo_levelname || worldmodel !== solo_worldmodel) {
+    solo_levelname = _cl.levelname;
+    solo_worldmodel = worldmodel;
+    const mapname = worldmodel !== null ?
+      COM_StripExtension(COM_SkipPath(worldmodel.name)) :
+      "";
+    if (solo_levelname.length > 0) {
+      solo_title = Sbar_SanitizeMapDescription(solo_levelname) + " (" +
+        mapname + ")";
+    } else {
+      solo_title = mapname;
+    }
+  }
 
-	}
-
-	const right = 312 - solo_secretsstr.length * 8;
-	Sbar_DrawString( right, 12, solo_secretsstr );
-
-	/* QuakeSpasm customization: */
-	const sk = Math.trunc( skill.value + 0.5 );
-	if ( sk !== solo_skill ) {
-
-		solo_skill = sk;
-		solo_skillstr = 'skill ' + sk;
-
-	}
-
-	Sbar_DrawString( ( ( left + right ) >> 1 ) - solo_skillstr.length * 4, 12, solo_skillstr );
-
-	// cl.mapname (Ironwail CL_ParseServerInfo) isn't kept by the port's client
-	// state; derive it from the world model's name the same way
-	const worldmodel = _cl.worldmodel;
-	if ( _cl.levelname !== solo_levelname || worldmodel !== solo_worldmodel ) {
-
-		solo_levelname = _cl.levelname;
-		solo_worldmodel = worldmodel;
-		const mapname = worldmodel !== null ? COM_StripExtension( COM_SkipPath( worldmodel.name ) ) : '';
-		if ( solo_levelname.length > 0 )
-			solo_title = Sbar_SanitizeMapDescription( solo_levelname ) + ' (' + mapname + ')';
-		else
-			solo_title = mapname;
-
-	}
-
-	const len = solo_title.length;
-	if ( len > 40 )
-		Sbar_DrawScrollString( 0, 4, 320, solo_title );
-	else
-		Sbar_DrawString( 160 - len * 4, 4, solo_title );
-
+  const len = solo_title.length;
+  if (len > 40) {
+    Sbar_DrawScrollString(0, 4, 320, solo_title);
+  } else {
+    Sbar_DrawString(160 - len * 4, 4, solo_title);
+  }
 }
 
 /*
@@ -991,11 +935,10 @@ Sbar_DrawScoreboard
 ===============
 */
 function Sbar_DrawScoreboard() {
-
-	Sbar_SoloScoreboard();
-	if ( _cl.gametype === GAME_DEATHMATCH )
-		Sbar_DeathmatchOverlay();
-
+  Sbar_SoloScoreboard();
+  if (_cl.gametype === GAME_DEATHMATCH) {
+    Sbar_DeathmatchOverlay();
+  }
 }
 
 /*
@@ -1006,113 +949,103 @@ Returns the health face to display
 ===============
 */
 function Sbar_DrawFace() {
+  let f;
+  let anim;
 
-	let f;
-	let anim;
+  // PGM 01/19/97 - team color drawing
+  // PGM 03/02/97 - fixed so color swatch only appears in CTF modes
+  if (
+    _rogue &&
+    (_cl.maxclients !== 1) &&
+    (teamplay.value > 3) &&
+    (teamplay.value < 7)
+  ) {
+    const s = _cl.scores[_cl.viewentity - 1];
+    // draw background
+    let top = s.colors & 0xf0;
+    let bottom = (s.colors & 15) << 4;
+    top = Sbar_ColorForMap(top);
+    bottom = Sbar_ColorForMap(bottom);
 
-	// PGM 01/19/97 - team color drawing
-	// PGM 03/02/97 - fixed so color swatch only appears in CTF modes
-	if ( _rogue &&
-		( _cl.maxclients !== 1 ) &&
-		( teamplay.value > 3 ) &&
-		( teamplay.value < 7 ) ) {
+    let xofs;
+    if (_cl.gametype === GAME_DEATHMATCH) {
+      xofs = 113;
+    } else {
+      xofs = ((_vid.width - 320) >> 1) + 113;
+    }
 
-		const s = _cl.scores[ _cl.viewentity - 1 ];
-		// draw background
-		let top = s.colors & 0xf0;
-		let bottom = ( s.colors & 15 ) << 4;
-		top = Sbar_ColorForMap( top );
-		bottom = Sbar_ColorForMap( bottom );
+    Sbar_DrawPic(112, 0, rsb_teambord);
+    if (_Draw_Fill != null) {
+      _Draw_Fill(xofs, _vid.height - SBAR_HEIGHT + 3, 22, 9, top);
+      _Draw_Fill(xofs, _vid.height - SBAR_HEIGHT + 12, 22, 9, bottom);
+    }
 
-		let xofs;
-		if ( _cl.gametype === GAME_DEATHMATCH )
-			xofs = 113;
-		else
-			xofs = ( ( _vid.width - 320 ) >> 1 ) + 113;
+    // draw number
+    f = s.frags;
+    const num = String(f).padStart(3, " ");
 
-		Sbar_DrawPic( 112, 0, rsb_teambord );
-		if ( _Draw_Fill != null ) {
+    if (top === 8) {
+      if (num[0] !== " ") {
+        Sbar_DrawCharacter(109, 3, 18 + num.charCodeAt(0) - 48);
+      }
+      if (num[1] !== " ") {
+        Sbar_DrawCharacter(116, 3, 18 + num.charCodeAt(1) - 48);
+      }
+      if (num[2] !== " ") {
+        Sbar_DrawCharacter(123, 3, 18 + num.charCodeAt(2) - 48);
+      }
+    } else {
+      Sbar_DrawCharacter(109, 3, num.charCodeAt(0));
+      Sbar_DrawCharacter(116, 3, num.charCodeAt(1));
+      Sbar_DrawCharacter(123, 3, num.charCodeAt(2));
+    }
 
-			_Draw_Fill( xofs, _vid.height - SBAR_HEIGHT + 3, 22, 9, top );
-			_Draw_Fill( xofs, _vid.height - SBAR_HEIGHT + 12, 22, 9, bottom );
+    return;
+  }
+  // PGM 01/19/97 - team color drawing
 
-		}
+  if (
+    (_cl.items & (IT_INVISIBILITY | IT_INVULNERABILITY)) ===
+      (IT_INVISIBILITY | IT_INVULNERABILITY)
+  ) {
+    Sbar_DrawPic(112, 0, sb_face_invis_invuln);
+    return;
+  }
 
-		// draw number
-		f = s.frags;
-		const num = String( f ).padStart( 3, ' ' );
+  if (_cl.items & IT_QUAD) {
+    Sbar_DrawPic(112, 0, sb_face_quad);
+    return;
+  }
 
-		if ( top === 8 ) {
+  if (_cl.items & IT_INVISIBILITY) {
+    Sbar_DrawPic(112, 0, sb_face_invis);
+    return;
+  }
 
-			if ( num[ 0 ] !== ' ' )
-				Sbar_DrawCharacter( 109, 3, 18 + num.charCodeAt( 0 ) - 48 );
-			if ( num[ 1 ] !== ' ' )
-				Sbar_DrawCharacter( 116, 3, 18 + num.charCodeAt( 1 ) - 48 );
-			if ( num[ 2 ] !== ' ' )
-				Sbar_DrawCharacter( 123, 3, 18 + num.charCodeAt( 2 ) - 48 );
+  if (_cl.items & IT_INVULNERABILITY) {
+    Sbar_DrawPic(112, 0, sb_face_invuln);
+    return;
+  }
 
-		} else {
+  const health = _cl.stats[STAT_HEALTH];
 
-			Sbar_DrawCharacter( 109, 3, num.charCodeAt( 0 ) );
-			Sbar_DrawCharacter( 116, 3, num.charCodeAt( 1 ) );
-			Sbar_DrawCharacter( 123, 3, num.charCodeAt( 2 ) );
+  if (health >= 100) {
+    f = 4;
+  } else {
+    f = Math.floor(health / 20);
+  }
 
-		}
+  if (f < 0) f = 0;
+  if (f > 4) f = 4;
 
-		return;
+  // pain animation
+  anim = 0;
+  if (_cl.time <= _cl.faceanimtime) {
+    anim = 1;
+    sb_updates = 0; // make sure the anim gets drawn over
+  }
 
-	}
-	// PGM 01/19/97 - team color drawing
-
-	if ( ( _cl.items & ( IT_INVISIBILITY | IT_INVULNERABILITY ) ) === ( IT_INVISIBILITY | IT_INVULNERABILITY ) ) {
-
-		Sbar_DrawPic( 112, 0, sb_face_invis_invuln );
-		return;
-
-	}
-
-	if ( _cl.items & IT_QUAD ) {
-
-		Sbar_DrawPic( 112, 0, sb_face_quad );
-		return;
-
-	}
-
-	if ( _cl.items & IT_INVISIBILITY ) {
-
-		Sbar_DrawPic( 112, 0, sb_face_invis );
-		return;
-
-	}
-
-	if ( _cl.items & IT_INVULNERABILITY ) {
-
-		Sbar_DrawPic( 112, 0, sb_face_invuln );
-		return;
-
-	}
-
-	const health = _cl.stats[ STAT_HEALTH ];
-
-	if ( health >= 100 )
-		f = 4;
-	else
-		f = Math.floor( health / 20 );
-
-	if ( f < 0 ) f = 0;
-	if ( f > 4 ) f = 4;
-
-	// pain animation
-	anim = 0;
-	if ( _cl.time <= _cl.faceanimtime ) {
-
-		anim = 1;
-		sb_updates = 0; // make sure the anim gets drawn over
-
-	}
-
-	Sbar_DrawPic( 112, 0, sb_faces[ f ][ anim ] );
-
+  Sbar_DrawPic(112, 0, sb_faces[f][anim]);
 }
 
 /*
@@ -1121,129 +1054,138 @@ Sbar_Draw
 ===============
 */
 export function Sbar_Draw() {
+  // Force redraw every frame — canvas overlay is cleared each frame
+  sb_updates = 0;
 
-	// Force redraw every frame — canvas overlay is cleared each frame
-	sb_updates = 0;
+  // Deviation (FitzQuake/Ironwail): id's C has no such check. Intermission
+  // 3 (svc_cutscene) reaches Sbar_Draw through SCR_UpdateScreen's else
+  // branch and drew the status bar over the cutscene.
+  if (_cl.intermission) {
+    return; //johnfitz -- never draw sbar during intermission
+  }
 
-	// Deviation (FitzQuake/Ironwail): id's C has no such check. Intermission
-	// 3 (svc_cutscene) reaches Sbar_Draw through SCR_UpdateScreen's else
-	// branch and drew the status bar over the cutscene.
-	if ( _cl.intermission )
-		return; //johnfitz -- never draw sbar during intermission
+  if (sb_lines > 24) {
+    Sbar_DrawInventory();
+    if (_cl.maxclients !== 1) {
+      Sbar_DrawFrags();
+    }
+  }
 
-	if ( sb_lines > 24 ) {
+  if (sb_showscores || _cl.stats[STAT_HEALTH] <= 0) {
+    Sbar_DrawPicAlpha(0, 0, sb_scorebar, scr_sbaralpha.value); //johnfitz -- scr_sbaralpha
+    Sbar_DrawScoreboard();
+    sb_updates = 0;
+  } else if (sb_lines > 0) {
+    Sbar_DrawPicAlpha(0, 0, sb_sbar, scr_sbaralpha.value); //johnfitz -- scr_sbaralpha
 
-		Sbar_DrawInventory();
-		if ( _cl.maxclients !== 1 )
-			Sbar_DrawFrags();
+    // keys (hipnotic only)
+    //MED 01/04/97 moved keys here so they would not be overwritten
+    if (_hipnotic) {
+      if (_cl.items & IT_KEY1) {
+        Sbar_DrawPic(209, 3, sb_items[0]);
+      }
+      if (_cl.items & IT_KEY2) {
+        Sbar_DrawPic(209, 12, sb_items[1]);
+      }
+    }
 
-	}
+    // armor
+    if ((_cl.items & IT_INVULNERABILITY) !== 0) {
+      Sbar_DrawNum(24, 0, 666, 3, 1);
+      Sbar_DrawPic(0, 0, sb_disc);
+    } else if (_rogue) {
+      Sbar_DrawNum(
+        24,
+        0,
+        _cl.stats[STAT_ARMOR],
+        3,
+        _cl.stats[STAT_ARMOR] <= 25 ? 1 : 0,
+      );
+      if ((_cl.items & RIT_ARMOR3) !== 0) {
+        Sbar_DrawPic(0, 0, sb_armor[2]);
+      } else if ((_cl.items & RIT_ARMOR2) !== 0) {
+        Sbar_DrawPic(0, 0, sb_armor[1]);
+      } else if ((_cl.items & RIT_ARMOR1) !== 0) {
+        Sbar_DrawPic(0, 0, sb_armor[0]);
+      }
+    } else {
+      Sbar_DrawNum(
+        24,
+        0,
+        _cl.stats[STAT_ARMOR],
+        3,
+        _cl.stats[STAT_ARMOR] <= 25 ? 1 : 0,
+      );
+      if ((_cl.items & IT_ARMOR3) !== 0) {
+        Sbar_DrawPic(0, 0, sb_armor[2]);
+      } else if ((_cl.items & IT_ARMOR2) !== 0) {
+        Sbar_DrawPic(0, 0, sb_armor[1]);
+      } else if ((_cl.items & IT_ARMOR1) !== 0) {
+        Sbar_DrawPic(0, 0, sb_armor[0]);
+      }
+    }
 
-	if ( sb_showscores || _cl.stats[ STAT_HEALTH ] <= 0 ) {
+    // face
+    Sbar_DrawFace();
 
-		Sbar_DrawPicAlpha( 0, 0, sb_scorebar, scr_sbaralpha.value ); //johnfitz -- scr_sbaralpha
-		Sbar_DrawScoreboard();
-		sb_updates = 0;
+    // health
+    Sbar_DrawNum(
+      136,
+      0,
+      _cl.stats[STAT_HEALTH],
+      3,
+      _cl.stats[STAT_HEALTH] <= 25 ? 1 : 0,
+    );
 
-	} else if ( sb_lines > 0 ) {
+    // ammo icon
+    if (_rogue) {
+      if ((_cl.items & RIT_SHELLS) !== 0) {
+        Sbar_DrawPic(224, 0, sb_ammo[0]);
+      } else if ((_cl.items & RIT_NAILS) !== 0) {
+        Sbar_DrawPic(224, 0, sb_ammo[1]);
+      } else if ((_cl.items & RIT_ROCKETS) !== 0) {
+        Sbar_DrawPic(224, 0, sb_ammo[2]);
+      } else if ((_cl.items & RIT_CELLS) !== 0) {
+        Sbar_DrawPic(224, 0, sb_ammo[3]);
+      } else if ((_cl.items & RIT_LAVA_NAILS) !== 0) {
+        Sbar_DrawPic(224, 0, rsb_ammo[0]);
+      } else if ((_cl.items & RIT_PLASMA_AMMO) !== 0) {
+        Sbar_DrawPic(224, 0, rsb_ammo[1]);
+      } else if ((_cl.items & RIT_MULTI_ROCKETS) !== 0) {
+        Sbar_DrawPic(224, 0, rsb_ammo[2]);
+      }
+    } else {
+      if ((_cl.items & IT_SHELLS) !== 0) {
+        Sbar_DrawPic(224, 0, sb_ammo[0]);
+      } else if ((_cl.items & IT_NAILS) !== 0) {
+        Sbar_DrawPic(224, 0, sb_ammo[1]);
+      } else if ((_cl.items & IT_ROCKETS) !== 0) {
+        Sbar_DrawPic(224, 0, sb_ammo[2]);
+      } else if ((_cl.items & IT_CELLS) !== 0) {
+        Sbar_DrawPic(224, 0, sb_ammo[3]);
+      }
+    }
 
-		Sbar_DrawPicAlpha( 0, 0, sb_sbar, scr_sbaralpha.value ); //johnfitz -- scr_sbaralpha
+    // ammo count
+    Sbar_DrawNum(
+      248,
+      0,
+      _cl.stats[STAT_AMMO],
+      3,
+      _cl.stats[STAT_AMMO] <= 10 ? 1 : 0,
+    );
+  }
 
-		// keys (hipnotic only)
-		//MED 01/04/97 moved keys here so they would not be overwritten
-		if ( _hipnotic ) {
+  if (_vid.width > 320) {
+    if (_cl.gametype === GAME_DEATHMATCH) {
+      Sbar_MiniDeathmatchOverlay();
+    }
+  }
 
-			if ( _cl.items & IT_KEY1 )
-				Sbar_DrawPic( 209, 3, sb_items[ 0 ] );
-			if ( _cl.items & IT_KEY2 )
-				Sbar_DrawPic( 209, 12, sb_items[ 1 ] );
-
-		}
-
-		// armor
-		if ( ( _cl.items & IT_INVULNERABILITY ) !== 0 ) {
-
-			Sbar_DrawNum( 24, 0, 666, 3, 1 );
-			Sbar_DrawPic( 0, 0, sb_disc );
-
-		} else if ( _rogue ) {
-
-			Sbar_DrawNum( 24, 0, _cl.stats[ STAT_ARMOR ], 3, _cl.stats[ STAT_ARMOR ] <= 25 ? 1 : 0 );
-			if ( ( _cl.items & RIT_ARMOR3 ) !== 0 )
-				Sbar_DrawPic( 0, 0, sb_armor[ 2 ] );
-			else if ( ( _cl.items & RIT_ARMOR2 ) !== 0 )
-				Sbar_DrawPic( 0, 0, sb_armor[ 1 ] );
-			else if ( ( _cl.items & RIT_ARMOR1 ) !== 0 )
-				Sbar_DrawPic( 0, 0, sb_armor[ 0 ] );
-
-		} else {
-
-			Sbar_DrawNum( 24, 0, _cl.stats[ STAT_ARMOR ], 3, _cl.stats[ STAT_ARMOR ] <= 25 ? 1 : 0 );
-			if ( ( _cl.items & IT_ARMOR3 ) !== 0 )
-				Sbar_DrawPic( 0, 0, sb_armor[ 2 ] );
-			else if ( ( _cl.items & IT_ARMOR2 ) !== 0 )
-				Sbar_DrawPic( 0, 0, sb_armor[ 1 ] );
-			else if ( ( _cl.items & IT_ARMOR1 ) !== 0 )
-				Sbar_DrawPic( 0, 0, sb_armor[ 0 ] );
-
-		}
-
-		// face
-		Sbar_DrawFace();
-
-		// health
-		Sbar_DrawNum( 136, 0, _cl.stats[ STAT_HEALTH ], 3, _cl.stats[ STAT_HEALTH ] <= 25 ? 1 : 0 );
-
-		// ammo icon
-		if ( _rogue ) {
-
-			if ( ( _cl.items & RIT_SHELLS ) !== 0 )
-				Sbar_DrawPic( 224, 0, sb_ammo[ 0 ] );
-			else if ( ( _cl.items & RIT_NAILS ) !== 0 )
-				Sbar_DrawPic( 224, 0, sb_ammo[ 1 ] );
-			else if ( ( _cl.items & RIT_ROCKETS ) !== 0 )
-				Sbar_DrawPic( 224, 0, sb_ammo[ 2 ] );
-			else if ( ( _cl.items & RIT_CELLS ) !== 0 )
-				Sbar_DrawPic( 224, 0, sb_ammo[ 3 ] );
-			else if ( ( _cl.items & RIT_LAVA_NAILS ) !== 0 )
-				Sbar_DrawPic( 224, 0, rsb_ammo[ 0 ] );
-			else if ( ( _cl.items & RIT_PLASMA_AMMO ) !== 0 )
-				Sbar_DrawPic( 224, 0, rsb_ammo[ 1 ] );
-			else if ( ( _cl.items & RIT_MULTI_ROCKETS ) !== 0 )
-				Sbar_DrawPic( 224, 0, rsb_ammo[ 2 ] );
-
-		} else {
-
-			if ( ( _cl.items & IT_SHELLS ) !== 0 )
-				Sbar_DrawPic( 224, 0, sb_ammo[ 0 ] );
-			else if ( ( _cl.items & IT_NAILS ) !== 0 )
-				Sbar_DrawPic( 224, 0, sb_ammo[ 1 ] );
-			else if ( ( _cl.items & IT_ROCKETS ) !== 0 )
-				Sbar_DrawPic( 224, 0, sb_ammo[ 2 ] );
-			else if ( ( _cl.items & IT_CELLS ) !== 0 )
-				Sbar_DrawPic( 224, 0, sb_ammo[ 3 ] );
-
-		}
-
-		// ammo count
-		Sbar_DrawNum( 248, 0, _cl.stats[ STAT_AMMO ], 3, _cl.stats[ STAT_AMMO ] <= 10 ? 1 : 0 );
-
-	}
-
-	if ( _vid.width > 320 ) {
-
-		if ( _cl.gametype === GAME_DEATHMATCH )
-			Sbar_MiniDeathmatchOverlay();
-
-	}
-
-	// Draw ping in deathmatch
-	if ( _cl.gametype === GAME_DEATHMATCH ) {
-
-		Sbar_DrawPing();
-
-	}
-
+  // Draw ping in deathmatch
+  if (_cl.gametype === GAME_DEATHMATCH) {
+    Sbar_DrawPing();
+  }
 }
 
 /*
@@ -1259,21 +1201,21 @@ that reads the reply: about 12 ms at a 72 Hz send rate and 60 fps.
 ==================
 */
 function Sbar_DrawPing() {
+  if (_Draw_Character == null) return;
 
-	if ( _Draw_Character == null ) return;
+  let pingMs = CL_GetDisplayPing(realtime);
+  if (pingMs === -1) {
+    pingMs = _cl.stats[STAT_PING];
+  }
+  const str = pingMs + "ms";
 
-	let pingMs = CL_GetDisplayPing( realtime );
-	if ( pingMs === - 1 )
-		pingMs = _cl.stats[ STAT_PING ];
-	const str = pingMs + 'ms';
+  // Draw in top-right corner
+  const x = _vid.width - str.length * 8 - 8;
+  const y = 8;
 
-	// Draw in top-right corner
-	const x = _vid.width - str.length * 8 - 8;
-	const y = 8;
-
-	for ( let i = 0; i < str.length; i ++ )
-		_Draw_Character( x + i * 8, y, str.charCodeAt( i ) );
-
+  for (let i = 0; i < str.length; i++) {
+    _Draw_Character(x + i * 8, y, str.charCodeAt(i));
+  }
 }
 
 /*
@@ -1282,61 +1224,61 @@ Sbar_DeathmatchOverlay
 ==================
 */
 function Sbar_DeathmatchOverlay() {
+  if (_Draw_Character == null || _Draw_Fill == null) return;
 
-	if ( _Draw_Character == null || _Draw_Fill == null ) return;
+  const pic = _Draw_CachePic != null ? _Draw_CachePic("gfx/ranking.lmp") : null;
+  if (pic != null) {
+    // M_DrawPic centers on 320x200
+    _Draw_Pic(
+      ((320 - pic.width) / 2) + ((_vid.width - 320) >> 1),
+      8 + ((_vid.height - 200) >> 1),
+      pic,
+    );
+  }
 
-	const pic = _Draw_CachePic != null ? _Draw_CachePic( 'gfx/ranking.lmp' ) : null;
-	if ( pic != null ) {
+  // scores
+  Sbar_SortFrags();
 
-		// M_DrawPic centers on 320x200
-		_Draw_Pic( ( ( 320 - pic.width ) / 2 ) + ( ( _vid.width - 320 ) >> 1 ),
-			8 + ( ( _vid.height - 200 ) >> 1 ), pic );
+  // draw the text
+  const l = scoreboardlines;
 
-	}
+  const x = 80 + ((_vid.width - 320) >> 1);
+  let y = 40;
+  for (let i = 0; i < l; i++) {
+    const k = fragsort[i];
+    const s = _cl.scores[k];
+    if (s == null || s.name == null || s.name.length === 0) {
+      continue;
+    }
 
-	// scores
-	Sbar_SortFrags();
+    // draw background
+    let top = s.colors & 0xf0;
+    let bottom = (s.colors & 15) << 4;
+    top = Sbar_ColorForMap(top);
+    bottom = Sbar_ColorForMap(bottom);
 
-	// draw the text
-	const l = scoreboardlines;
+    _Draw_Fill(x, y, 40, 4, top);
+    _Draw_Fill(x, y + 4, 40, 4, bottom);
 
-	const x = 80 + ( ( _vid.width - 320 ) >> 1 );
-	let y = 40;
-	for ( let i = 0; i < l; i ++ ) {
+    // draw number
+    const f = s.frags;
+    const num = String(f).padStart(3, " ");
 
-		const k = fragsort[ i ];
-		const s = _cl.scores[ k ];
-		if ( s == null || s.name == null || s.name.length === 0 )
-			continue;
+    _Draw_Character(x + 8, y, num.charCodeAt(0));
+    _Draw_Character(x + 16, y, num.charCodeAt(1));
+    _Draw_Character(x + 24, y, num.charCodeAt(2));
 
-		// draw background
-		let top = s.colors & 0xf0;
-		let bottom = ( s.colors & 15 ) << 4;
-		top = Sbar_ColorForMap( top );
-		bottom = Sbar_ColorForMap( bottom );
+    if (k === _cl.viewentity - 1) {
+      _Draw_Character(x - 8, y, 12);
+    }
 
-		_Draw_Fill( x, y, 40, 4, top );
-		_Draw_Fill( x, y + 4, 40, 4, bottom );
+    // draw name
+    for (let j = 0; j < s.name.length; j++) {
+      _Draw_Character(x + 64 + j * 8, y, s.name.charCodeAt(j));
+    }
 
-		// draw number
-		const f = s.frags;
-		const num = String( f ).padStart( 3, ' ' );
-
-		_Draw_Character( x + 8, y, num.charCodeAt( 0 ) );
-		_Draw_Character( x + 16, y, num.charCodeAt( 1 ) );
-		_Draw_Character( x + 24, y, num.charCodeAt( 2 ) );
-
-		if ( k === _cl.viewentity - 1 )
-			_Draw_Character( x - 8, y, 12 );
-
-		// draw name
-		for ( let j = 0; j < s.name.length; j ++ )
-			_Draw_Character( x + 64 + j * 8, y, s.name.charCodeAt( j ) );
-
-		y += 10;
-
-	}
-
+    y += 10;
+  }
 }
 
 /*
@@ -1345,80 +1287,81 @@ Sbar_MiniDeathmatchOverlay
 ==================
 */
 export function Sbar_MiniDeathmatchOverlay() {
+  if (_vid.width < 512 || sb_lines === 0) {
+    return;
+  }
 
-	if ( _vid.width < 512 || sb_lines === 0 )
-		return;
+  if (_Draw_Character == null || _Draw_Fill == null) return;
 
-	if ( _Draw_Character == null || _Draw_Fill == null ) return;
+  // scores
+  Sbar_SortFrags();
 
-	// scores
-	Sbar_SortFrags();
+  // draw the text
+  let y = _vid.height - sb_lines;
+  const numlines = Math.floor(sb_lines / 8);
+  if (numlines < 3) {
+    return;
+  }
 
-	// draw the text
-	let y = _vid.height - sb_lines;
-	const numlines = Math.floor( sb_lines / 8 );
-	if ( numlines < 3 )
-		return;
+  // find us
+  let i;
+  for (i = 0; i < scoreboardlines; i++) {
+    if (fragsort[i] === _cl.viewentity - 1) {
+      break;
+    }
+  }
 
-	// find us
-	let i;
-	for ( i = 0; i < scoreboardlines; i ++ ) {
+  if (i === scoreboardlines) { // we're not there
+    i = 0;
+  } // figure out start
+  else {
+    i = i - Math.floor(numlines / 2);
+  }
 
-		if ( fragsort[ i ] === _cl.viewentity - 1 )
-			break;
+  if (i > scoreboardlines - numlines) {
+    i = scoreboardlines - numlines;
+  }
+  if (i < 0) {
+    i = 0;
+  }
 
-	}
+  const x = 324;
+  for (; i < scoreboardlines && y < _vid.height - 8; i++) {
+    const k = fragsort[i];
+    const s = _cl.scores[k];
+    if (s == null || s.name == null || s.name.length === 0) {
+      continue;
+    }
 
-	if ( i === scoreboardlines ) // we're not there
-		i = 0;
-	else // figure out start
-		i = i - Math.floor( numlines / 2 );
+    // draw background
+    let top = s.colors & 0xf0;
+    let bottom = (s.colors & 15) << 4;
+    top = Sbar_ColorForMap(top);
+    bottom = Sbar_ColorForMap(bottom);
 
-	if ( i > scoreboardlines - numlines )
-		i = scoreboardlines - numlines;
-	if ( i < 0 )
-		i = 0;
+    _Draw_Fill(x, y + 1, 40, 3, top);
+    _Draw_Fill(x, y + 4, 40, 4, bottom);
 
-	const x = 324;
-	for ( ; i < scoreboardlines && y < _vid.height - 8; i ++ ) {
+    // draw number
+    const f = s.frags;
+    const num = String(f).padStart(3, " ");
 
-		const k = fragsort[ i ];
-		const s = _cl.scores[ k ];
-		if ( s == null || s.name == null || s.name.length === 0 )
-			continue;
+    _Draw_Character(x + 8, y, num.charCodeAt(0));
+    _Draw_Character(x + 16, y, num.charCodeAt(1));
+    _Draw_Character(x + 24, y, num.charCodeAt(2));
 
-		// draw background
-		let top = s.colors & 0xf0;
-		let bottom = ( s.colors & 15 ) << 4;
-		top = Sbar_ColorForMap( top );
-		bottom = Sbar_ColorForMap( bottom );
+    if (k === _cl.viewentity - 1) {
+      _Draw_Character(x, y, 16);
+      _Draw_Character(x + 32, y, 17);
+    }
 
-		_Draw_Fill( x, y + 1, 40, 3, top );
-		_Draw_Fill( x, y + 4, 40, 4, bottom );
+    // draw name
+    for (let j = 0; j < s.name.length; j++) {
+      _Draw_Character(x + 48 + j * 8, y, s.name.charCodeAt(j));
+    }
 
-		// draw number
-		const f = s.frags;
-		const num = String( f ).padStart( 3, ' ' );
-
-		_Draw_Character( x + 8, y, num.charCodeAt( 0 ) );
-		_Draw_Character( x + 16, y, num.charCodeAt( 1 ) );
-		_Draw_Character( x + 24, y, num.charCodeAt( 2 ) );
-
-		if ( k === _cl.viewentity - 1 ) {
-
-			_Draw_Character( x, y, 16 );
-			_Draw_Character( x + 32, y, 17 );
-
-		}
-
-		// draw name
-		for ( let j = 0; j < s.name.length; j ++ )
-			_Draw_Character( x + 48 + j * 8, y, s.name.charCodeAt( j ) );
-
-		y += 8;
-
-	}
-
+    y += 8;
+  }
 }
 
 /*
@@ -1428,33 +1371,33 @@ Sbar_IntermissionNumber
 Draw large numbers for intermission screen
 ==================
 */
-function Sbar_IntermissionNumber( x, y, num, digits, color ) {
+function Sbar_IntermissionNumber(x, y, num, digits, color) {
+  if (!_Draw_TransPic) return;
 
-	if ( ! _Draw_TransPic ) return;
+  const str = String(Math.abs(num));
+  let ptr = 0;
 
-	const str = String( Math.abs( num ) );
-	let ptr = 0;
+  if (str.length > digits) {
+    ptr = str.length - digits;
+  }
+  if (str.length < digits) {
+    x += (digits - str.length) * 24;
+  }
 
-	if ( str.length > digits )
-		ptr = str.length - digits;
-	if ( str.length < digits )
-		x += ( digits - str.length ) * 24;
+  for (let i = ptr; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    let frame;
+    if (c === 45) { // '-'
+      frame = STAT_MINUS;
+    } else {
+      frame = c - 48; // '0' is 48
+    }
 
-	for ( let i = ptr; i < str.length; i ++ ) {
-
-		const c = str.charCodeAt( i );
-		let frame;
-		if ( c === 45 ) // '-'
-			frame = STAT_MINUS;
-		else
-			frame = c - 48; // '0' is 48
-
-		if ( sb_nums[ color ] && sb_nums[ color ][ frame ] )
-			_Draw_TransPic( x, y, sb_nums[ color ][ frame ] );
-		x += 24;
-
-	}
-
+    if (sb_nums[color] && sb_nums[color][frame]) {
+      _Draw_TransPic(x, y, sb_nums[color][frame]);
+    }
+    x += 24;
+  }
 }
 
 /*
@@ -1463,53 +1406,80 @@ Sbar_IntermissionOverlay
 ==================
 */
 export function Sbar_IntermissionOverlay() {
+  if (!_Draw_TransPic || !_Draw_CachePic) return;
 
-	if ( ! _Draw_TransPic || ! _Draw_CachePic ) return;
+  if (_cl.gametype === GAME_DEATHMATCH) {
+    Sbar_DeathmatchOverlay();
+    return;
+  }
 
-	if ( _cl.gametype === GAME_DEATHMATCH ) {
+  // Deviation (FitzQuake/Ironwail CANVAS_MENU): id's C draws at fixed
+  // 320x200 positions, which sit in the top-left corner of our wider virtual
+  // screen. Keep id's layout and centre the 320x200 block.
+  const xofs = (_vid.width - 320) >> 1;
+  const yofs = (_vid.height - 200) >> 1;
 
-		Sbar_DeathmatchOverlay();
-		return;
+  const pic_complete = _Draw_CachePic("gfx/complete.lmp");
+  if (pic_complete) {
+    _Draw_Pic(xofs + 64, yofs + 24, pic_complete);
+  }
 
-	}
+  const pic_inter = _Draw_CachePic("gfx/inter.lmp");
+  if (pic_inter) {
+    _Draw_TransPic(xofs + 0, yofs + 56, pic_inter);
+  }
 
-	// Deviation (FitzQuake/Ironwail CANVAS_MENU): id's C draws at fixed
-	// 320x200 positions, which sit in the top-left corner of our wider virtual
-	// screen. Keep id's layout and centre the 320x200 block.
-	const xofs = ( _vid.width - 320 ) >> 1;
-	const yofs = ( _vid.height - 200 ) >> 1;
+  // time
+  const dig = Math.floor(_cl.completed_time / 60);
+  Sbar_IntermissionNumber(xofs + 160, yofs + 64, dig, 3, 0);
+  const num = Math.floor(_cl.completed_time) - dig * 60;
+  if (sb_colon) {
+    _Draw_TransPic(xofs + 234, yofs + 64, sb_colon);
+  }
+  if (sb_nums[0][Math.floor(num / 10)]) {
+    _Draw_TransPic(xofs + 246, yofs + 64, sb_nums[0][Math.floor(num / 10)]);
+  }
+  if (sb_nums[0][num % 10]) {
+    _Draw_TransPic(xofs + 266, yofs + 64, sb_nums[0][num % 10]);
+  }
 
-	const pic_complete = _Draw_CachePic( 'gfx/complete.lmp' );
-	if ( pic_complete )
-		_Draw_Pic( xofs + 64, yofs + 24, pic_complete );
+  // secrets
+  Sbar_IntermissionNumber(
+    xofs + 160,
+    yofs + 104,
+    _cl.stats[STAT_SECRETS],
+    3,
+    0,
+  );
+  if (sb_slash) {
+    _Draw_TransPic(xofs + 232, yofs + 104, sb_slash);
+  }
+  Sbar_IntermissionNumber(
+    xofs + 240,
+    yofs + 104,
+    _cl.stats[STAT_TOTALSECRETS],
+    3,
+    0,
+  );
 
-	const pic_inter = _Draw_CachePic( 'gfx/inter.lmp' );
-	if ( pic_inter )
-		_Draw_TransPic( xofs + 0, yofs + 56, pic_inter );
-
-	// time
-	const dig = Math.floor( _cl.completed_time / 60 );
-	Sbar_IntermissionNumber( xofs + 160, yofs + 64, dig, 3, 0 );
-	const num = Math.floor( _cl.completed_time ) - dig * 60;
-	if ( sb_colon )
-		_Draw_TransPic( xofs + 234, yofs + 64, sb_colon );
-	if ( sb_nums[ 0 ][ Math.floor( num / 10 ) ] )
-		_Draw_TransPic( xofs + 246, yofs + 64, sb_nums[ 0 ][ Math.floor( num / 10 ) ] );
-	if ( sb_nums[ 0 ][ num % 10 ] )
-		_Draw_TransPic( xofs + 266, yofs + 64, sb_nums[ 0 ][ num % 10 ] );
-
-	// secrets
-	Sbar_IntermissionNumber( xofs + 160, yofs + 104, _cl.stats[ STAT_SECRETS ], 3, 0 );
-	if ( sb_slash )
-		_Draw_TransPic( xofs + 232, yofs + 104, sb_slash );
-	Sbar_IntermissionNumber( xofs + 240, yofs + 104, _cl.stats[ STAT_TOTALSECRETS ], 3, 0 );
-
-	// kills
-	Sbar_IntermissionNumber( xofs + 160, yofs + 144, _cl.stats[ STAT_MONSTERS ], 3, 0 );
-	if ( sb_slash )
-		_Draw_TransPic( xofs + 232, yofs + 144, sb_slash );
-	Sbar_IntermissionNumber( xofs + 240, yofs + 144, _cl.stats[ STAT_TOTALMONSTERS ], 3, 0 );
-
+  // kills
+  Sbar_IntermissionNumber(
+    xofs + 160,
+    yofs + 144,
+    _cl.stats[STAT_MONSTERS],
+    3,
+    0,
+  );
+  if (sb_slash) {
+    _Draw_TransPic(xofs + 232, yofs + 144, sb_slash);
+  }
+  Sbar_IntermissionNumber(
+    xofs + 240,
+    yofs + 144,
+    _cl.stats[STAT_TOTALMONSTERS],
+    3,
+    0,
+  );
 }
 
 /*
@@ -1518,11 +1488,10 @@ Sbar_FinaleOverlay
 ==================
 */
 export function Sbar_FinaleOverlay() {
+  if (!_Draw_TransPic || !_Draw_CachePic) return;
 
-	if ( ! _Draw_TransPic || ! _Draw_CachePic ) return;
-
-	const pic = _Draw_CachePic( 'gfx/finale.lmp' );
-	if ( pic )
-		_Draw_TransPic( ( _vid.width - pic.width ) / 2, 16, pic );
-
+  const pic = _Draw_CachePic("gfx/finale.lmp");
+  if (pic) {
+    _Draw_TransPic((_vid.width - pic.width) / 2, 16, pic);
+  }
 }

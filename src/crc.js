@@ -44,19 +44,14 @@ const crctable = new Uint16Array( [
 ] );
 
 export function CRC_Init() {
-
-	return CRC_INIT_VALUE;
-
+  return CRC_INIT_VALUE;
 }
 
-export function CRC_ProcessByte( crcvalue, data ) {
-
-	return ( ( crcvalue << 8 ) ^ crctable[ ( ( crcvalue >>> 8 ) ^ data ) & 0xff ] ) & 0xffff;
-
+export function CRC_ProcessByte(crcvalue, data) {
+  return ((crcvalue << 8) ^ crctable[((crcvalue >>> 8) ^ data) & 0xff]) &
+    0xffff;
 }
 
-export function CRC_Value( crcvalue ) {
-
-	return crcvalue ^ CRC_XOR_VALUE;
-
+export function CRC_Value(crcvalue) {
+  return crcvalue ^ CRC_XOR_VALUE;
 }

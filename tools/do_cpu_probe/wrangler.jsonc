@@ -1,15 +1,15 @@
 // Throwaway probe for the Workers Free plan's Durable Object limits.
 // See probe.js for the steps; delete it afterwards with `npx wrangler delete`.
 {
-	"name": "icaro-do-cpu-probe",
-	"main": "worker.js",
-	"compatibility_date": "2026-10-01",
-	"workers_dev": true,
-	"durable_objects": {
-		"bindings": [ { "name": "PROBE_ROOM", "class_name": "ProbeRoom" } ]
-	},
-	// SQLite-backed: the only Durable Object kind the Free plan allows
-	"migrations": [ { "tag": "v1", "new_sqlite_classes": [ "ProbeRoom" ] } ],
-	// Invocation logs show each request's CPU time in the dashboard
-	"observability": { "enabled": true }
+  "name": "icaro-do-cpu-probe",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "durable_objects": {
+    "bindings": [{ "name": "PROBE_ROOM", "class_name": "ProbeRoom" }]
+  },
+  // SQLite-backed: the only Durable Object kind the Free plan allows
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ProbeRoom"] }],
+  // Invocation logs show each request's CPU time in the dashboard
+  "observability": { "enabled": true }
 }

@@ -38,86 +38,106 @@
 //
 // The process holds one host: Host_Init can't run twice.
 
-import { COM_InitArgv } from '../src/common.js';
-import { COM_AddPack, COM_AddPakSequence, COM_FetchPak, COM_SetLooseFileBasePaths } from '../src/pak.js';
-import { Host_Init, Host_Frame, host_framecount } from '../src/host.js';
-import { Cbuf_AddText } from '../src/cmd.js';
-import { SCR_SetExternals } from '../src/gl_screen.js';
-import { cls, SIGNONS } from '../src/client.js';
+import { COM_InitArgv } from "../src/common.js";
+import {
+  COM_AddPack,
+  COM_AddPakSequence,
+  COM_FetchPak,
+  COM_SetLooseFileBasePaths,
+} from "../src/pak.js";
+import { Host_Frame, host_framecount, Host_Init } from "../src/host.js";
+import { Cbuf_AddText } from "../src/cmd.js";
+import { SCR_SetExternals } from "../src/gl_screen.js";
+import { cls, SIGNONS } from "../src/client.js";
 
 // One host frame at host_maxfps's default of 72. The margin keeps
 // _Host_FilterTime's "framerate is too high" test from rejecting a frame
 // whose summed realtime came out a rounding error short of 1/72.
 export const HEADLESS_FRAMETIME = 1 / 72 + 1e-9;
 
-const DEFAULT_PAK = decodeURIComponent(new URL('../static/pak0.pak', import.meta.url).pathname);
+const DEFAULT_PAK = decodeURIComponent(
+  new URL("../static/pak0.pak", import.meta.url).pathname,
+);
 
 let headless_initialized = false;
 
 function noop() {}
 
-const _fakeRect = { left: 0, top: 0, right: 640, bottom: 480, width: 640, height: 480, x: 0, y: 0 };
+const _fakeRect = {
+  left: 0,
+  top: 0,
+  right: 640,
+  bottom: 480,
+  width: 640,
+  height: 480,
+  x: 0,
+  y: 0,
+};
 
 // A 2D canvas context that accepts every call and draws nothing
 const _fake2D = new Proxy({}, {
-	get(target, prop) {
-		if (prop in target) return target[prop];
-		if (prop === 'measureText') return () => ({ width: 0 });
-		if (prop === 'getImageData' || prop === 'createImageData') {
-			return (a, b, w, h) => {
-				const width = w !== undefined ? w : a;
-				const height = h !== undefined ? h : b;
-				return { width, height, data: new Uint8ClampedArray(4 * width * height) };
-			};
-		}
-		return noop;
-	},
-	set(target, prop, value) {
-		target[prop] = value;
-		return true;
-	},
+  get(target, prop) {
+    if (prop in target) return target[prop];
+    if (prop === "measureText") return () => ({ width: 0 });
+    if (prop === "getImageData" || prop === "createImageData") {
+      return (a, b, w, h) => {
+        const width = w !== undefined ? w : a;
+        const height = h !== undefined ? h : b;
+        return {
+          width,
+          height,
+          data: new Uint8ClampedArray(4 * width * height),
+        };
+      };
+    }
+    return noop;
+  },
+  set(target, prop, value) {
+    target[prop] = value;
+    return true;
+  },
 });
 
 function fakeElement(tag) {
-	return {
-		tagName: String(tag).toUpperCase(),
-		style: {},
-		dataset: {},
-		children: [],
-		width: 640,
-		height: 480,
-		classList: { add: noop, remove: noop, toggle: noop, contains: () => false },
-		appendChild: (child) => child,
-		removeChild: (child) => child,
-		insertBefore: (child) => child,
-		remove: noop,
-		addEventListener: noop,
-		removeEventListener: noop,
-		setAttribute: noop,
-		getAttribute: () => null,
-		getBoundingClientRect: () => _fakeRect,
-		getContext: () => _fake2D,
-		focus: noop,
-		blur: noop,
-	};
+  return {
+    tagName: String(tag).toUpperCase(),
+    style: {},
+    dataset: {},
+    children: [],
+    width: 640,
+    height: 480,
+    classList: { add: noop, remove: noop, toggle: noop, contains: () => false },
+    appendChild: (child) => child,
+    removeChild: (child) => child,
+    insertBefore: (child) => child,
+    remove: noop,
+    addEventListener: noop,
+    removeEventListener: noop,
+    setAttribute: noop,
+    getAttribute: () => null,
+    getBoundingClientRect: () => _fakeRect,
+    getContext: () => _fake2D,
+    focus: noop,
+    blur: noop,
+  };
 }
 
 function memoryStorage() {
-	const items = new Map();
-	return {
-		getItem: (key) => items.has(String(key)) ? items.get(String(key)) : null,
-		setItem: (key, value) => {
-			items.set(String(key), String(value));
-		},
-		removeItem: (key) => {
-			items.delete(String(key));
-		},
-		clear: () => items.clear(),
-		key: (index) => index < items.size ? [...items.keys()][index] : null,
-		get length() {
-			return items.size;
-		},
-	};
+  const items = new Map();
+  return {
+    getItem: (key) => items.has(String(key)) ? items.get(String(key)) : null,
+    setItem: (key, value) => {
+      items.set(String(key), String(value));
+    },
+    removeItem: (key) => {
+      items.delete(String(key));
+    },
+    clear: () => items.clear(),
+    key: (index) => index < items.size ? [...items.keys()][index] : null,
+    get length() {
+      return items.size;
+    },
+  };
 }
 
 /**
@@ -127,36 +147,50 @@ function memoryStorage() {
  * since Deno's own persists to disk.
  */
 export function headless_install_globals() {
-	Object.defineProperty(globalThis, 'localStorage', { value: memoryStorage(), configurable: true, writable: true });
+  Object.defineProperty(globalThis, "localStorage", {
+    value: memoryStorage(),
+    configurable: true,
+    writable: true,
+  });
 
-	if (globalThis.document === undefined) {
-		globalThis.document = {
-			body: fakeElement('body'),
-			head: fakeElement('head'),
-			documentElement: fakeElement('html'),
-			activeElement: null,
-			hidden: false,
-			visibilityState: 'visible',
-			createElement: fakeElement,
-			getElementById: () => null,
-			querySelector: () => null,
-			querySelectorAll: () => [],
-			addEventListener: noop,
-			removeEventListener: noop,
-		};
-	}
+  if (globalThis.document === undefined) {
+    globalThis.document = {
+      body: fakeElement("body"),
+      head: fakeElement("head"),
+      documentElement: fakeElement("html"),
+      activeElement: null,
+      hidden: false,
+      visibilityState: "visible",
+      createElement: fakeElement,
+      getElementById: () => null,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener: noop,
+      removeEventListener: noop,
+    };
+  }
 
-	if (globalThis.window === undefined) {
-		globalThis.window = {
-			innerWidth: 640,
-			innerHeight: 480,
-			devicePixelRatio: 1,
-			location: { search: '', hash: '', href: 'http://localhost/', hostname: 'localhost', protocol: 'http:' },
-			addEventListener: noop,
-			removeEventListener: noop,
-			matchMedia: () => ({ matches: false, addEventListener: noop, removeEventListener: noop }),
-		};
-	}
+  if (globalThis.window === undefined) {
+    globalThis.window = {
+      innerWidth: 640,
+      innerHeight: 480,
+      devicePixelRatio: 1,
+      location: {
+        search: "",
+        hash: "",
+        href: "http://localhost/",
+        hostname: "localhost",
+        protocol: "http:",
+      },
+      addEventListener: noop,
+      removeEventListener: noop,
+      matchMedia: () => ({
+        matches: false,
+        addEventListener: noop,
+        removeEventListener: noop,
+      }),
+    };
+  }
 }
 
 /**
@@ -171,32 +205,36 @@ export function headless_install_globals() {
  * opts.argv: extra command-line arguments (com_argv), e.g. ['-nomonsters'].
  */
 export async function headless_init(opts = {}) {
-	if (headless_initialized === true) throw new Error('headless_init: the host is already running');
-	headless_initialized = true;
+  if (headless_initialized === true) {
+    throw new Error("headless_init: the host is already running");
+  }
+  headless_initialized = true;
 
-	const pak = opts.pak !== undefined ? opts.pak : DEFAULT_PAK;
-	const argv = ['quake', ...(opts.argv !== undefined ? opts.argv : [])];
+  const pak = opts.pak !== undefined ? opts.pak : DEFAULT_PAK;
+  const argv = ["quake", ...(opts.argv !== undefined ? opts.argv : [])];
 
-	headless_install_globals();
-	COM_InitArgv(argv);
+  headless_install_globals();
+  COM_InitArgv(argv);
 
-	if (opts.pak_sequence === true) {
-		if (await COM_AddPakSequence(pak) === 0) throw new Error('headless_init: could not load ' + pak);
-	} else {
-		const pack = await COM_FetchPak(pak, pak.slice(pak.lastIndexOf('/') + 1));
-		if (pack === null) throw new Error('headless_init: could not load ' + pak);
-		COM_AddPack(pack);
-	}
-	// Loose files (maps not in the pak, .lit files) are looked up next to it
-	COM_SetLooseFileBasePaths([pak.slice(0, pak.lastIndexOf('/') + 1)]);
+  if (opts.pak_sequence === true) {
+    if (await COM_AddPakSequence(pak) === 0) {
+      throw new Error("headless_init: could not load " + pak);
+    }
+  } else {
+    const pack = await COM_FetchPak(pak, pak.slice(pak.lastIndexOf("/") + 1));
+    if (pack === null) throw new Error("headless_init: could not load " + pak);
+    COM_AddPack(pack);
+  }
+  // Loose files (maps not in the pak, .lit files) are looked up next to it
+  COM_SetLooseFileBasePaths([pak.slice(0, pak.lastIndexOf("/") + 1)]);
 
-	await Host_Init({ argv, argc: argv.length, basedir: '' });
+  await Host_Init({ argv, argc: argv.length, basedir: "" });
 
-	// The 3D view would draw into stubs every frame; skip it
-	SCR_SetExternals({ V_RenderView: noop });
+  // The 3D view would draw into stubs every frame; skip it
+  SCR_SetExternals({ V_RenderView: noop });
 
-	// quake.rc ends in startdemos; as with +map, the demo loop never starts
-	cls.demonum = -1;
+  // quake.rc ends in startdemos; as with +map, the demo loop never starts
+  cls.demonum = -1;
 }
 
 /**
@@ -205,9 +243,9 @@ export async function headless_init(opts = {}) {
  * 1/host_maxfps); the time still counts toward the next frame.
  */
 export function headless_frame(dt = HEADLESS_FRAMETIME) {
-	const before = host_framecount;
-	Host_Frame(dt);
-	return host_framecount !== before;
+  const before = host_framecount;
+  Host_Frame(dt);
+  return host_framecount !== before;
 }
 
 const _nextTask = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -218,14 +256,19 @@ const _nextTask = () => new Promise((resolve) => setTimeout(resolve, 0));
  * change the game started (changelevel, a reconnect). Resolves with the
  * number of frames run; rejects after max_frames.
  */
-export async function headless_wait_signon(max_frames = 1000, dt = HEADLESS_FRAMETIME) {
-	for (let frames = 0; frames < max_frames; frames++) {
-		if (cls.signon === SIGNONS) return frames;
-		headless_frame(dt);
-		await _nextTask();
-	}
-	if (cls.signon === SIGNONS) return max_frames;
-	throw new Error('headless_wait_signon: no signon after ' + max_frames + ' frames');
+export async function headless_wait_signon(
+  max_frames = 1000,
+  dt = HEADLESS_FRAMETIME,
+) {
+  for (let frames = 0; frames < max_frames; frames++) {
+    if (cls.signon === SIGNONS) return frames;
+    headless_frame(dt);
+    await _nextTask();
+  }
+  if (cls.signon === SIGNONS) return max_frames;
+  throw new Error(
+    "headless_wait_signon: no signon after " + max_frames + " frames",
+  );
 }
 
 /**
@@ -236,13 +279,24 @@ export async function headless_wait_signon(max_frames = 1000, dt = HEADLESS_FRAM
  * one frame, as it does over loopback (one signon reply per frame). Rejects after max_frames (a missing map,
  * or a Host_Error while spawning, which the frame loop prints and swallows).
  */
-export async function headless_map(name, max_frames = 1000, dt = HEADLESS_FRAMETIME) {
-	if (/["\s;]/.test(name) === true) throw new Error('headless_map: bad map name ' + JSON.stringify(name));
-	Cbuf_AddText('map ' + name + '\n');
-	for (let frames = 0; frames < max_frames; frames++) {
-		headless_frame(dt);
-		await _nextTask();
-		if (cls.signon !== SIGNONS) return frames + 1 + await headless_wait_signon(max_frames - frames - 1, dt);
-	}
-	throw new Error('headless_map: ' + name + ' did not start after ' + max_frames + ' frames');
+export async function headless_map(
+  name,
+  max_frames = 1000,
+  dt = HEADLESS_FRAMETIME,
+) {
+  if (/["\s;]/.test(name) === true) {
+    throw new Error("headless_map: bad map name " + JSON.stringify(name));
+  }
+  Cbuf_AddText("map " + name + "\n");
+  for (let frames = 0; frames < max_frames; frames++) {
+    headless_frame(dt);
+    await _nextTask();
+    if (cls.signon !== SIGNONS) {
+      return frames + 1 +
+        await headless_wait_signon(max_frames - frames - 1, dt);
+    }
+  }
+  throw new Error(
+    "headless_map: " + name + " did not start after " + max_frames + " frames",
+  );
 }
