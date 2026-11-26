@@ -206,14 +206,14 @@ process per room. It was forked from mrdoob's three-quake.
 - The server runs NetQuake physics (`sv_phys.js`, `sv_user.js`) and must stay
   NQ-faithful. The client predicts with QW `pmove` (`pmove.js`, `cl_pred.js`).
   Fix prediction mismatches on the client side.
-- Protocols: NetQuake 15, FitzQuake 666 and RMQ 999 are compatibility targets
-  for the client, since demos exist in all three. The messages QuakeC writes
-  itself are NetQuake ones, which read the same under every protocol. Icaro's
-  own netplay protocol (`PROTOCOL_ICARO` in `protocol.js`, with QuakeWorld-style
-  delta packet entities) is the base of a future Icaro-native standard. Only
-  Icaro clients and servers talk to each other: joining a native engine's server
-  is not a goal. Client and server ship together, so a message-format change
-  must update both sides in the same PR.
+- Protocols: NetQuake 15, FitzQuake 666 and RMQ 999 are compatibility targets,
+  since demos exist in all three. The messages QuakeC writes itself are NetQuake
+  ones, which read the same under every protocol. Icaro's own netplay protocol
+  (`PROTOCOL_ICARO` in `protocol.js`, with QuakeWorld-style delta packet
+  entities) is the base of a future Icaro-native standard. Only Icaro clients
+  and servers talk to each other: joining a native engine's server is not a
+  goal. Client and server ship together, so a message-format change must update
+  both sides in the same PR.
 - Anything a link, a host or a mod can feed the client is untrusted: URL
   parameters, `stuffcmd` from a server (a browser-hosted room's host is a
   player), and downloaded files. URL parameters may set only an explicit
