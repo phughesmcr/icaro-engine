@@ -255,6 +255,30 @@ Deno.test("stufftext: a remote host can't slip a command past the allowlist", ()
   });
   assert(keybindings[K_F11] === binding, "F11 was rebound after a blank");
 
+  // a quoted ';' doesn't split, and a line ending in ';' leaves its mark on
+  // nothing but its own empty remainder: the player's next command runs
+  let out = "";
+  asRemote(() => {
+    CL_ClearStuffText();
+    out = stuff(
+      'sky "x;bind F11 quit"\n',
+      "bf;\n",
+      "gl_texturemode GL_NEAREST\n",
+    );
+  });
+  assert(keybindings[K_F11] === binding, "a quoted ';' split the line");
+  assert(
+    out.includes("Server tried to gl_texturemode"),
+    "gl_texturemode, which a disconnect can't undo, ran",
+  );
+  try {
+    Cbuf_AddText('bind F12 "impulse 1"\n');
+    Cbuf_Execute();
+    assert(keybindings[K_F12] === "impulse 1", "the player's bind was refused");
+  } finally {
+    Cmd_ExecuteString("unbind F12", src_command);
+  }
+
   // a remote fragment is never completed by local text
   asRemote(() => {
     CL_ClearStuffText();

@@ -64,8 +64,9 @@ const CMD_SERVER_MARK = 0x01;
 // rerelease QuakeC (quake-rerelease-qc: quakec, quakec_hipnotic,
 // quakec_rogue, quakec_ctf, quakec_mg1, quakec_mg3) and the main mods'
 // sources (Arcane Dimensions, Copper, Alkaline, progs_dump, LibreQuake), and
-// the text the engine's own server stuffs. No bind, alias, exec, connect,
-// cvar-writing or file-writing command is here, and any cvar a server
+// the text the engine's own server stuffs. No bind, alias, exec, connect or
+// file-writing command is here, nor any that changes state a disconnect
+// can't undo (Arcane Dimensions' gl_texturemode toggle). Any cvar a server
 // changes is neither saved nor kept after disconnect (cvar.js
 // Cvar_RestoreServerChanges).
 // deno-fmt-ignore
@@ -81,7 +82,6 @@ const cmd_server_allowed = new Set([
   "teamplay", // quakec_rogue motd.qc
   "v_cshift", // AD, Copper t_void.qc, Alkaline and progs_dump cshift.qc
   "sky", // AD targets.qc, Alkaline misc.qc: skybox changes
-  "gl_texturemode", // AD settings.qc: its pixel-mode toggle
   "sizeup", // progs_dump cutscene.qc
   "sizedown", // progs_dump cutscene.qc
   "-forward", // progs_dump cutscene.qc
