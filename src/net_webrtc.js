@@ -1322,6 +1322,11 @@ export function RTC_QSendMessage(sock, data) {
   if (conn === null || conn.connected !== true) return -1;
   if (_RTC_CheckSendable(conn) === false) return -1;
 
+  // One message is one data-channel message of up to WT_MAX_FRAME_PAYLOAD
+  // (64009) bytes. That is under RFC 8841's 65536-byte default for a peer
+  // that states no max-message-size, and under the 262144 that Chromium
+  // reports (docs/browser-hosted-rooms.md). A smaller limit makes send()
+  // throw, and the catch below closes the connection.
   if (data.cursize > NET_MAXMESSAGE) {
     Con_Printf(
       "RTC_QSendMessage: message too large (%d bytes)\n",

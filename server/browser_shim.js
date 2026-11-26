@@ -404,6 +404,7 @@ export class MeshBasicMaterial extends Material {
   constructor(params = {}) {
     super();
     this.map = params.map || null;
+    this.alphaTest = params.alphaTest ?? 0;
     this.color = params.color || { r: 1, g: 1, b: 1 };
     this.vertexColors = params.vertexColors || false;
   }
@@ -413,6 +414,7 @@ export class MeshLambertMaterial extends Material {
   constructor(params = {}) {
     super();
     this.map = params.map || null;
+    this.alphaTest = params.alphaTest ?? 0;
   }
 }
 

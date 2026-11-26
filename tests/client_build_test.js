@@ -32,7 +32,7 @@ Deno.test("client build: allowlist takes the client and nothing else", () => {
       "LICENSE",
       "src/host.js",
       "static/pak0.pak",
-      "static/maps/zed.bsp",
+      "static/maps/mymap.bsp",
       "static/splash/a.png",
     ]
   ) {
@@ -93,7 +93,7 @@ Deno.test("client build: deny check refuses registered data and secrets", () => 
       CLIENT_SHAREWARE_PAK,
       "src/net_rtclobby.js",
       "src/librequake.js",
-      "static/maps/ultrav_it.txt",
+      "static/maps/mymap.txt",
       "static/screenshots/e1m1.jpg",
     ]
   ) {

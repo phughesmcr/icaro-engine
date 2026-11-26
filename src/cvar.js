@@ -15,7 +15,13 @@
 // Cvar_RegisterVariable(host_framerate);
 
 import { Con_Printf, Q_atof } from "./common.js";
-import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv, Cmd_Exists } from "./cmd.js";
+import {
+  Cmd_AddCommand,
+  Cmd_Argc,
+  Cmd_Argv,
+  Cmd_Exists,
+  Cmd_FromServer,
+} from "./cmd.js";
 
 // Callback for broadcasting server cvar changes (injected to avoid circular deps)
 let _serverBroadcast = null;
@@ -120,6 +126,25 @@ export function Cvar_SetCompletion(variable, func) {
   variable.completion = func;
 }
 
+// Deviation (web-only, no C equivalent): the cvars a remote server changed
+// through svc_stufftext (cmd.js Cbuf_AddServerText), each with the value it
+// had before. A server's value is used but never saved: Cvar_Set skips
+// localStorage, Cvar_WriteVariables writes the player's value, and
+// CL_Disconnect puts the player's values back. A change by the player drops
+// the entry, so the player's own value is saved as usual.
+const cvar_server_saved = new Map();
+
+/** Web-only: puts back every cvar a remote server changed (CL_Disconnect) */
+export function Cvar_RestoreServerChanges() {
+  for (const [name, string] of cvar_server_saved) {
+    const _var = Cvar_FindVar(name);
+    _var.string = string;
+    _var.value = Q_atof(string);
+  }
+
+  cvar_server_saved.clear();
+}
+
 export function Cvar_Set(var_name, value) {
   const _var = Cvar_FindVar(var_name);
   if (!_var) {
@@ -129,6 +154,15 @@ export function Cvar_Set(var_name, value) {
   }
 
   const changed = _var.string !== value;
+
+  const fromServer = Cmd_FromServer();
+  if (fromServer === true) {
+    if (cvar_server_saved.has(_var.name) === false) {
+      cvar_server_saved.set(_var.name, _var.string);
+    }
+  } else {
+    cvar_server_saved.delete(_var.name);
+  }
 
   _var.string = value;
   _var.value = Q_atof(_var.string);
@@ -142,7 +176,7 @@ export function Cvar_Set(var_name, value) {
   }
 
   // Save to localStorage if this cvar should be archived
-  if (_var.archive && changed) {
+  if (_var.archive && changed && fromServer === false) {
     Cvar_SaveToStorage(_var);
   }
 }
@@ -235,7 +269,10 @@ export function Cvar_WriteVariables() {
   let _var = cvar_vars;
   while (_var) {
     if (_var.archive) {
-      lines.push(_var.name + ' "' + _var.string + '"\n');
+      // a remote server's value is not saved (Cvar_RestoreServerChanges)
+      const saved = cvar_server_saved.get(_var.name);
+      const string = saved === undefined ? _var.string : saved;
+      lines.push(_var.name + ' "' + string + '"\n');
     }
     _var = _var.next;
   }

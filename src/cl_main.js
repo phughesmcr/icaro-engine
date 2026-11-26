@@ -24,7 +24,12 @@ import {
   CLR_ConnectionLost,
   CLR_Init,
 } from "./cl_reconnect.js";
-import { Cvar_RegisterVariable, cvar_t, Cvar_VariableValue } from "./cvar.js";
+import {
+  Cvar_RegisterVariable,
+  Cvar_RestoreServerChanges,
+  cvar_t,
+  Cvar_VariableValue,
+} from "./cvar.js";
 import { Cmd_AddCommand } from "./cmd.js";
 import { Cbuf_InsertText } from "./cmd.js";
 import { clc_disconnect, clc_stringcmd, PS_NOLERP } from "./protocol.js";
@@ -256,6 +261,7 @@ export function CL_ClearState() {
  */
 export function CL_Disconnect() {
   R_WarmupCancel(); // web-only: no held plaque callback outlives the connection
+  Cvar_RestoreServerChanges(); // web-only: a remote server's cvars don't stay
 
   // Deviation (web-only, no C equivalent; see cl_reconnect.js): tell a lost
   // connection (the transport died, NET_GetMessage/NET_Send* flagged the

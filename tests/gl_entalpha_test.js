@@ -90,7 +90,13 @@ Deno.test("R_EntAlpha_ApplyMesh blends alias models and follows in-place skin ch
     fullbright,
     "clone follows the fullbright mask",
   );
-  assertEqual(clone.alphaTest, 0.666, "clone follows alphaTest");
+  // Ironwail tests the texel's alpha before the entity alpha: Three compares
+  // opacity * texel alpha, so the threshold scales with the opacity
+  assertEqual(
+    clone.alphaTest,
+    0.666 * ENTALPHA_DECODE(e.alpha),
+    "clone follows alphaTest, scaled by its opacity",
+  );
   assertEqual(clone.needsUpdate, true, "recompile after the skin change");
 
   // opaque again, with the clone still on the mesh (no gl_mesh.js reset)

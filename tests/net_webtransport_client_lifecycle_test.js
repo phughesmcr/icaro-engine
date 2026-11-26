@@ -577,3 +577,70 @@ Deno.test("a reconnect gets the slot the server freed for the previous connectio
     await teardown();
   }
 });
+
+// A message of n bytes whose every byte depends on its offset
+function patternMessage(n) {
+  const bytes = new Uint8Array(n);
+  for (let i = 0; i < n; i++) bytes[i] = (i * 7 + (i >> 8)) & 0xff;
+  return { data: bytes, cursize: n };
+}
+
+function assertPattern(n, what) {
+  assertEqual(net_message.cursize, n, what + " size");
+  const expected = patternMessage(n).data;
+  for (let i = 0; i < n; i++) {
+    if (net_message.data[i] !== expected[i]) {
+      throw new Error(what + ": byte " + i + " differs");
+    }
+  }
+}
+
+Deno.test("a NET_MAXMESSAGE (64000-byte) reliable message crosses both ways; a bigger one is refused", async () => {
+  const teardown = setupServer({ maxclients: 4, sockets: 10 });
+  try {
+    assertEqual(net.NET_MAXMESSAGE, 64000, "NET_MAXMESSAGE");
+    assert(net.WT_MAX_FRAME_PAYLOAD <= 0xffff, "frame fits its u16 length");
+    const { sock, serverSock } = await connectClient();
+    const size = net.NET_MAXMESSAGE;
+
+    assertEqual(
+      server.WT_QSendMessage(serverSock, patternMessage(size)),
+      1,
+      "server sends",
+    );
+    await waitFor(
+      () => sock.driverdata.pendingMessages.length > 0,
+      1000,
+      "server message",
+    );
+    assertEqual(client.WT_QGetMessage(sock), 1, "client gets it reliable");
+    assertPattern(size, "server -> client");
+
+    assertEqual(
+      client.WT_QSendMessage(sock, patternMessage(size)),
+      1,
+      "client sends",
+    );
+    await waitFor(
+      () => serverSock.driverdata.pendingMessages.length > 0,
+      1000,
+      "client message",
+    );
+    assertEqual(server.WT_QGetMessage(serverSock), 1, "server gets it");
+    assertPattern(size, "client -> server");
+
+    // One byte more would wrap the frame's length: both sides refuse it
+    const { result: serverRet } = await captureOutput(() =>
+      server.WT_QSendMessage(serverSock, patternMessage(size + 1))
+    );
+    assertEqual(serverRet, -1, "server refuses NET_MAXMESSAGE + 1");
+    const { result: clientRet } = await captureOutput(() =>
+      client.WT_QSendMessage(sock, patternMessage(size + 1))
+    );
+    assertEqual(clientRet, -1, "client refuses NET_MAXMESSAGE + 1");
+
+    client.WT_Close(sock);
+  } finally {
+    await teardown();
+  }
+});

@@ -12,6 +12,7 @@ import { Cmd_AddCommand, Cmd_Argv } from "./cmd.js";
 import { Cvar_RegisterVariable, cvar_t } from "./cvar.js";
 import {
   PF_Format5_1f,
+  pr_checkextension,
   PR_InitBuiltins,
   PR_InitProgsBuiltins,
 } from "./pr_cmds.js";
@@ -1198,6 +1199,8 @@ export function PR_Init() {
   Cvar_RegisterVariable(saved2);
   Cvar_RegisterVariable(saved3);
   Cvar_RegisterVariable(saved4);
+  // Ironwail registers it in SV_Init; it lives in pr_cmds.js, as there
+  Cvar_RegisterVariable(pr_checkextension);
 
   PR_InitBuiltins();
 }

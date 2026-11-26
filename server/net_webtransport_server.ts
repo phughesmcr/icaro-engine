@@ -4,6 +4,7 @@
 import { Sys_Printf } from "./sys_server.ts";
 import { QUIC_CloseEndpoints, QUIC_OpenEndpoints } from "./quic_listen.ts";
 import {
+  NET_MAXMESSAGE,
   net_message,
   WT_BuildHandshakeReplyFrame,
   WT_HANDSHAKE_ACCEPT,
@@ -147,8 +148,6 @@ let nextConnectionId = 1;
 
 // Driver level (set by net_main)
 let net_driverlevel = 0;
-
-const NET_MAXMESSAGE = 8192;
 
 // Session limits (NET-2). A session is counted from QUIC accept until its
 // transport closes; "handshaking" covers the time before a slot is assigned.
@@ -1108,11 +1107,12 @@ function _newQSocket(): QSocket | null {
       sendSequence: 0,
       unreliableSendSequence: 0,
       sendMessageLength: 0,
-      sendMessage: new Uint8Array(NET_MAXMESSAGE),
+      // Only the loopback driver uses these (see qsocket_t in src/net.js)
+      sendMessage: new Uint8Array(0),
       receiveSequence: 0,
       unreliableReceiveSequence: 0,
       receiveMessageLength: 0,
-      receiveMessage: new Uint8Array(NET_MAXMESSAGE),
+      receiveMessage: new Uint8Array(0),
       addr: null,
       address: "",
       maxdatagram: 0,
@@ -1626,6 +1626,16 @@ export function WT_QSendMessage(
       conn.address,
     );
     conn.connected = false;
+    return -1;
+  }
+
+  // A bigger one would not fit the frame's 16-bit length (WT_MAX_FRAME_PAYLOAD)
+  if (data.cursize > NET_MAXMESSAGE) {
+    Sys_Printf(
+      "WT_QSendMessage: %d-byte message for %s is over NET_MAXMESSAGE\n",
+      data.cursize,
+      conn.address,
+    );
     return -1;
   }
 

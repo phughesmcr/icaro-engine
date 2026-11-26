@@ -27,4 +27,6 @@ code in this repository.
 - Before opening a PR, run the `reviewer` agent on the whole diff. Run
   `docs-checker` too when commands, config or docs changed. Both are defined in
   `.claude/agents/`. `/pr` runs the whole checklist.
-- Use the `quake-c-reference` skill when a change needs the original C source.
+- Use the `quake-c-reference` skill when a change to vanilla-Quake code needs
+  the original C source. Other layers have other references (AGENTS.md,
+  Compatibility and fidelity).

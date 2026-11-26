@@ -2152,12 +2152,12 @@ export function SV_SaveSpawnparms() {
 
 // SERVER SPAWNING
 
-// Ironwail sizes each signon buffer at 31500 bytes, about half its 64000-byte
-// client message. This port keeps id's MAX_MSGLEN (8000) message, and a
-// buffer that can never fit in it would stall the client's signon, so each
-// buffer is half of that: a buffer, pending reliable data and the closing
-// svc_signonnum all fit in one message.
-export const SIGNON_SIZE = MAX_MSGLEN / 2;
+/**
+ * Ironwail's size, about half the MAX_MSGLEN client message, so a buffer,
+ * pending reliable data and the closing svc_signonnum fit in one message
+ * (Ironwail: "QS has a MAX_DATAGRAM of 32000, try to play nice").
+ */
+export const SIGNON_SIZE = 31500;
 
 // SV_AddSignonBuffer -- Ironwail
 function SV_AddSignonBuffer() {
