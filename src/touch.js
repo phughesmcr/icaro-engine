@@ -7,7 +7,11 @@
 // bar with Back and an on-screen keyboard button.
 
 import { K_ESCAPE, K_UPARROW, K_DOWNARROW, K_LEFTARROW, K_RIGHTARROW, K_ENTER, K_BACKSPACE, Key_Event } from './keys.js';
-import { in_attack, in_jump } from './cl_input.js';
+import { in_attack, in_jump, in_down } from './cl_input.js';
+import { cl, cls, ca_connected } from './client.js';
+import { svs, sv } from './server.js';
+import { IT_SHOTGUN, IT_SUPER_SHOTGUN, IT_NAILGUN, IT_SUPER_NAILGUN, IT_GRENADE_LAUNCHER,
+	IT_ROCKET_LAUNCHER, IT_LIGHTNING, IT_AXE, STAT_SHELLS, STAT_NAILS, STAT_ROCKETS, STAT_CELLS } from './quakedef.js';
 import { S_UnlockAudio } from './snd_dma.js';
 import { cvar_t, Cvar_RegisterVariable } from './cvar.js';
 import { Cbuf_AddText } from './cmd.js';
@@ -140,6 +144,44 @@ const jumpButton = makeHoldButton( 'touch-jump', 'JUMP', () => in_jump, '110, 16
 const weaponNextButton = { id: 'touch-weapon-next', label: 'WPN▶', command: 'impulse 10\n', el: null };
 const weaponPrevButton = { id: 'touch-weapon-prev', label: '◀', command: 'impulse 12\n', el: null };
 tapButtons.push( weaponNextButton, weaponPrevButton );
+
+// Swim down: +movedown / -movedown, held like JUMP
+const downButton = makeHoldButton( 'touch-movedown', 'DOWN', () => in_down, '110, 220, 200' );
+
+// Small buttons in a row beside the menu button. They are shown only when
+// Touch_ButtonsVisible says so. The commands are the C ones (save, load,
+// toggleconsole, messagemode); the buttons are a web-only addition.
+const saveButton = { id: 'touch-quicksave', label: 'SAVE', command: 'save quick\n', el: null, bar: 'save' };
+const loadButton = { id: 'touch-quickload', label: 'LOAD', command: 'load quick\n', el: null, bar: 'load' };
+const consoleButton = { id: 'touch-console', label: 'CON', command: 'toggleconsole\n', el: null, bar: 'console' };
+const chatButton = { id: 'touch-chat', label: 'CHAT', command: 'messagemode\n', el: null, bar: 'chat' };
+const barButtons = [ saveButton, loadButton, consoleButton, chatButton ];
+tapButtons.push( ...barButtons );
+
+// Weapon wheel (web-only: held WPN▶ opens it, the impulses it sends are the
+// C ones, impulse 1-8)
+const WHEEL_HOLD_MS = 300; // hold time that opens the wheel; a shorter press cycles
+const WHEEL_RING = 92; // px from the wheel centre to a slot centre, at touch_size 1
+const WHEEL_SLOT = 54; // px, slot diameter
+const WHEEL_INNER = 30; // px, no slot selected closer to the centre than this
+const WHEEL_OUTER = 190; // px, nor farther than this
+const WHEEL_NAMES = [ 'AXE', 'SG', 'SSG', 'NG', 'SNG', 'GL', 'RL', 'LG' ];
+const wheelWeapons = [];
+for ( let i = 0; i < 8; i ++ ) wheelWeapons.push( { owned: false, ammo: false } );
+const wheelSlotEls = [];
+let wheelEl = null;
+let wheelTouch = - 1; // identifier of the finger on WPN▶, or -1
+let wheelTimer = 0;
+let wheelOpen = false;
+let wheelSelected = null; // 1-8 or null
+const wheelCentre = { x: 0, y: 0 };
+
+// What the quick buttons need (set by Touch_Frame)
+const QUICK_SAVE_KEY = 'quake_save_quick'; // host_cmd.js: SAVE_STORAGE_PREFIX + 'quick'
+const barVisible = { save: false, load: false, console: false, chat: false };
+let barKey = - 1;
+let quickSaveExists = false;
+let quickSaveChecked = 0;
 
 /*
 =================
@@ -284,6 +326,31 @@ function Touch_CreateUI( container ) {
 
 	}
 
+	wheelEl = makeDiv( 'touch-weapon-wheel', `
+		position: fixed;
+		left: 0;
+		top: 0;
+		width: 0;
+		height: 0;
+		pointer-events: none;
+		display: none;
+	` );
+
+	for ( let i = 0; i < 8; i ++ ) {
+
+		const el = makeDiv( 'touch-wheel-' + ( i + 1 ), BUTTON_CSS + `
+			background: rgba(0, 0, 0, 0.55);
+			border: 2px solid rgba(255, 255, 255, 0.6);
+			font-size: 14px;
+		` );
+		el.textContent = WHEEL_NAMES[ i ];
+		wheelEl.appendChild( el );
+		wheelSlotEls.push( el );
+
+	}
+
+	overlay.appendChild( wheelEl );
+
 	pauseButton = makeDiv( 'touch-pause', BUTTON_CSS + `
 		border-radius: 8px;
 	` );
@@ -346,6 +413,7 @@ function Touch_Layout() {
 	place( jumpButton.el, 48, 48, 64 );
 	place( weaponNextButton.el, 96, 206, 56 );
 	place( weaponPrevButton.el, 168, 176, 44 );
+	place( downButton.el, 148, 40, 44 ); // clear of FIRE (its bottom edge is 68)
 
 	for ( const b of holdButtons ) {
 
@@ -360,6 +428,8 @@ function Touch_Layout() {
 		b.el.style.background = 'rgba(0, 0, 0, 0.25)';
 
 	}
+
+	Touch_LayoutBar();
 
 	// Menu button: top corner on the stick side, small
 	const p = 40 * scale;
@@ -378,6 +448,51 @@ function Touch_Layout() {
 
 		Stick_Destroy();
 		Stick_Create();
+
+	}
+
+}
+
+/*
+=================
+Touch_LayoutBar
+
+The row of small buttons (SAVE, LOAD, CON, CHAT) to the inside of the menu
+button, in the top corner on the stick side. Hidden ones leave no gap. In
+portrait the row is 4 x 50 px plus the menu button, which fits 320 px.
+=================
+*/
+function Touch_LayoutBar() {
+
+	if ( overlay === null ) return;
+
+	const scale = Math.min( Math.max( touch_size.value || 1, 0.5 ), 2 );
+	const opacity = Math.min( Math.max( touch_opacity.value, 0.1 ), 1 );
+	const far = touch_lefthanded.value !== 0 ? 'right' : 'left';
+	const w = 44 * scale;
+	const h = 32 * scale;
+	let x = 12 + 40 * scale + 8; // past the menu button
+
+	for ( const b of barButtons ) {
+
+		if ( barVisible[ b.bar ] === false ) {
+
+			b.el.style.display = 'none';
+			continue;
+
+		}
+
+		b.el.style.display = 'flex';
+		b.el.style.borderRadius = '8px';
+		b.el.style.width = w + 'px';
+		b.el.style.height = h + 'px';
+		b.el.style.top = 'calc(env(safe-area-inset-top, 0px) + 12px)';
+		b.el.style[ far ] = `calc(env(safe-area-inset-${far}, 0px) + ${x}px)`;
+		b.el.style[ far === 'left' ? 'right' : 'left' ] = '';
+		b.el.style.bottom = '';
+		b.el.style.fontSize = Math.round( 11 * scale ) + 'px';
+		b.el.style.opacity = String( opacity );
+		x += w + 6;
 
 	}
 
@@ -947,6 +1062,220 @@ function onTapTouchEnd( b, e ) {
 
 }
 
+/*
+==============================================================================
+
+			WEAPON WHEEL
+
+Web-only: the C has no on-screen weapon picker. A quick tap on WPN▶ still
+sends impulse 10 (cycle), now on release; holding it for WHEEL_HOLD_MS opens a
+ring of the weapons the player has. Sliding to a slot and lifting sends
+impulse 1-8 (the C weapon impulses); lifting elsewhere cancels.
+
+==============================================================================
+*/
+
+/*
+=================
+Touch_WheelSlotAt
+
+dx, dy: finger position relative to the wheel centre, in px (y down).
+Slot 1 is straight up and the slots follow clockwise, 45 degrees apart.
+Returns 1-8, or null inside the dead zone or beyond outer.
+=================
+*/
+export function Touch_WheelSlotAt( dx, dy, inner, outer ) {
+
+	const d = Math.hypot( dx, dy );
+	if ( d < inner || d > outer ) return null;
+
+	const a = Math.atan2( dx, - dy ); // 0 = up, + = clockwise
+	let sector = Math.round( a / ( Math.PI / 4 ) );
+	if ( sector < 0 ) sector += 8;
+	return ( sector % 8 ) + 1;
+
+}
+
+const WHEEL_ITEM_BITS = [ IT_AXE, IT_SHOTGUN, IT_SUPER_SHOTGUN, IT_NAILGUN, IT_SUPER_NAILGUN, IT_GRENADE_LAUNCHER, IT_ROCKET_LAUNCHER, IT_LIGHTNING ];
+const WHEEL_AMMO_STATS = [ - 1, STAT_SHELLS, STAT_SHELLS, STAT_NAILS, STAT_NAILS, STAT_ROCKETS, STAT_ROCKETS, STAT_CELLS ];
+
+/*
+=================
+Touch_WheelWeapons
+
+Fill out[ 0..7 ] (slot - 1) with { owned, ammo } from cl.items and cl.stats.
+The axe needs no ammo. Mission-pack weapons are not covered.
+=================
+*/
+export function Touch_WheelWeapons( items, stats, out ) {
+
+	for ( let i = 0; i < 8; i ++ ) {
+
+		out[ i ].owned = ( items & WHEEL_ITEM_BITS[ i ] ) !== 0;
+		out[ i ].ammo = WHEEL_AMMO_STATS[ i ] < 0 || stats[ WHEEL_AMMO_STATS[ i ] ] > 0;
+
+	}
+
+	return out;
+
+}
+
+/*
+=================
+Touch_WheelSelect
+
+The slot (1-8) under the finger, or null when it is off the ring or the
+weapon there isn't owned (so releasing there cancels).
+=================
+*/
+export function Touch_WheelSelect( dx, dy, inner, outer, weapons ) {
+
+	const slot = Touch_WheelSlotAt( dx, dy, inner, outer );
+	if ( slot === null || weapons[ slot - 1 ].owned === false ) return null;
+	return slot;
+
+}
+
+function Touch_WheelScale() {
+
+	return Math.min( Math.max( touch_size.value || 1, 0.5 ), 2 );
+
+}
+
+function Touch_WheelOpen() {
+
+	if ( wheelEl === null || weaponNextButton.el === null ) return;
+
+	const scale = Touch_WheelScale();
+	Touch_WheelWeapons( cl.items, cl.stats, wheelWeapons );
+
+	// Centre on the button, pushed inwards so the whole ring is on screen
+	const r = weaponNextButton.el.getBoundingClientRect();
+	const margin = ( WHEEL_RING + WHEEL_SLOT / 2 + 4 ) * scale;
+	const vw = typeof innerWidth === 'number' ? innerWidth : 640;
+	const vh = typeof innerHeight === 'number' ? innerHeight : 480;
+	wheelCentre.x = Math.min( Math.max( r.left + r.width / 2, margin ), Math.max( vw - margin, margin ) );
+	wheelCentre.y = Math.min( Math.max( r.top + r.height / 2, margin ), Math.max( vh - margin, margin ) );
+
+	const size = WHEEL_SLOT * scale;
+
+	for ( let i = 0; i < 8; i ++ ) {
+
+		const el = wheelSlotEls[ i ];
+		const a = i * Math.PI / 4;
+		el.style.display = wheelWeapons[ i ].owned ? 'flex' : 'none';
+		el.style.width = size + 'px';
+		el.style.height = size + 'px';
+		el.style.left = ( wheelCentre.x + Math.sin( a ) * WHEEL_RING * scale - size / 2 ) + 'px';
+		el.style.top = ( wheelCentre.y - Math.cos( a ) * WHEEL_RING * scale - size / 2 ) + 'px';
+		el.style.opacity = wheelWeapons[ i ].ammo ? '1' : '0.4'; // dim: no ammo
+		el.style.fontSize = Math.round( 14 * scale ) + 'px';
+
+	}
+
+	wheelSelected = null;
+	Touch_WheelHighlight();
+	wheelEl.style.display = 'block';
+	wheelOpen = true;
+	haptic( 15 );
+
+}
+
+function Touch_WheelHighlight() {
+
+	for ( let i = 0; i < 8; i ++ ) {
+
+		wheelSlotEls[ i ].style.background = wheelSelected === i + 1 ? 'rgba(255, 200, 60, 0.75)' : 'rgba(0, 0, 0, 0.55)';
+
+	}
+
+}
+
+// Close without sending anything
+function Touch_WheelClose() {
+
+	if ( wheelTimer !== 0 ) {
+
+		clearTimeout( wheelTimer );
+		wheelTimer = 0;
+
+	}
+
+	wheelTouch = - 1;
+	wheelOpen = false;
+	wheelSelected = null;
+	if ( wheelEl !== null ) wheelEl.style.display = 'none';
+	if ( weaponNextButton.el !== null ) weaponNextButton.el.style.background = 'rgba(0, 0, 0, 0.25)';
+
+}
+
+function onWheelTouchStart( e ) {
+
+	e.preventDefault();
+	S_UnlockAudio();
+	if ( wheelTouch !== - 1 ) return; // one finger at a time
+
+	wheelTouch = e.changedTouches[ 0 ].identifier;
+	haptic( 8 );
+	weaponNextButton.el.style.background = 'rgba(255, 255, 255, 0.3)';
+	wheelTimer = setTimeout( () => {
+
+		wheelTimer = 0;
+		Touch_WheelOpen();
+
+	}, WHEEL_HOLD_MS );
+
+}
+
+function onWheelTouchMove( e ) {
+
+	e.preventDefault();
+	if ( wheelOpen === false ) return;
+
+	const touch = findTouch( e.changedTouches, wheelTouch );
+	if ( touch === null ) return;
+
+	const scale = Touch_WheelScale();
+	const slot = Touch_WheelSelect( touch.clientX - wheelCentre.x, touch.clientY - wheelCentre.y,
+		WHEEL_INNER * scale, WHEEL_OUTER * scale, wheelWeapons );
+
+	if ( slot !== wheelSelected ) {
+
+		wheelSelected = slot;
+		Touch_WheelHighlight();
+		if ( slot !== null ) haptic( 6 );
+
+	}
+
+}
+
+function onWheelTouchEnd( e ) {
+
+	e.preventDefault();
+	if ( findTouch( e.changedTouches, wheelTouch ) === null ) return;
+
+	if ( wheelOpen ) {
+
+		if ( wheelSelected !== null ) Cbuf_AddText( 'impulse ' + wheelSelected + '\n' );
+
+	} else {
+
+		Cbuf_AddText( weaponNextButton.command ); // a quick tap cycles, as before
+
+	}
+
+	Touch_WheelClose();
+	onGameTouchEnd( e );
+
+}
+
+function onWheelTouchCancel( e ) {
+
+	e.preventDefault();
+	Touch_WheelClose();
+
+}
+
 function onPauseTouchStart( e ) {
 
 	e.preventDefault();
@@ -995,6 +1324,16 @@ function Touch_BuildListeners() {
 	}
 
 	for ( const b of tapButtons ) {
+
+		if ( b === weaponNextButton ) {
+
+			add( b.el, 'touchstart', onWheelTouchStart );
+			add( b.el, 'touchmove', onWheelTouchMove );
+			add( b.el, 'touchend', onWheelTouchEnd );
+			add( b.el, 'touchcancel', onWheelTouchCancel );
+			continue;
+
+		}
 
 		add( b.el, 'touchstart', ( e ) => onTapTouchStart( b, e ) );
 		add( b.el, 'touchend', ( e ) => onTapTouchEnd( b, e ) );
@@ -1136,6 +1475,7 @@ tracking. Called by Touch_Disable and on focus loss.
 export function Touch_ReleaseButtons() {
 
 	for ( const b of holdButtons ) Touch_ReleaseHold( b );
+	Touch_WheelClose();
 	Touch_ResetJoystick();
 	lookTouch = null;
 	lookYaw = 0;
@@ -1303,6 +1643,78 @@ export function Touch_Frame() {
 	if ( key !== layoutKey ) Touch_Layout();
 
 	if ( ( touch_gyro.value !== 0 ) !== gyroListening ) Gyro_Update( false );
+
+	Touch_UpdateBar();
+
+}
+
+/*
+=================
+Touch_ButtonsVisible
+
+Which of the small buttons show. Quick save and load need a local
+single-player game (the C's save refuses anything else), and load needs the
+slot to exist; chat is for games with other players. Fills out and returns it.
+=================
+*/
+export function Touch_ButtonsVisible( singleplayer, multiplayer, quickSave, out ) {
+
+	out.save = singleplayer;
+	out.load = singleplayer && quickSave;
+	out.console = singleplayer || multiplayer;
+	out.chat = multiplayer;
+	return out;
+
+}
+
+// Whether the quick slot is in localStorage. Scans the keys rather than
+// reading the (large) save, and only twice a second.
+function Touch_CheckQuickSave() {
+
+	const now = Date.now();
+	if ( now - quickSaveChecked < 500 && now >= quickSaveChecked ) return;
+	quickSaveChecked = now;
+	quickSaveExists = false;
+
+	try {
+
+		for ( let i = 0; i < localStorage.length; i ++ ) {
+
+			if ( localStorage.key( i ) === QUICK_SAVE_KEY ) {
+
+				quickSaveExists = true;
+				break;
+
+			}
+
+		}
+
+	} catch {
+
+		// storage blocked: no slot
+
+	}
+
+}
+
+function Touch_UpdateBar() {
+
+	if ( overlay === null || cls.state !== ca_connected || cl.worldmodel === null ) return;
+
+	const playing = cls.demoplayback === false;
+	const singleplayer = playing && sv.active === true && svs.maxclients === 1 && cl.intermission === 0;
+	const multiplayer = playing && singleplayer === false && cl.intermission === 0;
+	if ( singleplayer ) Touch_CheckQuickSave();
+
+	Touch_ButtonsVisible( singleplayer, multiplayer, quickSaveExists, barVisible );
+	const key = ( barVisible.save ? 1 : 0 ) | ( barVisible.load ? 2 : 0 ) | ( barVisible.console ? 4 : 0 ) | ( barVisible.chat ? 8 : 0 );
+
+	if ( key !== barKey ) {
+
+		barKey = key;
+		Touch_LayoutBar();
+
+	}
 
 }
 
