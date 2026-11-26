@@ -35,12 +35,15 @@ finger:
 
 - **Worked:** fullscreen and landscape on the first tap; the stick, drag look,
   fire, the weapon button and wheel, and the pause button; 60 fps in `e1m1`;
-  autosave and the menu on switching apps; the Continue offer after leaving a
-  running game; and, with the server stopped, a reload and `e1m1`.
+  autosave and the menu on switching apps (one run without the Continue prompt
+  pending; two runs that loaded a map by script behind it didn't count, as the
+  hide handler's Escape answered the prompt, and a player can't start a game
+  there); the Continue offer after leaving a running game; and, with the server
+  stopped, a reload and `e1m1`.
 - **Manifest:** Chrome reported no parse or installability errors.
 - **Seen, not fixed:** the keyboard button covers the top of the menu's Quake
-  plaque, and in portrait the ENTER VR button covers the left end of the status
-  bar.
+  plaque; in portrait the ENTER VR button covers the left end of the status bar,
+  and a pickup message was clipped at the top (cause not traced).
 - **Not tested:** installing the app, a second launch of it, rumble (no
   controller), how vibration feels, audible sound, tier 2 items 10 (touch
   menus), 13 (reconnect), 15 to 17 (context loss, shader warm-up, quality
