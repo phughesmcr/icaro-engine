@@ -27,13 +27,26 @@ Phase 1 is built: `src/agent.js`, exposed as `window.icaro` by `main.js`
   out as spoilers.
 - Not built yet: the `map`, `screen` (except `icaro.screenshot()`) and `rl`
   tiers, macro actions, the render-skip flag, labels for the options menu,
-  and every adapter except `window.icaro`.
+  and every adapter except `window.icaro` and the stdio MCP server
+  (below).
 
 Parts of phases 2 and 3 are built too (status checked at `dev` `4e95d06`):
 
 - Headless play: `server/headless_host.js` runs the host, a local server
   and a loopback client under Deno with no rendering (#191). Its header
-  gives the usage. No MCP server uses it yet.
+  gives the usage.
+- MCP server: `server/agent_mcp.ts` (stdio, `deno task agent-mcp`) runs
+  the headless host in lockstep and exposes `start`, `step`, `observe`,
+  `cmd`, `key` and `menu`. Each result is the text observation plus
+  `tic=N hash=H` (tics since `start`, and `Agent_StateHash`, a hash of
+  the server's edicts and the client's stats). `start` with a `seed` turns
+  on both determinism hooks below, with a virtual clock that advances one
+  tic per frame; without one they are off. It speaks the initialize-based
+  MCP versions (2024-11-05 to 2025-11-25), not 2026-07-28, and has no
+  Streamable HTTP transport, `act` or `screenshot` yet.
+  `tests/agent_mcp_test.js` replays a seeded action log (moving, firing,
+  a console command) against the process's first game and gets the same
+  hash.
 - Determinism: `Sys_SetRandomSeed` and `Sys_SetClockOverride` in
   `src/sys.js` seed the gameplay randomness and override the clock, both
   opt-in. `tests/determinism_test.js` checks them (#190).
@@ -313,11 +326,9 @@ document it. A useful `goto` needs a graph. Options, in order:
   - Runs the same core headless, with stdio and Streamable HTTP transports.
   - Tools stay few and coarse, as in doom-mcp: `start`, `step`, `act`,
     `observe` and `screenshot`. Each returns the default text observation.
-  - **Unverified prerequisite.** A full `Host_Init` plus a client running
-    headless under Deno is not tested today. Tests call `Host_Frame` on a
-    partially initialised host (`tests/host_cmd_inventory_test.js:164`), and
-    the benches build the server side by hand. Proving a headless loopback
-    client (`net_loop.js`) with the `three` shim is the first task.
+  - The headless loopback client this needed is built
+    (`server/headless_host.js`), and the stdio server is
+    (`server/agent_mcp.ts`; see Status).
   - Without rendering, the `screen` and `rl` pixel tiers are unavailable, but
     the text tiers work, and this is where uncapped speed matters.
 - **Gymnasium bridge** (`tools/gym/`, Python):
