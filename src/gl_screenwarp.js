@@ -122,6 +122,23 @@ function R_WarpCreate() {
 
 /*
 =============
+R_WarpContextRestored
+
+Web-only (see gl_contextloss.js). Drop the framebuffer copy after a WebGL
+context restore; R_WarpScreen makes a new one the next time the eye is in
+water. The material and scene stay: they hold no GPU objects of their own.
+=============
+*/
+export function R_WarpContextRestored() {
+
+	if ( warpTexture !== null ) warpTexture.dispose();
+	warpTexture = null;
+	if ( warpMaterial !== null ) warpMaterial.uniforms.Tex.value = null;
+
+}
+
+/*
+=============
 R_WarpScreen
 
 Called by SCR_UpdateScreen right after V_RenderView. Warps the 3D view
