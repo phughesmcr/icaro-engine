@@ -74,7 +74,7 @@ as Hexen II and custom Icaro games.
   `maxclients` below 1 is a `Host_Error` (`src/cl_parse.js:473-474`).
   `svc_version` repeats the check mid-stream (`src/cl_parse.js:1560-1571`).
 - **Dispatch.** One `switch (cmd)` covers both protocols
-  (`src/cl_parse.js:1545-1790`), with `cl.protocol === PROTOCOL_ICARO` tests
+  (`src/cl_parse.js:1541-1790`), with `cl.protocol === PROTOCOL_ICARO` tests
   inside the shared parsers (for example `src/cl_parse.js:1106`, `:1199-1200`,
   `:1453-1454`). A command byte with the high bit set is a NetQuake fast update
   (`src/cl_parse.js:1527-1533`).
@@ -108,7 +108,7 @@ as Hexen II and custom Icaro games.
   Loopback games and demos have no transport hello at all.
 - **Demos.** Recording must start before connecting (`src/cl_demo.js:292-297`),
   so a demo always starts with `svc_serverinfo`. Demos from builds before 1015
-  stopped playing when 1015 arrived (`src/protocol.js:21-24`).
+  stopped playing when 1015 arrived (`src/protocol.js:24-25`).
 
 ## What other engines do
 
@@ -131,7 +131,8 @@ as Hexen II and custom Icaro games.
 - **NetQuake negotiation.** NetQuake's connect packet has no room for this.
   - The server stuffs `cmd protocols` and `cmd pext`
     (`fteqw/engine/server/sv_user.c:577-590`).
-  - The client answers with `pext <marker> <mask> ...` as a string command.
+  - The client answers with `pext <marker> <mask> ...` as a string command
+    (`fteqw/engine/common/cmd.c:2830-2843`).
   - The server writes the agreed words before the protocol number
     (`fteqw/engine/server/sv_user.c:822-831`).
   - For NetQuake clients the server drops the `PEXT1` bits that depend on QW's
@@ -140,7 +141,7 @@ as Hexen II and custom Icaro games.
   - FTE names messages by family: `svcnq_`, `svcqw_`, `svcfitz_`, `svcdp_`,
     `svcfte_` and `svcqex_` (`fteqw/engine/common/protocol.h:228-414`).
   - The same number means different things in different families: 37 to 44 (Fitz
-    or QW), 46 to 58 (KEX or QW) and 50 to 62 (DP or FTE-QW).
+    or QW), 46 to 58 (KEX or QW, `:387-399`) and 50 to 62 (DP or FTE-QW).
   - It copes with two parsers, `CLQW_ParseServerMessage` and
     `CLNQ_ParseServerMessage` (`fteqw/engine/client/cl_parse.c:7616`, `:9381`).
     Inside the NetQuake one, `cls.qex` reinterprets 52 as `svcqex_achievement`
@@ -166,8 +167,8 @@ as Hexen II and custom Icaro games.
 - **Cautionary cases.**
   - `PEXT2_LERPTIME` redefines an existing bit, `UF_16BIT`
     (`fteqw/engine/common/protocol.h:90`).
-  - `PEXT2_DEPRECATEDORNEW` names outdated bits (`:93`). It is not referenced
-    anywhere else in the tree.
+  - `PEXT2_DEPRECATEDORNEW` names outdated bits (`:93`). Nothing else in the
+    files read refers to it.
 
 ### FTEQW: Hexen II
 
@@ -185,8 +186,8 @@ incomplete.
 - **H2 svc numbers.**
   - FTE defines them locally in the client, 34 to 53: `svch2_particle2` 34
     through `svch2_soundpos` 53 (`fteqw/engine/client/cl_parse.c:9089-9110`).
-  - They overlap Fitz 37 and 40 to 44, KEX 46 to 53, DP 50 to 53 and QW 35 to
-    53. They also overlap Icaro's 42 and 47 to 49.
+  - They overlap Fitz 37 and 40 to 44, KEX 38 and 45 to 53, DP 50 to 53 and QW
+    35 to 53. They also overlap Icaro's 42 and 47 to 49.
   - The demo reader runs an H2 pre-pass, `CLH2_ParseServerSubMessage`
     (`fteqw/engine/client/cl_parse.c:9111`). It falls back to the NetQuake
     switch for anything the pre-pass doesn't take (`:9424-9431`).
@@ -242,7 +243,8 @@ incomplete.
     protocol number (`qss/Quake/sv_main.c:2042-2052`).
   - This costs one round trip before `svc_serverinfo`.
 - **Gated parsing.** Each FTE or DP case checks the protocol or the agreed
-  `PEXT2` bits, and errors with "extension not active" when they aren't set.
+  `PEXT2` bits, and errors with "extension not active" when they aren't set (for
+  example `qss/Quake/cl_parse.c:2792`, `:2839-2851`).
 - **Collisions by protocol test.** Case 52 is `svcdp_effect` under DP7 and
   `svc_achievement` otherwise (`qss/Quake/cl_parse.c:2826-2835`).
 
@@ -252,7 +254,7 @@ incomplete.
   (`dp/protocol.c:48-66`). The enum is "purely for internal use, never sent in
   network protocol" (`dp/common.h:129`).
 - **An svc range of its own.** "LadyHavoc: my svc_ range, 50-69"
-  (`dp/protocol.h:268`). DP uses 50 to 62.
+  (`dp/protocol.h:268`). DP uses 50 to 62 (`:269-282`).
 - **Entity bits cascade like FTE's.** `E5_EXTEND1` to `E5_EXTEND3` chain the
   bytes (`dp/protocol.h:742-823`, reader `dp/cl_ents5.c:9-18`). `E5_EXTEND4` is
   never read. As in FTE, unknown bits can't be skipped.
@@ -268,10 +270,11 @@ incomplete.
   - 999 adds a `PRFL_*` long after the protocol number, for angle and coordinate
     widths (`ironwail/Quake/protocol.h:33-40`,
     `ironwail/Quake/cl_parse.c:315-326`).
-  - `PRFL_MOREFLAGS` (bit 31) is marked "not supported" (`protocol.h:40`), so
-    the RMQ word can't grow.
-- **Collision.** KEX 47 to 56 sit on DP's 50 to 56. Ironwail notes that
-  "svc_achievement has same value as svcdp_effect!"
+  - `PRFL_MOREFLAGS` (bit 31) is marked "not supported"
+    (`ironwail/Quake/protocol.h:40`), so the RMQ word can't grow.
+- **Collision.** The rerelease's numbers (38 and 45 to 56,
+  `ironwail/Quake/protocol.h:211-225`) sit on DP's at 50 to 56. Ironwail notes
+  that "svc_achievement has same value as svcdp_effect!"
   (`ironwail/Quake/protocol.h:220`).
 - **Rerelease messages.** Ironwail parses only `svc_achievement` and
   `svc_localsound`. The other rerelease numbers fall to "Illegible server
@@ -282,8 +285,9 @@ incomplete.
 1. **Game code owns low numbers.** QuakeC writes svc bytes by hand, so a game's
    own numbers can't move. Hexen II and Quake disagree from 34 up. A non-Quake
    game needs its own table, not just extra entries.
-2. **Every number from 0 to 94 is taken by someone.** The free space below the
-   fast-update bit is 95 to 127.
+2. **Low numbers are crowded.** NetQuake, QW, Fitz, KEX and DP between them use
+   most numbers up to 62, and FTE's own run to 94. No engine read uses 95 to
+   127, the space left below the fast-update bit.
 3. **The agreed set must be in the server's stream.** FTE and QSS both write it
    before the protocol long. Otherwise demos can't be replayed.
 4. **Words fill up.** FTE needed a second word. RMQ's `MOREFLAGS` was never
@@ -445,7 +449,8 @@ byte    payload[length]
     bits set.
 - **Player info.** `PF_*` bit 15 becomes `PF_EXTEND`, so a byte of `PF_*` bits
   16 to 23 follows. Bits 16 to 19 are engine fields (the player's scale and
-  colormod), and 20 to 23 are game-profile fields.
+  colormod), 20 to 22 are game-profile fields, and bit 23 is `PF_EXTEND2`, kept
+  for a further byte so this word doesn't fill up like RMQ's.
 - **Client data.** Icaro sends only `SU_EXTEND1`, `SU_EXTEND2`,
   `SU_WEAPONFRAME2` and `SU_WEAPONALPHA` of Ironwail's set
   (`src/protocol.js:62-68`). Bit 31 is Ironwail's `SU_EXTEND3`. `svc_clientdata`
@@ -471,7 +476,7 @@ profile defines:
   overrides of shared numbers;
 - its temp-entity table, since TE numbers are game-layer too;
 - the entity and player bits it uses in the profile ranges (`PE` 24 to 30, `PF`
-  20 to 23), with the fields they fill;
+  20 to 22), with the fields they fill;
 - its stats: how many (`MAX_CL_STATS` is 32 in `src/quakedef.js:54`) and which
   are strings;
 - its `svc_clientdata` layout;
@@ -500,7 +505,8 @@ were not checked (see Not verified).
     the client as H2 wrote them. Unlike FTE, which translates them
     (`fteqw/engine/server/net_preparse.c:1153-1170`), nothing is lost.
 - **Entities.** H2 entities go through Icaro's packet entities, not H2's
-  `svch2_ref` entity message.
+  `svch2_ref`, which FTE's reader handles with `CLH2_ParseEntities`
+  (`fteqw/engine/client/cl_parse.c:9344-9350`).
   - Scale uses the engine's scale bit.
   - The two H2-only fields use the profile range: drawflags (the light mode and
     scale type, `fteqw/engine/common/protocol.h:1887` onward) at bit 24, and
@@ -599,7 +605,8 @@ adds escape ids from `0x8000`, or registers its own profile id.
 
 - **Ironwail is the reference** for 666 and 999: `CL_ParseServerInfo`'s flags
   long (`ironwail/Quake/cl_parse.c:315-326`), the `U_EXTEND1`..`U_SCALE` bits
-  and `B_*` baseline bits (`ironwail/Quake/protocol.h`), and the Fitz cases.
+  and `B_*` baseline bits (`ironwail/Quake/protocol.h:42-70`, `:125-128`), and
+  the Fitz cases.
 - **Rerelease-only numbers** (38, 45 to 51, 53 to 55) end the demo as Ironwail
   does (`ironwail/Quake/cl_parse.c:1124-1128`) unless a demo is found that needs
   them.
