@@ -132,8 +132,10 @@ Settings outside the repository that matter for this hostname:
 - SSL/TLS, Edge Certificates: Always Use HTTPS on, minimum TLS version 1.2.
   (HSTS comes from `_headers`; leave the dashboard's HSTS off or set it the
   same.)
-- Turnstile: the widget's hostnames are `quake.anglezarke.games` only, as is the
-  lobby's `TURNSTILE_HOSTNAMES`.
+- Turnstile: the widget's hostnames must cover `quake.anglezarke.games`. An
+  entry covers its subdomains, so `anglezarke.games` does. The lobby's
+  `TURNSTILE_HOSTNAMES` stays the exact page hostname, which it compares with
+  the one Siteverify reports.
 - Billing: if the account has a payment method, a billing notification warns
   before TURN relay traffic passes the free allowance (not checked which
   notification types the account offers).
