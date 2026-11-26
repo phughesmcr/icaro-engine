@@ -129,6 +129,33 @@ function Q_strncasecmp(s1, s2, n) {
   return s1.substring(0, n).toLowerCase() === s2.substring(0, n).toLowerCase();
 }
 
+/**
+ * The commands a client may send (id's list in SV_ReadClientMessage, matched
+ * as prefixes). Also checked by PF_clientcommand, which runs a command as if a
+ * client had sent it.
+ */
+export function SV_ClientCommandAllowed(s) {
+  return Q_strncasecmp(s, "status", 6) ||
+    Q_strncasecmp(s, "god", 3) ||
+    Q_strncasecmp(s, "notarget", 8) ||
+    Q_strncasecmp(s, "fly", 3) ||
+    Q_strncasecmp(s, "name", 4) ||
+    Q_strncasecmp(s, "noclip", 6) ||
+    Q_strncasecmp(s, "say", 3) ||
+    Q_strncasecmp(s, "say_team", 8) ||
+    Q_strncasecmp(s, "tell", 4) ||
+    Q_strncasecmp(s, "color", 5) ||
+    Q_strncasecmp(s, "kill", 4) ||
+    Q_strncasecmp(s, "pause", 5) ||
+    Q_strncasecmp(s, "spawn", 5) ||
+    Q_strncasecmp(s, "begin", 5) ||
+    Q_strncasecmp(s, "prespawn", 8) ||
+    Q_strncasecmp(s, "kick", 4) ||
+    Q_strncasecmp(s, "ping", 4) ||
+    Q_strncasecmp(s, "give", 4) ||
+    Q_strncasecmp(s, "ban", 3);
+}
+
 export function SV_SetIdealPitch() {
   // Use cached buffers instead of allocating per-call
   const z = _idealpitch_z;
@@ -623,25 +650,7 @@ export function SV_ReadClientMessage() {
             allowed = 0;
           }
 
-          if (Q_strncasecmp(s, "status", 6)) allowed = 1;
-          else if (Q_strncasecmp(s, "god", 3)) allowed = 1;
-          else if (Q_strncasecmp(s, "notarget", 8)) allowed = 1;
-          else if (Q_strncasecmp(s, "fly", 3)) allowed = 1;
-          else if (Q_strncasecmp(s, "name", 4)) allowed = 1;
-          else if (Q_strncasecmp(s, "noclip", 6)) allowed = 1;
-          else if (Q_strncasecmp(s, "say", 3)) allowed = 1;
-          else if (Q_strncasecmp(s, "say_team", 8)) allowed = 1;
-          else if (Q_strncasecmp(s, "tell", 4)) allowed = 1;
-          else if (Q_strncasecmp(s, "color", 5)) allowed = 1;
-          else if (Q_strncasecmp(s, "kill", 4)) allowed = 1;
-          else if (Q_strncasecmp(s, "pause", 5)) allowed = 1;
-          else if (Q_strncasecmp(s, "spawn", 5)) allowed = 1;
-          else if (Q_strncasecmp(s, "begin", 5)) allowed = 1;
-          else if (Q_strncasecmp(s, "prespawn", 8)) allowed = 1;
-          else if (Q_strncasecmp(s, "kick", 4)) allowed = 1;
-          else if (Q_strncasecmp(s, "ping", 4)) allowed = 1;
-          else if (Q_strncasecmp(s, "give", 4)) allowed = 1;
-          else if (Q_strncasecmp(s, "ban", 3)) allowed = 1;
+          if (SV_ClientCommandAllowed(s)) allowed = 1;
 
           if (allowed === 2) {
             Cbuf_InsertText(s);

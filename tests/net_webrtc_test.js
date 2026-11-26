@@ -1142,3 +1142,56 @@ Deno.test("RTC: RTC_Init fails without RTCPeerConnection", async () => {
     globalThis.RTCPeerConnection = saved;
   }
 });
+
+// A message of n bytes whose every byte depends on its offset
+function patternMessage(n) {
+  const bytes = new Uint8Array(n);
+  for (let i = 0; i < n; i++) bytes[i] = (i * 7 + (i >> 8)) & 0xff;
+  return { data: bytes, cursize: n };
+}
+
+async function receivePattern(sock, n, what) {
+  await waitFor(
+    () => sock.driverdata.pendingMessages.length > 0,
+    1000,
+    what,
+  );
+  assertEqual(rtc.RTC_QGetMessage(sock), 1, what + " is reliable");
+  assertEqual(net_message.cursize, n, what + " size");
+  const expected = patternMessage(n).data;
+  for (let i = 0; i < n; i++) {
+    if (net_message.data[i] !== expected[i]) {
+      throw new Error(what + ": byte " + i + " differs");
+    }
+  }
+}
+
+Deno.test("RTC: a NET_MAXMESSAGE (64000-byte) reliable message fits one data-channel message both ways", async () => {
+  const teardown = setup();
+  try {
+    const { sock, serverSock } = await connect();
+    const size = net.NET_MAXMESSAGE;
+    assertEqual(size, 64000, "NET_MAXMESSAGE");
+
+    assertEqual(
+      rtc.RTC_QSendMessage(serverSock, patternMessage(size)),
+      1,
+      "host sends",
+    );
+    await receivePattern(sock, size, "host -> joiner");
+
+    assertEqual(
+      rtc.RTC_QSendMessage(sock, patternMessage(size)),
+      1,
+      "joiner sends",
+    );
+    await receivePattern(serverSock, size, "joiner -> host");
+
+    const { result } = await captureOutput(() =>
+      rtc.RTC_QSendMessage(serverSock, patternMessage(size + 1))
+    );
+    assertEqual(result, -1, "host refuses NET_MAXMESSAGE + 1");
+  } finally {
+    await teardown();
+  }
+});

@@ -2,7 +2,7 @@
 
 ## Why
 
-<!-- The problem, and the C behaviour being restored (C file and function). -->
+<!-- The problem, and the reference behaviour being restored (the reference's file and function: id's C, QuakeSpasm or Ironwail; none for Icaro's own features). -->
 
 ## Changes
 

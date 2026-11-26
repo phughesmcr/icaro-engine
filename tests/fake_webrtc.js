@@ -11,9 +11,14 @@
 // either direction: it delivers them first rather than trusting timer order,
 // since a 1 ms timer can fire after a 2 ms one set later under load. close()
 // on a peer connection closes its channels without local events, and the
-// remote ends see their channels close.
+// remote ends see their channels close. send() throws, as browsers do, for a
+// message over MAX_MESSAGE_SIZE.
 
 const DEFAULT_DELAY_MS = 1;
+
+// RFC 8841's max-message-size for a peer whose SDP states none, the smallest
+// limit a browser may hold the driver to (Chromium's is 262144)
+export const MAX_MESSAGE_SIZE = 65536;
 
 let nextId = 1;
 const bySdp = new Map(); // offer or answer SDP -> FakeRTCPeerConnection
@@ -53,6 +58,9 @@ export class FakeRTCDataChannel {
       const view = data instanceof ArrayBuffer ?
         new Uint8Array(data) :
         new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+      if (view.byteLength > MAX_MESSAGE_SIZE) {
+        throw new TypeError("message over max-message-size");
+      }
       const bytes = view.slice();
       this.sent.push(bytes);
       copy = bytes.buffer;

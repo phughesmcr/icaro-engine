@@ -1,7 +1,8 @@
 // Client fixes from the Ironwail review: bad server data drops to the console
-// (Host_Error) instead of Sys_Error, stufftext waits for whole lines, no tint
-// in sky, temp-entity beams don't allocate or flicker while paused, and the
-// intermission screen is centred.
+// (Host_Error) instead of Sys_Error, no tint in sky, temp-entity beams don't
+// allocate or flicker while paused, and the intermission screen is centred.
+// The stufftext line-buffering tests are in stufftext_trust_test.js, which
+// has a real local server.
 
 // Bootstrap the client renderer graph in its established safe import order.
 await import("../src/gl_rsurf.js");
@@ -9,8 +10,6 @@ await import("../src/gl_rsurf.js");
 const {
   CL_EntityNum,
   CL_ParseServerMessage,
-  CL_ParseStuffText,
-  CL_ClearStuffText,
 } = await import("../src/cl_parse.js");
 const { CL_TEntSRand, CL_TEntRand, CL_UpdateTEnts } = await import(
   "../src/cl_tent.js"
@@ -25,11 +24,7 @@ const { cl, cls, CSHIFT_CONTENTS } = client;
 const net = await import("../src/net.js");
 const common = await import("../src/common.js");
 const { SZ_Clear, MSG_WriteByte, MSG_WriteString, COM_SetNetMessage } = common;
-const { Cbuf_Init, Cbuf_Execute, Cmd_AddCommand, Cmd_Argv } = await import(
-  "../src/cmd.js"
-);
 const {
-  svc_stufftext,
   svc_lightstyle,
   svc_updatestat,
   svc_serverinfo,
@@ -85,51 +80,11 @@ function withServerMessage(write, fn) {
   }
 }
 
-// Records the arguments of each "stufftest" command Cbuf_Execute runs.
-Cbuf_Init();
-const stuffed = [];
-Cmd_AddCommand("stufftest", () => stuffed.push(Cmd_Argv(1)));
-
 Deno.test("CL_EntityNum rejects a negative entity number", () => {
   expectHostError(
     () => CL_EntityNum(-1),
     "CL_EntityNum: -1 is an invalid number",
   );
-});
-
-Deno.test("stufftext runs a command split across messages only once whole", () => {
-  stuffed.length = 0;
-  CL_ClearStuffText();
-
-  CL_ParseStuffText("stufftest ab");
-  Cbuf_Execute();
-  assertEqual(stuffed.length, 0, "half a command is held back");
-
-  CL_ParseStuffText("cd\nstufftest e");
-  Cbuf_Execute();
-  assertEqual(
-    stuffed.join(","),
-    "abcd",
-    "the completed line runs, the next fragment waits",
-  );
-
-  CL_ClearStuffText(); // CL_ClearState: a new server starts clean
-  CL_ParseStuffText("stufftest f\n");
-  Cbuf_Execute();
-  assertEqual(stuffed.join(","), "abcd,f", "cleared fragment is dropped");
-});
-
-Deno.test("a short message flushes stufftext that never sends a newline", () => {
-  stuffed.length = 0;
-  CL_ClearStuffText();
-
-  withServerMessage((m) => {
-    MSG_WriteByte(m, svc_stufftext);
-    MSG_WriteString(m, "stufftest g");
-  }, () => CL_ParseServerMessage());
-
-  Cbuf_Execute();
-  assertEqual(stuffed.join(","), "g", "flushed at the end of the message");
 });
 
 Deno.test("bad svc_lightstyle and svc_updatestat indexes are Host_Errors", () => {

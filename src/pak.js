@@ -161,9 +161,9 @@ export function COM_AddPack(pack, path_id = ++com_last_path_id) {
  * after every pak, have 0.
  *
  * Deliberately not ported: common.c refuses loose files whose name has a
- * '/' or '\\' when !static_registered ("don't ever go beyond base"). This
- * port ships the shareware pak0.pak with its deathmatch maps as loose
- * static/maps/*.bsp files, so that check would refuse every one of them.
+ * '/' or '\\' when !static_registered ("don't ever go beyond base"). Players
+ * may add their own loose maps (static/maps/*.bsp) beside the shareware
+ * pak0.pak, and that check would refuse every one of them.
  */
 export function COM_FindFile(filename) {
   const search = filename.toLowerCase();

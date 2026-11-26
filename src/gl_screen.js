@@ -12,6 +12,7 @@ import {
   Con_SetForcedup,
 } from "./console.js";
 import { GAME_DEATHMATCH } from "./protocol.js";
+import { COM_WordWrap } from "./common.js";
 import {
   Sbar_Changed,
   Sbar_Draw,
@@ -129,9 +130,8 @@ export const con_logcenterprint = {
   value: 0,
 }; //johnfitz
 // 2021 re-release (Ironwail gl_screen.c); its quake.rc sets it to 1. In
-// Ironwail it word-wraps centerprints; that wrap is not ported, so nothing
-// reads it here yet.
-const scr_usekfont = { name: "scr_usekfont", string: "0", value: 0 };
+// Ironwail it word-wraps centerprints (SCR_CenterPrint).
+export const scr_usekfont = { name: "scr_usekfont", string: "0", value: 0 };
 
 export let scr_initialized = false;
 
@@ -156,6 +156,9 @@ let scr_centerstring = "";
 let scr_centertime_start = 0;
 let scr_centertime_off = 0;
 let scr_center_lines = 0;
+// Widest line SCR_DrawCenterString draws: id's 40, or the wrap limit when the
+// string was word-wrapped (Ironwail draws every line whole)
+let scr_center_linewidth = 40;
 let scr_erase_lines = 0;
 
 // Modal dialog
@@ -229,20 +232,43 @@ export function SCR_SetAgentHook(fn) {
   scr_agent_hook = fn;
 }
 
+/**
+ * Ironwail SCR_GetCenterPrintWrapLimit: the maximum number of chars to be
+ * printed on a single line. Ironwail measures the CANVAS_MENU width; the port
+ * draws centerprints on the default UI canvas, so its virtual width is used.
+ */
+export function SCR_GetCenterPrintWrapLimit() {
+  let width = _vid.width;
+
+  // avoid overlong lines
+  width = 320 + (width - 320) * 0.25; // LERP (320.0f, width, 0.25f)
+  width = Math.min(Math.max(width, 320), 400); // CLAMP (320.0f, width, 400.0f)
+
+  return Math.trunc(width) >> 3;
+}
+
 export function SCR_CenterPrint(str) {
   if (scr_agent_hook !== null) scr_agent_hook(str);
 
-  scr_centerstring = str.substring(0, 1023);
+  // 2021 rerelease (Ironwail): word-wrap when scr_usekfont is set
+  const cols = scr_usekfont.value !== 0 ? SCR_GetCenterPrintWrapLimit() : 0;
+  scr_centerstring = COM_WordWrap(str, 1024, cols);
+  scr_center_linewidth = cols > 40 ? cols : 40;
   scr_centertime_off = scr_centertime.value;
   scr_centertime_start = _cl.time;
 
   // count the number of lines for centering
   scr_center_lines = 1;
-  for (let i = 0; i < str.length; i++) {
-    if (str[i] === "\n") {
+  for (let i = 0; i < scr_centerstring.length; i++) {
+    if (scr_centerstring[i] === "\n") {
       scr_center_lines++;
     }
   }
+}
+
+/** The centerprint as last stored and its line count, for tests */
+export function SCR_GetCenterString() {
+  return { text: scr_centerstring, lines: scr_center_lines };
 }
 
 // CENTERPRINT LOGGING (johnfitz)
@@ -338,7 +364,7 @@ function SCR_DrawCenterString() {
   while (start < scr_centerstring.length) {
     // scan the width of the line
     let l;
-    for (l = 0; l < 40; l++) {
+    for (l = 0; l < scr_center_linewidth; l++) {
       if (
         start + l >= scr_centerstring.length ||
         scr_centerstring[start + l] === "\n"

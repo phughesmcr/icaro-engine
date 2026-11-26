@@ -1,7 +1,8 @@
 # Icaro Engine
 
-A Three.js-based Quake engine port, forked from
-[three-quake](https://github.com/mrdoob/three-quake).
+A Three.js-based web game engine that runs Quake, forked from
+[three-quake](https://github.com/mrdoob/three-quake). `docs/vision.md` gives the
+goals.
 
 ### Assets
 
@@ -146,7 +147,26 @@ running the servers, these parameters, and serving through a Cloudflare Tunnel.
 
 ### License
 
-Code: GPL v2
+Code: GNU GPL version 2 ([LICENSE](LICENSE)), as id Software released
+[Quake's source](https://github.com/id-Software/Quake/blob/master/readme.txt)
+under the GPL. For a game built on Icaro:
+
+- **Your game's data may stay proprietary.** That covers your own maps, models,
+  textures, sounds and music. Shipping a separate work alongside the engine
+  doesn't by itself bring it under the GPL ([section 2](LICENSE), "mere
+  aggregation").
+- **Engine changes and any desktop build must offer source.** When you
+  distribute a changed engine, or the engine in a compiled or packaged form (a
+  desktop build, say), changed or not, offer its complete source under the GPL
+  ([sections 2 and 3](LICENSE)). Copies of the unchanged source keep its notices
+  and come with the licence ([section 1](LICENSE)).
+
+The GPL covers the code only. The shareware `pak0.pak` that comes with this
+repository has other terms, which restrict commercial use and distribution. The
+Quake artwork and logo in it are id's art and marks, with no confirmed licence.
+Check these before you ship any with your game. [THIRD_PARTY.md](THIRD_PARTY.md)
+lists them, and the other code and data Icaro ships or loads that it didn't
+write.
 
 ### Credits
 

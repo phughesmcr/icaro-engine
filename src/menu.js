@@ -270,16 +270,16 @@ let m_host_public = false;
 const M_HOST_HERE_REASON = "Hosting here needs a WebSocket lobby";
 
 let maxplayers = 4;
-let startepisode = 2; // Default to Deathmatch Arena
+let startepisode = 0;
 
 // Start Game's room request (web only). Enter is ignored while one is in
 // flight, and a reply is acted on only if its token is still current and the
 // player is still on this menu: leaving the menu bumps the token.
 let m_createroom_pending = false;
 let m_createroom_token = 0;
-let startlevel = 1; // Default to rapture1
+let startlevel = 0;
 
-// Level data - shareware Episode 1 + community deathmatch maps
+// Level data (menu.c levels[]): the shareware Episode 1, then registered
 const levels = [
   { name: "start", description: "Entrance" }, // 0
 
@@ -292,18 +292,8 @@ const levels = [
   { name: "e1m7", description: "The House of Chthon" },
   { name: "e1m8", description: "Ziggurat Vertigo" },
 
-  // Community deathmatch maps (freely distributable)
-  { name: "spinev2", description: "Spine v2 (Headshot)" }, // 9
-  { name: "rapture1", description: "Imminent Boom (Danimal)" },
-  { name: "naked5", description: "Kinky Afro (Gandhi)" },
-  { name: "zed", description: "Zed (Vondur)" },
-  { name: "efdm9", description: "Tangerine Dream (Mr Fribbles)" },
-  { name: "baldm6", description: "Scrap Metal (Bal)" },
-  { name: "edc", description: "Eternal Dismemberment (Tyrann)" },
-  { name: "ultrav", description: "UltraViolence (Escher)" },
-
   // Registered id1 levels (menu.c levels[]), offered when registered
-  { name: "e2m1", description: "The Installation" }, // 17
+  { name: "e2m1", description: "The Installation" }, // 9
   { name: "e2m2", description: "Ogre Citadel" },
   { name: "e2m3", description: "Crypt of Decay" },
   { name: "e2m4", description: "The Ebon Fortress" },
@@ -311,7 +301,7 @@ const levels = [
   { name: "e2m6", description: "The Dismal Oubliette" },
   { name: "e2m7", description: "Underearth" },
 
-  { name: "e3m1", description: "Termination Central" }, // 24
+  { name: "e3m1", description: "Termination Central" }, // 16
   { name: "e3m2", description: "The Vaults of Zin" },
   { name: "e3m3", description: "The Tomb of Terror" },
   { name: "e3m4", description: "Satan's Dark Delight" },
@@ -319,7 +309,7 @@ const levels = [
   { name: "e3m6", description: "Chambers of Torment" },
   { name: "e3m7", description: "The Haunted Halls" },
 
-  { name: "e4m1", description: "The Sewage System" }, // 31
+  { name: "e4m1", description: "The Sewage System" }, // 23
   { name: "e4m2", description: "The Tower of Despair" },
   { name: "e4m3", description: "The Elder God Shrine" },
   { name: "e4m4", description: "The Palace of Hate" },
@@ -328,9 +318,9 @@ const levels = [
   { name: "e4m7", description: "Azure Agony" },
   { name: "e4m8", description: "The Nameless City" },
 
-  { name: "end", description: "Shub-Niggurath's Pit" }, // 39
+  { name: "end", description: "Shub-Niggurath's Pit" }, // 31
 
-  { name: "dm1", description: "Place of Two Deaths" }, // 40
+  { name: "dm1", description: "Place of Two Deaths" }, // 32
   { name: "dm2", description: "Claustrophobopolis" },
   { name: "dm3", description: "The Abandoned Base" },
   { name: "dm4", description: "The Bad Place" },
@@ -341,18 +331,17 @@ const levels = [
 const episodes = [
   { description: "Welcome to Quake", firstLevel: 0, levels: 1 },
   { description: "Doomed Dimension", firstLevel: 1, levels: 8 },
-  { description: "Deathmatch Arena", firstLevel: 9, levels: 8 },
 
   // registered only (menu.c episodes[]); see M_NumEpisodes
-  { description: "Realm of Black Magic", firstLevel: 17, levels: 7 },
-  { description: "Netherworld", firstLevel: 24, levels: 7 },
-  { description: "The Elder World", firstLevel: 31, levels: 8 },
-  { description: "Final Level", firstLevel: 39, levels: 1 },
-  { description: "id1 Deathmatch", firstLevel: 40, levels: 6 },
+  { description: "Realm of Black Magic", firstLevel: 9, levels: 7 },
+  { description: "Netherworld", firstLevel: 16, levels: 7 },
+  { description: "The Elder World", firstLevel: 23, levels: 8 },
+  { description: "Final Level", firstLevel: 31, levels: 1 },
+  { description: "id1 Deathmatch", firstLevel: 32, levels: 6 },
 ];
 
-// The episodes before these are in the shareware pak or shipped loose
-const SHAREWARE_EPISODES = 3;
+// The episodes before these are in the shareware pak
+const SHAREWARE_EPISODES = 2;
 
 //MED 01/06/97 added hipnotic levels
 const hipnoticlevels = [
@@ -439,8 +428,7 @@ export function M_StartLevel() {
 
 /**
  * menu.c M_NetStart_Change: 6 for hipnotic, 4 for rogue, 7 when registered
- * and 2 for shareware. This port adds its loose-file deathmatch episode to
- * the last two.
+ * and 2 for shareware.
  */
 export function M_NumEpisodes() {
   if (hipnotic || rogue) return M_GameEpisodes().length;
@@ -3413,8 +3401,8 @@ function M_Video_Key(key) {
 // PUBLIC API
 
 export function M_Init() {
-  // menu.c starts at the first episode; this port's own default (the
-  // community deathmatch maps) is in the id1 list only
+  // menu.c starts at the first episode. A host that ran M_Init before (the
+  // tests do) may have left the selection past a mission pack's lists
   if (standard_quake === false) {
     startepisode = 0;
     startlevel = 0;

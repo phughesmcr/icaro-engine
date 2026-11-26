@@ -1,5 +1,5 @@
 // Headless engine benchmark: map load, server physics + QuakeC, and hull
-// traces, on the shareware pak0 and the loose maps in static/maps.
+// traces, on the shareware pak0.
 //
 //   deno run --allow-read tools/bench/server_bench.js [-frames N] [-traces N] [-runs N] [-maps a,b] [-json]
 //       [-base rerelease] [-hipnotic | -rogue | -game <dir>] [-dedicated]
@@ -52,7 +52,7 @@ function arg(name, def) {
 const FRAMES = Number(arg("-frames", "2000"));
 const RUNS = Number(arg("-runs", "5"));
 const TRACES = Number(arg("-traces", "200000"));
-const MAPS = arg("-maps", "start,e1m1,e1m3,e1m6,edc,rapture1").split(",");
+const MAPS = arg("-maps", "start,e1m1,e1m3,e1m6").split(",");
 const JSON_OUT = args.includes("-json");
 // -dedicated sets cls.state = ca_dedicated as game_server.js does: no .lit or
 // MD5 replacement loading, so loads measure what the Deno server pays

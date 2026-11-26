@@ -20,6 +20,7 @@ import {
 import {
   anglemod,
   AngleVectors,
+  CrossProduct,
   DotProduct,
   Length,
   M_PI,
@@ -33,6 +34,10 @@ import {
 } from "./mathlib.js";
 import { MAX_LIGHTSTYLES, MAX_MODELS, MAX_SOUNDS } from "./quakedef.js";
 import {
+  ev_entity,
+  ev_float,
+  ev_string,
+  ev_vector,
   OFS_PARM0,
   OFS_PARM1,
   OFS_PARM2,
@@ -101,12 +106,21 @@ import {
   SV_StartParticle,
   SV_StartSound,
 } from "./sv_main.js";
-import { Cbuf_AddText } from "./cmd.js";
-import { Cvar_Set, Cvar_VariableValue } from "./cvar.js";
+import {
+  Cbuf_AddText,
+  Cmd_AliasExists,
+  Cmd_ExecuteString,
+  Cmd_FindCommand,
+  src_client,
+} from "./cmd.js";
+import { Cvar_FindVar, Cvar_Set, cvar_t, Cvar_VariableValue } from "./cvar.js";
+import { SV_ClientCommandAllowed } from "./sv_user.js";
 import {
   FL_FLY,
   FL_ONGROUND,
   FL_SWIM,
+  host_client,
+  set_host_client,
   ss_active,
   ss_loading,
   svs,
@@ -1394,15 +1408,60 @@ function PF_localsound() {
 }
 
 /**
+ * spike - enables qc extensions. if 0 then they're ALL BLOCKED! Mods read it
+ * with cvar("pr_checkextension") before calling checkextension (Ironwail's
+ * pr_cmds.c; registered by PR_Init).
+ */
+export const pr_checkextension = new cvar_t("pr_checkextension", "1");
+
+/**
+ * The extension names Ironwail knows (progs.h QCEXTENSIONS_ALL, in its order;
+ * pr_exec.c pr_extnames). Index 0 is the standard instruction set. The
+ * builtin table tags each extension builtin with one of these.
+ */
+export const pr_extnames = [
+  "STD_QC",
+  "FRIK_FILE",
+  "FTE_STRINGS",
+  "FTE_QC_CHECKCOMMAND",
+  "DP_QC_ETOS",
+  "DP_QC_MINMAXBOUND",
+  "DP_QC_SINCOSSQRTPOW",
+  "DP_QC_ASINACOSATANATAN2TAN",
+  "DP_QC_VECTORVECTORS",
+  "DP_QC_STRING_CASE_FUNCTIONS",
+  "DP_QC_SPRINTF",
+  "DP_QC_TOKENIZE_CONSOLE",
+  "DP_QC_STRFTIME",
+  "KRIMZON_SV_PARSECLIENTCOMMAND",
+];
+
+const FTE_QC_CHECKCOMMAND = 3;
+
+/** Returns the known extension's index, or 0 for an unrecognized name. */
+export function PR_FindExtensionByName(name) {
+  for (let i = 1; i < pr_extnames.length; i++) {
+    if (name === pr_extnames[i]) {
+      return i;
+    }
+  }
+
+  return 0;
+}
+
+/**
  * float(string extname) checkextension = #99
  *
- * Deviation from Ironwail, which answers true for FTE_QC_CHECKCOMMAND (and
- * implements checkcommand, #294) so that older Arcane Dimensions builds take
- * their FTE code path. Neither is ported, so every extension is reported as
- * missing and mods fall back to their plain-Quake paths.
+ * As Ironwail, answers true only for FTE_QC_CHECKCOMMAND, so that older
+ * Arcane Dimensions builds (1.42, as in jam8) take their FTE code path and
+ * not their buggy DP one. Every other name is false, even where all its
+ * builtins exist: mods trust the answer. Ironwail's checked_ext and
+ * advertised_ext bits only feed its developer warnings
+ * (PR_CheckBuiltinExtension), which are not ported.
  */
 function PF_checkextension() {
-  G_FLOAT_SET(OFS_RETURN, 0);
+  const i = PR_FindExtensionByName(G_STRING(OFS_PARM0));
+  G_FLOAT_SET(OFS_RETURN, i === FTE_QC_CHECKCOMMAND ? 1 : 0);
 }
 
 // maths stuff
@@ -1416,6 +1475,29 @@ function PF_Cos() {
 
 function PF_Sqrt() {
   G_FLOAT_SET(OFS_RETURN, Math.sqrt(G_FLOAT(OFS_PARM0)));
+}
+
+function PF_asin() {
+  G_FLOAT_SET(OFS_RETURN, Math.asin(G_FLOAT(OFS_PARM0)));
+}
+
+function PF_acos() {
+  G_FLOAT_SET(OFS_RETURN, Math.acos(G_FLOAT(OFS_PARM0)));
+}
+
+function PF_tan() {
+  G_FLOAT_SET(OFS_RETURN, Math.tan(G_FLOAT(OFS_PARM0)));
+}
+
+function PF_atan() {
+  G_FLOAT_SET(OFS_RETURN, Math.atan(G_FLOAT(OFS_PARM0)));
+}
+
+function PF_atan2() {
+  G_FLOAT_SET(
+    OFS_RETURN,
+    Math.atan2(G_FLOAT(OFS_PARM0), G_FLOAT(OFS_PARM1)),
+  );
 }
 
 function PF_pow() {
@@ -1470,6 +1552,28 @@ function PF_bound() {
     curval = minval;
   }
   G_FLOAT_SET(OFS_RETURN, curval);
+}
+
+function PF_vectorvectors() {
+  const forward = pr_global_struct.v_forward;
+  const right = pr_global_struct.v_right;
+  VectorCopy(G_VECTOR(OFS_PARM0), forward);
+  VectorNormalize(forward);
+  // C's !x: zero is false, NaN is not
+  if (forward[0] === 0 && forward[1] === 0) {
+    if (forward[2] !== 0) {
+      right[1] = -1;
+    } else {
+      right[1] = 0;
+    }
+    right[0] = right[2] = 0;
+  } else {
+    right[0] = forward[1];
+    right[1] = -forward[0];
+    right[2] = 0;
+    VectorNormalize(right);
+  }
+  CrossProduct(right, forward, pr_global_struct.v_up);
 }
 
 // string stuff
@@ -1552,6 +1656,179 @@ function PF_strunzone() {
   }
 }
 
+// should be just \n and 32-127, but we don't actually support any actual
+// unicode and we don't really want to make things worse.
+function qc_isascii(u) {
+  return u < 256;
+}
+
+function PF_str2chr() {
+  const instr = G_STRING(OFS_PARM0);
+  let ofs = pr_argc > 1 ? Q_FloatToInt(G_FLOAT(OFS_PARM1)) : 0;
+
+  if (ofs < 0) {
+    ofs = instr.length + ofs;
+  }
+
+  // C: if (ofs && (ofs < 0 || ofs > strlen)) '\0' else instr[ofs], and
+  // instr[strlen] is the NUL
+  if (ofs < 0 || ofs >= instr.length) {
+    G_FLOAT_SET(OFS_RETURN, 0);
+  } else {
+    G_FLOAT_SET(OFS_RETURN, instr.charCodeAt(ofs));
+  }
+}
+
+function PF_chr2str() {
+  let out = "";
+  for (let i = 0; out.length < STRINGTEMP_LENGTH - 6 && i < pr_argc; i++) {
+    // C converts the float to an unsigned int
+    const u = Q_FloatToInt(G_FLOAT(OFS_PARM0 + i * 3)) >>> 0;
+    if (u >= 0xe000 && u < 0xe100) {
+      out += String.fromCharCode(u & 0xff); // quake chars.
+    } else if (qc_isascii(u)) {
+      out += String.fromCharCode(u);
+    } else {
+      out += "?"; // no unicode support
+    }
+  }
+
+  G_INT_SET(OFS_RETURN, PR_SetTempString(out));
+}
+
+// part of PF_strconv
+function chrconv_number(i, base, conv) {
+  i -= base;
+  switch (conv) {
+    default:
+    case 5:
+    case 6:
+    case 0:
+      break;
+    case 1:
+      base = 48; // '0'
+      break;
+    case 2:
+      base = 48 + 128;
+      break;
+    case 3:
+      base = 48 - 30;
+      break;
+    case 4:
+      base = 48 + 128 - 30;
+      break;
+  }
+  return i + base;
+}
+
+// part of PF_strconv
+function chrconv_punct(i, base, conv) {
+  i -= base;
+  switch (conv) {
+    default:
+    case 0:
+      break;
+    case 1:
+      base = 0;
+      break;
+    case 2:
+      base = 128;
+      break;
+  }
+  return i + base;
+}
+
+// part of PF_strconv
+function chrchar_alpha(i, basec, baset, convc, convt, charnum) {
+  // convert case and colour seperatly...
+
+  i -= baset + basec;
+  switch (convt) {
+    default:
+    case 0:
+      break;
+    case 1:
+      baset = 0;
+      break;
+    case 2:
+      baset = 128;
+      break;
+
+    case 5:
+    case 6:
+      baset = 128 * ((charnum & 1) === convt - 5 ? 1 : 0);
+      break;
+  }
+
+  switch (convc) {
+    default:
+    case 0:
+      break;
+    case 1:
+      basec = 97; // 'a'
+      break;
+    case 2:
+      basec = 65; // 'A'
+      break;
+  }
+  return i + basec + baset;
+}
+
+/**
+ * FTE_STRINGS: bulk convert a string. change case or colouring.
+ *
+ * string(float ccase, float redalpha, float redchars, string str, ...) strconv
+ */
+function PF_strconv() {
+  const ccase = Q_FloatToInt(G_FLOAT(OFS_PARM0)); // 0 same, 1 lower, 2 upper
+  // 0 same, 1 white, 2 red, 5 alternate, 6 alternate-alternate
+  const redalpha = Q_FloatToInt(G_FLOAT(OFS_PARM1));
+  // 0 same, 1 white, 2 red, 3 redspecial, 4 whitespecial, 5 alternate,
+  // 6 alternate-alternate
+  const rednum = Q_FloatToInt(G_FLOAT(OFS_PARM2));
+  const string = PF_VarString(3);
+  let len = string.length;
+
+  // UTF-8-FIXME: cope with utf+^U etc
+
+  if (len >= STRINGTEMP_LENGTH) {
+    len = STRINGTEMP_LENGTH - 1;
+  }
+
+  let result = "";
+  for (let i = 0; i < len; i++) { // should this be done backwards?
+    const c = string.charCodeAt(i);
+    let r;
+    if (c >= 48 && c <= 57) { // normal numbers...
+      r = chrconv_number(c, 48, rednum);
+    } else if (c >= 48 + 128 && c <= 57 + 128) {
+      r = chrconv_number(c, 48 + 128, rednum);
+    } else if (c >= 48 + 128 - 30 && c <= 57 + 128 - 30) {
+      r = chrconv_number(c, 48 + 128 - 30, rednum);
+    } else if (c >= 48 - 30 && c <= 57 - 30) {
+      r = chrconv_number(c, 48 - 30, rednum);
+    } else if (c >= 97 && c <= 122) { // a-z
+      r = chrchar_alpha(c, 97, 0, ccase, redalpha, i);
+    } else if (c >= 65 && c <= 90) { // A-Z
+      r = chrchar_alpha(c, 65, 0, ccase, redalpha, i);
+    } else if (c >= 97 + 128 && c <= 122 + 128) {
+      r = chrchar_alpha(c, 97, 128, ccase, redalpha, i);
+    } else if (c >= 65 + 128 && c <= 90 + 128) {
+      r = chrchar_alpha(c, 65, 128, ccase, redalpha, i);
+    } else if ((c & 127) < 16 || redalpha === 0) { // special chars..
+      r = c;
+    } else if (c < 128) {
+      r = chrconv_punct(c, 0, redalpha);
+    } else {
+      r = chrconv_punct(c, 128, redalpha);
+    }
+
+    result += String.fromCharCode(r & 0xff); // C stores an unsigned char
+  }
+
+  G_INT_SET(OFS_RETURN, PR_SetTempString(result));
+}
+
 // string tokenizing (gah)
 const MAXQCTOKENS = 64;
 const qctoken = [];
@@ -1589,6 +1866,12 @@ function tokenizeqc(str) {
 // compatibility with DP, this tokenize builtin is veeery vauge and doesn't
 // match the console
 function PF_Tokenize() {
+  G_FLOAT_SET(OFS_RETURN, tokenizeqc(G_STRING(OFS_PARM0)));
+}
+
+// Ironwail passes tokenizeqc a flag for DP's punctuation rules, but ignores
+// it, so this is the same tokenizer as PF_Tokenize.
+function PF_tokenize_console() {
   G_FLOAT_SET(OFS_RETURN, tokenizeqc(G_STRING(OFS_PARM0)));
 }
 
@@ -1637,6 +1920,115 @@ function PF_ftoi() {
 
 function PF_itof() {
   G_FLOAT_SET(OFS_RETURN, G_INT(OFS_PARM0));
+}
+
+// Ironwail's MAX_CL_STATS (quakedef.h), the bound clientstat checks. id's
+// is 32 (MAX_CL_STATS in quakedef.js).
+const MAX_CL_STATS_EXT = 256;
+
+// Ironwail's etype_t ev_ext_integer (pr_comp.h)
+const ev_ext_integer = 8;
+
+/**
+ * Ironwail's sv.customstats: the stats clientstat registered, as
+ * { idx, type, fld }. Cleared when progs load (Ironwail clears sv per map).
+ *
+ * Deviation from Ironwail: SV_WriteStats, which sends these to clients for
+ * CSQC to read, is not ported, because Icaro has no CSQC to read them.
+ * Registering them keeps mods that call clientstat from worldspawn (Arcane
+ * Dimensions, Copper) running, as they do on Ironwail.
+ */
+export const sv_customstats = [];
+
+function PR_CustomStat(idx, type) {
+  if (idx < 0 || idx >= MAX_CL_STATS_EXT) {
+    return null;
+  }
+  switch (type) {
+    case ev_ext_integer:
+    case ev_float:
+    case ev_vector:
+    case ev_entity:
+      break;
+    default:
+      return null;
+  }
+
+  let i;
+  for (i = 0; i < sv_customstats.length; i++) {
+    const stat = sv_customstats[i];
+    if (
+      stat.idx === idx && (stat.type === ev_string) === (type === ev_string)
+    ) {
+      break;
+    }
+  }
+  if (i === sv_customstats.length) {
+    sv_customstats.push({ idx: 0, type: 0, fld: 0 });
+  }
+  const stat = sv_customstats[i];
+  stat.idx = idx;
+  stat.type = type;
+  stat.fld = 0;
+  return stat;
+}
+
+/** void(float num, float type, .__variant fld) clientstat = #232 */
+function PF_clientstat() {
+  const idx = Q_FloatToInt(G_FLOAT(OFS_PARM0));
+  const type = Q_FloatToInt(G_FLOAT(OFS_PARM1));
+  const fldofs = G_INT(OFS_PARM2);
+  const stat = PR_CustomStat(idx, type);
+  if (stat === null) {
+    return;
+  }
+  stat.fld = fldofs;
+}
+
+// server/client stuff
+
+/**
+ * float(string name) checkcommand = #294: 1 for a command, 2 for an alias, 3
+ * for a cvar, 0 for none. Commands and aliases match case-insensitively, as
+ * Ironwail's Cmd_Exists and Cmd_AliasExists.
+ */
+function PF_checkcommand() {
+  const name = G_STRING(OFS_PARM0);
+  if (Cmd_FindCommand(name) !== null) {
+    G_FLOAT_SET(OFS_RETURN, 1);
+  } else if (Cmd_AliasExists(name)) {
+    G_FLOAT_SET(OFS_RETURN, 2);
+  } else if (Cvar_FindVar(name) !== null) {
+    G_FLOAT_SET(OFS_RETURN, 3);
+  } else {
+    G_FLOAT_SET(OFS_RETURN, 0);
+  }
+}
+
+/**
+ * void(entity e, string s) clientcommand = #440: runs s as if client e had
+ * sent it.
+ *
+ * Ironwail's Cmd_ExecuteString runs only client commands for src_client.
+ * Icaro's runs anything, and the server checks a client's commands against
+ * id's list first (SV_ClientCommandAllowed), so this checks the same list.
+ */
+function PF_clientcommand() {
+  const ed = G_EDICT(OFS_PARM0);
+  const str = G_STRING(OFS_PARM1);
+  const i = NUM_FOR_EDICT(ed) - 1;
+  if (i >= 0 && i < svs.maxclients && svs.clients[i].active) {
+    const ohc = host_client;
+    set_host_client(svs.clients[i]);
+    if (SV_ClientCommandAllowed(str)) {
+      Cmd_ExecuteString(str, src_client);
+    } else {
+      Con_DPrintf("%s tried to %s\n", host_client.name, str);
+    }
+    set_host_client(ohc);
+  } else {
+    Con_Printf("PF_clientcommand: not a client\n");
+  }
 }
 
 function PF_Fixme() {
@@ -1821,75 +2213,76 @@ const pr_builtin_names = [
 ];
 
 // Extension builtins: Ironwail's pr_builtindefs past id's #1-#78, in its
-// order and with its numbers. Number 0 means Ironwail gives it none: QuakeC
-// declares it "= #0" and PR_InitProgsBuiltins binds it by name to a slot
-// counting down from the top of the table, in this order. Unported ones stay
-// PF_Fixme, so calling them is "unimplemented builtin", as in Ironwail.
-const pr_extbuiltins = [
-  ["sin", PF_Sin, 60], // float(float angle)
-  ["cos", PF_Cos, 61], // float(float angle)
-  ["sqrt", PF_Sqrt, 62], // float(float value)
-  ["etos", PF_etos, 65], // string(entity ent)
-  ["finaleFinished", PF_finalefinished, 79], // float() (2021 re-release)
-  ["localsound", PF_localsound, 80], // void(entity client, string sample) (2021 re-release)
-  ["stof", PF_stof, 81], // float(string)
-  ["ex_centerprint", PF_centerprint, 0], // void(entity client, string s, ...)
-  ["ex_bprint", PF_bprint, 0], // void(string s, ...)
-  ["ex_sprint", PF_sprint, 0], // void(entity client, string s, ...)
-  ["ex_finalefinished", PF_finalefinished, 0], // float()
-  ["ex_CheckPlayerEXFlags", PF_CheckPlayerEXFlags, 0], // float(entity playerEnt)
-  ["ex_walkpathtogoal", PF_walkpathtogoal, 0], // float(float movedist, vector goal)
-  ["ex_localsound", PF_localsound, 0], // void(entity client, string sample)
-  ["min", PF_min, 94], // float(float a, float b, ...)
-  ["max", PF_max, 95], // float(float a, float b, ...)
-  ["bound", PF_bound, 96], // float(float minimum, float val, float maximum)
-  ["pow", PF_pow, 97], // float(float value, float exp)
-  ["checkextension", PF_checkextension, 99], // float(string extname)
-  ["strlen", PF_strlen, 114], // float(string s)
-  ["strcat", PF_strcat, 115], // string(string s1, ...)
-  ["substring", PF_substring, 116], // string(string s, float start, float length)
-  ["stov", PF_stov, 117], // vector(string s)
-  ["strzone", PF_strzone, 118], // string(string s, ...)
-  ["strunzone", PF_strunzone, 119], // void(string s)
-  ["str2chr", PF_Fixme, 222], // not ported
-  ["chr2str", PF_Fixme, 223], // not ported
-  ["strconv", PF_Fixme, 224], // not ported
-  ["clientstat", PF_Fixme, 232], // not ported
-  ["mod", PF_mod, 245], // float(float a, float n)
-  ["ftoi", PF_ftoi, 0], // int(float)
-  ["itof", PF_itof, 0], // float(int)
-  ["checkcommand", PF_Fixme, 294], // not ported
-  // #316-#352 are CSQC-only in Ironwail: names bound, server slots PF_Fixme
-  ["iscachedpic", PF_Fixme, 316],
-  ["precache_pic", PF_Fixme, 317],
-  ["drawgetimagesize", PF_Fixme, 318],
-  ["drawcharacter", PF_Fixme, 320],
-  ["drawrawstring", PF_Fixme, 321],
-  ["drawpic", PF_Fixme, 322],
-  ["drawfill", PF_Fixme, 323],
-  ["drawsetcliparea", PF_Fixme, 324],
-  ["drawresetcliparea", PF_Fixme, 325],
-  ["drawstring", PF_Fixme, 326],
-  ["stringwidth", PF_Fixme, 327],
-  ["drawsubpic", PF_Fixme, 328],
-  ["getstati", PF_Fixme, 330],
-  ["getstatf", PF_Fixme, 331],
-  ["getstats", PF_Fixme, 332],
-  ["getplayerkeyvalue", PF_Fixme, 348],
-  ["getplayerkeyfloat", PF_Fixme, 0],
-  ["registercommand", PF_Fixme, 352],
-  ["vectorvectors", PF_Fixme, 432], // not ported
-  ["clientcommand", PF_Fixme, 440], // not ported
-  ["tokenize", PF_Tokenize, 441], // float(string s)
-  ["argv", PF_ArgV, 442], // string(float n)
-  ["argc", PF_ArgC, 0], // float()
-  ["asin", PF_Fixme, 471], // not ported
-  ["acos", PF_Fixme, 472], // not ported
-  ["atan", PF_Fixme, 473], // not ported
-  ["atan2", PF_Fixme, 474], // not ported
-  ["tan", PF_Fixme, 475], // not ported
-  ["tokenize_console", PF_Fixme, 514], // not ported
-  ["sprintf", PF_sprintf, 627], // string(string fmt, ...)
+// order and with its numbers and extension tags (pr_extnames; null for none).
+// Number 0 means Ironwail gives it none: QuakeC declares it "= #0" and
+// PR_InitProgsBuiltins binds it by name to a slot counting down from the top
+// of the table, in this order. The CSQC-only rows (#316-#352) have no server
+// builtin in Ironwail either, so they stay PF_Fixme: calling them is
+// "unimplemented builtin", as there.
+export const pr_extbuiltins = [
+  ["sin", PF_Sin, 60, "DP_QC_SINCOSSQRTPOW"], // float(float angle)
+  ["cos", PF_Cos, 61, "DP_QC_SINCOSSQRTPOW"], // float(float angle)
+  ["sqrt", PF_Sqrt, 62, "DP_QC_SINCOSSQRTPOW"], // float(float value)
+  ["etos", PF_etos, 65, "DP_QC_ETOS"], // string(entity ent)
+  ["finaleFinished", PF_finalefinished, 79, null], // float() (2021 re-release)
+  ["localsound", PF_localsound, 80, null], // void(entity client, string sample) (2021 re-release)
+  ["stof", PF_stof, 81, "FRIK_FILE"], // float(string)
+  ["ex_centerprint", PF_centerprint, 0, null], // void(entity client, string s, ...)
+  ["ex_bprint", PF_bprint, 0, null], // void(string s, ...)
+  ["ex_sprint", PF_sprint, 0, null], // void(entity client, string s, ...)
+  ["ex_finalefinished", PF_finalefinished, 0, null], // float()
+  ["ex_CheckPlayerEXFlags", PF_CheckPlayerEXFlags, 0, null], // float(entity playerEnt)
+  ["ex_walkpathtogoal", PF_walkpathtogoal, 0, null], // float(float movedist, vector goal)
+  ["ex_localsound", PF_localsound, 0, null], // void(entity client, string sample)
+  ["min", PF_min, 94, "DP_QC_MINMAXBOUND"], // float(float a, float b, ...)
+  ["max", PF_max, 95, "DP_QC_MINMAXBOUND"], // float(float a, float b, ...)
+  ["bound", PF_bound, 96, "DP_QC_MINMAXBOUND"], // float(float minimum, float val, float maximum)
+  ["pow", PF_pow, 97, "DP_QC_SINCOSSQRTPOW"], // float(float value, float exp)
+  ["checkextension", PF_checkextension, 99, null], // float(string extname)
+  ["strlen", PF_strlen, 114, "FRIK_FILE"], // float(string s)
+  ["strcat", PF_strcat, 115, "FRIK_FILE"], // string(string s1, ...)
+  ["substring", PF_substring, 116, "FRIK_FILE"], // string(string s, float start, float length)
+  ["stov", PF_stov, 117, "FRIK_FILE"], // vector(string s)
+  ["strzone", PF_strzone, 118, "FRIK_FILE"], // string(string s, ...)
+  ["strunzone", PF_strunzone, 119, "FRIK_FILE"], // void(string s)
+  ["str2chr", PF_str2chr, 222, "FTE_STRINGS"], // float(string str, float index)
+  ["chr2str", PF_chr2str, 223, "FTE_STRINGS"], // string(float chr, ...)
+  ["strconv", PF_strconv, 224, "FTE_STRINGS"], // string(float ccase, float redalpha, float redchars, string str, ...)
+  ["clientstat", PF_clientstat, 232, null], // void(float num, float type, .__variant fld)
+  ["mod", PF_mod, 245, null], // float(float a, float n)
+  ["ftoi", PF_ftoi, 0, null], // int(float)
+  ["itof", PF_itof, 0, null], // float(int)
+  ["checkcommand", PF_checkcommand, 294, "FTE_QC_CHECKCOMMAND"], // float(string name)
+  ["iscachedpic", PF_Fixme, 316, null],
+  ["precache_pic", PF_Fixme, 317, null],
+  ["drawgetimagesize", PF_Fixme, 318, null],
+  ["drawcharacter", PF_Fixme, 320, null],
+  ["drawrawstring", PF_Fixme, 321, null],
+  ["drawpic", PF_Fixme, 322, null],
+  ["drawfill", PF_Fixme, 323, null],
+  ["drawsetcliparea", PF_Fixme, 324, null],
+  ["drawresetcliparea", PF_Fixme, 325, null],
+  ["drawstring", PF_Fixme, 326, null],
+  ["stringwidth", PF_Fixme, 327, null],
+  ["drawsubpic", PF_Fixme, 328, null],
+  ["getstati", PF_Fixme, 330, null],
+  ["getstatf", PF_Fixme, 331, null],
+  ["getstats", PF_Fixme, 332, null],
+  ["getplayerkeyvalue", PF_Fixme, 348, null],
+  ["getplayerkeyfloat", PF_Fixme, 0, null],
+  ["registercommand", PF_Fixme, 352, null],
+  ["vectorvectors", PF_vectorvectors, 432, "DP_QC_VECTORVECTORS"], // void(vector dir)
+  ["clientcommand", PF_clientcommand, 440, "KRIMZON_SV_PARSECLIENTCOMMAND"], // void(entity e, string s)
+  ["tokenize", PF_Tokenize, 441, "KRIMZON_SV_PARSECLIENTCOMMAND"], // float(string s)
+  ["argv", PF_ArgV, 442, "KRIMZON_SV_PARSECLIENTCOMMAND"], // string(float n)
+  ["argc", PF_ArgC, 0, null], // float()
+  ["asin", PF_asin, 471, "DP_QC_ASINACOSATANATAN2TAN"], // float(float s)
+  ["acos", PF_acos, 472, "DP_QC_ASINACOSATANATAN2TAN"], // float(float c)
+  ["atan", PF_atan, 473, "DP_QC_ASINACOSATANATAN2TAN"], // float(float t)
+  ["atan2", PF_atan2, 474, "DP_QC_ASINACOSATANATAN2TAN"], // float(float c, float s)
+  ["tan", PF_tan, 475, "DP_QC_ASINACOSATANATAN2TAN"], // float(float a)
+  ["tokenize_console", PF_tokenize_console, 514, "DP_QC_TOKENIZE_CONSOLE"], // float(string str)
+  ["sprintf", PF_sprintf, 627, "DP_QC_SPRINTF"], // string(string fmt, ...)
 ];
 
 // Ironwail's MAX_BUILTINS. Every slot is filled (PF_Fixme where nothing is
@@ -1935,8 +2328,9 @@ const pr_builtin_table = (function () {
  * Called by PR_LoadProgs once the functions are parsed. Mirrors the second
  * half of Ironwail's PR_InitBuiltins: a function declared "= #0" (no
  * statements, parms or locals) is bound by name to the builtin with that name.
- * Also resets the string state the extension builtins keep per progs (zoned
- * strings live in the string table that PR_LoadProgs replaces).
+ * Also resets the state the extension builtins keep per progs: zoned strings
+ * (they live in the string table that PR_LoadProgs replaces), tokens and the
+ * clientstat registrations.
  */
 export function PR_InitProgsBuiltins() {
   for (let i = 0; i < pr_functions.length; i++) {
@@ -1955,6 +2349,7 @@ export function PR_InitProgsBuiltins() {
 
   PR_ClearZoneStrings();
   qctoken.length = 0;
+  sv_customstats.length = 0;
 }
 
 /** Registers the builtin function table. Called during PR_Init. */

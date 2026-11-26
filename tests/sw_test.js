@@ -185,7 +185,7 @@ const FILES = {
   "/game/static/pak0.pak": "PACK-shareware",
   "/game/src/host.js": "host",
   "/game/src/late.js": "late",
-  "/game/static/maps/edc.bsp": "bsp",
+  "/game/static/maps/mymap.bsp": "bsp",
 };
 
 Deno.test("sw: routes each kind of request", () => {

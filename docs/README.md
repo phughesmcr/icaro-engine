@@ -5,6 +5,7 @@ check their claims against the code before relying on them. Status sections are
 updated by a docs PR after a batch of work merges, not by each feature PR (see
 AGENTS.md, Git workflow).
 
+- `vision.md`: the project's goals and direction. Kept current, not a snapshot.
 - `port-review.md`: a fidelity review of the port against the C source. A
   snapshot.
 - `port-inventory.md`: every C function, cvar and command in the GLQuake build's
@@ -47,3 +48,8 @@ AGENTS.md, Git workflow).
   columns) and collapse the C-style comment banners, with trial results, tiers,
   neutrality checks and how open PRs catch up. Its status line says which tiers
   are done.
+- `protocol-design.md`: design for a versioned Icaro network protocol: the hello
+  with a revision, a game profile and capability words, a reserved svc range for
+  Icaro's own messages, room for games that aren't Quake (Hexen II as the worked
+  example), readers for 15/666/999 demos, and a migration plan. Compares FTEQW,
+  Quakespasm-Spiked, DarkPlaces and Ironwail. Nothing in it is built.
