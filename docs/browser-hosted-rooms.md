@@ -301,22 +301,20 @@ driver, behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js`
 ## Listen-server rules
 
 - **Player limit:** the client slots are allocated once, at start-up, by
-  `Host_FindMaxClients`. This port has dropped its `-dedicated` and
-  `-listen` handling, so the browser always has `maxclients` 1 and 4 slots
-  [code: `src/host.js:263–266`]. In the C, `-listen [n]` sets `maxclients` and
+  `Host_FindMaxClients`. In the C, `-listen [n]` sets `maxclients` and
   the slot count to `n` (8 if omitted, capped at `MAX_SCOREBOARD`) and sets
-  `deathmatch 1` [C: `WinQuake/host.c`].
-  - Restore the C's `-listen` handling, and let `main.js` pass it from a
-    `?listen=N` URL parameter, as it passes `?particles=`.
+  `deathmatch 1` [C: `WinQuake/host.c`]. The port restores that, and
+  `main.js` passes `?listen=N` as `-listen N` [code: `src/host.js:271`,
+  `main.js:133`]; without it a tab has one slot.
   - The listen flag changes start-up defaults (`maxclients` N,
     `deathmatch 1`). Single player still works, because the menu's new game
     runs `maxplayers 1`, which drops `listen` and sets `deathmatch 0` [code:
     `src/menu.js:971`, `MaxPlayers_f` in `src/net_main.js`].
-  - Since slots can't grow after start-up, *Host in this browser* reloads
-    the page with `?listen=16` when it has fewer slots than the host asked
-    for. Loading every page with `-listen 16` would avoid the reload but
-    start every player in deathmatch mode, which the C never does without
-    the flag.
+  - Slots can't grow after start-up, so Start Game's *Max players* is
+    capped at `svs.maxclientslimit` [code: `src/menu.js:1695`]. To host
+    more players, open the page with `?listen=N`. Loading every page with
+    `-listen 16` would avoid that but start every player in deathmatch
+    mode, which the C never does without the flag.
 - **Exit and game rules:**
   - `game_server.js` applies `noexit`/`samelevel` and the game options before
     spawning (`applyGameOptions`, `applyExitRules`) [code]. A deathmatch
@@ -424,6 +422,18 @@ Paste each run's *Copy results* JSON into this section.
    needs a WebSocket lobby (`?server=wss://…`); the room's exit rules are
    set only for it and reset when it ends. Players are capped at
    `svs.maxclientslimit`, as for any listen server.
+   Checked on 2026-11-26 in Chromium (the Claude desktop app's browser),
+   with tabs on one machine and the Deno lobby on `ws://127.0.0.1`, so
+   STUN only [measured]: a tab hosts a private room, which isn't listed
+   and which a second tab joins by its code; a third joins from the
+   shared `?room=` link; a public room is listed and joined from the
+   list; when the host disconnects its joiners are dropped and the lobby
+   lists no rooms. A joiner without the map downloads it and reconnects
+   (`CL_ParseServerInfo`'s lazy load), so the host sees one short-lived
+   connection before the real one. Background tabs there stop the game
+   loop, so a host or joiner in a background tab stalls until it is in
+   front. Not checked: TURN, the Cloudflare lobby, other browsers, two
+   machines.
 6. **Later, depending on the spike:** B (server in a Worker), or C (a
    `deno desktop` host app).
 
