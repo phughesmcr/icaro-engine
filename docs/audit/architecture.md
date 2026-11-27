@@ -8,6 +8,24 @@ PRs are named per finding (#235 to #244).
 Ranking: severity High, Medium or Low is the cost of leaving it. Effort S is
 under a day, M is days, L is weeks.
 
+## Status
+
+Checked at `dev` `991c6e2` (2026-11-27). The rest of this file is the older
+snapshot.
+
+- A1 is open; `../architecture-plan.md` (#260) plans the layering.
+- B3 and B4: no pak is tracked or deployed, so the client build's SHA-256 pin
+  and the service worker's cache-first `pak0.pak` are gone (#270). The community
+  maps were removed (#259). The client build also denies `static/librequake/`.
+- L1: `THIRD_PARTY.md` was added (#257). SPDX headers and "or later" are open.
+- L2: done (#259, #270; id's artwork was replaced too, #267).
+- L3: done, but not as proposed (#264, #265, #266, #268, #270, #271). There is
+  no `lq1` directory and no committed pak: the browser downloads a pinned
+  release from R2 into its own storage, under `static/librequake/id1`; CI fails
+  on any tracked pak; and the game-room image fetches LibreQuake while building.
+  See `../librequake-content.md`.
+- The other findings weren't rechecked.
+
 ## Summary
 
 The port is clean and well tested for a 79k-line `src/`, but it is one cyclic

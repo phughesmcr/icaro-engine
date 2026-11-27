@@ -4,6 +4,22 @@ Audited at `2798ac9` (branch `agent/vision-rules`, equal to `origin/dev`), on
 2026-11-26. This audit measures what runs, by loading local content headless
 under Deno. Findings from reading the code are marked as such.
 
+## Status
+
+Checked at `dev` `991c6e2` (2026-11-27). The rest of this file is the older
+snapshot.
+
+- Finding 1 is fixed in `headless_host` (#252). The MCP server doesn't expose
+  the new options.
+- Finding 9: the signon buffer is now `SIGNON_SIZE` 31500 (#262). The
+  `developer 1` warning at 7998 bytes remains.
+- The messages that stopped AD and LibreQuake's `demo2` fit since #262
+  (`README.md`).
+- The 8 community maps in `static/maps/` were removed (#259), and the shareware
+  pak is no longer tracked (#270).
+- LibreQuake is now the default content (`../librequake-content.md`).
+- Findings 2 and 3 are open. The others weren't rechecked.
+
 ## Method
 
 - Throwaway driver outside the repo (`$TMPDIR`-style temp dir, not committed).

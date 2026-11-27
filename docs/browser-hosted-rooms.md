@@ -8,10 +8,12 @@ for what a browser has been checked for. Since then (checked at `dev`
 `694b2cc`): on a page that isn't local and has no `?server=`, Start Game's _Host
 on_ starts at "This browser" (#235, `NET_DefaultHostInBrowser`; not checked on
 the deployed site), and a joiner that loses its connection reconnects by code
-(#239, below). The goal is free multiplayer that doesn't depend on the
-maintainer's Mac or a paid server, on desktop and mobile. One player's browser
-tab hosts the room, the way a NetQuake listen server does, and the other players
-join it directly over WebRTC.
+(#239, below). At `dev` `991c6e2`: a joiner runs only an allowlist of the host's
+`stuffcmd` commands (#258), and a message may be up to 64,000 bytes (#262; not
+tried between two real browsers). The goal is free multiplayer that doesn't
+depend on the maintainer's Mac or a paid server, on desktop and mobile. One
+player's browser tab hosts the room, the way a NetQuake listen server does, and
+the other players join it directly over WebRTC.
 
 Tags, as in [always-on-hosting.md](always-on-hosting.md):
 
@@ -124,7 +126,7 @@ the game in the webview.
     see Gatekeeper warnings.
   - Windows builds have to be signed separately.
   - Auto-update doesn't apply on Windows [docs].
-- The executable may bundle only `static/pak0.pak`, the same rule as the
+- The executable may bundle only LibreQuake's data, the same rule as the
   game-room image's allowlist. Registered data stays on the player's own disk,
   loaded at run time, as in the browser.
 - It fits the "downloadable executable" idea better than `deno compile`.
@@ -199,7 +201,8 @@ behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js` `NET_Init`].
   drivers do, so slots aren't oversubscribed [code: `server/game_server.js`
   socket allocators].
 - **Untrusted peers:**
-  - Cap each message at `NET_MAXMESSAGE` (8,192 bytes).
+  - Cap each message at `NET_MAXMESSAGE` (8,192 bytes when this was written;
+    64,000 since #262).
   - Cap the queued reliable bytes per peer.
   - Drop a peer whose hello doesn't arrive within the handshake timeout.
   - The server drivers do the same at the byte level; the engine has no per-peer

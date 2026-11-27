@@ -18,6 +18,28 @@ findings 1 (demos), 4 (game directories) and 8. #235, #238 and #241 to #243 were
 not inspected (#235 and #238 were not in the list I was given and `gh` shows
 #238 as merged); #243 and #244 are the RL tier and look unrelated.
 
+## Status
+
+Checked at `dev` `991c6e2` (2026-11-27). The rest of this file is the older
+snapshot.
+
+- Finding 3: Ironwail's builtin set and its `checkextension` answer are ported
+  (#255), with `pr_checkextension` (default 1). The Quakespasm-Spiked tier
+  isn't. No mod was run. This changes the matrix's `checkextension` row to
+  Ironwail's one name and the `str2chr` row to yes.
+- Finding 6: fence textures are alpha-tested (#253), tried in a browser on
+  rerelease maps but no Quoth or AD map. Lit water is open. MF_HOLEY skins and
+  sprites don't get the edge fix.
+- Finding 4: `headless_host` mounts game directories (#252). The browser's list,
+  `-quoth` and layering are open. LibreQuake is the default content as
+  `?base=librequake`, not as an `lq1` game directory.
+- LibreQuake section: no pak is tracked (#270). `demo1.dem` (protocol 15) and,
+  since #262, `demo2.dem` play; `demo3.dem` is protocol 999 and doesn't. `set`,
+  `seta`, the key names and more cvars are accepted (#263); `if` isn't. Fence
+  textures are done.
+- Findings 1 and 2 are open (`../protocol-design.md`, #256, designs them). The
+  others weren't rechecked.
+
 ## Summary
 
 - The client reads only protocol 15 and Icaro's private 1015. A demo or server

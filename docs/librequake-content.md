@@ -1,14 +1,16 @@
 # LibreQuake as the standard content
 
-Status (2026-11-26): built. `src/intro.js` (the intro page), `src/librequake.js`
-(download, check, unpack) and the hooks in `main.js`, `src/userdata.js`,
-`src/pak.js`, `src/cd_audio.js` and `sw.js`. The release zips are served from R2
-by `cloudflare/librequake/` (see Hosting) once its bucket is filled and it is
-deployed: until then, the download button reports that the download isn't
-available, and only a player's own Quake files (Options, Game data) play. The
-repository ships no pak: id's shareware `static/pak0.pak` was removed, and the
-tests, benchmarks, servers and game-room image run LibreQuake too
-(`deno task fetch-data`, `server/game_data.js`).
+Status (checked at `dev` `991c6e2`, 2026-11-27): built. `src/intro.js` (the
+intro page), `src/librequake.js` (download, check, unpack) and the hooks in
+`main.js`, `src/userdata.js`, `src/pak.js`, `src/cd_audio.js` and `sw.js`. The
+release zips are served from R2 by `cloudflare/librequake/` (see Hosting). The
+maintainer reports the live site deployed and verified; on 2026-11-27 a range
+request for `full.zip` on `quake.anglezarke.games` answered 206 with its pinned
+size, and a `HEAD` for `lite.zip` answered 200 with its own. The download itself
+wasn't rerun in a browser for this status. The repository ships no pak: id's
+shareware `static/pak0.pak` was removed, and the tests, benchmarks, servers and
+game-room image run LibreQuake too (`deno task fetch-data`,
+`server/game_data.js`).
 
 [LibreQuake](https://github.com/lavenderdotpet/LibreQuake) is a free replacement
 for id1's data: art and maps under the BSD 3-clause licence, QuakeC under the
@@ -161,7 +163,13 @@ download's 404 was reported on the page with no policy violation.
 ## Not covered
 
 - LibreQuake's configs: `set`, `seta` and its key names are accepted (PR #263);
-  `if` and `serverinfo` are not, and print harmless messages.
+  `if` and `serverinfo` are not, and print harmless messages. The `contrast` and
+  `gl_overbright_models` cvars they set exist since PRs #272 and #269.
+- `demo3.dem` is protocol 999, which the client doesn't read, so it doesn't
+  play. `demo2.dem` plays since the message limits were raised (PR #262).
+- Darkness: the engine's causes were fixed by the overbright and lightmap colour
+  space changes (PRs #269 and #272). PR #272 found `lq_e1m1` still dark after
+  them, because its lightmaps are dark.
 - Lobby rooms run LibreQuake full's maps. A player with lite who joins a room on
   `start` gets lite's `start.bsp`, which differs from full's. Joining a room
   from the menu during a LibreQuake game is untested.
