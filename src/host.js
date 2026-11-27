@@ -24,6 +24,7 @@ import {
   Cbuf_Execute,
   Cbuf_Init,
   Cbuf_InsertText,
+  Cbuf_IsEmpty,
   Cmd_Init,
   Cmd_SetClientCallbacks,
 } from "./cmd.js";
@@ -679,6 +680,19 @@ let host_speeds_time3 = 0;
 
 let autosave_offer_done = false;
 
+/** Web-only: run once by the first frame that empties the command buffer */
+let host_configdone = null;
+
+/**
+ * Web-only: calls callback once the startup command text (quake.rc, the
+ * default binds and the saved config, all queued by Host_Init) has run, at the
+ * end of the first frame that leaves the command buffer empty. A `wait` in a
+ * config only delays it.
+ */
+export function Host_SetConfigDoneCallback(callback) {
+  host_configdone = callback;
+}
+
 function _Host_Frame_Internal(time) {
   // keep the random time dependent
   // Math.random() is already random in JS
@@ -696,6 +710,14 @@ function _Host_Frame_Internal(time) {
 
   // process console commands
   Cbuf_Execute();
+
+  // Web-only: once quake.rc and the saved config have run (main.js: a URL's
+  // ?cfg. settings go on top of them)
+  if (host_configdone !== null && Cbuf_IsEmpty()) {
+    const callback = host_configdone;
+    host_configdone = null;
+    callback();
+  }
 
   // Web-only: offer to continue the autosave once per page load (autosave.js)
   if (autosave_offer_done === false) {

@@ -182,6 +182,11 @@ export function Cbuf_InsertText(text) {
   }
 }
 
+/** Web-only: true when no command text is waiting (host.js, startup configs) */
+export function Cbuf_IsEmpty() {
+  return cmd_text.cursize === 0;
+}
+
 export function Cbuf_Execute() {
   while (cmd_text.cursize) {
     // find a \n or ; line break

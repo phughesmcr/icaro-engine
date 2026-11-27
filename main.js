@@ -3,7 +3,18 @@
 
 import { Sys_Error, Sys_Init, Sys_Printf } from "./src/sys.js";
 import { COM_InitArgv, hipnotic, rogue } from "./src/common.js";
-import { Host_Frame, Host_Init } from "./src/host.js";
+import {
+  Host_Frame,
+  Host_Init,
+  Host_SetConfigDoneCallback,
+} from "./src/host.js";
+import { Cvar_SetTransient } from "./src/cvar.js";
+import { Con_Printf } from "./src/console.js";
+import {
+  URLCfg_Argv,
+  URLCfg_BaseDirs,
+  URLCfg_Parse,
+} from "./src/url_config.js";
 import {
   COM_AddGameDirectory,
   COM_AddPakSequence,
@@ -58,47 +69,6 @@ const parms = {
   argv: [],
 };
 
-// ?game=rogue or ?game=hipnotic stands in for WinQuake's -rogue and
-// -hipnotic: the flag is passed to COM_InitArgv, and static/<game>/pak*.pak
-// load after id1's. ?game=mg1 (and the other names in GAME_DIRS) stands in
-// for -game mg1: only the directory's paks load. Other values are ignored,
-// so the parameter never reaches a fetch path.
-const MISSION_PACKS = ["rogue", "hipnotic"];
-const GAME_DIRS = ["mg1", "mg3", "dopa", "ctf"]; // the 2021 rerelease's add-ons
-
-// ?base=rerelease stands in for -basedir: the 2021 rerelease's directories,
-// static/rerelease/id1 and static/rerelease/<game>. ?base=librequake is
-// LibreQuake, kept in the browser's storage under static/librequake/id1
-// (src/librequake.js). Without either (?base=id1), id1's paks are
-// static/pak*.pak and game directories are static/<game>. The intro page
-// (src/intro.js) picks the base when the URL doesn't.
-const BASE_DIRS = {
-  rerelease: "static/rerelease",
-  librequake: "static/librequake",
-};
-
-// ?particles=<n> stands in for -particles <n> (r_part.c R_InitParticles
-// sizes the particle pool from it). Only whole numbers are passed on. C has
-// no maximum, but a URL can come from a shared link, so values above
-// PARTICLES_URL_MAX (16 times Ironwail's default) are ignored rather than
-// allocated.
-const PARTICLES_ARG = /^[0-9]+$/;
-const PARTICLES_URL_MAX = 262144;
-
-// ?listen=<n> stands in for -listen <n> (host.c Host_FindMaxClients): this
-// tab can host n players (MAX_SCOREBOARD, 16, caps larger values; 0 means 8)
-// and starts in deathmatch mode when n > 1, as the C does with the flag.
-// ?listen with no value is -listen alone, 8 players. Values that aren't a
-// whole number of up to three digits are ignored.
-const LISTEN_ARG = /^[0-9]{1,3}$/;
-
-// Web-only agent flags (docs/agent-interface.md): ?agent=lockstep or
-// ?agent=realtime attaches window.icaro at startup, and ?map=<name> with
-// optional ?skill=<0-3> starts that map instead of the intro demos. The map
-// name is checked, so a shared link can't run other commands.
-const AGENT_MODES = ["lockstep", "realtime"];
-const AGENT_MAP_ARG = /^[A-Za-z0-9_]{1,32}$/;
-
 // window.icaro: the agent API. Always present; it does nothing until called.
 function Agent_ExposeAPI() {
   window.icaro = Object.freeze({
@@ -134,76 +104,43 @@ async function main() {
   try {
     Sys_Init();
 
+    // Every URL parameter is checked in url_config.js; the messages say
+    // what it ignored
     const urlParams = new URLSearchParams(window.location.search);
-    const game = urlParams.get("game");
-    let gamedir = null; // -game <dir>
-    if (MISSION_PACKS.includes(game)) {
-      parms.argv = ["quake", "-" + game];
-      parms.argc = parms.argv.length;
-    } else if (GAME_DIRS.includes(game)) {
-      gamedir = game;
-      parms.argv = ["quake", "-game", game];
-      parms.argc = parms.argv.length;
-    } else if (game !== null) {
-      Sys_Printf(
-        'Ignoring unknown game "%s" (expected %s)\n',
-        game,
-        [...MISSION_PACKS, ...GAME_DIRS].join(", "),
-      );
-    }
+    const urlCfg = URLCfg_Parse(urlParams);
+    for (const message of urlCfg.messages) Sys_Printf("%s\n", message);
+    let gamedir = urlCfg.game !== null && urlCfg.game.mission === false ?
+      urlCfg.game.dir :
+      null; // -game <dir>
 
     // No game data is fetched before a person presses Play on the intro page
     const base = await Intro_Gate(urlParams);
+    let withGame = true;
     if (
-      base === "librequake" && game !== null && urlParams.get("base") === null
+      base === "librequake" && urlCfg.game !== null && urlCfg.base === null
     ) {
       // the link asked for a pack of id's data, which isn't in this browser
       // (the intro page said so): play LibreQuake without the pack
-      parms.argv = [];
-      parms.argc = 0;
+      withGame = false;
       gamedir = null;
     }
-    let basedir = "static";
-    let id1dir = "static";
-    if (Object.hasOwn(BASE_DIRS, base)) {
-      basedir = BASE_DIRS[base];
-      id1dir = basedir + "/id1";
-    } else if (base !== null) {
-      Sys_Printf(
-        'Ignoring unknown base "%s" (expected %s)\n',
-        base,
-        Object.keys(BASE_DIRS).join(", "),
-      );
-    }
+    const { basedir, id1dir, message: baseMessage } = URLCfg_BaseDirs(base);
+    if (baseMessage !== null) Sys_Printf("%s\n", baseMessage);
 
-    const particles = urlParams.get("particles");
-    if (
-      particles !== null && PARTICLES_ARG.test(particles) &&
-      Number(particles) <= PARTICLES_URL_MAX
-    ) {
-      if (parms.argv.length === 0) parms.argv = ["quake"];
-      parms.argv = [...parms.argv, "-particles", particles];
-      parms.argc = parms.argv.length;
-    } else if (particles !== null) {
-      Sys_Printf(
-        'Ignoring particles "%s" (expected a whole number up to %d)\n',
-        particles,
-        PARTICLES_URL_MAX,
-      );
-    }
-
-    const listen = urlParams.get("listen");
-    if (listen === "" || (listen !== null && LISTEN_ARG.test(listen))) {
-      if (parms.argv.length === 0) parms.argv = ["quake"];
-      parms.argv = listen === "" ?
-        [...parms.argv, "-listen"] :
-        [...parms.argv, "-listen", listen];
-      parms.argc = parms.argv.length;
-    } else if (listen !== null) {
-      Sys_Printf('Ignoring listen "%s" (expected a player count)\n', listen);
-    }
-
+    parms.argv = URLCfg_Argv(urlCfg, withGame);
+    parms.argc = parms.argv.length;
     COM_InitArgv(parms.argv);
+
+    // ?cfg.<cvar>= settings, once quake.rc and the saved config have run so
+    // the link's values win, and set so they are never saved
+    if (urlCfg.cvars.length > 0) {
+      Host_SetConfigDoneCallback(() => {
+        for (const [name, value] of urlCfg.cvars) {
+          Cvar_SetTransient(name, value);
+          Con_Printf('Link set %s "%s" (not saved)\n', name, value);
+        }
+      });
+    }
 
     // Loading bar
     const loadingProgress = document.getElementById("loading-progress");
@@ -310,22 +247,9 @@ async function main() {
     XR_Init(scene);
 
     Agent_ExposeAPI();
-    const agentMode = urlParams.get("agent");
-    if (AGENT_MODES.includes(agentMode)) Agent_Attach(agentMode);
-    const agentMap = urlParams.get("map");
-    if (agentMap !== null && roomId === null) {
-      if (AGENT_MAP_ARG.test(agentMap)) {
-        const skillParam = urlParams.get("skill");
-        const skillArg = skillParam !== null && /^[0-3]$/.test(skillParam) ?
-          Number(skillParam) :
-          1;
-        Agent_NewGame(agentMap, skillArg).catch((e) => console.error(e));
-      } else {
-        Sys_Printf(
-          'Ignoring map "%s" (expected letters, digits and _)\n',
-          agentMap,
-        );
-      }
+    if (urlCfg.agent !== null) Agent_Attach(urlCfg.agent);
+    if (urlCfg.map !== null && roomId === null) {
+      Agent_NewGame(urlCfg.map, urlCfg.skill).catch((e) => console.error(e));
     }
 
     // Expose for debugging
