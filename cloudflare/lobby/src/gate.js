@@ -4,20 +4,30 @@
 // run it. A request turned away here never wakes the Durable Object, so it
 // costs one Worker request and no Durable Object request.
 
-/** Whether `origin` (a request's Origin header, or null) may open a socket. */
+/**
+ * Whether `origin` (a request's Origin header, or null) may open a socket.
+ * An empty list accepts every request. A set list accepts only those
+ * origins, and turns away a request with no Origin at all.
+ */
 export function Lobby_OriginAllowed(origin, allowed) {
-  // Non-browser clients send no Origin and could forge one anyway. The check
-  // stops other sites' pages from using this lobby (and its TURN relays)
-  // through their visitors' browsers.
-  if (origin === null) return true;
+  // The list stops other sites' pages from using this lobby (and its TURN
+  // relays) through their visitors' browsers, which always send Origin on a
+  // WebSocket upgrade. A non-browser client could forge the header, so
+  // requiring it is a speed bump for scripts (curl, a bare WebSocket
+  // library), not a lock: the rate limits are what hold them. Deno clients
+  // (the headless host, the agent MCP server) send no Origin, so they are
+  // refused too, but they lose nothing: this lobby serves only rooms hosted
+  // in browsers, and Deno has no RTCPeerConnection to join one. The Deno
+  // lobby (server/lobby_server.js) doesn't use this gate.
   if (allowed.length === 0) return true;
+  if (origin === null) return false;
   return allowed.includes(origin.toLowerCase());
 }
 
 /**
  * LOBBY_ORIGINS as a list: comma-separated origins such as
  * "https://quake.example.com", lowercased, with no trailing slash. Unset or
- * empty means any origin.
+ * empty means any origin, or none.
  */
 export function Lobby_ParseOrigins(value) {
   if (typeof value !== "string") return [];
