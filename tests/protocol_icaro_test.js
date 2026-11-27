@@ -9,7 +9,8 @@
 //   (PF_ALPHA) and clientdata (SU_WEAPONALPHA);
 // - frames above 255: PE_FRAME2, short baseline, static and playerinfo
 //   frames, and SU_WEAPONFRAME2.
-// NetQuake 15 (the shareware attract demos) must still parse.
+// NetQuake 15 (the shareware attract demos) must still parse, and so must
+// FitzQuake 666 and RMQ 999 (Ironwail's demos), which the client only reads.
 
 import { TD_Mount } from "./test_data.js";
 
@@ -23,6 +24,12 @@ const {
   MIN_EDICTS,
   MAX_EDICTS,
   MAX_MODELS,
+  STAT_AMMO,
+  STAT_ARMOR,
+  STAT_CELLS,
+  STAT_NAILS,
+  STAT_ROCKETS,
+  STAT_SHELLS,
   STAT_WEAPON,
   STAT_WEAPONFRAME,
   packet_entities_t,
@@ -30,6 +37,43 @@ const {
 const {
   PROTOCOL_VERSION,
   PROTOCOL_ICARO,
+  PROTOCOL_FITZQUAKE,
+  PROTOCOL_RMQ,
+  PRFL_SHORTANGLE,
+  PRFL_FLOATANGLE,
+  PRFL_24BITCOORD,
+  PRFL_FLOATCOORD,
+  PRFL_INT32COORD,
+  B_LARGEMODEL,
+  B_LARGEFRAME,
+  B_ALPHA,
+  B_SCALE,
+  U_MOREBITS,
+  U_ORIGIN1,
+  U_ANGLE2,
+  U_FRAME,
+  U_MODEL,
+  U_LONGENTITY,
+  U_EXTEND1,
+  U_ALPHA,
+  U_FRAME2,
+  U_MODEL2,
+  U_LERPFINISH,
+  U_SCALE,
+  svc_skybox,
+  svc_bf,
+  svc_fog,
+  svc_spawnbaseline2,
+  svc_spawnstatic2,
+  svc_spawnstaticsound2,
+  SU_ARMOR,
+  SU_WEAPON2,
+  SU_ARMOR2,
+  SU_AMMO2,
+  SU_SHELLS2,
+  SU_NAILS2,
+  SU_ROCKETS2,
+  SU_CELLS2,
   svc_version,
   svc_spawnbaseline,
   svc_spawnstatic,
@@ -59,6 +103,12 @@ const { cl, cls, cl_entities, cl_static_entities, scoreboard_t, SIGNONS } =
 const { CL_ParseServerMessage, CL_SetProtocol } = await import(
   "../src/cl_parse.js"
 );
+const { LERP_FINISH } = await import("../src/render.js");
+const { Fog_GetState, Fog_Update } = await import("../src/gl_fog.js");
+const { Sky_GetSkyBox, Sky_LoadSkyBox } = await import("../src/gl_sky.js");
+const { V_Init } = await import("../src/view.js");
+const { CSHIFT_BONUS } = await import("../src/client.js");
+const { Cvar_FindVar } = await import("../src/cvar.js");
 const { CL_GetEntityFrame, CL_GetPredictedPlayer, CL_ResetPrediction } =
   await import("../src/cl_pred.js");
 const { cl_shownet } = await import("../src/cl_main.js");
@@ -114,8 +164,10 @@ function makeMsg(size) {
 }
 
 // Run the client parser over one message: svc_version `protocol`, then
-// whatever `write` puts in. Restores the client state it touches.
-function clientParse(protocol, write, check) {
+// whatever `write` puts in, starting from Icaro's reader. `flags` are the
+// PRFL_* flags svc_serverinfo would have set (svc_version keeps them).
+// Restores the client state it touches.
+function clientParse(protocol, write, check, flags = 0) {
   const saved = {
     data: net.net_message.data,
     maxsize: net.net_message.maxsize,
@@ -135,6 +187,7 @@ function clientParse(protocol, write, check) {
     net.net_message.data = new Uint8Array(8192);
     net.net_message.maxsize = 8192;
     common.SZ_Clear(net.net_message);
+    CL_SetProtocol(PROTOCOL_ICARO, flags);
     common.MSG_WriteByte(net.net_message, svc_version);
     common.MSG_WriteLong(net.net_message, protocol);
     write(net.net_message);
@@ -258,13 +311,13 @@ Deno.test("svc_version switches the client between NetQuake 15 and PROTOCOL_ICAR
 Deno.test("an unknown protocol is refused", () => {
   let error = null;
   try {
-    clientParse(666, () => {}, () => {});
+    clientParse(1234, () => {}, () => {});
   } catch (e) {
     error = e;
   }
 
-  if (error === null || !String(error.message).includes("protocol 666")) {
-    throw new Error("expected a Host_Error for protocol 666, got " + error);
+  if (error === null || !String(error.message).includes("protocol 1234")) {
+    throw new Error("expected a Host_Error for protocol 1234, got " + error);
   }
 });
 
@@ -334,6 +387,354 @@ Deno.test("a fast update reads short coords under 15 and int32 under PROTOCOL_IC
       assertEqual(org[1], cl_entities[20].baseline.origin[1], "origin y");
       assertEqual(org[2], 2047.875, `${protocol}: origin z`);
     });
+  }
+});
+
+// FitzQuake 666 and RMQ 999: hand-built messages in Ironwail's layouts
+// (cl_parse.c, protocol.h). RMQ's coordinates and angles follow the PRFL_*
+// flags svc_serverinfo carries; 666 has none.
+
+/** int32 sixteenths (PRFL_INT32COORD) */
+function writeCoordInt32(m, f) {
+  common.MSG_WriteLong(m, Math.round(f * 16));
+}
+
+/** 16.8 fixed point (PRFL_24BITCOORD) */
+function writeCoord24(m, whole, frac255) {
+  common.MSG_WriteShort(m, whole);
+  common.MSG_WriteByte(m, frac255);
+}
+
+/** short angles (PRFL_SHORTANGLE) */
+function writeAngleShort(m, a) {
+  common.MSG_WriteShort(m, Math.round(a * 65536 / 360));
+}
+
+Deno.test("PROTOCOL_RMQ's flags pick Ironwail's coordinate and angle modes", () => {
+  const savedProtocol = cl.protocol;
+  const C = common;
+  const cases = [
+    [PROTOCOL_FITZQUAKE, 0, C.MSG_COORD_16, C.MSG_ANGLE_8],
+    [PROTOCOL_RMQ, 0, C.MSG_COORD_16, C.MSG_ANGLE_8],
+    // demo3's flags
+    [
+      PROTOCOL_RMQ,
+      PRFL_SHORTANGLE | PRFL_INT32COORD,
+      C.MSG_COORD_INT32_16,
+      C.MSG_ANGLE_16,
+    ],
+    [PROTOCOL_RMQ, PRFL_24BITCOORD, C.MSG_COORD_24, C.MSG_ANGLE_8],
+    // float > int32 > 24-bit; float > short
+    [
+      PROTOCOL_RMQ,
+      PRFL_FLOATCOORD | PRFL_INT32COORD | PRFL_24BITCOORD | PRFL_FLOATANGLE |
+      PRFL_SHORTANGLE,
+      C.MSG_COORD_FLOAT,
+      C.MSG_ANGLE_FLOAT,
+    ],
+    [PROTOCOL_RMQ, PRFL_INT32COORD | PRFL_24BITCOORD, C.MSG_COORD_INT32_16, 0],
+    [PROTOCOL_VERSION, 0, C.MSG_COORD_16, C.MSG_ANGLE_8],
+    [PROTOCOL_ICARO, 0, C.MSG_COORD_INT32_8, C.MSG_ANGLE_8],
+  ];
+  try {
+    for (const [protocol, flags, coordmode, anglemode] of cases) {
+      assertEqual(CL_SetProtocol(protocol, flags), true, `${protocol} read`);
+      assertEqual(C.msg_coordmode, coordmode, `${protocol}/${flags} coords`);
+      assertEqual(C.msg_anglemode, anglemode, `${protocol}/${flags} angles`);
+    }
+  } finally {
+    CL_SetProtocol(PROTOCOL_ICARO, 0);
+    cl.protocol = savedProtocol;
+  }
+});
+
+Deno.test("PROTOCOL_RMQ reads 24-bit, float and short-angle baselines", () => {
+  // id's svc_spawnbaseline layout, with the flags' coordinates and angles
+  const write = (m, num, coord, angle) => {
+    common.MSG_WriteByte(m, svc_spawnbaseline);
+    common.MSG_WriteShort(m, num);
+    common.MSG_WriteByte(m, 5); // model
+    common.MSG_WriteByte(m, 6); // frame
+    common.MSG_WriteByte(m, 0); // colormap
+    common.MSG_WriteByte(m, 2); // skin
+    for (let i = 0; i < 3; i++) {
+      coord(m, i);
+      angle(m, i);
+    }
+  };
+  clientParse(PROTOCOL_RMQ, (m) => {
+    write(m, 40, (m, i) => writeCoord24(m, -9000 + i, 51), (m, i) => {
+      common.MSG_WriteAngle(m, i * 90);
+    });
+  }, () => {
+    const b = cl_entities[40].baseline;
+    assertEqual(b.origin[0], Math.fround(-9000 + 51 / 255), "24-bit coord");
+    assertEqual(b.origin[2], Math.fround(-8998 + 51 / 255), "24-bit coord");
+    assertEqual(b.angles[1], 90, "byte angle");
+    assertEqual(b.skin, 2, "skin");
+  }, PRFL_24BITCOORD);
+  clientParse(PROTOCOL_RMQ, (m) => {
+    write(m, 41, (m, i) => common.MSG_WriteFloat(m, 40000.5 * (i - 1)), (m) => {
+      common.MSG_WriteFloat(m, 12.25);
+    });
+  }, () => {
+    const b = cl_entities[41].baseline;
+    assertEqual(b.origin[0], -40000.5, "float coord");
+    assertEqual(b.origin[2], 40000.5, "float coord");
+    assertEqual(b.angles[2], 12.25, "float angle");
+  }, PRFL_FLOATCOORD | PRFL_FLOATANGLE);
+});
+
+Deno.test("svc_spawnbaseline2 reads FitzQuake's B_* fields under PROTOCOL_RMQ", () => {
+  clientParse(PROTOCOL_RMQ, (m) => {
+    common.MSG_WriteByte(m, svc_spawnbaseline2);
+    common.MSG_WriteShort(m, 300);
+    common.MSG_WriteByte(m, B_LARGEMODEL | B_LARGEFRAME | B_ALPHA | B_SCALE);
+    common.MSG_WriteShort(m, 700); // model
+    common.MSG_WriteShort(m, 400); // frame
+    common.MSG_WriteByte(m, 0); // colormap
+    common.MSG_WriteByte(m, 3); // skin
+    for (let i = 0; i < 3; i++) {
+      writeCoordInt32(m, -5000.5 + i * 10000);
+      writeAngleShort(m, -90 + i * 90);
+    }
+    common.MSG_WriteByte(m, ENTALPHA_ENCODE(0.5));
+    common.MSG_WriteByte(m, 32); // scale: read and dropped
+
+    // with no B_* bits: id's byte model and frame, no alpha
+    common.MSG_WriteByte(m, svc_spawnbaseline2);
+    common.MSG_WriteShort(m, 301);
+    common.MSG_WriteByte(m, 0);
+    common.MSG_WriteByte(m, 9); // model
+    common.MSG_WriteByte(m, 8); // frame
+    common.MSG_WriteByte(m, 0);
+    common.MSG_WriteByte(m, 1);
+    for (let i = 0; i < 3; i++) {
+      writeCoordInt32(m, 1.0625);
+      writeAngleShort(m, 45);
+    }
+  }, () => {
+    const b = cl_entities[300].baseline;
+    assertEqual(b.modelindex, 700, "B_LARGEMODEL");
+    assertEqual(b.frame, 400, "B_LARGEFRAME");
+    assertEqual(b.skin, 3, "skin");
+    assertEqual(b.origin[0], -5000.5, "int32 sixteenths");
+    assertEqual(b.origin[2], 15000 - 0.5, "int32 sixteenths");
+    assertEqual(b.angles[0], -90, "short angle");
+    assertEqual(b.angles[2], 90, "short angle");
+    assertEqual(b.alpha, ENTALPHA_ENCODE(0.5), "B_ALPHA");
+    const b2 = cl_entities[301].baseline;
+    assertEqual(b2.modelindex, 9, "byte model");
+    assertEqual(b2.frame, 8, "byte frame");
+    assertEqual(b2.origin[1], 1.0625, "int32 sixteenths");
+    assertEqual(b2.angles[1], 45, "short angle");
+    assertEqual(b2.alpha, ENTALPHA_DEFAULT, "no B_ALPHA");
+  }, PRFL_SHORTANGLE | PRFL_INT32COORD);
+});
+
+Deno.test("svc_spawnstatic2 and svc_spawnstaticsound2 under PROTOCOL_FITZQUAKE", () => {
+  clientParse(PROTOCOL_FITZQUAKE, (m) => {
+    common.MSG_WriteByte(m, svc_spawnstatic2);
+    common.MSG_WriteByte(m, B_LARGEFRAME | B_ALPHA);
+    common.MSG_WriteByte(m, 4); // model: a byte without B_LARGEMODEL
+    common.MSG_WriteShort(m, 513); // frame
+    common.MSG_WriteByte(m, 0);
+    common.MSG_WriteByte(m, 1);
+    for (let i = 0; i < 3; i++) {
+      common.MSG_WriteCoord16(m, -4000.5);
+      common.MSG_WriteAngle(m, 90);
+    }
+    common.MSG_WriteByte(m, ENTALPHA_ENCODE(0.25));
+
+    // a short sound index, short coords
+    common.MSG_WriteByte(m, svc_spawnstaticsound2);
+    for (let i = 0; i < 3; i++) common.MSG_WriteCoord16(m, 100);
+    common.MSG_WriteShort(m, 300);
+    common.MSG_WriteByte(m, 255);
+    common.MSG_WriteByte(m, 64);
+
+    // and id's spawnstaticsound: a byte
+    common.MSG_WriteByte(m, svc_spawnstaticsound);
+    for (let i = 0; i < 3; i++) common.MSG_WriteCoord16(m, 100);
+    common.MSG_WriteByte(m, 3);
+    common.MSG_WriteByte(m, 255);
+    common.MSG_WriteByte(m, 64);
+  }, () => {
+    const ent = cl_static_entities[cl.num_statics - 1];
+    assertEqual(ent.baseline.modelindex, 4, "static model");
+    assertEqual(ent.frame, 513, "static frame");
+    assertEqual(ent.skinnum, 1, "static skin after the short frame");
+    assertEqual(ent.origin[1], -4000.5, "static origin");
+    assertEqual(ent.angles[1], 90, "static angle");
+    assertEqual(ent.alpha, ENTALPHA_ENCODE(0.25), "static alpha");
+  });
+});
+
+Deno.test("Fitz clientdata reads the SU_*2 high bytes after the active weapon", () => {
+  const STATS = [
+    STAT_WEAPON,
+    STAT_ARMOR,
+    STAT_AMMO,
+    STAT_SHELLS,
+    STAT_NAILS,
+    STAT_ROCKETS,
+    STAT_CELLS,
+  ];
+  const saved = STATS.map((s) => cl.stats[s]);
+  try {
+    clientParse(PROTOCOL_FITZQUAKE, (m) => {
+      common.MSG_WriteByte(m, svc_clientdata);
+      common.MSG_WriteShort(m, SU_ITEMS | SU_ARMOR | SU_WEAPON | SU_EXTEND1);
+      common.MSG_WriteByte(
+        m,
+        (SU_WEAPON2 | SU_ARMOR2 | SU_AMMO2 | SU_SHELLS2 | SU_NAILS2 |
+          SU_ROCKETS2 | SU_CELLS2) >> 16,
+      );
+      common.MSG_WriteLong(m, 1); // items
+      common.MSG_WriteByte(m, 10); // armor
+      common.MSG_WriteByte(m, 11); // weapon model
+      common.MSG_WriteShort(m, 100); // health
+      common.MSG_WriteByte(m, 12); // ammo
+      for (let i = 0; i < 4; i++) common.MSG_WriteByte(m, 13 + i);
+      common.MSG_WriteByte(m, 0); // active weapon
+      for (let i = 0; i < 7; i++) common.MSG_WriteByte(m, 1 + i); // *2
+    }, () => {
+      const expect = [11, 10, 12, 13, 14, 15, 16];
+      for (let i = 0; i < STATS.length; i++) {
+        assertEqual(
+          cl.stats[STATS[i]],
+          ((1 + i) << 8) | expect[i],
+          `stat ${STATS[i]} high byte`,
+        );
+      }
+    });
+  } finally {
+    STATS.forEach((s, i) => cl.stats[s] = saved[i]);
+  }
+});
+
+Deno.test("a Fitz fast update reads U_EXTEND1, alpha, frame2, model2 and lerpfinish", () => {
+  const savedMtime = [cl.mtime[0], cl.mtime[1]];
+  const write = (m, model2, lerp) => {
+    common.MSG_WriteByte(m, 128 | U_MOREBITS | U_ORIGIN1 | U_ANGLE2 | U_FRAME);
+    common.MSG_WriteByte(m, (U_EXTEND1 | U_LONGENTITY | U_MODEL) >> 8);
+    common.MSG_WriteByte(
+      m,
+      (U_ALPHA | U_SCALE | U_FRAME2 | U_MODEL2 | (lerp ? U_LERPFINISH : 0)) >>
+        16,
+    );
+    common.MSG_WriteShort(m, 3000); // entity
+    common.MSG_WriteByte(m, 0x34); // model
+    common.MSG_WriteByte(m, 0x10); // frame
+    writeCoordInt32(m, 6000.25);
+    writeAngleShort(m, 270 - 360);
+    common.MSG_WriteByte(m, 77); // alpha
+    common.MSG_WriteByte(m, 16); // scale: dropped
+    common.MSG_WriteByte(m, 0x01); // frame2
+    common.MSG_WriteByte(m, model2);
+    if (lerp) common.MSG_WriteByte(m, 51);
+  };
+  try {
+    clientParse(PROTOCOL_RMQ, (m) => {
+      cls.signon = SIGNONS;
+      cl.mtime[0] = 10;
+      write(m, 0x02, true);
+    }, () => {
+      const ent = cl_entities[3000];
+      assertEqual(ent.msg_origins[0][0], 6000.25, "int32 coord");
+      assertEqual(ent.msg_angles[0][1], -90, "short angle");
+      assertEqual(ent.frame, 0x110, "U_FRAME2");
+      assertEqual(ent.model, cl.model_precache[0x234], "U_MODEL2");
+      assertEqual(ent.alpha, 77, "U_ALPHA");
+      assertEqual(ent.lerpfinish, 10 + 51 / 255, "U_LERPFINISH");
+      assertEqual((ent.lerpflags & LERP_FINISH) !== 0, true, "LERP_FINISH");
+    }, PRFL_SHORTANGLE | PRFL_INT32COORD);
+
+    clientParse(PROTOCOL_RMQ, (m) => {
+      cls.signon = SIGNONS;
+      write(m, 0x02, false);
+    }, () => {
+      const ent = cl_entities[3000];
+      assertEqual((ent.lerpflags & LERP_FINISH) !== 0, false, "cleared");
+    }, PRFL_SHORTANGLE | PRFL_INT32COORD);
+
+    // U_MODEL2 can't name a model past MAX_MODELS
+    let error = null;
+    try {
+      clientParse(
+        PROTOCOL_RMQ,
+        (m) => {
+          cls.signon = SIGNONS;
+          write(m, 0xFF, false);
+        },
+        () => {},
+        PRFL_SHORTANGLE | PRFL_INT32COORD,
+      );
+    } catch (e) {
+      error = e;
+    }
+    if (error === null || !String(error.message).includes("bad modnum")) {
+      throw new Error("expected bad modnum, got " + error);
+    }
+  } finally {
+    cl.mtime[0] = savedMtime[0];
+    cl.mtime[1] = savedMtime[1];
+  }
+});
+
+Deno.test("svc_fog, svc_bf and svc_skybox under PROTOCOL_FITZQUAKE", async () => {
+  if (Cvar_FindVar("gl_cshiftpercent_damage") === null) {
+    V_Init(); // registers "bf"
+  }
+  const bonus = cl.cshifts[CSHIFT_BONUS];
+  const savedPercent = bonus.percent;
+  try {
+    bonus.percent = 0;
+    clientParse(PROTOCOL_FITZQUAKE, (m) => {
+      common.MSG_WriteByte(m, svc_fog);
+      common.MSG_WriteByte(m, 51); // density
+      common.MSG_WriteByte(m, 255);
+      common.MSG_WriteByte(m, 0);
+      common.MSG_WriteByte(m, 102);
+      common.MSG_WriteShort(m, 250); // time, hundredths
+      common.MSG_WriteByte(m, svc_bf);
+      common.MSG_WriteByte(m, svc_skybox);
+      common.MSG_WriteString(m, "");
+    }, () => {
+      const fog = Fog_GetState();
+      assertEqual(fog.density, 51 / 255, "fog density");
+      assertEqual(fog.red, 1, "fog red");
+      assertEqual(fog.green, 0, "fog green");
+      assertEqual(fog.blue, 102 / 255, "fog blue");
+      assertEqual(fog.fade_time, 2.5, "fog time");
+      assertEqual(bonus.percent, 50, "bf");
+      assertEqual(Sky_GetSkyBox(), null, "skybox off");
+    });
+  } finally {
+    bonus.percent = savedPercent;
+    Fog_Update(0, 0.3, 0.3, 0.3, 0);
+    await Sky_LoadSkyBox("");
+  }
+});
+
+Deno.test("FitzQuake's svcs are illegible under 15 and PROTOCOL_ICARO", () => {
+  const cases = [
+    [PROTOCOL_VERSION, [svc_skybox, svc_bf, svc_fog, 42, 43, 44]],
+    [PROTOCOL_ICARO, [svc_skybox, svc_bf, svc_fog, 43, 44]],
+    [PROTOCOL_RMQ, [38, 45, 47, 48, 49]],
+  ];
+  for (const [protocol, svcs] of cases) {
+    for (const svc of svcs) {
+      let error = null;
+      try {
+        clientParse(protocol, (m) => common.MSG_WriteByte(m, svc), () => {});
+      } catch (e) {
+        error = e;
+      }
+      if (error === null || !String(error.message).includes("Illegible")) {
+        throw new Error(`svc ${svc} under ${protocol}: got ${error}`);
+      }
+    }
   }
 });
 
@@ -869,13 +1270,26 @@ Deno.test("ENTALPHA_ENCODE / DECODE / TOSAVE match Ironwail", () => {
   assertEqual(ENTALPHA_ENCODE(ENTALPHA_TOSAVE(128)), 128, "save round trip");
 });
 
-// The data's first attract demo (LibreQuake's demo1, recorded by FitzQuake
-// 0.85 under protocol 15; its first message prints the server's banner
-// before svc_serverinfo)
+// The data's attract demos: LibreQuake's demo1 was recorded by FitzQuake
+// 0.85 under protocol 15 (its first message prints the server's banner
+// before svc_serverinfo); demo3 under PROTOCOL_RMQ with PRFL_SHORTANGLE and
+// PRFL_INT32COORD.
 
 Deno.test("demo1.dem (protocol 15) parses message by message", async () => {
+  await demoParses("demo1.dem", PROTOCOL_VERSION, 0);
+});
+
+Deno.test("demo3.dem (PROTOCOL_RMQ) parses message by message", async () => {
+  await demoParses(
+    "demo3.dem",
+    PROTOCOL_RMQ,
+    PRFL_SHORTANGLE | PRFL_INT32COORD,
+  );
+});
+
+async function demoParses(name, protocol, flags) {
   await TD_Mount();
-  const file = pak.COM_FindFile("demo1.dem");
+  const file = pak.COM_FindFile(name);
   const data = file.data.subarray(0, file.size);
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
@@ -924,8 +1338,8 @@ Deno.test("demo1.dem (protocol 15) parses message by message", async () => {
 
       // CL_ParseServerInfo loads the map and builds the renderer's
       // world, which the headless shim can't. Read the serverinfo here
-      // and hand the parser svc_version 15 in its place.
-      if (messages === 0) msg = replaceServerinfo(msg);
+      // and hand the parser svc_version in its place.
+      if (messages === 0) msg = replaceServerinfo(msg, protocol, flags);
 
       net.net_message.data.set(msg, 0);
       net.net_message.cursize = msg.length;
@@ -941,7 +1355,7 @@ Deno.test("demo1.dem (protocol 15) parses message by message", async () => {
         msg.length,
         `message ${messages} read length`,
       );
-      assertEqual(cl.protocol, PROTOCOL_VERSION, "protocol");
+      assertEqual(cl.protocol, protocol, "protocol");
       messages++;
     }
   } finally {
@@ -970,11 +1384,12 @@ Deno.test("demo1.dem (protocol 15) parses message by message", async () => {
   }
   if (messages < 100) throw new Error(`only ${messages} messages`);
   assertEqual(pos, data.length, "every message was read");
-});
+}
 
 // The first demo message is svc_serverinfo and the signon that follows it.
-// Returns svc_version 15 plus the rest, and sets what CL_ParseServerInfo would.
-function replaceServerinfo(msg) {
+// Returns svc_version plus the rest, and sets what CL_ParseServerInfo would
+// (with PROTOCOL_RMQ's flags, which svc_version keeps).
+function replaceServerinfo(msg, protocol, flags) {
   let p = 0;
   if (msg[p] === 8) { // svc_print
     p++;
@@ -983,12 +1398,16 @@ function replaceServerinfo(msg) {
   }
   const head = p;
   if (msg[p++] !== 11) {
-    throw new Error("demo1 does not start with svc_serverinfo");
+    throw new Error("the demo does not start with svc_serverinfo");
   }
-  const version = msg[p] | (msg[p + 1] << 8) | (msg[p + 2] << 16) |
-    (msg[p + 3] << 24);
-  assertEqual(version, PROTOCOL_VERSION, "demo protocol");
+  const view = new DataView(msg.buffer, msg.byteOffset, msg.byteLength);
+  assertEqual(view.getInt32(p, true), protocol, "demo protocol");
   p += 4;
+  if (protocol === PROTOCOL_RMQ) {
+    assertEqual(view.getInt32(p, true), flags, "demo protocol flags");
+    p += 4;
+  }
+  CL_SetProtocol(protocol, flags);
   cl.maxclients = msg[p++];
   cl.scores = [];
   for (let i = 0; i < cl.maxclients; i++) cl.scores.push(new scoreboard_t());
@@ -1006,7 +1425,7 @@ function replaceServerinfo(msg) {
   const out = new Uint8Array(head + 5 + msg.length - p);
   out.set(msg.subarray(0, head), 0);
   out[head] = svc_version;
-  new DataView(out.buffer).setInt32(head + 1, PROTOCOL_VERSION, true);
+  new DataView(out.buffer).setInt32(head + 1, protocol, true);
   out.set(msg.subarray(p), head + 5);
   return out;
 }

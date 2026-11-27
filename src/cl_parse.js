@@ -11,8 +11,11 @@ import {
   STAT_ACTIVEWEAPON,
   STAT_AMMO,
   STAT_ARMOR,
+  STAT_CELLS,
   STAT_HEALTH,
   STAT_MONSTERS,
+  STAT_NAILS,
+  STAT_ROCKETS,
   STAT_SECRETS,
   STAT_SHELLS,
   STAT_WEAPON,
@@ -21,10 +24,15 @@ import {
 import {
   Con_DPrintf,
   Con_Printf,
+  MSG_ANGLE_16,
   MSG_ANGLE_8,
+  MSG_ANGLE_FLOAT,
   msg_badread,
   MSG_BeginReading,
   MSG_COORD_16,
+  MSG_COORD_24,
+  MSG_COORD_FLOAT,
+  MSG_COORD_INT32_16,
   MSG_COORD_INT32_8,
   MSG_ReadAngle,
   MSG_ReadAngle16,
@@ -48,6 +56,10 @@ import { Cbuf_AddServerText, Cbuf_AddText } from "./cmd.js";
 import { Cmd_ExecuteString } from "./cmd.js";
 import { src_command } from "./cmd.js";
 import {
+  B_ALPHA,
+  B_LARGEFRAME,
+  B_LARGEMODEL,
+  B_SCALE,
   clc_nop,
   CM_ANGLE1,
   CM_ANGLE2,
@@ -91,27 +103,43 @@ import {
   PF_VELOCITY2,
   PF_VELOCITY3,
   PF_WEAPONFRAME,
+  PRFL_24BITCOORD,
+  PRFL_EDICTSCALE,
+  PRFL_FLOATANGLE,
+  PRFL_FLOATCOORD,
+  PRFL_INT32COORD,
+  PRFL_SHORTANGLE,
+  PROTOCOL_FITZQUAKE,
   PROTOCOL_ICARO,
+  PROTOCOL_RMQ,
   PROTOCOL_VERSION,
   PS_BOX,
   SND_ATTENUATION,
   SND_LARGEENTITY,
   SND_LARGESOUND,
   SND_VOLUME,
+  SU_AMMO2,
   SU_ARMOR,
+  SU_ARMOR2,
+  SU_CELLS2,
   SU_EXTEND1,
   SU_EXTEND2,
   SU_IDEALPITCH,
   SU_INWATER,
+  SU_NAILS2,
   SU_ONGROUND,
   SU_PUNCH1,
+  SU_ROCKETS2,
+  SU_SHELLS2,
   SU_VELOCITY1,
   SU_VIEWHEIGHT,
   SU_WEAPON,
+  SU_WEAPON2,
   SU_WEAPONALPHA,
   SU_WEAPONFRAME,
   SU_WEAPONFRAME2,
   svc_achievement,
+  svc_bf,
   svc_cdtrack,
   svc_centerprint,
   svc_clientdata,
@@ -120,6 +148,7 @@ import {
   svc_deltapacketentities,
   svc_disconnect,
   svc_finale,
+  svc_fog,
   svc_foundsecret,
   svc_intermission,
   svc_killedmonster,
@@ -137,10 +166,14 @@ import {
   svc_setpause,
   svc_setview,
   svc_signonnum,
+  svc_skybox,
   svc_sound,
   svc_spawnbaseline,
+  svc_spawnbaseline2,
   svc_spawnstatic,
+  svc_spawnstatic2,
   svc_spawnstaticsound,
+  svc_spawnstaticsound2,
   svc_stopsound,
   svc_stufftext,
   svc_temp_entity,
@@ -150,19 +183,26 @@ import {
   svc_updatename,
   svc_updatestat,
   svc_version,
+  U_ALPHA,
   U_ANGLE1,
   U_ANGLE2,
   U_ANGLE3,
   U_COLORMAP,
   U_EFFECTS,
+  U_EXTEND1,
+  U_EXTEND2,
   U_FRAME,
+  U_FRAME2,
+  U_LERPFINISH,
   U_LONGENTITY,
   U_MODEL,
+  U_MODEL2,
   U_MOREBITS,
   U_NOLERP,
   U_ORIGIN1,
   U_ORIGIN2,
   U_ORIGIN3,
+  U_SCALE,
   U_SKIN,
 } from "./protocol.js";
 import {
@@ -201,6 +241,7 @@ export let cl_playerindex = -1;
 import { R_NewMap } from "./gl_rmisc.js";
 import { R_WarmupStart } from "./gl_warmup.js";
 import {
+  LERP_FINISH,
   LERP_MOVESTEP,
   LERP_RESETANIM,
   LERP_RESETMOVE,
@@ -214,6 +255,8 @@ import { CL_GetMessage } from "./cl_demo.js";
 import { set_noclip_anglehack } from "./host_cmd.js";
 import { CL_ClearState, cl_shownet, CL_SignonReply } from "./cl_main.js";
 import { CL_ParseTEnt } from "./cl_tent.js";
+import { Fog_ParseServerMessage } from "./gl_fog.js";
+import { Sky_LoadSkyBox } from "./gl_sky.js";
 import {
   S_LocalSound,
   S_PrecacheSound,
@@ -463,12 +506,25 @@ export function CL_ParseServerInfo() {
   // Fitz/Ironwail accept several protocols; Icaro accepts NetQuake 15 (the
   // shareware attract demos) and its own PROTOCOL_ICARO (protocol.js)
   let i = MSG_ReadLong();
-  if (CL_SetProtocol(i, 0) === false) {
+  if (CL_FindReader(i) === null) {
     Host_Error(
-      "Server returned version " + i + ", not " + PROTOCOL_VERSION + " or " +
-        PROTOCOL_ICARO,
+      "Server returned version " + i + ", not " + CL_SUPPORTED_PROTOCOLS,
     );
   }
+
+  let protocolflags = 0;
+  if (i === PROTOCOL_RMQ) {
+    // mh - read protocol flags from server so that we know what protocol
+    // features to expect
+    protocolflags = MSG_ReadLong();
+    if ((protocolflags & ~PRFL_SUPPORTED) !== 0) {
+      Con_Printf(
+        "\x02Warning: PROTOCOL_RMQ protocolflags %i contains unsupported flags\n",
+        protocolflags,
+      );
+    }
+  }
+  CL_SetProtocol(i, protocolflags);
 
   // parse maxclients
   cl.maxclients = MSG_ReadByte();
@@ -1093,22 +1149,254 @@ export function CL_ParseUpdate(bits) {
   }
 }
 
+/**
+ * Ironwail's CL_ParseUpdate under PROTOCOL_FITZQUAKE and PROTOCOL_RMQ: the
+ * U_EXTEND1 and U_EXTEND2 bytes, and alpha, scale, a second frame and model
+ * byte and the lerp finish time after the angles. The model is looked up
+ * after U_MODEL2, as in Ironwail. Not ported: ST_FRAMETIME (gl_model.js has
+ * no such synctype) and entity scale (entities have no scale field, so the
+ * U_SCALE byte is read and dropped).
+ */
+function CL_ParseUpdateFitz(bits) {
+  if (cls.signon === SIGNONS - 1) {
+    // first update is the final signon stage
+    cls.signon = SIGNONS;
+    CL_SignonReply();
+  }
+
+  if (bits & U_MOREBITS) {
+    bits |= MSG_ReadByte() << 8;
+  }
+
+  //johnfitz -- PROTOCOL_FITZQUAKE
+  if (bits & U_EXTEND1) {
+    bits |= MSG_ReadByte() << 16;
+  }
+  if (bits & U_EXTEND2) {
+    bits |= MSG_ReadByte() << 24;
+  }
+  //johnfitz
+
+  let num;
+  if (bits & U_LONGENTITY) {
+    num = MSG_ReadShort();
+  } else {
+    num = MSG_ReadByte();
+  }
+
+  const ent = CL_EntityNum(num);
+
+  for (let i = 0; i < 16; i++) {
+    if (bits & (1 << i)) {
+      bitcounts[i]++;
+    }
+  }
+
+  let forcelink;
+  if (ent.msgtime !== cl.mtime[1]) {
+    forcelink = true; // no previous frame to lerp from
+  } else {
+    forcelink = false;
+  }
+
+  //johnfitz -- lerping
+  if (ent.msgtime + 0.2 < cl.mtime[0]) { //more than 0.2 seconds since the last message (most entities think every 0.1 sec)
+    ent.lerpflags |= LERP_RESETANIM; //if we missed a think, we'd be lerping from the wrong frame
+  }
+  //johnfitz
+
+  ent.msgtime = cl.mtime[0];
+
+  let modnum;
+  if (bits & U_MODEL) {
+    modnum = MSG_ReadByte();
+  } else {
+    modnum = ent.baseline.modelindex;
+  }
+
+  if (bits & U_FRAME) {
+    ent.frame = MSG_ReadByte();
+  } else {
+    ent.frame = ent.baseline.frame;
+  }
+
+  let i;
+  if (bits & U_COLORMAP) {
+    i = MSG_ReadByte();
+  } else {
+    i = ent.baseline.colormap;
+  }
+  if (i === 0) {
+    ent.colormap = null; // vid.colormap
+  } else {
+    // Deviation: Sys_Error in C (see CL_ParseUpdate)
+    if (i > cl.maxclients) {
+      Host_Error(
+        "CL_ParseUpdate: colormap " + i + " >= cl.maxclients (entity " + num +
+          ")",
+      );
+    }
+
+    ent.colormap = cl.scores[i - 1].translations;
+  }
+
+  let skin;
+  if (bits & U_SKIN) {
+    skin = MSG_ReadByte();
+  } else {
+    skin = ent.baseline.skin;
+  }
+  if (skin !== ent.skinnum) {
+    ent.skinnum = skin;
+    if (num > 0 && num <= cl.maxclients) {
+      R_TranslatePlayerSkin(num - 1);
+    }
+  }
+
+  if (bits & U_EFFECTS) {
+    ent.effects = MSG_ReadByte();
+  } else {
+    ent.effects = ent.baseline.effects;
+  }
+
+  // shift the known values for interpolation
+  VectorCopy(ent.msg_origins[0], ent.msg_origins[1]);
+  VectorCopy(ent.msg_angles[0], ent.msg_angles[1]);
+
+  if (bits & U_ORIGIN1) {
+    ent.msg_origins[0][0] = MSG_ReadCoord();
+  } else {
+    ent.msg_origins[0][0] = ent.baseline.origin[0];
+  }
+  if (bits & U_ANGLE1) {
+    ent.msg_angles[0][0] = MSG_ReadAngle();
+  } else {
+    ent.msg_angles[0][0] = ent.baseline.angles[0];
+  }
+
+  if (bits & U_ORIGIN2) {
+    ent.msg_origins[0][1] = MSG_ReadCoord();
+  } else {
+    ent.msg_origins[0][1] = ent.baseline.origin[1];
+  }
+  if (bits & U_ANGLE2) {
+    ent.msg_angles[0][1] = MSG_ReadAngle();
+  } else {
+    ent.msg_angles[0][1] = ent.baseline.angles[1];
+  }
+
+  if (bits & U_ORIGIN3) {
+    ent.msg_origins[0][2] = MSG_ReadCoord();
+  } else {
+    ent.msg_origins[0][2] = ent.baseline.origin[2];
+  }
+  if (bits & U_ANGLE3) {
+    ent.msg_angles[0][2] = MSG_ReadAngle();
+  } else {
+    ent.msg_angles[0][2] = ent.baseline.angles[2];
+  }
+
+  //johnfitz -- lerping for movetype_step entities
+  if (bits & U_NOLERP) {
+    ent.lerpflags |= LERP_MOVESTEP;
+    ent.forcelink = true;
+  } else {
+    ent.lerpflags &= ~LERP_MOVESTEP;
+  }
+
+  //johnfitz -- PROTOCOL_FITZQUAKE
+  if (bits & U_ALPHA) {
+    ent.alpha = MSG_ReadByte();
+  } else {
+    ent.alpha = ent.baseline.alpha;
+  }
+  if (bits & U_SCALE) {
+    MSG_ReadByte(); // no entity scale (see above)
+  }
+  if (bits & U_FRAME2) {
+    ent.frame = (ent.frame & 0x00FF) | (MSG_ReadByte() << 8);
+  }
+  if (bits & U_MODEL2) {
+    modnum = (modnum & 0x00FF) | (MSG_ReadByte() << 8);
+  }
+  if (bits & U_LERPFINISH) {
+    ent.lerpfinish = ent.msgtime + MSG_ReadByte() / 255;
+    ent.lerpflags |= LERP_FINISH;
+  } else {
+    ent.lerpflags &= ~LERP_FINISH;
+  }
+  //johnfitz
+
+  // Deviation: Ironwail checks only the U_MODEL byte; the check moves here
+  // so it covers U_MODEL2 too
+  if (modnum >= MAX_MODELS) {
+    Host_Error("CL_ParseModel: bad modnum");
+  }
+
+  //johnfitz -- moved here from above
+  const model = cl.model_precache[modnum];
+  if (model !== ent.model) {
+    ent.model = model;
+    // automatic animation (torches, etc) can be either all together
+    // or randomized
+    if (model != null) {
+      if (model.synctype === 1) { // ST_RAND
+        ent.syncbase = (Math.random() * 0x7fff | 0) / 0x7fff;
+      } else {
+        ent.syncbase = 0.0;
+      }
+    } else {
+      forcelink = true; // hack to make null model players work
+    }
+    if (num > 0 && num <= cl.maxclients) {
+      R_TranslatePlayerSkin(num - 1);
+    }
+
+    ent.lerpflags |= LERP_RESETANIM; //johnfitz -- don't lerp animation across model changes
+  }
+  //johnfitz
+
+  if (forcelink) {
+    // didn't have an update last message
+    VectorCopy(ent.msg_origins[0], ent.msg_origins[1]);
+    VectorCopy(ent.msg_origins[0], ent.origin);
+    VectorCopy(ent.msg_angles[0], ent.msg_angles[1]);
+    VectorCopy(ent.msg_angles[0], ent.angles);
+    ent.forcelink = true;
+  }
+}
+
 // The message layouts: Ironwail's version argument (1 for id's messages, 2
 // for FitzQuake's svc_spawnbaseline2 and friends), and Icaro's own.
 /** id's layouts (NetQuake 15) */
 const VERSION_NETQUAKE = 1;
+/** FitzQuake's svc_spawnbaseline2, svc_spawnstatic2, svc_spawnstaticsound2 */
+const VERSION_FITZ = 2;
 /** PROTOCOL_ICARO's wide layouts (protocol.js). Not in C. */
 const VERSION_ICARO = 3;
 
+/** PROTOCOL_ICARO's baselines: Fitz's B_* fields, always present, no byte */
+const B_ICARO = B_LARGEMODEL | B_LARGEFRAME | B_ALPHA;
+
 /**
- * Ironwail added the version argument. Under PROTOCOL_ICARO the model index
- * and frame are shorts and an alpha byte ends the message (protocol.js).
- * NetQuake 15 (the demos) keeps id's layout.
+ * Ironwail added the version argument. Version 2 (FitzQuake) starts with a
+ * byte of B_* bits; PROTOCOL_ICARO always has a short model index and frame
+ * and an alpha byte (protocol.js); id's layout has none of them.
+ * Entities have no scale field, so the B_SCALE byte is read and dropped.
  */
 export function CL_ParseBaseline(ent, version) {
-  const icaro = version === VERSION_ICARO;
-  ent.baseline.modelindex = icaro ? (MSG_ReadShort() & 0xFFFF) : MSG_ReadByte();
-  ent.baseline.frame = icaro ? (MSG_ReadShort() & 0xFFFF) : MSG_ReadByte(); // Ironwail B_LARGEFRAME
+  let bits = 0;
+  if (version === VERSION_FITZ) {
+    bits = MSG_ReadByte();
+  } else if (version === VERSION_ICARO) {
+    bits = B_ICARO;
+  }
+  ent.baseline.modelindex = (bits & B_LARGEMODEL) !== 0 ?
+    (MSG_ReadShort() & 0xFFFF) :
+    MSG_ReadByte();
+  ent.baseline.frame = (bits & B_LARGEFRAME) !== 0 ?
+    (MSG_ReadShort() & 0xFFFF) :
+    MSG_ReadByte();
   ent.baseline.colormap = MSG_ReadByte();
   ent.baseline.skin = MSG_ReadByte();
   for (let i = 0; i < 3; i++) {
@@ -1116,7 +1404,12 @@ export function CL_ParseBaseline(ent, version) {
     ent.baseline.angles[i] = MSG_ReadAngle();
   }
 
-  ent.baseline.alpha = icaro ? MSG_ReadByte() : ENTALPHA_DEFAULT;
+  ent.baseline.alpha = (bits & B_ALPHA) !== 0 ?
+    MSG_ReadByte() :
+    ENTALPHA_DEFAULT;
+  if ((bits & B_SCALE) !== 0) {
+    MSG_ReadByte(); // no entity scale
+  }
 }
 
 /**
@@ -1246,7 +1539,29 @@ export function CL_ParseClientdata(bits, version = VERSION_NETQUAKE) {
     }
   }
 
-  //johnfitz -- PROTOCOL_FITZQUAKE (only these two; see SU_EXTEND1 in protocol.js)
+  //johnfitz -- PROTOCOL_FITZQUAKE (Icaro sends only the last two; see
+  // SU_EXTEND1 in protocol.js)
+  if (bits & SU_WEAPON2) {
+    cl.stats[STAT_WEAPON] |= MSG_ReadByte() << 8;
+  }
+  if (bits & SU_ARMOR2) {
+    cl.stats[STAT_ARMOR] |= MSG_ReadByte() << 8;
+  }
+  if (bits & SU_AMMO2) {
+    cl.stats[STAT_AMMO] |= MSG_ReadByte() << 8;
+  }
+  if (bits & SU_SHELLS2) {
+    cl.stats[STAT_SHELLS] |= MSG_ReadByte() << 8;
+  }
+  if (bits & SU_NAILS2) {
+    cl.stats[STAT_NAILS] |= MSG_ReadByte() << 8;
+  }
+  if (bits & SU_ROCKETS2) {
+    cl.stats[STAT_ROCKETS] |= MSG_ReadByte() << 8;
+  }
+  if (bits & SU_CELLS2) {
+    cl.stats[STAT_CELLS] |= MSG_ReadByte() << 8;
+  }
   if (bits & SU_WEAPONFRAME2) {
     cl.stats[STAT_WEAPONFRAME] |= MSG_ReadByte() << 8;
   }
@@ -1454,10 +1769,10 @@ export function CL_ParseStaticSound(version) { // Ironwail added the argument
   for (let i = 0; i < 3; i++) {
     org[i] = MSG_ReadCoord();
   }
-  // a short under PROTOCOL_ICARO (MAX_SOUNDS 2048)
-  const sound_num = version === VERSION_ICARO ?
-    (MSG_ReadShort() & 0xFFFF) :
-    MSG_ReadByte();
+  // a short under svc_spawnstaticsound2 and PROTOCOL_ICARO (MAX_SOUNDS 2048)
+  const sound_num = version === VERSION_NETQUAKE ?
+    MSG_ReadByte() :
+    (MSG_ReadShort() & 0xFFFF);
   const vol = MSG_ReadByte();
   const atten = MSG_ReadByte();
 
@@ -1529,6 +1844,11 @@ function CL_ParseFastUpdate(cmd) {
   CL_ParseUpdate(cmd & 127);
 }
 
+/** A fast update under PROTOCOL_FITZQUAKE and PROTOCOL_RMQ */
+function CL_ParseFastUpdateFitz(cmd) {
+  CL_ParseUpdateFitz(cmd & 127);
+}
+
 function CL_Parse_svc_nop(_cmd) {
   // Con_Printf( 'svc_nop\n' );
 }
@@ -1552,7 +1872,7 @@ function CL_Parse_svc_version(_cmd) {
   if (CL_SetProtocol(i, cl_protocolflags) === false) {
     Host_Error(
       "CL_ParseServerMessage: Server is protocol " + i + " instead of " +
-        PROTOCOL_VERSION + " or " + PROTOCOL_ICARO,
+        CL_SUPPORTED_PROTOCOLS,
     );
   }
 }
@@ -1713,6 +2033,32 @@ function CL_Parse_svc_spawnstaticsound_icaro(_cmd) {
   CL_ParseStaticSound(VERSION_ICARO);
 }
 
+function CL_Parse_svc_skybox(_cmd) {
+  Sky_LoadSkyBox(MSG_ReadString());
+}
+
+function CL_Parse_svc_bf(_cmd) {
+  Cmd_ExecuteString("bf", src_command);
+}
+
+function CL_Parse_svc_fog(_cmd) {
+  Fog_ParseServerMessage();
+}
+
+function CL_Parse_svc_spawnbaseline2(_cmd) {
+  const i = MSG_ReadShort();
+  // must use CL_EntityNum() to force cl.num_entities up
+  CL_ParseBaseline(CL_EntityNum(i), VERSION_FITZ);
+}
+
+function CL_Parse_svc_spawnstatic2(_cmd) {
+  CL_ParseStatic(VERSION_FITZ);
+}
+
+function CL_Parse_svc_spawnstaticsound2(_cmd) {
+  CL_ParseStaticSound(VERSION_FITZ);
+}
+
 function CL_Parse_svc_cdtrack(_cmd) {
   cl.cdtrack = MSG_ReadByte();
   cl.looptrack = MSG_ReadByte();
@@ -1782,12 +2128,12 @@ function CL_Parse_svc_localsound(_cmd) {
 /**
  * A reader's handler table: 256 entries, one per command byte. `entries` is
  * a list of [svc, handler] pairs; other numbers below 128 are illegible, and
- * 128 to 255 are fast updates.
+ * 128 to 255 go to `fastupdate`.
  */
-function CL_BuildHandlers(entries) {
+function CL_BuildHandlers(entries, fastupdate) {
   const handlers = new Array(256).fill(CL_ParseIllegible);
   for (let i = 128; i < 256; i++) {
-    handlers[i] = CL_ParseFastUpdate;
+    handlers[i] = fastupdate;
   }
   for (let i = 0; i < entries.length; i++) {
     handlers[entries[i][0]] = entries[i][1];
@@ -1836,9 +2182,27 @@ function CL_SharedHandlers() {
   ];
 }
 
-/** Ironwail's coordinate and angle modes for protocol 15 (no PRFL_* flags) */
-function CL_SetCoordModesNetQuake(_flags) {
-  MSG_SetCoordModes(MSG_COORD_16, MSG_ANGLE_8);
+/**
+ * Ironwail's coordinate and angle modes from the protocol flags (common.c
+ * MSG_ReadCoord and MSG_ReadAngle), in its order of precedence. With no
+ * flags (protocols 15 and 666): short coordinates and byte angles.
+ */
+function CL_SetCoordModesFromFlags(flags) {
+  let coordmode = MSG_COORD_16;
+  if ((flags & PRFL_FLOATCOORD) !== 0) {
+    coordmode = MSG_COORD_FLOAT;
+  } else if ((flags & PRFL_INT32COORD) !== 0) {
+    coordmode = MSG_COORD_INT32_16;
+  } else if ((flags & PRFL_24BITCOORD) !== 0) {
+    coordmode = MSG_COORD_24;
+  }
+  let anglemode = MSG_ANGLE_8;
+  if ((flags & PRFL_FLOATANGLE) !== 0) {
+    anglemode = MSG_ANGLE_FLOAT;
+  } else if ((flags & PRFL_SHORTANGLE) !== 0) {
+    anglemode = MSG_ANGLE_16;
+  }
+  MSG_SetCoordModes(coordmode, anglemode);
 }
 
 /** PROTOCOL_ICARO: int32 eighths and byte angles (protocol.js) */
@@ -1857,14 +2221,47 @@ function CL_SetCoordModesIcaro(_flags) {
  */
 const cl_reader_netquake = {
   protocol: PROTOCOL_VERSION,
-  setmodes: CL_SetCoordModesNetQuake,
+  setmodes: CL_SetCoordModesFromFlags,
   handlers: CL_BuildHandlers([
     ...CL_SharedHandlers(),
     [svc_clientdata, CL_Parse_svc_clientdata],
     [svc_spawnbaseline, CL_Parse_svc_spawnbaseline],
     [svc_spawnstatic, CL_Parse_svc_spawnstatic],
     [svc_spawnstaticsound, CL_Parse_svc_spawnstaticsound],
-  ]),
+  ], CL_ParseFastUpdate),
+};
+
+// FitzQuake 666 and RMQ 999 (Ironwail's demos and servers), read only: id's
+// layouts plus FitzQuake's svcs 37 and 40 to 44 and its wider fast updates.
+// Ironwail has no case for 38 (svc_botchat) or 45 to 51 and 53 to 55 (the
+// rerelease's), so they stay illegible. Ironwail also reads 37 to 44 under
+// protocol 15; this port's 15 reader keeps id's list, as before.
+const cl_handlers_fitz = CL_BuildHandlers([
+  ...CL_SharedHandlers(),
+  [svc_clientdata, CL_Parse_svc_clientdata],
+  [svc_spawnbaseline, CL_Parse_svc_spawnbaseline],
+  [svc_spawnstatic, CL_Parse_svc_spawnstatic],
+  [svc_spawnstaticsound, CL_Parse_svc_spawnstaticsound],
+  [svc_skybox, CL_Parse_svc_skybox],
+  [svc_bf, CL_Parse_svc_bf],
+  [svc_fog, CL_Parse_svc_fog],
+  [svc_spawnbaseline2, CL_Parse_svc_spawnbaseline2],
+  [svc_spawnstatic2, CL_Parse_svc_spawnstatic2],
+  [svc_spawnstaticsound2, CL_Parse_svc_spawnstaticsound2],
+], CL_ParseFastUpdateFitz);
+
+/** PROTOCOL_FITZQUAKE (666): short coordinates and byte angles, no flags */
+const cl_reader_fitzquake = {
+  protocol: PROTOCOL_FITZQUAKE,
+  setmodes: CL_SetCoordModesFromFlags,
+  handlers: cl_handlers_fitz,
+};
+
+/** PROTOCOL_RMQ (999): FitzQuake's messages with svc_serverinfo's PRFL_* */
+const cl_reader_rmq = {
+  protocol: PROTOCOL_RMQ,
+  setmodes: CL_SetCoordModesFromFlags,
+  handlers: cl_handlers_fitz,
 };
 
 /**
@@ -1885,14 +2282,26 @@ const cl_reader_icaro = {
     [svc_packetentities, CL_Parse_svc_packetentities],
     [svc_deltapacketentities, CL_Parse_svc_deltapacketentities],
     [svc_serversequence, CL_Parse_svc_serversequence],
-  ]),
+  ], CL_ParseFastUpdate),
 };
+
+/** The protocols CL_FindReader knows, for error messages */
+const CL_SUPPORTED_PROTOCOLS = PROTOCOL_VERSION + ", " + PROTOCOL_FITZQUAKE +
+  ", " + PROTOCOL_RMQ + " or " + PROTOCOL_ICARO;
+
+/** The PRFL_* flags CL_SetCoordModesFromFlags reads (Ironwail's list) */
+const PRFL_SUPPORTED = PRFL_SHORTANGLE | PRFL_FLOATANGLE | PRFL_24BITCOORD |
+  PRFL_FLOATCOORD | PRFL_EDICTSCALE | PRFL_INT32COORD;
 
 /** The reader for a protocol number, or null if the client can't read it */
 function CL_FindReader(protocol) {
   switch (protocol) {
     case PROTOCOL_VERSION:
       return cl_reader_netquake;
+    case PROTOCOL_FITZQUAKE:
+      return cl_reader_fitzquake;
+    case PROTOCOL_RMQ:
+      return cl_reader_rmq;
     case PROTOCOL_ICARO:
       return cl_reader_icaro;
     default:

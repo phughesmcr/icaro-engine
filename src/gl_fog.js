@@ -12,12 +12,20 @@
 // water material is a MeshBasic/MeshLambert/Points material and picks it up.
 // The sky materials opt out (fog: false) and use Fog_PatchSkyShader instead,
 // a flat mix towards the fog colour as in Ironwail's sky shaders.
-// svc_fog (Fog_ParseServerMessage) is not ported: the rerelease QuakeC sets
-// fog with stuffcmd, which reaches the client's command buffer.
+// The rerelease QuakeC sets fog with stuffcmd, which reaches the client's
+// command buffer. svc_fog (Fog_ParseServerMessage) comes only from FitzQuake
+// 666 and RMQ 999 demos.
 // Volumetric fog (r_vfog) is a stub in Ironwail and is left out.
 
 import * as THREE from "three";
-import { COM_Parse, com_token, Con_Printf, Q_atof } from "./common.js";
+import {
+  COM_Parse,
+  com_token,
+  Con_Printf,
+  MSG_ReadByte,
+  MSG_ReadShort,
+  Q_atof,
+} from "./common.js";
 import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from "./cmd.js";
 import { Cvar_RegisterVariable, cvar_t } from "./cvar.js";
 import { cl } from "./client.js";
@@ -90,6 +98,18 @@ export function Fog_Update(density, red, green, blue, time) {
   fog_blue = blue;
   fade_time = time;
   fade_done = cl.time + time;
+}
+
+/** handle an SVC_FOG message from server */
+export function Fog_ParseServerMessage() {
+  const density = MSG_ReadByte() / 255.0;
+  const red = MSG_ReadByte() / 255.0;
+  const green = MSG_ReadByte() / 255.0;
+  const blue = MSG_ReadByte() / 255.0;
+  let time = MSG_ReadShort() / 100.0;
+  if (time < 0.0) time = 0.0;
+
+  Fog_Update(density, red, green, blue, time);
 }
 
 function _g(v) {
