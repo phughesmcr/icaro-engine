@@ -23,7 +23,28 @@ export const PROTOCOL_VERSION = 15;
 // accepts protocol 15 for NetQuake demos (the attract demos), and reads
 // those messages in their NetQuake form. Demos recorded by Icaro builds
 // before this protocol (15 plus packet entities) no longer play.
+// svc_serverinfo opens with the versioned hello (docs/protocol-design.md,
+// "The hello"): after 1015, a 0 byte where the first 1015 builds sent
+// maxclients, then ICARO_REVISION, the game profile id and the required and
+// optional capability words, then the body as before.
 export const PROTOCOL_ICARO = 1015;
+
+// Icaro wire revisions (docs/protocol-design.md, "Versioning rules"). The
+// server sends ICARO_REVISION. Revision 0 is the 1015 stream from before the
+// versioned hello (svc_serverinfo had maxclients where the marker is now,
+// and Icaro's svcs had the *_rev0 numbers); the client still reads it for
+// demos.
+export const ICARO_REVISION = 1;
+export const ICARO_HELLO_MARKER = 0;
+// The game profile the server runs: the id names the message set, not the
+// game directory, so rogue, hipnotic and other mods are "quake" too.
+export const ICARO_GAME_QUAKE = "quake";
+// The capability bits this build knows, one 32-bit word per entry, word 0
+// first. Revision 1 defines none; a server stream that sets a required bit
+// the client lacks is refused, and an optional bit only gates svc_icaro_ext
+// ids, so an unknown one is ignored.
+export const ICAP_REQUIRED_KNOWN = Object.freeze([]);
+export const ICAP_OPTIONAL_KNOWN = Object.freeze([]);
 
 // Ironwail protocol.h: FitzQuake's and RMQ's protocols. The client reads
 // them for demos (cl_parse.js); the server never writes them.
@@ -165,8 +186,8 @@ export const svc_cdtrack = 32; // [byte] track [byte] looptrack
 export const svc_sellscreen = 33;
 export const svc_cutscene = 34;
 //johnfitz -- PROTOCOL_FITZQUAKE -- new server messages (Ironwail
-// protocol.h). The client reads them under 666 and 999 only: 42 is Icaro's
-// svc_playerinfo under PROTOCOL_ICARO.
+// protocol.h). The client reads them under 666 and 999 only (42 was Icaro's
+// svc_playerinfo under PROTOCOL_ICARO revision 0).
 export const svc_skybox = 37; // [string] name
 export const svc_bf = 40; // no data
 export const svc_fog = 41; // [byte] density [byte] red [byte] green [byte] blue [short] time (hundredths)
@@ -205,9 +226,16 @@ export const TE_TELEPORT = 11;
 export const TE_EXPLOSION2 = 12;
 export const TE_BEAM = 13;
 
+// Icaro's engine layer (docs/protocol-design.md, "Two layers"): svcs and
+// clcs 96 to 127 are Icaro's own, the same for every game profile. 0 to 95
+// belong to the game, since QuakeC writes them by hand. 96 to 126 carry no
+// length, so the client must know each one a revision or a required
+// capability sends; 127 is the length-prefixed escape.
+
 // QuakeWorld-style player info (svc_playerinfo)
-// Used for client-side prediction of other players
-export const svc_playerinfo = 42;
+// Used for client-side prediction of other players. Revision 0 used 42,
+// which is FitzQuake's svc_spawnbaseline2.
+export const svc_playerinfo = 96;
 
 // playerinfo flags from server
 // playerinfo always sends: playernum, flags, origin[] and frame (a short
@@ -253,11 +281,31 @@ export const CM_ANGLE2 = 1 << 7;
 // PE_REMOVE is set, a byte of PE_* bits follows, and a second byte when
 // PE_MOREBITS is set in the first.
 
-export const svc_packetentities = 47; // [...]
-export const svc_deltapacketentities = 48; // [...]
-export const svc_serversequence = 49; // [long] server frame sequence number
+// Revision 0 used 47 to 49, the 2021 rerelease's svc_updatesocial,
+// svc_updateplinfo and svc_rawprint.
+export const svc_packetentities = 97; // [...]
+export const svc_deltapacketentities = 98; // [...]
+export const svc_serversequence = 99; // [long] server frame sequence number
 
-export const clc_delta = 5; // [byte] sequence number, requests delta compression
+// [short id] [short length] [length bytes]: an optional extension. id and
+// length are unsigned. Ids 0x0000 to 0x7fff are the engine's, 0x8000 to
+// 0xffff the game profile's. A reader that doesn't know the id, or whose
+// optional capability isn't set, skips length bytes; one that knows it skips
+// whatever its handler left of length, so an extension can grow at its end.
+export const svc_icaro_ext = 127;
+export const ICARO_EXT_HEADER_BYTES = 1 + 2 + 2;
+
+// The 1015 revision 0 numbers, for demos recorded before the versioned hello
+export const svc_playerinfo_rev0 = 42;
+export const svc_packetentities_rev0 = 47;
+export const svc_deltapacketentities_rev0 = 48;
+export const svc_serversequence_rev0 = 49;
+
+// [byte] sequence number, requests delta compression. QW's clc_delta is 5,
+// as was revision 0's; it moved to keep one rule for both directions.
+export const clc_delta = 96;
+// Same layout and skip rule as svc_icaro_ext
+export const clc_icaro_ext = 127;
 
 // Entity number: the low 15 bits of the first short
 export const PE_ENT_BITS = 15;

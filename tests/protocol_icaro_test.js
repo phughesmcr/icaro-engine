@@ -39,6 +39,19 @@ const {
   PROTOCOL_ICARO,
   PROTOCOL_FITZQUAKE,
   PROTOCOL_RMQ,
+  ICARO_REVISION,
+  svc_icaro_ext,
+  svc_playerinfo,
+  svc_packetentities,
+  svc_deltapacketentities,
+  svc_playerinfo_rev0,
+  svc_packetentities_rev0,
+  svc_deltapacketentities_rev0,
+  svc_serversequence_rev0,
+  svc_print,
+  clc_delta,
+  clc_icaro_ext,
+  clc_nop,
   PRFL_SHORTANGLE,
   PRFL_FLOATANGLE,
   PRFL_24BITCOORD,
@@ -100,7 +113,7 @@ const {
 } = await import("../src/protocol.js");
 const { cl, cls, cl_entities, cl_static_entities, scoreboard_t, SIGNONS } =
   await import("../src/client.js");
-const { CL_ParseServerMessage, CL_SetProtocol } = await import(
+const { CL_ParseServerMessage, CL_SetProtocol, cl_icaro } = await import(
   "../src/cl_parse.js"
 );
 const { LERP_FINISH } = await import("../src/render.js");
@@ -109,8 +122,12 @@ const { Sky_GetSkyBox, Sky_LoadSkyBox } = await import("../src/gl_sky.js");
 const { V_Init } = await import("../src/view.js");
 const { CSHIFT_BONUS } = await import("../src/client.js");
 const { Cvar_FindVar } = await import("../src/cvar.js");
-const { CL_GetEntityFrame, CL_GetPredictedPlayer, CL_ResetPrediction } =
-  await import("../src/cl_pred.js");
+const {
+  CL_GetEntityFrame,
+  CL_GetPredictedPlayer,
+  CL_GetServerSequence,
+  CL_ResetPrediction,
+} = await import("../src/cl_pred.js");
 const { cl_shownet } = await import("../src/cl_main.js");
 const {
   PR_SetSV,
@@ -139,7 +156,11 @@ const {
   SV_WriteClientdataToMessage,
   max_edicts,
 } = await import("../src/sv_main.js");
-const { sv_player, SV_SetPlayer } = await import("../src/sv_phys.js");
+const sv_phys = await import("../src/sv_phys.js");
+const { sv_player, SV_SetPlayer } = sv_phys;
+const { SV_ReadClientMessage, SV_User_SetCallbacks } = await import(
+  "../src/sv_user.js"
+);
 const consolejs = await import("../src/console.js");
 
 function assertEqual(actual, expected, message) {
@@ -164,10 +185,17 @@ function makeMsg(size) {
 }
 
 // Run the client parser over one message: svc_version `protocol`, then
-// whatever `write` puts in, starting from Icaro's reader. `flags` are the
-// PRFL_* flags svc_serverinfo would have set (svc_version keeps them).
-// Restores the client state it touches.
-function clientParse(protocol, write, check, flags = 0) {
+// whatever `write` puts in, starting from that protocol's reader (Icaro's,
+// at `revision`, if the client can't read it). `flags` are the PRFL_* flags
+// svc_serverinfo would have set (svc_version keeps them). Restores the
+// client state it touches.
+function clientParse(
+  protocol,
+  write,
+  check,
+  flags = 0,
+  revision = ICARO_REVISION,
+) {
   const saved = {
     data: net.net_message.data,
     maxsize: net.net_message.maxsize,
@@ -184,10 +212,12 @@ function clientParse(protocol, write, check, flags = 0) {
 
   try {
     common.COM_SetNetMessage(net.net_message);
-    net.net_message.data = new Uint8Array(8192);
-    net.net_message.maxsize = 8192;
+    net.net_message.data = new Uint8Array(net.NET_MAXMESSAGE);
+    net.net_message.maxsize = net.NET_MAXMESSAGE;
     common.SZ_Clear(net.net_message);
-    CL_SetProtocol(PROTOCOL_ICARO, flags);
+    if (CL_SetProtocol(protocol, flags, revision) === false) {
+      CL_SetProtocol(PROTOCOL_ICARO, flags, revision);
+    }
     common.MSG_WriteByte(net.net_message, svc_version);
     common.MSG_WriteLong(net.net_message, protocol);
     write(net.net_message);
@@ -258,7 +288,7 @@ Deno.test("MSG_WriteCoord sends int32 eighths that read back past +-4096", () =>
   }
 });
 
-Deno.test("svc_version switches the client between NetQuake 15 and PROTOCOL_ICARO", () => {
+Deno.test("svc_version switches the client from NetQuake 15 to PROTOCOL_ICARO", () => {
   clientParse(PROTOCOL_VERSION, (m) => {
     // an id baseline: byte model, short coords, no alpha
     common.MSG_WriteByte(m, svc_spawnbaseline);
@@ -346,20 +376,31 @@ Deno.test("CL_SetProtocol refuses an unknown protocol and keeps the reader", () 
   }
 });
 
+/** Throws unless parsing `write` under `protocol` is a Host_Error with `text` */
+function expectParseError(protocol, revision, write, text, what) {
+  let error = null;
+  try {
+    clientParse(protocol, write, () => {}, 0, revision);
+  } catch (e) {
+    error = e;
+  }
+  if (error === null || !String(error.message).includes(text)) {
+    throw new Error(`${what}: expected "${text}", got ${error}`);
+  }
+}
+
 Deno.test("Icaro's own svcs are illegible under protocol 15", () => {
-  for (const svc of [42, 47, 48, 49]) {
-    let error = null;
-    try {
-      clientParse(PROTOCOL_VERSION, (m) => {
+  for (const svc of [96, 97, 98, 99, 127, 42, 47, 48, 49]) {
+    expectParseError(
+      PROTOCOL_VERSION,
+      ICARO_REVISION,
+      (m) => {
         common.MSG_WriteByte(m, svc);
         common.MSG_WriteLong(m, 0);
-      }, () => {});
-    } catch (e) {
-      error = e;
-    }
-    if (error === null || !String(error.message).includes("Illegible")) {
-      throw new Error(`svc ${svc} under 15: expected Illegible, got ${error}`);
-    }
+      },
+      "Illegible",
+      `svc ${svc} under 15`,
+    );
   }
 
   // and svc_serversequence still parses under PROTOCOL_ICARO
@@ -369,25 +410,286 @@ Deno.test("Icaro's own svcs are illegible under protocol 15", () => {
   }, () => {});
 });
 
-Deno.test("a fast update reads short coords under 15 and int32 under PROTOCOL_ICARO", () => {
+Deno.test("revision 1 moves Icaro's svcs to 96 to 99; revision 0 keeps 42 and 47 to 49", () => {
+  assertEqual(svc_playerinfo, 96, "svc_playerinfo");
+  assertEqual(svc_packetentities, 97, "svc_packetentities");
+  assertEqual(svc_deltapacketentities, 98, "svc_deltapacketentities");
+  assertEqual(svc_serversequence, 99, "svc_serversequence");
+  assertEqual(svc_icaro_ext, 127, "svc_icaro_ext");
+
+  // the old numbers are the 2021 rerelease's and FitzQuake's under revision 1
+  for (const svc of [42, 47, 48, 49]) {
+    expectParseError(
+      PROTOCOL_ICARO,
+      1,
+      (m) => {
+        common.MSG_WriteByte(m, svc);
+        common.MSG_WriteLong(m, 0);
+      },
+      "Illegible",
+      `svc ${svc} under revision 1`,
+    );
+  }
+
+  // and Icaro's under revision 0 (old demos); 96 to 127 aren't
+  const pairs = [
+    [svc_serversequence_rev0, svc_serversequence],
+    [svc_packetentities_rev0, svc_packetentities],
+    [svc_deltapacketentities_rev0, svc_deltapacketentities],
+    [svc_playerinfo_rev0, svc_playerinfo],
+  ];
+  assertEqual(pairs[0][0], 49, "revision 0 svc_serversequence");
+  clientParse(
+    PROTOCOL_ICARO,
+    (m) => {
+      common.MSG_WriteByte(m, svc_serversequence_rev0);
+      common.MSG_WriteLong(m, 4321);
+    },
+    () => {
+      assertEqual(CL_GetServerSequence(), 4321, "revision 0 sequence");
+    },
+    0,
+    0,
+  );
+  for (const [, svc] of pairs) {
+    expectParseError(
+      PROTOCOL_ICARO,
+      0,
+      (m) => {
+        common.MSG_WriteByte(m, svc);
+        common.MSG_WriteLong(m, 0);
+      },
+      "Illegible",
+      `svc ${svc} under revision 0`,
+    );
+  }
+  expectParseError(
+    PROTOCOL_ICARO,
+    0,
+    (m) => {
+      common.MSG_WriteByte(m, svc_icaro_ext);
+      common.MSG_WriteLong(m, 0);
+    },
+    "Illegible",
+    "svc_icaro_ext under revision 0",
+  );
+});
+
+Deno.test("svc_version under revision 1 must name 1015; revision 0 keeps Ironwail's switch", () => {
+  expectParseError(
+    PROTOCOL_ICARO,
+    1,
+    (m) => {
+      common.MSG_WriteByte(m, svc_version);
+      common.MSG_WriteLong(m, PROTOCOL_VERSION);
+    },
+    "protocol 15 instead of 1015",
+    "svc_version 15 under revision 1",
+  );
+
+  // 1015 is accepted and keeps the revision
+  clientParse(PROTOCOL_ICARO, (m) => {
+    common.MSG_WriteByte(m, svc_version);
+    common.MSG_WriteLong(m, PROTOCOL_ICARO);
+    common.MSG_WriteByte(m, svc_serversequence);
+    common.MSG_WriteLong(m, 77);
+  }, () => {
+    assertEqual(cl_icaro.revision, 1, "revision kept");
+    assertEqual(CL_GetServerSequence(), 77, "revision 1 sequence");
+  });
+
+  // revision 0: svc_version 1015 keeps revision 0's numbers
+  clientParse(
+    PROTOCOL_ICARO,
+    (m) => {
+      common.MSG_WriteByte(m, svc_version);
+      common.MSG_WriteLong(m, PROTOCOL_ICARO);
+      common.MSG_WriteByte(m, svc_serversequence_rev0);
+      common.MSG_WriteLong(m, 78);
+    },
+    () => {
+      assertEqual(cl_icaro.revision, 0, "revision 0 kept");
+      assertEqual(CL_GetServerSequence(), 78, "revision 0 sequence");
+    },
+    0,
+    0,
+  );
+
+  // and may switch to 15, as before
+  clientParse(
+    PROTOCOL_ICARO,
+    (m) => {
+      common.MSG_WriteByte(m, svc_version);
+      common.MSG_WriteLong(m, PROTOCOL_VERSION);
+    },
+    () => {
+      assertEqual(cl.protocol, PROTOCOL_VERSION, "revision 0 to 15");
+    },
+    0,
+    0,
+  );
+});
+
+Deno.test("svc_icaro_ext is skipped by its length, mid-message", () => {
+  for (
+    const [id, length] of [[0, 0], [0x0001, 3], [0x8000, 300], [0xffff, 40000]]
+  ) {
+    printed.length = 0;
+    clientParse(PROTOCOL_ICARO, (m) => {
+      common.MSG_WriteByte(m, svc_icaro_ext);
+      common.MSG_WriteShort(m, id);
+      common.MSG_WriteShort(m, length);
+      for (let i = 0; i < length; i++) {
+        // bytes that would misparse as svcs if the reader didn't skip them
+        common.MSG_WriteByte(m, i % 2 === 0 ? svc_print : 255);
+      }
+      common.MSG_WriteByte(m, svc_print);
+      common.MSG_WriteString(m, "after\n");
+    }, () => {
+      assertEqual(printed.join(""), "after\n", `ext ${id}: next svc read`);
+    });
+  }
+});
+
+/**
+ * Runs SV_ReadClientMessage over one client message holding what `write`
+ * puts in. Returns [its result, the client].
+ */
+function serverRead(write) {
+  const saved = {
+    data: net.net_message.data,
+    maxsize: net.net_message.maxsize,
+    cursize: net.net_message.cursize,
+    common: common.net_message,
+  };
+  const savedState = [sv_phys.sv, sv_phys.svs, sv_phys.pr_global_struct];
+  const client = { active: true, netconnection: {}, delta_sequence: 0 };
+  let pending = 1;
+  try {
+    sv_phys.SV_SetState(sv, svs, savedState[2]); // for sv.time
+    common.COM_SetNetMessage(net.net_message);
+    net.net_message.data = new Uint8Array(net.NET_MAXMESSAGE);
+    net.net_message.maxsize = net.NET_MAXMESSAGE;
+    common.SZ_Clear(net.net_message);
+    write(net.net_message);
+    SV_User_SetCallbacks({
+      host_client: client,
+      NET_GetMessage: () => pending--,
+    });
+    return [SV_ReadClientMessage(), client];
+  } finally {
+    net.net_message.data = saved.data;
+    net.net_message.maxsize = saved.maxsize;
+    net.net_message.cursize = saved.cursize;
+    common.COM_SetNetMessage(saved.common);
+    SV_User_SetCallbacks({ host_client: null });
+    sv_phys.SV_SetState(...savedState);
+  }
+}
+
+Deno.test("clc_icaro_ext is skipped by its length, and clc_delta is 96", () => {
+  assertEqual(clc_delta, 96, "clc_delta");
+  assertEqual(clc_icaro_ext, 127, "clc_icaro_ext");
+  for (const length of [0, 9, 40000]) {
+    const [ok, client] = serverRead((m) => {
+      common.MSG_WriteByte(m, clc_icaro_ext);
+      common.MSG_WriteShort(m, 0x8001);
+      common.MSG_WriteShort(m, length);
+      for (let i = 0; i < length; i++) {
+        common.MSG_WriteByte(m, i % 2 === 0 ? clc_delta : 200);
+      }
+      common.MSG_WriteByte(m, clc_delta);
+      common.MSG_WriteByte(m, 37);
+      common.MSG_WriteByte(m, clc_nop);
+    });
+    assertEqual(ok, true, `ext of ${length} bytes accepted`);
+    assertEqual(client.delta_sequence, 37, `clc_delta after ${length} bytes`);
+  }
+});
+
+Deno.test("a clc_icaro_ext past the end of the message drops the client", () => {
+  const [ok] = serverRead((m) => {
+    common.MSG_WriteByte(m, clc_icaro_ext);
+    common.MSG_WriteShort(m, 1);
+    common.MSG_WriteShort(m, 3);
+    common.MSG_WriteByte(m, 0);
+  });
+  assertEqual(ok, false, "overrun refused");
+  const [ok2] = serverRead((m) => common.MSG_WriteByte(m, clc_icaro_ext));
+  assertEqual(ok2, false, "truncated header refused");
+  // revision 0's clc_delta number is unknown now
+  const [ok3] = serverRead((m) => {
+    common.MSG_WriteByte(m, 5);
+    common.MSG_WriteByte(m, 1);
+  });
+  assertEqual(ok3, false, "clc 5 refused");
+});
+
+Deno.test("an svc_icaro_ext past the end of the message is a Host_Error", () => {
+  expectParseError(
+    PROTOCOL_ICARO,
+    1,
+    (m) => {
+      common.MSG_WriteByte(m, svc_icaro_ext);
+      common.MSG_WriteShort(m, 5);
+      common.MSG_WriteShort(m, 4);
+      common.MSG_WriteByte(m, 0);
+      common.MSG_WriteByte(m, 0);
+      common.MSG_WriteByte(m, 0);
+    },
+    "overruns",
+    "short payload",
+  );
+  expectParseError(
+    PROTOCOL_ICARO,
+    1,
+    (m) => {
+      common.MSG_WriteByte(m, svc_icaro_ext);
+      common.MSG_WriteByte(m, 5); // half an id
+    },
+    "overruns",
+    "truncated header",
+  );
+});
+
+Deno.test("a fast update reads short coords under 15 and int32 under PROTOCOL_ICARO revision 0", () => {
   const U_ORIGIN1 = 1 << 1, U_ORIGIN3 = 1 << 3;
   for (const protocol of [PROTOCOL_VERSION, PROTOCOL_ICARO]) {
     const write = protocol === PROTOCOL_ICARO ?
       common.MSG_WriteCoord :
       common.MSG_WriteCoord16;
-    clientParse(protocol, (m) => {
-      cls.signon = SIGNONS; // past the signon CL_ParseUpdate completes
-      common.MSG_WriteByte(m, 128 | U_ORIGIN1 | U_ORIGIN3);
-      common.MSG_WriteByte(m, 20); // entity
-      write(m, -1234.5);
-      write(m, 2047.875);
-    }, () => {
-      const org = cl_entities[20].msg_origins[0];
-      assertEqual(org[0], -1234.5, `${protocol}: origin x`);
-      assertEqual(org[1], cl_entities[20].baseline.origin[1], "origin y");
-      assertEqual(org[2], 2047.875, `${protocol}: origin z`);
-    });
+    clientParse(
+      protocol,
+      (m) => {
+        cls.signon = SIGNONS; // past the signon CL_ParseUpdate completes
+        common.MSG_WriteByte(m, 128 | U_ORIGIN1 | U_ORIGIN3);
+        common.MSG_WriteByte(m, 20); // entity
+        write(m, -1234.5);
+        write(m, 2047.875);
+      },
+      () => {
+        const org = cl_entities[20].msg_origins[0];
+        assertEqual(org[0], -1234.5, `${protocol}: origin x`);
+        assertEqual(org[1], cl_entities[20].baseline.origin[1], "origin y");
+        assertEqual(org[2], 2047.875, `${protocol}: origin z`);
+      },
+      0,
+      0,
+    );
   }
+
+  // Icaro's server never sends them, so revision 1 has none
+  expectParseError(
+    PROTOCOL_ICARO,
+    1,
+    (m) => {
+      common.MSG_WriteByte(m, 128 | U_ORIGIN1);
+      common.MSG_WriteByte(m, 20);
+      common.MSG_WriteCoord(m, 1);
+    },
+    "Illegible",
+    "a fast update under revision 1",
+  );
 });
 
 // FitzQuake 666 and RMQ 999: hand-built messages in Ironwail's layouts

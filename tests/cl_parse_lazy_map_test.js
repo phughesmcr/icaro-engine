@@ -5,8 +5,12 @@
 // Bootstrap the client renderer graph in its established safe import order.
 await import("../src/gl_rsurf.js");
 
-const { CL_ParseServerMessage } = await import("../src/cl_parse.js");
-const { cls, ca_connected, ca_disconnected } = await import("../src/client.js");
+const { CL_ParseServerMessage, cl_icaro } = await import("../src/cl_parse.js");
+const { cl, cls, ca_connected, ca_disconnected } = await import(
+  "../src/client.js"
+);
+const { SV_SendServerinfo } = await import("../src/sv_main.js");
+const { client_t, sv, svs } = await import("../src/server.js");
 const net = await import("../src/net.js");
 const {
   MSG_WriteByte,
@@ -19,6 +23,7 @@ const {
 const common = await import("../src/common.js");
 const { COM_SetLooseFileBasePath } = await import("../src/pak.js");
 const {
+  PROTOCOL_ICARO,
   PROTOCOL_VERSION,
   GAME_DEATHMATCH,
   svc_serverinfo,
@@ -32,7 +37,12 @@ function assertEqual(actual, expected, message) {
   }
 }
 
-Deno.test("a missing map drops the connection before it is fetched", async () => {
+/**
+ * Connects the client over a fake driver, parses the message `write` puts in
+ * net_message, checks that the client dropped the connection for the map
+ * fetch, then runs `check` and restores the state it touched.
+ */
+async function lazyMapCase(write, check) {
   const FAKE_DRIVER = net.MAX_NET_DRIVERS - 1;
   const savedDriver = net.net_drivers[FAKE_DRIVER];
   const savedActive = net.net_activeSockets;
@@ -86,22 +96,11 @@ Deno.test("a missing map drops the connection before it is fetched", async () =>
     SZ_Alloc(cls.message, 1024); // CL_Init allocates it
     COM_SetLooseFileBasePath(tempDir + "/");
 
-    // SV_SendServerinfo: the serverinfo, then signon 1 in the same message.
     COM_SetNetMessage(net.net_message); // Host_Init does this
     net.net_message.data = new Uint8Array(1024);
     net.net_message.maxsize = 1024;
     SZ_Clear(net.net_message);
-    MSG_WriteByte(net.net_message, svc_serverinfo);
-    MSG_WriteLong(net.net_message, PROTOCOL_VERSION);
-    MSG_WriteByte(net.net_message, 4);
-    MSG_WriteByte(net.net_message, GAME_DEATHMATCH);
-    MSG_WriteString(net.net_message, "Lazy test");
-    MSG_WriteString(net.net_message, "maps/__lazy_missing.bsp");
-    MSG_WriteString(net.net_message, "progs/player.mdl");
-    MSG_WriteByte(net.net_message, 0);
-    MSG_WriteByte(net.net_message, 0);
-    MSG_WriteByte(net.net_message, svc_signonnum);
-    MSG_WriteByte(net.net_message, 1);
+    write(net.net_message);
 
     let thrown = null;
     try {
@@ -124,6 +123,8 @@ Deno.test("a missing map drops the connection before it is fetched", async () =>
     // The rest of the message (signon 1) was discarded: no "prespawn" queued.
     assertEqual(cls.message.cursize, 0, "queued client message bytes");
 
+    check();
+
     // Let the (failing) fetch settle before the test ends.
     await new Promise((resolve) => setTimeout(resolve, 50));
   } finally {
@@ -144,5 +145,72 @@ Deno.test("a missing map drops the connection before it is fetched", async () =>
     COM_SetNetMessage(savedCommonMessage);
     COM_SetLooseFileBasePath("static/");
     await Deno.remove(tempDir, { recursive: true });
+  }
+}
+
+Deno.test("a missing map drops the connection before it is fetched", async () => {
+  // SV_SendServerinfo's layout: the serverinfo, then signon 1 in the same
+  // message (here NetQuake 15's, with no hello)
+  await lazyMapCase((m) => {
+    MSG_WriteByte(m, svc_serverinfo);
+    MSG_WriteLong(m, PROTOCOL_VERSION);
+    MSG_WriteByte(m, 4);
+    MSG_WriteByte(m, GAME_DEATHMATCH);
+    MSG_WriteString(m, "Lazy test");
+    MSG_WriteString(m, "maps/__lazy_missing.bsp");
+    MSG_WriteString(m, "progs/player.mdl");
+    MSG_WriteByte(m, 0);
+    MSG_WriteByte(m, 0);
+    MSG_WriteByte(m, svc_signonnum);
+    MSG_WriteByte(m, 1);
+  }, () => {
+    assertEqual(cl.protocol, PROTOCOL_VERSION, "protocol");
+    assertEqual(cl.maxclients, 4, "maxclients");
+    assertEqual(cl.levelname, "Lazy test", "levelname");
+  });
+});
+
+// The server's own serverinfo, versioned hello included (protocol.js), read
+// by the client up to the map fetch.
+Deno.test("the client reads SV_SendServerinfo's versioned hello", async () => {
+  const saved = {
+    maxclients: svs.maxclients,
+    clients: svs.clients,
+    edicts: sv.edicts,
+    models: sv.model_precache,
+    sounds: sv.sound_precache,
+  };
+  const client = new client_t();
+  client.message.data = client.msgbuf;
+  client.message.maxsize = client.msgbuf.length;
+  try {
+    svs.maxclients = 3;
+    svs.clients = [client];
+    sv.edicts = [{ v: { message: -1, sounds: 2 } }];
+    sv.model_precache = [null, "maps/__lazy_missing.bsp", "progs/player.mdl"];
+    sv.sound_precache = [null, "weapons/r_exp3.wav"];
+    SV_SendServerinfo(client);
+
+    await lazyMapCase((m) => {
+      common.SZ_Write(
+        m,
+        client.message.data.subarray(0, client.message.cursize),
+        client.message.cursize,
+      );
+    }, () => {
+      assertEqual(cl.protocol, PROTOCOL_ICARO, "protocol");
+      assertEqual(cl_icaro.revision, 1, "revision");
+      assertEqual(cl_icaro.game, "quake", "game profile");
+      assertEqual(cl_icaro.required.length, 0, "required words");
+      assertEqual(cl_icaro.optional.length, 0, "optional words");
+      assertEqual(cl.maxclients, 3, "maxclients after the hello");
+      assertEqual(cl.gametype, 0, "gametype (coop)");
+    });
+  } finally {
+    svs.maxclients = saved.maxclients;
+    svs.clients = saved.clients;
+    sv.edicts = saved.edicts;
+    sv.model_precache = saved.models;
+    sv.sound_precache = saved.sounds;
   }
 });

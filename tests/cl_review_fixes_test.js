@@ -10,6 +10,8 @@ await import("../src/gl_rsurf.js");
 const {
   CL_EntityNum,
   CL_ParseServerMessage,
+  CL_SetProtocol,
+  cl_icaro,
 } = await import("../src/cl_parse.js");
 const { CL_TEntSRand, CL_TEntRand, CL_UpdateTEnts } = await import(
   "../src/cl_tent.js"
@@ -28,9 +30,10 @@ const {
   svc_lightstyle,
   svc_updatestat,
   svc_serverinfo,
+  PROTOCOL_ICARO,
   PROTOCOL_VERSION,
 } = await import("../src/protocol.js");
-const { MSG_WriteLong } = common;
+const { MSG_WriteLong, MSG_WriteShort } = common;
 const { CONTENTS_SKY, CONTENTS_WATER, CONTENTS_EMPTY } = await import(
   "../src/bspfile.js"
 );
@@ -137,6 +140,108 @@ Deno.test("a bad serverinfo is a Host_Error, not a half-connected client", () =>
   } finally {
     cls.state = savedState;
   }
+});
+
+/**
+ * Writes PROTOCOL_ICARO's versioned hello (protocol.js), then a maxclients of
+ * 0, so a client that reads the whole hello stops at "Bad maxclients (0)"
+ */
+function writeHello(m, revision, game, required, optional) {
+  MSG_WriteByte(m, svc_serverinfo);
+  MSG_WriteLong(m, PROTOCOL_ICARO);
+  MSG_WriteByte(m, 0); // marker
+  MSG_WriteShort(m, revision);
+  MSG_WriteString(m, game);
+  MSG_WriteByte(m, required.length);
+  for (const word of required) MSG_WriteLong(m, word);
+  MSG_WriteByte(m, optional.length);
+  for (const word of optional) MSG_WriteLong(m, word);
+  MSG_WriteByte(m, 0); // maxclients
+}
+
+/**
+ * Parses `write`'s serverinfo, expecting a Host_Error starting `prefix`, then
+ * runs `check` before restoring Icaro's reader
+ */
+function expectServerinfoError(write, prefix, check = () => {}) {
+  const savedState = cls.state;
+  try {
+    withServerMessage(
+      write,
+      () => expectHostError(() => CL_ParseServerMessage(), prefix),
+    );
+    check();
+  } finally {
+    cls.state = savedState;
+    CL_SetProtocol(PROTOCOL_ICARO, 0);
+  }
+}
+
+Deno.test("the versioned hello refuses a revision or game profile it can't read", () => {
+  for (const revision of [0, 2, -1]) {
+    expectServerinfoError(
+      (m) => writeHello(m, revision, "quake", [], []),
+      "Server uses Icaro revision " + revision + ", not 1. Update the client.",
+    );
+  }
+  expectServerinfoError(
+    (m) => writeHello(m, 1, "hexen2", [], []),
+    "This client can't play hexen2",
+  );
+});
+
+Deno.test("the versioned hello refuses unknown required capabilities, naming them", () => {
+  expectServerinfoError(
+    (m) => writeHello(m, 1, "quake", [1 << 2], []),
+    "Server uses Icaro features this client lacks (required 0:0x00000004). Update the client.",
+  );
+  // bit 31 reads as a negative long; word 1 is named by its index
+  expectServerinfoError(
+    (m) => writeHello(m, 1, "quake", [0, 1 << 31, 1], []),
+    "Server uses Icaro features this client lacks (required 1:0x80000000, 2:0x00000001).",
+    () => assertEqual(cl_icaro.required[1], 0x80000000, "word 1 unsigned"),
+  );
+});
+
+Deno.test("the versioned hello accepts empty words and unknown optional capabilities", () => {
+  // reaching maxclients means the whole hello was read
+  expectServerinfoError(
+    (m) => writeHello(m, 1, "quake", [0, 0], [0xffffffff, 1 << 31]),
+    "Bad maxclients (0) from server",
+    () => {
+      assertEqual(cl.protocol, PROTOCOL_ICARO, "protocol");
+      assertEqual(cl_icaro.revision, 1, "revision");
+      assertEqual(cl_icaro.required.length, 2, "required words");
+      assertEqual(cl_icaro.optional.length, 2, "optional words");
+      assertEqual(cl_icaro.optional[0], 0xffffffff, "optional word 0");
+      assertEqual(cl_icaro.optional[1], 0x80000000, "optional word 1");
+    },
+  );
+
+  expectServerinfoError(
+    (m) => writeHello(m, 1, "quake", [], []),
+    "Bad maxclients (0) from server",
+    () => {
+      assertEqual(cl_icaro.required.length, 0, "no required words");
+      assertEqual(cl_icaro.optional.length, 0, "no optional words");
+    },
+  );
+});
+
+Deno.test("a 1015 serverinfo without the hello is revision 0 (an old Icaro demo)", () => {
+  // the byte after 1015 is maxclients, as the first 1015 builds sent it
+  expectServerinfoError(
+    (m) => {
+      MSG_WriteByte(m, svc_serverinfo);
+      MSG_WriteLong(m, PROTOCOL_ICARO);
+      MSG_WriteByte(m, 255); // maxclients
+    },
+    "Bad maxclients (255) from server",
+    () => {
+      assertEqual(cl_icaro.revision, 0, "revision 0");
+      assertEqual(cl.protocol, PROTOCOL_ICARO, "protocol");
+    },
+  );
 });
 
 Deno.test("sky contents give no colour shift", () => {
