@@ -32,6 +32,11 @@ export const TL_CUSTOM_KEY_BASE = 1000;
  * The buttons a profile can move and resize, with their default centre and
  * size (what Touch_Layout used before profiles). FIRE is 88 px across, its
  * centre 100 px in from the action edge and 112 px up.
+ *
+ * Only JUMP sits low in the corner: a phone's status bar (about 480 x 72 px
+ * in landscape) leaves just 93 px beside it on a 667 px screen. The rest
+ * start above that bar; Touch_Layout lifts them further where the bar is
+ * taller (tablets, scr_sbarscale) or in the way (deathmatch).
  */
 // deno-fmt-ignore -- a table reads better in rows
 export const TL_MOVABLE = [
@@ -39,7 +44,7 @@ export const TL_MOVABLE = [
   { id: "touch-jump",        label: "JUMP", cx: 48,  cy: 48,  size: 64 },
   { id: "touch-weapon-next", label: "WPN▶", cx: 96,  cy: 206, size: 56 },
   { id: "touch-weapon-prev", label: "◀",    cx: 168, cy: 176, size: 44 },
-  { id: "touch-movedown",    label: "DOWN", cx: 148, cy: 40,  size: 44 }, // clear of FIRE (its bottom edge is 68)
+  { id: "touch-movedown",    label: "DOWN", cx: 176, cy: 100, size: 44 }, // beside FIRE, over the status bar (was 148, 40: on it)
 ];
 
 /** The top bar's buttons: these can only be hidden (the bar lays them out) */
@@ -50,8 +55,8 @@ export const TL_HIDE_ONLY = [
   { id: "touch-chat", label: "CHAT" },
 ];
 
-// Where a new custom button starts: inside FIRE, towards the middle
-const CUSTOM_CX = 220;
+// Where a new custom button starts: inside FIRE and DOWN, towards the middle
+const CUSTOM_CX = 240;
 const CUSTOM_CY = 110;
 const CUSTOM_SIZE = 52;
 
@@ -265,6 +270,64 @@ export function TL_Button(id, out) {
 export function TL_Hidden(id) {
   const o = TL_Active().buttons[id];
   return o !== undefined && o.hidden === true;
+}
+
+/**
+ * Is (cx, cy) button id's default centre. Touch_Layout lifts only these
+ * clear of the status bar: a centre the player dragged stays where they put
+ * it. A hide or resize stores the default centre too, so it still counts.
+ */
+export function TL_AtDefault(id, cx, cy) {
+  const d = TL_Default(id);
+  return d !== null && cx === d.cx && cy === d.cy;
+}
+
+// The status bar
+//
+// Touch_Layout keeps the default buttons off the status bar and its numbers.
+// These work in CSS px on the screen, from what sbar.js draws.
+
+/** Gap kept between a lifted button and the status bar, px */
+export const TL_HUD_MARGIN = 4;
+
+/**
+ * The status bar's footprint as sbar.js draws it: 320 x lines sbar pixels on
+ * the bottom edge, centred, or at the left edge in deathmatch with
+ * Sbar_MiniDeathmatchOverlay's frag list (x 324 to 500) beside it once the
+ * screen is 512 wide. vw: screen width in CSS px; unit: CSS px per sbar pixel
+ * (the bar's canvas scale over the pixel ratio); lines: sbar.js's sb_lines
+ * (0, 24 or 48). Fills out.left and out.right (px from the left edge) and
+ * out.height (0: no bar). Returns out.
+ */
+export function TL_HudRect(vw, unit, lines, deathmatch, out) {
+  out.left = 0;
+  out.right = 0;
+  out.height = 0;
+  if (!(vw > 0) || !(unit > 0) || !(lines > 0)) return out;
+  const width = Math.ceil(vw / unit); // the bar canvas's virtual width
+  if (deathmatch) {
+    out.right = (width >= 512 && lines >= 24 ? 500 : 320) * unit;
+  } else {
+    out.left = Math.floor((width - 320) / 2) * unit;
+    out.right = out.left + 320 * unit;
+  }
+  out.left = Math.max(out.left, 0);
+  out.right = Math.min(out.right, vw);
+  out.height = lines * unit;
+  return out;
+}
+
+/**
+ * How far a button must rise to clear the status bar, or 0 if it is clear.
+ * x, y: its centre in px from the action-side edge and the bottom edge
+ * (safe-area insets included); size: its diameter in px. near, far: the
+ * bar's distances from the action-side edge; height: the bar's height.
+ */
+export function TL_HudClearance(x, y, size, near, far, height) {
+  if (!(height > 0)) return 0;
+  const r = size / 2;
+  if (x + r <= near - TL_HUD_MARGIN || x - r >= far + TL_HUD_MARGIN) return 0;
+  return Math.max(height + TL_HUD_MARGIN - (y - r), 0);
 }
 
 /**
