@@ -42,6 +42,9 @@ export function lump(count, size, fill) {
 
 // Leaf and node children are given as signed values: >= 0 is a node,
 // -1 - n is leaf n. Clipnode children: >= 0 is a clipnode, < 0 contents.
+// map.textures, if given, is [ { name, flags, offset } ]: texinfo i uses
+// miptex i, with flags and the [ s, t ] offset if given; the miptexes are
+// 16x16 headers without pixels.
 //
 // map: {
 //   planes: count, vertexes: [ [ x, y, z ] ], edges: [ [ v0, v1 ] ],
@@ -79,10 +82,33 @@ export function writeMap(bsp2, map) {
     4,
     (v, o, i) => v.setInt32(o, map.surfedges[i], true),
   );
-  L[bspfile.LUMP_TEXINFO] = lump(map.texinfo, 40, (v, o) => {
+  L[bspfile.LUMP_TEXINFO] = lump(map.texinfo, 40, (v, o, i) => {
     v.setFloat32(o, 1, true); // s = x
     v.setFloat32(o + 16 + 4, 1, true); // t = y
+    if (map.textures !== undefined) {
+      const t = map.textures[i];
+      if (t.offset !== undefined) {
+        v.setFloat32(o + 12, t.offset[0], true);
+        v.setFloat32(o + 28, t.offset[1], true);
+      }
+      v.setInt32(o + 32, i, true); // miptex
+      v.setInt32(o + 36, t.flags, true);
+    }
   });
+  if (map.textures !== undefined) {
+    const n = map.textures.length;
+    const textures = new Uint8Array(4 + n * 4 + n * 40);
+    const v = new DataView(textures.buffer);
+    v.setInt32(0, n, true);
+    map.textures.forEach((t, i) => {
+      const o = 4 + n * 4 + i * 40;
+      v.setInt32(4 + i * 4, o, true);
+      textures.set(new TextEncoder().encode(t.name), o);
+      v.setUint32(o + 16, 16, true);
+      v.setUint32(o + 20, 16, true);
+    });
+    L[bspfile.LUMP_TEXTURES] = textures;
+  }
   L[bspfile.LUMP_FACES] = lump(map.faces.length, bsp2 ? 28 : 20, (v, o, i) => {
     const f = map.faces[i];
     if (bsp2) {
