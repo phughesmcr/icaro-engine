@@ -3,15 +3,25 @@
 import { Sys_Printf } from "./sys.js";
 import { cvar_t } from "./cvar.js";
 import {
+  clc_delta,
+  clc_disconnect,
+  clc_icaro_ext,
+  clc_move,
+  clc_nop,
+  clc_stringcmd,
+} from "./protocol.js";
+import {
   Con_DPrintf,
   msg_badread,
   MSG_BeginReading,
   MSG_ReadAngle16,
   MSG_ReadByte,
   MSG_ReadChar,
+  msg_readcount,
   MSG_ReadFloat,
   MSG_ReadShort,
   MSG_ReadString,
+  net_message,
 } from "./common.js";
 import {
   AngleVectors,
@@ -95,14 +105,6 @@ export let Cbuf_InsertText = null;
 let _set_host_client = null;
 export let Cmd_ExecuteString = null;
 export const src_client = 0;
-
-// clc_ constants (from protocol.h)
-export const clc_bad = 0;
-export const clc_nop = 1;
-export const clc_disconnect = 2;
-export const clc_move = 3;
-export const clc_stringcmd = 4;
-export const clc_delta = 5; // [byte] sequence number, requests delta compression
 
 export function SV_User_SetCallbacks(callbacks) {
   if (callbacks.V_CalcRoll) V_CalcRoll = callbacks.V_CalcRoll;
@@ -640,6 +642,22 @@ export function SV_ReadClientMessage() {
         case clc_delta:
           host_client.delta_sequence = MSG_ReadByte();
           break;
+
+        case clc_icaro_ext: {
+          // Not in C: an Icaro extension (protocol.js). Revision 1 defines
+          // no ids, so each one is skipped by its length. A length past the
+          // end of the message is a bad client.
+          MSG_ReadShort(); // id
+          const length = MSG_ReadShort() & 0xffff;
+          if (msg_badread || msg_readcount + length > net_message.cursize) {
+            Sys_Printf("SV_ReadClientMessage: bad clc_icaro_ext\n");
+            return false;
+          }
+          for (let i = 0; i < length; i++) {
+            MSG_ReadByte();
+          }
+          break;
+        }
 
         case clc_stringcmd: {
           const s = MSG_ReadString();

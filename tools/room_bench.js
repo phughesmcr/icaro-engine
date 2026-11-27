@@ -12,6 +12,7 @@
 await import("../src/gl_rsurf.js"); // the renderer's module graph, in its safe order (as the tests do)
 const client = await import("../src/net_websocket.js");
 const net = await import("../src/net.js");
+const { clc_delta, svc_serversequence } = await import("../src/protocol.js");
 const { svs } = await import("../src/server.js");
 const { GD_MAPS, GD_PAK } = await import("../server/game_data.js");
 
@@ -236,7 +237,7 @@ function botFrame(now) {
       } else {
         bot.unreliable++;
         // svc_time float, svc_serversequence long (SV_SendClientDatagram)
-        if (len >= 10 && d[0] === 7 && d[5] === 49) {
+        if (len >= 10 && d[0] === 7 && d[5] === svc_serversequence) {
           const v = new DataView(d.buffer, d.byteOffset, len);
           bot.time = v.getFloat32(1, true);
           bot.seq = v.getInt32(6, true);
@@ -282,7 +283,7 @@ function botFrame(now) {
     moveBuf[o++] = bot.impulse;
     bot.impulse = 0;
     if (bot.seq !== 0) {
-      moveBuf[o++] = 5;
+      moveBuf[o++] = clc_delta;
       moveBuf[o++] = bot.seq & 255;
     }
     if (

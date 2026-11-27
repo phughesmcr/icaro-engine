@@ -22,7 +22,14 @@
 
 import { Cvar_RegisterVariable } from "./cvar.js";
 import { Sys_FloatTime } from "./sys.js";
-import { renderer, vid, VID_SetDynamicScale } from "./vid.js";
+import {
+  renderer,
+  vid,
+  VID_MaxScale,
+  VID_PhysicalHeight,
+  VID_SetDynamicScale,
+  VID_SetScaleDivisor,
+} from "./vid.js";
 
 /** vid_dynres: 0 off (the default), 1 on. Archived. */
 export const vid_dynres = {
@@ -31,6 +38,29 @@ export const vid_dynres = {
   value: 0,
   archive: true,
 };
+
+/**
+ * Ironwail r_scale (gl_rmain.c, registered in gl_rmisc.c R_Init): draws the
+ * 3D view at 1/2, 1/3 or 1/4 (up to vid.maxscale) of the screen's resolution
+ * for a pixelated look. Archived. Defined here because it sets the same
+ * drawing buffer scale as vid_dynres (see VID_SetScaleDivisor).
+ */
+export const r_scale = {
+  name: "r_scale",
+  string: "1",
+  value: 1,
+  archive: true,
+};
+
+/**
+ * Ironwail SCR_UpdateScreen: r_refdef.scale = CLAMP (1, (int)r_scale.value,
+ * vid.maxscale).
+ */
+export function R_ScaleDivisor(value, maxscale) {
+  const n = Math.trunc(value);
+  if (!(n > 1)) return 1;
+  return n < maxscale ? n : maxscale;
+}
 
 /** The scales tried, from full to the floor (times ?scale=, the ceiling). */
 export const DYNRES_STEPS = [1, 0.85, 0.7, 0.6, 0.5];
@@ -152,9 +182,10 @@ export const dynres_state = DynRes_NewState();
 let dynres_width = 0;
 let dynres_height = 0;
 
-/** Registers vid_dynres (VID_Init). */
+/** Registers vid_dynres and r_scale (R_Init). */
 export function VID_DynResInit() {
   Cvar_RegisterVariable(vid_dynres);
+  Cvar_RegisterVariable(r_scale);
 }
 
 /**
@@ -165,6 +196,10 @@ export function VID_DynResInit() {
  */
 export function VID_DynResFrame(maxfps, hold) {
   if (renderer === null) return;
+
+  VID_SetScaleDivisor(
+    R_ScaleDivisor(r_scale.value, VID_MaxScale(VID_PhysicalHeight())),
+  );
 
   if (vid_dynres.value === 0 || hold === true) {
     if (dynres_state.level !== 0) {

@@ -5,7 +5,13 @@
 import { sizebuf_t, SZ_Write } from "../src/common.js";
 import { MAX_MSGLEN } from "../src/quakedef.js";
 import * as net from "../src/net.js";
-import { svc_signonnum } from "../src/protocol.js";
+import {
+  ICARO_REVISION,
+  PROTOCOL_ICARO,
+  svc_print,
+  svc_serverinfo,
+  svc_signonnum,
+} from "../src/protocol.js";
 import {
   client_t,
   host_client,
@@ -22,6 +28,7 @@ import {
   SV_CheckMovevars,
   SV_ReserveSignonSpace,
   SV_SendClientMessages,
+  SV_SendServerinfo,
 } from "../src/sv_main.js";
 import { PR_InitBuiltins } from "../src/pr_cmds.js";
 import { OFS_PARM0, OFS_PARM1, OFS_PARM2, OFS_PARM3 } from "../src/pr_comp.js";
@@ -374,5 +381,59 @@ Deno.test("PF_ambientsound reserves signon space before writing", () => {
     PR_SetStringsData(oldStrings);
     PR_SetSV(oldProgsSV);
     sv.sound_precache = oldPrecache;
+  }
+});
+
+// docs/protocol-design.md, "The hello": 1015, the 0 marker, the revision,
+// the game profile and the two capability word lists, then the body.
+Deno.test("SV_SendServerinfo opens with the versioned hello", () => {
+  const savedMaxclients = svs.maxclients;
+  const savedClients = svs.clients;
+  const savedEdicts = sv.edicts;
+  const savedModels = sv.model_precache;
+  const savedSounds = sv.sound_precache;
+  try {
+    const client = new client_t();
+    client.message.data = client.msgbuf;
+    client.message.maxsize = MAX_MSGLEN;
+    svs.maxclients = 4;
+    svs.clients = [client];
+    sv.edicts = [{ v: { message: -1, sounds: 0 } }];
+    sv.model_precache = [null, "maps/x.bsp"];
+    sv.sound_precache = [null];
+    SV_SendServerinfo(client);
+
+    const m = client.message.data;
+    const view = new DataView(m.buffer, 0, client.message.cursize);
+    assert(m[0] === svc_print, "svc_print first");
+    let o = m.indexOf(0, 1) + 1; // past the version string
+    const expected = [
+      [svc_serverinfo, 1, "svc_serverinfo"],
+      [PROTOCOL_ICARO, 4, "PROTOCOL_ICARO"],
+      [0, 1, "hello marker"],
+      [ICARO_REVISION, 2, "revision"],
+    ];
+    for (const [value, size, what] of expected) {
+      const got = size === 1 ?
+        view.getUint8(o) :
+        size === 2 ?
+        view.getInt16(o, true) :
+        view.getInt32(o, true);
+      assert(got === value, `${what}: expected ${value}, got ${got}`);
+      o += size;
+    }
+    assert(ICARO_REVISION === 1, "revision 1");
+    const game = new TextDecoder().decode(m.subarray(o, m.indexOf(0, o)));
+    assert(game === "quake", `game profile ${game}`);
+    o += game.length + 1;
+    assert(m[o] === 0, "no required capability words");
+    assert(m[o + 1] === 0, "no optional capability words");
+    assert(m[o + 2] === 4, "then maxclients");
+  } finally {
+    svs.maxclients = savedMaxclients;
+    svs.clients = savedClients;
+    sv.edicts = savedEdicts;
+    sv.model_precache = savedModels;
+    sv.sound_precache = savedSounds;
   }
 });

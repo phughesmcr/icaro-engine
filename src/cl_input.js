@@ -56,7 +56,8 @@ const _accumulate_cmd = {
   upmove: 0,
 };
 
-// WebTransport game servers parse QuakeWorld-style clc_delta requests.
+// Icaro servers parse QuakeWorld-style clc_delta requests (protocol.js: 96,
+// where QW uses 5).
 const USE_QW_COMMAND_EXTENSIONS = true;
 
 // KEY BUTTONS
