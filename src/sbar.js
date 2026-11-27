@@ -1,17 +1,28 @@
 // Ported from: WinQuake/sbar.c, WinQuake/sbar.h -- status bar / HUD code
+// The modern HUD (hudstyle 1 and 2) is ported from Ironwail Quake/sbar.c.
 
 import { Cmd_AddCommand } from "./cmd.js";
 import { realtime, skill, teamplay } from "./host.js";
 import { Con_Printf } from "./console.js";
 import {
+  Draw_GetCanvasScale,
   Draw_GetOverlayCanvas,
   Draw_GetVirtualHeight,
   Draw_GetVirtualWidth,
   Draw_ResetClipping,
+  Draw_SetCanvasScale,
   Draw_SetClipRect,
 } from "./gl_draw.js";
 import { COM_SkipPath, COM_StripExtension } from "./common.js";
-import { scr_sbaralpha } from "./gl_screen.js";
+import {
+  HUD_MODERN_CENTERAMMO,
+  HUD_MODERN_SIDEAMMO,
+  SCR_HudStyle,
+  scr_sbaralpha,
+  scr_sbarscale,
+  scr_viewsize,
+} from "./gl_screen.js";
+import { VID_GetPixelRatio } from "./vid.js";
 import { CL_GetDisplayPing } from "./cl_pred.js";
 import {
   HIT_LASER_CANNON_BIT,
@@ -406,6 +417,11 @@ function Sbar_DrawString(x, y, str) {
 
 /** Draws a number with the large status bar font */
 export function Sbar_DrawNum(x, y, num, digits, color) {
+  Sbar_DrawNumWith(Sbar_DrawPic, x, y, num, digits, color);
+}
+
+/** Sbar_DrawNum through drawPic (the classic or the modern HUD's) */
+function Sbar_DrawNumWith(drawPic, x, y, num, digits, color) {
   // Sbar_itoa: integer to decimal, with a leading '-' for negatives
   const str = String(Math.trunc(num));
   const l = str.length;
@@ -422,7 +438,7 @@ export function Sbar_DrawNum(x, y, num, digits, color) {
     const c = str.charCodeAt(ptr);
     const frame = (c === 45) ? STAT_MINUS : c - 48; // '-' : '0'
 
-    Sbar_DrawPic(x, y, sb_nums[color] ? sb_nums[color][frame] : null);
+    drawPic(x, y, sb_nums[color] ? sb_nums[color][frame] : null);
     x += 24;
     ptr++;
   }
@@ -843,7 +859,6 @@ function Sbar_DrawScoreboard() {
 /** Returns the health face to display */
 function Sbar_DrawFace() {
   let f;
-  let anim;
 
   // PGM 01/19/97 - team color drawing
   // PGM 03/02/97 - fixed so color swatch only appears in CTF modes
@@ -897,48 +912,508 @@ function Sbar_DrawFace() {
   }
   // PGM 01/19/97 - team color drawing
 
+  Sbar_DrawPic(112, 0, Sbar_FacePic());
+}
+
+/** Ironwail Sbar_FacePic: the face for the current items and health */
+function Sbar_FacePic() {
   if (
     (_cl.items & (IT_INVISIBILITY | IT_INVULNERABILITY)) ===
       (IT_INVISIBILITY | IT_INVULNERABILITY)
   ) {
-    Sbar_DrawPic(112, 0, sb_face_invis_invuln);
-    return;
+    return sb_face_invis_invuln;
   }
-
-  if (_cl.items & IT_QUAD) {
-    Sbar_DrawPic(112, 0, sb_face_quad);
-    return;
-  }
-
-  if (_cl.items & IT_INVISIBILITY) {
-    Sbar_DrawPic(112, 0, sb_face_invis);
-    return;
-  }
-
-  if (_cl.items & IT_INVULNERABILITY) {
-    Sbar_DrawPic(112, 0, sb_face_invuln);
-    return;
-  }
+  if (_cl.items & IT_QUAD) return sb_face_quad;
+  if (_cl.items & IT_INVISIBILITY) return sb_face_invis;
+  if (_cl.items & IT_INVULNERABILITY) return sb_face_invuln;
 
   const health = _cl.stats[STAT_HEALTH];
-
-  if (health >= 100) {
-    f = 4;
-  } else {
-    f = Math.floor(health / 20);
-  }
-
+  let f = health >= 100 ? 4 : Math.floor(health / 20);
   if (f < 0) f = 0;
   if (f > 4) f = 4;
 
   // pain animation
-  anim = 0;
+  let anim = 0;
   if (_cl.time <= _cl.faceanimtime) {
     anim = 1;
     sb_updates = 0; // make sure the anim gets drawn over
   }
+  return sb_faces[f][anim];
+}
 
-  Sbar_DrawPic(112, 0, sb_faces[f][anim]);
+/** Ironwail Sbar_ArmorPic: the armour icon, the disc when invulnerable */
+function Sbar_ArmorPic() {
+  if ((_cl.items & IT_INVULNERABILITY) !== 0) return sb_disc;
+  if (_rogue) {
+    if ((_cl.items & RIT_ARMOR3) !== 0) return sb_armor[2];
+    if ((_cl.items & RIT_ARMOR2) !== 0) return sb_armor[1];
+    if ((_cl.items & RIT_ARMOR1) !== 0) return sb_armor[0];
+  } else {
+    if ((_cl.items & IT_ARMOR3) !== 0) return sb_armor[2];
+    if ((_cl.items & IT_ARMOR2) !== 0) return sb_armor[1];
+    if ((_cl.items & IT_ARMOR1) !== 0) return sb_armor[0];
+  }
+  return null;
+}
+
+/** Ironwail Sbar_AmmoPic: the icon of the current ammo type */
+function Sbar_AmmoPic() {
+  if (_rogue) {
+    if ((_cl.items & RIT_SHELLS) !== 0) return sb_ammo[0];
+    if ((_cl.items & RIT_NAILS) !== 0) return sb_ammo[1];
+    if ((_cl.items & RIT_ROCKETS) !== 0) return sb_ammo[2];
+    if ((_cl.items & RIT_CELLS) !== 0) return sb_ammo[3];
+    if ((_cl.items & RIT_LAVA_NAILS) !== 0) return rsb_ammo[0];
+    if ((_cl.items & RIT_PLASMA_AMMO) !== 0) return rsb_ammo[1];
+    if ((_cl.items & RIT_MULTI_ROCKETS) !== 0) return rsb_ammo[2];
+  } else {
+    if ((_cl.items & IT_SHELLS) !== 0) return sb_ammo[0];
+    if ((_cl.items & IT_NAILS) !== 0) return sb_ammo[1];
+    if ((_cl.items & IT_ROCKETS) !== 0) return sb_ammo[2];
+    if ((_cl.items & IT_CELLS) !== 0) return sb_ammo[3];
+  }
+  return null;
+}
+
+/** Ironwail Sbar_InventoryBarPic */
+function Sbar_InventoryBarPic() {
+  if (_rogue) {
+    return rsb_invbar[_cl.stats[STAT_ACTIVEWEAPON] < RIT_LAVA_NAILGUN ? 1 : 0];
+  }
+  return sb_ibar;
+}
+
+// Ironwail's modern HUD (hudstyle 1 and 2), from Ironwail Quake/sbar.c:
+// Sbar_Draw's modern branch, Sbar_DrawInventory2, Sbar_DrawFrags2 and
+// Sbar_DrawSigils. It is laid out on the whole screen (CANVAS_SBAR2), so the
+// Sbar2_ helpers take canvas coordinates, with Ironwail's +24 on pics and
+// characters (its Sbar_DrawPic). The scoreboard and the sigils stay on the
+// classic status bar canvas.
+const SBAR2_MARGIN_X = 16;
+const SBAR2_MARGIN_Y = 10;
+
+/**
+ * Ironwail CANVAS_SBAR2: CLAMP (1, scr_sbarscale, min (w / 400, h / 225)),
+ * in physical pixels per canvas pixel. Deviation: scr_sbarscale 0 (Icaro's
+ * automatic default) takes the UI scale, autoScale.
+ */
+export function Sbar2_CanvasScale(sbarscale, width, height, autoScale) {
+  const max = Math.min(width / 400, height / 225);
+  const s = sbarscale > 0 ? sbarscale : autoScale;
+  if (s < 1) return 1;
+  return s > max ? max : s;
+}
+
+function Sbar2_SetCanvas() {
+  const dpr = VID_GetPixelRatio();
+  Draw_SetCanvasScale(
+    Sbar2_CanvasScale(
+      scr_sbarscale.value,
+      Math.floor(_realVid.width * dpr),
+      Math.floor(_realVid.height * dpr),
+      Draw_GetCanvasScale(0),
+    ),
+  );
+}
+
+function Sbar2_DrawPic(x, y, pic) {
+  if (_Draw_Pic === null || pic == null) return;
+  _Draw_Pic(x, y + 24, pic);
+}
+
+function Sbar2_DrawCharacter(x, y, num) {
+  if (_Draw_Character === null) return;
+  _Draw_Character(x, y + 24, num);
+}
+
+function Sbar2_DrawString(x, y, str) {
+  for (let i = 0; i < str.length; i++) {
+    Sbar2_DrawCharacter(x + i * 8, y, str.charCodeAt(i));
+  }
+}
+
+/** Ironwail Sbar_DrawSmallNum: "%3i" of CLAMP (0, num, 999), small digits */
+function Sbar2_DrawSmallNum(x, y, num) {
+  const n = num > 0 ? (num < 999 ? Math.trunc(num) : 999) : 0;
+  if (n >= 100) Sbar2_DrawCharacter(x, y, 18 + Math.trunc(n / 100));
+  if (n >= 10) Sbar2_DrawCharacter(x + 8, y, 18 + Math.trunc(n / 10) % 10);
+  Sbar2_DrawCharacter(x + 16, y, 18 + n % 10);
+}
+
+/**
+ * Ironwail Draw_SubPic: the part of pic at (s, t), sw by th in texture
+ * coordinates, drawn into w by h at (x, y), with alpha.
+ */
+function Sbar2_DrawSubPic(x, y, w, h, pic, s, t, sw, th, alpha) {
+  if (pic == null || pic.canvas == null) return;
+  const canvas = Draw_GetOverlayCanvas();
+  if (canvas === null) return;
+  const ctx = canvas.getContext("2d");
+  const oldAlpha = ctx.globalAlpha;
+  ctx.globalAlpha = alpha > 0 ? (alpha < 1 ? alpha : 1) : 0;
+  ctx.drawImage(
+    pic.canvas,
+    s * pic.width,
+    t * pic.height,
+    sw * pic.width,
+    th * pic.height,
+    x,
+    y,
+    w,
+    h,
+  );
+  ctx.globalAlpha = oldAlpha;
+}
+
+/** Ironwail's weapon flash frame: 0 owned, 1 active, 2-6 just picked up */
+function Sbar2_FlashFrame(time, active) {
+  const flashon = Math.floor((_cl.time - time) * 10);
+  if (flashon >= 10) return active ? 1 : 0;
+  return (flashon % 5) + 2;
+}
+
+/** Ironwail Sbar_DrawInventory2 */
+function Sbar2_DrawInventory(style) {
+  const right = _vid.width;
+  const bottom = _vid.height;
+  const full = scr_viewsize.value < 110;
+
+  // weapons
+  if (full) {
+    const ROW_HEIGHT = 16;
+    const x = right + 1;
+    let y = Math.floor((bottom - 148) * 0.5 + ROW_HEIGHT * 7 * 0.5 + 0.5);
+    if (_hipnotic) y += 12; // move down a bit to accomodate the extra weapons
+
+    for (let i = 0; i < 7; i++) {
+      if ((_cl.items & (IT_SHOTGUN << i)) === 0) continue;
+      let active = _cl.stats[STAT_ACTIVEWEAPON] === (IT_SHOTGUN << i);
+      const flashon = Sbar2_FlashFrame(_cl.item_gettime[i], active);
+      let pic;
+      if (
+        _rogue && i >= 2 &&
+        _cl.stats[STAT_ACTIVEWEAPON] === (RIT_LAVA_NAILGUN << (i - 2))
+      ) {
+        pic = rsb_weapons[i - 2]; // powered up weapon
+        active = true;
+      } else {
+        pic = sb_weapons[flashon][i];
+      }
+      Sbar2_DrawPic(x - (active ? 24 : 18), y - ROW_HEIGHT * i, pic);
+      if (flashon > 1) sb_updates = 0; // force update to remove flash
+    }
+
+    if (_hipnotic) {
+      let grenadeflashing = false;
+      for (let i = 0; i < 4; i++) {
+        if ((_cl.items & (1 << hipweapons[i])) === 0) continue;
+        const active = _cl.stats[STAT_ACTIVEWEAPON] === (1 << hipweapons[i]);
+        const flashon = Sbar2_FlashFrame(
+          _cl.item_gettime[hipweapons[i]],
+          active,
+        );
+        const wx = x - (active ? 24 : 18);
+        if (i === 2) {
+          // check grenade launcher
+          if ((_cl.items & HIT_PROXIMITY_GUN) !== 0 && flashon !== 0) {
+            grenadeflashing = true;
+            Sbar2_DrawPic(wx, y - ROW_HEIGHT * 4, hsb_weapons[flashon][2]);
+          }
+        } else if (i === 3) {
+          if ((_cl.items & (IT_SHOTGUN << 4)) !== 0) {
+            if (!grenadeflashing) {
+              Sbar2_DrawPic(
+                wx,
+                y - ROW_HEIGHT * 4,
+                hsb_weapons[flashon !== 0 ? flashon : 0][3],
+              );
+            }
+          } else {
+            Sbar2_DrawPic(wx, y - ROW_HEIGHT * 4, hsb_weapons[flashon][4]);
+          }
+        } else {
+          Sbar2_DrawPic(wx, y - ROW_HEIGHT * (i + 7), hsb_weapons[flashon][i]);
+        }
+        if (flashon > 1) sb_updates = 0; // force update to remove flash
+      }
+    }
+  }
+
+  // ammo counts
+  if (full) {
+    const pic = Sbar_InventoryBarPic();
+    if (style === HUD_MODERN_SIDEAMMO) {
+      // right side, 2x2
+      const ITEM_WIDTH = 52;
+      const x = right - SBAR2_MARGIN_X - ITEM_WIDTH * 2;
+      const y = bottom - SBAR2_MARGIN_Y - 60;
+      for (let i = 0; i < 2; i++) {
+        Sbar2_DrawSubPic(
+          x,
+          y + 24 - 10 * i,
+          ITEM_WIDTH * 2,
+          10,
+          pic,
+          i * (2 * 48 / 320),
+          0,
+          2 * 48 / 320,
+          10 / 24,
+          scr_sbaralpha.value,
+        );
+      }
+      for (let i = 0; i < 4; i++) {
+        Sbar2_DrawSmallNum(
+          x + 11 + ITEM_WIDTH * (i & 1),
+          y - 10 * (i >> 1),
+          _cl.stats[STAT_SHELLS + i],
+        );
+      }
+    } else {
+      // bottom center, 4x1
+      const x = Math.floor(right * 0.5 + 0.5) - 96;
+      const y = bottom - 9;
+      Sbar2_DrawSubPic(
+        x,
+        y,
+        192,
+        10,
+        pic,
+        0,
+        0,
+        192 / 320,
+        10 / 24,
+        scr_sbaralpha.value,
+      );
+      for (let i = 0; i < 4; i++) {
+        Sbar2_DrawSmallNum(x + 10 + 48 * i, y - 24, _cl.stats[STAT_SHELLS + i]);
+      }
+    }
+  }
+
+  // items
+  let x;
+  let y;
+  if (full && style === HUD_MODERN_SIDEAMMO) {
+    x = right - SBAR2_MARGIN_X - 16;
+    y = bottom - SBAR2_MARGIN_Y - 68 - 20;
+  } else {
+    x = right - SBAR2_MARGIN_X - 20;
+    y = bottom - SBAR2_MARGIN_Y - 68;
+  }
+
+  // hipnotic keys
+  if (_hipnotic) {
+    for (let i = 0; i < 2; i++) {
+      if ((_cl.items & (IT_KEY1 << i)) !== 0 && sb_items[i] !== null) {
+        Sbar2_DrawPic(x, y + 6, sb_items[i]);
+        y -= sb_items[i].height;
+      }
+    }
+  }
+
+  for (let i = 0; i < 6; i++) {
+    if (i === 2) {
+      if (!full) break; // just the keys in the mini HUD
+      x = SBAR2_MARGIN_X + 4;
+      y = bottom - SBAR2_MARGIN_Y - 66;
+      if (
+        (_cl.items & IT_INVULNERABILITY) !== 0 || _cl.stats[STAT_ARMOR] > 0
+      ) {
+        y -= 24; // armor row is visible, move starting position above it
+      }
+    }
+    if ((_cl.items & (1 << (17 + i))) !== 0) {
+      const time = _cl.item_gettime[17 + i];
+      //MED 01/04/97 changed keys
+      if (!_hipnotic || i > 1) {
+        Sbar2_DrawPic(x, y, sb_items[i]);
+        y -= 16;
+      }
+      if (time !== 0 && time > _cl.time - 2) sb_updates = 0;
+    }
+  }
+
+  if (full) {
+    if (_hipnotic) {
+      for (let i = 0; i < 2; i++) {
+        if ((_cl.items & (1 << (24 + i))) !== 0) {
+          const time = _cl.item_gettime[24 + i];
+          Sbar2_DrawPic(x, y, hsb_items[i]);
+          y -= 16;
+          if (time !== 0 && time > _cl.time - 2) sb_updates = 0;
+        }
+      }
+    }
+    if (_rogue) {
+      for (let i = 0; i < 2; i++) {
+        if ((_cl.items & (1 << (29 + i))) !== 0) {
+          const time = _cl.item_gettime[29 + i];
+          Sbar2_DrawPic(x, y, rsb_items[i]);
+          y -= 16;
+          if (time !== 0 && time > _cl.time - 2) sb_updates = 0;
+        }
+      }
+    }
+  }
+}
+
+/** Ironwail Sbar_DrawFrags2: the frag list down the left side */
+function Sbar2_DrawFrags() {
+  if (_cl.scores == null) return;
+  Sbar_SortFrags();
+
+  const x = 0;
+  let y = Math.floor(_vid.height * 0.25);
+  y -= (scoreboardlines >> 2) << 3;
+  if (y < 40) y = 40;
+
+  for (let i = 0; i < scoreboardlines; i++, y += 8) {
+    const s = _cl.scores[fragsort[i]];
+    if (s == null || s.name == null || s.name.length === 0) continue;
+
+    if (_Draw_Fill !== null) {
+      _Draw_Fill(x + 6, y + 1, 28, 4, Sbar_ColorForMap(s.colors & 0xf0));
+      _Draw_Fill(x + 6, y + 5, 28, 3, Sbar_ColorForMap((s.colors & 15) << 4));
+    }
+
+    // "%3i"
+    const f = Math.trunc(s.frags);
+    const neg = f < 0;
+    const a = neg ? -f : f;
+    for (let d = 0, v = a; d < 3; d++) {
+      const cx = x + 24 - d * 8;
+      if (d === 0 || v > 0) {
+        Sbar2_DrawCharacter(cx, y - 24, 48 + v % 10);
+        v = Math.trunc(v / 10);
+      } else if (neg) {
+        Sbar2_DrawCharacter(cx, y - 24, 45); // '-'
+        break;
+      }
+    }
+
+    // brackets
+    if (fragsort[i] === _cl.viewentity - 1) {
+      Sbar2_DrawCharacter(x + 2, y - 24, 16);
+      Sbar2_DrawCharacter(x + 28, y - 24, 17);
+    }
+
+    // name
+    if (scr_viewsize.value < 110) Sbar2_DrawString(x + 40, y - 24, s.name);
+  }
+}
+
+/**
+ * Ironwail Sbar_DrawSigils: the runes flash in for three seconds after one is
+ * picked up, and show with the scoreboard. Deviation: Icaro's client has no
+ * cl.spawntime, so a level start doesn't show them as Ironwail's does.
+ */
+function Sbar_DrawSigils(style) {
+  if (_rogue || (_cl.items & (15 << 28)) === 0) return;
+  if (_cl.stats[STAT_HEALTH] <= 0) return;
+
+  let t = 0;
+  for (let i = 0; i < 4; i++) {
+    if ((_cl.items & (1 << (28 + i))) !== 0) {
+      const gettime = _cl.item_gettime[28 + i];
+      if (gettime > t) t = gettime;
+    }
+  }
+  if (!sb_showscores && (_cl.time - t > 3 || scr_viewsize.value >= 120)) {
+    return;
+  }
+
+  const x = 160 - 32 / 2;
+  let y;
+  if (sb_showscores) y = -20;
+  else if (style === HUD_MODERN_CENTERAMMO) y = -8;
+  else y = -4;
+  Sbar2_DrawSubPic(
+    x + ((_vid.width - 320) >> 1),
+    y + _vid.height - SBAR_HEIGHT,
+    32,
+    16,
+    sb_ibar,
+    1 - 32 / 320,
+    8 / 24,
+    32 / 320,
+    16 / 24,
+    1,
+  );
+
+  for (let i = 0; i < 4; i++) {
+    if ((_cl.items & (1 << (28 + i))) === 0) continue;
+    let a = _cl.time - _cl.item_gettime[28 + i];
+    if (a < 0) a = 0;
+    if (a >= 1) {
+      a = 1;
+    } else {
+      a = 1 - Math.floor(Math.abs((a * 5) % 2 - 1) * 3 + 0.5) / 3;
+    }
+    Sbar2_DrawPicAlpha(x + i * 8, y, sb_sigil[i], a);
+  }
+}
+
+/** Sbar_DrawPicAlpha on the classic canvas, centred whatever the game type */
+function Sbar2_DrawPicAlpha(x, y, pic, alpha) {
+  if (_Draw_Pic === null || pic == null) return;
+  const canvas = Draw_GetOverlayCanvas();
+  if (canvas === null) return;
+  const ctx = canvas.getContext("2d");
+  const oldAlpha = ctx.globalAlpha;
+  ctx.globalAlpha = alpha > 0 ? alpha : 0;
+  _Draw_Pic(
+    x + ((_vid.width - 320) >> 1),
+    y + _vid.height - SBAR_HEIGHT,
+    pic,
+  );
+  ctx.globalAlpha = oldAlpha;
+}
+
+/** Ironwail Sbar_Draw, modern branch: hudstyle 1 and 2 */
+function Sbar2_Draw(style) {
+  if (sb_showscores || _cl.stats[STAT_HEALTH] <= 0) {
+    Sbar_DrawPicAlpha(0, 0, sb_scorebar, scr_sbaralpha.value); //johnfitz -- scr_sbaralpha
+    Sbar_DrawScoreboard();
+    sb_updates = 0;
+  } else if (scr_viewsize.value < 120) {
+    Sbar2_SetCanvas();
+
+    const invuln = (_cl.items & IT_INVULNERABILITY) !== 0;
+    const armor = invuln ? 666 : _cl.stats[STAT_ARMOR];
+    const health = _cl.stats[STAT_HEALTH];
+
+    let x = SBAR2_MARGIN_X;
+    const y = _vid.height - SBAR2_MARGIN_Y - 48;
+    Sbar2_DrawPic(x, y, Sbar_FacePic());
+    Sbar_DrawNumWith(Sbar2_DrawPic, x + 32, y, health, 3, health <= 25 ? 1 : 0);
+
+    if (armor > 0) {
+      Sbar_DrawNumWith(
+        Sbar2_DrawPic,
+        x + 32,
+        y - 24,
+        armor,
+        3,
+        invuln || armor <= 25 ? 1 : 0,
+      );
+      Sbar2_DrawPic(x, y - 24, Sbar_ArmorPic());
+    }
+
+    x = _vid.width - SBAR2_MARGIN_X - 24;
+    const pic = Sbar_AmmoPic();
+    if (pic !== null) {
+      Sbar2_DrawPic(x, y, pic);
+      x -= 32;
+    }
+    const ammo = _cl.stats[STAT_AMMO];
+    Sbar_DrawNumWith(Sbar2_DrawPic, x - 48, y, ammo, 3, ammo <= 10 ? 1 : 0);
+
+    Sbar2_DrawInventory(style);
+    if (_cl.maxclients !== 1) Sbar2_DrawFrags();
+    Draw_SetCanvasScale(scr_sbarscale.value); // back to CANVAS_SBAR
+  }
+
+  Sbar_DrawSigils(style);
 }
 
 export function Sbar_Draw() {
@@ -950,6 +1425,14 @@ export function Sbar_Draw() {
   // branch and drew the status bar over the cutscene.
   if (_cl.intermission) {
     return; //johnfitz -- never draw sbar during intermission
+  }
+
+  // Ironwail: hudstyle 1 and 2 draw the modern HUD instead of the bar
+  const style = SCR_HudStyle();
+  if (style === HUD_MODERN_CENTERAMMO || style === HUD_MODERN_SIDEAMMO) {
+    Sbar2_Draw(style);
+    if (_cl.gametype === GAME_DEATHMATCH) Sbar_DrawPing();
+    return;
   }
 
   if (sb_lines > 24) {
@@ -981,21 +1464,6 @@ export function Sbar_Draw() {
     if ((_cl.items & IT_INVULNERABILITY) !== 0) {
       Sbar_DrawNum(24, 0, 666, 3, 1);
       Sbar_DrawPic(0, 0, sb_disc);
-    } else if (_rogue) {
-      Sbar_DrawNum(
-        24,
-        0,
-        _cl.stats[STAT_ARMOR],
-        3,
-        _cl.stats[STAT_ARMOR] <= 25 ? 1 : 0,
-      );
-      if ((_cl.items & RIT_ARMOR3) !== 0) {
-        Sbar_DrawPic(0, 0, sb_armor[2]);
-      } else if ((_cl.items & RIT_ARMOR2) !== 0) {
-        Sbar_DrawPic(0, 0, sb_armor[1]);
-      } else if ((_cl.items & RIT_ARMOR1) !== 0) {
-        Sbar_DrawPic(0, 0, sb_armor[0]);
-      }
     } else {
       Sbar_DrawNum(
         24,
@@ -1004,13 +1472,8 @@ export function Sbar_Draw() {
         3,
         _cl.stats[STAT_ARMOR] <= 25 ? 1 : 0,
       );
-      if ((_cl.items & IT_ARMOR3) !== 0) {
-        Sbar_DrawPic(0, 0, sb_armor[2]);
-      } else if ((_cl.items & IT_ARMOR2) !== 0) {
-        Sbar_DrawPic(0, 0, sb_armor[1]);
-      } else if ((_cl.items & IT_ARMOR1) !== 0) {
-        Sbar_DrawPic(0, 0, sb_armor[0]);
-      }
+      const pic = Sbar_ArmorPic();
+      if (pic !== null) Sbar_DrawPic(0, 0, pic);
     }
 
     // face
@@ -1026,33 +1489,8 @@ export function Sbar_Draw() {
     );
 
     // ammo icon
-    if (_rogue) {
-      if ((_cl.items & RIT_SHELLS) !== 0) {
-        Sbar_DrawPic(224, 0, sb_ammo[0]);
-      } else if ((_cl.items & RIT_NAILS) !== 0) {
-        Sbar_DrawPic(224, 0, sb_ammo[1]);
-      } else if ((_cl.items & RIT_ROCKETS) !== 0) {
-        Sbar_DrawPic(224, 0, sb_ammo[2]);
-      } else if ((_cl.items & RIT_CELLS) !== 0) {
-        Sbar_DrawPic(224, 0, sb_ammo[3]);
-      } else if ((_cl.items & RIT_LAVA_NAILS) !== 0) {
-        Sbar_DrawPic(224, 0, rsb_ammo[0]);
-      } else if ((_cl.items & RIT_PLASMA_AMMO) !== 0) {
-        Sbar_DrawPic(224, 0, rsb_ammo[1]);
-      } else if ((_cl.items & RIT_MULTI_ROCKETS) !== 0) {
-        Sbar_DrawPic(224, 0, rsb_ammo[2]);
-      }
-    } else {
-      if ((_cl.items & IT_SHELLS) !== 0) {
-        Sbar_DrawPic(224, 0, sb_ammo[0]);
-      } else if ((_cl.items & IT_NAILS) !== 0) {
-        Sbar_DrawPic(224, 0, sb_ammo[1]);
-      } else if ((_cl.items & IT_ROCKETS) !== 0) {
-        Sbar_DrawPic(224, 0, sb_ammo[2]);
-      } else if ((_cl.items & IT_CELLS) !== 0) {
-        Sbar_DrawPic(224, 0, sb_ammo[3]);
-      }
-    }
+    const ammopic = Sbar_AmmoPic();
+    if (ammopic !== null) Sbar_DrawPic(224, 0, ammopic);
 
     // ammo count
     Sbar_DrawNum(

@@ -69,6 +69,7 @@ let oldfov = 0;
 let oldscreensize = 0;
 let oldsbaralpha = 1;
 let oldsbarscale = 0;
+let oldhudstyle = 0;
 let oldconscale = 0; // console canvas scale scr_con_current was last measured in
 
 export const scr_viewsize = {
@@ -100,6 +101,34 @@ export const scr_sbaralpha = {
   value: 1,
   archive: true,
 };
+// Ironwail gl_screen.c scr_hudstyle, named "hudstyle": 0 classic, 1 modern
+// with the ammo counts at the bottom centre, 2 modern with them at the right,
+// 3 QuakeWorld. Deviation: Ironwail defaults it to 2; 0 keeps the classic
+// status bar. 3 draws the classic bar here (the QW layout isn't ported).
+export const scr_hudstyle = {
+  name: "hudstyle",
+  string: "0",
+  value: 0,
+  archive: true,
+};
+export const HUD_CLASSIC = 0;
+export const HUD_MODERN_CENTERAMMO = 1;
+export const HUD_MODERN_SIDEAMMO = 2;
+export const HUD_QUAKEWORLD = 3;
+
+/** Ironwail SCR_HUDStyle_f: hudstyle as a style, CLAMP (0, val, 3). */
+export function SCR_HudStyle() {
+  const val = Math.trunc(scr_hudstyle.value);
+  if (!(val > 0)) return HUD_CLASSIC;
+  return val < HUD_QUAKEWORLD ? val : HUD_QUAKEWORLD;
+}
+
+/** Whether the modern HUD (hudstyle 1 or 2) draws instead of the status bar */
+export function SCR_ModernHud() {
+  const style = SCR_HudStyle();
+  return style === HUD_MODERN_CENTERAMMO || style === HUD_MODERN_SIDEAMMO;
+}
+
 // FitzQuake/Ironwail HUD scales, in physical pixels per 320x200 pixel.
 // Deviation: Ironwail defaults them to 1; 0 here keeps the automatic UI scale.
 export const scr_sbarscale = {
@@ -496,6 +525,10 @@ export function SCR_CalcRefdef() {
   if (scr_sbaralpha.value < 1) {
     sb_lines = 0;
   }
+  // Ironwail SCR_CalcRefdef: the modern HUD is drawn over the view
+  if (SCR_ModernHud()) {
+    sb_lines = 0;
+  }
 
   // Ironwail SCR_CalcRefdef: the status bar is sb_lines * scr_sbarscale
   // physical pixels tall; convert that to the UI-scale units used here
@@ -590,6 +623,7 @@ export function SCR_Init() {
   Cvar_RegisterVariable(scr_clock);
   Cvar_RegisterVariable(scr_sbaralpha);
   Cvar_RegisterVariable(scr_sbarscale);
+  Cvar_RegisterVariable(scr_hudstyle);
   Cvar_RegisterVariable(scr_conscale);
   Cvar_RegisterVariable(scr_crosshairscale);
   Cvar_RegisterVariable(scr_conalpha); // Ironwail registers it in Draw_Init
@@ -1142,6 +1176,12 @@ export function SCR_UpdateScreen() {
 
   if (oldsbarscale !== scr_sbarscale.value) {
     oldsbarscale = scr_sbarscale.value;
+    _vid.recalc_refdef = true;
+  }
+
+  // Ironwail: SCR_HUDStyle_f invalidates the refdef
+  if (oldhudstyle !== scr_hudstyle.value) {
+    oldhudstyle = scr_hudstyle.value;
     _vid.recalc_refdef = true;
   }
 
