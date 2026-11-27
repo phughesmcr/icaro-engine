@@ -65,35 +65,26 @@ that two branches adding entries rarely touch the same lines:
 
 ## Images, icons and fonts
 
-All shipped in the repository and the client. They contain id Software's art or
-marks, so **Icaro's GPL licence doesn't cover that content**. QUAKE and its
-logos are trademarks; Steam's
-[legal notice for Quake](https://store.steampowered.com/app/2310/) names id
-Software LLC as their owner.
+All shipped in the repository and the client. None of them is id Software's art.
 
-- **Quake emblem: `static/icon.svg`.** The page icon. First added in
-  [three-quake](https://github.com/mrdoob/three-quake) (commit `a93df69` in this
-  repository's history), which names no source; the file's metadata calls it
-  `Quake-logo.svg`. Licence: **not confirmed**. A
-  [Quake wiki file of the same name](https://quake.fandom.com/wiki/File:Quake-logo.svg)
-  is tagged as fair use, not as freely licensed, and has the same artboard size
-  as the one recorded in this file, but the two drawings weren't compared.
+- **The Icaro mark: `static/icon.svg`.** The page icon, a sun above two raised
+  wings. Drawn for Icaro; Icaro's own, under the repository's licence
+  ([LICENSE](LICENSE)).
 - **Other icons and launch images:** `static/icon.png`, `static/icon-192.png`,
   `static/icon-maskable-512.png`, `static/apple-touch-icon.png` and
-  `static/splash/*.png` show the same emblem.
-  [tools/make_splash.py](tools/make_splash.py) makes the launch images from
-  `icon.png`. Same status as `icon.svg`.
-- **Menu labels: `static/mainmenu.png`.** The main menu's rows, lettered like
-  Quake's menu graphics; added in three-quake (commit `555bc8e`), which calls it
-  a "combined menu image". Licence: **not confirmed**; treat it as id's art,
-  under the shareware agreement's section 4.
-- **Screenshots: `static/screenshots/`.** Icaro showing the shareware game, for
-  the web app manifest. The captures are Icaro's, but they show id's art, and
-  the
-  [shareware agreement](https://github.com/id-Software/Quake/blob/bf4ac424ce754894ac8f1dae6a3981954bc9852d/WinQuake/data/SLICNSE.TXT)
-  restricts screenshots (sections 2 to 4).
+  `static/splash/*.png` are renderings of `icon.svg` (the maskable one scaled to
+  fit the safe zone). [tools/make_splash.py](tools/make_splash.py) makes the
+  launch images from `icon.png`. Same licence as `icon.svg`.
+- **Menu label: `static/mainmenu.png`.** The main menu's Continue row, which
+  Icaro adds above Quake's rows while in a game, in plain block letters drawn
+  for Icaro. Icaro's own, under the repository's licence. The other menu rows
+  and graphics come from the loaded game data.
+- **Screenshots: `static/screenshots/`.** Icaro playing LibreQuake, for the web
+  app manifest. The captures are Icaro's; the art they show is LibreQuake's,
+  under the BSD 3-clause licence (see LibreQuake under Game data), apart from
+  the Continue row above.
 - **Fonts:** none shipped or loaded. The page's own text uses the browser's
-  fonts, and the game's lettering comes from the loaded Quake data.
+  fonts, and the game's lettering comes from the loaded game data.
 
 ## Ported and derived code
 
@@ -121,17 +112,17 @@ rg -il 'ironwail|quakespasm|fitzquake|johnfitz' src server main.js
   [mrdoob/three-quake](https://github.com/mrdoob/three-quake).
 - **Ironwail, Andrei Drexler and its other authors.** Fixes, limits and whole
   features: the headers of `gl_fog.js`, `gl_sky.js`, `gl_md5.js`,
-  `gl_entalpha.js`, `gl_screenwarp.js`, `image.js`, `pr_sprintf.js`,
-  `default_cfg.js` and `unicode_translit.js` cite it, as do comments elsewhere.
-  Licence:
+  `gl_entalpha.js`, `gl_screenwarp.js`, `gl_gamma.js`, `image.js`,
+  `pr_sprintf.js`, `default_cfg.js` and `unicode_translit.js` cite it, as do
+  comments elsewhere. Licence:
   [GPL version 2 or later](https://github.com/andrei-drexler/ironwail/blob/3fa96fe3a2119b17c7be4f7b747ea3e7c3c455aa/Quake/gl_fog.c#L1-L23)
   (file headers;
   [LICENSE.txt](https://github.com/andrei-drexler/ironwail/blob/3fa96fe3a2119b17c7be4f7b747ea3e7c3c455aa/LICENSE.txt)).
   Source: [andrei-drexler/ironwail](https://github.com/andrei-drexler/ironwail).
 - **QuakeSpasm, and FitzQuake before it.** `image.js` ports its TGA loader,
-  `default_cfg.js` carries its `default.cfg` (by way of Ironwail), and comments
-  elsewhere cite its changes and FitzQuake's (John Fitzgibbons), some of which
-  credit MarkV. Licence:
+  `gl_gamma.js` its gamma and contrast shader, `default_cfg.js` carries its
+  `default.cfg` (by way of Ironwail), and comments elsewhere cite its changes
+  and FitzQuake's (John Fitzgibbons), some of which credit MarkV. Licence:
   [GPL version 2 or later](https://github.com/sezero/quakespasm/blob/13f16f2b28f288ba29a0222c28bcf1e41d60cc5a/Quake/image.c#L1-L21)
   (file headers, which name FitzQuake's authors too). Source:
   [QuakeSpasm](https://sourceforge.net/projects/quakespasm/)
@@ -168,6 +159,8 @@ rg -il 'ironwail|quakespasm|fitzquake|johnfitz' src server main.js
 - **Three.js 0.183.0** (`three.module.js` and `three.core.js`). The renderer.
   Licence: [MIT](https://github.com/mrdoob/three.js/blob/r183/LICENSE). Source:
   [mrdoob/three.js](https://github.com/mrdoob/three.js/tree/r183).
+  `tests/three_r183_shaders.js` copies two of its fragment shaders for the
+  shader-patch tests.
 - **nipplejs 1.0.4.** The touch move stick. Licence:
   [MIT](https://github.com/yoannmoinet/nipplejs/blob/v1.0.4/LICENSE). Source:
   [yoannmoinet/nipplejs](https://github.com/yoannmoinet/nipplejs/tree/v1.0.4).

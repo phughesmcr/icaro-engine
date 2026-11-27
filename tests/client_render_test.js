@@ -2,6 +2,7 @@
 await import("../src/gl_rsurf.js");
 
 const glquake = await import("../src/glquake.js");
+const { R183_MESHLAMBERT_FRAGMENT } = await import("./three_r183_shaders.js");
 const gl_rlight = await import("../src/gl_rlight.js");
 const r_part = await import("../src/r_part.js");
 const view = await import("../src/view.js");
@@ -65,7 +66,7 @@ Deno.test("dynamic light brightness comes from the radius, not the time left", (
     );
     assertNear(
       pointLight.intensity,
-      200 * (2 * glquake.LIGHTMAP_INTENSITY / 255) * 0.625,
+      200 * (2 * Math.PI / 255) * 0.625,
       "intensity matches the lightmap scale",
     );
     assertNear(pointLight.distance, 200 - 32, "reach stops at minlight");
@@ -184,18 +185,64 @@ Deno.test("view effects use entity state when prediction is not running", () => 
   }
 });
 
+Deno.test("lightmap shader patch modulates on encoded values, as GLQuake", async () => {
+  const { R_PatchLightmapShader } = await import("../src/gl_rsurf.js");
+  const shader = { uniforms: {}, fragmentShader: R183_MESHLAMBERT_FRAGMENT };
+
+  R_PatchLightmapShader(shader);
+
+  const fs = shader.fragmentShader;
+  const at = (text) => {
+    const i = fs.indexOf(text);
+    if (i === -1) throw new Error(`missing: ${text}`);
+    return i;
+  };
+  assertEqual(shader.uniforms.quakeLightmapScale != null, true, "uniform");
+  at("uniform float quakeLightmapScale;");
+  // Three's lightmap irradiance is gone: the raw texel is read instead
+  assertEqual(fs.includes("#include <lights_fragment_maps>"), false, "maps");
+  assertEqual(fs.includes("lightMapIrradiance"), false, "no irradiance");
+  at("vec3 quakeLightmap = texture2D( lightMap, vLightMapUv ).rgb;");
+  // Three lights a white surface, so its sums are the dlights alone
+  assertEqual(
+    at("material.diffuseColor = vec3( 1.0 );") >
+      at("#include <lights_lambert_fragment>"),
+    true,
+    "white after the Lambert material",
+  );
+  // the encoded texel times the clamped (and doubled) light, then decoded
+  const texel = at("sRGBTransferOETF( vec4( diffuseColor.rgb, 1.0 ) ).rgb");
+  assertEqual(texel > at("#include <map_fragment>"), true, "texel after map");
+  const light = at(
+    "min( quakeLightmap + ( reflectedLight.directDiffuse + reflectedLight.indirectDiffuse ) / quakeLightmapScale, vec3( 1.0 ) ) * quakeLightmapScale",
+  );
+  const product = at("quakeTexel * quakeLight + sRGBTransferOETF");
+  const out = at(
+    "outgoingLight = sRGBTransferEOTF( vec4( min( quakeColor, vec3( 1.0 ) ), 1.0 ) ).rgb;",
+  );
+  const sum = at("vec3 outgoingLight = reflectedLight.directDiffuse");
+  const opaque = at("#include <opaque_fragment>");
+  assertEqual(
+    sum < light && light < product && product < out && out < opaque,
+    true,
+    "order",
+  );
+});
+
+Deno.test("lightmap shader patch throws on a shader without its anchors", async () => {
+  const { R_PatchLightmapShader } = await import("../src/gl_rsurf.js");
+  let threw = false;
+  try {
+    R_PatchLightmapShader({ uniforms: {}, fragmentShader: "void main() {}" });
+  } catch {
+    threw = true;
+  }
+  assertEqual(threw, true, "a missed anchor is loud");
+});
+
 Deno.test("lightmap shader patch adds the r_lightmap switch", async () => {
   const { R_PatchLightmapShader } = await import("../src/gl_rsurf.js");
-  const shader = {
-    uniforms: {},
-    fragmentShader: [
-      "uniform vec3 emissive;",
-      "void main() {",
-      "\t#include <map_fragment>",
-      "\t#include <emissivemap_fragment>",
-      "}",
-    ].join("\n"),
-  };
+  const shader = { uniforms: {}, fragmentShader: R183_MESHLAMBERT_FRAGMENT };
 
   R_PatchLightmapShader(shader);
 
@@ -207,7 +254,7 @@ Deno.test("lightmap shader patch adds the r_lightmap switch", async () => {
   );
   assertEqual(
     shader.fragmentShader.includes(
-      "mix( diffuseColor.rgb, vec3( 1.0 ), quakeLightmapOnly )",
+      "mix( sRGBTransferOETF( vec4( diffuseColor.rgb, 1.0 ) ).rgb, vec3( 1.0 ), quakeLightmapOnly )",
     ),
     true,
     "diffuse swapped for white",

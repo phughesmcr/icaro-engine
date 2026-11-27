@@ -47,7 +47,6 @@ import { cl_forwardspeed } from "./cl_input.js";
 import { R_RenderView } from "./gl_rmain.js";
 import { R_PushDlights } from "./gl_rlight.js";
 import { con_forcedup } from "./console.js";
-import { VID_UpdateGamma } from "./vid.js";
 import { scr_viewsize } from "./gl_screen.js";
 import {
   CL_GetPredictedPlayer,
@@ -413,6 +412,8 @@ export const cshift_slime = { destcolor: [0, 25, 5], percent: 150 };
 export const cshift_lava = { destcolor: [255, 80, 0], percent: 150 };
 
 export const v_gamma = new cvar_t("gamma", "1", true);
+/** QuakeSpasm gl_vidsdl.c vid_contrast; gl_gamma.js applies both. */
+export const v_contrast = new cvar_t("contrast", "1", true);
 
 const gammatable = new Uint8Array(256);
 
@@ -446,7 +447,6 @@ function V_CheckGamma() {
   _oldgammavalue = v_gamma.value;
 
   BuildGammaTable(v_gamma.value);
-  VID_UpdateGamma(v_gamma.value);
   // vid.recalc_refdef = 1;  // force a surface cache flush
 
   return true;
@@ -1058,7 +1058,7 @@ export function V_Init() {
 
   BuildGammaTable(1.0); // no gamma yet
   Cvar_RegisterVariable(v_gamma);
-  VID_UpdateGamma(v_gamma.value);
+  Cvar_RegisterVariable(v_contrast);
 
   // Lazy-load Chase_Update to avoid circular dependency
   import("./chase.js").then((mod) => {

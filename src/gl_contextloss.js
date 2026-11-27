@@ -15,7 +15,8 @@
 //     (network, sound, game) without calling the renderer on a dead context;
 //   - rebuilding the engine's own state after a restore:
 //     R_LightmapsContextRestored (pending partial uploads were never sent),
-//     R_WarpContextRestored (the screenwarp's framebuffer copy) and the
+//     R_WarpContextRestored and R_GammaContextRestored (the screenwarp's and
+//     the gamma pass's framebuffer copies) and the
 //     viewmodel's depthRange, which is a raw gl call outside Three.js.
 //
 // GL_ContextLoss_Init is called from SCR_Init. This module touches neither
@@ -23,6 +24,7 @@
 
 import { R_LightmapsContextRestored } from "./gl_rsurf.js";
 import { R_WarpContextRestored } from "./gl_screenwarp.js";
+import { R_GammaContextRestored } from "./gl_gamma.js";
 
 let contextLost = false;
 let hooked = null; // the canvas the listeners are on
@@ -49,6 +51,7 @@ export function GL_ContextRestored(r) {
 
   R_LightmapsContextRestored();
   R_WarpContextRestored();
+  R_GammaContextRestored();
 }
 
 export function GL_ContextLoss_Init(r) {

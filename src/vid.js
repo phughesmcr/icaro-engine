@@ -319,8 +319,9 @@ export function VID_Init(palette, gammaparm = null) {
   renderer.autoClear = false; // we manage clearing ourselves, like Quake did
   renderer.sortObjects = false; // we sort manually via BSP front-to-back
 
-  // Enable tone mapping for brightness control
-  // LinearToneMapping applies exposure without additional curve
+  // LinearToneMapping at exposure 1 changes nothing. The gamma and contrast
+  // cvars are QuakeSpasm's post-process (gl_gamma.js), not an exposure; the
+  // tone mapping stays on because gl_rmirror.js's shader calls toneMapping().
   renderer.toneMapping = THREE.LinearToneMapping;
   renderer.toneMappingExposure = 1.0;
 
@@ -467,23 +468,4 @@ export function Check_Gamma(pal, gammaparm = null) {
   }
 
   Check_Gamma_Palette(pal, vid_gamma);
-}
-
-// VID_UpdateGamma
-//
-// In GLQuake the gamma cvar does nothing: VID_ShiftPalette (gl_vidnt.c) is an
-// empty stub, so the only gamma is Check_Gamma's. Deviation: the port keeps
-// the cvar working as a brightness control, as a tone-mapping exposure of
-// 1 / gamma. At the default gamma 1 the exposure is 1, which with
-// Check_Gamma and LIGHTMAP_INTENSITY (glquake.js) matches GLQuake's output.
-
-export function VID_GammaExposure(gamma) {
-  if (!(gamma > 0)) gamma = 1.0;
-  return 1.0 / gamma;
-}
-
-export function VID_UpdateGamma(gamma) {
-  if (!renderer) return;
-
-  renderer.toneMappingExposure = VID_GammaExposure(gamma);
 }

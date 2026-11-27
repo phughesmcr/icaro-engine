@@ -970,8 +970,10 @@ function M_Main_Draw() {
 
   // menu.c M_Main_Draw draws gfx/mainmenu.lmp. The port adds a Continue row
   // above it while in a game. Only that row comes from the custom image
-  // (static/mainmenu.png, first 21 px); the five C rows always come from the
-  // PAK, whose fourth row reads HELP, because it opens M_Menu_Help_f.
+  // (static/mainmenu.png, 21 px of Icaro's own plain lettering, since neither
+  // id1 nor LibreQuake has a Continue graphic); the five C rows always come
+  // from the PAK, whose fourth row reads HELP, because it opens
+  // M_Menu_Help_f.
   const mainPic = _Draw_CachePic("gfx/mainmenu.lmp");
 
   if (inGame) {
