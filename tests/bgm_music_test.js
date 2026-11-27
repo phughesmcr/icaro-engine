@@ -591,3 +591,37 @@ Deno.test("music with an unhandled extension stops the music and says so", async
     assertEqual(el.plays.length, plays, "stopped first, as BGM_Play");
   });
 });
+
+Deno.test("a tracker library that won't load moves on to the next candidate", async () => {
+  await withMusic({ "g/mod/music/track02.mod": makeMOD() }, async (t) => {
+    // as under a CSP without 'wasm-unsafe-eval', or offline
+    let loads = 0;
+    bgm_tracker.BGM_SetTrackerLoader(() => {
+      loads++;
+      return Promise.reject(new Error("blocked"));
+    });
+    cd_audio.CDAudio_Play(2, true);
+    const el = FakeAudio.last;
+    for (const ext of ["ogg", "opus", "mp3", "flac", "wav"]) {
+      assertEqual(el.src, "g/mod/music/track02." + ext, ext + " tried");
+      failElement(el);
+    }
+    for (let i = 0; i < 8; i++) await settle();
+    assertEqual(loads, 1, "load tried once");
+    assertEqual(
+      t.fetched.slice(-2).join(" "),
+      "g/mod/music/track02.mod g/mod/music/track02.umx",
+      "the next candidate after the module",
+    );
+    assertEqual(el.src, "g/id1/music/track02.ogg", "then the next directory");
+    assertEqual(t.ctx.sources.length, 0, "nothing scheduled");
+
+    // a later streamed track still plays
+    cd_audio.CDAudio_Play(3, true);
+    assertEqual(
+      FakeAudio.last.plays[FakeAudio.last.plays.length - 1],
+      "g/mod/music/track03.ogg",
+      "streamed track plays",
+    );
+  });
+});
