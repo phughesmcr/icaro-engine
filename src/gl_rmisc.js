@@ -21,6 +21,8 @@ import {
   gl_max_size,
   gl_mtexable,
   gl_nocolors,
+  gl_overbright,
+  gl_overbright_models,
   gl_picmip,
   gl_playermip,
   gl_polyblend,
@@ -164,6 +166,10 @@ export function R_Init() {
     _Cvar_RegisterVariable(r_norefresh);
     _Cvar_RegisterVariable(r_lightmap);
     _Cvar_RegisterVariable(r_fullbright);
+    // johnfitz (QuakeSpasm gl_rmisc.c R_Init); gl_rsurf.js polls
+    // gl_overbright for R_RebuildAllLightmaps instead of a cvar callback
+    _Cvar_RegisterVariable(gl_overbright);
+    _Cvar_RegisterVariable(gl_overbright_models);
     _Cvar_RegisterVariable(r_drawentities);
     _Cvar_RegisterVariable(r_drawviewmodel);
     _Cvar_RegisterVariable(r_shadows);
