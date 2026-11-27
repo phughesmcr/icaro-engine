@@ -2,7 +2,7 @@
 // Equivalent to WinQuake/sys_win.c WinMain() + main()
 
 import { Sys_Error, Sys_Init, Sys_Printf } from "./src/sys.js";
-import { COM_InitArgv, hipnotic, rogue } from "./src/common.js";
+import { COM_GameDirArgs, COM_InitArgv } from "./src/common.js";
 import {
   Host_Frame,
   Host_Init,
@@ -109,10 +109,6 @@ async function main() {
     const urlParams = new URLSearchParams(window.location.search);
     const urlCfg = URLCfg_Parse(urlParams);
     for (const message of urlCfg.messages) Sys_Printf("%s\n", message);
-    let gamedir = urlCfg.game !== null && urlCfg.game.mission === false ?
-      urlCfg.game.dir :
-      null; // -game <dir>
-
     // No game data is fetched before a person presses Play on the intro page
     const base = await Intro_Gate(urlParams);
     let withGame = true;
@@ -122,7 +118,6 @@ async function main() {
       // the link asked for a pack of id's data, which isn't in this browser
       // (the intro page said so): play LibreQuake without the pack
       withGame = false;
-      gamedir = null;
     }
     const { basedir, id1dir, message: baseMessage } = URLCfg_BaseDirs(base);
     if (baseMessage !== null) Sys_Printf("%s\n", baseMessage);
@@ -177,20 +172,17 @@ async function main() {
     }
 
     // common.c COM_InitFilesystem: the mission pack's or -game directory
-    // after id1, so its progs.dat, gfx.wad and maps are found first
+    // after id1, so its progs.dat, gfx.wad and maps are found first. Taken
+    // from the arguments, not the flags: -quoth sets the hipnotic flag but
+    // mounts only quoth. A directory must have a pak0.pak: HTTP has no
+    // directory listing, so without one a mistyped name would quietly play
+    // id1 (Ironwail stops on a missing directory too).
     const gameDirs = [];
-    for (
-      const dir of [
-        rogue ? "rogue" : null,
-        hipnotic ? "hipnotic" : null,
-        gamedir,
-      ]
-    ) {
-      if (dir === null) continue;
+    for (const dir of COM_GameDirArgs(parms.argv)) {
       if (await COM_AddGameDirectory(basedir + "/" + dir, setProgress) === 0) {
         Sys_Error(
-          basedir + "/" + dir + "/pak0.pak not found. -" + dir +
-            " needs the pack's pak0.pak there.",
+          basedir + "/" + dir + "/pak0.pak not found. The game directory " +
+            dir + " needs its pak0.pak there.",
         );
       }
       gameDirs.push(basedir + "/" + dir);

@@ -1,8 +1,15 @@
-// game_server.js command line: -rogue / -hipnotic parsing and the game
-// directories they add (common.c COM_InitFilesystem).
+// game_server.js command line: -rogue / -hipnotic / -quoth / -game parsing
+// and the game directories they add (common.c COM_InitFilesystem).
 
-const { createConfig, parseArgs, gameDirectories, configError, wsTrustConfig } =
-  await import("../server/game_server.js");
+const {
+  configIsRogue,
+  createConfig,
+  gameArgv,
+  parseArgs,
+  gameDirectories,
+  configError,
+  wsTrustConfig,
+} = await import("../server/game_server.js");
 const common = await import("../src/common.js");
 
 function assertEqual(actual, expected, message) {
@@ -15,7 +22,15 @@ function assertEqual(actual, expected, message) {
   }
 }
 
-Deno.test("parseArgs collects -rogue and -hipnotic alongside other flags", () => {
+// The directories Host_Init_Server mounts for args, after id1
+function dirsFor(pakPath, args) {
+  return gameDirectories(
+    pakPath,
+    common.COM_GameDirArgs(gameArgv(parseArgs(args, createConfig()))),
+  ).join();
+}
+
+Deno.test("parseArgs collects -rogue, -hipnotic and -quoth alongside other flags", () => {
   const config = parseArgs([
     "-port",
     "4500",
@@ -23,12 +38,13 @@ Deno.test("parseArgs collects -rogue and -hipnotic alongside other flags", () =>
     "-pak",
     "data/pak0.pak",
     "-hipnotic",
+    "-quoth",
     "-map",
     "start",
   ], createConfig());
   assertEqual(
     config.gameFlags.join(),
-    "-rogue,-hipnotic",
+    "-rogue,-hipnotic,-quoth",
     "game flags in order",
   );
   assertEqual(config.port, 4500, "-port still parsed");
@@ -47,51 +63,62 @@ Deno.test("parseArgs collects -rogue and -hipnotic alongside other flags", () =>
   );
 });
 
-Deno.test("parsed game flags reach COM_InitArgv as in Host_Init_Server", () => {
+Deno.test("parsed game arguments reach COM_InitArgv as in Host_Init_Server", () => {
+  const flags = (args) => {
+    common.COM_InitArgv(gameArgv(parseArgs(args, createConfig())));
+    return [common.rogue, common.hipnotic, common.standard_quake].join();
+  };
   try {
-    const config = parseArgs(["-hipnotic", "-port", "4500"], createConfig());
-    common.COM_InitArgv(["game_server", ...config.gameFlags]);
     assertEqual(
-      [common.rogue, common.hipnotic, common.standard_quake].join(),
+      flags(["-hipnotic", "-port", "4500"]),
       "false,true,false",
       "hipnotic set",
     );
+    assertEqual(
+      common.com_argv.join(" "),
+      "game_server -hipnotic",
+      "-port stays out of com_argv",
+    );
+    assertEqual(flags(["-quoth"]), "false,true,false", "-quoth is hipnotic");
+    assertEqual(
+      flags(["-game", "rogue"]),
+      "true,false,false",
+      "-game rogue sets rogue, as in QuakeSpasm",
+    );
+    assertEqual(flags(["-game", "mymod"]), "false,false,true", "a mod");
   } finally {
     common.COM_InitArgv([]);
   }
 });
 
-Deno.test("gameDirectories resolves rogue then hipnotic next to the -pak file", () => {
+Deno.test("gameDirectories resolves the game directories next to the -pak file", () => {
   assertEqual(
-    gameDirectories("../static/pak0.pak", true, false).join(),
+    dirsFor("../static/pak0.pak", ["-rogue"]),
     "../static/rogue",
     "rogue",
   );
   assertEqual(
-    gameDirectories("/srv/quake/id1/pak0.pak", false, true).join(),
+    dirsFor("/srv/quake/id1/pak0.pak", ["-hipnotic"]),
     "/srv/quake/hipnotic",
     "hipnotic beside id1, as in common.c",
   );
   assertEqual(
-    gameDirectories("data/pak0.pak", true, true).join(),
+    dirsFor("data/pak0.pak", ["-hipnotic", "-rogue"]),
     "data/rogue,data/hipnotic",
     "rogue before hipnotic, as in common.c",
   );
   assertEqual(
-    gameDirectories("pak0.pak", true, false).join(),
-    "./rogue",
-    "bare file name uses the current directory",
+    dirsFor("data/pak0.pak", ["-quoth"]),
+    "data/quoth",
+    "-quoth mounts quoth only, as in QuakeSpasm",
   );
+  assertEqual(dirsFor("pak0.pak", ["-rogue"]), "./rogue", "bare file name");
   assertEqual(
-    gameDirectories("C:\\quake\\id1\\pak0.pak", true, false).join(),
+    dirsFor("C:\\quake\\id1\\pak0.pak", ["-rogue"]),
     "C:\\quake/rogue",
     "Windows separators",
   );
-  assertEqual(
-    gameDirectories("data/pak0.pak", false, false).length,
-    0,
-    "standard Quake adds nothing",
-  );
+  assertEqual(dirsFor("data/pak0.pak", []), "", "standard Quake adds nothing");
 });
 
 Deno.test("-game adds one game directory after the mission packs; the rerelease layout resolves beside id1", () => {
@@ -100,26 +127,59 @@ Deno.test("-game adds one game directory after the mission packs; the rerelease 
     "mg1",
     "-game parsed",
   );
+  for (const bad of ["../etc", "id1", "librequake", "a.b", ""]) {
+    assertEqual(
+      parseArgs(["-game", bad], createConfig()).gameDir,
+      null,
+      "refused: " + bad,
+    );
+  }
   assertEqual(
-    parseArgs(["-game", "../etc"], createConfig()).gameDir,
-    null,
-    "a path is refused",
-  );
-  assertEqual(
-    gameDirectories("../static/rerelease/id1/pak0.pak", false, true, "mg1")
-      .join(),
+    dirsFor("../static/rerelease/id1/pak0.pak", ["-hipnotic", "-game", "mg1"]),
     "../static/rerelease/hipnotic,../static/rerelease/mg1",
     "rerelease dirs",
   );
   assertEqual(
-    gameDirectories("static/ID1/PAK0.PAK", false, false, "dopa").join(),
+    dirsFor("static/ID1/PAK0.PAK", ["-game", "dopa"]),
     "static/dopa",
     "id1 matched in any case",
   );
   assertEqual(
-    gameDirectories("../static/pak0.pak", false, false, "mg1").join(),
-    "../static/mg1",
-    "static/pak0.pak layout",
+    dirsFor("../static/pak0.pak", ["-game", "my-mod_2"]),
+    "../static/my-mod_2",
+    "any safe mod directory",
+  );
+  assertEqual(
+    dirsFor("data/pak0.pak", ["-rogue", "-game", "rogue"]),
+    "data/rogue",
+    "a mission pack is mounted once",
+  );
+});
+
+Deno.test("-game rogue widens teamplay to Rogue's modes", () => {
+  const config = parseArgs(
+    ["-game", "Rogue", "-teamplay", "5"],
+    createConfig(),
+  );
+  assertEqual(configIsRogue(config), true, "-game Rogue is Rogue");
+  assertEqual(config.gameOptions.teamplay, 5, "teamplay 5 kept");
+  // the lobby passes the game options before -game
+  assertEqual(
+    parseArgs(["-teamplay", "5", "-game", "rogue"], createConfig()).gameOptions
+      .teamplay,
+    5,
+    "-game rogue after -teamplay",
+  );
+  assertEqual(
+    parseArgs(["-teamplay", "5", "-rogue"], createConfig()).gameOptions
+      .teamplay,
+    5,
+    "-rogue after -teamplay",
+  );
+  assertEqual(
+    parseArgs(["-teamplay", "5"], createConfig()).gameOptions.teamplay,
+    2,
+    "standard teamplay clamped",
   );
 });
 

@@ -13,6 +13,7 @@ import {
   Room_SanitizeMapName,
 } from "./room_config.js";
 import { GD_PAK } from "./game_data.js";
+import { COM_GameDirIsValid } from "../src/common.js";
 
 // Port range for room servers (main lobby is on 4433)
 export const BASE_PORT = 4434;
@@ -87,7 +88,7 @@ let certFile = "cert.pem";
 let keyFile = "key.pem";
 let pakPath = "../" + GD_PAK;
 let denoPath = Deno.execPath();
-let gameFlags: string[] = []; // '-rogue' and/or '-hipnotic', passed to every room
+let gameFlags: string[] = []; // -rogue, -hipnotic, -quoth: passed to every room
 let gameDir: string | null = null; // -game <dir>, passed to every room
 // Rooms also take WebSocket connections from the lobby's proxy (-wsport on
 // the lobby): -wsport <room port> on 127.0.0.1, over TCP
@@ -111,15 +112,14 @@ export function RoomManager_SetConfig(config: {
   if (config.denoPath != null) denoPath = config.denoPath;
   if (config.gameFlags != null) {
     gameFlags = config.gameFlags.filter((f) =>
-      f === "-rogue" || f === "-hipnotic"
+      f === "-rogue" || f === "-hipnotic" || f === "-quoth"
     );
   }
   if (config.wsEnabled !== undefined) wsEnabled = config.wsEnabled === true;
   if (config.gameDir !== undefined) {
-    gameDir =
-      config.gameDir !== null && /^[A-Za-z0-9_-]+$/.test(config.gameDir) ?
-        config.gameDir :
-        null;
+    gameDir = config.gameDir !== null && COM_GameDirIsValid(config.gameDir) ?
+      config.gameDir :
+      null;
   }
 }
 
@@ -150,7 +150,10 @@ export function RoomManager_ClampMaxPlayers(value: unknown): number {
 export function RoomManager_SanitizeGameOptions(
   value: unknown,
 ): GameOptions | undefined {
-  return Room_SanitizeGameOptions(value, gameFlags.includes("-rogue"));
+  // -game rogue runs Rogue too (game_server.js configIsRogue)
+  const isRogue = gameFlags.includes("-rogue") ||
+    (gameDir !== null && gameDir.toLowerCase() === "rogue");
+  return Room_SanitizeGameOptions(value, isRogue);
 }
 
 /** -coop N -skill N ... for sanitized options (integers only). */
@@ -435,8 +438,8 @@ export async function RoomManager_CreateRoom(config: {
     const absPak = absolutePath(pakPath);
     const absCert = absolutePath(certFile);
     const absKey = absolutePath(keyFile);
-    // game_server.js gameDirectories loads <basedir>/rogue, hipnotic or the
-    // -game dir, where basedir is the pak's directory, or its parent when
+    // game_server.js gameDirectories loads <basedir>/rogue, hipnotic, quoth
+    // or the -game dir, where basedir is the pak's directory, or its parent when
     // that directory is id1
     const pakDir = dirname(absPak);
     const basedir = basename(pakDir).toLowerCase() === "id1" ?

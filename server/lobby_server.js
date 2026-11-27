@@ -54,6 +54,7 @@ import {
   RoomManager_ShutdownAll,
 } from "./room_process_manager.ts";
 import { GD_PAK } from "./game_data.js";
+import { COM_GameDirIsValid } from "../src/common.js";
 
 // Server configuration
 const CONFIG = {
@@ -62,7 +63,7 @@ const CONFIG = {
   keyFile: "key.pem",
   pakPath: "../" + GD_PAK,
   denoPath: null, // null = Deno.execPath()
-  gameFlags: [], // -rogue and/or -hipnotic, passed on to every room
+  gameFlags: [], // -rogue, -hipnotic and/or -quoth, passed on to every room
   gameDir: null, // -game <dir>, passed on to every room
   wsPort: null, // -wsport <port>: WebSocket lobby and room proxy (TCP)
   wsHost: "127.0.0.1", // -wshost <addr>: WebSocket listen address
@@ -101,10 +102,15 @@ function parseArgs() {
       CONFIG.pakPath = args[++i];
     } else if (arg === "-deno" && args[i + 1]) {
       CONFIG.denoPath = args[++i];
-    } else if (arg === "-rogue" || arg === "-hipnotic") {
+    } else if (arg === "-rogue" || arg === "-hipnotic" || arg === "-quoth") {
       CONFIG.gameFlags.push(arg);
     } else if (arg === "-game" && args[i + 1]) {
-      CONFIG.gameDir = args[++i];
+      const dir = args[++i];
+      if (COM_GameDirIsValid(dir)) {
+        CONFIG.gameDir = dir;
+      } else {
+        Sys_Printf("Ignoring -game %s: not a game directory name\n", dir);
+      }
     } else if (arg === "-wsport" && args[i + 1]) {
       const port = parseInt(args[++i], 10);
       if (Number.isInteger(port) && port > 0 && port < 65536) {

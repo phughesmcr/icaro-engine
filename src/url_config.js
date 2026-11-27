@@ -8,8 +8,9 @@
 // connect somewhere or write files.
 //
 // The parameters:
-//   ?game=<dir>          a mission pack (-rogue, -hipnotic) or a rerelease
-//                        add-on (-game mg1); see URLCFG_MISSION_PACKS
+//   ?game=<dir>          a mission pack (-rogue, -hipnotic, -quoth) or any
+//                        other game directory (-game <dir>) whose name
+//                        common.js COM_GameDirIsValid accepts
 //   ?base=<name>         the data layout (static/, rerelease, librequake)
 //   ?particles=<n>       -particles <n>
 //   ?listen[=<n>]        -listen [n]
@@ -28,16 +29,23 @@
 // design". Deliberate departures from it: no ?bind.<key>= (AGENTS.md: URL
 // parameters never bind keys) and no ?cfg= shorthand (one form to check).
 //
-// Pure: no cvar, DOM or engine state, so it can be tested on its own and
-// imported from vid.js without an import cycle.
+// Pure: no cvar, DOM or engine state, so it can be tested on its own. Its
+// imports are pure tables and functions used only after import, so vid.js can
+// import it without an import-cycle problem.
 
 import { advancedPages } from "./menu_cvars.js";
+import { COM_GameDirIsValid } from "./common.js";
 
-/** ?game= names that stand in for WinQuake's -rogue and -hipnotic */
-export const URLCFG_MISSION_PACKS = Object.freeze(["rogue", "hipnotic"]);
-
-/** ?game= names that stand in for -game <dir>: the 2021 rerelease's add-ons */
-export const URLCFG_GAME_DIRS = Object.freeze(["mg1", "mg3", "dopa", "ctf"]);
+/**
+ * ?game= names that stand in for WinQuake's -rogue and -hipnotic, and
+ * QuakeSpasm's -quoth. Any other valid directory name (the rerelease's mg1,
+ * a mod) stands in for -game <dir>; static/<dir>/pak0.pak must exist.
+ */
+export const URLCFG_MISSION_PACKS = Object.freeze([
+  "rogue",
+  "hipnotic",
+  "quoth",
+]);
 
 /**
  * ?base= names and their directories. ?base=rerelease stands in for -basedir:
@@ -353,7 +361,8 @@ export function URLCfg_RenderScale(params) {
 /**
  * Reads the page's URL parameters (search is location.search or a
  * URLSearchParams). Returns a frozen object:
- * - game: { dir, mission } or null. mission is true for -rogue/-hipnotic.
+ * - game: { dir, mission } or null. mission is true for -rogue, -hipnotic
+ *   and -quoth.
  * - base: ?base= as written (null if absent); the intro page decides the
  *   base, and URLCfg_BaseDirs checks it.
  * - particles: the -particles count as a string, or null
@@ -371,14 +380,17 @@ export function URLCfg_Parse(search) {
 
   const gameArg = params.get("game");
   let game = null;
-  if (URLCFG_MISSION_PACKS.includes(gameArg)) {
-    game = Object.freeze({ dir: gameArg, mission: true });
-  } else if (URLCFG_GAME_DIRS.includes(gameArg)) {
+  // Mission packs match in any case, as in QuakeSpasm's q_strcasecmp
+  const mission = gameArg !== null ? gameArg.toLowerCase() : null;
+  if (URLCFG_MISSION_PACKS.includes(mission)) {
+    game = Object.freeze({ dir: mission, mission: true });
+  } else if (COM_GameDirIsValid(gameArg)) {
     game = Object.freeze({ dir: gameArg, mission: false });
   } else if (gameArg !== null) {
     messages.push(
-      'Ignoring unknown game "' + gameArg + '" (expected ' +
-        [...URLCFG_MISSION_PACKS, ...URLCFG_GAME_DIRS].join(", ") + ")",
+      'Ignoring game "' + gameArg.slice(0, URLCFG_MAX_VALUE_LENGTH) +
+        '" (expected a directory name: up to 32 letters, digits, _ and -,' +
+        " not id1 or a base)",
     );
   }
 

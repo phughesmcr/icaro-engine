@@ -52,6 +52,76 @@ Deno.test("COM_InitArgv sets rogue, hipnotic and standard_quake from -rogue and 
   }
 });
 
+Deno.test("-quoth and -game <mission pack> set the flags as in QuakeSpasm", () => {
+  const flags = (...args) => {
+    common.COM_InitArgv(["quake", ...args]);
+    return [common.rogue, common.hipnotic, common.standard_quake].join();
+  };
+  try {
+    assertEqual(flags("-quoth"), "false,true,false", "-quoth is hipnotic");
+    assertEqual(flags("-game", "quoth"), "false,true,false", "-game quoth");
+    assertEqual(flags("-game", "Rogue"), "true,false,false", "-game Rogue");
+    assertEqual(flags("-game", "mymod"), "false,false,true", "a mod");
+    assertEqual(flags("-game", "../rogue"), "false,false,true", "a path");
+  } finally {
+    common.COM_InitArgv([]);
+  }
+});
+
+Deno.test("COM_GameDirArgs: the directories to mount, in common.c order", () => {
+  const dirs = (...args) => common.COM_GameDirArgs(["quake", ...args]).join();
+  assertEqual(dirs(), "", "standard Quake");
+  assertEqual(dirs("-quoth"), "quoth", "-quoth mounts quoth only");
+  assertEqual(
+    dirs("-game", "mod", "-hipnotic", "-rogue"),
+    "rogue,hipnotic,mod",
+    "mission packs first, then -game",
+  );
+  assertEqual(
+    dirs("-rogue", "-game", "ROGUE", "-game", "a", "-game", "A"),
+    "rogue,a",
+    "a directory is mounted once, whatever its case",
+  );
+  assertEqual(
+    dirs("-game", "../x", "-game", "id1", "-game", "rerelease", "-game"),
+    "",
+    "unsafe or reserved names are skipped",
+  );
+  assertEqual(
+    common.COM_GameDirArgs(["-rogue"]).join(),
+    "",
+    "argv[0] is the program name",
+  );
+});
+
+Deno.test("COM_GameDirIsValid: one safe path component, not id1 or a base", () => {
+  for (const ok of ["mg1", "quoth", "My-Mod_2", "_x", "a".repeat(32)]) {
+    assertEqual(common.COM_GameDirIsValid(ok), true, ok);
+  }
+  for (
+    const bad of [
+      "",
+      ".",
+      "..",
+      "a/b",
+      "a\\b",
+      "a:b",
+      "a.b",
+      "-x",
+      "a".repeat(33),
+      "id1",
+      "ID1",
+      "rerelease",
+      "librequake",
+      "music",
+      null,
+      undefined,
+    ]
+  ) {
+    assertEqual(common.COM_GameDirIsValid(bad), false, String(bad));
+  }
+});
+
 // A pack with one file (see pak_sequence_test.js)
 function makePak(name, text) {
   const body = new TextEncoder().encode(text);
