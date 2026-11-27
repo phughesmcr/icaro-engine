@@ -210,28 +210,74 @@ export function VID_ResetPixelRatio() {
 // missing or invalid values give 1 (full resolution).
 
 // WebGL drawing-buffer pixels per 2D overlay pixel: ?scale= (set once by
-// VID_Init) times the dynamic resolution step (VID_SetDynamicScale).
-// R_SetupGL scales the view rectangle by it.
+// VID_Init) times the dynamic resolution step (VID_SetDynamicScale), divided
+// by r_scale (VID_SetScaleDivisor). R_SetupGL scales the view rectangle by it.
 export let vid_renderscale = 1;
 let vid_basescale = 1; // ?scale=
+let vid_dynscale = 1; // vid_dynres step
+let vid_scalediv = 1; // r_scale
 
-/**
- * Web-only, no C equivalent: sets the dynamic resolution step (src/
- * vid_dynres.js), a fraction of ?scale=, and resizes the drawing buffer. The
- * canvas's CSS size and the 2D overlay are unchanged.
- */
 /** Tests only: a stub renderer and ?scale=, without VID_Init. */
 export function VID_SetTestRenderer(r, basescale) {
   renderer = r;
   vid_basescale = basescale;
+  vid_dynscale = 1;
+  vid_scalediv = 1;
   vid_renderscale = basescale;
 }
 
-export function VID_SetDynamicScale(scale) {
-  vid_renderscale = vid_basescale * scale;
+// Recomputes vid_renderscale and resizes the drawing buffer. The canvas's CSS
+// size and the 2D overlay are unchanged.
+function VID_ApplyRenderScale() {
+  vid_renderscale = vid_basescale * vid_dynscale / vid_scalediv;
   if (renderer === null) return;
   if (renderer.xr != null && renderer.xr.isPresenting === true) return;
   renderer.setPixelRatio(VID_GetPixelRatio() * vid_renderscale);
+  VID_SetPixelated();
+}
+
+/**
+ * Web-only, no C equivalent: sets the dynamic resolution step (src/
+ * vid_dynres.js), a fraction of ?scale= and r_scale.
+ */
+export function VID_SetDynamicScale(scale) {
+  vid_dynscale = scale;
+  VID_ApplyRenderScale();
+}
+
+/**
+ * Ironwail r_scale (gl_screen.c SCR_UpdateScreen sets r_refdef.scale): the 3D
+ * view is drawn at 1/divisor of the screen's pixels and stretched back with
+ * nearest filtering. Ironwail renders to a smaller framebuffer and scales it
+ * up (R_WarpScaleView); here the WebGL canvas is the smaller buffer, which
+ * the browser stretches with image-rendering: pixelated. The divisor is
+ * multiplied with ?scale= and vid_dynres rather than replacing them.
+ */
+export function VID_SetScaleDivisor(divisor) {
+  if (divisor === vid_scalediv) return;
+  vid_scalediv = divisor;
+  VID_ApplyRenderScale();
+}
+
+/**
+ * Ironwail vid.maxscale (gl_vidsdl.c VID_Init: q_max( 4, vid.height / 240 ))
+ * for a screen physicalHeight device pixels tall.
+ */
+export function VID_MaxScale(physicalHeight) {
+  return Math.max(4, Math.floor(physicalHeight / 240));
+}
+
+/** The screen's height in device pixels (Ironwail's vid.height). */
+export function VID_PhysicalHeight() {
+  return Math.floor(vid.height * VID_GetPixelRatio());
+}
+
+// A lower-resolution buffer is stretched with hard pixel edges, not blurred
+function VID_SetPixelated() {
+  if (canvas === null || canvas.style == null) return;
+  canvas.style.imageRendering = vid_basescale < 1 || vid_scalediv > 1 ?
+    "pixelated" :
+    "";
 }
 
 // The ?scale= render scale, read in url_config.js
@@ -306,10 +352,10 @@ export function VID_Init(palette, gammaparm = null) {
   // VID_ParseRenderScale). The 2D overlay canvas in gl_draw.js keeps the
   // same VID_GetPixelRatio, so menus and the HUD stay sharp.
   vid_basescale = VID_ParseRenderScale(window.location.search);
-  vid_renderscale = vid_basescale;
+  vid_renderscale = vid_basescale * vid_dynscale / vid_scalediv;
   renderer.setSize(canvas.width, canvas.height);
   renderer.setPixelRatio(VID_GetPixelRatio() * vid_renderscale);
-  if (vid_basescale < 1) canvas.style.imageRendering = "pixelated";
+  VID_SetPixelated();
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.autoClear = false; // we manage clearing ourselves, like Quake did
   renderer.sortObjects = false; // we sort manually via BSP front-to-back

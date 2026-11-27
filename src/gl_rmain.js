@@ -6,6 +6,14 @@ import * as THREE from "three";
 import { Sys_FloatTime } from "./sys.js";
 import { Con_Printf } from "./common.js";
 import { renderer, vid, VID_CheckPixelRatio, vid_renderscale } from "./vid.js";
+import { R_PostprocessOwnsBlend } from "./gl_gamma.js";
+import { r_softemu, r_softemu_metric } from "./gl_softemu.js";
+import {
+  r_showbboxes,
+  R_ShowBoundingBoxes,
+  R_ShowTris,
+  r_showtris,
+} from "./gl_rdebug.js";
 import { VID_DynResInit } from "./vid_dynres.js";
 import {
   entity_t,
@@ -1598,6 +1606,12 @@ export function R_PolyBlend() {
     return;
   }
 
+  // r_softemu: gl_gamma.js blends the palette instead (Ironwail
+  // R_WarpScaleView's "&& !softemu")
+  if (R_PostprocessOwnsBlend()) {
+    return;
+  }
+
   if (v_blend[3] === 0) {
     return;
   }
@@ -1731,6 +1745,12 @@ export function R_RenderView() {
     // buffers, so the background does that.
     scene.background = isXRActive() ? _xrBackground : null;
     renderer.render(scene, camera);
+
+    // johnfitz debug views (Ironwail R_RenderScene); not drawn in WebXR
+    if (isXRActive() === false) {
+      R_ShowTris(scene, camera);
+      R_ShowBoundingBoxes(camera);
+    }
   }
 
   R_MirrorCleanup();
@@ -1854,7 +1874,11 @@ export function R_Init() {
   Cvar_RegisterVariable(r_particlecap);
   Cvar_RegisterVariable(r_particles); // QuakeSpasm registers it in R_InitParticles
   Cvar_RegisterVariable(gl_dlightcap);
-  VID_DynResInit(); // web-only: vid_dynres
+  Cvar_RegisterVariable(r_showtris); // Ironwail registers these in R_Init
+  Cvar_RegisterVariable(r_showbboxes);
+  Cvar_RegisterVariable(r_softemu); // Ironwail registers these in TexMgr_Init
+  Cvar_RegisterVariable(r_softemu_metric);
+  VID_DynResInit(); // web-only: vid_dynres; Ironwail's r_scale
 
   // create the Three.js scene
   scene = new THREE.Scene();
