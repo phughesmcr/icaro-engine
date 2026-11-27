@@ -10,9 +10,9 @@
 # id1/, mg1/, ...) must never reach an image or a registry. The game data is
 # LibreQuake, fetched at build time by the first stage (tools/fetch_data.js:
 # the release pinned in src/librequake.js, SHA-256 checked, so the build needs
-# network access) and only its two id1 paks and loose maps are copied into the
-# final stage. Don't COPY more and then delete files in a later RUN: earlier
-# layers keep them. tools/check_container_image.sh (CI) fails if the build
+# network access) and only its two id1 paks, loose maps and licence texts are
+# copied into the final stage. Don't COPY more and then delete files in a later
+# RUN: earlier layers keep them. tools/check_container_image.sh (CI) fails if the build
 # context holds any .pak, or the image holds any but LibreQuake's two.
 
 # Deno as pinned in .tool-versions; bump both together
@@ -40,10 +40,16 @@ COPY deno.json ./
 COPY server/ server/
 COPY src/ src/
 # LibreQuake's id1: both paks (pak1.pak holds gfx/pop.lmp, without which the
-# engine refuses a modified game) and the loose maps (lqdm1 to lqdm13, with
-# their .lit files). Not the release zip, music, docs or configs.
+# engine refuses a modified game), the loose maps (lqdm1 to lqdm13, with
+# their .lit files) and the licence texts, which the BSD 3-clause licence
+# asks a redistribution to carry (docs/copying, BSD 3-clause;
+# misc-docs/copying, GPL-2; readme-important-licence-info, which file covers what). All come from
+# the SHA-256-checked zip, stored lower-cased as the browser stores them. Not
+# the release zip, music, other docs or configs.
 COPY --from=data /fetch/static/librequake/id1/pak0.pak /fetch/static/librequake/id1/pak1.pak static/librequake/id1/
 COPY --from=data /fetch/static/librequake/id1/maps/ static/librequake/id1/maps/
+COPY --from=data /fetch/static/librequake/id1/docs/copying /fetch/static/librequake/id1/docs/readme-important-licence-info static/librequake/id1/docs/
+COPY --from=data /fetch/static/librequake/id1/docs/misc-docs/copying static/librequake/id1/docs/misc-docs/
 
 # The base image's unprivileged user (DENO_DIR=/deno-dir/ is theirs). The
 # cache step compiles the server's TypeScript now rather than at room start.
