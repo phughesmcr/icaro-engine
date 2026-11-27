@@ -122,7 +122,9 @@ export const CLIENT_HEADERS_FILE = "_headers";
 // iframe (src/turnstile.js). connect-src stays open to any https: or wss:
 // host because ?server= may name any lobby, and WebTransport connects over
 // https:. Styles allow inline: index.html has a <style> block, and touch
-// controls style their elements.
+// controls style their elements. 'wasm-unsafe-eval' lets the page compile
+// WebAssembly (libopenmpt, which plays tracker music); it doesn't allow
+// eval() or new Function() for JavaScript.
 const CSP_SCRIPT_HOSTS = [
   "https://cdn.jsdelivr.net",
   "https://challenges.cloudflare.com",
@@ -160,7 +162,8 @@ export async function Client_Headers(indexHtml) {
   }
   const csp = [
     "default-src 'self'",
-    ["script-src 'self'", ...CSP_SCRIPT_HOSTS, ...hashes].join(" "),
+    ["script-src 'self' 'wasm-unsafe-eval'", ...CSP_SCRIPT_HOSTS, ...hashes]
+      .join(" "),
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "media-src 'self' blob:",
