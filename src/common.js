@@ -483,19 +483,31 @@ export function MSG_ReadString() {
   return chars.join("");
 }
 
-// The coordinate size the client reads: 4 bytes for PROTOCOL_ICARO, 2 for
-// protocol 15 (NetQuake demos). CL_ParseServerInfo sets it from the
-// server's version. Not in C, where Ironwail passes cl.protocolflags to
-// each MSG_ReadCoord; one switch here keeps the dozens of callers
-// (cl_tent.js, view.js, render.js) unchanged. The server never reads
-// coordinates and always writes 4 bytes (MSG_WriteCoord).
-export let msg_coord32 = true;
-export function MSG_SetCoord32(on) {
-  msg_coord32 = on;
+// How the client reads coordinates and angles. Ironwail passes
+// cl.protocolflags to each MSG_ReadCoord and MSG_ReadAngle; here the client's
+// protocol reader (cl_parse.js CL_SetProtocol) sets the two modes once, which
+// keeps the dozens of callers (cl_tent.js, view.js, render.js) unchanged. The
+// server never reads coordinates and always writes MSG_WriteCoord's int32.
+/** NetQuake's 13.3 fixed-point short (Ironwail MSG_ReadCoord16) */
+export const MSG_COORD_16 = 0;
+/** Icaro's int32 in 1/8 units (PROTOCOL_ICARO, MSG_WriteCoord) */
+export const MSG_COORD_INT32_8 = 1;
+/** NetQuake's signed byte, 256 steps a turn */
+export const MSG_ANGLE_8 = 0;
+
+/** The coordinate mode the client reads, one of the MSG_COORD_* values */
+export let msg_coordmode = MSG_COORD_INT32_8;
+/** The angle mode MSG_ReadAngle reads, one of the MSG_ANGLE_* values */
+export let msg_anglemode = MSG_ANGLE_8;
+
+/** Sets the coordinate and angle modes the client reads (CL_SetProtocol) */
+export function MSG_SetCoordModes(coordmode, anglemode) {
+  msg_coordmode = coordmode;
+  msg_anglemode = anglemode;
 }
 
 export function MSG_ReadCoord() {
-  if (msg_coord32) {
+  if (msg_coordmode === MSG_COORD_INT32_8) {
     return MSG_ReadLong() * (1.0 / 8);
   }
   return MSG_ReadShort() * (1.0 / 8);
@@ -505,7 +517,10 @@ export function MSG_ReadAngle() {
   return MSG_ReadChar() * (360.0 / 256);
 }
 
-// QuakeWorld-style 16-bit angle (more precision)
+// QuakeWorld-style 16-bit angle (more precision). Deliberately not
+// mode-dependent, unlike Ironwail's MSG_ReadAngle16(flags): the server reads
+// clc_move with it (sv_user.js), and only Icaro's svc_playerinfo uses it on
+// the client.
 export function MSG_ReadAngle16() {
   return MSG_ReadShort() * (360.0 / 65536);
 }
