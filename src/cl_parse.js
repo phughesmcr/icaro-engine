@@ -239,6 +239,7 @@ import { R_TranslatePlayerSkin } from "./gl_rmisc.js";
 // QuakeWorld model precache indices (set during CL_ParseServerInfo)
 export let cl_playerindex = -1;
 import { R_NewMap } from "./gl_rmisc.js";
+import { vid } from "./vid.js";
 import { R_WarmupStart } from "./gl_warmup.js";
 import {
   LERP_FINISH,
@@ -251,7 +252,7 @@ import {
 import { Host_EndGame, Host_Error, realtime, sv } from "./host.js";
 import { NET_SendMessage } from "./net_main.js";
 import { Loop_IsClientSocket } from "./net_loop.js";
-import { CL_GetMessage } from "./cl_demo.js";
+import { CL_DemoFetchFile, CL_GetMessage } from "./cl_demo.js";
 import { set_noclip_anglehack } from "./host_cmd.js";
 import { CL_ClearState, cl_shownet, CL_SignonReply } from "./cl_main.js";
 import { CL_ParseTEnt } from "./cl_tent.js";
@@ -595,13 +596,23 @@ export function CL_ParseServerInfo() {
   // Lazy-load (web-only): if the world BSP isn't cached yet, fetch it on
   // demand and reconnect
   if (nummodels > 1 && COM_FindFile(model_precache[1]) === null) {
-    const addr = cls.netcon != null ? cls.netcon.address : null;
     Con_Printf("Fetching %s...\n", model_precache[1]);
+
+    // A demo waits at this message for the map, then reads it again. The
+    // rest of the message (svc_signonnum, sounds) is discarded: parsed now,
+    // it would run against a client with no world.
+    if (cls.demoplayback === true) {
+      CL_DemoFetchFile(model_precache[1]);
+      net_message.cursize = 0;
+      return;
+    }
+
+    const addr = cls.netcon != null ? cls.netcon.address : null;
     COM_EnsureFile(model_precache[1]).then((success) => {
-      if (success && addr != null) {
-        Cbuf_AddText('connect "' + addr + '"\n');
-      } else {
+      if (success !== true) {
         Con_Printf("Couldn't fetch %s\n", model_precache[1]);
+      } else if (addr != null) {
+        Cbuf_AddText('connect "' + addr + '"\n');
       }
     });
 
@@ -609,10 +620,7 @@ export function CL_ParseServerInfo() {
     // message (svc_signonnum) sign on a player with no map, holding a server
     // slot until the reconnect. Host_EndGame sends clc_disconnect and
     // discards the rest of the message, as C's longjmp does.
-    if (cls.demoplayback !== true) {
-      Host_EndGame("fetching " + model_precache[1] + "\n");
-    }
-    return;
+    Host_EndGame("fetching " + model_precache[1] + "\n");
   }
 
   for (i = 1; i < nummodels; i++) {
@@ -1902,7 +1910,7 @@ function CL_Parse_svc_damage(_cmd) {
 
 function CL_Parse_svc_serverinfo(_cmd) {
   CL_ParseServerInfo();
-  // vid.recalc_refdef = true; // leave intermission full screen
+  vid.recalc_refdef = true; // leave intermission full screen
 }
 
 function CL_Parse_svc_setangle(_cmd) {
@@ -2072,13 +2080,13 @@ function CL_Parse_svc_cdtrack(_cmd) {
 function CL_Parse_svc_intermission(_cmd) {
   cl.intermission = 1;
   cl.completed_time = cl.time;
-  // vid.recalc_refdef = true; // go to full screen
+  vid.recalc_refdef = true; // go to full screen
 }
 
 function CL_Parse_svc_finale(_cmd) {
   cl.intermission = 2;
   cl.completed_time = cl.time;
-  // vid.recalc_refdef = true; // go to full screen
+  vid.recalc_refdef = true; // go to full screen
   //johnfitz -- log centerprints to console
   const str = MSG_ReadString();
   SCR_CenterPrint(str);
@@ -2088,7 +2096,7 @@ function CL_Parse_svc_finale(_cmd) {
 function CL_Parse_svc_cutscene(_cmd) {
   cl.intermission = 3;
   cl.completed_time = cl.time;
-  // vid.recalc_refdef = true; // go to full screen
+  vid.recalc_refdef = true; // go to full screen
   //johnfitz -- log centerprints to console
   const str = MSG_ReadString();
   SCR_CenterPrint(str);

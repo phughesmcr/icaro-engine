@@ -22,7 +22,7 @@ import { ca_connected, ca_disconnected, cl, cls, SIGNONS } from "./client.js";
 import { CL_Disconnect } from "./cl_main.js";
 import { Host_Error, host_framecount, realtime } from "./host.js";
 import { NET_GetMessage } from "./net_main.js";
-import { COM_FindFile } from "./pak.js";
+import { COM_EnsureFile, COM_FindFile } from "./pak.js";
 import { UD_KeepDemo } from "./userdata.js";
 
 // DEMO CODE
@@ -33,8 +33,16 @@ import { UD_KeepDemo } from "./userdata.js";
 // Whenever cl.time gets past the last received message, another message is
 // read from the demo file.
 
+// Web-only: CL_DemoFetchFile holds playback while a demo's map is fetched
+let demo_msgstart = 0; // cls.demopos where the last message read began
+let demo_holding = false;
+let demo_holdid = 0; // bumped when playback starts or stops, so a late fetch can tell
+
 /** Called when a demo file runs out, or the user starts a game */
 export function CL_StopPlayback() {
+  demo_holding = false;
+  demo_holdid++;
+
   if (!cls.demoplayback) {
     return;
   }
@@ -122,6 +130,11 @@ export function CL_WriteDemoMessage() {
 /** Handles recording and playback of demos, on top of NET_ code */
 export function CL_GetMessage() {
   if (cls.demoplayback) {
+    // Web-only: waiting for CL_DemoFetchFile
+    if (demo_holding === true) {
+      return 0;
+    }
+
     // ericw -- demo pause support (QuakeSpasm). QuakeSpasm lets cl.time
     // run on and leaves CL_LerpPoint to pull it back to mtime[0]; this
     // port holds it here, as Ironwail's demospeed 0 does, by undoing the
@@ -149,6 +162,7 @@ export function CL_GetMessage() {
     }
 
     // get the next message from demo data
+    demo_msgstart = cls.demopos;
     if (!cls.demodata || cls.demopos >= cls.demodata.length) {
       CL_StopPlayback();
       return 0;
@@ -234,6 +248,36 @@ export function CL_GetMessage() {
     CL_WriteDemoMessage();
   }
   return r;
+}
+
+/**
+ * Web-only (the lazy map fetch in CL_ParseServerInfo): holds demo playback at
+ * the message being parsed until filename has been fetched, then reads that
+ * message again. A failed fetch ends playback and the demo loop, as id's
+ * Host_Error does for a model that isn't there.
+ */
+export function CL_DemoFetchFile(filename) {
+  cls.demopos = demo_msgstart;
+  demo_holding = true;
+  const id = ++demo_holdid;
+  COM_EnsureFile(filename).catch(() => false).then((success) => {
+    if (success !== true) {
+      Con_Printf("Couldn't fetch %s\n", filename);
+    }
+    if (id !== demo_holdid) {
+      return; // playback stopped or restarted meanwhile
+    }
+
+    demo_holding = false;
+    if (success !== true) {
+      cls.demonum = -1;
+      CL_Disconnect();
+    } else if (cls.timedemo) {
+      // the hold doesn't count: start timing again from here
+      cls.td_startframe = host_framecount;
+      cls.td_lastframe = -1;
+    }
+  });
 }
 
 /** stop recording a demo */
@@ -367,6 +411,8 @@ export function CL_PlayDemo_f() {
 /** Play a demo from an ArrayBuffer (browser-specific entry point) */
 export function CL_PlayDemoFromData(data) {
   CL_Disconnect();
+  demo_holding = false;
+  demo_holdid++;
 
   cls.demodata = new Uint8Array(data);
   cls.demopos = 0;
