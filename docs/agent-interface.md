@@ -40,7 +40,7 @@ Phase 1 is built: `src/agent.js`, exposed as `window.icaro` by `main.js`
   (`D`, `L`, `B`; a secret door stays `#`) and exits and teleporters are drawn;
   without it every brush entity is `#`. A 41x41 map takes about 0.4 ms headless;
   the text form cuts blank rows and columns. `tests/agent_map_test.js` covers it
-  on e1m1.
+  on LibreQuake's lq_e1m1 and lq_e1m2.
 - The `screen` tier, in the browser only (#246): `icaro.screenshot( width )` (a
   JPEG data URL) and
   `icaro.screen_rgba( width = 84, height = 0,
@@ -98,7 +98,7 @@ Parts of phases 2 and 3 are built too (status checked against the code at `dev`
   `level done (intermission)` or `timeout` (default 10 s). The kill check runs
   first, so a killing shot reads `killed`. It aims for the agent, so it is aim
   assistance; the benchmark profile that would turn it off isn't built.
-  `tests/agent_attack_test.js` covers both on e1m1.
+  `tests/agent_attack_test.js` covers both on LibreQuake's lq_e1m2.
 - Navigation: `src/nav.js` builds a walk graph from the BSP and answers A* path
   queries; `tools/nav/nav_build.js` builds graphs offline (#194). `src/agent.js`
   builds one on each level event while an agent is attached
@@ -126,7 +126,8 @@ Parts of phases 2 and 3 are built too (status checked against the code at `dev`
   the macro starts count as known, the macro's own target is never reported, and
   `(+N more)` counts others that appeared on the same tic.
   `stop_on_enemy: false` turns it off (on `attack` too). Not built: realtime
-  mode. `tests/agent_goto_test.js` covers it on e1m1; a scripted e1m1 run with
+  mode. `tests/agent_goto_test.js` covers it on LibreQuake's lq_e1m1 and
+  lq_e1m2; before the tests moved to LibreQuake, a scripted id1 e1m1 run with
   god and notarget (goto the exit; on a block, press the named button or shoot
   the monster) reached the far water rooms but not the exit. Stalls left: from
   inside, the shoot-to-open secret door #50 doesn't open to shots, and door #65
@@ -163,8 +164,9 @@ Parts of phases 2 and 3 are built too (status checked against the code at `dev`
   below planned. Its spaces (`Box`, `MultiDiscrete`) come from `rl_spec`;
   `reset` is `start` plus a 0-tic `rl_step`, and `step` returns Gymnasium's
   5-tuple. Its header gives the run line. The PR measured about 2,000 steps/s on
-  a random e1m1 episode. Not done: vectorised envs (`AsyncVectorEnv` is
-  untried), ViZDoom-style scenario `.cfg` files, and a training run.
+  a random id1 e1m1 episode (its default map is now LibreQuake's lq_e1m1). Not
+  done: vectorised envs (`AsyncVectorEnv` is untried), ViZDoom-style scenario
+  `.cfg` files, and a training run.
 
 Confidence labels on outside claims: **[V]** read on a primary source, **[S]**
 secondary source or search summary, **[U]** unverified. Claims about this engine
@@ -413,8 +415,8 @@ document it. A useful `goto` needs a graph. Options, in order:
      units) and drop height;
    - mark links that cross `func_door`, `func_plat`, teleporters and buttons.
 
-   This works for every map, including shareware and custom maps. It is the real
-   work item.
+   This works for every map, including LibreQuake's and custom maps. It is the
+   real work item.
 2. **Load the rerelease's `bots/navigation/<map>.nav`** when the user's own
    rerelease data is present. The format must be reverse-engineered, and it only
    covers id1 maps.
@@ -437,9 +439,9 @@ document it. A useful `goto` needs a graph. Options, in order:
   - Typical use: one `javascript_tool` call does `icaro.step(...)` and gets the
     next observation back, so each turn is one round trip.
   - URL flags (as built): `window.icaro` is always present. `?agent=lockstep` or
-    `?agent=realtime` attaches at startup, and `?map=e1m1&skill=1` starts that
-    map instead of the intro demos, once a person (or the agent) presses the
-    intro page's Play button (`src/intro.js`; no game data loads before it).
+    `?agent=realtime` attaches at startup, and `?map=lq_e1m1&skill=1` starts
+    that map instead of the intro demos, once a person (or the agent) presses
+    the intro page's Play button (`src/intro.js`; no game data loads before it).
   - Discovery: serve a short `/agent.md` (or `llms.txt`), and link it from a
     `<meta>` tag and a visually hidden line in `index.html`, so an agent landing
     on the page can learn the API in one read.
@@ -500,7 +502,7 @@ document it. A useful `goto` needs a graph. Options, in order:
 
 1. **Core and `window.icaro`**: clock modes, `status`, `ents` and `events`
    tiers, low-level actions, `ui` tier with menu text, `?agent=` flags,
-   `/agent.md`. Test it by having Claude play e1m1 through the browser pane.
+   `/agent.md`. Test it by having Claude play lq_e1m1 through the browser pane.
 2. **Headless MCP server**: prove a headless loopback client under Deno, then
    `server/agent_mcp.ts` (stdio). Add seeded RNG and a virtual clock, and a
    determinism test that replays an action log and compares a state hash.

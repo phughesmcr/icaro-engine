@@ -1,6 +1,7 @@
 // src/agent.js rl tier over the headless host (through server/agent_mcp.ts),
-// on e1m1 from pak0: the layout, the vector's contents, the reward and
-// episode ends, and determinism under a seed.
+// on LibreQuake (lq_e1m1, and lq_e1m2 where a grunt is needed): the layout,
+// the vector's contents, the reward and episode ends, and determinism under a
+// seed.
 
 import { mcp_session } from "./agent_mcp_client.js";
 import {
@@ -47,7 +48,11 @@ async function call(name, args = {}) {
   return r.content[0].text;
 }
 
-const ARMOR = [688, 480, 80]; // item_armor1, across the bridge
+// lq_e1m1 starts the player in a train, behind secret doors that open from the
+// far side, so the agent can't walk it anywhere. The tests that need to meet
+// a grunt use lq_e1m2, which starts in the open with grunts in the first hall.
+const GRUNT_MAP = "lq_e1m2";
+const HEALTH = [-480, -96, -192]; // lq_e1m2's item_health, past the grunts
 const NOOP = [0, 0, 5, 2, 0, 0, 0, 0];
 const FORWARD = [1, 0, 5, 2, 0, 0, 1, 0]; // forward, running
 
@@ -141,7 +146,7 @@ Deno.test({
     assert(o[at(spec, "weapon")] === 2, "weapon (shotgun) " + o[2]);
     assert(o[at(spec, "has_shotgun")] === 1, "has the shotgun");
     assert(o[at(spec, "shells")] === 25, "shells");
-    assert(Math.round(o[at(spec, "x")]) === 480, "x " + o[at(spec, "x")]);
+    assert(Math.round(o[at(spec, "x")]) === 968, "x " + o[at(spec, "x")]);
     assert(o[at(spec, "total_monsters")] > 0, "total monsters");
     for (let i = 0; i < o.length; i++) {
       assert(
@@ -187,14 +192,14 @@ Deno.test({
   name: "agent rl: reading it changes nothing, and steps don't eat events",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
+    await call("start", { map: GRUNT_MAP, skill: 1, seed: 1 });
     const h = Agent_StateHash();
     Agent_RLObserve({ map: 21 });
     Agent_RLSpec();
     assert(Agent_StateHash() === h, "an rl read changed the game");
 
-    // No god: walk at the grunt by the bridge until hurt (seed 1)
-    await call("goto", { pos: ARMOR, ents: 0, max_tics: 200 });
+    // No god: walk at the grunts of the first hall until hurt (seed 1)
+    await call("goto", { pos: HEALTH, ents: 0, max_tics: 200 });
     let hurt = 0;
     for (let i = 0; i < 200 && hurt === 0; i++) {
       const r = await Agent_RLStep(NOOP, 4);
@@ -287,9 +292,9 @@ Deno.test({
   name: "agent rl: truth false hides hp and server-only entities",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
+    await call("start", { map: GRUNT_MAP, skill: 1, seed: 1 });
     await call("cmd", { text: "god" });
-    await call("goto", { pos: ARMOR, ents: 0 }); // near the grunt and the bridge
+    await call("goto", { pos: HEALTH, ents: 0 }); // near the grunts
     const spec = Agent_RLSpec({ ents: 64 });
     const p = spec.fields.find((f) => f.name === "ents").offset;
     const slots = (truth) => {
@@ -322,9 +327,9 @@ Deno.test({
   name: "agent rl: a kill is rewarded",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
+    await call("start", { map: GRUNT_MAP, skill: 1, seed: 1 });
     await call("cmd", { text: "god" });
-    await call("goto", { pos: ARMOR, ents: 0 });
+    await call("goto", { pos: HEALTH, ents: 0 });
     const m = Agent_Entities(64).find((e) => e.hp !== null && e.dist < 400);
     assert(m !== undefined, "no monster near");
     let total = 0;
@@ -347,9 +352,9 @@ Deno.test({
   name: "agent rl: death, a changelevel and a restart end the episode",
   ...ENGINE_TEST,
   fn: async () => {
-    // Seed 1, no god: hurt by the grunt by the bridge, then left with 1 hp
-    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
-    await call("goto", { pos: ARMOR, ents: 0 });
+    // Seed 1, no god: hurt by a grunt, then left with 1 hp
+    await call("start", { map: GRUNT_MAP, skill: 1, seed: 1 });
+    await call("goto", { pos: HEALTH, ents: 0 });
     await call("cmd", { text: "give h 1" });
     await Agent_RLStep(FORWARD, 1); // hold a button: released at the end
     let d = null;
@@ -377,7 +382,8 @@ Deno.test({
     const k = await Agent_RLStep(NOOP, 8);
     assert(k.why === "level restarted", "kill: " + k.why);
 
-    Cbuf_AddText("changelevel " + GD_MAPS.next + "\n");
+    // not GD_MAPS.next: that is GRUNT_MAP, the map we are on
+    Cbuf_AddText("changelevel " + GD_MAPS.level + "\n");
     const c = await Agent_RLStep(NOOP, 8);
     assert(c.why === "level changed", "changelevel: " + c.why);
     assert(c.reward === RL_REWARD.exit, "exit reward " + c.reward);
@@ -404,7 +410,7 @@ Deno.test({
         exit = ed;
       }
     }
-    assert(exit !== null, "no trigger_changelevel on e1m1");
+    assert(exit !== null, "no trigger_changelevel on " + GD_MAPS.level);
     const player = EDICT_NUM(1);
     for (let k = 0; k < 3; k++) {
       player.v.origin[k] = (exit.v.absmin[k] + exit.v.absmax[k]) / 2;

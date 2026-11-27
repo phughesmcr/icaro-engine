@@ -566,7 +566,10 @@ Deno.test({
       );
     } finally {
       RoomManager_ShutdownAll();
-      RoomManager_SetConfig({ pakPath: "../static/pak0.pak", gameFlags: [] });
+      RoomManager_SetConfig({
+        pakPath: "../static/librequake/id1/pak0.pak",
+        gameFlags: [],
+      });
       console.log = silence;
       Deno.env.delete("FAKE_ROOM_ARGS_FILE");
       await new Promise((r) => setTimeout(r, 600));

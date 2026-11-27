@@ -1,11 +1,12 @@
-// Bring your own data (web-only, no C source). A player's own copy of
-// registered Quake (pak1.pak), a mission pack or the 2021 rerelease is copied
-// from a file picker into this browser's storage, on this device only, and
-// mounted at the next start in place of the URL the game would fetch (see
-// COM_SetUserPaks in pak.js). Registered data must never be hosted, so this is
-// the only way to play it from the public site, and on a phone, which has no
-// static/ folder to copy files into. Saves, configs and demos can be exported
-// and imported too, since a phone has no game folder to copy them from.
+// Bring your own data (web-only, no C source). A player's own copy of Quake
+// (id1's pak0.pak and pak1.pak), a mission pack or the 2021 rerelease is
+// copied from a file picker into this browser's storage, on this device only,
+// and mounted at the next start in place of the URL the game would fetch (see
+// COM_SetUserPaks in pak.js). id's data must never be hosted (the site serves
+// LibreQuake alone), so this is the only way to play it from the public site,
+// and on a phone, which has no static/ folder to copy files into. Saves,
+// configs and demos can be exported and imported too, since a phone has no
+// game folder to copy them from.
 //
 // Storage is the origin private file system (OPFS) where the browser can
 // write a file there from the page (FileSystemFileHandle.createWritable), else
@@ -73,7 +74,8 @@ const UD_TRACK_FILE = /\/music\/track\d{2,}\.(ogg|mp3)$/;
 /**
  * What a pak is, from the names in its directory (a Set of lower-case names):
  * { dir, label } where dir is the game directory under static/ ("id1" for
- * id1's own, which is static/ itself), or null for a pak this can't place.
+ * id1's pak1.pak and "id1/pak0" for id1's pak0.pak, both of which sit in
+ * static/ itself), or null for a pak this can't place.
  * Every 2021 rerelease pak has a bots/ directory and no original pak does.
  * Order matters: the rogue pak has ctf1.bsp too.
  */
@@ -104,6 +106,10 @@ export function UD_ClassifyPak(names) {
     if (has("maps/e2m1.bsp") && !has("progs.dat")) {
       return { dir: "id1", label: "Quake (registered)" };
     }
+    // id1's pak0.pak, the shareware episode's pak (LibreQuake has lq_ maps)
+    if (has("progs.dat") && has("maps/e1m1.bsp")) {
+      return { dir: "id1/pak0", label: "Quake (pak0.pak)" };
+    }
     return null;
   }
   if (has("maps/e5m1.bsp")) {
@@ -123,6 +129,7 @@ export function UD_ClassifyPak(names) {
 
 /** The store key, and so the URL main.js fetches, of a pak in dir. */
 export function UD_PakKey(dir) {
+  if (dir === "id1/pak0") return "static/pak0.pak";
   const name = dir === "id1" ? "pak1.pak" : "pak0.pak";
   return "static/" + (dir === "id1" ? "" : dir + "/") + name;
 }
@@ -157,7 +164,9 @@ export async function UD_ReadPakNames(blob) {
  * The games a set of stored keys can start, each { label, query } with the
  * query string for main.js. A rerelease add-on needs the rerelease's id1.
  * id's own data is ?base=id1, since a launch without ?base plays the content
- * the intro last started (src/intro.js).
+ * the intro last started (src/intro.js). Quake and the mission packs need
+ * id1's pak0.pak (every mission pack loads id1 under its own files), so
+ * without it only LibreQuake and the rerelease are offered.
  */
 export function UD_PlayOptions(keys) {
   const has = (dir) => keys.has(UD_PakKey(dir));
@@ -165,15 +174,17 @@ export function UD_PlayOptions(keys) {
   if (keys.has(UD_LQ_MANIFEST)) {
     out.push({ label: "LibreQuake", query: "?base=librequake" });
   }
-  out.push({
-    label: has("id1") ? "Quake (registered)" : "Quake (shareware)",
-    query: "?base=id1",
-  });
-  if (has("hipnotic")) {
-    out.push({ label: "Scourge of Armagon", query: "?game=hipnotic" });
-  }
-  if (has("rogue")) {
-    out.push({ label: "Dissolution of Eternity", query: "?game=rogue" });
+  if (has("id1/pak0")) {
+    out.push({
+      label: has("id1") ? "Quake (registered)" : "Quake (shareware)",
+      query: "?base=id1",
+    });
+    if (has("hipnotic")) {
+      out.push({ label: "Scourge of Armagon", query: "?game=hipnotic" });
+    }
+    if (has("rogue")) {
+      out.push({ label: "Dissolution of Eternity", query: "?game=rogue" });
+    }
   }
   if (!has("rerelease/id1")) return out;
   out.push({ label: "Quake (2021 rerelease)", query: "?base=rerelease" });
@@ -460,10 +471,7 @@ export async function UD_Import(files) {
       const what = UD_ClassifyPak(names);
       if (what === null) {
         lines.push(
-          file.name +
-            (names.has("maps/e1m1.bsp") ?
-              ": id1's pak0.pak, which the game already has" :
-              ": a pak this can't place"),
+          file.name + ": a pak this can't place",
         );
         continue;
       }
@@ -764,8 +772,10 @@ export function UD_OpenPanel() {
   UD_El("h2", "Game data", panel);
   UD_El(
     "p",
-    "Add your own Quake files: pak1.pak from registered Quake, a mission " +
-      "pack's pak0.pak, or the 2021 rerelease's paks. They are copied into " +
+    "Add your own Quake files: pak0.pak and pak1.pak from Quake's id1 " +
+      "folder, a mission pack's pak0.pak, or the 2021 rerelease's paks " +
+      "(Quake and the mission packs need id1's pak0.pak). They are copied " +
+      "into " +
       "this browser's storage on this device and are never uploaded. " +
       "Saves (.sav), configs (.cfg) and demos (.dem) can be added too.",
     panel,

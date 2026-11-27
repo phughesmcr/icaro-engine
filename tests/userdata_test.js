@@ -67,7 +67,8 @@ function text(name) {
 
 // The marker files of each pak, as in the real paks' directories
 const KINDS = [
-  [["progs.dat", "maps/e1m1.bsp", "maps/start.bsp"], null],
+  [["progs.dat", "maps/e1m1.bsp", "maps/start.bsp"], "id1/pak0"],
+  [["progs.dat", "maps/lq_e1m1.bsp", "maps/start.bsp"], null],
   [["maps/e2m1.bsp", "gfx/pop.lmp"], "id1"],
   [["progs.dat", "maps/hip1m1.bsp"], "hipnotic"],
   [["progs.dat", "maps/r1m1.bsp", "maps/ctf1.bsp"], "rogue"],
@@ -90,6 +91,7 @@ Deno.test("UD_ClassifyPak places each pak by its contents, not its name", () => 
 
 Deno.test("UD_PakKey is the URL main.js fetches", () => {
   assertEqual(UD_PakKey("id1"), "static/pak1.pak", "registered");
+  assertEqual(UD_PakKey("id1/pak0"), "static/pak0.pak", "id1's pak0");
   assertEqual(UD_PakKey("hipnotic"), "static/hipnotic/pak0.pak", "hipnotic");
   assertEqual(
     UD_PakKey("rerelease/id1"),
@@ -127,31 +129,50 @@ Deno.test("UD_ReadPakNames reads the directory and refuses what isn't a pak", as
 Deno.test("UD_PlayOptions offers only games whose paks are stored", () => {
   const labels = (keys) =>
     UD_PlayOptions(new Set(keys)).map((o) => o.query).join(" ");
-  assertEqual(labels([]), "?base=id1", "shareware only");
+  const names = (keys) =>
+    UD_PlayOptions(new Set(keys)).map((o) => o.label).join(" | ");
+  assertEqual(labels([]), "", "nothing stored");
   assertEqual(
     labels(["static/pak1.pak", "static/hipnotic/pak0.pak"]),
+    "",
+    "pak1 and a mission pack need id1's pak0",
+  );
+  assertEqual(labels(["static/pak0.pak"]), "?base=id1", "pak0");
+  assertEqual(names(["static/pak0.pak"]), "Quake (shareware)", "pak0 label");
+  assertEqual(
+    names(["static/pak0.pak", "static/pak1.pak"]),
+    "Quake (registered)",
+    "pak0 and pak1 label",
+  );
+  assertEqual(
+    labels(["static/pak0.pak", "static/pak1.pak", "static/hipnotic/pak0.pak"]),
     "?base=id1 ?game=hipnotic",
     "registered and hipnotic",
   );
   assertEqual(
+    labels(["static/pak0.pak", "static/rogue/pak0.pak"]),
+    "?base=id1 ?game=rogue",
+    "rogue",
+  );
+  assertEqual(
     labels(["static/rerelease/mg1/pak0.pak"]),
-    "?base=id1",
+    "",
     "an add-on without the rerelease's id1 can't start",
   );
   assertEqual(
     labels(["static/rerelease/id1/pak0.pak", "static/rerelease/mg1/pak0.pak"]),
-    "?base=id1 ?base=rerelease ?base=rerelease&game=mg1",
-    "rerelease and mg1",
+    "?base=rerelease ?base=rerelease&game=mg1",
+    "rerelease and mg1, no id1 pak0 needed",
   );
   // LibreQuake once its manifest is stored, not for its files alone
   assertEqual(
     labels(["static/librequake/id1/pak0.pak"]),
-    "?base=id1",
+    "",
     "LibreQuake part unpacked",
   );
   assertEqual(
     labels(["librequake/manifest.json", "static/librequake/id1/pak0.pak"]),
-    "?base=librequake ?base=id1",
+    "?base=librequake",
     "LibreQuake installed",
   );
 });

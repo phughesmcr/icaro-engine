@@ -3,8 +3,12 @@
 // presses a button here, so crawlers, link previews and other bots that
 // load the page never download a pak (and sw.js no longer fetches one on
 // install). The page offers LibreQuake, the standard content, downloaded on
-// first use (src/librequake.js), or id's own data: the shareware pak0.pak,
-// and a player's own registered paks (src/userdata.js).
+// first use (src/librequake.js), and id's own data when a player has added
+// id1's pak0.pak in Options, Game data (src/userdata.js). The site serves no
+// id pak, so id's data is never started without it. The one exception is a
+// local development host (Intro_IsDevHost), where the page asks with HEAD
+// whether static/ serves id1's paks, so a developer's own copies start
+// without being added: on any other host nothing is asked.
 //
 // A person who has pressed Play on this device before skips the page when
 // what they start needs no download: that state (localStorage) is only ever
@@ -28,9 +32,53 @@ import {
 export const INTRO_PLAYED_KEY = "icaro_played";
 
 // URL parameters that name content needing id's data: mission packs and
-// add-ons (?game), lobby rooms, whose servers run id1's maps (?room), and
-// agent links to a map such as e1m1 (?map)
-const INTRO_ID1_PARAMS = ["game", "room", "map"];
+// add-ons (?game). Lobby rooms (?room) and links to a map (?map, as agents
+// use) start LibreQuake, which the rooms run.
+const INTRO_ID1_PARAMS = ["game"];
+
+// The hosts Intro_LocalPaks asks: this machine, as location.hostname writes
+// it. Not *.localhost or LAN addresses.
+/** How long a local pak's HEAD may take before it counts as absent. */
+const INTRO_LOCAL_TIMEOUT_MS = 2000;
+
+const INTRO_DEV_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** Whether hostname (location.hostname) is a local development host. */
+export function Intro_IsDevHost(hostname) {
+  return INTRO_DEV_HOSTS.has(hostname);
+}
+
+/**
+ * On a local development host only, whether static/ serves id1's paks where
+ * main.js fetches them when none is stored (static/pak0.pak, then pak1.pak):
+ * { pak0, pak1 }. Each is one HEAD request, so nothing is downloaded. A 2xx
+ * that is HTML (a server's fallback page) doesn't count. Any other host gets
+ * { pak0: false, pak1: false } without a request.
+ */
+export async function Intro_LocalPaks(hostname, doFetch = globalThis.fetch) {
+  if (Intro_IsDevHost(hostname) === false || typeof doFetch !== "function") {
+    return { pak0: false, pak1: false };
+  }
+  const served = async (path) => {
+    try {
+      const response = await doFetch(path, {
+        method: "HEAD",
+        cache: "no-store",
+        // a hung local server mustn't hold the intro page
+        signal: typeof AbortSignal.timeout === "function" ?
+          AbortSignal.timeout(INTRO_LOCAL_TIMEOUT_MS) :
+          undefined,
+      });
+      const type = response.headers.get("content-type") ?? "";
+      return response.ok && type.startsWith("text/html") === false;
+    } catch {
+      return false;
+    }
+  };
+  const pak0 = await served(UD_PakKey("id1/pak0"));
+  const pak1 = pak0 && await served(UD_PakKey("id1"));
+  return { pak0, pak1 };
+}
 
 const INTRO_GAME_LABELS = {
   hipnotic: "Scourge of Armagon",
@@ -42,32 +90,42 @@ const INTRO_GAME_LABELS = {
 };
 
 /**
- * The content a launch wants, from its URL and the person's last pick:
- * { base, named } where base is what main.js reads as ?base (null for id's
- * data in static/, "librequake", "rerelease", or an unknown value main.js
- * reports), and named is true when the URL chose it. ?base=id1 asks for
- * id's data by name.
+ * The content a launch wants, from its URL, the person's last pick and
+ * whether id1's pak0.pak is stored here (id1): { base, named, missing }
+ * where base is what main.js reads as ?base (null for id's data in static/,
+ * "librequake", "rerelease", or an unknown value main.js reports), named is
+ * true when the URL chose it, and missing is true when the URL asked for id's
+ * data but none is stored: base is then "librequake", since id's data would
+ * 404. ?base=id1 asks for id's data by name. A remembered pick of id's data
+ * with none stored falls back to LibreQuake as if the person had picked
+ * nothing.
  */
-export function Intro_Want(params, choice) {
+export function Intro_Want(params, choice, id1 = false) {
   const base = params.get("base");
-  if (base === "id1") return { base: null, named: true };
-  if (base !== null) return { base, named: true };
-  if (INTRO_ID1_PARAMS.some((p) => params.has(p))) {
-    return { base: null, named: true };
+  if (base !== null && base !== "id1") return { base, named: true };
+  if (base === "id1" || INTRO_ID1_PARAMS.some((p) => params.has(p))) {
+    if (id1) return { base: null, named: true, missing: false };
+    return { base: "librequake", named: true, missing: true };
   }
-  if (choice === "id1") return { base: null, named: false };
+  if (params.has("room") || params.has("map")) {
+    return { base: "librequake", named: true, missing: false };
+  }
+  if (choice === "id1" && id1) return { base: null, named: false };
   return { base: "librequake", named: false };
 }
 
 /**
  * Whether the intro page must ask: { start: base } to go straight on, or
  * { ask: want } (see Intro_Want). It asks unless a person pressed Play on
- * this device before (played) and the content is there without a download.
+ * this device before (played) and the content is there without a download,
+ * and a URL that asked for id's data it can't have always shows its page.
  */
-export function Intro_Decide({ params, played, choice, installed }) {
-  const want = Intro_Want(params, choice);
+export function Intro_Decide({ params, played, choice, installed, id1 }) {
+  const want = Intro_Want(params, choice, id1 === true);
   const download = want.base === "librequake" && installed === false;
-  if (played && download === false) return { start: want.base };
+  if (played && download === false && want.missing !== true) {
+    return { start: want.base };
+  }
   return { ask: want };
 }
 
@@ -83,7 +141,7 @@ export function Intro_Describe(params) {
         "");
   }
   if (Object.hasOwn(INTRO_GAME_LABELS, game)) return INTRO_GAME_LABELS[game];
-  if (base === "librequake") return "LibreQuake";
+  if (base === "librequake" || params.has("map")) return "LibreQuake";
   return "Quake";
 }
 
@@ -133,6 +191,7 @@ function Intro_BrowserEnv() {
     },
     remember: UD_RememberChoice,
     openStore: UD_OpenStore,
+    localPaks: () => Intro_LocalPaks(globalThis.location?.hostname ?? ""),
     install: LQ_Install,
     persist: () => globalThis.navigator?.storage?.persist?.().catch(() => {}),
   };
@@ -152,29 +211,46 @@ export async function Intro_Gate(params, env = Intro_BrowserEnv()) {
     // no storage: LibreQuake can't be kept, id's data still plays
   }
   const installed = (await LQ_Installed(store)) !== null;
+  // id1's pak0.pak is what a player adds in Options, Game data; pak1.pak
+  // makes it registered Quake
+  let id1 = false;
+  let registered = false;
+  if (store !== null) {
+    try {
+      const keys = new Set((await store.list()).map((i) => i.key));
+      id1 = keys.has(UD_PakKey("id1/pak0"));
+      registered = id1 && keys.has(UD_PakKey("id1"));
+    } catch {
+      // can't list: no id data is offered
+    }
+  }
+  // a developer's own paks in static/, on a local development host only
+  // (only when the URL names no base or id1's: another base never needs it)
+  const base = params.get("base");
+  if (
+    id1 === false && typeof env.localPaks === "function" &&
+    (base === null || base === "id1")
+  ) {
+    const local = await env.localPaks();
+    id1 = local.pak0 === true;
+    registered = id1 && local.pak1 === true;
+  }
   const decision = Intro_Decide({
     params,
     played: env.get(INTRO_PLAYED_KEY) === "1",
     choice: env.get(UD_CHOICE_KEY),
     installed,
+    id1,
   });
   if ("start" in decision) return decision.start;
 
-  let registered = false;
-  if (store !== null) {
-    try {
-      const key = UD_PakKey("id1");
-      registered = (await store.list()).some((i) => i.key === key);
-    } catch {
-      // can't list: offer the shareware label
-    }
-  }
   return await Intro_Show(
     env,
     params,
     decision.ask,
     store,
     installed,
+    id1,
     registered,
   );
 }
@@ -187,7 +263,7 @@ function Intro_El(doc, tag, text, parent) {
 }
 
 // The page itself; resolves with the base to start once a person picks
-function Intro_Show(env, params, want, store, installed, registered) {
+function Intro_Show(env, params, want, store, installed, id1, registered) {
   const doc = env.document;
   return new Promise((resolve) => {
     if (doc.getElementById("intro-style") === null) {
@@ -210,7 +286,16 @@ function Intro_Show(env, params, want, store, installed, registered) {
       box,
     );
     const about = Intro_El(doc, "p", null, box);
-    if (want.named === false) {
+    if (want.missing === true) {
+      about.textContent = "This link starts Quake from id Software's own " +
+        "files, which aren't in this browser. They can be added from the " +
+        "menu (Options, Game data). LibreQuake, a free and open " +
+        "replacement made by its own community, plays now. ";
+      const link = Intro_El(doc, "a", "About LibreQuake", about);
+      link.href = "https://github.com/lavenderdotpet/LibreQuake";
+      link.rel = "noopener";
+      link.target = "_blank";
+    } else if (want.named === false) {
       about.textContent = "LibreQuake is a free and open replacement for " +
         "Quake's game data, made by its own community. It downloads once " +
         "and stays in this browser. ";
@@ -239,9 +324,9 @@ function Intro_Show(env, params, want, store, installed, registered) {
       doc,
       "p",
       "Nothing is downloaded until you press a button. LibreQuake's art is " +
-        "under the BSD 3-clause licence and its QuakeC under the GPL-2; the " +
-        "shareware episode is id Software's. Your own Quake files can be " +
-        "added from the menu (Options, Game data).",
+        "under the BSD 3-clause licence and its QuakeC under the GPL-2. Your own " +
+        "Quake files, which stay on this device, can be added from the menu " +
+        "(Options, Game data).",
       box,
     ).className = "intro-small";
 
@@ -303,7 +388,7 @@ function Intro_Show(env, params, want, store, installed, registered) {
             "carry on where it stopped.";
         } else if (e instanceof LQ_Error) {
           status.textContent = "Couldn't get LibreQuake: " + e.message +
-            ". You can play the Quake shareware episode instead.";
+            ". Press the download button again to retry.";
         } else {
           status.textContent = "Couldn't get LibreQuake: " +
             (e?.message ?? String(e)) +
@@ -330,11 +415,9 @@ function Intro_Show(env, params, want, store, installed, registered) {
         () => download(lite),
       );
     }
-    if (want.base === "librequake") {
+    if (want.base === "librequake" && id1) {
       button(
-        registered ?
-          "Play Quake (registered)" :
-          "Play the Quake shareware episode",
+        registered ? "Play Quake (registered)" : "Play Quake",
         false,
         () => finish(null),
       );

@@ -12,6 +12,8 @@ import {
   registered,
 } from "../src/common.js";
 import { COM_AddPack, COM_LoadPackFile } from "../src/pak.js";
+import { GD_PAK_PATH } from "../server/game_data.js";
+import { CRC_Init, CRC_ProcessByte } from "../src/crc.js";
 import { OFS_PARM0, OFS_PARM1, OFS_PARM2, OFS_RETURN } from "../src/pr_comp.js";
 import {
   pr_builtins,
@@ -246,8 +248,53 @@ Deno.test("MOD-2: a modified pak is a Sys_Error on shareware (common.c com_modif
   }
 });
 
-Deno.test("MOD-2: the shipped pak0.pak is the original id1 one", () => {
+// id1's pak0.pak isn't in the repository, so build a directory with its file
+// count and directory CRC (pak.js PAK0_COUNT 339 and PAK0_CRC 32981, from
+// common.c). Two name bytes of the last entry are chosen to reach the CRC;
+// the names are otherwise empty. A player's own id1 pak0 must not count as
+// modified, or the registered check refuses it.
+Deno.test("MOD-2: a pak with id1 pak0's directory is not modified", () => {
+  const count = 339;
+  const dirlen = count * 64;
+  const buf = new Uint8Array(12 + dirlen);
+  const view = new DataView(buf.buffer);
+  buf.set([0x50, 0x41, 0x43, 0x4b], 0); // "PACK"
+  view.setInt32(4, 12, true);
+  view.setInt32(8, dirlen, true);
+  const at = buf.length - 64 + 54; // the last entry's name bytes 54 and 55
+  let prefix = CRC_Init();
+  for (let i = 12; i < at; i++) prefix = CRC_ProcessByte(prefix, buf[i]);
+  let found = false;
+  for (let v = 0; v < 65536 && found === false; v++) {
+    let crc = CRC_ProcessByte(CRC_ProcessByte(prefix, v >> 8), v & 255);
+    for (let i = at + 2; i < buf.length; i++) {
+      crc = CRC_ProcessByte(crc, buf[i]);
+    }
+    if (crc === 32981) {
+      buf[at] = v >> 8;
+      buf[at + 1] = v & 255;
+      found = true;
+    }
+  }
+  assertEqual(found, true, "a directory with the CRC exists");
   COM_SetModified(false);
-  COM_LoadPackFile("pak0.pak", Deno.readFileSync("static/pak0.pak").buffer);
-  assertEqual(com_modified, false, "pak0.pak count and directory CRC");
+  try {
+    COM_LoadPackFile("pak0.pak", buf.buffer);
+    assertEqual(com_modified, false, "pak0.pak count and directory CRC");
+  } finally {
+    COM_SetModified(false);
+  }
+});
+
+// The repository has no id1 pak, so the pak0 count and directory CRC check
+// is shown from the other side: the data's pak0.pak (LibreQuake) has its
+// own directory, so it counts as modified, as in Quake.
+Deno.test("MOD-2: LibreQuake's pak0.pak is not id1's (com_modified)", () => {
+  COM_SetModified(false);
+  try {
+    COM_LoadPackFile("pak0.pak", Deno.readFileSync(GD_PAK_PATH).buffer);
+    assertEqual(com_modified, true, "pak0.pak count and directory CRC");
+  } finally {
+    COM_SetModified(false);
+  }
 });

@@ -303,3 +303,48 @@ Deno.test("touch taps on dense menus select first, then act; taps just outside a
     if (!hadWindow) delete globalThis.window;
   }
 });
+
+Deno.test("the game options menu offers LibreQuake's levels once it is mounted, only those that exist", async () => {
+  const pak = await import("../src/pak.js");
+  const common = await import("../src/common.js");
+  common.COM_Init();
+  common.registered.value = 1;
+  menu.M_Init();
+  // id1's list first, with id1's sixth episode (the end) selected
+  cmd.Cmd_ExecuteString("menu_gameoptions");
+  for (let i = 0; i < 7; i++) menu.M_Keydown(keys.K_DOWNARROW);
+  for (let i = 0; i < 5; i++) menu.M_Keydown(keys.K_RIGHTARROW);
+  assertEqual(menu.M_StartLevel().name, "end", "id1's sixth episode");
+  for (let i = 0; i < 7; i++) menu.M_Keydown(keys.K_UPARROW);
+  menu.M_Keydown(keys.K_ESCAPE);
+
+  const fake = new Uint8Array(4);
+  // the lite release: the start map and episode 0
+  for (const n of ["start", "lq_e0m1", "lq_e0m2", "lq_e0m8"]) {
+    pak.COM_AddVirtualFile("maps/" + n + ".bsp", fake);
+  }
+  // opening the menu looks again (it cached "not mounted") and brings the
+  // selection back inside LibreQuake's two episodes
+  cmd.Cmd_ExecuteString("menu_gameoptions");
+  assertEqual(menu.M_NumEpisodes(), 2, "Start and Episode 0, not id1's");
+  assertEqual(menu.M_StartLevel().name, "start", "first level");
+
+  const seen = [];
+  // cursor to Episode (row 7)
+  for (let i = 0; i < 7; i++) menu.M_Keydown(keys.K_DOWNARROW);
+  // on Episode: one right, then the levels one by one
+  menu.M_Keydown(keys.K_RIGHTARROW);
+  menu.M_Keydown(keys.K_DOWNARROW);
+  for (let i = 0; i < 3; i++) {
+    seen.push(menu.M_StartLevel().name);
+    menu.M_Keydown(keys.K_RIGHTARROW);
+  }
+  assertEqual(
+    seen.join(" "),
+    "lq_e0m1 lq_e0m2 lq_e0m8",
+    "only the levels the lite pak has",
+  );
+
+  // the third right wrapped round
+  assertEqual(menu.M_StartLevel().name, "lq_e0m1", "the level list wraps");
+});

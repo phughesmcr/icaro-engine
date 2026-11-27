@@ -1,6 +1,6 @@
 // src/agent.js turn_to and attack over the headless host (through
-// server/agent_mcp.ts), on e1m1 from pak0. A seeded start makes each run the
-// same game: the first goto toward the armour is stopped by a grunt.
+// server/agent_mcp.ts), on LibreQuake's lq_e1m2. A seeded start makes each run
+// the same game: the first goto toward the health pack is stopped by a grunt.
 
 import { mcp_session } from "./agent_mcp_client.js";
 import {
@@ -36,14 +36,20 @@ async function call(name, args = {}) {
 }
 
 const first = (text) => text.split("\n")[0];
-const ARMOR = [688, 480, 80]; // item_armor1, across the bridge
+// lq_e1m1 starts the player in a train, behind secret doors that open from the
+// far side, so the agent's walk graph can't take it anywhere. lq_e1m2 starts
+// in the open, with grunts in the first hall.
+const ATTACK_MAP = "lq_e1m2";
+const HEALTH = [-480, -96, -192]; // item_health, past the grunts
 
-// A seeded game, god mode, walked until a monster hurts us
+// A seeded game, god mode, walked until a grunt comes into sight
 async function meet_monster() {
-  await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
+  await call("start", { map: ATTACK_MAP, skill: 1, seed: 1 });
   await call("cmd", { text: "god" });
-  await call("goto", { pos: ARMOR, ents: 0 });
-  const m = Agent_Entities(64).find((e) => e.hp !== null && e.dist < 400);
+  await call("goto", { pos: HEALTH, ents: 0 });
+  const m = Agent_Entities(64).find((e) =>
+    e.hp !== null && e.visible === true && e.dist < 400
+  );
   assert(m !== undefined, "no monster near after the first goto");
   return m;
 }
@@ -74,7 +80,12 @@ Deno.test({
   fn: async () => {
     const m = await meet_monster();
     const shells = cl.stats[STAT_SHELLS];
-    const text = await call("attack", { id: m.id, ents: 0 });
+    // the other two grunts of the hall would stop it as new enemies
+    const text = await call("attack", {
+      id: m.id,
+      ents: 0,
+      stop_on_enemy: false,
+    });
     assert(first(text).startsWith("attack #" + m.id + ": killed ("), text);
     assert(cl.stats[STAT_SHELLS] < shells, "no shells spent");
     assert(
@@ -99,7 +110,9 @@ Deno.test({
     );
     assert(far !== undefined, "something hidden from the start");
     const shells = cl.stats[STAT_SHELLS];
-    const text = first(await call("attack", { id: far.id, ents: 0 }));
+    const text = first(
+      await call("attack", { id: far.id, ents: 0, stop_on_enemy: false }),
+    );
     assert(
       /: out of sight \(36 tics\)$/.test(text),
       text,

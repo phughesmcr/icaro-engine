@@ -1864,10 +1864,10 @@ function Agent_ArmorType(items) {
 // Status line: one line of numbers that matter every turn
 export function Agent_StatusText() {
   if (cls.demoplayback) {
-    return 'state=demo (start a game: icaro.new_game("e1m1", 1))';
+    return 'state=demo (start a game: icaro.new_game("lq_e1m1", 1))';
   }
   if (cls.state !== ca_connected) {
-    return 'state=disconnected (start a game: icaro.new_game("e1m1", 1))';
+    return 'state=disconnected (start a game: icaro.new_game("lq_e1m1", 1))';
   }
   if (cls.signon !== SIGNONS || cl.worldmodel === null) return "state=loading";
 
@@ -3162,7 +3162,7 @@ export function Agent_ScreenRGBA(
 }
 
 export const AGENT_HELP = `Icaro Engine (Quake) agent API: window.icaro
-Start:  await icaro.new_game('e1m1', 1)   // map, skill 0-3; returns an observation
+Start:  await icaro.new_game('lq_e1m1', 1)   // map, skill 0-3; returns an observation
 Clock:  icaro.attach('lockstep')  // game frozen between steps (best for agents)
         icaro.attach('realtime')  // game runs; steps wait in real time
         icaro.mode(), icaro.detach()  // current mode; stop (game runs again)

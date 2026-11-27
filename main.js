@@ -106,7 +106,7 @@ function Agent_ExposeAPI() {
     attach: (mode = "lockstep") => Agent_Attach(mode),
     detach: () => Agent_Detach(),
     mode: () => Agent_Mode(),
-    new_game: (map = "e1m1", skill = 1) => Agent_NewGame(map, skill),
+    new_game: (map = "lq_e1m1", skill = 1) => Agent_NewGame(map, skill),
     step: (action = {}, tics = 1, opts = {}) => Agent_Step(action, tics, opts),
     goto: (target, opts = {}) => Agent_Goto(target, opts),
     turn_to: (target, opts = {}) => Agent_TurnTo(target, opts),
@@ -154,6 +154,15 @@ async function main() {
 
     // No game data is fetched before a person presses Play on the intro page
     const base = await Intro_Gate(urlParams);
+    if (
+      base === "librequake" && game !== null && urlParams.get("base") === null
+    ) {
+      // the link asked for a pack of id's data, which isn't in this browser
+      // (the intro page said so): play LibreQuake without the pack
+      parms.argv = [];
+      parms.argc = 0;
+      gamedir = null;
+    }
     let basedir = "static";
     let id1dir = "static";
     if (Object.hasOwn(BASE_DIRS, base)) {
@@ -206,12 +215,14 @@ async function main() {
       }
     };
 
-    // The player's own paks (registered, mission packs, rerelease), copied
-    // into this browser's storage from the Game data panel, load in place
-    // of the server's (see src/userdata.js)
+    // The player's own paks (id1's pak0.pak and pak1.pak, mission packs,
+    // rerelease), copied into this browser's storage from the Game data
+    // panel, load in place of the URL the game would fetch: the site serves
+    // no pak of id's (see src/userdata.js)
     await UD_MountPaks();
 
-    // Load id1's pak0.pak, then pak1.pak (registered) and so on if present
+    // Load id1's pak0.pak, then pak1.pak (registered) and so on if present.
+    // LibreQuake (?base=librequake) has no paks, only loose files.
     Sys_Printf("Loading pak files...\\n");
     const pakCount = await COM_AddPakSequence(
       id1dir + "/pak0.pak",
@@ -220,7 +231,12 @@ async function main() {
     if (pakCount > 0) {
       Sys_Printf(pakCount + " pak file(s) loaded\\n");
     } else {
-      Sys_Printf("Warning: pak0.pak not found - game data will be missing\\n");
+      if (base !== "librequake") {
+        Sys_Printf(
+          "Warning: id's pak0.pak is not in this browser - add it in " +
+            "Options, Game data\\n",
+        );
+      }
     }
 
     // common.c COM_InitFilesystem: the mission pack's or -game directory

@@ -1,6 +1,6 @@
 // The client Worker's build (cloudflare/client/build.js): what the allowlist
 // takes, what the deny check refuses, and that everything the page loads by
-// name is on the allowlist, and that the tracked pak0.pak is the shareware one.
+// name is on the allowlist, and that no pak is ever deployed.
 
 import {
   Client_Allowed,
@@ -11,9 +11,6 @@ import {
   Client_InlineScripts,
   Client_ScriptHash,
   Client_SelectFiles,
-  Client_Sha256,
-  CLIENT_SHAREWARE_PAK,
-  CLIENT_SHAREWARE_PAK_SHA256,
 } from "../cloudflare/client/build.js";
 
 const root = new URL("../", import.meta.url);
@@ -31,7 +28,6 @@ Deno.test("client build: allowlist takes the client and nothing else", () => {
       "manifest.webmanifest",
       "LICENSE",
       "src/host.js",
-      "static/pak0.pak",
       "static/maps/mymap.bsp",
       "static/splash/a.png",
     ]
@@ -58,6 +54,7 @@ Deno.test("client build: allowlist takes the client and nothing else", () => {
 Deno.test("client build: deny check refuses registered data and secrets", () => {
   for (
     const path of [
+      "static/pak0.pak",
       "static/pak1.pak",
       "static/PAK1.PAK",
       "static/maps/pak0.pak",
@@ -90,7 +87,6 @@ Deno.test("client build: deny check refuses registered data and secrets", () => 
   }
   for (
     const path of [
-      CLIENT_SHAREWARE_PAK,
       "src/net_rtclobby.js",
       "src/librequake.js",
       "static/maps/mymap.txt",
@@ -107,15 +103,14 @@ Deno.test("client build: a tracked bad file fails the build", () => {
     ...CLIENT_FILES,
     "src/host.js",
     "static/pak0.pak",
-    "static/pak1.pak",
     "server/key.pem",
   ]);
   assert(missing.length === 0, `missing: ${missing}`);
   assert(
-    denied.length === 1 && denied[0].path === "static/pak1.pak",
+    denied.length === 1 && denied[0].path === "static/pak0.pak",
     `denied: ${JSON.stringify(denied)}`,
   );
-  assert(files.includes("static/pak0.pak"), "pak0 not selected");
+  assert(files.includes("static/pak0.pak") === false, "pak0 selected");
   assert(files.includes("server/key.pem") === false, "server file selected");
 });
 
@@ -147,7 +142,7 @@ Deno.test("client build: sw.js precache list and index.html links are deployable
 });
 
 Deno.test("client build: the dist/ check catches strays and denied files", () => {
-  const files = ["index.html", "src/host.js", "static/pak0.pak"];
+  const files = ["index.html", "src/host.js"];
   const clean = Client_CheckDist([...files].reverse(), files);
   assert(clean.length === 0, `strays in a clean dist: ${clean}`);
   const strays = Client_CheckDist(
@@ -159,12 +154,6 @@ Deno.test("client build: the dist/ check catches strays and denied files", () =>
       strays.includes("src/extra.js"),
     `strays: ${strays}`,
   );
-});
-
-Deno.test("client build: the tracked pak0.pak is the pinned shareware pak", async () => {
-  const pak = await Deno.readFile(new URL(CLIENT_SHAREWARE_PAK, root));
-  const sha = await Client_Sha256(pak);
-  assert(sha === CLIENT_SHAREWARE_PAK_SHA256, `pak0.pak SHA-256 ${sha}`);
 });
 
 Deno.test("client build: _headers hashes every inline script in index.html", async () => {

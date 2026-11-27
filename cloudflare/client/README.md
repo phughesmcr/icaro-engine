@@ -10,7 +10,7 @@ Static asset requests are free and don't count towards the Workers request
 allowance. A small script runs for the page itself (`/`) and nothing else (see
 "Headers and caching"), so each page load is one Workers request: the Free
 plan's 100,000 a day is far more than the game needs. Limits that matter: 25 MiB
-per file (`static/pak0.pak` is 17.8 MiB) and 20,000 files per version.
+per file and 20,000 files per version.
 
 ## Files
 
@@ -25,12 +25,11 @@ per file (`static/pak0.pak` is 17.8 MiB) and 20,000 files per version.
 
 `build.js` copies only files git tracks, from `index.html`, `main.js`, `sw.js`,
 `manifest.webmanifest`, `LICENSE`, `src/` and `static/`. It fails if any of them
-is a pak other than `static/pak0.pak`, sits in a registered-data or music folder
+is a pak (no game data is deployed), sits in a registered-data or music folder
 (`hipnotic`, `rogue`, `rerelease`, `id1`, `mg1`, `mg3`, `dopa`, `ctf`,
-`librequake`, `music`), or is a key, certificate, env file or dotfile, and if
-`static/pak0.pak` isn't the shareware pak (its SHA-256 is pinned in `build.js`).
-It then checks what landed in `dist/` against the same rules. It refuses to run
-while a client file has uncommitted changes, so a deploy is what `HEAD` holds;
+`librequake`, `music`), or is a key, certificate, env file or dotfile. It then
+checks what landed in `dist/` against the same rules. It refuses to run while a
+client file has uncommitted changes, so a deploy is what `HEAD` holds;
 `--allow-dirty` overrides that for a test deploy. `tests/client_build_test.js`
 covers the rules and checks that every file `sw.js` precaches and `index.html`
 links is on the allowlist.
@@ -51,15 +50,16 @@ cd cloudflare/client && npx wrangler deploy
 ```
 
 Each deploy uploads only files that changed. Players get the new version on
-their next load: `sw.js` fetches the page and code network-first, and caches
-`static/pak0.pak` (once the game first fetches it) until its `CACHE_NAME`
-changes.
+their next load: `sw.js` fetches the page and code network-first, and keeps its
+precache until its `CACHE_NAME` changes. No pak is deployed: LibreQuake and a
+player's own data live in the player's browser storage.
 
 LibreQuake's release zips are too big for static assets (25 MiB a file) and
 aren't deployed here: `../librequake/` serves `static/librequake/v0.09-beta/`
 from R2 on a route in front of this Worker (see `docs/librequake-content.md`,
 Hosting). Until it is deployed the intro page's download button reports the
-download isn't available, and the shareware episode still plays.
+download isn't available, and only a player's own Quake files (Options, Game
+data) can be played.
 
 ### First deploy
 
@@ -130,9 +130,9 @@ cross-origin isolation headers are set or needed (the engine doesn't use
 `SharedArrayBuffer`), and adding `Cross-Origin-Embedder-Policy` would put the
 import map's jsDelivr modules at risk.
 
-Static assets ignore `Range` and answer with the whole file. `src/pak.js` takes
-that as "Range was ignored" and loads `pak0.pak` whole, which it needs anyway.
-Paks over 64 MiB (the rerelease's) need Range, but those must never be deployed.
+Static assets ignore `Range` and answer with the whole file. No pak is deployed
+here, so that matters only for whatever serves LibreQuake's zips (see above):
+its download needs Range.
 
 With the default `html_handling`, `/index.html` redirects to `/`. `sw.js`
 precaches both, so the cached `index.html` is a redirected response; only a

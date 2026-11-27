@@ -29,12 +29,12 @@ jobs:
           deno-version-file: .tool-versions
           cache: true
 
-      # Registered and rerelease data must never be committed: the shareware
-      # static/pak0.pak is the only pak the repository may track.
-      - name: No registered data
+      # Game data must never be committed: the repository tracks no pak at
+      # all (LibreQuake is fetched, see below).
+      - name: No pak tracked
         run: |
-          if git ls-files -z | tr '\0' '\n' | grep -i '\.pak$' | grep -vx 'static/pak0.pak'; then
-            echo "::error::Only static/pak0.pak may be committed"
+          if git ls-files -z | tr '\0' '\n' | grep -i '\.pak$'; then
+            echo "::error::No .pak may be committed"
             exit 1
           fi
 
@@ -60,7 +60,7 @@ jobs:
       - name: Fetch LibreQuake
         run: deno task fetch-data
 
-      # Tests read static/pak0.pak (shareware, committed).
+      # Tests read LibreQuake from static/librequake/id1/ (fetched above).
       - name: Test
         run: deno task test
 
@@ -70,9 +70,10 @@ jobs:
       - name: Type check
         run: deno task check
 
-  # The game-room image (server/Dockerfile) must hold no .pak but the
-  # shareware static/pak0.pak: registered and rerelease data must never reach
-  # an image. Docker is preinstalled on the runner. Nothing is pushed.
+  # The game-room image (server/Dockerfile) must hold no .pak but the two of
+  # LibreQuake that it fetches itself while building (so it needs no cached
+  # zip): registered and rerelease data must never reach an image. Docker is
+  # preinstalled on the runner. Nothing is pushed.
   container-image:
     runs-on: ubuntu-latest
     timeout-minutes: 10

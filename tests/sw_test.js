@@ -1,6 +1,6 @@
 // Tests for sw.js, the offline service worker. It runs here against fake
-// self, caches and fetch: the routing table, offline answers for pak0 (with
-// the loader's Range probe), network-first code, music cached whole and served
+// self, caches and fetch: the routing table, paks passed through (the site
+// serves none of its own), network-first code, music cached whole and served
 // by Range, and the page's cache-urls message.
 
 const SW_SOURCE = await Deno.readTextFile(new URL("../sw.js", import.meta.url));
@@ -182,7 +182,7 @@ const FILES = {
   "/game/index.html": "<html>shell</html>",
   "/game/main.js": "main",
   "/game/manifest.webmanifest": "{}",
-  "/game/static/pak0.pak": "PACK-shareware",
+  "/game/static/pak0.pak": "PACK-from-an-old-deploy",
   "/game/src/host.js": "host",
   "/game/src/late.js": "late",
   "/game/static/maps/mymap.bsp": "bsp",
@@ -194,8 +194,9 @@ Deno.test("sw: routes each kind of request", () => {
   const range = { headers: { Range: "bytes=0-11" } };
 
   const cases = [
-    [SCOPE + "static/pak0.pak", range, "pak0"],
-    [SCOPE + "static/pak0.pak", undefined, "pak0"],
+    // no pak is cached any more, id1's pak0 included
+    [SCOPE + "static/pak0.pak", range, "passthrough"],
+    [SCOPE + "static/pak0.pak", undefined, "passthrough"],
     [SCOPE + "static/pak1.pak", range, "passthrough"],
     [SCOPE + "static/rerelease/id1/pak0.pak", range, "passthrough"],
     // LibreQuake's download and a developer's unpacked copy: never cached
@@ -264,28 +265,22 @@ Deno.test("sw: install precaches the shell but no pak, and an offline launch sti
   const paks = w.net.requests.filter((r) => /\.pak$/i.test(r.url));
   if (paks.length !== 0) fail("install fetched " + paks.map((r) => r.url));
 
-  // pak0 is cached the first time the game asks for it, after Play
+  // a pak is never cached, id1's pak0 included: offline it is a 404, which
+  // COM_AddPakSequence takes as "no such pak"
   await w.fetch(
     new Request(SCOPE + "static/pak0.pak", {
       headers: { Range: "bytes=0-11" },
     }),
   );
-
   w.net.online = false;
-
-  // pak.js probes with Range: bytes=0-11 and takes a 200 as the whole pak
   const pak = await w.fetch(
     new Request(SCOPE + "static/pak0.pak", {
       headers: { Range: "bytes=0-11" },
     }),
   );
-  if (pak.status !== 200) fail("pak0 status " + pak.status);
-  if (await pak.text() !== "PACK-shareware") fail("pak0 body");
-  if (pak.headers.get("content-length") !== "14") {
-    fail("pak0 content-length (the progress bar reads it)");
-  }
+  if (pak.status !== 404) fail("pak0 offline status " + pak.status);
 
-  // pak1 isn't there offline: a 404 so COM_AddPakSequence stops cleanly
+  // pak1 isn't there offline either
   const pak1 = await w.fetch(
     new Request(SCOPE + "static/pak1.pak", {
       headers: { Range: "bytes=0-11" },
@@ -308,26 +303,14 @@ Deno.test("sw: install precaches the shell but no pak, and an offline launch sti
   }
 });
 
-Deno.test("sw: pak0 is fetched whole once, without the Range header", async () => {
+Deno.test("sw: activation drops the cache that held the shareware pak0", async () => {
   const w = loadWorker(FILES);
-  const first = await w.fetch(
-    new Request(SCOPE + "static/pak0.pak", {
-      headers: { Range: "bytes=0-11" },
-    }),
-  );
-  if (first.status !== 200 || await first.text() !== "PACK-shareware") {
-    fail("first pak0 answer");
-  }
-  const second = await w.fetch(new Request(SCOPE + "static/pak0.pak"));
-  if (await second.text() !== "PACK-shareware") fail("second pak0 answer");
-
-  const pakFetches = w.net.requests.filter((r) => r.url.endsWith("pak0.pak"));
-  if (pakFetches.length !== 1) {
-    fail("pak0 fetched " + pakFetches.length + " times");
-  }
-  if (pakFetches[0].range !== null) {
-    fail("pak0 fetched with Range " + pakFetches[0].range);
-  }
+  const old = await w.caches.open("icaro-v1");
+  await old.put(SCOPE + "static/pak0.pak", new Response("PACK-shareware"));
+  await w.lifecycle("activate");
+  const names = await w.caches.keys();
+  if (names.includes("icaro-v1")) fail("the old game cache was kept");
+  if (w.self.SW_CACHE_NAME === "icaro-v1") fail("cache name not bumped");
 });
 
 Deno.test("sw: code is network first, and the cache follows the server", async () => {

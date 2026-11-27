@@ -5,17 +5,32 @@
 #   docker build -f server/Dockerfile -t icaro-room .
 # Arguments after the image name go to game_server.js (see server/README.md).
 #
-# Only the allowlist below is copied. Never COPY static/ (or the whole
-# repository): registered and rerelease data (static/pak1.pak, hipnotic/,
-# rogue/, rerelease/, id1/, mg1/, ...) must never reach an image or a registry.
-# The shareware static/pak0.pak is the only game data allowed. Don't add a
-# COPY and then delete files in a later RUN: earlier layers keep them.
-# tools/check_container_image.sh (CI) fails if the image or the build context
-# holds any other .pak.
+# Only the allowlist below is copied from the build context, which holds no
+# pak at all: registered and rerelease data (hipnotic/, rogue/, rerelease/,
+# id1/, mg1/, ...) must never reach an image or a registry. The game data is
+# LibreQuake, fetched at build time by the first stage (tools/fetch_data.js:
+# the release pinned in src/librequake.js, SHA-256 checked, so the build needs
+# network access) and only its two id1 paks, loose maps and licence texts are
+# copied into the final stage. Don't COPY more and then delete files in a later
+# RUN: earlier layers keep them. tools/check_container_image.sh (CI) fails if the build
+# context holds any .pak, or the image holds any but LibreQuake's two.
 
 # Deno as pinned in .tool-versions; bump both together
 # (tests/deno_version_pin_test.js checks it). The digest pins the
 # multi-arch index (amd64 and arm64).
+FROM denoland/deno:debian-2.9.8@sha256:a0d88a7fcbd44f062cba2748e19df67d30290ad12aa203c7c1e0b12462c483f0 AS data
+
+# Stage 1: fetch LibreQuake. The task's permissions are limited to GitHub and
+# static/librequake; zip.js comes from the import map (pinned in deno.lock).
+# src/librequake.js imports engine modules that import "three", which the
+# import map points at server/browser_shim.js.
+WORKDIR /fetch
+COPY deno.json deno.lock ./
+COPY src/ src/
+COPY server/browser_shim.js server/
+COPY tools/fetch_data.js tools/
+RUN deno task fetch-data
+
 FROM denoland/deno:debian-2.9.8@sha256:a0d88a7fcbd44f062cba2748e19df67d30290ad12aa203c7c1e0b12462c483f0
 
 WORKDIR /app
@@ -24,7 +39,17 @@ WORKDIR /app
 COPY deno.json ./
 COPY server/ server/
 COPY src/ src/
-COPY static/pak0.pak static/
+# LibreQuake's id1: both paks (pak1.pak holds gfx/pop.lmp, without which the
+# engine refuses a modified game), the loose maps (lqdm1 to lqdm13, with
+# their .lit files) and the licence texts, which the BSD 3-clause licence
+# asks a redistribution to carry (docs/copying, BSD 3-clause;
+# misc-docs/copying, GPL-2; readme-important-licence-info, which file covers what). All come from
+# the SHA-256-checked zip, stored lower-cased as the browser stores them. Not
+# the release zip, music, other docs or configs.
+COPY --from=data /fetch/static/librequake/id1/pak0.pak /fetch/static/librequake/id1/pak1.pak static/librequake/id1/
+COPY --from=data /fetch/static/librequake/id1/maps/ static/librequake/id1/maps/
+COPY --from=data /fetch/static/librequake/id1/docs/copying /fetch/static/librequake/id1/docs/readme-important-licence-info static/librequake/id1/docs/
+COPY --from=data /fetch/static/librequake/id1/docs/misc-docs/copying static/librequake/id1/docs/misc-docs/
 
 # The base image's unprivileged user (DENO_DIR=/deno-dir/ is theirs). The
 # cache step compiles the server's TypeScript now rather than at room start.
@@ -47,6 +72,6 @@ EXPOSE 4433/udp 4433/tcp
 ENTRYPOINT ["/tini", "--", "deno", "run", "--no-prompt", "--unstable-net", \
 	"--allow-net=0.0.0.0,[::],127.0.0.1", \
 	"--allow-read=/app/static,/certs", \
-	"server/game_server.js", "-pak", "/app/static/pak0.pak"]
+	"server/game_server.js", "-pak", "/app/static/librequake/id1/pak0.pak"]
 CMD ["-map", "start", "-cert", "/certs/cert.pem", "-key", "/certs/key.pem", \
 	"-wsport", "4433", "-wshost", "0.0.0.0"]
