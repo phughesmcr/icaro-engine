@@ -506,7 +506,7 @@ export function agent_mcp_server(): McpServer {
     "cmd",
     {
       description:
-        `Runs Quake console text (e.g. "god", "give s 50", "map ${GD_MAPS.next}") and returns what it printed. In a game it runs one tic.`,
+        `Runs Quake console text (e.g. "god", "give s 50", "map ${GD_MAPS.next}") and returns what it printed. In a game it runs one tic, or two for commands the server runs (god, give, kill).`,
       inputSchema: CMD_ARGS,
       annotations: LOCAL,
     },

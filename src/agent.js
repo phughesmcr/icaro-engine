@@ -48,7 +48,8 @@ import {
 } from "./cmd.js";
 import { Cvar_FindVar } from "./cvar.js";
 import { IN_SetAgentDriven } from "./in_web.js";
-import { deathmatch, Host_Frame, skill } from "./host.js";
+import { deathmatch, Host_Frame, host_framecount, skill } from "./host.js";
+import { NET_CanSendMessage } from "./net_main.js";
 import { Con_SetAgentHook } from "./console.js";
 import { SCR_SetAgentHook, SCR_UpdateScreen } from "./gl_screen.js";
 import {
@@ -1681,12 +1682,13 @@ async function Agent_CommandNow(text) {
   const first = event_seq;
   text = String(text);
   Cbuf_AddText(text + "\n");
-  if (agent_mode === "lockstep") {
-    Cbuf_Execute();
-    // Commands the server runs (god, give, kill) go over the connection
-    // and print their reply there: one tic carries it back
-    if (Agent_Ready()) Agent_Tic();
-  } else await new Promise((r) => setTimeout(r, 2000 / 72)); // the next frame runs it
+  // Run it now in both modes: in realtime, leaving it to the next frame
+  // returned before it had run
+  Cbuf_Execute();
+  if (Agent_Ready()) {
+    if (agent_mode === "lockstep") Agent_Tic();
+    await Agent_WaitReply();
+  }
 
   // Map loads fetch files before the server spawns: let those settle
   // (without tics) until the load shows, then run it to signon
@@ -1703,6 +1705,28 @@ async function Agent_CommandNow(text) {
   const lines = Agent_EventsSince(Math.min(first, event_read));
   event_read = event_seq;
   return lines.join("\n");
+}
+
+// True while console text forwarded to the server (god, give, kill) is
+// still on its way: queued in cls.message, or sent and not yet read (the
+// loopback) or acknowledged (a remote server)
+function Agent_Forwarding() {
+  if (cls.demoplayback === true || cls.netcon === null) return false;
+  return cls.message.cursize > 0 || NET_CanSendMessage(cls.netcon) === false;
+}
+
+// Commands the server runs print their reply over the connection. The
+// reliable message waits a frame behind the frame's move (the server reads
+// queued messages only up to an unreliable one, as in C), so a local server
+// replies in the frame after the one that sends it; the client reads the
+// reply at the end of that frame. A remote server replies after its ack:
+// allow two more frames. Lockstep runs the frames; realtime waits for them.
+async function Agent_WaitReply() {
+  if (Agent_Forwarding() === false) return;
+  await Agent_WaitFor(() => Agent_Forwarding() === false, 1000);
+  if (sv.active === true) return;
+  const frame = host_framecount;
+  await Agent_WaitFor(() => host_framecount - frame >= 2, 1000);
 }
 
 /**
@@ -3190,7 +3214,7 @@ Map:    icaro.observe({ map: 21 })  // also the opts of step, goto, turn_to and 
         blank: nothing to stand on, or not in view.  D door  L lift  B button
         E exit  T teleporter  M monster  P player  w weapon  k key  i item  x box  * shot
 Menus:  icaro.key('down'|'up'|'enter'|'escape'|'y'|...), icaro.menu('Single Player')
-Console: await icaro.cmd('god')   // returns what it printed (lockstep, in game: runs one tic)
+Console: await icaro.cmd('god')   // returns what it printed (lockstep, in game: runs one tic, two if the server runs it)
 Image:  use your browser's own screenshot tool (icaro.screenshot() returns a data URL)
 Pixels: icaro.screen_rgba(84, 0, true)  // { width, height, data }: RGBA bytes of the view at
         that width (height 0 keeps the aspect); false leaves out the HUD, menus and console
