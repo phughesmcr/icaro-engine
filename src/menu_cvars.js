@@ -26,7 +26,7 @@ export const advancedPages = [
 			{ label: 'Status bar size', cvar: 'scr_sbarscale', values: SCALES, names: SCALE_NAMES },
 			{ label: 'Console size', cvar: 'scr_conscale', values: SCALES, names: SCALE_NAMES },
 			{ label: 'Menu size', cvar: 'scr_menuscale', values: SCALES, names: SCALE_NAMES },
-			{ label: 'HUD opacity', cvar: 'scr_sbaralpha', min: 0, max: 1, step: 0.1 },
+			{ label: 'HUD opacity', cvar: 'scr_sbaralpha', min: 0, max: 1, step: 0.05 },
 			{ label: 'Show FPS', cvar: 'scr_showfps' },
 			{ label: 'Show clock', cvar: 'scr_clock' },
 			{ label: 'Max FPS', cvar: 'host_maxfps', values: [ 30, 60, 72, 90, 120, 144, 165, 240, 250, 0 ], names: [ '30', '60', '72', '90', '120', '144', '165', '240', '250', 'no cap' ] },

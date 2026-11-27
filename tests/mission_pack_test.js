@@ -7,6 +7,7 @@ const cmd = await import("../src/cmd.js");
 const cvar = await import("../src/cvar.js");
 const keys = await import("../src/keys.js");
 const sbar = await import("../src/sbar.js");
+const scr = await import("../src/gl_screen.js");
 const menu = await import("../src/menu.js");
 const host = await import("../src/host.js");
 const q = await import("../src/quakedef.js");
@@ -202,6 +203,9 @@ function drawSbar(game, clState) {
 
   const hadWindow = "window" in globalThis;
   if (!hadWindow) globalThis.window = { devicePixelRatio: 1 };
+  // an opaque bar: the translucent default draws through the overlay canvas
+  const oldAlpha = scr.scr_sbaralpha.value;
+  scr.scr_sbaralpha.value = 1;
 
   try {
     let base = 0;
@@ -231,6 +235,7 @@ function drawSbar(game, clState) {
     sbar.Sbar_Draw();
   } finally {
     if (!hadWindow) delete globalThis.window;
+    scr.scr_sbaralpha.value = oldAlpha;
     sbar.Sbar_SetExternals({ hipnotic: false, rogue: false });
     sbar.set_sb_lines(0);
   }

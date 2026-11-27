@@ -88,7 +88,9 @@ Deno.test("SCR_CalcRefdef leaves room for the scaled status bar", () => {
   });
 
   const saved = scr.scr_sbarscale.value;
+  const savedAlpha = scr.scr_sbaralpha.value;
   try {
+    scr.scr_sbaralpha.value = 1; // an opaque bar takes lines from the view
     // viewsize 100: a 48-line status bar, in 2x UI units
     for (
       const [value, height] of [[0, 240 - 48], [1, 240 - 24], [1.5, 240 - 36], [
@@ -107,14 +109,10 @@ Deno.test("SCR_CalcRefdef leaves room for the scaled status bar", () => {
 
     // A translucent status bar or the intermission takes no lines at any scale
     scr.scr_sbarscale.value = 1;
-    const savedAlpha = scr.scr_sbaralpha.value;
-    try {
-      scr.scr_sbaralpha.value = 0.5;
-      scr.SCR_CalcRefdef();
-      assertEqual(r_refdef.vrect.height, 240, "translucent status bar");
-    } finally {
-      scr.scr_sbaralpha.value = savedAlpha;
-    }
+    scr.scr_sbaralpha.value = 0.5;
+    scr.SCR_CalcRefdef();
+    assertEqual(r_refdef.vrect.height, 240, "translucent status bar");
+    scr.scr_sbaralpha.value = 1;
 
     scr.SCR_SetExternals({
       cl: { intermission: 1, paused: false, worldmodel: null, time: 0 },
@@ -123,5 +121,6 @@ Deno.test("SCR_CalcRefdef leaves room for the scaled status bar", () => {
     assertEqual(r_refdef.vrect.height, 240, "intermission");
   } finally {
     scr.scr_sbarscale.value = saved;
+    scr.scr_sbaralpha.value = savedAlpha;
   }
 });

@@ -18,6 +18,34 @@ function assertEqual(actual, expected, message) {
   }
 }
 
+Deno.test("the status bar defaults to Ironwail's translucent overlay", () => {
+  scr.SCR_Init();
+  const cvar = Cvar_FindVar("scr_sbaralpha");
+  if (cvar === null) throw new Error("scr_sbaralpha not registered");
+  assertEqual(cvar.default_string, "0.75", "scr_sbaralpha default");
+  const r_refdef = {
+    vrect: { x: 0, y: 0, width: 0, height: 0 },
+    vrectScale: 1,
+    fov_x: 0,
+    fov_y: 0,
+  };
+  scr.SCR_SetExternals({
+    r_refdef,
+    cl: { intermission: 0, paused: false, worldmodel: null, time: 0 },
+  });
+  const old = cvar.string;
+  try {
+    Cvar_Set("scr_sbaralpha", "0.75");
+    scr.SCR_CalcRefdef();
+    assertEqual(r_refdef.vrect.height, 240, "the view under the bar");
+    Cvar_Set("scr_sbaralpha", "1");
+    scr.SCR_CalcRefdef();
+    assertEqual(r_refdef.vrect.height, 240 - 48, "scr_sbaralpha 1");
+  } finally {
+    Cvar_Set("scr_sbaralpha", old);
+  }
+});
+
 Deno.test("SCR_Init registers hudstyle, archived, defaulting to classic", () => {
   scr.SCR_Init();
   const cvar = Cvar_FindVar("hudstyle");
@@ -90,8 +118,10 @@ Deno.test("the modern HUD takes no lines from the view", () => {
   });
   const old = scr.scr_hudstyle.string;
   const oldScale = scr.scr_sbarscale.value;
+  const oldAlpha = scr.scr_sbaralpha.value;
   try {
     scr.scr_sbarscale.value = 0;
+    scr.scr_sbaralpha.value = 1; // an opaque classic bar
     // 640x480 at the automatic 2x UI scale: a 320x240 virtual screen, the
     // classic bar 48 lines of it at viewsize 100
     for (
@@ -109,6 +139,7 @@ Deno.test("the modern HUD takes no lines from the view", () => {
   } finally {
     Cvar_Set("hudstyle", old);
     scr.scr_sbarscale.value = oldScale;
+    scr.scr_sbaralpha.value = oldAlpha;
   }
 });
 
@@ -131,5 +162,68 @@ Deno.test("Sbar2_CanvasScale: CLAMP (1, scr_sbarscale, min (w / 400, h / 225))",
         `scr_sbarscale ${sbarscale} at ${w}x${h}: expected ${expected}, got ${got}`,
       );
     }
+  }
+});
+
+Deno.test("Sbar_GetFootprint gives the HUD's area in CSS pixels", () => {
+  const cl = {
+    intermission: 0,
+    gametype: 0,
+    items: 0,
+    stats: new Array(32).fill(0),
+  };
+  cl.stats[0] = 100; // STAT_HEALTH
+  sbar.Sbar_SetExternals({ cl, vid: { width: 640, height: 480 } });
+  const old = scr.scr_hudstyle.string;
+  const oldScale = scr.scr_sbarscale.value;
+  const oldLines = sbar.sb_lines;
+  const used = (rects) => rects.filter((r) => r.w > 0 && r.h > 0);
+  try {
+    scr.scr_sbarscale.value = 0;
+
+    // classic at the automatic 2x scale: 320 x 48 centred at the bottom
+    Cvar_Set("hudstyle", "0");
+    sbar.set_sb_lines(48);
+    let rects = sbar.Sbar_GetFootprint();
+    assertEqual(rects.length, 4, "a fixed array");
+    let r = used(rects);
+    assertEqual(r.length, 1, "classic rectangles");
+    assertEqual(
+      [r[0].x, r[0].y, r[0].w, r[0].h].join(),
+      "0,384,640,96",
+      "classic bar",
+    );
+    sbar.set_sb_lines(0);
+    assertEqual(used(sbar.Sbar_GetFootprint()).length, 0, "viewsize 120");
+
+    // hudstyle 2 on CANVAS_SBAR2 at 640 / 400 = 1.6: the bottom corners and
+    // the weapon column
+    sbar.set_sb_lines(48);
+    Cvar_Set("hudstyle", "2");
+    rects = sbar.Sbar_GetFootprint();
+    r = used(rects);
+    assertEqual(r.length, 3, "modern rectangles");
+    const near = (a, b) => Math.abs(a - b) < 1e-6;
+    // left: x 16, y 300 - 10 - 48, 104 x 48 canvas pixels
+    if (
+      !near(r[0].x, 16 * 1.6) || !near(r[0].y, 242 * 1.6) ||
+      !near(r[0].w, 104 * 1.6) || !near(r[0].h, 48 * 1.6)
+    ) {
+      throw new Error("left corner: " + JSON.stringify(r[0]));
+    }
+    if (!near(r[1].x + r[1].w, 640 - 16 * 1.6)) {
+      throw new Error("right corner: " + JSON.stringify(r[1]));
+    }
+    if (!near(r[2].x + r[2].w, 640)) {
+      throw new Error("weapon column: " + JSON.stringify(r[2]));
+    }
+    assertEqual(sbar.Sbar_GetFootprint(), rects, "the same array each call");
+
+    Cvar_Set("hudstyle", "1");
+    assertEqual(used(sbar.Sbar_GetFootprint()).length, 4, "the ammo strip");
+  } finally {
+    Cvar_Set("hudstyle", old);
+    scr.scr_sbarscale.value = oldScale;
+    sbar.set_sb_lines(oldLines);
   }
 });

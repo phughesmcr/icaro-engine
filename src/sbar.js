@@ -1369,6 +1369,102 @@ function Sbar2_DrawPicAlpha(x, y, pic, alpha) {
   ctx.globalAlpha = oldAlpha;
 }
 
+// Icaro: the screen area the HUD covers, for the touch controls to keep clear
+// of (no reference). The rectangles are in CSS pixels from the top left of the
+// game canvas, so a caller needn't know which canvas scale each style uses.
+const SBAR_FOOTPRINT_MAX = 4;
+const sbar_footprint = [];
+for (let i = 0; i < SBAR_FOOTPRINT_MAX; i++) {
+  sbar_footprint.push({ x: 0, y: 0, w: 0, h: 0 });
+}
+
+function Sbar_FootprintRect(n, k, x, y, w, h) {
+  const r = sbar_footprint[n];
+  r.x = x * k;
+  r.y = y * k;
+  r.w = w * k;
+  r.h = h * k;
+  return n + 1;
+}
+
+/**
+ * The HUD's current footprint: a reused array (don't keep or change it) of
+ * four { x, y, w, h } rectangles in CSS pixels from the canvas's top left;
+ * the unused ones are 0 by 0. All are unused at viewsize 120 and in the
+ * intermission. The classic bar is one
+ * 320-wide rectangle sb_lines tall (24 while the scoreboard shows); the
+ * modern HUD's are its bottom corners, the hudstyle 1 ammo strip and the
+ * weapon column. Items stacked above the corners aren't included.
+ */
+export function Sbar_GetFootprint() {
+  let n = 0;
+  const dpr = VID_GetPixelRatio();
+  const physW = Math.floor(_realVid.width * dpr);
+  const physH = Math.floor(_realVid.height * dpr);
+  const style = SCR_HudStyle();
+  const modern = style === HUD_MODERN_CENTERAMMO ||
+    style === HUD_MODERN_SIDEAMMO;
+  const scores = sb_showscores || _cl.stats[STAT_HEALTH] <= 0;
+
+  if (
+    _cl.intermission || scr_viewsize.value >= 120 ||
+    (!modern && sb_lines === 0)
+  ) {
+    return Sbar_FootprintEnd(0);
+  }
+
+  if (!modern || scores) {
+    // the classic canvas (CANVAS_SBAR)
+    const scale = Draw_GetCanvasScale(scr_sbarscale.value);
+    const w = Math.ceil(physW / scale);
+    const h = Math.ceil(physH / scale);
+    const lines = modern || sb_showscores ? SBAR_HEIGHT : sb_lines;
+    const x = _cl.gametype === GAME_DEATHMATCH ? 0 : (w - 320) >> 1;
+    n = Sbar_FootprintRect(n, scale / dpr, x, h - lines, 320, lines);
+  } else {
+    // CANVAS_SBAR2, as Sbar2_Draw lays it out
+    const scale = Sbar2_CanvasScale(
+      scr_sbarscale.value,
+      physW,
+      physH,
+      Draw_GetCanvasScale(0),
+    );
+    const k = scale / dpr;
+    const right = Math.ceil(physW / scale);
+    const bottom = Math.ceil(physH / scale);
+    const full = scr_viewsize.value < 110;
+    // face, health and armour; the ammo count and icon (the side ammo grid
+    // sits in the same 48 rows)
+    const top = bottom - SBAR2_MARGIN_Y - 48;
+    n = Sbar_FootprintRect(n, k, SBAR2_MARGIN_X, top, 104, 48);
+    n = Sbar_FootprintRect(n, k, right - SBAR2_MARGIN_X - 128, top, 128, 48);
+    if (full) {
+      if (style === HUD_MODERN_CENTERAMMO) {
+        const x = Math.floor(right * 0.5 + 0.5) - 96;
+        n = Sbar_FootprintRect(n, k, x, bottom - 9, 192, 9);
+      }
+      let y = Math.floor((bottom - 148) * 0.5 + 16 * 7 * 0.5 + 0.5);
+      if (_hipnotic) y += 12;
+      const rows = _hipnotic ? 11 : 7;
+      // Sbar2_DrawPic's +24: row i is drawn at y - 16 * i + 24
+      const y0 = y + 24 - 16 * (rows - 1);
+      n = Sbar_FootprintRect(n, k, right - 24, y0, 24, 16 * rows);
+    }
+  }
+  return Sbar_FootprintEnd(n);
+}
+
+function Sbar_FootprintEnd(n) {
+  for (let i = n; i < SBAR_FOOTPRINT_MAX; i++) {
+    const r = sbar_footprint[i];
+    r.x = 0;
+    r.y = 0;
+    r.w = 0;
+    r.h = 0;
+  }
+  return sbar_footprint;
+}
+
 /** Ironwail Sbar_Draw, modern branch: hudstyle 1 and 2 */
 function Sbar2_Draw(style) {
   if (sb_showscores || _cl.stats[STAT_HEALTH] <= 0) {

@@ -94,11 +94,14 @@ const gl_triplebuffer = {
 // FitzQuake/QuakeSpasm cvars (QS gl_screen.c)
 export const scr_showfps = { name: "scr_showfps", string: "0", value: 0 };
 export const scr_clock = { name: "scr_clock", string: "0", value: 0 };
-// QS defaults scr_sbaralpha to 0.75; 1 keeps the opaque WinQuake status bar
+// QuakeSpasm and Ironwail default scr_sbaralpha to 0.75: below 1 the status
+// bar is translucent and drawn over a full-height view (SCR_CalcRefdef). Icaro
+// took the same default (it used to be 1); 1 keeps the opaque WinQuake bar
+// with the view shrunk above it.
 export const scr_sbaralpha = {
   name: "scr_sbaralpha",
-  string: "1",
-  value: 1,
+  string: "0.75",
+  value: 0.75,
   archive: true,
 };
 // Ironwail gl_screen.c scr_hudstyle, named "hudstyle": 0 classic, 1 modern
