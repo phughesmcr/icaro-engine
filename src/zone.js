@@ -47,7 +47,7 @@ const cache_lru = []; // ordered from most recent to least recent
 
 export function Memory_Init() {
   Cache_Init();
-  Con_Printf("Memory initialized (JavaScript GC mode)\\n");
+  Con_Printf("Memory initialized (JavaScript GC mode)\n");
 }
 
 // ZONE MEMORY ALLOCATION
@@ -235,5 +235,5 @@ export function Cache_Report() {
     total += entry.size;
   }
 
-  Con_DPrintf((total / (1024 * 1024)).toFixed(1) + " megabyte data cache\\n");
+  Con_DPrintf((total / (1024 * 1024)).toFixed(1) + " megabyte data cache\n");
 }

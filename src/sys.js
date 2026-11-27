@@ -218,6 +218,14 @@ function _isDenoRuntime() {
   return typeof Deno !== "undefined" && Deno.version != null;
 }
 
+/**
+ * Not in id's C: fmt with its %s, %d, %i and %f replaced by args, as
+ * Sys_Printf prints it (common.js Con_Printf's fallback too).
+ */
+export function Sys_FormatPrintf(fmt, args) {
+  return _formatPrintf(fmt, args);
+}
+
 function _formatPrintf(fmt, args) {
   if (args.length === 0) return String(fmt);
 

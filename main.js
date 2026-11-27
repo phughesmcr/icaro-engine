@@ -155,18 +155,18 @@ async function main() {
 
     // Load id1's pak0.pak, then pak1.pak (registered) and so on if present.
     // LibreQuake (?base=librequake) has no paks, only loose files.
-    Sys_Printf("Loading pak files...\\n");
+    Sys_Printf("Loading pak files...\n");
     const pakCount = await COM_AddPakSequence(
       id1dir + "/pak0.pak",
       setProgress,
     );
     if (pakCount > 0) {
-      Sys_Printf(pakCount + " pak file(s) loaded\\n");
+      Sys_Printf(pakCount + " pak file(s) loaded\n");
     } else {
       if (base !== "librequake") {
         Sys_Printf(
           "Warning: id's pak0.pak is not in this browser - add it in " +
-            "Options, Game data\\n",
+            "Options, Game data\n",
         );
       }
     }
@@ -211,9 +211,9 @@ async function main() {
     // Preload custom menu images
     try {
       await Draw_CachePicFromPNG("gfx/mainmenu_ext.lmp", "static/mainmenu.png");
-      Sys_Printf("Loaded custom menu images\\n");
+      Sys_Printf("Loaded custom menu images\n");
     } catch {
-      Sys_Printf("Warning: Could not load custom menu images\\n");
+      Sys_Printf("Warning: Could not load custom menu images\n");
     }
 
     // Check URL parameters for auto-join
@@ -226,7 +226,7 @@ async function main() {
       // the quoted argument and run commands.
       const connectUrl = NET_LobbyJoinURL(NET_LobbyServer(), roomId);
       if (connectUrl !== null) {
-        Sys_Printf("Auto-joining room: %s\\n", roomId);
+        Sys_Printf("Auto-joining room: %s\n", roomId);
         Cbuf_AddText('connect "' + connectUrl + '"\n');
       } else {
         Sys_Printf(
