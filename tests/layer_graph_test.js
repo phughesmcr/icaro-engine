@@ -38,7 +38,8 @@ function makeTree(files) {
 const TREE = {
   "main.js": 'import "./src/game.js";\nimport "./src/web.js";\n',
   "src/sys.js": "export const x = 1;\n",
-  "src/core.js": 'import { g } from "./game.js";\nimport "./sys.js";\n',
+  "src/core.js": 'import { g } from "./game.js";\nimport "./sys.js";\n' +
+    'export { w } from "./web.js";\n',
   "src/game.js": 'import { w } from "./web.js";\nimport "./core.js";\n' +
     'import "three";\n' +
     'export const g = 1;\nexport const w2 = () => import("./late.js");\n',
@@ -65,6 +66,7 @@ Deno.test("layer graph finds upward, target and cycle edges", () => {
     const r = analyse(root, TREE_LAYERS);
     const keys = r.violations.map(violationKey);
     const want = [
+      "target src/core.js -> src/web.js",
       "target src/game.js -> src/web.js",
       "target src/late.js -> src/web.js",
       "upward src/core.js -> src/game.js",
@@ -89,7 +91,7 @@ Deno.test("layer graph finds upward, target and cycle edges", () => {
       throw new Error(`three ${JSON.stringify(r.three)}`);
     }
     const counts = countByKind(r.violations);
-    if (counts.upward !== 1 || counts.target !== 2) {
+    if (counts.upward !== 1 || counts.target !== 3) {
       throw new Error(`counts ${JSON.stringify(counts)}`);
     }
   } finally {
