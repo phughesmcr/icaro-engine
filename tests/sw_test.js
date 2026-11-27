@@ -66,11 +66,13 @@ class FakeCaches {
 // A server: path -> body text. online=false makes every fetch reject.
 function makeNet(files) {
   const net = { online: true, files, requests: [] };
-  net.fetch = (input) => {
+  net.fetch = (input, init) => {
     const request = typeof input === "string" ? new Request(input) : input;
     net.requests.push({
       url: request.url,
       range: request.headers.get("range"),
+      // the HTTP cache mode the fetch would use
+      cache: init?.cache ?? request.cache ?? "default",
     });
     if (!net.online) return Promise.reject(new TypeError("Failed to fetch"));
     if (net.hang) {
@@ -364,6 +366,74 @@ Deno.test("sw: cache-urls caches what the page loaded, skipping foreign URLs and
   // Junk messages are ignored
   await w.lifecycle("message", { data: null });
   await w.lifecycle("message", { data: { type: "cache-urls", urls: "x" } });
+});
+
+// Chromium keeps a response without Cache-Control heuristically fresh, so
+// this origin's code must revalidate or a stale module answers "network first"
+Deno.test("sw: this origin's code revalidates the HTTP cache; other fetches keep their mode", async () => {
+  const w = loadWorker({
+    ...FILES,
+    "/npm/three@0.183.0/build/three.module.js": "three",
+    "/game/static/music/track02.ogg": "0123456789",
+  });
+  const modes = () => {
+    const seen = {};
+    for (const r of w.net.requests.splice(0)) {
+      const key = r.url + (r.range === null ? "" : " " + r.range);
+      seen[key] = r.cache;
+    }
+    return seen;
+  };
+  const expect = (seen, url, mode) => {
+    if (seen[url] !== mode) {
+      fail(url + " fetched with cache " + seen[url] + ", expected " + mode);
+    }
+  };
+
+  await w.lifecycle("install");
+  let seen = modes();
+  for (const path of ["", "index.html", "main.js", "manifest.webmanifest"]) {
+    expect(seen, SCOPE + path, "no-cache");
+  }
+
+  await w.lifecycle("message", {
+    data: {
+      type: "cache-urls",
+      urls: [
+        SCOPE + "src/late.js",
+        "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.module.js",
+      ],
+    },
+  });
+  seen = modes();
+  expect(seen, SCOPE + "src/late.js", "no-cache");
+  expect(
+    seen,
+    "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.module.js",
+    "default",
+  );
+
+  await w.fetch(new Request(SCOPE + "src/host.js"));
+  await w.fetch(navigation(SCOPE + "?room=abc"));
+  // a page's own no-store or hard reload is stronger, and kept
+  await w.fetch(new Request(SCOPE + "src/fresh.js", { cache: "no-store" }));
+  await w.fetch(new Request(SCOPE + "src/reload.js", { cache: "reload" }));
+  await w.fetch(new Request(SCOPE + "static/pak0.pak"));
+  await w.fetch(
+    new Request(SCOPE + "static/music/track02.ogg", {
+      headers: { Range: "bytes=0-" },
+    }),
+  );
+  await w.settle();
+  seen = modes();
+  expect(seen, SCOPE + "src/host.js", "no-cache");
+  expect(seen, SCOPE + "?room=abc", "no-cache");
+  expect(seen, SCOPE + "src/fresh.js", "no-store");
+  expect(seen, SCOPE + "src/reload.js", "reload");
+  expect(seen, SCOPE + "static/pak0.pak", "default");
+  expect(seen, SCOPE + "static/music/track02.ogg bytes=0-", "default");
+  // the whole track the worker stores skips the HTTP cache altogether
+  expect(seen, SCOPE + "static/music/track02.ogg", "no-store");
 });
 
 Deno.test("sw: activate drops older icaro caches only", async () => {

@@ -26,7 +26,13 @@
 //   loose maps): network first, so a deploy reaches players on their next
 //   online launch and every module of one load comes from the same version.
 //   A successful response is copied into the cache; offline, the cached copy
-//   is served.
+//   is served. These fetches (and the install and cache-urls copies) use
+//   cache: "no-cache", so the browser's HTTP cache is revalidated, not
+//   trusted: a server that sends no Cache-Control (deno task serve, before it
+//   sent one) lets Chromium keep a module heuristically fresh, and every local
+//   checkout shares the 127.0.0.1:8137 origin, so an older checkout's module
+//   could load against a newer one's. A request's own "reload" or "no-store"
+//   is kept.
 // - Not cached: paks (the site serves none of id's; a player's own are kept
 //   in browser storage by src/userdata.js, and lazy paks are read with Range
 //   requests), anything under static/librequake/ (the
@@ -160,6 +166,16 @@ async function putIfOk(cache, key, response) {
   }
 }
 
+const REVALIDATE = { cache: "no-cache" };
+
+// fetch() options for this origin's own code: revalidate with the server (see
+// the header), unless the request already skips the HTTP cache
+function revalidating(request) {
+  return request.cache === "reload" || request.cache === "no-store" ?
+    undefined :
+    REVALIDATE;
+}
+
 async function SW_Immutable(request) {
   const cache = await caches.open(CACHE_NAME);
   const cached = await cache.match(request.url);
@@ -181,10 +197,12 @@ async function SW_Network(request) {
   const cache = await caches.open(CACHE_NAME);
   const key = cacheKey(request);
 
-  const network = fetch(request).then(async (response) => {
-    await putIfOk(cache, key, response.clone());
-    return response;
-  });
+  const network = fetch(request, revalidating(request)).then(
+    async (response) => {
+      await putIfOk(cache, key, response.clone());
+      return response;
+    },
+  );
 
   let timer;
   const timeout = new Promise((resolve) => {
@@ -466,7 +484,9 @@ async function SW_CacheURLs(urls) {
     if (await cache.match(request.url) !== undefined) continue;
 
     try {
-      await putIfOk(cache, request.url, await fetch(request));
+      // the page's own copy may have come from a stale HTTP cache entry
+      const init = route === "network" ? REVALIDATE : undefined;
+      await putIfOk(cache, request.url, await fetch(request, init));
     } catch {
       // offline or blocked: it will be cached when next fetched
     }
@@ -483,7 +503,7 @@ self.addEventListener("install", (event) => {
     for (const path of SHELL) {
       const url = new URL(path, scope).href;
       try {
-        await putIfOk(cache, url, await fetch(url));
+        await putIfOk(cache, url, await fetch(url, REVALIDATE));
       } catch {
         // a missing icon must not block offline play
       }
