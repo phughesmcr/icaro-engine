@@ -38,7 +38,9 @@ import {
   readString,
   set_loadmodel,
 } from "./model.js";
+import { Image_FindExternal } from "./image.js";
 import {
+  GL_LoadExternalTexture,
   GL_LoadTexture,
   GL_SubdivideSurface,
   R_InitSky,
@@ -104,6 +106,43 @@ const SIZEOF_DPLANE = 20; // float normal[3], float dist, int type
 const SIZEOF_DMODEL = 64; // float mins[3], maxs[3], origin[3], int headnode[4], int visleafs, int firstface, int numfaces
 
 // Mod_LoadTextures
+
+/**
+ * QuakeSpasm gl_model.c Mod_LoadTextures' external textures: "first look in
+ * textures/mapname/ then look in textures/". A liquid ('*' or '!') is looked
+ * for as #name, with no fullbright layer; any other texture also takes the
+ * found image's _glow, else _luma, image as its fullbright layer. mapname is
+ * QuakeSpasm's COM_StripExtension( loadmodel->name + 5 ), so start for
+ * maps/start.bsp. Sky textures are not replaced, as in QuakeSpasm (Ironwail
+ * loads skyboxes instead). QuakeSpasm has no cvar for this (its
+ * external_textures cvar is for Half-Life wads), so neither does Icaro.
+ */
+function Mod_LoadExternalTexture(tx) {
+  const mapname = COM_StripExtension(loadmodel.name.substring(5));
+  const c = tx.name.charAt(0);
+  const liquid = c === "*" || c === "!";
+  // this also replaces the '*' with a '#'
+  const name = liquid ? "#" + tx.name.substring(1) : tx.name;
+
+  let base = Image_FindExternal("textures/" + mapname + "/" + name);
+  if (base === null) {
+    base = Image_FindExternal("textures/" + name);
+  }
+  if (base === null) {
+    return;
+  }
+
+  let glow = null;
+  if (!liquid) {
+    const found = COM_StripExtension(base);
+    glow = Image_FindExternal(found + "_glow");
+    if (glow === null) {
+      glow = Image_FindExternal(found + "_luma");
+    }
+  }
+
+  GL_LoadExternalTexture(tx.gl_texture, base, glow, false);
+}
 
 function Mod_LoadTextures(fileofs, filelen) {
   if (filelen === 0) {
@@ -237,6 +276,9 @@ function Mod_LoadTextures(fileofs, filelen) {
         false,
         fence,
       );
+      if (cls.state !== ca_dedicated) {
+        Mod_LoadExternalTexture(tx);
+      }
     }
   }
 

@@ -23,6 +23,8 @@ import {
 } from "./gl_mesh.js";
 import { Mod_LoadMD5MeshModel as Mod_LoadMD5MeshModel_md5 } from "./gl_md5.js";
 import { MIPLEVELS } from "./bspfile.js";
+import { Con_Printf } from "./common.js";
+import { Image_FindExternal, Image_LoadExternal } from "./image.js";
 import {
   _allGameTextures,
   GL_RegisterTexture,
@@ -373,6 +375,162 @@ export function GL_CheckAnisotropy(maxAnisotropy = GL_MaxAnisotropy()) {
       texture.needsUpdate = true;
     }
   }
+}
+
+// External textures: QuakeSpasm gl_model.c Mod_LoadTextures loads the found
+// image with TexMgr_LoadImage in place of the 8-bit one, and its _glow or
+// _luma image as the fullbright layer (tx->fullbright). mod_brush.js chooses
+// the files for world textures, mod_alias.js for skins (QSS naming).
+
+// The installs still running (GL_WaitExternalTextures)
+const pendingExternal = new Set();
+
+// The fullbright layer's pixel for "no fullbrights": black for a world
+// texture's emissive map, transparent for an alias skin's mask
+const NO_GLOW = new Uint8Array([0, 0, 0, 255]);
+const NO_GLOW_MASK = new Uint8Array([0, 0, 0, 0]);
+
+/**
+ * Replaces texture, made by GL_LoadTexture from the 8-bit pixels, with the
+ * image file base (Image_FindExternal), and its fullbright layer with the
+ * image file glow (base's _glow or _luma, or null). mask is true for an alias
+ * skin, whose fullbright layer is a mask (GL_GlowMask).
+ *
+ * Deliberate deviations from QuakeSpasm:
+ * - The images are fetched and decoded after the load (pak.js defers image
+ *   files, and the browser decodes png and jpg only asynchronously), so the
+ *   8-bit texture shows until they arrive. They are then written into the same
+ *   texture objects, so the materials already made with them need no change.
+ * - A glow image on a texture with no fullbright pixels gets a blank
+ *   fullbright layer now, for the same reason.
+ * - gl_picmip and gl_max_size don't shrink the images.
+ */
+export function GL_LoadExternalTexture(texture, base, glow, mask) {
+  const mod = loadmodel;
+  if (glow !== null && texture._fullbright === undefined) {
+    const fullbright = new THREE.DataTexture(
+      mask === true ? NO_GLOW_MASK : NO_GLOW,
+      1,
+      1,
+      THREE.RGBAFormat,
+    );
+    fullbright.name = texture.name + ":fullbright";
+    GL_SetTextureFilter(fullbright, true);
+    fullbright.wrapS = THREE.RepeatWrapping;
+    fullbright.wrapT = THREE.RepeatWrapping;
+    fullbright.generateMipmaps = true;
+    fullbright.anisotropy = GL_TextureAnisotropy();
+    fullbright.colorSpace = THREE.SRGBColorSpace;
+    fullbright.needsUpdate = true;
+    GL_RegisterTexture(fullbright);
+    if (mod != null) mod._threeTextures.add(fullbright);
+    texture._fullbright = fullbright;
+  }
+
+  const install = GL_InstallExternalTexture(mod, texture, base, glow, mask);
+  pendingExternal.add(install);
+  install.finally(() => pendingExternal.delete(install));
+}
+
+/**
+ * External alias skins, which QuakeSpasm and Ironwail don't have for .mdl:
+ * QSS gl_model.c Mod_LoadAllSkins' DarkPlaces naming, name being
+ * <model>_<skinnum> (progs/player.mdl_0), with name_glow, else name_luma, as
+ * the fullbright layer. As in QSS, only single skins are looked for, not skin
+ * groups. Not ported: QSS's gl_load24bit cvar (default 1), and the _pants and
+ * _shirt layers. R_TranslatePlayerSkin builds a coloured player's skin from
+ * the 8-bit texels, so that keeps the original skin.
+ */
+export function GL_LoadExternalSkin(texture, name) {
+  const base = Image_FindExternal(name);
+  if (base === null) {
+    return;
+  }
+
+  let glow = Image_FindExternal(name + "_glow");
+  if (glow === null) {
+    glow = Image_FindExternal(name + "_luma");
+  }
+
+  GL_LoadExternalTexture(texture, base, glow, true);
+}
+
+/** Resolves when every external texture asked for so far is in place. */
+export async function GL_WaitExternalTextures() {
+  while (pendingExternal.size > 0) {
+    await Promise.all(pendingExternal);
+  }
+}
+
+async function GL_InstallExternalTexture(mod, texture, base, glow, mask) {
+  try {
+    const images = await Promise.all([
+      Image_LoadExternal(base),
+      glow !== null ? Image_LoadExternal(glow) : null,
+    ]);
+    const image = images[0];
+    const glowImage = images[1];
+
+    // Mod_ClearAll freed the model while the images were fetched
+    if (mod != null && mod._threeTextures.has(texture) === false) {
+      return;
+    }
+    if (image === null) {
+      Con_Printf("Couldn't load " + base + "\n");
+      return;
+    }
+
+    GL_SetTextureImage(texture, image.data, image.width, image.height);
+
+    // QuakeSpasm: an external image's fullbright layer is its glow image or
+    // none; the 8-bit pixels' fullbrights don't apply to it
+    const fullbright = texture._fullbright;
+    if (fullbright === undefined) {
+      return;
+    }
+    if (glowImage !== null) {
+      GL_SetTextureImage(
+        fullbright,
+        mask === true ? GL_GlowMask(glowImage.data) : glowImage.data,
+        glowImage.width,
+        glowImage.height,
+      );
+    } else {
+      GL_SetTextureImage(
+        fullbright,
+        mask === true ? NO_GLOW_MASK : NO_GLOW,
+        1,
+        1,
+      );
+    }
+  } catch (e) {
+    Con_Printf("Couldn't load " + base + ": " + e.message + "\n");
+  }
+}
+
+// New RGBA pixels, top row first, for a texture already in use. Disposing
+// it first frees the GL texture, so the next draw allocates one of the new
+// size; the materials keep the texture object.
+function GL_SetTextureImage(texture, data, width, height) {
+  texture.dispose();
+  texture.image = { data: data, width: width, height: height };
+  texture.needsUpdate = true;
+}
+
+/**
+ * An alias skin's fullbright mask from a _glow or _luma image. The alias
+ * shader (gl_mesh.js AliasMaterial) shows the skin unlit by the mask's alpha,
+ * where QSS adds the glow image's colour to the lit skin, so the alpha is the
+ * glow's brightest channel: the skin glows where the glow image is bright.
+ * Deliberate deviation: a glow colour unlike the skin's is not shown.
+ */
+export function GL_GlowMask(data) {
+  const mask = new Uint8Array(data.length);
+  for (let i = 0; i < data.length; i += 4) {
+    const m = Math.max(data[i], data[i + 1], data[i + 2]);
+    mask[i + 3] = (m * data[i + 3] + 127) / 255 | 0;
+  }
+  return mask;
 }
 
 // R_InitTextures
