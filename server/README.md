@@ -397,11 +397,12 @@ deno run '--allow-net=0.0.0.0:8080' --allow-read=static server/game_server.js -n
     acknowledgments for client prediction.
   - **Connect handshake** (defined in `../src/net.js`): the first reliable frame
     each way. The client sends `"ICARO"` plus a version byte
-    (`WT_PROTOCOL_VERSION`, currently 1). The server replies `"ICARO"`, its
-    version, a status byte (accept/reject) and a UTF-8 reason. A client slot is
-    allocated only after a valid hello. A wrong version, missing datagram
-    support or no free slot gets a reject with a reason (for example "Server is
-    full"), which the client shows instead of a generic connect failure.
+    (`WT_PROTOCOL_VERSION`, currently 2; it is bumped with every
+    `PROTOCOL_ICARO` revision). The server replies `"ICARO"`, its version, a
+    status byte (accept/reject) and a UTF-8 reason. A client slot is allocated
+    only after a valid hello. A wrong version, missing datagram support or no
+    free slot gets a reject with a reason (for example "Server is full"), which
+    the client shows instead of a generic connect failure.
   - **Session limits** (NET-2), counted from QUIC accept until the transport
     closes. Sessions over a limit are closed without a handshake reply. The
     defaults can be changed with `WT_SetConfig`:
