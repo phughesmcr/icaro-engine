@@ -5,6 +5,7 @@ import { Sys_Printf } from "./sys.js";
 import { Con_Printf } from "./console.js";
 import { Cvar_RegisterVariable } from "./cvar.js";
 import { URLCfg_PixelRatio, URLCfg_RenderScale } from "./url_config.js";
+import { VID_VSync_Init } from "./vid_vsync.js";
 
 // vid.h constants
 export const VID_CBITS = 6;
@@ -297,6 +298,7 @@ export function VID_Init(palette, gammaparm = null) {
   Sys_Printf("VID_Init");
 
   Cvar_RegisterVariable(vid_dprcap);
+  VID_VSync_Init();
   _appliedDprCap = vid_dprcap.value;
 
   // default video dimensions
