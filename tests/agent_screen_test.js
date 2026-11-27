@@ -9,6 +9,7 @@ import {
   SCREEN_MAX,
   SCREEN_MIN,
 } from "../src/agent.js";
+import { GD_MAPS } from "../server/game_data.js";
 
 function assert(cond, message) {
   if (cond !== true) {
@@ -138,7 +139,7 @@ Deno.test({
   ...ENGINE_TEST,
   fn: async () => {
     const session = await mcp_session();
-    await session.raw("start", { map: "e1m1", skill: 1, seed: 1 });
+    await session.raw("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
     const r = await session.raw("screenshot", { width: 320 });
     assert(r.isError === true, "screenshot succeeded headless");
     const text = r.content[0].text;

@@ -11,6 +11,8 @@
 //   frames, and SU_WEAPONFRAME2.
 // NetQuake 15 (the shareware attract demos) must still parse.
 
+import { TD_Mount } from "./test_data.js";
+
 // Bootstrap the client renderer graph in its established safe import order.
 await import("../src/gl_rsurf.js");
 
@@ -799,9 +801,7 @@ Deno.test("ENTALPHA_ENCODE / DECODE / TOSAVE match Ironwail", () => {
 // The shareware attract demo, recorded with NetQuake 15
 
 Deno.test("demo1.dem (protocol 15) parses message by message", async () => {
-  await pak.COM_AddPakSequence(
-    new URL("../static/pak0.pak", import.meta.url).pathname,
-  );
+  await TD_Mount();
   const file = pak.COM_FindFile("demo1.dem");
   const data = file.data.subarray(0, file.size);
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);

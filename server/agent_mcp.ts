@@ -8,7 +8,7 @@
 //   claude mcp add icaro -- deno run --no-prompt --allow-read=static server/agent_mcp.ts
 //
 // Both run from the repository root: --allow-read=static is relative to the
-// working directory. Only static/pak0.pak (shareware) is mounted. The SDK
+// working directory. Only the repository's data (game_data.js) is mounted. The SDK
 // and zod are npm packages mapped in deno.json and server/deno.json (keep
 // the two in step) and pinned in the root deno.lock.
 //
@@ -42,6 +42,7 @@ import {
 import type { StdioServerHandle } from "@modelcontextprotocol/server/stdio";
 import type { Readable, Writable } from "node:stream";
 import * as z from "zod";
+import { GD_MAPS, GD_TITLE } from "./game_data.js";
 
 // deno-lint-ignore no-explicit-any
 type Engine = { agent: any; sys: any; cmd: any; pak: any };
@@ -68,8 +69,8 @@ const ATTACK_DEFAULT_TICS = 72 * 10;
 const MAP_MAX_SIZE = 41;
 
 const INSTRUCTIONS =
-  `Plays Quake (id1 shareware episode 1) headless. The game is frozen between calls and advances only in start, step, goto and attack (72 tics = 1 s of game time).
-Start with start {map: "e1m1", skill: 1}. Each result is an observation:
+  `Plays Quake (${GD_TITLE}) headless. The game is frozen between calls and advances only in start, step, goto and attack (72 tics = 1 s of game time).
+Start with start {map: "${GD_MAPS.level}", skill: 1}. Each result is an observation:
 - a status line (map, time, hp, armor, weapon, ammo, keys, kills, secrets, pos, yaw, pitch);
 - entity lines "#id kind distance yawN [pitchN] [hidden] [hpN]": step with {yaw: N} to face one;
 - events since the last call (pickups, damage, messages, level changes);
@@ -80,7 +81,7 @@ Quake has no use key: walk into buttons and doors; shoot some buttons. "exit" en
 goto {id} or goto {pos: [x, y, z]} walks there along the level's walk graph (doors, lifts, teleporters, drops and jumps included) and stops early when hurt; when blocked it names what blocks the way and how it opens (a key, a button #id, shoot it).
 turn_to {id} faces an entity (or {yaw} an absolute yaw) without advancing the game. attack {id} aims at it every tic and fires while it is in sight, until it is killed, gone, out of sight, you are out of ammo (or have only the axe and are out of reach), hurt to death, or max_tics; it doesn't move.
 goto and attack also stop when a monster comes into sight ("new enemy #id kind ..."): attack it, or call again with stop_on_enemy: false. Each monster stops only one call.
-cmd runs console commands (god, give, map e1m2, ...). key and menu drive the menus.
+cmd runs console commands (god, give, map ${GD_MAPS.next}, ...). key and menu drive the menus.
 rl_spec and rl_step are for RL programs, not for reading: a fixed-size numeric observation (JSON), a MultiDiscrete action and a reward.
 screenshot has no pixels here (no renderer headless): it says so. Read the observation's text instead.`;
 
@@ -109,7 +110,7 @@ const SCREENSHOT_ARGS = z.strictObject({
 });
 const START_ARGS = z.strictObject({
   map: z.string().regex(/^[A-Za-z0-9_]+$/).optional().describe(
-    "Map name, e.g. e1m1 (default) or start",
+    "Map name, e.g. " + GD_MAPS.level + " (default) or " + GD_MAPS.hub,
   ),
   skill: int(0, 3).optional().describe(
     "0 easy, 1 normal (default), 2 hard, 3 nightmare",
@@ -281,7 +282,7 @@ async function agent_mcp_start(
   e: Engine,
   args: z.infer<typeof START_ARGS>,
 ): Promise<string> {
-  const map = args.map ?? "e1m1";
+  const map = args.map ?? GD_MAPS.level;
   // Check the map before ending the running game
   if (await e.pak.COM_EnsureFile("maps/" + map + ".bsp") !== true) {
     throw new Error('no map "' + map + '"');
@@ -505,7 +506,7 @@ export function agent_mcp_server(): McpServer {
     "cmd",
     {
       description:
-        'Runs Quake console text (e.g. "god", "give s 50", "map e1m2") and returns what it printed. In a game it runs one tic.',
+        `Runs Quake console text (e.g. "god", "give s 50", "map ${GD_MAPS.next}") and returns what it printed. In a game it runs one tic.`,
       inputSchema: CMD_ARGS,
       annotations: LOCAL,
     },

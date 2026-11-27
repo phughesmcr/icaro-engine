@@ -20,6 +20,11 @@ import {
   Mod_Init,
   R_InitTextures,
 } from "../../src/gl_model.js";
+import {
+  GD_BASE_DIR,
+  GD_ID1_DIR,
+  GD_PAK_PATH,
+} from "../../server/game_data.js";
 
 const args = Deno.args;
 function arg(name, def) {
@@ -33,8 +38,10 @@ const JSON_OUT = args.includes("-json");
 const root = decodeURIComponent(
   new URL("../../static/", import.meta.url).pathname,
 );
-const basedir = BASE !== null ? root + BASE + "/" : root;
-const pakPath = BASE !== null ? basedir + "id1/pak0.pak" : root + "pak0.pak";
+// without -base, the repository's data (server/game_data.js)
+const basedir = BASE !== null ? root + BASE + "/" : GD_BASE_DIR;
+const pakPath = BASE !== null ? basedir + "id1/pak0.pak" : GD_PAK_PATH;
+const id1dir = BASE !== null ? basedir + "id1/" : GD_ID1_DIR;
 
 const realLog = console.log;
 globalThis.__ICARO_QUIET_LOGS = true;
@@ -53,7 +60,7 @@ if (await COM_AddPakSequence(pakPath) === 0) {
   throw new Error(pakPath + " missing");
 }
 LOC_Init();
-COM_SetLooseFileBasePaths([...(BASE !== null ? [basedir + "id1/"] : []), root]);
+COM_SetLooseFileBasePaths([...(id1dir !== root ? [id1dir] : []), root]);
 
 // model names from the pak directory
 const pak = await Deno.readFile(pakPath);

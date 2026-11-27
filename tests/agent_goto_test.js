@@ -11,6 +11,7 @@ import {
   GOTO_MAX_TICS,
 } from "../src/agent.js";
 import { NAV_NODE_EXIT } from "../src/nav.js";
+import { GD_MAPS } from "../server/game_data.js";
 
 function assert(cond, message) {
   if (cond !== true) {
@@ -40,7 +41,7 @@ const first = (text) => text.split("\n")[0];
 const ARMOR = [688, 480, 80]; // item_armor1, across the bridge (tests/nav_test.js)
 
 async function start(seed, cheats) {
-  await call("start", { map: "e1m1", skill: 1, seed });
+  await call("start", { map: GD_MAPS.level, skill: 1, seed });
   if (cheats) {
     await call("cmd", { text: "god" });
     await call("cmd", { text: "notarget" });
@@ -62,7 +63,7 @@ Deno.test({
       "the exit is in the graph",
     );
 
-    await call("start", { map: "e1m2", skill: 1, seed: 1 });
+    await call("start", { map: GD_MAPS.next, skill: 1, seed: 1 });
     const g2 = Agent_NavGraph();
     assert(
       g2 !== null && g2 !== g && g2.node_flags.length !== g.node_flags.length,

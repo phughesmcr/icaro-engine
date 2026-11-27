@@ -10,6 +10,7 @@ import {
 } from "../src/agent.js";
 import { cl } from "../src/client.js";
 import { STAT_SHELLS } from "../src/quakedef.js";
+import { GD_MAPS } from "../server/game_data.js";
 
 function assert(cond, message) {
   if (cond !== true) {
@@ -39,7 +40,7 @@ const ARMOR = [688, 480, 80]; // item_armor1, across the bridge
 
 // A seeded game, god mode, walked until a monster hurts us
 async function meet_monster() {
-  await call("start", { map: "e1m1", skill: 1, seed: 1 });
+  await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
   await call("cmd", { text: "god" });
   await call("goto", { pos: ARMOR, ents: 0 });
   const m = Agent_Entities(64).find((e) => e.hp !== null && e.dist < 400);
@@ -111,7 +112,7 @@ Deno.test({
   name: "agent attack: bad targets are errors, and the schema matches",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: "e1m1", skill: 1, seed: 1 });
+    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
     for (
       const [name, args] of [
         ["attack", {}],

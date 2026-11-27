@@ -2,9 +2,11 @@
 // "notarget" take an optional 0 or 1, "give a <n>" sets armour, and give
 // updates currentammo so the status bar shows the new count.
 
+import { TD_Mount } from "./test_data.js";
+
 await import("../src/gl_rsurf.js");
 const common = await import("../src/common.js");
-const pak = await import("../src/pak.js");
+await import("../src/pak.js");
 const cmd = await import("../src/cmd.js");
 const zone = await import("../src/zone.js");
 const host = await import("../src/host.js");
@@ -49,15 +51,10 @@ cmd.Cbuf_Init();
 cmd.Cmd_Init();
 host_cmd.Host_InitCommands();
 
-Deno.test("god, notarget and give follow Ironwail on shareware start", () => {
+Deno.test("god, notarget and give follow Ironwail on shareware start", async () => {
   const oldState = client.cls.state;
   try {
-    pak.COM_AddPack(
-      pak.COM_LoadPackFile(
-        "pak0.pak",
-        Deno.readFileSync("static/pak0.pak").buffer,
-      ),
-    );
+    await TD_Mount();
     client.cls.state = client.ca_dedicated; // no local client connects
     server.svs.maxclients = 1;
     server.svs.maxclientslimit = 1;

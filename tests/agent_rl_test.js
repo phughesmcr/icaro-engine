@@ -22,6 +22,7 @@ import { Cbuf_AddText } from "../src/cmd.js";
 import { EDICT_NUM, PR_GetString } from "../src/progs.js";
 import { sv } from "../src/server.js";
 import { SV_LinkEdict } from "../src/world.js";
+import { GD_MAPS } from "../server/game_data.js";
 
 function assert(cond, message) {
   if (cond !== true) {
@@ -132,7 +133,7 @@ Deno.test({
   name: "agent rl: the vector holds the status, nearest entities, rays and map",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: "e1m1", skill: 1, seed: 1 });
+    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
     const spec = Agent_RLSpec({ map: 21 });
     const o = Agent_RLObserve({ map: 21 }).slice();
     assert(o.length === spec.size, "length " + o.length);
@@ -186,7 +187,7 @@ Deno.test({
   name: "agent rl: reading it changes nothing, and steps don't eat events",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: "e1m1", skill: 1, seed: 1 });
+    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
     const h = Agent_StateHash();
     Agent_RLObserve({ map: 21 });
     Agent_RLSpec();
@@ -224,7 +225,7 @@ Deno.test({
       ]);
     }
     const run = async () => {
-      await call("start", { map: "e1m1", skill: 1, seed: 7 });
+      await call("start", { map: GD_MAPS.level, skill: 1, seed: 7 });
       const out = [];
       for (const a of actions) {
         const r = await Agent_RLStep(a, 3);
@@ -271,7 +272,7 @@ Deno.test({
       }
     };
     for (let seed = 1; seed <= 3; seed++) {
-      await call("start", { map: "e1m1", skill: 2, seed });
+      await call("start", { map: GD_MAPS.level, skill: 2, seed });
       let r = await step(NOOP, 0);
       check(r, 0);
       for (let i = 1; i <= 150 && !r.terminated; i++) {
@@ -286,7 +287,7 @@ Deno.test({
   name: "agent rl: truth false hides hp and server-only entities",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: "e1m1", skill: 1, seed: 1 });
+    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
     await call("cmd", { text: "god" });
     await call("goto", { pos: ARMOR, ents: 0 }); // near the grunt and the bridge
     const spec = Agent_RLSpec({ ents: 64 });
@@ -321,7 +322,7 @@ Deno.test({
   name: "agent rl: a kill is rewarded",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: "e1m1", skill: 1, seed: 1 });
+    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
     await call("cmd", { text: "god" });
     await call("goto", { pos: ARMOR, ents: 0 });
     const m = Agent_Entities(64).find((e) => e.hp !== null && e.dist < 400);
@@ -347,7 +348,7 @@ Deno.test({
   ...ENGINE_TEST,
   fn: async () => {
     // Seed 1, no god: hurt by the grunt by the bridge, then left with 1 hp
-    await call("start", { map: "e1m1", skill: 1, seed: 1 });
+    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
     await call("goto", { pos: ARMOR, ents: 0 });
     await call("cmd", { text: "give h 1" });
     await Agent_RLStep(FORWARD, 1); // hold a button: released at the end
@@ -376,7 +377,7 @@ Deno.test({
     const k = await Agent_RLStep(NOOP, 8);
     assert(k.why === "level restarted", "kill: " + k.why);
 
-    Cbuf_AddText("changelevel e1m2\n");
+    Cbuf_AddText("changelevel " + GD_MAPS.next + "\n");
     const c = await Agent_RLStep(NOOP, 8);
     assert(c.why === "level changed", "changelevel: " + c.why);
     assert(c.reward === RL_REWARD.exit, "exit reward " + c.reward);
@@ -390,7 +391,7 @@ Deno.test({
   name: "agent rl: the level's end is rewarded once, through intermission",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: "e1m1", skill: 1, seed: 1 });
+    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
     await call("cmd", { text: "god" });
     // Put the player in the exit's trigger (the server's copy)
     let exit = null;
@@ -432,7 +433,7 @@ Deno.test({
   name: "agent rl: bad actions and arguments are errors",
   ...ENGINE_TEST,
   fn: async () => {
-    await call("start", { map: "e1m1", skill: 1, seed: 1 });
+    await call("start", { map: GD_MAPS.level, skill: 1, seed: 1 });
     for (
       const a of [[0], [3, 0, 0, 0, 0, 0, 0, 0], [0, 0, 11, 0, 0, 0, 0, 0]]
     ) {

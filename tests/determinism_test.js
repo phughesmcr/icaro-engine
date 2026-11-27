@@ -3,7 +3,7 @@
 // clock. A seeded headless e1m1 run must end in the same state every time,
 // and a different seed must give a different one.
 
-import { COM_AddPakSequence, COM_SetLooseFileBasePaths } from "../src/pak.js";
+import { COM_SetLooseFileBasePaths } from "../src/pak.js";
 import { COM_InitArgv, LOC_Init } from "../src/common.js";
 import { Cbuf_Init, Cmd_Init } from "../src/cmd.js";
 import { Host_InitCommands } from "../src/host_cmd.js";
@@ -37,6 +37,8 @@ import {
   Sys_SetClockOverride,
   Sys_SetRandomSeed,
 } from "../src/sys.js";
+import { GD_ID1_DIR, GD_MAPS } from "../server/game_data.js";
+import { TD_Mount } from "./test_data.js";
 
 const FRAMES = 300; // 30 seconds of game time at 0.1 s per frame
 
@@ -75,11 +77,12 @@ function initEngine() {
       const root = decodeURIComponent(
         new URL("../static/", import.meta.url).pathname,
       );
-      if (await COM_AddPakSequence(root + "pak0.pak") === 0) {
-        throw new Error("static/pak0.pak missing");
-      }
+      await TD_Mount();
       LOC_Init();
-      COM_SetLooseFileBasePaths([root]);
+      COM_SetLooseFileBasePaths([
+        ...(GD_ID1_DIR !== root ? [GD_ID1_DIR] : []),
+        root,
+      ]);
     } finally {
       console.log = realLog;
     }
@@ -163,8 +166,8 @@ async function runSeeded(seed) {
 
     Sys_SetRandomSeed(seed);
     const spawns = svs.spawncount;
-    SV_SpawnServer("e1m1");
-    assert(sv.active === true, "could not spawn e1m1");
+    SV_SpawnServer(GD_MAPS.level);
+    assert(sv.active === true, "could not spawn " + GD_MAPS.level);
     // net_rtclobby.js tells a spawn by it
     assert(svs.spawncount === spawns + 1, "spawncount counts the spawn");
 

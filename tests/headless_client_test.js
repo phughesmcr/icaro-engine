@@ -13,6 +13,7 @@ import { sv, svs } from "../src/server.js";
 import { Cbuf_AddText } from "../src/cmd.js";
 import { key_dest, key_game } from "../src/keys.js";
 import { STAT_HEALTH } from "../src/quakedef.js";
+import { GD_MAPS } from "../server/game_data.js";
 
 function assert(cond, message) {
   if (cond !== true) {
@@ -39,7 +40,7 @@ function playerOrigin() {
 }
 
 Deno.test("headless: map e1m1 signs a loopback client on", async () => {
-  const frames = await headless_map("e1m1");
+  const frames = await headless_map(GD_MAPS.level);
 
   assert(frames < 20, "signon took " + frames + " frames");
   assert(cls.signon === SIGNONS, "cls.signon " + cls.signon);
@@ -49,10 +50,14 @@ Deno.test("headless: map e1m1 signs a loopback client on", async () => {
     cls.netcon !== null && cls.netcon.address === "localhost",
     "not on the loopback driver",
   );
-  assert(sv.active === true && sv.name === "e1m1", "server map " + sv.name);
+  assert(
+    sv.active === true && sv.name === GD_MAPS.level,
+    "server map " + sv.name,
+  );
   assert(svs.maxclients === 1, "maxclients " + svs.maxclients);
   assert(
-    cl.worldmodel !== null && cl.worldmodel.name === "maps/e1m1.bsp",
+    cl.worldmodel !== null &&
+      cl.worldmodel.name === "maps/" + GD_MAPS.level + ".bsp",
     "client world model",
   );
   assert(
@@ -118,12 +123,13 @@ Deno.test("headless: console commands move the player", () => {
 });
 
 Deno.test("headless: a second map waits for the new level", async () => {
-  await headless_map("e1m2");
+  await headless_map(GD_MAPS.next);
 
   assert(cls.signon === SIGNONS, "cls.signon " + cls.signon);
-  assert(sv.name === "e1m2", "server map " + sv.name);
+  assert(sv.name === GD_MAPS.next, "server map " + sv.name);
   assert(
-    cl.worldmodel !== null && cl.worldmodel.name === "maps/e1m2.bsp",
+    cl.worldmodel !== null &&
+      cl.worldmodel.name === "maps/" + GD_MAPS.next + ".bsp",
     "client world model",
   );
 
@@ -146,7 +152,7 @@ Deno.test("headless: a missing map rejects instead of hanging", async () => {
   );
   // The old level keeps running
   assert(
-    cls.signon === SIGNONS && sv.name === "e1m2",
+    cls.signon === SIGNONS && sv.name === GD_MAPS.next,
     "e1m2 is no longer running",
   );
 });

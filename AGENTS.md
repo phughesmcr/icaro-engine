@@ -49,8 +49,11 @@ process per room. It was forked from mrdoob's three-quake.
   in browsers (room table and WebRTC signal relay) and `room_config.js` the
   room-config checks, and `turnstile.js` checks a Turnstile token with
   Siteverify before a room is created (see `server/README.md`); all three are
-  pure, so the Cloudflare lobby imports them too. Under Deno, `three` maps to
-  `server/browser_shim.js` (root `deno.json`). If `src/` starts using a new
+  pure, so the Cloudflare lobby imports them too. `game_data.js` names the
+  repository's own game data (pak, basedir, map names) for the tests
+  (`tests/test_data.js` mounts it), benchmarks, nav builder, headless host and
+  the servers' default `-pak`: change the data there. Under Deno, `three` maps
+  to `server/browser_shim.js` (root `deno.json`). If `src/` starts using a new
   Three.js export, add it to the shim or the server and tests break.
   `server/deno.json` repeats the root import map for scripts run from `server/`
   and editors; keep the two in step. The only npm packages are the MCP SDK and

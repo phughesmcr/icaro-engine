@@ -1,11 +1,11 @@
-// Builds navigation graphs (src/nav.js) for maps in static/pak0.pak and
-// prints node and link counts and build times.
+// Builds navigation graphs (src/nav.js) for maps in the repository's data
+// (server/game_data.js) and prints node and link counts and build times.
 //
 //   deno run --allow-read tools/nav/nav_build.js [-maps a,b] [-grid 32] [-runs N]
 //       [-json out_dir] [-skill 1] [-deathmatch]
 //
 // -json writes <out_dir>/<map>.nav.json (needs --allow-write). Without
-// -maps it builds every maps/*.bsp in the pak. "first" is the first build in
+// -maps it builds every maps/*.bsp in the paks (-maps also finds loose ones). "first" is the first build in
 // this process (hull flattening and JIT included: what a browser pays at map
 // load); "median" is over -runs builds.
 //
@@ -15,6 +15,7 @@ import {
   COM_AddPakSequence,
   COM_EnsureFile,
   COM_ListFiles,
+  COM_SetLooseFileBasePaths,
 } from "../../src/pak.js";
 import { COM_InitArgv } from "../../src/common.js";
 import { Memory_Init } from "../../src/zone.js";
@@ -29,6 +30,7 @@ import {
   NAV_LINK_TELEPORT,
   NAV_NODE_EXIT,
 } from "../../src/nav.js";
+import { GD_ID1_DIR, GD_PAK_PATH } from "../../server/game_data.js";
 
 const args = Deno.args;
 function arg(name, def) {
@@ -54,12 +56,10 @@ COM_InitArgv(["nav_build"]);
 Memory_Init();
 Mod_Init();
 cls.state = ca_dedicated; // no textures or drawing data
-const pak0 = decodeURIComponent(
-  new URL("../../static/pak0.pak", import.meta.url).pathname,
-);
-if (await COM_AddPakSequence(pak0) === 0) {
-  throw new Error(pak0 + " missing");
+if (await COM_AddPakSequence(GD_PAK_PATH) === 0) {
+  throw new Error(GD_PAK_PATH + " missing");
 }
+COM_SetLooseFileBasePaths([GD_ID1_DIR]);
 
 let maps = arg("-maps", null);
 if (maps !== null) {

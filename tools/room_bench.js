@@ -4,7 +4,7 @@
 // per tick (tools/room_bench_preload.js) and the bytes and messages on the
 // wire. Used for docs/always-on-hosting.md; not part of the game or CI.
 //
-//   deno run -A --unstable-net tools/room_bench.js -map e1m1 -bots 4 -seconds 60
+//   deno run -A --unstable-net tools/room_bench.js -map <map> -bots 4 -seconds 60
 //
 // Needs a certificate for the room's WebTransport listener (any self-signed
 // one): -cert/-key, default server/cert.pem and server/key.pem.
@@ -13,9 +13,10 @@ await import("../src/gl_rsurf.js"); // the renderer's module graph, in its safe 
 const client = await import("../src/net_websocket.js");
 const net = await import("../src/net.js");
 const { svs } = await import("../src/server.js");
+const { GD_MAPS, GD_PAK } = await import("../server/game_data.js");
 
 const opts = {
-  map: "start",
+  map: GD_MAPS.hub,
   bots: 4,
   seconds: 60,
   warmup: 10,
@@ -24,7 +25,7 @@ const opts = {
   wsport: 27500,
   port: 27501,
   maxclients: 0,
-  pak: "static/pak0.pak",
+  pak: GD_PAK,
 };
 for (let i = 0; i < Deno.args.length; i++) {
   const name = Deno.args[i].replace(/^-+/, "");

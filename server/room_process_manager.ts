@@ -12,6 +12,7 @@ import {
   Room_SanitizeHostName,
   Room_SanitizeMapName,
 } from "./room_config.js";
+import { GD_PAK } from "./game_data.js";
 
 // Port range for room servers (main lobby is on 4433)
 export const BASE_PORT = 4434;
@@ -84,7 +85,7 @@ const usedPorts = new Set<number>();
 // Configuration (set by main server)
 let certFile = "cert.pem";
 let keyFile = "key.pem";
-let pakPath = "../static/pak0.pak";
+let pakPath = "../" + GD_PAK;
 let denoPath = Deno.execPath();
 let gameFlags: string[] = []; // '-rogue' and/or '-hipnotic', passed to every room
 let gameDir: string | null = null; // -game <dir>, passed to every room

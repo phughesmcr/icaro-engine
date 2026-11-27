@@ -1,6 +1,6 @@
 // server/headless_host.js with game directories: opts.base, -game in
 // opts.argv and opts.game_dirs mount before Host_Init, in common.c's order,
-// over the shareware pak. The fixture game directories are built in a temp
+// over the repository's data (server/game_data.js). The fixture game directories are built in a temp
 // directory at run time: no pak but static/pak0.pak may be tracked.
 
 import {
@@ -11,6 +11,12 @@ import {
 import { COM_EnsureFile, COM_LoadFileAsString } from "../src/pak.js";
 import { host_colormap } from "../src/host.js";
 import { sv } from "../src/server.js";
+import {
+  GD_ID1_DIR,
+  GD_MAPS,
+  GD_PAK_PATH,
+  GD_PAK_SEQUENCE,
+} from "../server/game_data.js";
 
 function assert(cond, message) {
   if (cond !== true) {
@@ -29,13 +35,13 @@ const STATIC = decodeURIComponent(
   new URL("../static/", import.meta.url).pathname,
 );
 
-Deno.test("headless search paths: the default is the shareware pak alone", () => {
+Deno.test("headless search paths: the default is the repository's data", () => {
   const paths = headless_search_paths();
-  same(paths.pak, STATIC + "pak0.pak", "pak");
-  same(paths.pak_sequence, false, "pak_sequence");
+  same(paths.pak, GD_PAK_PATH, "pak");
+  same(paths.pak_sequence, GD_PAK_SEQUENCE, "pak_sequence");
   same(paths.argv, ["quake"], "argv");
   same(paths.game_dirs, [], "game_dirs");
-  same(paths.loose_dirs, [STATIC], "loose_dirs");
+  same(paths.loose_dirs, [GD_ID1_DIR], "loose_dirs");
 });
 
 Deno.test("headless search paths: common.c's order, then game_dirs", () => {
@@ -125,10 +131,6 @@ function makePak(files) {
   return out;
 }
 
-const SHAREWARE_PAK = decodeURIComponent(
-  new URL("../static/pak0.pak", import.meta.url).pathname,
-);
-
 // A colormap no Quake pak ships, so finding it in host_colormap shows the
 // fixture's gfx/colormap.lmp was mounted when Host_Init loaded it. (Not the
 // palette: VID_Init applies gamma to host_basepal in place.)
@@ -167,12 +169,22 @@ POP.forEach((v, i) => {
   POP_LMP[2 * i + 1] = v & 255;
 });
 
-// <tmp>/id1/pak0.pak links to the shareware pak (opts.base), <tmp>/fixa is
+// <tmp>/id1/pak0.pak links to the repository's pak (opts.base, with the paks
+// after it when the data has them), <tmp>/fixa is
 // the -game directory, and <tmp>/elsewhere/fixb, outside the basedir, is in
 // opts.game_dirs
 const tmp = await Deno.makeTempDir({ prefix: "headless_game_dirs_" });
 await Deno.mkdir(tmp + "/id1");
-await Deno.symlink(SHAREWARE_PAK, tmp + "/id1/pak0.pak");
+await Deno.symlink(GD_PAK_PATH, tmp + "/id1/pak0.pak");
+for (let i = 1; GD_PAK_SEQUENCE === true; i++) {
+  const pak = GD_ID1_DIR + "pak" + i + ".pak";
+  try {
+    await Deno.stat(pak);
+  } catch {
+    break;
+  }
+  await Deno.symlink(pak, tmp + "/id1/pak" + i + ".pak");
+}
 await Deno.mkdir(tmp + "/fixa/fixture", { recursive: true });
 await Deno.writeFile(
   tmp + "/fixa/pak0.pak",
@@ -246,8 +258,11 @@ Deno.test("headless game dirs: loose files, last game directory first", async ()
 });
 
 Deno.test("headless game dirs: an id1 map still loads", async () => {
-  await headless_map("e1m1");
-  assert(sv.active === true && sv.name === "e1m1", "server map " + sv.name);
+  await headless_map(GD_MAPS.level);
+  assert(
+    sv.active === true && sv.name === GD_MAPS.level,
+    "server map " + sv.name,
+  );
 });
 
 Deno.test("headless game dirs: remove the fixture", async () => {

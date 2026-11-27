@@ -2,9 +2,11 @@
 // cl_demo.c: the command buffer, COM_Parse, SZ_GetSpace, savegames, chat,
 // map, reconnect and demo message sizes.
 
+import { TD_Mount } from "./test_data.js";
+
 await import("../src/gl_rsurf.js");
 const common = await import("../src/common.js");
-const pak = await import("../src/pak.js");
+await import("../src/pak.js");
 const cmd = await import("../src/cmd.js");
 const zone = await import("../src/zone.js");
 const host = await import("../src/host.js");
@@ -304,12 +306,7 @@ Deno.test("savegame: map strips .bsp, the comment has no newlines, a } in a stri
   });
 
   try {
-    pak.COM_AddPack(
-      pak.COM_LoadPackFile(
-        "pak0.pak",
-        Deno.readFileSync("static/pak0.pak").buffer,
-      ),
-    );
+    await TD_Mount();
     client.cls.state = client.ca_dedicated; // no local client connects
     server.svs.maxclients = 1;
     server.svs.maxclientslimit = 1;
