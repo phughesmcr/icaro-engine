@@ -492,8 +492,18 @@ export function MSG_ReadString() {
 export const MSG_COORD_16 = 0;
 /** Icaro's int32 in 1/8 units (PROTOCOL_ICARO, MSG_WriteCoord) */
 export const MSG_COORD_INT32_8 = 1;
+/** RMQ's PRFL_24BITCOORD: 16.8 fixed point (Ironwail MSG_ReadCoord24) */
+export const MSG_COORD_24 = 2;
+/** RMQ's PRFL_FLOATCOORD: a float (Ironwail MSG_ReadCoord32f) */
+export const MSG_COORD_FLOAT = 3;
+/** RMQ's PRFL_INT32COORD: an int32 in 1/16 units (not Icaro's 1/8) */
+export const MSG_COORD_INT32_16 = 4;
 /** NetQuake's signed byte, 256 steps a turn */
 export const MSG_ANGLE_8 = 0;
+/** RMQ's PRFL_SHORTANGLE: a short, 65536 steps a turn */
+export const MSG_ANGLE_16 = 1;
+/** RMQ's PRFL_FLOATANGLE: a float in degrees */
+export const MSG_ANGLE_FLOAT = 2;
 
 /** The coordinate mode the client reads, one of the MSG_COORD_* values */
 export let msg_coordmode = MSG_COORD_INT32_8;
@@ -507,14 +517,29 @@ export function MSG_SetCoordModes(coordmode, anglemode) {
 }
 
 export function MSG_ReadCoord() {
-  if (msg_coordmode === MSG_COORD_INT32_8) {
-    return MSG_ReadLong() * (1.0 / 8);
+  switch (msg_coordmode) {
+    case MSG_COORD_INT32_8:
+      return MSG_ReadLong() * (1.0 / 8);
+    case MSG_COORD_24: //johnfitz -- 16.8 fixed point coords, max range +-32768
+      return MSG_ReadShort() + MSG_ReadByte() * (1.0 / 255);
+    case MSG_COORD_FLOAT: //johnfitz -- 32-bit float coords
+      return MSG_ReadFloat();
+    case MSG_COORD_INT32_16:
+      return MSG_ReadLong() * (1.0 / 16.0);
+    default: //johnfitz -- original behavior, 13.3 fixed point coords, max range +-4096
+      return MSG_ReadShort() * (1.0 / 8);
   }
-  return MSG_ReadShort() * (1.0 / 8);
 }
 
 export function MSG_ReadAngle() {
-  return MSG_ReadChar() * (360.0 / 256);
+  switch (msg_anglemode) {
+    case MSG_ANGLE_16:
+      return MSG_ReadShort() * (360.0 / 65536);
+    case MSG_ANGLE_FLOAT:
+      return MSG_ReadFloat();
+    default:
+      return MSG_ReadChar() * (360.0 / 256);
+  }
 }
 
 // QuakeWorld-style 16-bit angle (more precision). Deliberately not

@@ -25,6 +25,21 @@ export const PROTOCOL_VERSION = 15;
 // before this protocol (15 plus packet entities) no longer play.
 export const PROTOCOL_ICARO = 1015;
 
+// Ironwail protocol.h: FitzQuake's and RMQ's protocols. The client reads
+// them for demos (cl_parse.js); the server never writes them.
+export const PROTOCOL_FITZQUAKE = 666; //johnfitz -- added new protocol for fitzquake 0.85
+export const PROTOCOL_RMQ = 999;
+
+// PROTOCOL_RMQ protocol flags: a long after the version in svc_serverinfo
+export const PRFL_SHORTANGLE = 1 << 1;
+export const PRFL_FLOATANGLE = 1 << 2;
+export const PRFL_24BITCOORD = 1 << 3;
+export const PRFL_FLOATCOORD = 1 << 4;
+export const PRFL_EDICTSCALE = 1 << 5;
+export const PRFL_ALPHASANITY = 1 << 6; // cleanup insanity with alpha
+export const PRFL_INT32COORD = 1 << 7;
+export const PRFL_MOREFLAGS = 1 << 31; // not supported
+
 // if the high bit of the servercmd is set, the low bits are fast update flags:
 export const U_MOREBITS = 1 << 0;
 export const U_ORIGIN1 = 1 << 1;
@@ -43,6 +58,15 @@ export const U_COLORMAP = 1 << 11;
 export const U_SKIN = 1 << 12;
 export const U_EFFECTS = 1 << 13;
 export const U_LONGENTITY = 1 << 14;
+//johnfitz -- PROTOCOL_FITZQUAKE -- new bits (Ironwail protocol.h). Read only
+// under 666 and 999; Icaro's server sends no fast updates.
+export const U_EXTEND1 = 1 << 15;
+export const U_ALPHA = 1 << 16; // 1 byte, uses ENTALPHA_ENCODE, not sent if equal to baseline
+export const U_FRAME2 = 1 << 17; // 1 byte, this is .frame & 0xFF00 (second byte)
+export const U_MODEL2 = 1 << 18; // 1 byte, this is .modelindex & 0xFF00 (second byte)
+export const U_LERPFINISH = 1 << 19; // 1 byte, 0.0-1.0 maps to 0-255, not sent if exactly 0.1, this is ent->v.nextthink - sv.time, used for lerping
+export const U_SCALE = 1 << 20; // 1 byte, for PROTOCOL_RMQ PRFL_EDICTSCALE
+export const U_EXTEND2 = 1 << 23; // another byte to follow, future expansion
 
 export const SU_VIEWHEIGHT = 1 << 0;
 export const SU_IDEALPITCH = 1 << 1;
@@ -59,10 +83,18 @@ export const SU_INWATER = 1 << 11; // no data follows, the bit is it
 export const SU_WEAPONFRAME = 1 << 12;
 export const SU_ARMOR = 1 << 13;
 export const SU_WEAPON = 1 << 14;
-// Ironwail (FitzQuake) protocol.h. Icaro sends only these extended bits:
-// its weapon model is already a short (no SU_WEAPON2), and armor and ammo
-// stay bytes (SU_ARMOR2 to SU_CELLS2, bits 16 to 22, are not sent).
+// Ironwail (FitzQuake) protocol.h. Icaro sends only SU_EXTEND1, SU_EXTEND2,
+// SU_WEAPONFRAME2 and SU_WEAPONALPHA: its weapon model is already a short (no
+// SU_WEAPON2), and armor and ammo stay bytes (SU_ARMOR2 to SU_CELLS2, bits 16
+// to 22, come only from 666 and 999 demos).
 export const SU_EXTEND1 = 1 << 15; // another byte to follow
+export const SU_WEAPON2 = 1 << 16; // 1 byte, this is .weaponmodel & 0xFF00 (second byte)
+export const SU_ARMOR2 = 1 << 17; // 1 byte, this is .armorvalue & 0xFF00 (second byte)
+export const SU_AMMO2 = 1 << 18; // 1 byte, this is .currentammo & 0xFF00 (second byte)
+export const SU_SHELLS2 = 1 << 19; // 1 byte, this is .ammo_shells & 0xFF00 (second byte)
+export const SU_NAILS2 = 1 << 20; // 1 byte, this is .ammo_nails & 0xFF00 (second byte)
+export const SU_ROCKETS2 = 1 << 21; // 1 byte, this is .ammo_rockets & 0xFF00 (second byte)
+export const SU_CELLS2 = 1 << 22; // 1 byte, this is .ammo_cells & 0xFF00 (second byte)
 export const SU_EXTEND2 = 1 << 23; // another byte to follow
 export const SU_WEAPONFRAME2 = 1 << 24; // 1 byte, this is .weaponframe & 0xFF00 (second byte)
 export const SU_WEAPONALPHA = 1 << 25; // 1 byte, this is alpha for weaponmodel, uses ENTALPHA_ENCODE, not sent if ENTALPHA_DEFAULT
@@ -74,6 +106,13 @@ export const SND_LOOPING = 1 << 2; // a long
 // Ironwail (FitzQuake) protocol.h
 export const SND_LARGEENTITY = 1 << 3; // a short + byte (instead of just a short)
 export const SND_LARGESOUND = 1 << 4; // a short soundindex (instead of a byte)
+
+//johnfitz -- PROTOCOL_FITZQUAKE -- flags for entity baseline messages
+// (svc_spawnbaseline2 and svc_spawnstatic2)
+export const B_LARGEMODEL = 1 << 0; // modelindex is short instead of byte
+export const B_LARGEFRAME = 1 << 1; // frame is short instead of byte
+export const B_ALPHA = 1 << 2; // 1 byte, uses ENTALPHA_ENCODE, not sent if ENTALPHA_DEFAULT
+export const B_SCALE = 1 << 3;
 
 // defaults for clientinfo messages
 export const DEFAULT_VIEWHEIGHT = 22;
@@ -125,6 +164,15 @@ export const svc_finale = 31; // [string] music [string] text
 export const svc_cdtrack = 32; // [byte] track [byte] looptrack
 export const svc_sellscreen = 33;
 export const svc_cutscene = 34;
+//johnfitz -- PROTOCOL_FITZQUAKE -- new server messages (Ironwail
+// protocol.h). The client reads them under 666 and 999 only: 42 is Icaro's
+// svc_playerinfo under PROTOCOL_ICARO.
+export const svc_skybox = 37; // [string] name
+export const svc_bf = 40; // no data
+export const svc_fog = 41; // [byte] density [byte] red [byte] green [byte] blue [short] time (hundredths)
+export const svc_spawnbaseline2 = 42; // support for large modelindex, large framenum, alpha, using flags
+export const svc_spawnstatic2 = 43; // support for large modelindex, large framenum, alpha, using flags
+export const svc_spawnstaticsound2 = 44; // [coord3] [short] samp [byte] vol [byte] aten
 // 2021 re-release: [string] id. The re-release QuakeC writes it with
 // WriteByte/WriteString (on every secret, at intermissions and on some
 // kills), so the server only passes it through. Ironwail protocol.h; it
