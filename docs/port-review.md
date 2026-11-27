@@ -85,6 +85,22 @@ cite a later PR, such as rows marked "fixed after this review".
 | Input residuals: Ctrl/Alt chords, Keyboard Lock, `xr_turnspeed`, touch and XR tests; numpad keeps the WinQuake mapping, now tested                          | [#12] | Fixed (77 pass)                                                                                                                 |
 | Netcode residuals: teleport lock and `punchangle` prediction, `hasAck`, `delta_sequence` age check, entity starvation, moves as datagrams, lobby join reply | [#13] | Fixed (120 pass)                                                                                                                |
 
+**Since then** (checked at `dev` `991c6e2`, 2026-11-27, for these items only):
+
+- The repository tracks no pak. LibreQuake is the default content, and the eight
+  community maps in `static/maps/` are gone (#259, #270). Mentions of a shipped
+  shareware `pak0.pak` in the findings below describe the revision reviewed.
+- From QuakeSpasm and Ironwail: `scr_usekfont` centerprint wrapping and mods'
+  localisation files (#249), fence textures (#253), the rest of Ironwail's
+  QuakeC extension builtins and its `checkextension` (#255), `gl_overbright` and
+  `gl_overbright_models` (#269), and QuakeSpasm's gamma and `contrast` pass with
+  lightmaps combined as GLQuake does (#272). #263 added key names, cvars and
+  `set`/`seta` that LibreQuake's configs use.
+- A remote host's `stuffcmd` text is limited to an allowlist (#258), a web-only
+  deviation.
+- `MAX_MSGLEN` and `NET_MAXMESSAGE` are 64000 and `SIGNON_SIZE` is 31500;
+  `MAX_DATAGRAM` stays 4096 (#262).
+
 **Wire format:** #10 changed the packet-entity format without bumping
 `PROTOCOL_VERSION`, which had to stay 15 for the shipped demos, and #13 added a
 flag and a byte to `svc_playerinfo`. Later PRs changed it again, at version 15
@@ -810,13 +826,14 @@ in section 7.
   menus, the video mode menu, and `#ifdef QUAKE2` code.
 - **Registered-content checks kept looser on purpose** (decided in [#10]):
   - `COM_FindFile`'s shareware rule that refuses loose files whose path contains
-    `/` is not ported. The port ships its deathmatch maps as loose
-    `static/maps/*.bsp` files next to the shareware pak, and the rule would
-    refuse them.
+    `/` is not ported. With data that isn't registered, the rule would refuse
+    loose maps. (When this was decided, the port shipped its own loose maps in
+    `static/maps/` beside the shareware pak; #259 and #270 removed both.
+    LibreQuake's `pak1.pak` has a `gfx/pop.lmp`.)
   - WinQuake's `#if WINDED` check in `COM_CheckRegistered`, which stops a
     dedicated server without the registered `gfx/pop.lmp`, is not ported. The
-    Deno room server is a dedicated server that runs on the shareware pak by
-    design.
+    Deno room server is a dedicated server, and the port doesn't require
+    registered data of it.
 - **Behaviour taken from QuakeSpasm and Ironwail** (added after this review, #42
   to #150): these C source ports fix bugs in id's code and raise its limits. The
   port takes some of their changes, so in these places it no longer matches
@@ -853,10 +870,10 @@ in section 7.
     `R_LightPoint` carry r, g and b as in QuakeSpasm. WinQuake has only mono
     lighting. Maps without a `.lit` (all the shareware and original registered
     data) keep one-byte lightmaps and render as before. Unlike Ironwail, mono
-    data is not expanded to RGB, a dedicated server does not read the `.lit`,
-    and there is no overbright. Alias models are tinted by `lightcolor` as in
-    QuakeSpasm's `R_SetupAliasLighting`, but keep id's order and clamps, so maps
-    without a `.lit` shade them exactly as before.
+    data is not expanded to RGB and a dedicated server does not read the `.lit`.
+    Alias models are tinted by `lightcolor` as in QuakeSpasm's
+    `R_SetupAliasLighting`, but keep id's order and clamps, so maps without a
+    `.lit` shade them exactly as before.
   - Global fog (#134), which WinQuake and GLQuake lack: `src/gl_fog.js` ports
     Ironwail's `gl_fog.c` (the worldspawn `fog` key and the `fog` command, with
     timed fades) and the `r_skyfog` part of `gl_sky.c` (the worldspawn `skyfog`
@@ -902,13 +919,14 @@ in section 7.
     the server's buffers and the local client's datagram, and a network client
     gets at most `DATAGRAM_MTU` (1400), so the 2021 rerelease maps stop printing
     `packet overflow` in single player. It is 4096 rather than QuakeSpasm's
-    32000 or more, because the loopback driver puts the datagram and a reliable
-    message in one 8192-byte buffer and demos cap a message at `MAX_MSGLEN`.
+    32000 or more, a size chosen when the loopback driver put the datagram and a
+    reliable message in one 8192-byte buffer and `MAX_MSGLEN`, the demo message
+    cap, was 8000. #262 raised those limits and left `MAX_DATAGRAM` as it was.
     Unlike QuakeSpasm, a WebTransport client's limit is the session's
     `maxDatagramSize` less the 9-byte transport header, re-read every frame and
     clamped to 1024–1400, with 1024 when it is unknown (`SV_ClientDatagramSize`,
     `sock.maxdatagram`). `sv.reliable_datagram` keeps id's 1024 bytes, because
-    it is appended to each client's 8000-byte reliable message, where an
+    it is appended to each client's `MAX_MSGLEN` reliable message, where an
     overflow drops the client.
   - New cvars and commands that WinQuake lacks. `r_lerpmodels` and `r_lerpmove`
     default to 0, so id's unlerped animation stays the default.

@@ -6,6 +6,11 @@ updated by a docs PR after a batch of work merges, not by each feature PR (see
 AGENTS.md, Git workflow).
 
 - `vision.md`: the project's goals and direction. Kept current, not a snapshot.
+- `audit/`: the November 2026 audit against `vision.md`: runtime and standard
+  compatibility, rendering, multiplayer security and architecture.
+  `audit/README.md` has the decisions, the roadmap and a status section saying
+  what has been done since; the five track files are snapshots, each noting
+  which of its findings have been addressed.
 - `port-review.md`: a fidelity review of the port against the C source. A
   snapshot.
 - `port-inventory.md`: every C function, cvar and command in the GLQuake build's

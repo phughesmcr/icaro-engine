@@ -76,9 +76,10 @@ and the Realtime SFU are poor fits; see below.
 - **Room** (`server/game_server.js`): runs the whole engine from `src/`
   headless: the QuakeC VM, NetQuake physics (`SV_Physics`) and QW-style delta
   packet entities. It ticks with `setInterval` at `sys_ticrate` (0.05 s, 20 Hz).
-  It reads `static/pak0.pak` (18.7 MB) from disk. Engine state is module-level
-  globals (C globals ported as module exports), which is why rooms are separate
-  processes.
+  It reads its pak from disk: LibreQuake's by default (`server/game_data.js`, at
+  `dev` `991c6e2`), where it was id's shareware pak when these notes were
+  written. Engine state is module-level globals (C globals ported as module
+  exports), which is why rooms are separate processes.
 - **WebTransport** (`server/net_webtransport_server.ts`,
   `src/net_webtransport.js`):
   - One bidirectional stream carries reliable Quake messages (signon,
@@ -378,8 +379,9 @@ route, with real unreliable datagrams.
       Local Network Access restrictions"].
 - **VPS:** any provider that allows inbound UDP works the same way. Pick a
   region near the players. Small VPSs cost a few dollars a month [unverified;
-  prices not checked]. Deploy shareware `pak0.pak` only. Registered and
-  rerelease paks must never go to a public server.
+  prices not checked]. Deploy LibreQuake (`deno task fetch-data`). id's data,
+  shareware included, and other commercial paks must never go to a public
+  server.
 - **Latency:** the best you can get without Spectrum: a direct UDP path, real
   unreliable datagrams, and LAN speed for LAN players if hairpin/split DNS
   works.

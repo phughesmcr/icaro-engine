@@ -17,6 +17,22 @@ each in its own file:
 Each item below is tagged **run** (measured by running code), **read** (from
 reading code only) or **browser** (needs a browser or device to confirm).
 
+## Status
+
+Checked at `dev` `991c6e2` (2026-11-27). The rest of this file is the older
+snapshot.
+
+The body is the snapshot, with a **Done** note after each item that has merged
+since. An item without one is open or wasn't rechecked; protocol dispatch with
+the 666 and 999 readers, the URL config, `?game=` for any safe directory with
+`-quoth`, frame pacing and the `gl_model.js` split are open. Each PR's limits
+are in its body. None of this status was rechecked in a browser.
+
+Decisions so far: 2 (`stuffcmd` trust), 3 (LibreQuake on first run) and 5
+(`THIRD_PARTY.md`) are done. Decision 1 is designed in `../protocol-design.md`
+(#256) and decision 6 planned in `../architecture-plan.md` (#260); neither is
+built.
+
 ## What was covered, and what wasn't
 
 - **Run, headless, all clean:** 261 map spawns at skill 1 with a loopback client
@@ -47,6 +63,8 @@ game time, one host per content set unless noted. **run**
     copy, all 25 AD maps tried (each in its own process) load and run clean.
   - LibreQuake: `demo2.dem` stops at once with `Demo message > MAX_MSGLEN` (one
     message is 9748 bytes); with the limits raised it plays.
+- **Done (#262):** `MAX_MSGLEN` and `NET_MAXMESSAGE` are 64000 and `SIGNON_SIZE`
+  is 31500; `MAX_DATAGRAM` stays 4096. `demo2.dem` plays.
 - **LibreQuake's `demo3.dem` is protocol 999** (flags 130: int32 coordinates,
   short angles) and fails with `Server returned version 999`. `demo1` (protocol
   15) plays. The standard content's attract loop needs the 999 reader.
@@ -60,7 +78,9 @@ game time, one host per content set unless noted. **run**
   bind QuakeSpasm's `MOUSE5` and gamepad key names (`ABUTTON`, `LTRIGGER`...),
   and set about 25 cvars Icaro doesn't have (`scr_conalpha`, `contrast`,
   `r_particles`, `cl_alwaysrun`, `gl_texturemode_hud`...). Nothing fails, but
-  those settings and binds are lost.
+  those settings and binds are lost. **Partly done (#263, #269, #272):** `set`,
+  `seta`, the key names and many of the cvars, `contrast` included, exist; `if`,
+  `serverinfo` and the rest don't.
 - **Quoth: clean.** The pak ships only test and example maps; 11 of 12 load and
   run. `kellbase1_fan` has no `info_player_start` (a test map). Quoth's real
   content is third-party maps, which weren't run.
@@ -131,10 +151,13 @@ days, L a week or more.
 - Let `headless_host` mount game directories before `Host_Init`
   (`opts.game_dirs`), so mission packs and mods can be scripted and tested
   through MCP. Today it mounts one pak. S, **run**. Overlaps #237, #243, #244,
-  #246.
+  #246. **Done (#252)** in `headless_host` (`opts.base`, the game flags,
+  `opts.game_dirs`); the MCP server doesn't expose them.
 - Raise `MAX_MSGLEN` to 64000 and `NET_MAXMESSAGE` to 65536, as QuakeSpasm does,
   through every net driver and the signon buffers. Unblocks every AD map and
-  LibreQuake's `demo2`. S–M, **run**.
+  LibreQuake's `demo2`. S–M, **run**. **Done (#262)**, with `NET_MAXMESSAGE` at
+  64000 and `SIGNON_SIZE` at 31500. Not tried in a browser or over a real
+  network.
 - The 999 reader comes first among the demo readers: LibreQuake's `demo3` needs
   it.
 - An allocation gate: a test that runs `Host_Frame` many times and fails if a
@@ -145,7 +168,8 @@ days, L a week or more.
 
 - **Fence textures.** World textures load with `alpha` false
   (`src/gl_model.js:1453`), so `{` textures aren't transparent. S, **read**
-  (checked again for this summary), **browser** to confirm.
+  (checked again for this summary), **browser** to confirm. **Done (#253)**,
+  checked in a browser on rerelease maps; no Quoth or AD map was tried.
 - **Game directories in the browser.** `?game=` accepts only a fixed list
   (`main.js`). Accept any safe directory name, add `-quoth`, multiple `-game`
   and `lq1`. Only the game server takes any `-game`
@@ -157,7 +181,9 @@ days, L a week or more.
   **read**.
 - **QuakeC extensions.** `checkextension` returns 0 (`src/pr_cmds.js:1404`);
   Ironwail's `str2chr`, `chr2str`, `strconv`, `checkcommand`, `vectorvectors`,
-  `clientcommand`, trig and `tokenize_console` are missing. M, **read**.
+  `clientcommand`, trig and `tokenize_console` are missing. M, **read**. **Done
+  (#255):** Ironwail's set; `checkextension` answers true only for
+  `FTE_QC_CHECKCOMMAND`. No mod was run, and `clientstat` values aren't sent.
 - **Frame pacing.** With the default `host_maxfps` 72, render frames are skipped
   below 1/72 s (`src/host.js:836`), which is uneven on 90, 120 and 165 Hz
   displays. The fix must keep physics at 72 Hz, because NetQuake physics depends
@@ -167,7 +193,8 @@ days, L a week or more.
   fix may be a default change. S, **read**, **browser** to confirm.
 - Each M: entity `scale` and lerp-finish, lit water, `gl_overbright`, 2PSB and
   BSPX, FLAC, Opus and tracker music, external texture replacement,
-  `r_particles`, `vid_vsync`. **read**
+  `r_particles`, `vid_vsync`. **read** **Done:** `gl_overbright` and
+  `gl_overbright_models` (#269, #272) and `r_particles` (#263).
 - Small items: `ctfscores` unknown on ctf maps; `ctf4` exits to a missing
   `idctf1`; dopa can't start four id1 boss maps without mg1's rune model; an
   `ogre_rocket.md5anim` bone warning; headless `stop` throws. S each, **run**.
@@ -175,7 +202,8 @@ days, L a week or more.
 ### 2. Multiplayer
 
 - `stuffcmd` trust (decision 2): the allowlist and no persistence for a remote
-  host. High, M.
+  host. High, M. **Done (#258)** (`cmd_server_allowed` in `src/cmd.js`). Not
+  tried in a live room.
 - Guests have too much power: `kick` outside deathmatch (whether a guest can
   kick the host was **not run**), `pause`, coop cheats gated only by
   `deathmatch`, and no rate limit on chat or name changes. M, **read**.
@@ -206,7 +234,13 @@ days, L a week or more.
 ### 5. Mobile
 
 - In progress in #247 and #248 (touch). The wake lock above. Gamepad buttons are
-  hard-coded (`src/in_web.js:610`) and triggers can't be bound. S.
+  hard-coded (`src/in_web.js:610`) and triggers can't be bound. S. **Done:**
+  #247 and #248 merged, and #263 gave the pad's buttons and triggers bindable
+  key names. The Keys menu still can't capture them, because the pad sends
+  keyboard keys in menus; bind them from the console or a config. No real
+  controller was tried. `touch.js` takes a screen wake lock while touch play is
+  on, which it already did at the audit's revision; nothing handles a hidden
+  host tab.
 
 ### 6. Three.js
 
@@ -231,8 +265,10 @@ days, L a week or more.
 - CI has no build or browser step. M.
 - `src/sys.js:14` writes error text into `innerHTML`. S, **read**.
 - LibreQuake on first run (decision 3): an introductory page that gates every
-  pak fetch, the pinned download, and an established zip library. M.
-- `THIRD_PARTY.md` (decision 5). S.
+  pak fetch, the pinned download, and an established zip library. M. **Done
+  (#264, #265, #266, #268, #270, #271):** see `../librequake-content.md`. The
+  repository now tracks no pak.
+- `THIRD_PARTY.md` (decision 5). S. **Done (#257).**
 
 ## Open PRs this overlaps
 
@@ -240,3 +276,5 @@ days, L a week or more.
 reconnect), #240 (players' own paks), #241 (dynamic resolution), #242 (status
 docs), #245 (rules), #247 and #248 (touch), #249 (centerprint wrap and mod
 localization).
+
+All of these have merged.

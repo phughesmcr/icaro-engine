@@ -10,6 +10,30 @@ and #244 (agent rl tier, Gymnasium env), #237 (enemy interrupt), #240 (player
 paks from browser storage, so mod selection UX), #239 (RTC reconnect). Findings
 below that overlap them say so and do not duplicate them.
 
+## Status
+
+Checked at `dev` `991c6e2` (2026-11-27). The rest of this file is the older
+snapshot.
+
+- Finding 3: the patches go through `GL_PatchShader`, which throws when its
+  anchor is missing, and tests run against the pinned Three.js chunks
+  (`tests/three_r183_shaders.js`; #272). That is recommendation (a) for the
+  patches that use it. Recommendations (b) and (c) are open.
+- Finding 4: `gl_overbright` and `gl_overbright_models` (#269, #272) and
+  `r_particles` (#263) are done. Lightmaps are now combined with textures on
+  their encoded values, as GLQuake does, so `lightMapIntensity` and the sRGB
+  lightmap described here are gone. `r_litwater`, external textures and the
+  other cvars are open.
+- Finding 5: pad buttons, shoulders and triggers are bindable keys, and
+  `joy_enable` exists (#263). The Keys menu can't capture them, because the pad
+  sends keyboard keys in menus. No real controller was tried.
+- Finding 8: tone-mapping exposure is gone. `src/gl_gamma.js` ports QuakeSpasm's
+  gamma and `contrast` pass (#272). It covers the 3D view only, not the HUD or
+  menus, and doesn't run in WebXR. The renderer still sets no `powerPreference`.
+- Finding 12: the phone-test bugs it lists were fixed (#236).
+- Finding 14: the MCP `screenshot` tool and the `screen` tier were added (#246).
+- Finding 1 is open. The others weren't rechecked.
+
 ## Verdict
 
 The renderer is in better shape than most ports: BatchedMesh world, pooled

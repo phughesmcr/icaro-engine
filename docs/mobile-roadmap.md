@@ -6,9 +6,10 @@ relying on them.
 
 ## Status
 
-Checked at `dev` `694b2cc` (2026-11-26). Tiers 1 and 2 are built, as are the
-fixes for what the phone test found. Tier 3 is built except item 23 (store
-wrappers). The rest of this doc is the older snapshot.
+Checked at `dev` `694b2cc` (2026-11-26); the notes on later PRs are from `dev`
+`991c6e2` (2026-11-27). Tiers 1 and 2 are built, as are the fixes for what the
+phone test found. Tier 3 is built except item 23 (store wrappers). The rest of
+this doc is the older snapshot.
 
 - **Tier 1:** iOS audio resume (#180), the touch DPR cap (#181),
   `navigator.storage.persist()` after the first save (#183), the manifest's
@@ -88,13 +89,26 @@ What tier 2 leaves out:
 
 - three and nipplejs are not vendored (item 9). The service worker caches the
   pinned CDN URLs instead.
-- The service worker caches no music outside `static/music/` and no pak but
-  `pak0.pak`, and passes other Range requests through uncached, so offline play
-  has none of those. A track never played isn't cached.
+- The service worker caches no pak and no music outside `static/music/`, and
+  passes other Range requests through uncached. A track never played isn't
+  cached. Game data comes from the browser's storage instead: LibreQuake,
+  downloaded on first run behind the intro page (#264, #270), with its music, or
+  the player's own paks. These notes didn't check offline play.
 - Reconnect (item 13) to a lobby room was not checked in a browser by #210,
   which needs a server that drops the connection. Browser-hosted rooms
   (`rtc:<code>`) reconnect too since #239, which checked them in two tabs on one
   machine; a real network change, an iOS freeze and TURN were not checked.
+
+Later changes (`dev` `991c6e2`), none checked on a phone:
+
+- A first run needs the LibreQuake download: about 116 MB, or 56 MB for lite
+  (see [`librequake-content.md`](librequake-content.md)).
+- A controller's buttons and triggers are bindable keys, and `joy_enable` 0
+  ignores the pad (#263). Menus still read the pad as keyboard keys, so the Keys
+  menu can't capture a pad button. No real controller was tried.
+- The "C-faithful defaults" below predate #245: compatibility now has a
+  reference for each layer of the engine (AGENTS.md, Compatibility and
+  fidelity).
 
 ## How it was made
 

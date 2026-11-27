@@ -16,6 +16,11 @@ home machine. Nothing was deployed and no account was created.
 > `server/lobby_rtc.js` (used by the Deno lobby) and `cloudflare/lobby/` (the
 > Worker and Durable Object) for the signalling lobby. Read the rest as the
 > research behind that choice.
+>
+> **Game data (`dev` `991c6e2`):** the repository now tracks no pak. The servers
+> and the room image default to LibreQuake (`server/game_data.js`,
+> `deno task fetch-data`). The measurements below were taken with id's shareware
+> `pak0.pak` and weren't rerun.
 
 Tags, as in that doc:
 
@@ -66,9 +71,10 @@ process per room through `server/room_process_manager.ts`. A room:
   `Deno.upgradeWebSocket` (WebSocket driver); `Deno.QuicEndpoint` and
   `Deno.upgradeWebTransport` under `--unstable-net` (WebTransport driver).
   `src/` itself only touches Deno in `pak.js` and `Sys_IsDeno`.
-- **Game data:** `static/pak0.pak` (18.7 MB) is read whole into memory; only
-  paks over 64 MB (`COM_LAZY_PAK_SIZE`) are read lazily from disk. Loose files
-  (custom maps) are read from `static/` on demand.
+- **Game data:** a pak of up to 64 MB (`COM_LAZY_PAK_SIZE`) is read whole into
+  memory, as id's shareware `pak0.pak` (18.7 MB) was when this was measured.
+  Bigger paks, LibreQuake's two among them, are read lazily from disk. Loose
+  files (maps) are read on demand.
 - **Startup requirements:** a loadable certificate and key (`-cert`/`-key`,
   default `cert.pem`/`key.pem`), because the room always opens a WebTransport
   listener and exits if it can't. A WebSocket-only room needs a small change
@@ -315,7 +321,8 @@ The lobby on its own, idle, uses about 35 MB RSS [measured].
   with the VM in place of the Mac: open UDP 4433–4443 and the WebSocket TCP
   port, a DNS-only `mp` record, a Let's Encrypt certificate by DNS-01,
   `deno task lobby` under systemd. A second, proxied hostname can carry the
-  WebSocket lobby through Cloudflare. Copy only `static/pak0.pak`.
+  WebSocket lobby through Cloudflare. Copy no id data, shareware included, or
+  other commercial data to it: `deno task fetch-data` fetches LibreQuake.
 - **Latency:** direct UDP from players to a London or Frankfurt VM, the best of
   the three [unverified].
 
@@ -348,7 +355,7 @@ Each step is its own PR against `dev`, except where noted. (Registering `noexit`
 in rooms, once listed here, is done; see "Level changes" above.)
 
 1. **Paid spike (needs your go-ahead: Workers Paid, $5/month).** Deploy one
-   container running a room with the shareware pak and a Worker that proxies
+   container running a room with LibreQuake and a Worker that proxies
    `/room/<id>` WebSocket upgrades to it. Settle what the docs don't say:
    - whether each proxied WebSocket message is billed as a DO request
      (Cloudflare dashboard metrics after a 4-bot run of `tools/room_bench.js`
@@ -359,11 +366,12 @@ in rooms, once listed here, is done; see "Level changes" above.)
    - that an open WebSocket keeps the container running past its inactivity
      timeout.
 2. **Container image** (`server/Dockerfile`, new): a pinned Deno image, then
-   `COPY` an explicit allowlist: `deno.json`, `server/`, `src/` and
-   `static/pak0.pak`. Never `COPY static/` whole: registered and rerelease data
-   must not reach Cloudflare's registry. Add a `.dockerignore` that excludes
-   everything except the allowlist as a second guard, and a CI check that fails
-   if the image contains any other `.pak`. _Done: `server/Dockerfile`, the root
+   `COPY` an explicit allowlist: `deno.json`, `server/`, `src/` and LibreQuake's
+   two paks, loose maps and licence texts, which a first build stage fetches.
+   Never `COPY static/` whole: registered and rerelease data must not reach
+   Cloudflare's registry. Add a `.dockerignore` that excludes everything except
+   the allowlist as a second guard, and a CI check that fails if the image
+   contains any other `.pak`. _Done: `server/Dockerfile`, the root
    `.dockerignore` and `tools/check_container_image.sh`
    (`deno task image-check`), which CI runs._
 3. **WebSocket-only rooms** (`server/game_server.js`): make the WebTransport

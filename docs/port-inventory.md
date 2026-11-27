@@ -72,6 +72,11 @@ were checked against the C source, with file and line.
 
 For those, use `port-review.md`.
 
+- Since those tables (checked at `dev` `991c6e2`, 2026-11-27, not regenerated):
+  #249, #255, #258, #262, #263, #269 and #272 added or changed builtins, cvars,
+  key names and limits (see "Since then" in [`port-review.md`](port-review.md)).
+  Counts and rows may not reflect them.
+
 ## Counts (core files)
 
 | Kind      | Total | Matched | Not matched | (a) | (b) | (c) |
@@ -221,7 +226,8 @@ JS line numbers point at the named code in the current tree, except those marked
   `scr_vrect`, during demos too, and doesn't read `cl_crossx`/`cl_crossy`. Their
   Crosshair X/Y rows left the Advanced Options page. Two FitzQuake/Ironwail
   deviations stay, commented there: the glyph is centred on that point (C puts
-  its top-left corner there), and it is hidden during intermission.
+  its top-left corner there), and it is hidden during intermission. #263 added
+  `scr_crosshairscale`.
 
 ### G6 · 2D UI scale differs from GLQuake's 640-wide console — **low-medium**
 
@@ -357,7 +363,8 @@ All (a):
     `src/in_web.js`, with six of Ironwail's tuning cvars instead
     (`joy_deadzone_move`/`_look`, `joy_outer_threshold_move`/`_look`,
     `joy_exponent` and `joy_exponent_move`) and its rumble strength cvar,
-    `joy_rumble` (`src/in_web.js:703-745`, at `8474098`).
+    `joy_rumble` (`src/in_web.js:703-745`, at `8474098`). #263 added
+    `joy_enable`.
   - `in_rawmouse` (web-only, off by default) asks pointer lock for
     `unadjustedMovement`, i.e. mouse input without OS acceleration.
   - `m_filter` is ported.

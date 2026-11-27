@@ -7,6 +7,23 @@ below was checked against code unless marked **[unverified]**.
 Run: `tools/bench/net_bench.js -clients 4` and
 `tools/room_bench.js -map e1m1 -bots 4 -seconds 20` (localhost only).
 
+## Status
+
+Checked at `dev` `991c6e2` (2026-11-27). The rest of this file is the older
+snapshot.
+
+- S1 is fixed (#258): a remote host's `stuffcmd` runs only the commands in
+  `cmd_server_allowed` (`src/cmd.js`), which differs from the list recommended
+  below, and the cvars it changes are not saved and are restored on disconnect.
+  Only the player's own local server is trusted, and demos aren't. Not tried in
+  a live room. The threat model's "Malicious host" row is now gated by this.
+- Netcode, reconnect: browser-hosted rooms are retried too (#239).
+- S2: `touch.js` takes a screen wake lock while touch play is on (it did at the
+  audit's revision too). Nothing handles a hidden host tab.
+- S8 and S9: the service worker caches no pak, and the client build denies every
+  pak, so the shareware SHA-256 pin is gone (#270). The CSP nonce merged (#238).
+- The URL config design isn't built. The other findings weren't rechecked.
+
 ## Summary
 
 The transport work is in good shape: WebRTC unreliable channels, packet caps,
