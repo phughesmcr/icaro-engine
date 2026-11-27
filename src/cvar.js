@@ -138,6 +138,13 @@ export function Cvar_SetCompletion(variable, func) {
 // the entry, so the player's own value is saved as usual.
 const cvar_server_saved = new Map();
 
+// Web-only: the cvars a URL parameter set for this page load (main.js,
+// ?cfg.<cvar>= in url_config.js), each with the player's value from before.
+// As with a server's value, the URL's value is used but never saved, and a
+// change by the player drops the entry. Unlike a server's, it stays after a
+// disconnect: it lasts until the page is closed.
+const cvar_url_saved = new Map();
+
 /** Web-only: puts back every cvar a remote server changed (CL_Disconnect) */
 export function Cvar_RestoreServerChanges() {
   for (const [name, string] of cvar_server_saved) {
@@ -166,6 +173,7 @@ export function Cvar_Set(var_name, value) {
     }
   } else {
     cvar_server_saved.delete(_var.name);
+    cvar_url_saved.delete(_var.name);
   }
 
   _var.string = value;
@@ -183,6 +191,28 @@ export function Cvar_Set(var_name, value) {
   if (_var.archive && changed && fromServer === false) {
     Cvar_SaveToStorage(_var);
   }
+}
+
+/**
+ * Web-only: sets a cvar for this page load without saving it (a URL
+ * parameter's value; see cvar_url_saved). The saved config keeps the value
+ * the cvar had before, until the player changes the cvar themselves.
+ */
+export function Cvar_SetTransient(var_name, value) {
+  const _var = Cvar_FindVar(var_name);
+  if (_var === null) {
+    Con_Printf("Cvar_SetTransient: variable " + var_name + " not found\n");
+    return;
+  }
+
+  if (cvar_url_saved.has(_var.name) === false) {
+    // a remote server's change is not the player's value either
+    const server = cvar_server_saved.get(_var.name);
+    cvar_url_saved.set(_var.name, server === undefined ? _var.string : server);
+  }
+  cvar_server_saved.delete(_var.name);
+  _var.string = value;
+  _var.value = Q_atof(_var.string);
 }
 
 export function Cvar_SetValue(var_name, value) {
@@ -371,8 +401,11 @@ export function Cvar_WriteVariables() {
       const prefix = _var.userdefined === true || _var.seta === true ?
         "seta " :
         "";
-      // a remote server's value is not saved (Cvar_RestoreServerChanges)
-      const saved = cvar_server_saved.get(_var.name);
+      // neither a URL's value (Cvar_SetTransient) nor a remote server's
+      // (Cvar_RestoreServerChanges) is saved. The URL's map comes first: a
+      // server change after it recorded the URL's value as the old one.
+      const saved = cvar_url_saved.get(_var.name) ??
+        cvar_server_saved.get(_var.name);
       const string = saved === undefined ? _var.string : saved;
       lines.push(prefix + _var.name + ' "' + string + '"\n');
     }

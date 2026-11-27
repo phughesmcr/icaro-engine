@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { Sys_Printf } from "./sys.js";
 import { Con_Printf } from "./console.js";
 import { Cvar_RegisterVariable } from "./cvar.js";
+import { URLCfg_PixelRatio, URLCfg_RenderScale } from "./url_config.js";
 
 // vid.h constants
 export const VID_CBITS = 6;
@@ -127,14 +128,9 @@ export function VID_IsTouchPrimary(match) {
 }
 
 // Returns the ?dpr= override: a number, 'native', or null when absent/invalid.
+// The URL is read in url_config.js.
 export function VID_ParsePixelRatio(search) {
-  const raw = new URLSearchParams(search).get("dpr");
-  if (raw === null) return null;
-  if (raw.toLowerCase() === "native") return "native";
-  if (raw.trim() === "") return null;
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value <= 0) return null;
-  return Math.min(4, Math.max(0.5, value));
+  return URLCfg_PixelRatio(new URLSearchParams(search));
 }
 
 // vid_dprcap (web-only, no Quake counterpart; set by the vid_quality presets
@@ -238,10 +234,9 @@ export function VID_SetDynamicScale(scale) {
   renderer.setPixelRatio(VID_GetPixelRatio() * vid_renderscale);
 }
 
+// The ?scale= render scale, read in url_config.js
 export function VID_ParseRenderScale(search) {
-  const value = parseFloat(new URLSearchParams(search).get("scale"));
-  if (!Number.isFinite(value)) return 1;
-  return Math.min(1, Math.max(0.25, value));
+  return URLCfg_RenderScale(new URLSearchParams(search));
 }
 
 // VID_Init
