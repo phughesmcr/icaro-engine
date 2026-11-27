@@ -1,7 +1,8 @@
 # Icaro protocol design
 
-Status: design only. Nothing here is built. Icaro citations are `file:line` on
-`dev` at `bbcb183` (2026-11-26).
+Status: migration steps 1 to 3 are built (PRs #274, #278 and #288); steps 4 to 6
+are design only. Icaro citations are `file:line` on `dev` at `bbcb183`
+(2026-11-26), before step 1, so "Where Icaro is now" describes that commit.
 
 Reference sources were read at pinned commits. Their citations are
 `repo/path:line` at these commits:
