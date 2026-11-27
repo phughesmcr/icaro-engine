@@ -72,6 +72,8 @@ Deno.test("god, notarget and give follow Ironwail on shareware start", async () 
     c.message.maxsize = c.msgbuf.length;
     c.message.allowoverflow = true;
     c.edict = progs.EDICT_NUM(1);
+    // not a guest (Host_ClientIsGuest): guests get no cheats
+    c.privileged = true;
     server.set_host_client(c);
     sv_phys.SV_SetPlayer(c.edict);
     const v = c.edict.v;
@@ -108,6 +110,7 @@ Deno.test("god, notarget and give follow Ironwail on shareware start", async () 
       assertEqual(has(sv_phys.FL_GODMODE), false, "deathmatch blocks god");
     } finally {
       pr_global_struct.deathmatch = oldDeathmatch;
+      c.privileged = true;
     }
 
     run("notarget 1");

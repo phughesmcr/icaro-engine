@@ -459,6 +459,15 @@ export function Cmd_ExecuteString(text, src) {
     cmd = cmd.next;
   }
 
+  // QuakeSpasm (cmd.c Cmd_ExecuteString): a client's command never runs an
+  // alias or sets a cvar. id's C does both, so a guest whose line passed
+  // SV_ClientCommandAllowed's prefix check ("say..." or "ban", which is no
+  // command) could run the host's alias with the host's powers.
+  if (src === src_client) {
+    Con_DPrintf("Client tried to %s\n", text);
+    return;
+  }
+
   // check alias
   let a = cmd_server_text === true ? null : cmd_alias;
   while (a) {
