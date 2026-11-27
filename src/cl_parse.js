@@ -73,6 +73,10 @@ import {
   DEFAULT_SOUND_PACKET_VOLUME,
   DEFAULT_VIEWHEIGHT,
   ENTALPHA_DEFAULT,
+  ICAP_REQUIRED_KNOWN,
+  ICARO_GAME_QUAKE,
+  ICARO_HELLO_MARKER,
+  ICARO_REVISION,
   MAX_PACKET_ENTITIES,
   PE_ALPHA,
   PE_ANGLE1,
@@ -146,22 +150,27 @@ import {
   svc_cutscene,
   svc_damage,
   svc_deltapacketentities,
+  svc_deltapacketentities_rev0,
   svc_disconnect,
   svc_finale,
   svc_fog,
   svc_foundsecret,
+  svc_icaro_ext,
   svc_intermission,
   svc_killedmonster,
   svc_lightstyle,
   svc_localsound,
   svc_nop,
   svc_packetentities,
+  svc_packetentities_rev0,
   svc_particle,
   svc_playerinfo,
+  svc_playerinfo_rev0,
   svc_print,
   svc_sellscreen,
   svc_serverinfo,
   svc_serversequence,
+  svc_serversequence_rev0,
   svc_setangle,
   svc_setpause,
   svc_setview,
@@ -494,6 +503,53 @@ export function CL_KeepaliveMessage() {
   SZ_Clear(cls.message);
 }
 
+/**
+ * Reads the rest of PROTOCOL_ICARO's versioned hello after the marker
+ * (protocol.js) into cl_icaro, and returns its revision. A revision, game
+ * profile or required capability bit this client can't read is a Host_Error
+ * that names it. Unknown optional bits are kept but don't matter: they only
+ * gate svc_icaro_ext ids, which the client skips.
+ */
+function CL_ParseIcaroHello() {
+  const revision = MSG_ReadShort();
+  if (revision < 1 || CL_FindReader(PROTOCOL_ICARO, revision) === null) {
+    Host_Error(
+      "Server uses Icaro revision " + revision + ", not " + ICARO_REVISION +
+        ". Update the client.",
+    );
+  }
+
+  const game = MSG_ReadString();
+  if (game !== ICARO_GAME_QUAKE) {
+    Host_Error("This client can't play " + game);
+  }
+  cl_icaro.game = game;
+
+  let missing = "";
+  const nreq = MSG_ReadByte();
+  for (let w = 0; w < nreq; w++) {
+    const word = MSG_ReadLong() >>> 0;
+    cl_icaro.required.push(word);
+    const known = w < ICAP_REQUIRED_KNOWN.length ? ICAP_REQUIRED_KNOWN[w] : 0;
+    const unknown = (word & ~known) >>> 0;
+    if (unknown !== 0) {
+      missing += (missing.length > 0 ? ", " : "") + w + ":0x" +
+        unknown.toString(16).padStart(8, "0");
+    }
+  }
+  const nopt = MSG_ReadByte();
+  for (let w = 0; w < nopt; w++) {
+    cl_icaro.optional.push(MSG_ReadLong() >>> 0);
+  }
+  if (missing.length > 0) {
+    Host_Error(
+      "Server uses Icaro features this client lacks (required " + missing +
+        "). Update the client.",
+    );
+  }
+  return revision;
+}
+
 export function CL_ParseServerInfo() {
   Con_DPrintf("Serverinfo packet received.\n");
 
@@ -507,13 +563,18 @@ export function CL_ParseServerInfo() {
   // Fitz/Ironwail accept several protocols; Icaro accepts NetQuake 15 (the
   // shareware attract demos) and its own PROTOCOL_ICARO (protocol.js)
   let i = MSG_ReadLong();
-  if (CL_FindReader(i) === null) {
+  if (CL_FindReader(i, ICARO_REVISION) === null) {
     Host_Error(
       "Server returned version " + i + ", not " + CL_SUPPORTED_PROTOCOLS,
     );
   }
 
   let protocolflags = 0;
+  let revision = ICARO_REVISION;
+  let legacyMaxclients = null;
+  cl_icaro.game = ICARO_GAME_QUAKE;
+  cl_icaro.required.length = 0;
+  cl_icaro.optional.length = 0;
   if (i === PROTOCOL_RMQ) {
     // mh - read protocol flags from server so that we know what protocol
     // features to expect
@@ -524,11 +585,22 @@ export function CL_ParseServerInfo() {
         protocolflags,
       );
     }
+  } else if (i === PROTOCOL_ICARO) {
+    // Not in C: the versioned hello (protocol.js). A byte of 1 or more where
+    // the 0 marker goes is maxclients from a revision 0 stream: an Icaro demo
+    // recorded before the hello.
+    const marker = MSG_ReadByte();
+    if (marker === ICARO_HELLO_MARKER) {
+      revision = CL_ParseIcaroHello();
+    } else {
+      revision = 0;
+      legacyMaxclients = marker;
+    }
   }
-  CL_SetProtocol(i, protocolflags);
+  CL_SetProtocol(i, protocolflags, revision);
 
   // parse maxclients
-  cl.maxclients = MSG_ReadByte();
+  cl.maxclients = legacyMaxclients !== null ? legacyMaxclients : MSG_ReadByte();
   if (cl.maxclients < 1 || cl.maxclients > MAX_SCOREBOARD) {
     Host_Error("Bad maxclients (" + cl.maxclients + ") from server");
   }
@@ -1876,11 +1948,31 @@ function CL_Parse_svc_clientdata_icaro(_cmd) {
 
 function CL_Parse_svc_version(_cmd) {
   const i = MSG_ReadLong();
-  // Ironwail: accept any supported protocol and switch to it
-  if (CL_SetProtocol(i, cl_protocolflags) === false) {
+  // Ironwail: accept any supported protocol and switch to it. Not in C: a
+  // 1015 stream keeps its revision (there is no hello to change it), and a
+  // switch to 1015 from another protocol gets the current one.
+  const revision = i === PROTOCOL_ICARO && cl.protocol === PROTOCOL_ICARO ?
+    cl_icaro.revision :
+    ICARO_REVISION;
+  if (CL_SetProtocol(i, cl_protocolflags, revision) === false) {
     Host_Error(
       "CL_ParseServerMessage: Server is protocol " + i + " instead of " +
         CL_SUPPORTED_PROTOCOLS,
+    );
+  }
+}
+
+/**
+ * svc_version under PROTOCOL_ICARO revision 1 and up
+ * (docs/protocol-design.md, "Versioning rules", rule 10): it must name 1015,
+ * and changes neither the revision nor the game profile.
+ */
+function CL_Parse_svc_version_icaro(_cmd) {
+  const i = MSG_ReadLong();
+  if (i !== PROTOCOL_ICARO) {
+    Host_Error(
+      "CL_ParseServerMessage: Server is protocol " + i + " instead of " +
+        PROTOCOL_ICARO,
     );
   }
 }
@@ -2123,6 +2215,25 @@ function CL_Parse_svc_deltapacketentities(_cmd) {
   CL_ParsePacketEntities(true);
 }
 
+/**
+ * svc_icaro_ext (protocol.js): an optional extension. Revision 1 defines no
+ * ids, so each one is skipped by its length; a handler for a known id will
+ * run first, and what it leaves of the length is skipped after it. A length
+ * past the end of the message is a Host_Error.
+ */
+function CL_Parse_svc_icaro_ext(_cmd) {
+  const id = MSG_ReadShort() & 0xffff;
+  const length = MSG_ReadShort() & 0xffff;
+  if (msg_badread === true || msg_readcount + length > net_message.cursize) {
+    Host_Error(
+      "CL_ParseServerMessage: svc_icaro_ext " + id + " overruns the message",
+    );
+  }
+  for (let i = 0; i < length; i++) {
+    MSG_ReadByte();
+  }
+}
+
 // used by the 2021 re-release (Ironwail cl_parse.c). Ironwail hands the id
 // to Steam; there are no achievements here.
 function CL_Parse_svc_achievement(_cmd) {
@@ -2225,7 +2336,7 @@ function CL_SetCoordModesIcaro(_flags) {
 
 /**
  * NetQuake 15 (id's demos): id's layouts, short coordinates. It has none of
- * Icaro's own svcs (42 and 47 to 49), which a protocol 15 stream never holds.
+ * Icaro's own svcs, which a protocol 15 stream never holds.
  */
 const cl_reader_netquake = {
   protocol: PROTOCOL_VERSION,
@@ -2272,25 +2383,55 @@ const cl_reader_rmq = {
   handlers: cl_handlers_fitz,
 };
 
-/**
- * PROTOCOL_ICARO: the wide layouts in protocol.js, svc_playerinfo and the
- * packet entities. It keeps id's fast updates, which Icaro's server never
- * sends (docs/protocol-design.md step 3 may drop them).
- */
-const cl_reader_icaro = {
-  protocol: PROTOCOL_ICARO,
-  setmodes: CL_SetCoordModesIcaro,
-  handlers: CL_BuildHandlers([
+/** PROTOCOL_ICARO's wide layouts (protocol.js), in every revision */
+function CL_IcaroHandlers() {
+  return [
     ...CL_SharedHandlers(),
     [svc_clientdata, CL_Parse_svc_clientdata_icaro],
     [svc_spawnbaseline, CL_Parse_svc_spawnbaseline_icaro],
     [svc_spawnstatic, CL_Parse_svc_spawnstatic_icaro],
     [svc_spawnstaticsound, CL_Parse_svc_spawnstaticsound_icaro],
+  ];
+}
+
+/**
+ * PROTOCOL_ICARO revision 0, for Icaro demos recorded before the versioned
+ * hello: svc_playerinfo and the packet entities at their old numbers (42 and
+ * 47 to 49), Ironwail's svc_version and id's fast updates, as that client
+ * read them.
+ */
+const cl_reader_icaro_rev0 = {
+  protocol: PROTOCOL_ICARO,
+  revision: 0,
+  setmodes: CL_SetCoordModesIcaro,
+  handlers: CL_BuildHandlers([
+    ...CL_IcaroHandlers(),
+    [svc_playerinfo_rev0, CL_Parse_svc_playerinfo],
+    [svc_packetentities_rev0, CL_Parse_svc_packetentities],
+    [svc_deltapacketentities_rev0, CL_Parse_svc_deltapacketentities],
+    [svc_serversequence_rev0, CL_Parse_svc_serversequence],
+  ], CL_ParseFastUpdate),
+};
+
+/**
+ * PROTOCOL_ICARO revision 1, the one the server sends: Icaro's svcs in the
+ * engine layer (96 to 127, protocol.js), with the svc_icaro_ext escape. The
+ * server never sends fast updates, so 128 to 255 are illegible
+ * (docs/protocol-design.md, "Two layers").
+ */
+const cl_reader_icaro = {
+  protocol: PROTOCOL_ICARO,
+  revision: 1,
+  setmodes: CL_SetCoordModesIcaro,
+  handlers: CL_BuildHandlers([
+    ...CL_IcaroHandlers(),
+    [svc_version, CL_Parse_svc_version_icaro],
     [svc_playerinfo, CL_Parse_svc_playerinfo],
     [svc_packetentities, CL_Parse_svc_packetentities],
     [svc_deltapacketentities, CL_Parse_svc_deltapacketentities],
     [svc_serversequence, CL_Parse_svc_serversequence],
-  ], CL_ParseFastUpdate),
+    [svc_icaro_ext, CL_Parse_svc_icaro_ext],
+  ], CL_ParseIllegible),
 };
 
 /** The protocols CL_FindReader knows, for error messages */
@@ -2301,8 +2442,11 @@ const CL_SUPPORTED_PROTOCOLS = PROTOCOL_VERSION + ", " + PROTOCOL_FITZQUAKE +
 const PRFL_SUPPORTED = PRFL_SHORTANGLE | PRFL_FLOATANGLE | PRFL_24BITCOORD |
   PRFL_FLOATCOORD | PRFL_EDICTSCALE | PRFL_INT32COORD;
 
-/** The reader for a protocol number, or null if the client can't read it */
-function CL_FindReader(protocol) {
+/**
+ * The reader for a protocol number and, under PROTOCOL_ICARO, a revision, or
+ * null if the client can't read it
+ */
+function CL_FindReader(protocol, revision) {
   switch (protocol) {
     case PROTOCOL_VERSION:
       return cl_reader_netquake;
@@ -2311,7 +2455,14 @@ function CL_FindReader(protocol) {
     case PROTOCOL_RMQ:
       return cl_reader_rmq;
     case PROTOCOL_ICARO:
-      return cl_reader_icaro;
+      switch (revision) {
+        case 0:
+          return cl_reader_icaro_rev0;
+        case 1:
+          return cl_reader_icaro;
+        default:
+          return null;
+      }
     default:
       return null;
   }
@@ -2326,20 +2477,37 @@ let cl_reader = cl_reader_icaro;
 let cl_protocolflags = 0;
 
 /**
- * Selects the reader for `protocol` with the protocol flags `flags`, and
- * sets cl.protocol and the coordinate and angle modes. Returns false, and
- * changes nothing, if the client can't read the protocol.
+ * What the last PROTOCOL_ICARO hello declared (protocol.js): the revision,
+ * the game profile id, and the required and optional capability words
+ * (unsigned, word 0 first). Meaningful while cl.protocol is PROTOCOL_ICARO;
+ * revision 0 streams have no words.
+ */
+export const cl_icaro = {
+  revision: ICARO_REVISION,
+  game: ICARO_GAME_QUAKE,
+  required: [],
+  optional: [],
+};
+
+/**
+ * Selects the reader for `protocol` with the protocol flags `flags` (and,
+ * under PROTOCOL_ICARO, `revision`, by default the one the server sends),
+ * and sets cl.protocol and the coordinate and angle modes. Returns false,
+ * and changes nothing, if the client can't read the protocol.
  * svc_serverinfo and svc_version call it; tests and tools call it to read a
  * message without either.
  */
-export function CL_SetProtocol(protocol, flags) {
-  const reader = CL_FindReader(protocol);
+export function CL_SetProtocol(protocol, flags, revision = ICARO_REVISION) {
+  const reader = CL_FindReader(protocol, revision);
   if (reader === null) {
     return false;
   }
   cl.protocol = protocol;
   cl_protocolflags = flags;
   cl_reader = reader;
+  if (protocol === PROTOCOL_ICARO) {
+    cl_icaro.revision = revision;
+  }
   reader.setmodes(flags);
   return true;
 }

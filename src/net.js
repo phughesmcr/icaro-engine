@@ -279,7 +279,9 @@ export const WT_PACKET_HEADER_BYTES = 9; // [magic:u8][sequence:u32][acknowledge
 // checks it).
 export const WT_MAX_FRAME_PAYLOAD = NET_MAXMESSAGE + WT_PACKET_HEADER_BYTES;
 
-export const WT_PROTOCOL_VERSION = 1;
+// Bumped with every PROTOCOL_ICARO revision (protocol.js), so a stale client
+// is turned away here, before the hello: 2 is revision 1, the versioned hello.
+export const WT_PROTOCOL_VERSION = 2;
 export const WT_HANDSHAKE_ACCEPT = 0;
 export const WT_HANDSHAKE_REJECT = 1;
 const WT_HANDSHAKE_MAGIC = [0x49, 0x43, 0x41, 0x52, 0x4f]; // "ICARO"

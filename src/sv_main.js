@@ -53,6 +53,9 @@ import {
   ENTALPHA_ZERO,
   GAME_COOP,
   GAME_DEATHMATCH,
+  ICARO_GAME_QUAKE,
+  ICARO_HELLO_MARKER,
+  ICARO_REVISION,
   MAX_PACKET_ENTITIES,
   PE_ALPHA,
   PE_ANGLE1,
@@ -574,6 +577,13 @@ export function SV_SendServerinfo(client) {
 
   MSG_WriteByte(client.message, svc_serverinfo);
   MSG_WriteLong(client.message, PROTOCOL_ICARO); // C: PROTOCOL_VERSION (see protocol.js)
+  // Not in C: the versioned hello (protocol.js). A client from before it
+  // reads the marker as maxclients and stops with "Bad maxclients (0)".
+  MSG_WriteByte(client.message, ICARO_HELLO_MARKER);
+  MSG_WriteShort(client.message, ICARO_REVISION);
+  MSG_WriteString(client.message, ICARO_GAME_QUAKE);
+  MSG_WriteByte(client.message, 0); // required capability words: none in use
+  MSG_WriteByte(client.message, 0); // optional capability words: none in use
   MSG_WriteByte(client.message, svs.maxclients);
 
   if (!coop.value && deathmatch.value) {
