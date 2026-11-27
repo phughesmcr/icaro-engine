@@ -359,6 +359,24 @@ export function URLCfg_RenderScale(params) {
 }
 
 /**
+ * What a ?game= value (null when absent) asks for: { dir, mission } as
+ * URLCfg_Parse's game, or null when it is absent or not a name a link may
+ * use. The intro page (src/intro.js) reads ?game= through this too.
+ */
+export function URLCfg_Game(gameArg) {
+  if (gameArg === null) return null;
+  // Mission packs match in any case, as in QuakeSpasm's q_strcasecmp
+  const mission = gameArg.toLowerCase();
+  if (URLCFG_MISSION_PACKS.includes(mission)) {
+    return Object.freeze({ dir: mission, mission: true });
+  }
+  if (COM_GameDirIsValid(gameArg)) {
+    return Object.freeze({ dir: gameArg, mission: false });
+  }
+  return null;
+}
+
+/**
  * Reads the page's URL parameters (search is location.search or a
  * URLSearchParams). Returns a frozen object:
  * - game: { dir, mission } or null. mission is true for -rogue, -hipnotic
@@ -379,14 +397,8 @@ export function URLCfg_Parse(search) {
   const messages = [];
 
   const gameArg = params.get("game");
-  let game = null;
-  // Mission packs match in any case, as in QuakeSpasm's q_strcasecmp
-  const mission = gameArg !== null ? gameArg.toLowerCase() : null;
-  if (URLCFG_MISSION_PACKS.includes(mission)) {
-    game = Object.freeze({ dir: mission, mission: true });
-  } else if (COM_GameDirIsValid(gameArg)) {
-    game = Object.freeze({ dir: gameArg, mission: false });
-  } else if (gameArg !== null) {
+  const game = URLCfg_Game(gameArg);
+  if (game === null && gameArg !== null) {
     messages.push(
       'Ignoring game "' + gameArg.slice(0, URLCFG_MAX_VALUE_LENGTH) +
         '" (expected a directory name: up to 32 letters, digits, _ and -,' +

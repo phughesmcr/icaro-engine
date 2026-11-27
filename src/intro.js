@@ -21,6 +21,7 @@ import {
   LQ_Installed,
   LQ_RELEASES,
 } from "./librequake.js";
+import { URLCfg_Game } from "./url_config.js";
 import {
   UD_CHOICE_KEY,
   UD_OpenStore,
@@ -31,10 +32,10 @@ import {
 /** localStorage key set once a person has pressed Play on this device. */
 export const INTRO_PLAYED_KEY = "icaro_played";
 
-// URL parameters that name content needing id's data: mission packs and
-// add-ons (?game). Lobby rooms (?room) and links to a map (?map, as agents
-// use) start LibreQuake, which the rooms run.
-const INTRO_ID1_PARAMS = ["game"];
+// A link names content needing id's data with ?game= (mission packs and
+// add-ons), read through url_config.js as main.js reads it: a name it
+// ignores (?game=../x) asks for nothing here either. Lobby rooms (?room) and
+// links to a map (?map, as agents use) start LibreQuake, which the rooms run.
 
 // The hosts Intro_LocalPaks asks: this machine, as location.hostname writes
 // it. Not *.localhost or LAN addresses.
@@ -103,7 +104,7 @@ const INTRO_GAME_LABELS = {
 export function Intro_Want(params, choice, id1 = false) {
   const base = params.get("base");
   if (base !== null && base !== "id1") return { base, named: true };
-  if (base === "id1" || INTRO_ID1_PARAMS.some((p) => params.has(p))) {
+  if (base === "id1" || URLCfg_Game(params.get("game")) !== null) {
     if (id1) return { base: null, named: true, missing: false };
     return { base: "librequake", named: true, missing: true };
   }
@@ -131,16 +132,16 @@ export function Intro_Decide({ params, played, choice, installed, id1 }) {
 
 /** What a URL that names its content starts, in words. */
 export function Intro_Describe(params) {
-  const game = params.get("game");
+  const game = URLCfg_Game(params.get("game"));
+  const label = game !== null && Object.hasOwn(INTRO_GAME_LABELS, game.dir) ?
+    INTRO_GAME_LABELS[game.dir] :
+    null;
   const base = params.get("base");
   if (params.has("room")) return "a multiplayer game";
   if (base === "rerelease") {
-    return "Quake (2021 rerelease)" +
-      (Object.hasOwn(INTRO_GAME_LABELS, game) ?
-        ": " + INTRO_GAME_LABELS[game] :
-        "");
+    return "Quake (2021 rerelease)" + (label !== null ? ": " + label : "");
   }
-  if (Object.hasOwn(INTRO_GAME_LABELS, game)) return INTRO_GAME_LABELS[game];
+  if (label !== null) return label;
   if (base === "librequake" || params.has("map")) return "LibreQuake";
   return "Quake";
 }
