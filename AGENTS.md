@@ -67,9 +67,12 @@ process per room. It was forked from mrdoob's three-quake.
   MCP server (stdio, on the official MCP TypeScript SDK) on top of it that
   exposes `src/agent.js` as tools, so MCP clients can play headless
   (`deno task agent-mcp`; its header gives the `claude mcp add` line).
-  `server/Dockerfile` builds the game-room image from an allowlist (`deno.json`,
-  `server/`, `src/`, `static/pak0.pak`), with the root `.dockerignore` as a
-  second guard; never widen either to registered data (see Game data).
+  `server/Dockerfile` builds the game-room image from an allowlist, with the
+  root `.dockerignore` (`deno.json`, `deno.lock`, `server/`, `src/`,
+  `tools/fetch_data.js`) as a second guard: a first stage runs
+  `deno task fetch-data`, and the image gets only `deno.json`, `server/`, `src/`
+  and LibreQuake's two paks, loose maps and licence texts. Never widen either
+  allowlist to a pak or registered data (see Game data).
 - `cloudflare/lobby/`: the lobby Worker and Durable Object for rooms hosted in
   browsers, with TURN credentials and the Turnstile check (its README says how
   to deploy). `src/worker.js` imports `cloudflare:workers`, so tests run
@@ -122,23 +125,23 @@ process per room. It was forked from mrdoob's three-quake.
   `--verify <ref>` checks that no comment text was lost but the name lines of
   the banners it deleted. Not linted or run in CI. `check_container_image.sh`
   (`deno task image-check`, needs Docker) fails if the game-room image or its
-  build context holds any `.pak` but `static/pak0.pak`, or TLS or env files,
-  then starts a room in the image; CI runs it. `fetch_data.js`
-  (`deno task fetch-data`, see Commands) fetches LibreQuake for the tests and
-  servers; it is the one file in `tools/` that is linted and type-checked, and
-  CI runs it.
+  build context holds any `.pak`, the image any but LibreQuake's two or lacks
+  its licence texts, or either holds TLS or env files, then starts a room in the
+  image; CI runs it. `fetch_data.js` (`deno task fetch-data`, see Commands)
+  fetches LibreQuake for the tests and servers; it is the one file in `tools/`
+  that is linted and type-checked, and CI runs it.
 - `tools/bench/`: headless Deno benchmarks (not linted or run in CI). They use
-  pak0 by default; the server, build, model and net benchmarks also take
-  `-base rerelease` (and, except model, the game flags) to run on the gitignored
-  data. `server_bench.js` times map load, physics and QuakeC frames, and hull
-  traces (`-dedicated` measures the server's load path). Its checksum column
-  must not change: a different checksum means behaviour changed.
-  `build_bench.js` (map build), `model_bench.js` (alias and MD5 loads) and
-  `net_bench.js` (server send, client parse, prediction) print hashes or
-  checksums that must not change either. `load_bench.js`, `world_bench.js` and
-  `render_bench.js` cover cold model loads, the world's visibility pass, and
-  particles and the 2D layer. Each file's header gives its command. Compare
-  before and after on the same machine.
+  LibreQuake (`server/game_data.js`, `deno task fetch-data`) by default; the
+  server, build, model and net benchmarks also take `-base rerelease` (and,
+  except model, the game flags) to run on the gitignored data. `server_bench.js`
+  times map load, physics and QuakeC frames, and hull traces (`-dedicated`
+  measures the server's load path). Its checksum column must not change: a
+  different checksum means behaviour changed. `build_bench.js` (map build),
+  `model_bench.js` (alias and MD5 loads) and `net_bench.js` (server send, client
+  parse, prediction) print hashes or checksums that must not change either.
+  `load_bench.js`, `world_bench.js` and `render_bench.js` cover cold model
+  loads, the world's visibility pass, and particles and the 2D layer. Each
+  file's header gives its command. Compare before and after on the same machine.
 
 ## Commands
 
@@ -182,17 +185,17 @@ process per room. It was forked from mrdoob's three-quake.
   its security headers; run `deno task client-build` first) and `lobby`
   (`deno task lobby`: port 4433, the client's default, with rooms on 4434–4443;
   it needs the certs). To drive it as an agent, open
-  `?agent=lockstep&map=e1m1&skill=1`, press the intro page's Play button, and
+  `?agent=lockstep&map=lq_e1m1&skill=1`, press the intro page's Play button, and
   call `icaro.help()` in the page.
 - CI (`.github/workflows/ci.yml`) runs on PRs to `dev` and `main` and on pushes
-  to them: a check that no pak but `static/pak0.pak` is tracked, then
-  `deno fmt --check`, `deno task fetch-data` (the zip cached under its SHA-256),
-  test, lint and check, on the Deno version pinned in `.tool-versions`, and, in
-  a second job, `tools/check_container_image.sh`. The Dockerfile pins the same
-  Deno version: bump both together (`tests/deno_version_pin_test.js` fails if
-  they differ). Actions are pinned by SHA and Dependabot bumps them weekly.
-  Tests cover logic only: rendering, audio and touch changes need a browser
-  check. If you didn't do one, say so.
+  to them: a check that no pak is tracked, then `deno fmt --check`,
+  `deno task fetch-data` (the zip cached under its SHA-256), test, lint and
+  check, on the Deno version pinned in `.tool-versions`, and, in a second job,
+  `tools/check_container_image.sh`. The Dockerfile pins the same Deno version:
+  bump both together (`tests/deno_version_pin_test.js` fails if they differ).
+  Actions are pinned by SHA and Dependabot bumps them weekly. Tests cover logic
+  only: rendering, audio and touch changes need a browser check. If you didn't
+  do one, say so.
 
 ### Lint and format
 
@@ -316,24 +319,28 @@ first run, behind an introductory page so crawlers and bots never fetch pak
 data; it isn't committed. Retail and rerelease data are for compatibility
 testing only.
 
-`static/pak0.pak` is the shareware Episode 1 pak and is committed. Registered or
-commercial data (`static/pak1.pak`, and the mission packs in `static/hipnotic/`
-and `static/rogue/`, and the 2021 rerelease in `static/rerelease/`,
-`static/id1/` and `static/{mg1,mg3,dopa,ctf}/`) must **never** be committed or
-deployed publicly; `.gitignore` covers those paths and every `.pak` but
-`static/pak0.pak`, and CI fails if another pak is tracked. `.gitignore` also
-covers `static/music/`, a player's CD rips, which `sw.js` caches on the player's
-device for offline play (no other `music/` folder is cached). LibreQuake, the
-browser's default content, is never committed or deployed with the client
-either: its pinned release zips are uploaded unchanged to an R2 bucket
-(`cloudflare/librequake/`) and downloaded into the player's browser storage, and
-`static/librequake/` (a local copy for testing, and the release zips under
-`v0.09-beta/`) is gitignored and denied by the client build. The client loads a
-mission pack with `?game=hipnotic` or `?game=rogue`, a rerelease add-on with
-`?game=mg1` (etc.), the rerelease layout with `?base=rerelease`, LibreQuake with
-`?base=librequake` and id's data with `?base=id1`; the servers take `-hipnotic`,
-`-rogue` or `-game <dir>`. If the data isn't present, test that the shareware
-game is unchanged and list manual test steps in the PR.
+The repository tracks no pak. `deno task fetch-data` puts LibreQuake in
+`static/librequake/` for the tests, benchmarks and servers
+(`server/game_data.js` names it), and the game-room image fetches it while
+building. id's data, shareware included, and other commercial data (`static/`'s
+`pak0.pak` and `pak1.pak`, the mission packs in `static/hipnotic/` and
+`static/rogue/`, and the 2021 rerelease in `static/rerelease/`, `static/id1/`
+and `static/{mg1,mg3,dopa,ctf}/`) must **never** be committed or deployed
+publicly; `.gitignore` covers those paths and every `.pak`, and CI fails if any
+pak is tracked. `.gitignore` also covers `static/music/`, a player's CD rips,
+which `sw.js` caches on the player's device for offline play (no other `music/`
+folder is cached). LibreQuake, the browser's default content, is never committed
+or deployed with the client either: its pinned release zips are uploaded
+unchanged to an R2 bucket (`cloudflare/librequake/`) and downloaded into the
+player's browser storage, and `static/librequake/` (a local copy for testing,
+and the release zips under `v0.09-beta/`) is gitignored and denied by the client
+build. The client loads a mission pack with `?game=hipnotic` or `?game=rogue`, a
+rerelease add-on with `?game=mg1` (etc.), the rerelease layout with
+`?base=rerelease`, LibreQuake with `?base=librequake` and id's data with
+`?base=id1`; the servers take `-hipnotic`, `-rogue` or `-game <dir>`. A player's
+own id1 pak (Options, Game data) is offered only once stored, or, on a local
+development host, when served from `static/`. If the data isn't present, test
+that LibreQuake is unchanged and list manual test steps in the PR.
 
 ## Git workflow
 

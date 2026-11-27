@@ -18,9 +18,11 @@ The live server uses a two-tier multi-process architecture:
 
 - [Deno](https://deno.land/) with `--unstable-net` support (`Deno.QuicEndpoint`
   / `Deno.upgradeWebTransport`)
-- `pak0.pak` from Quake (shareware `static/pak0.pak` is included in the
-  repository). A registered `pak1.pak` next to it is loaded too (for
-  lobby-spawned rooms, only when it is under `static/`; see below).
+- Game data: `deno task fetch-data` (run once, with network) puts LibreQuake in
+  the gitignored `static/librequake/`, and the servers default to its
+  `id1/pak0.pak`. The repository holds no pak. `-pak` takes another `pak0.pak`,
+  such as your own copy of Quake's; any `pak1.pak`, `pak2.pak`, ... next to it
+  is loaded too (see below).
 - TLS certificates (required by WebTransport / HTTP/3)
 
 ## Quick Start
@@ -49,7 +51,7 @@ which runs:
 
 ```bash
 deno run '--allow-net=[::]:4433,0.0.0.0:4433,127.0.0.1:4433' --allow-read=static,server/cert.pem,server/key.pem --unstable-net \
-  server/game_server.js -cert server/cert.pem -key server/key.pem -pak static/pak0.pak -map start -wsport 4433
+  server/game_server.js -cert server/cert.pem -key server/key.pem -pak static/librequake/id1/pak0.pak -map start -wsport 4433
 ```
 
 `-wsport 4433` adds a plain `ws://127.0.0.1:4433` WebSocket listener (TCP)
@@ -73,7 +75,7 @@ which runs:
 deno run '--allow-net=[::]:4433,0.0.0.0:4433,127.0.0.1:4433,127.0.0.1:4434,127.0.0.1:4435,127.0.0.1:4436,127.0.0.1:4437,127.0.0.1:4438,127.0.0.1:4439,127.0.0.1:4440,127.0.0.1:4441,127.0.0.1:4442,127.0.0.1:4443,challenges.cloudflare.com:443' \
   --allow-read=server/cert.pem,server/key.pem --allow-run=deno \
   --allow-env=TURNSTILE_SITEKEY,TURNSTILE_SECRET,TURNSTILE_HOSTNAMES --unstable-net \
-  server/lobby_server.js -cert server/cert.pem -key server/key.pem -pak static/pak0.pak -wsport 4433
+  server/lobby_server.js -cert server/cert.pem -key server/key.pem -pak static/librequake/id1/pak0.pak -wsport 4433
 ```
 
 The lobby server listens on port `4433` and spawns `game_server.js` child
@@ -135,42 +137,42 @@ so the per-IP limits are unchanged for them.
 
 ### `lobby_server.js`
 
-| Option                | Default              | Description                                                                                                                                   |
-| --------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-port <port>`        | `4433`               | Lobby WebTransport port (rooms spawn on `4434`–`4443`)                                                                                        |
-| `-cert <path>`        | `cert.pem`           | TLS certificate file (forwarded to room servers)                                                                                              |
-| `-key <path>`         | `key.pem`            | TLS private key file (forwarded to room servers)                                                                                              |
-| `-pak <path>`         | `../static/pak0.pak` | Path to `pak0.pak` (forwarded to room servers)                                                                                                |
-| `-deno <path>`        | `Deno.execPath()`    | Deno binary used to spawn room servers                                                                                                        |
-| `-rogue`, `-hipnotic` | off                  | Mission pack for every room (forwarded to room servers)                                                                                       |
-| `-game <dir>`         | none                 | Game directory for every room, e.g. `mg1` (forwarded to room servers)                                                                         |
-| `-wsport <port>`      | off                  | Also serve WebSocket clients on this TCP port (`<prefix>/lobby` and `<prefix>/room/<id>`), and start rooms with a loopback WebSocket listener |
-| `-wshost <addr>`      | `127.0.0.1`          | WebSocket listen address. Keep the default behind a local proxy (cloudflared); the lobby only trusts `CF-Connecting-IP` from loopback peers   |
-| `-wstls`              | off                  | Serve `wss://` with `-cert`/`-key` instead of plain `ws://`                                                                                   |
+| Option                | Default                             | Description                                                                                                                                   |
+| --------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-port <port>`        | `4433`                              | Lobby WebTransport port (rooms spawn on `4434`–`4443`)                                                                                        |
+| `-cert <path>`        | `cert.pem`                          | TLS certificate file (forwarded to room servers)                                                                                              |
+| `-key <path>`         | `key.pem`                           | TLS private key file (forwarded to room servers)                                                                                              |
+| `-pak <path>`         | `../static/librequake/id1/pak0.pak` | Path to `pak0.pak` (forwarded to room servers)                                                                                                |
+| `-deno <path>`        | `Deno.execPath()`                   | Deno binary used to spawn room servers                                                                                                        |
+| `-rogue`, `-hipnotic` | off                                 | Mission pack for every room (forwarded to room servers)                                                                                       |
+| `-game <dir>`         | none                                | Game directory for every room, e.g. `mg1` (forwarded to room servers)                                                                         |
+| `-wsport <port>`      | off                                 | Also serve WebSocket clients on this TCP port (`<prefix>/lobby` and `<prefix>/room/<id>`), and start rooms with a loopback WebSocket listener |
+| `-wshost <addr>`      | `127.0.0.1`                         | WebSocket listen address. Keep the default behind a local proxy (cloudflared); the lobby only trusts `CF-Connecting-IP` from loopback peers   |
+| `-wstls`              | off                                 | Serve `wss://` with `-cert`/`-key` instead of plain `ws://`                                                                                   |
 
 ### `game_server.js`
 
-| Option                                                                            | Default              | Description                                                                                                                                                                                                                                                                                                                                                                       |
-| --------------------------------------------------------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-port <port>`                                                                    | `4433`               | WebTransport port                                                                                                                                                                                                                                                                                                                                                                 |
-| `-maxclients <num>`                                                               | `4`                  | Maximum players (clamped to 1–16)                                                                                                                                                                                                                                                                                                                                                 |
-| `-map <name>`                                                                     | `start`              | Starting map                                                                                                                                                                                                                                                                                                                                                                      |
-| `-pak <path>`                                                                     | `../static/pak0.pak` | Path to `pak0.pak`                                                                                                                                                                                                                                                                                                                                                                |
-| `-rogue`, `-hipnotic`                                                             | off                  | Mission pack, as WinQuake's flags: also loads `rogue/pak0.pak` or `hipnotic/pak0.pak` (and later paks) from the basedir, searched first. The basedir is the `-pak` file's directory, or its parent when that directory is `id1` (as in C and the 2021 rerelease, `-pak ../static/rerelease/id1/pak0.pak`). Browser clients must use the matching `?game=` (and `?base=rerelease`) |
-| `-game <dir>`                                                                     | none                 | The C `-game`: also loads `<basedir>/<dir>/pak0.pak` (and later paks), searched first, e.g. the rerelease's `mg1`. A single directory name only                                                                                                                                                                                                                                   |
-| `-coop <0\|1>`, `-teamplay <n>`, `-skill <n>`, `-fraglimit <n>`, `-timelimit <n>` | off (cvar defaults)  | The Game Options values the lobby forwards from a room request, set as cvars before the map spawns. Clamped to the menu's ranges (teamplay 0–2, or 0–6 with `-rogue`; skill 0–3; fraglimit 0–100; timelimit 0–60); only the options given are set. `-coop 1` turns `deathmatch` off                                                                                               |
-| `-cert <path>`                                                                    | `cert.pem`           | TLS certificate file                                                                                                                                                                                                                                                                                                                                                              |
-| `-key <path>`                                                                     | `key.pem`            | TLS private key file                                                                                                                                                                                                                                                                                                                                                              |
-| `-room <id>`                                                                      | `null`               | Room ID assigned by `lobby_server.js` (enables room idle-exit tracking)                                                                                                                                                                                                                                                                                                           |
-| `-direct`                                                                         | `false`              | Direct connection mode flag (no effect; kept for compatibility)                                                                                                                                                                                                                                                                                                                   |
-| `-idletimeout <sec>`                                                              | `300`                | Room mode: seconds with no players before the server exits, counted from startup or from when the last player left                                                                                                                                                                                                                                                                |
-| `-statusnonce <token>`                                                            | none                 | Room mode: emit `@@ICARO_STATUS <token> {...}` status lines on stdout for the lobby                                                                                                                                                                                                                                                                                               |
-| `-parentwatch`                                                                    | off                  | Exit when stdin closes. The lobby passes this so rooms exit when the lobby dies                                                                                                                                                                                                                                                                                                   |
-| `-wsport <port>`                                                                  | off                  | Also accept game clients over WebSocket on this TCP port. A room started by the lobby gets its own port here                                                                                                                                                                                                                                                                      |
-| `-wshost <addr>`                                                                  | `127.0.0.1`          | WebSocket listen address                                                                                                                                                                                                                                                                                                                                                          |
-| `-wstls`                                                                          | off                  | Serve `wss://` with `-cert`/`-key` instead of plain `ws://`                                                                                                                                                                                                                                                                                                                       |
-| `-nowt`                                                                           | off                  | No WebTransport listener: WebSocket only. Needs `-wsport`; without `-wstls` no cert or key is read and `--unstable-net` isn't needed. Not for rooms the lobby starts: it waits for the WebTransport listener's startup line (see [WebSocket-only rooms](#websocket-only-rooms))                                                                                                   |
-| `-trustproxy`                                                                     | off                  | Take the client's address from `CF-Connecting-IP`, then `?ip=`, whatever the peer, not only from loopback. Only for a listener that nothing but the proxy can reach (see [WebSocket-only rooms](#websocket-only-rooms))                                                                                                                                                           |
+| Option                                                                            | Default                             | Description                                                                                                                                                                                                                                                                                                                                                                       |
+| --------------------------------------------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-port <port>`                                                                    | `4433`                              | WebTransport port                                                                                                                                                                                                                                                                                                                                                                 |
+| `-maxclients <num>`                                                               | `4`                                 | Maximum players (clamped to 1–16)                                                                                                                                                                                                                                                                                                                                                 |
+| `-map <name>`                                                                     | `start`                             | Starting map                                                                                                                                                                                                                                                                                                                                                                      |
+| `-pak <path>`                                                                     | `../static/librequake/id1/pak0.pak` | Path to `pak0.pak`                                                                                                                                                                                                                                                                                                                                                                |
+| `-rogue`, `-hipnotic`                                                             | off                                 | Mission pack, as WinQuake's flags: also loads `rogue/pak0.pak` or `hipnotic/pak0.pak` (and later paks) from the basedir, searched first. The basedir is the `-pak` file's directory, or its parent when that directory is `id1` (as in C and the 2021 rerelease, `-pak ../static/rerelease/id1/pak0.pak`). Browser clients must use the matching `?game=` (and `?base=rerelease`) |
+| `-game <dir>`                                                                     | none                                | The C `-game`: also loads `<basedir>/<dir>/pak0.pak` (and later paks), searched first, e.g. the rerelease's `mg1`. A single directory name only                                                                                                                                                                                                                                   |
+| `-coop <0\|1>`, `-teamplay <n>`, `-skill <n>`, `-fraglimit <n>`, `-timelimit <n>` | off (cvar defaults)                 | The Game Options values the lobby forwards from a room request, set as cvars before the map spawns. Clamped to the menu's ranges (teamplay 0–2, or 0–6 with `-rogue`; skill 0–3; fraglimit 0–100; timelimit 0–60); only the options given are set. `-coop 1` turns `deathmatch` off                                                                                               |
+| `-cert <path>`                                                                    | `cert.pem`                          | TLS certificate file                                                                                                                                                                                                                                                                                                                                                              |
+| `-key <path>`                                                                     | `key.pem`                           | TLS private key file                                                                                                                                                                                                                                                                                                                                                              |
+| `-room <id>`                                                                      | `null`                              | Room ID assigned by `lobby_server.js` (enables room idle-exit tracking)                                                                                                                                                                                                                                                                                                           |
+| `-direct`                                                                         | `false`                             | Direct connection mode flag (no effect; kept for compatibility)                                                                                                                                                                                                                                                                                                                   |
+| `-idletimeout <sec>`                                                              | `300`                               | Room mode: seconds with no players before the server exits, counted from startup or from when the last player left                                                                                                                                                                                                                                                                |
+| `-statusnonce <token>`                                                            | none                                | Room mode: emit `@@ICARO_STATUS <token> {...}` status lines on stdout for the lobby                                                                                                                                                                                                                                                                                               |
+| `-parentwatch`                                                                    | off                                 | Exit when stdin closes. The lobby passes this so rooms exit when the lobby dies                                                                                                                                                                                                                                                                                                   |
+| `-wsport <port>`                                                                  | off                                 | Also accept game clients over WebSocket on this TCP port. A room started by the lobby gets its own port here                                                                                                                                                                                                                                                                      |
+| `-wshost <addr>`                                                                  | `127.0.0.1`                         | WebSocket listen address                                                                                                                                                                                                                                                                                                                                                          |
+| `-wstls`                                                                          | off                                 | Serve `wss://` with `-cert`/`-key` instead of plain `ws://`                                                                                                                                                                                                                                                                                                                       |
+| `-nowt`                                                                           | off                                 | No WebTransport listener: WebSocket only. Needs `-wsport`; without `-wstls` no cert or key is read and `--unstable-net` isn't needed. Not for rooms the lobby starts: it waits for the WebTransport listener's startup line (see [WebSocket-only rooms](#websocket-only-rooms))                                                                                                   |
+| `-trustproxy`                                                                     | off                                 | Take the client's address from `CF-Connecting-IP`, then `?ip=`, whatever the peer, not only from loopback. Only for a listener that nothing but the proxy can reach (see [WebSocket-only rooms](#websocket-only-rooms))                                                                                                                                                           |
 
 ## Connecting from Browser
 
@@ -330,7 +332,7 @@ Durable Object ([always-on-hosting.md](../docs/always-on-hosting.md)). From the
 repository root:
 
 ```bash
-deno run '--allow-net=0.0.0.0:8080' --allow-read=static server/game_server.js -nowt -wsport 8080 -wshost 0.0.0.0 -trustproxy -room ABC123 -pak static/pak0.pak -map start
+deno run '--allow-net=0.0.0.0:8080' --allow-read=static server/game_server.js -nowt -wsport 8080 -wshost 0.0.0.0 -trustproxy -room ABC123 -pak static/librequake/id1/pak0.pak -map start
 ```
 
 - `-nowt` skips the WebTransport listener, so the room reads no cert or key
@@ -428,12 +430,12 @@ deno run '--allow-net=0.0.0.0:8080' --allow-read=static server/game_server.js -n
   the room is created with `coop` 1), `samelevel 2` and `noexit 1` (both `0` in
   a `coop` room, so its exits change the map).
 - Loads `pak0.pak` and any `pak1.pak`, `pak2.pak`, ... in the same directory
-  (stopping at the first missing one). Rooms spawned by the lobby can read extra
-  paks only when they are under `static/`; otherwise the room prints a "Failed
-  to load" read-permission error and continues with the paks it has. A pak over
-  64 MB is not read into memory: the room reads its directory, then each file
-  from disk when it is loaded. Supports on-demand loose map files via
-  `COM_EnsureFile`.
+  (stopping at the first missing one). Rooms spawned by the lobby may read the
+  pak's directory, `static/` and the game directories; a pak elsewhere fails
+  with a "Failed to load" read-permission error and the room continues with the
+  paks it has. A pak over 64 MB is not read into memory: the room reads its
+  directory, then each file from disk when it is loaded. Supports on-demand
+  loose map files via `COM_EnsureFile`.
 - In room mode, reports its player count to the lobby on a structured stdout
   status line (`@@ICARO_STATUS`), on every change and every 5s. It also emits
   `[Heartbeat]` log lines every 30s and `[WATCHDOG]` stderr ticks every 5s,
@@ -512,19 +514,19 @@ deno run '--allow-net=0.0.0.0:8080' --allow-read=static server/game_server.js -n
 - `../tests/net_websocket_test.js` — WebSocket client and server drivers against
   each other over in-memory sockets (`../tests/fake_websocket.js`): handshake,
   rejects, acks, backpressure and close paths
-- `../tests/headless_client_test.js` — `headless_host.js` loads e1m1 from the
-  shareware pak, signs the client on and steps frames
+- `../tests/headless_client_test.js` — `headless_host.js` loads LibreQuake's
+  lq_e1m1, signs the client on and steps frames
 - `../tests/agent_mcp_test.js` — `agent_mcp.ts` through the SDK's stdio entry
   over in-memory streams (`../tests/agent_mcp_client.js`): both protocol eras,
   tool schemas, stdio framing, calls running one at a time, and a seeded action
   log replayed to the same state hash
 - `../tests/agent_goto_test.js` — the `goto` tool and the walk graph built at
-  map load, on e1m1: blocked by the bridge (naming its button), arriving,
-  picking up an item, timeout, no path, damage, a new enemy coming into sight,
-  bad targets
+  map load, on LibreQuake's lq_e1m1 and lq_e1m2: blocked by a secret door
+  (saying to shoot it), arriving, picking up an item, timeout, no path, damage,
+  a new enemy coming into sight, bad targets
 - `../tests/agent_rl_test.js` — the `rl` tier (`rl_spec`, `rl_observe`,
-  `rl_step`) on e1m1: the spec against the vector, replay by seed, `truth`, the
-  rewards and episode ends, and the Gymnasium env's call sequence over MCP
+  `rl_step`) on lq_e1m1: the spec against the vector, replay by seed, `truth`,
+  the rewards and episode ends, and the Gymnasium env's call sequence over MCP
 - `../tests/lobby_rtc_test.js` — `lobby_rtc.js`: hosting, listing, joining, who
   may signal whom, limits, pruning and restoring after hibernation
 - `../tests/cloudflare_lobby_test.js` — The Cloudflare lobby's Durable Object
@@ -554,18 +556,23 @@ Cloudflare Containers run `linux/amd64`; on an Apple Silicon Mac add
 `--platform linux/amd64`.
 
 The image is the pinned `denoland/deno` Debian image (the Deno version in
-`.tool-versions`) plus an allowlist: `deno.json`, `server/`, `src/` and
-`static/pak0.pak`. It never copies `static/` whole: registered and rerelease
-data (`static/pak1.pak`, `hipnotic/`, `rogue/`, `rerelease/`, `id1/`, `mg1/` and
-the other add-ons) must never reach an image or a registry. The root
-`.dockerignore` is a second guard: it excludes everything but the allowlist,
-then every `.pak` but `static/pak0.pak`, and TLS and env files. Keep both when
-you change either. A room can only start on maps in `pak0.pak`.
+`.tool-versions`) plus an allowlist: `deno.json`, `deno.lock`, `server/`, `src/`
+and `tools/fetch_data.js`. A first build stage runs `deno task fetch-data`
+(LibreQuake's pinned `full.zip`, refused if its SHA-256 differs), and the image
+keeps only its `id1/pak0.pak`, `id1/pak1.pak`, loose `id1/maps/` and licence
+texts (`id1/docs/copying`, `id1/docs/misc-docs/copying`,
+`id1/docs/readme-important-licence-info`), under `/app/static/librequake/`. It
+never copies `static/`: id's, registered and rerelease data (`static/*.pak`,
+`hipnotic/`, `rogue/`, `rerelease/`, `id1/`, `mg1/` and the other add-ons) must
+never reach an image or a registry. The root `.dockerignore` is a second guard:
+it excludes everything but the allowlist, then every `.pak`, and TLS and env
+files. Keep both when you change either. A room can only start on LibreQuake's
+maps. Building needs network access (the download).
 
 The entry point is `deno run` on
-`server/game_server.js -pak /app/static/pak0.pak`, as the unprivileged `deno`
-user. Arguments after the image name are passed on to it (see
-[`game_server.js` options](#game_serverjs)) and replace the defaults,
+`server/game_server.js -pak /app/static/librequake/id1/pak0.pak`, as the
+unprivileged `deno` user. Arguments after the image name are passed on to it
+(see [`game_server.js` options](#game_serverjs)) and replace the defaults,
 `-map start -cert /certs/cert.pem -key /certs/key.pem -wsport 4433 -wshost 0.0.0.0`.
 The room can listen on any port of `0.0.0.0`, `[::]` and `127.0.0.1` and read
 `/app/static` and `/certs`. A room still needs a TLS certificate and key for its
@@ -576,16 +583,17 @@ development certificate from step 1:
 ```bash
 docker run --rm -v "$PWD/server/cert.pem:/certs/cert.pem:ro" -v "$PWD/server/key.pem:/certs/key.pem:ro" \
   -p 4433:4433/tcp -p 4433:4433/udp icaro-room \
-  -map e1m1 -maxclients 8 -cert /certs/cert.pem -key /certs/key.pem -wsport 4433 -wshost 0.0.0.0
+  -map lq_e1m1 -maxclients 8 -cert /certs/cert.pem -key /certs/key.pem -wsport 4433 -wshost 0.0.0.0
 ```
 
 `deno task image-check` (`tools/check_container_image.sh`, needs Docker) checks
 the build context of your working tree and of a copy with decoy paks and keys
-planted, builds the image, fails if it holds any `.pak` but
-`/app/static/pak0.pak` or any TLS or env file, and starts a room in it
-(`--no-run` skips that). CI runs it on PRs to `dev` and `main`. Run it before
-building an image from a working tree that has registered data in it. Nothing
-here pushes the image; publishing it is a later step of the hosting plan.
+planted, builds the image, fails if it holds any `.pak` but LibreQuake's two
+(`/app/static/librequake/id1/pak0.pak` and `pak1.pak`) or any TLS or env file,
+or lacks LibreQuake's three licence texts, and starts a room in it (`--no-run`
+skips that). CI runs it on PRs to `dev` and `main`. Run it before building an
+image from a working tree that has registered data in it. Nothing here pushes
+the image; publishing it is a later step of the hosting plan.
 
 ## Turnstile
 
@@ -649,7 +657,7 @@ deno run --unstable-net \
   -port 4433 \
   -cert /etc/letsencrypt/live/your-domain.com/fullchain.pem \
   -key /etc/letsencrypt/live/your-domain.com/privkey.pem \
-  -pak /opt/icaro-engine/static/pak0.pak
+  -pak /opt/icaro-engine/static/librequake/id1/pak0.pak
 ```
 
 Rooms need to read `static/`, the pak, and the cert and key, so the user running

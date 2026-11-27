@@ -12,8 +12,9 @@
 # the release pinned in src/librequake.js, SHA-256 checked, so the build needs
 # network access) and only its two id1 paks, loose maps and licence texts are
 # copied into the final stage. Don't COPY more and then delete files in a later
-# RUN: earlier layers keep them. tools/check_container_image.sh (CI) fails if the build
-# context holds any .pak, or the image holds any but LibreQuake's two.
+# RUN: earlier layers keep them. tools/check_container_image.sh (CI) fails if
+# the build context holds any .pak, or the image holds any but LibreQuake's two
+# or lacks its licence texts.
 
 # Deno as pinned in .tool-versions; bump both together
 # (tests/deno_version_pin_test.js checks it). The digest pins the

@@ -6,17 +6,26 @@ goals.
 
 ### Assets
 
-Shareware `pak0.pak` included (Episode 1).\
-For the full game, copy `pak1.pak` from the `id1` folder of a registered copy of
-Quake to `static/pak1.pak` (lower case). The client and the room server load
-`pak0.pak`, `pak1.pak`, ... until one is missing. A pak over 64 MB (such as the
-2021 rerelease's) is not downloaded whole: the client reads its directory and
-the files the engine needs at startup with HTTP Range requests, and fetches each
-map when it is first loaded. That needs a web server that honours Range, such as
-`deno task serve` (Deno's file server on http://localhost:8137/);
-`python3 -m http.server` doesn't, so it sends the whole pak instead, which still
-works. The room server reads big paks from disk as needed. Registered data must
-not be committed or deployed publicly; `.gitignore` excludes `static/pak1.pak`.
+No game data is included. The browser offers
+[LibreQuake](https://github.com/lavenderdotpet/LibreQuake), a free replacement
+for Quake's data, downloaded on first run behind an intro page
+([docs/librequake-content.md](docs/librequake-content.md)). To play id's Quake,
+shareware or registered, add the `pak0.pak` (and `pak1.pak`) from your copy's
+`id1` folder in Options, Game data; they stay in your browser. On a local
+development host (`localhost`, `127.0.0.1` or `[::1]`) the intro page also finds
+id1 paks you put in `static/` (`static/pak0.pak`, `static/pak1.pak`) when none
+are stored and the URL names no other `?base=`, so they start without adding
+them. The tests, benchmarks and servers use LibreQuake too:
+`deno task fetch-data` downloads the pinned release into `static/librequake/`.
+The client and the room server load `pak0.pak`, `pak1.pak`, ... until one is
+missing. A pak over 64 MB (such as the 2021 rerelease's) is not downloaded
+whole: the client reads its directory and the files the engine needs at startup
+with HTTP Range requests, and fetches each map when it is first loaded. That
+needs a web server that honours Range, such as `deno task serve` (Deno's file
+server on http://localhost:8137/); `python3 -m http.server` doesn't, so it sends
+the whole pak instead, which still works. The room server reads big paks from
+disk as needed. No pak may be committed (CI fails if one is tracked), and id's
+data must not be deployed publicly; `.gitignore` excludes every `.pak`.
 
 #### Mission packs
 
@@ -25,9 +34,10 @@ To play _Scourge of Armagon_ or _Dissolution of Eternity_, copy the pack's
 page with `?game=hipnotic` or `?game=rogue`. This is WinQuake's `-hipnotic` /
 `-rogue`: the pack's paks load after id1's, so its progs, graphics and maps win,
 and the status bar and multiplayer menu switch to the pack's layout and levels.
-Mission packs need the registered `static/pak1.pak`. For multiplayer, start the
-lobby (or `game_server.js`) with the same `-hipnotic` or `-rogue` flag.
-`.gitignore` excludes `static/hipnotic/` and `static/rogue/`.
+Mission packs need registered id1 data (`pak0.pak` and `pak1.pak` in Options,
+Game data). For multiplayer, start the lobby (or `game_server.js`) with the same
+`-hipnotic` or `-rogue` flag. `.gitignore` excludes `static/hipnotic/` and
+`static/rogue/`.
 
 #### Quake (2021 rerelease)
 
@@ -132,7 +142,7 @@ On phones and tablets the game shows touch controls. Play in landscape.
 The page has a JavaScript API for LLM agents and scripts, `window.icaro`: press
 the intro page's Play button (no game data loads before it), then run
 `icaro.help()` in the page. `?agent=lockstep` freezes the game between the
-agent's steps (`?agent=realtime` leaves it running), and `?map=e1m1&skill=1`
+agent's steps (`?agent=realtime` leaves it running), and `?map=lq_e1m1&skill=1`
 starts a map instead of the intro demos.
 [docs/agent-interface.md](docs/agent-interface.md) has the design. This is a
 web-only addition.
@@ -162,12 +172,12 @@ under the GPL. For a game built on Icaro:
   ([sections 2 and 3](LICENSE)). Copies of the unchanged source keep its notices
   and come with the licence ([section 1](LICENSE)).
 
-The GPL covers the code only. The shareware `pak0.pak` that comes with this
-repository has other terms, which restrict commercial use and distribution. The
-Quake artwork and logo in it are id's art and marks, with no confirmed licence.
-Check these before you ship any with your game. [THIRD_PARTY.md](THIRD_PARTY.md)
-lists them, and the other code and data Icaro ships or loads that it didn't
-write.
+The GPL covers the code only. LibreQuake, which the game downloads and the room
+image includes, has its own licences (BSD 3-clause art and maps, GPL-2 QuakeC).
+id's Quake data, which players add themselves, has id's terms, and its artwork
+and logo are id's art and marks. Check these before you ship any with your game.
+[THIRD_PARTY.md](THIRD_PARTY.md) lists them, and the other code and data Icaro
+ships or loads that it didn't write.
 
 ### Credits
 
