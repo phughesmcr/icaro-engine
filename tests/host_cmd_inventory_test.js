@@ -212,6 +212,8 @@ Deno.test("G10: host_speeds prints the frame timings each frame (host.c _Host_Fr
   try {
     // 0.1 s frames pass _Host_FilterTime, so each call runs a whole frame
     cvar.Cvar_Set("host_speeds", "0");
+    // the first frame may print "Using renderer/network isolation."
+    output(() => host.Host_Frame(0.1));
     assertEqual(output(() => host.Host_Frame(0.1)), "", "off: nothing printed");
 
     cvar.Cvar_Set("host_speeds", "1");

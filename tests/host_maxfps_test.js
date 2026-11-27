@@ -155,11 +155,11 @@ function withMaxfps(value, fn) {
   } finally {
     host_maxfps.string = oldString;
     host_maxfps.value = oldValue;
-    _Host_FilterTime(1); // back to the single loop
+    _Host_FilterTime(1); // back to the default's isolation state
   }
 }
 
-Deno.test("_Host_FilterTime with the default host_maxfps matches WinQuake frame for frame", () => {
+Deno.test("_Host_FilterTime at host_maxfps 72 (a saved WinQuake value) matches WinQuake frame for frame", () => {
   withMaxfps(72, () => {
     _Host_FilterTime(1); // a frame always runs: realtime and oldrealtime agree
     let realtime = 0;
@@ -181,6 +181,67 @@ Deno.test("_Host_FilterTime with the default host_maxfps matches WinQuake frame 
       }
     }
   });
+});
+
+Deno.test("the default host_maxfps draws every display frame and ticks the game at 72 Hz", () => {
+  // Ironwail's default; QuakeSpasm's 72 skipped frames on 90/120/165 Hz
+  // displays. The cvar_t's string is the default until a config sets it.
+  if (host_maxfps.string !== "250") {
+    throw new Error(`default host_maxfps is ${host_maxfps.string}`);
+  }
+  withMaxfps(250, () => {
+    for (const hz of [60, 72, 90, 120, 144, 165, 240]) {
+      _Host_FilterTime(1);
+      _Host_NetFrame(); // settle the carry after the long frame
+      if (host_netinterval !== I) {
+        throw new Error(`${hz} Hz: isolation is off`);
+      }
+      const seconds = 10;
+      const times = frameTimes(hz, 0.0003, seconds);
+      let frames = 0;
+      let ticks = 0;
+      let ticked = 0;
+      for (const dt of times) {
+        if (_Host_FilterTime(dt) !== true) continue;
+        frames++;
+        const before = host_netaccum;
+        _Host_NetFrame();
+        const tick = before + dt - host_netaccum;
+        if (tick > 1e-9) {
+          ticks++;
+          ticked += host_netframetime;
+          assertNear(host_netframetime, tick, 1e-9, `${hz} Hz tick length`);
+          // at 72 Hz or faster each tick is one 1/72 s server frame, give or
+          // take the jitter a catch-up tick absorbs
+          if (hz >= 72 && Math.abs(host_netframetime - I) > 0.0007) {
+            throw new Error(`${hz} Hz: tick of ${host_netframetime * 1000} ms`);
+          }
+        }
+      }
+      if (frames !== times.length) {
+        throw new Error(`${hz} Hz: drew ${frames} of ${times.length} frames`);
+      }
+      // the game runs in real time: 72 ticks a second at 72 Hz or faster, one
+      // per frame below it
+      const expectedTicks = Math.min(hz, 72) * seconds;
+      if (Math.abs(ticks - expectedTicks) > 2) {
+        throw new Error(`${hz} Hz: ${ticks} ticks in ${seconds} s`);
+      }
+      const total = times.reduce((a, b) => a + b, 0);
+      assertNear(ticked, total, I + 0.002, `${hz} Hz game time`);
+    }
+  });
+});
+
+Deno.test("a saved host_maxfps of 72 or below keeps the single loop", () => {
+  for (const saved of [72, 60, 30]) {
+    withMaxfps(saved, () => {
+      _Host_FilterTime(1);
+      if (host_netinterval !== 0) {
+        throw new Error(`host_maxfps ${saved} isolated`);
+      }
+    });
+  }
 });
 
 Deno.test("_Host_FilterTime renders up to host_maxfps once isolated", () => {

@@ -64,9 +64,9 @@ import { SCR_SetExternals } from "../src/gl_screen.js";
 import { cls, SIGNONS } from "../src/client.js";
 import { GD_PAK_PATH, GD_PAK_SEQUENCE } from "./game_data.js";
 
-// One host frame at host_maxfps's default of 72. The margin keeps
-// _Host_FilterTime's "framerate is too high" test from rejecting a frame
-// whose summed realtime came out a rounding error short of 1/72.
+// One host frame per 72 Hz game tick. The margin keeps a frame whose summed
+// realtime came out a rounding error short of 1/72 from being skipped (with
+// host_maxfps 72 or below) or from running no tick (above 72).
 export const HEADLESS_FRAMETIME = 1 / 72 + 1e-9;
 
 const STATIC_DIR = decodeURIComponent(

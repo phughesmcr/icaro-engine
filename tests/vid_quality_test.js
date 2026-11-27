@@ -157,6 +157,7 @@ Deno.test("vid_quality presets write the underlying cvars", () => {
     assertEqual(Cvar_FindVar("vid_dprcap").value, 1.5, "balanced dprcap");
 
     gl_rmain.R_ApplyQualityPreset(2);
+    assertEqual(Cvar_FindVar("host_maxfps").value, 250, "high maxfps");
     assertEqual(Cvar_FindVar("vid_dprcap").value, 0, "high dprcap");
     assertEqual(Cvar_FindVar("gl_dlightcap").value, 64, "high dlights");
     assertEqual(Cvar_FindVar("r_particlecap").value, 0, "high particles");

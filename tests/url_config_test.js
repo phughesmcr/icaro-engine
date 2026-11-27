@@ -190,7 +190,7 @@ Deno.test("URLCfg ?cfg.: allowed values are parsed, rebuilt and clamped", () => 
   assertEqual(cfg.messages.length, 1, "the clamp is reported");
   // ranges come from the Options menu's rows
   assertEqual(URLCfg_ParseCvarValue("fov", "200").value, "130", "menu max");
-  assertEqual(URLCfg_ParseCvarValue("host_maxfps", "500").value, "240", "max");
+  assertEqual(URLCfg_ParseCvarValue("host_maxfps", "500").value, "250", "max");
   assertEqual(URLCfg_ParseCvarValue("gl_picmip", "1").value, "1", "choice");
 });
 
