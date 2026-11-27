@@ -36,11 +36,8 @@ import {
   STAT_SHELLS,
 } from "./quakedef.js";
 import { S_UnlockAudio } from "./snd_dma.js";
-import { VID_GetPixelRatio, VID_IsTouchPrimary } from "./vid.js";
-import { Draw_GetCanvasScale } from "./gl_draw.js";
-import { scr_sbarscale } from "./gl_screen.js";
-import { sb_lines } from "./sbar.js";
-import { GAME_DEATHMATCH } from "./protocol.js";
+import { VID_IsTouchPrimary } from "./vid.js";
+import { Sbar_GetFootprint } from "./sbar.js";
 import {
   Cvar_FindVar,
   Cvar_RegisterVariable,
@@ -57,8 +54,8 @@ import {
   TL_Button,
   TL_CUSTOM_KEY_BASE,
   TL_Hidden,
-  TL_HudClearance,
-  TL_HudRect,
+  TL_HudEdges,
+  TL_HudLift,
   TL_MOVABLE,
   tl_version,
 } from "./touch_layout.js";
@@ -186,15 +183,21 @@ let stickMirror = false; // touch_lefthanded the stick was built for
 let editing = false; // touch_editor.js is open: show every button, take no input
 const _tlButton = { cx: 0, cy: 0, size: 0, hidden: false }; // TL_Button's out
 
-// The status bar the layout was fitted to (Touch_MeasureHud), and how far
-// that lifted the buttons still at their default centre (px)
-const hud = { left: 0, right: 0, height: 0 }; // TL_HudRect's out
-let hudWidth = 0; // the screen the bar was measured on
-let hudHeight = 0;
-let hudLeft = -1;
-let hudRight = -1;
-let hudBarHeight = -1;
+// The HUD the layout was fitted to (Touch_MeasureHud): the screen size and
+// Sbar_GetFootprint's rectangles, as numbers to compare each frame
+const HUD_RECTS = 4;
+const hudSeen = new Float64Array(2 + HUD_RECTS * 4);
+const hudEdges = []; // TL_HudEdges of each rectangle
+for (let i = 0; i < HUD_RECTS; i++) {
+  hudEdges.push({ near: 0, far: 0, bottom: 0, top: 0 });
+}
+const liftButtons = []; // the default buttons, as TL_HudLift takes them
+for (let i = 0; i < TL_MOVABLE.length; i++) {
+  liftButtons.push({ x: 0, y: 0, size: 0 });
+}
+// How far the HUD lifted the buttons still at their default centre (px)
 let defaultLift = 0;
+const _hudRect = { x: 0, y: 0, w: 0, h: 0 }; // a footprint rectangle
 let insetProbe = null; // reads the safe-area insets for the lift
 let insetLeft = 0;
 let insetRight = 0;
@@ -558,23 +561,31 @@ function Touch_Layout() {
   Touch_MeasureHud();
   Touch_ReadInsets();
   const insetNear = mirror ? insetLeft : insetRight;
-  const hudNear = mirror ? hud.left : vw - hud.right;
-  const hudFar = mirror ? hud.right : vw - hud.left;
-  defaultLift = 0;
+  let m = 0;
+  for (let i = 0; i < HUD_RECTS; i++) {
+    const k = 2 + i * 4;
+    _hudRect.x = hudSeen[k];
+    _hudRect.y = hudSeen[k + 1];
+    _hudRect.w = hudSeen[k + 2];
+    _hudRect.h = hudSeen[k + 3];
+    if (!(_hudRect.w > 0) || !(_hudRect.h > 0)) continue;
+    TL_HudEdges(_hudRect, vw, vh, mirror, hudEdges[m++]);
+  }
+  let n = 0;
+  let highest = 0; // the top of the highest default button
   for (const d of TL_MOVABLE) {
     TL_Button(d.id, _tlButton);
     if (_tlButton.hidden) continue;
     if (!TL_AtDefault(d.id, _tlButton.cx, _tlButton.cy)) continue;
-    const lift = TL_HudClearance(
-      insetNear + _tlButton.cx * scale,
-      insetBottom + _tlButton.cy * scale,
-      _tlButton.size * scale,
-      hudNear,
-      hudFar,
-      hud.height,
-    );
-    if (lift > defaultLift) defaultLift = lift;
+    const b = liftButtons[n++];
+    b.x = insetNear + _tlButton.cx * scale;
+    b.y = insetBottom + _tlButton.cy * scale;
+    b.size = _tlButton.size * scale;
+    highest = Math.max(highest, b.y + b.size / 2);
   }
+  // No higher than the top bar's row (12 + 32 px down)
+  const maxLift = Math.max(vh - 56 - highest, 0);
+  defaultLift = m > 0 ? TL_HudLift(liftButtons, n, hudEdges, m, maxLift) : 0;
 
   // Circle centred (cx, cy) px from the near and bottom edges, raised lift
   // px. Hidden ones show faintly while the layout editor is open, so they can
@@ -669,27 +680,34 @@ function Touch_Layout() {
   }
 }
 
-// Measures the status bar into hud, in CSS px (TL_HudRect); true if it
-// changed since the last call: the screen resized or turned, viewsize or
-// scr_sbarscale changed, or a deathmatch began or ended. Runs every frame, so
-// it allocates nothing.
+// Copies the screen size and the HUD's footprint (sbar.js
+// Sbar_GetFootprint, CSS px from the canvas's top left, which is the
+// screen's) into hudSeen; true if any changed since the last call: the
+// screen resized or turned, the HUD style, viewsize or scr_sbarscale
+// changed, a deathmatch began or ended, the scoreboard opened. Runs every
+// frame, so it allocates nothing.
 function Touch_MeasureHud() {
   if (typeof window === "undefined") return false;
   const vw = window.innerWidth > 0 ? window.innerWidth : 0;
   const vh = window.innerHeight > 0 ? window.innerHeight : 0;
-  const unit = Draw_GetCanvasScale(scr_sbarscale.value) / VID_GetPixelRatio();
-  TL_HudRect(vw, unit, sb_lines, cl.gametype === GAME_DEATHMATCH, hud);
-  if (
-    vw === hudWidth && vh === hudHeight && hud.left === hudLeft &&
-    hud.right === hudRight && hud.height === hudBarHeight
-  ) {
-    return false;
+  let changed = Touch_SeenSet(0, vw);
+  changed = Touch_SeenSet(1, vh) || changed;
+  const rects = Sbar_GetFootprint();
+  for (let i = 0; i < HUD_RECTS; i++) {
+    const k = 2 + i * 4;
+    const r = i < rects.length ? rects[i] : null;
+    changed = Touch_SeenSet(k, r !== null ? r.x : 0) || changed;
+    changed = Touch_SeenSet(k + 1, r !== null ? r.y : 0) || changed;
+    changed = Touch_SeenSet(k + 2, r !== null ? r.w : 0) || changed;
+    changed = Touch_SeenSet(k + 3, r !== null ? r.h : 0) || changed;
   }
-  hudWidth = vw;
-  hudHeight = vh;
-  hudLeft = hud.left;
-  hudRight = hud.right;
-  hudBarHeight = hud.height;
+  return changed;
+}
+
+// Stores v in hudSeen[i]; true if it differed
+function Touch_SeenSet(i, v) {
+  if (hudSeen[i] === v) return false;
+  hudSeen[i] = v;
   return true;
 }
 
