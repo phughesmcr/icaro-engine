@@ -56,7 +56,9 @@ const {
 } = await import("../src/protocol.js");
 const { cl, cls, cl_entities, cl_static_entities, scoreboard_t, SIGNONS } =
   await import("../src/client.js");
-const { CL_ParseServerMessage } = await import("../src/cl_parse.js");
+const { CL_ParseServerMessage, CL_SetProtocol } = await import(
+  "../src/cl_parse.js"
+);
 const { CL_GetEntityFrame, CL_GetPredictedPlayer, CL_ResetPrediction } =
   await import("../src/cl_pred.js");
 const { cl_shownet } = await import("../src/cl_main.js");
@@ -148,8 +150,8 @@ function clientParse(protocol, write, check) {
     net.net_message.maxsize = saved.maxsize;
     net.net_message.cursize = saved.cursize;
     common.COM_SetNetMessage(saved.common);
+    CL_SetProtocol(PROTOCOL_ICARO, 0);
     cl.protocol = saved.protocol;
-    common.MSG_SetCoord32(true);
     cls.signon = saved.signon;
     cl.num_entities = saved.num_entities;
     cl_entities.length = saved.entities;
@@ -192,13 +194,13 @@ Deno.test("MSG_WriteCoord sends int32 eighths that read back past +-4096", () =>
     common.SZ_Clear(msg);
     common.MSG_WriteCoord16(msg, -4096);
     common.MSG_WriteCoord16(msg, 4095.875);
-    common.MSG_SetCoord32(false);
+    common.MSG_SetCoordModes(common.MSG_COORD_16, common.MSG_ANGLE_8);
     common.MSG_BeginReading();
     assertEqual(common.MSG_ReadCoord(), -4096, "short coord");
     assertEqual(common.MSG_ReadCoord(), 4095.875, "short coord");
     assertEqual(common.msg_readcount, 4, "two bytes per short coord");
   } finally {
-    common.MSG_SetCoord32(true);
+    common.MSG_SetCoordModes(common.MSG_COORD_INT32_8, common.MSG_ANGLE_8);
     common.COM_SetNetMessage(saved);
   }
 });
@@ -263,6 +265,75 @@ Deno.test("an unknown protocol is refused", () => {
 
   if (error === null || !String(error.message).includes("protocol 666")) {
     throw new Error("expected a Host_Error for protocol 666, got " + error);
+  }
+});
+
+Deno.test("CL_SetProtocol refuses an unknown protocol and keeps the reader", () => {
+  const savedProtocol = cl.protocol;
+  try {
+    if (CL_SetProtocol(PROTOCOL_VERSION, 0) !== true) {
+      throw new Error("protocol 15 refused");
+    }
+    assertEqual(common.msg_coordmode, common.MSG_COORD_16, "15: short coords");
+    assertEqual(CL_SetProtocol(1234, 0), false, "unknown protocol");
+    assertEqual(cl.protocol, PROTOCOL_VERSION, "cl.protocol unchanged");
+    assertEqual(common.msg_coordmode, common.MSG_COORD_16, "modes unchanged");
+    if (CL_SetProtocol(PROTOCOL_ICARO, 0) !== true) {
+      throw new Error("PROTOCOL_ICARO refused");
+    }
+    assertEqual(
+      common.msg_coordmode,
+      common.MSG_COORD_INT32_8,
+      "Icaro: int32 eighths",
+    );
+    assertEqual(common.msg_anglemode, common.MSG_ANGLE_8, "byte angles");
+  } finally {
+    CL_SetProtocol(PROTOCOL_ICARO, 0);
+    cl.protocol = savedProtocol;
+  }
+});
+
+Deno.test("Icaro's own svcs are illegible under protocol 15", () => {
+  for (const svc of [42, 47, 48, 49]) {
+    let error = null;
+    try {
+      clientParse(PROTOCOL_VERSION, (m) => {
+        common.MSG_WriteByte(m, svc);
+        common.MSG_WriteLong(m, 0);
+      }, () => {});
+    } catch (e) {
+      error = e;
+    }
+    if (error === null || !String(error.message).includes("Illegible")) {
+      throw new Error(`svc ${svc} under 15: expected Illegible, got ${error}`);
+    }
+  }
+
+  // and svc_serversequence still parses under PROTOCOL_ICARO
+  clientParse(PROTOCOL_ICARO, (m) => {
+    common.MSG_WriteByte(m, svc_serversequence);
+    common.MSG_WriteLong(m, 1234);
+  }, () => {});
+});
+
+Deno.test("a fast update reads short coords under 15 and int32 under PROTOCOL_ICARO", () => {
+  const U_ORIGIN1 = 1 << 1, U_ORIGIN3 = 1 << 3;
+  for (const protocol of [PROTOCOL_VERSION, PROTOCOL_ICARO]) {
+    const write = protocol === PROTOCOL_ICARO ?
+      common.MSG_WriteCoord :
+      common.MSG_WriteCoord16;
+    clientParse(protocol, (m) => {
+      cls.signon = SIGNONS; // past the signon CL_ParseUpdate completes
+      common.MSG_WriteByte(m, 128 | U_ORIGIN1 | U_ORIGIN3);
+      common.MSG_WriteByte(m, 20); // entity
+      write(m, -1234.5);
+      write(m, 2047.875);
+    }, () => {
+      const org = cl_entities[20].msg_origins[0];
+      assertEqual(org[0], -1234.5, `${protocol}: origin x`);
+      assertEqual(org[1], cl_entities[20].baseline.origin[1], "origin y");
+      assertEqual(org[2], 2047.875, `${protocol}: origin z`);
+    });
   }
 });
 
@@ -882,12 +953,12 @@ Deno.test("demo1.dem (protocol 15) parses message by message", async () => {
     cls.demonum = saved.demonum;
     Object.assign(cls.message, saved.message);
     cls.signon = saved.signon;
-    cl.protocol = saved.protocol;
     cl.maxclients = saved.maxclients;
     cl.scores = saved.scores;
     cl.num_entities = saved.num_entities;
     cl.num_statics = saved.num_statics;
-    common.MSG_SetCoord32(true);
+    CL_SetProtocol(PROTOCOL_ICARO, 0);
+    cl.protocol = saved.protocol;
     CL_ResetPrediction();
   }
 

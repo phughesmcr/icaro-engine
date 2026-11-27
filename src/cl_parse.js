@@ -21,8 +21,11 @@ import {
 import {
   Con_DPrintf,
   Con_Printf,
+  MSG_ANGLE_8,
   msg_badread,
   MSG_BeginReading,
+  MSG_COORD_16,
+  MSG_COORD_INT32_8,
   MSG_ReadAngle,
   MSG_ReadAngle16,
   MSG_ReadByte,
@@ -33,7 +36,7 @@ import {
   MSG_ReadLong,
   MSG_ReadShort,
   MSG_ReadString,
-  MSG_SetCoord32,
+  MSG_SetCoordModes,
   MSG_WriteByte,
   net_message,
   standard_quake,
@@ -460,14 +463,12 @@ export function CL_ParseServerInfo() {
   // Fitz/Ironwail accept several protocols; Icaro accepts NetQuake 15 (the
   // shareware attract demos) and its own PROTOCOL_ICARO (protocol.js)
   let i = MSG_ReadLong();
-  if (i !== PROTOCOL_VERSION && i !== PROTOCOL_ICARO) {
+  if (CL_SetProtocol(i, 0) === false) {
     Host_Error(
       "Server returned version " + i + ", not " + PROTOCOL_VERSION + " or " +
         PROTOCOL_ICARO,
     );
   }
-  cl.protocol = i;
-  MSG_SetCoord32(i === PROTOCOL_ICARO);
 
   // parse maxclients
   cl.maxclients = MSG_ReadByte();
@@ -724,13 +725,7 @@ function FlushEntityPacket() {
  * Ported from: QW/client/cl_ents.c
  */
 function CL_ParsePacketEntities(delta) {
-  // NetQuake 15 (demos) has no packet entities, and its coords are shorts
-  if (cl.protocol !== PROTOCOL_ICARO) {
-    Host_Error(
-      "CL_ParsePacketEntities: packet entities under protocol " + cl.protocol,
-    );
-  }
-
+  // Only PROTOCOL_ICARO's handler table has packet entities
   // First entity update completes the signon process
   // (same as CL_ParseUpdate does for NQ-style updates)
   if (cls.signon === SIGNONS - 1) {
@@ -1098,13 +1093,20 @@ export function CL_ParseUpdate(bits) {
   }
 }
 
+// The message layouts: Ironwail's version argument (1 for id's messages, 2
+// for FitzQuake's svc_spawnbaseline2 and friends), and Icaro's own.
+/** id's layouts (NetQuake 15) */
+const VERSION_NETQUAKE = 1;
+/** PROTOCOL_ICARO's wide layouts (protocol.js). Not in C. */
+const VERSION_ICARO = 3;
+
 /**
- * Under PROTOCOL_ICARO the model index and frame are shorts and an alpha
- * byte ends the message (protocol.js). NetQuake 15 (the demos) keeps id's
- * layout.
+ * Ironwail added the version argument. Under PROTOCOL_ICARO the model index
+ * and frame are shorts and an alpha byte ends the message (protocol.js).
+ * NetQuake 15 (the demos) keeps id's layout.
  */
-export function CL_ParseBaseline(ent) {
-  const icaro = cl.protocol === PROTOCOL_ICARO;
+export function CL_ParseBaseline(ent, version) {
+  const icaro = version === VERSION_ICARO;
   ent.baseline.modelindex = icaro ? (MSG_ReadShort() & 0xFFFF) : MSG_ReadByte();
   ent.baseline.frame = icaro ? (MSG_ReadShort() & 0xFFFF) : MSG_ReadByte(); // Ironwail B_LARGEFRAME
   ent.baseline.colormap = MSG_ReadByte();
@@ -1117,8 +1119,11 @@ export function CL_ParseBaseline(ent) {
   ent.baseline.alpha = icaro ? MSG_ReadByte() : ENTALPHA_DEFAULT;
 }
 
-/** Server information pertaining to this client only */
-export function CL_ParseClientdata(bits) {
+/**
+ * Server information pertaining to this client only. `version` picks the
+ * weapon model's size: a byte in id's layout, a short in Icaro's.
+ */
+export function CL_ParseClientdata(bits, version = VERSION_NETQUAKE) {
   //johnfitz -- PROTOCOL_FITZQUAKE (Ironwail reads the bits here: unsigned short)
   bits &= 0xFFFF;
   if (bits & SU_EXTEND1) {
@@ -1198,9 +1203,7 @@ export function CL_ParseClientdata(bits) {
   }
 
   if (bits & SU_WEAPON) { // a short under PROTOCOL_ICARO (MAX_MODELS 4096)
-    i = cl.protocol === PROTOCOL_ICARO ?
-      (MSG_ReadShort() & 0xFFFF) :
-      MSG_ReadByte();
+    i = version === VERSION_ICARO ? (MSG_ReadShort() & 0xFFFF) : MSG_ReadByte();
   } else {
     i = 0;
   }
@@ -1423,14 +1426,14 @@ export function CL_NewTranslation(slot) {
   R_TranslatePlayerSkin(slot);
 }
 
-export function CL_ParseStatic() {
+export function CL_ParseStatic(version) { // Ironwail added the argument
   const i = cl.num_statics;
   if (i >= MAX_STATIC_ENTITIES) {
     Host_Error("Too many static entities");
   }
   const ent = cl_static_entities[i];
   cl.num_statics++;
-  CL_ParseBaseline(ent);
+  CL_ParseBaseline(ent, version);
 
   // copy it to the current state
   ent.model = cl.model_precache[ent.baseline.modelindex];
@@ -1446,13 +1449,13 @@ export function CL_ParseStatic() {
   R_AddEfrags(ent);
 }
 
-export function CL_ParseStaticSound() {
+export function CL_ParseStaticSound(version) { // Ironwail added the argument
   const org = _staticSoundOrg;
   for (let i = 0; i < 3; i++) {
     org[i] = MSG_ReadCoord();
   }
   // a short under PROTOCOL_ICARO (MAX_SOUNDS 2048)
-  const sound_num = cl.protocol === PROTOCOL_ICARO ?
+  const sound_num = version === VERSION_ICARO ?
     (MSG_ReadShort() & 0xFFFF) :
     MSG_ReadByte();
   const vol = MSG_ReadByte();
@@ -1513,10 +1516,418 @@ export function CL_ClearStuffText() {
   cl_stuffcmdbuf = "";
 }
 
-export function CL_ParseServerMessage() {
-  let cmd;
-  let i;
+// The svc handlers. CL_ParseServerMessage looks each command byte up in the
+// reader's table (see CL_SetProtocol) instead of id's switch; the bodies are
+// the switch's cases. Each takes the command byte.
 
+function CL_ParseIllegible(_cmd) {
+  Host_Error("CL_ParseServerMessage: Illegible server message\n");
+}
+
+/** A command byte with the high bit set is a fast update (protocol 15) */
+function CL_ParseFastUpdate(cmd) {
+  CL_ParseUpdate(cmd & 127);
+}
+
+function CL_Parse_svc_nop(_cmd) {
+  // Con_Printf( 'svc_nop\n' );
+}
+
+function CL_Parse_svc_time(_cmd) {
+  cl.mtime[1] = cl.mtime[0];
+  cl.mtime[0] = MSG_ReadFloat();
+}
+
+function CL_Parse_svc_clientdata(_cmd) {
+  CL_ParseClientdata(MSG_ReadShort(), VERSION_NETQUAKE);
+}
+
+function CL_Parse_svc_clientdata_icaro(_cmd) {
+  CL_ParseClientdata(MSG_ReadShort(), VERSION_ICARO);
+}
+
+function CL_Parse_svc_version(_cmd) {
+  const i = MSG_ReadLong();
+  // Ironwail: accept any supported protocol and switch to it
+  if (CL_SetProtocol(i, cl_protocolflags) === false) {
+    Host_Error(
+      "CL_ParseServerMessage: Server is protocol " + i + " instead of " +
+        PROTOCOL_VERSION + " or " + PROTOCOL_ICARO,
+    );
+  }
+}
+
+function CL_Parse_svc_disconnect(_cmd) {
+  Host_EndGame("Server disconnected\n");
+}
+
+function CL_Parse_svc_print(_cmd) {
+  Con_Printf("%s", MSG_ReadString());
+}
+
+function CL_Parse_svc_centerprint(_cmd) {
+  //johnfitz -- log centerprints to console
+  const str = MSG_ReadString();
+  SCR_CenterPrint(str);
+  Con_LogCenterPrint(str);
+}
+
+function CL_Parse_svc_stufftext(_cmd) {
+  CL_ParseStuffText(MSG_ReadString());
+}
+
+function CL_Parse_svc_damage(_cmd) {
+  V_ParseDamage();
+}
+
+function CL_Parse_svc_serverinfo(_cmd) {
+  CL_ParseServerInfo();
+  // vid.recalc_refdef = true; // leave intermission full screen
+}
+
+function CL_Parse_svc_setangle(_cmd) {
+  for (let i = 0; i < 3; i++) {
+    cl.viewangles[i] = MSG_ReadAngle();
+  }
+  VectorCopy(cl.viewangles, cl.setangles); // for V_CalcIntermissionRefdef
+}
+
+function CL_Parse_svc_setview(_cmd) {
+  cl.viewentity = MSG_ReadShort();
+}
+
+function CL_Parse_svc_lightstyle(_cmd) {
+  const i = MSG_ReadByte();
+  // Deviation: Sys_Error in id's C and Ironwail; Host_Error keeps the page
+  if (i >= MAX_LIGHTSTYLES) {
+    Host_Error("svc_lightstyle > MAX_LIGHTSTYLES");
+  }
+  cl_lightstyle[i].map = MSG_ReadString();
+  cl_lightstyle[i].length = cl_lightstyle[i].map.length;
+}
+
+function CL_Parse_svc_sound(_cmd) {
+  CL_ParseStartSoundPacket();
+}
+
+function CL_Parse_svc_stopsound(_cmd) {
+  const i = MSG_ReadShort();
+  S_StopSound(i >> 3, i & 7);
+}
+
+function CL_Parse_svc_updatename(_cmd) {
+  // Sbar_Changed();
+  const i = MSG_ReadByte();
+  if (i >= cl.maxclients) {
+    Host_Error("CL_ParseServerMessage: svc_updatename > MAX_SCOREBOARD");
+  }
+  cl.scores[i].name = MSG_ReadString();
+}
+
+function CL_Parse_svc_updatefrags(_cmd) {
+  // Sbar_Changed();
+  const i = MSG_ReadByte();
+  if (i >= cl.maxclients) {
+    Host_Error("CL_ParseServerMessage: svc_updatefrags > MAX_SCOREBOARD");
+  }
+  cl.scores[i].frags = MSG_ReadShort();
+}
+
+function CL_Parse_svc_updatecolors(_cmd) {
+  // Sbar_Changed();
+  const i = MSG_ReadByte();
+  if (i >= cl.maxclients) {
+    Host_Error("CL_ParseServerMessage: svc_updatecolors > MAX_SCOREBOARD");
+  }
+  cl.scores[i].colors = MSG_ReadByte();
+  CL_NewTranslation(i);
+}
+
+function CL_Parse_svc_particle(_cmd) {
+  R_ParseParticleEffect();
+}
+
+function CL_Parse_svc_spawnbaseline(_cmd) {
+  const i = MSG_ReadShort();
+  // must use CL_EntityNum() to force cl.num_entities up
+  CL_ParseBaseline(CL_EntityNum(i), VERSION_NETQUAKE);
+}
+
+function CL_Parse_svc_spawnbaseline_icaro(_cmd) {
+  const i = MSG_ReadShort();
+  CL_ParseBaseline(CL_EntityNum(i), VERSION_ICARO);
+}
+
+function CL_Parse_svc_spawnstatic(_cmd) {
+  CL_ParseStatic(VERSION_NETQUAKE);
+}
+
+function CL_Parse_svc_spawnstatic_icaro(_cmd) {
+  CL_ParseStatic(VERSION_ICARO);
+}
+
+function CL_Parse_svc_temp_entity(_cmd) {
+  CL_ParseTEnt();
+}
+
+function CL_Parse_svc_setpause(_cmd) {
+  cl.paused = MSG_ReadByte();
+  if (cl.paused) {
+    CDAudio_Pause();
+  } else {
+    CDAudio_Resume();
+  }
+}
+
+function CL_Parse_svc_signonnum(_cmd) {
+  const i = MSG_ReadByte();
+  if (i <= cls.signon) {
+    Host_Error("Received signon %i when at %i", i, cls.signon);
+  }
+  cls.signon = i;
+  CL_SignonReply();
+}
+
+function CL_Parse_svc_killedmonster(_cmd) {
+  cl.stats[STAT_MONSTERS]++;
+}
+
+function CL_Parse_svc_foundsecret(_cmd) {
+  cl.stats[STAT_SECRETS]++;
+}
+
+function CL_Parse_svc_updatestat(_cmd) {
+  const i = MSG_ReadByte();
+  // Deviation: Sys_Error in id's C and Ironwail; Host_Error keeps the page
+  if (i < 0 || i >= MAX_CL_STATS) {
+    Host_Error("svc_updatestat: " + i + " is invalid");
+  }
+  cl.stats[i] = MSG_ReadLong();
+}
+
+function CL_Parse_svc_spawnstaticsound(_cmd) {
+  CL_ParseStaticSound(VERSION_NETQUAKE);
+}
+
+function CL_Parse_svc_spawnstaticsound_icaro(_cmd) {
+  CL_ParseStaticSound(VERSION_ICARO);
+}
+
+function CL_Parse_svc_cdtrack(_cmd) {
+  cl.cdtrack = MSG_ReadByte();
+  cl.looptrack = MSG_ReadByte();
+  if ((cls.demoplayback || cls.demorecording) && (cls.forcetrack !== -1)) {
+    CDAudio_Play(cls.forcetrack, true);
+  } else {
+    CDAudio_Play(cl.cdtrack, true);
+  }
+}
+
+function CL_Parse_svc_intermission(_cmd) {
+  cl.intermission = 1;
+  cl.completed_time = cl.time;
+  // vid.recalc_refdef = true; // go to full screen
+}
+
+function CL_Parse_svc_finale(_cmd) {
+  cl.intermission = 2;
+  cl.completed_time = cl.time;
+  // vid.recalc_refdef = true; // go to full screen
+  //johnfitz -- log centerprints to console
+  const str = MSG_ReadString();
+  SCR_CenterPrint(str);
+  Con_LogCenterPrint(str);
+}
+
+function CL_Parse_svc_cutscene(_cmd) {
+  cl.intermission = 3;
+  cl.completed_time = cl.time;
+  // vid.recalc_refdef = true; // go to full screen
+  //johnfitz -- log centerprints to console
+  const str = MSG_ReadString();
+  SCR_CenterPrint(str);
+  Con_LogCenterPrint(str);
+}
+
+function CL_Parse_svc_sellscreen(_cmd) {
+  Cmd_ExecuteString("help", src_command);
+}
+
+function CL_Parse_svc_playerinfo(_cmd) {
+  CL_ParsePlayerInfo();
+}
+
+function CL_Parse_svc_serversequence(_cmd) {
+  CL_SetServerSequence(MSG_ReadLong());
+}
+
+function CL_Parse_svc_packetentities(_cmd) {
+  CL_ParsePacketEntities(false);
+}
+
+function CL_Parse_svc_deltapacketentities(_cmd) {
+  CL_ParsePacketEntities(true);
+}
+
+// used by the 2021 re-release (Ironwail cl_parse.c). Ironwail hands the id
+// to Steam; there are no achievements here.
+function CL_Parse_svc_achievement(_cmd) {
+  Con_DPrintf("Ignoring svc_achievement (%s)\n", MSG_ReadString());
+}
+
+function CL_Parse_svc_localsound(_cmd) {
+  CL_ParseLocalSound();
+}
+
+/**
+ * A reader's handler table: 256 entries, one per command byte. `entries` is
+ * a list of [svc, handler] pairs; other numbers below 128 are illegible, and
+ * 128 to 255 are fast updates.
+ */
+function CL_BuildHandlers(entries) {
+  const handlers = new Array(256).fill(CL_ParseIllegible);
+  for (let i = 128; i < 256; i++) {
+    handlers[i] = CL_ParseFastUpdate;
+  }
+  for (let i = 0; i < entries.length; i++) {
+    handlers[entries[i][0]] = entries[i][1];
+  }
+  return handlers;
+}
+
+/**
+ * The handlers whose payload is the same under every protocol the client
+ * reads: id's svcs (whose coordinates and angles follow the reader's modes)
+ * and the two 2021 rerelease ones Ironwail reads under every protocol.
+ */
+function CL_SharedHandlers() {
+  return [
+    [svc_nop, CL_Parse_svc_nop],
+    [svc_disconnect, CL_Parse_svc_disconnect],
+    [svc_updatestat, CL_Parse_svc_updatestat],
+    [svc_version, CL_Parse_svc_version],
+    [svc_setview, CL_Parse_svc_setview],
+    [svc_sound, CL_Parse_svc_sound],
+    [svc_time, CL_Parse_svc_time],
+    [svc_print, CL_Parse_svc_print],
+    [svc_stufftext, CL_Parse_svc_stufftext],
+    [svc_setangle, CL_Parse_svc_setangle],
+    [svc_serverinfo, CL_Parse_svc_serverinfo],
+    [svc_lightstyle, CL_Parse_svc_lightstyle],
+    [svc_updatename, CL_Parse_svc_updatename],
+    [svc_updatefrags, CL_Parse_svc_updatefrags],
+    [svc_stopsound, CL_Parse_svc_stopsound],
+    [svc_updatecolors, CL_Parse_svc_updatecolors],
+    [svc_particle, CL_Parse_svc_particle],
+    [svc_damage, CL_Parse_svc_damage],
+    [svc_temp_entity, CL_Parse_svc_temp_entity],
+    [svc_setpause, CL_Parse_svc_setpause],
+    [svc_signonnum, CL_Parse_svc_signonnum],
+    [svc_centerprint, CL_Parse_svc_centerprint],
+    [svc_killedmonster, CL_Parse_svc_killedmonster],
+    [svc_foundsecret, CL_Parse_svc_foundsecret],
+    [svc_intermission, CL_Parse_svc_intermission],
+    [svc_finale, CL_Parse_svc_finale],
+    [svc_cdtrack, CL_Parse_svc_cdtrack],
+    [svc_sellscreen, CL_Parse_svc_sellscreen],
+    [svc_cutscene, CL_Parse_svc_cutscene],
+    [svc_achievement, CL_Parse_svc_achievement],
+    [svc_localsound, CL_Parse_svc_localsound],
+  ];
+}
+
+/** Ironwail's coordinate and angle modes for protocol 15 (no PRFL_* flags) */
+function CL_SetCoordModesNetQuake(_flags) {
+  MSG_SetCoordModes(MSG_COORD_16, MSG_ANGLE_8);
+}
+
+/** PROTOCOL_ICARO: int32 eighths and byte angles (protocol.js) */
+function CL_SetCoordModesIcaro(_flags) {
+  MSG_SetCoordModes(MSG_COORD_INT32_8, MSG_ANGLE_8);
+}
+
+// A protocol reader (docs/protocol-design.md, "Client dispatch"): the
+// protocol number, the function that sets the coordinate and angle modes
+// from the protocol flags, and the handler table. Not in C, where one switch
+// in CL_ParseServerMessage tests cl.protocol inside the shared parsers.
+
+/**
+ * NetQuake 15 (id's demos): id's layouts, short coordinates. It has none of
+ * Icaro's own svcs (42 and 47 to 49), which a protocol 15 stream never holds.
+ */
+const cl_reader_netquake = {
+  protocol: PROTOCOL_VERSION,
+  setmodes: CL_SetCoordModesNetQuake,
+  handlers: CL_BuildHandlers([
+    ...CL_SharedHandlers(),
+    [svc_clientdata, CL_Parse_svc_clientdata],
+    [svc_spawnbaseline, CL_Parse_svc_spawnbaseline],
+    [svc_spawnstatic, CL_Parse_svc_spawnstatic],
+    [svc_spawnstaticsound, CL_Parse_svc_spawnstaticsound],
+  ]),
+};
+
+/**
+ * PROTOCOL_ICARO: the wide layouts in protocol.js, svc_playerinfo and the
+ * packet entities. It keeps id's fast updates, which Icaro's server never
+ * sends (docs/protocol-design.md step 3 may drop them).
+ */
+const cl_reader_icaro = {
+  protocol: PROTOCOL_ICARO,
+  setmodes: CL_SetCoordModesIcaro,
+  handlers: CL_BuildHandlers([
+    ...CL_SharedHandlers(),
+    [svc_clientdata, CL_Parse_svc_clientdata_icaro],
+    [svc_spawnbaseline, CL_Parse_svc_spawnbaseline_icaro],
+    [svc_spawnstatic, CL_Parse_svc_spawnstatic_icaro],
+    [svc_spawnstaticsound, CL_Parse_svc_spawnstaticsound_icaro],
+    [svc_playerinfo, CL_Parse_svc_playerinfo],
+    [svc_packetentities, CL_Parse_svc_packetentities],
+    [svc_deltapacketentities, CL_Parse_svc_deltapacketentities],
+    [svc_serversequence, CL_Parse_svc_serversequence],
+  ]),
+};
+
+/** The reader for a protocol number, or null if the client can't read it */
+function CL_FindReader(protocol) {
+  switch (protocol) {
+    case PROTOCOL_VERSION:
+      return cl_reader_netquake;
+    case PROTOCOL_ICARO:
+      return cl_reader_icaro;
+    default:
+      return null;
+  }
+}
+
+// The reader in use. Icaro's until a server says otherwise, as the server
+// writes it. Like the coordinate modes in common.js, it outlives
+// CL_ClearState (which zeroes cl.protocol) until the next svc_serverinfo or
+// svc_version.
+let cl_reader = cl_reader_icaro;
+// Ironwail's cl.protocolflags (client.js has no field for it)
+let cl_protocolflags = 0;
+
+/**
+ * Selects the reader for `protocol` with the protocol flags `flags`, and
+ * sets cl.protocol and the coordinate and angle modes. Returns false, and
+ * changes nothing, if the client can't read the protocol.
+ * svc_serverinfo and svc_version call it; tests and tools call it to read a
+ * message without either.
+ */
+export function CL_SetProtocol(protocol, flags) {
+  const reader = CL_FindReader(protocol);
+  if (reader === null) {
+    return false;
+  }
+  cl.protocol = protocol;
+  cl_protocolflags = flags;
+  cl_reader = reader;
+  reader.setmodes(flags);
+  return true;
+}
+
+export function CL_ParseServerMessage() {
   // if recording demos, copy the message out
   if (cl_shownet.value === 1) {
     Con_Printf("%i ", net_message.cursize);
@@ -1534,7 +1945,7 @@ export function CL_ParseServerMessage() {
       Host_Error("CL_ParseServerMessage: Bad server message");
     }
 
-    cmd = MSG_ReadByte();
+    const cmd = MSG_ReadByte();
 
     if (cmd === -1) {
       if (cl_shownet.value === 2) {
@@ -1551,269 +1962,16 @@ export function CL_ParseServerMessage() {
       return; // end of message
     }
 
-    // if the high bit of the command byte is set, it is a fast update
-    if (cmd & 128) {
-      if (cl_shownet.value === 2) {
-        Con_Printf("%3i:%s\n", msg_readcount - 1, "fast update");
-      }
-      CL_ParseUpdate(cmd & 127);
-      continue;
-    }
-
     if (cl_shownet.value === 2) {
-      Con_Printf("%3i:%s\n", msg_readcount - 1, svc_strings[cmd] || "unknown");
+      // if the high bit of the command byte is set, it is a fast update
+      Con_Printf(
+        "%3i:%s\n",
+        msg_readcount - 1,
+        (cmd & 128) !== 0 ? "fast update" : (svc_strings[cmd] ?? "unknown"),
+      );
     }
 
-    // other commands
-    switch (cmd) {
-      default:
-        Host_Error("CL_ParseServerMessage: Illegible server message\n");
-        break;
-
-      case svc_nop:
-        // Con_Printf( 'svc_nop\n' );
-        break;
-
-      case svc_time:
-        cl.mtime[1] = cl.mtime[0];
-        cl.mtime[0] = MSG_ReadFloat();
-        break;
-
-      case svc_clientdata:
-        i = MSG_ReadShort();
-        CL_ParseClientdata(i);
-        break;
-
-      case svc_version:
-        i = MSG_ReadLong();
-        // Ironwail: accept any supported protocol and switch to it
-        if (i !== PROTOCOL_VERSION && i !== PROTOCOL_ICARO) {
-          Host_Error(
-            "CL_ParseServerMessage: Server is protocol " + i + " instead of " +
-              PROTOCOL_VERSION + " or " + PROTOCOL_ICARO,
-          );
-        }
-        cl.protocol = i;
-        MSG_SetCoord32(i === PROTOCOL_ICARO);
-        break;
-
-      case svc_disconnect:
-        Host_EndGame("Server disconnected\n");
-        break;
-
-      case svc_print:
-        Con_Printf("%s", MSG_ReadString());
-        break;
-
-      case svc_centerprint: {
-        //johnfitz -- log centerprints to console
-        const str = MSG_ReadString();
-        SCR_CenterPrint(str);
-        Con_LogCenterPrint(str);
-        break;
-      }
-
-      case svc_stufftext:
-        CL_ParseStuffText(MSG_ReadString());
-        break;
-
-      case svc_damage:
-        V_ParseDamage();
-        break;
-
-      case svc_serverinfo:
-        CL_ParseServerInfo();
-        // vid.recalc_refdef = true; // leave intermission full screen
-        break;
-
-      case svc_setangle:
-        for (i = 0; i < 3; i++) {
-          cl.viewangles[i] = MSG_ReadAngle();
-        }
-        VectorCopy(cl.viewangles, cl.setangles); // for V_CalcIntermissionRefdef
-        break;
-
-      case svc_setview:
-        cl.viewentity = MSG_ReadShort();
-        break;
-
-      case svc_lightstyle:
-        i = MSG_ReadByte();
-        // Deviation: Sys_Error in id's C and Ironwail; Host_Error keeps the page
-        if (i >= MAX_LIGHTSTYLES) {
-          Host_Error("svc_lightstyle > MAX_LIGHTSTYLES");
-        }
-        cl_lightstyle[i].map = MSG_ReadString();
-        cl_lightstyle[i].length = cl_lightstyle[i].map.length;
-        break;
-
-      case svc_sound:
-        CL_ParseStartSoundPacket();
-        break;
-
-      case svc_stopsound:
-        i = MSG_ReadShort();
-        S_StopSound(i >> 3, i & 7);
-        break;
-
-      case svc_updatename:
-        // Sbar_Changed();
-        i = MSG_ReadByte();
-        if (i >= cl.maxclients) {
-          Host_Error("CL_ParseServerMessage: svc_updatename > MAX_SCOREBOARD");
-        }
-        cl.scores[i].name = MSG_ReadString();
-        break;
-
-      case svc_updatefrags:
-        // Sbar_Changed();
-        i = MSG_ReadByte();
-        if (i >= cl.maxclients) {
-          Host_Error("CL_ParseServerMessage: svc_updatefrags > MAX_SCOREBOARD");
-        }
-        cl.scores[i].frags = MSG_ReadShort();
-        break;
-
-      case svc_updatecolors:
-        // Sbar_Changed();
-        i = MSG_ReadByte();
-        if (i >= cl.maxclients) {
-          Host_Error(
-            "CL_ParseServerMessage: svc_updatecolors > MAX_SCOREBOARD",
-          );
-        }
-        cl.scores[i].colors = MSG_ReadByte();
-        CL_NewTranslation(i);
-        break;
-
-      case svc_particle:
-        R_ParseParticleEffect();
-        break;
-
-      case svc_spawnbaseline:
-        i = MSG_ReadShort();
-        // must use CL_EntityNum() to force cl.num_entities up
-        CL_ParseBaseline(CL_EntityNum(i));
-        break;
-
-      case svc_spawnstatic:
-        CL_ParseStatic();
-        break;
-
-      case svc_temp_entity:
-        CL_ParseTEnt();
-        break;
-
-      case svc_setpause:
-        cl.paused = MSG_ReadByte();
-        if (cl.paused) {
-          CDAudio_Pause();
-        } else {
-          CDAudio_Resume();
-        }
-        break;
-
-      case svc_signonnum:
-        i = MSG_ReadByte();
-        if (i <= cls.signon) {
-          Host_Error("Received signon %i when at %i", i, cls.signon);
-        }
-        cls.signon = i;
-        CL_SignonReply();
-        break;
-
-      case svc_killedmonster:
-        cl.stats[STAT_MONSTERS]++;
-        break;
-
-      case svc_foundsecret:
-        cl.stats[STAT_SECRETS]++;
-        break;
-
-      case svc_updatestat:
-        i = MSG_ReadByte();
-        // Deviation: Sys_Error in id's C and Ironwail; Host_Error keeps the page
-        if (i < 0 || i >= MAX_CL_STATS) {
-          Host_Error("svc_updatestat: " + i + " is invalid");
-        }
-        cl.stats[i] = MSG_ReadLong();
-        break;
-
-      case svc_spawnstaticsound:
-        CL_ParseStaticSound();
-        break;
-
-      case svc_cdtrack:
-        cl.cdtrack = MSG_ReadByte();
-        cl.looptrack = MSG_ReadByte();
-        if (
-          (cls.demoplayback || cls.demorecording) && (cls.forcetrack !== -1)
-        ) {
-          CDAudio_Play(cls.forcetrack, true);
-        } else {
-          CDAudio_Play(cl.cdtrack, true);
-        }
-        break;
-
-      case svc_intermission:
-        cl.intermission = 1;
-        cl.completed_time = cl.time;
-        // vid.recalc_refdef = true; // go to full screen
-        break;
-
-      case svc_finale:
-        cl.intermission = 2;
-        cl.completed_time = cl.time;
-        // vid.recalc_refdef = true; // go to full screen
-        {
-          //johnfitz -- log centerprints to console
-          const str = MSG_ReadString();
-          SCR_CenterPrint(str);
-          Con_LogCenterPrint(str);
-        }
-        break;
-
-      case svc_cutscene:
-        cl.intermission = 3;
-        cl.completed_time = cl.time;
-        // vid.recalc_refdef = true; // go to full screen
-        {
-          //johnfitz -- log centerprints to console
-          const str = MSG_ReadString();
-          SCR_CenterPrint(str);
-          Con_LogCenterPrint(str);
-        }
-        break;
-
-      case svc_sellscreen:
-        Cmd_ExecuteString("help", src_command);
-        break;
-
-      case svc_playerinfo:
-        CL_ParsePlayerInfo();
-        break;
-
-      case svc_serversequence:
-        CL_SetServerSequence(MSG_ReadLong());
-        break;
-
-      case svc_packetentities:
-        CL_ParsePacketEntities(false);
-        break;
-
-      case svc_deltapacketentities:
-        CL_ParsePacketEntities(true);
-        break;
-
-      // used by the 2021 re-release (Ironwail cl_parse.c). Ironwail
-      // hands the id to Steam; there are no achievements here.
-      case svc_achievement:
-        Con_DPrintf("Ignoring svc_achievement (%s)\n", MSG_ReadString());
-        break;
-
-      case svc_localsound:
-        CL_ParseLocalSound();
-        break;
-    }
+    // svc_serverinfo and svc_version can change the reader mid-message
+    cl_reader.handlers[cmd](cmd);
   }
 }

@@ -336,7 +336,7 @@ if (CLIENT) {
 const PRED_CALLS = Number(arg("-predcalls", "2000"));
 
 function clientBench(packets) {
-  const { parse, client, pred, common, protocol } = C;
+  const { parse, client, pred, protocol } = C;
   const { cl, cls } = client;
   const parseTimes = [];
   const predTimes = [];
@@ -347,9 +347,8 @@ function clientBench(packets) {
     cl.worldmodel = sv.worldmodel;
     cl.viewentity = 1;
     cl.maxclients = CLIENTS;
-    cl.protocol = protocol.PROTOCOL_ICARO;
+    parse.CL_SetProtocol(protocol.PROTOCOL_ICARO, 0);
     cl.num_entities = 0;
-    common.MSG_SetCoord32(true);
     cls.signon = client.SIGNONS;
     cls.state = client.ca_connected;
     cls.netcon = null;
