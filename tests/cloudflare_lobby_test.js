@@ -5,6 +5,7 @@
 import {
   ALARM_INTERVAL_MS,
   LobbyCore,
+  TURN_REFRESH_FRACTION,
   TURN_TTL_SECONDS,
 } from "../cloudflare/lobby/src/lobby_core.js";
 import {
@@ -294,6 +295,62 @@ Deno.test("Cloudflare lobby: TURN credentials from the TURN key, filtered; STUN 
     JSON.stringify(RTC_DEFAULT_ICE_SERVERS),
     "STUN on failure",
   );
+});
+
+Deno.test("Cloudflare lobby: a host's TURN credentials last an hour and are refreshed over its socket", async () => {
+  assertEqual(TURN_TTL_SECONDS, 3600, "an hour by default");
+  const bodies = [];
+  let n = 0;
+  const fetch = (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    n++;
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          iceServers: [{
+            urls: ["turn:turn.cloudflare.com:3478?transport=udp"],
+            username: "u" + n,
+            credential: "c",
+          }],
+        }),
+        { status: 201 },
+      ),
+    );
+  };
+  const clock = { t: 0 };
+  const env = {
+    TURN_KEY_ID: "id",
+    TURN_KEY_API_TOKEN: "token",
+    TURN_TTL_SECONDS: "1200",
+  };
+  const ctx = fakeCtx();
+  const core = new LobbyCore(ctx, env, { fetch, now: () => clock.t });
+  const hostWs = await connect(core, "10.0.0.1");
+  await core.message(hostWs, frame(LOBBY_HOST, {}));
+  assertEqual(bodies[0].ttl, 1200, "TURN_TTL_SECONDS overrides");
+  assertEqual(hostWs.sent[1].body[0].username, "u1", "first credentials");
+
+  // Waking from hibernation keeps the time they were minted
+  const woken = new LobbyCore(ctx, env, { fetch, now: () => clock.t });
+  const refreshAt = 1200 * 1000 * TURN_REFRESH_FRACTION;
+  clock.t = refreshAt - 1;
+  await woken.message(hostWs, frame(LOBBY_HEARTBEAT, { players: 1 }));
+  assertEqual(hostWs.sent.length, 2, "nothing before the refresh time");
+  clock.t = refreshAt;
+  await woken.message(hostWs, frame(LOBBY_HEARTBEAT, { players: 1 }));
+  assertEqual(hostWs.sent.length, 3, "one frame");
+  assertEqual(hostWs.sent[2].type, LOBBY_ICE, "LOBBY_ICE");
+  assertEqual(hostWs.sent[2].body[0].username, "u2", "fresh credentials");
+  assertEqual(bodies.length, 2, "minted once more");
+
+  // No TURN key: no refresh, and nothing minted
+  const plain = new LobbyCore(fakeCtx(), {}, { fetch, now: () => clock.t });
+  const ws = await connect(plain, "10.0.0.2");
+  await plain.message(ws, frame(LOBBY_HOST, {}));
+  clock.t += 100 * 3600 * 1000;
+  await plain.message(ws, frame(LOBBY_HEARTBEAT, {}));
+  assertEqual(ws.sent.length, 2, "STUN host: no refresh");
+  assertEqual(bodies.length, 2, "nothing minted without a key");
 });
 
 Deno.test("Cloudflare lobby: with TURNSTILE_SITEKEY, LOBBY_HOST needs a token checked at Siteverify", async () => {

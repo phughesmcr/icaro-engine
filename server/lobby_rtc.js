@@ -27,7 +27,9 @@
 //   LOBBY_JOIN       the room code as text
 // Replies:
 //   LOBBY_ROOMS          the room record, after LOBBY_HOST or LOBBY_JOIN
-//   LOBBY_ICE            RTCIceServer[] for this client, after LOBBY_ROOMS
+//   LOBBY_ICE            RTCIceServer[] for this client, after LOBBY_ROOMS;
+//                        a host may get fresh ones later, in reply to a
+//                        heartbeat, before its TURN credentials expire
 //   LOBBY_SIGNAL_RELAY   { from, kind, data }
 //   LOBBY_VERIFY         { sitekey, action }: send the request again with a
 //                        Turnstile token in `turnstile` (server/turnstile.js)
@@ -94,6 +96,9 @@ export const RTC_LOBBY_LIMITS = {
   requestTimeoutMs: 10 * 1000, // A socket that hasn't hosted or joined
   maxListedRooms: 100, // Public rooms in one LOBBY_LIST reply
 };
+
+// After a failed refresh, a host's next try for fresh ICE servers
+const ICE_RETRY_MS = 60 * 1000;
 
 const SIGNAL_KINDS = new Set(["offer", "answer", "candidate"]);
 const PEER_ID_PATTERN = /^p[A-HJ-NP-Z2-9]{12}$/;
@@ -258,15 +263,20 @@ export class RtcLobby {
    * caller already uses a room code. randomBytes( n ): n random bytes.
    * turnstile( token, ip, action ): Turnstile_Check's answer for a
    * LOBBY_HOST's token (server/turnstile.js), or null for no check.
+   * iceRefreshMs: once a host's ICE servers are this old, its next
+   * heartbeat mints fresh ones and sends them as LOBBY_ICE (null: never,
+   * for STUN only or credentials that outlast any room).
    */
   constructor({
     iceServers = () => RTC_DEFAULT_ICE_SERVERS,
+    iceRefreshMs = null,
     isCodeTaken = () => false,
     randomBytes = (n) => crypto.getRandomValues(new Uint8Array(n)),
     limits = RTC_LOBBY_LIMITS,
     turnstile = null,
   } = {}) {
     this.iceServers = iceServers;
+    this.iceRefreshMs = iceRefreshMs;
     this.turnstile = turnstile;
     this.isCodeTaken = isCodeTaken;
     this.randomBytes = randomBytes;
@@ -505,13 +515,17 @@ export class RtcLobby {
     return null;
   }
 
-  async _iceFrame(s, role) {
-    let servers;
+  // The ICE servers to give session s, filtered; [] if minting failed
+  async _mintIce(s, role) {
     try {
-      servers = Lobby_FilterIceServers(await this.iceServers(s.ip, role));
+      return Lobby_FilterIceServers(await this.iceServers(s.ip, role));
     } catch {
-      servers = [];
+      return [];
     }
+  }
+
+  async _iceFrame(s, role) {
+    let servers = await this._mintIce(s, role);
     if (servers.length === 0) servers = RTC_DEFAULT_ICE_SERVERS;
     return _frame(s.sid, LOBBY_ICE, servers);
   }
@@ -610,6 +624,7 @@ export class RtcLobby {
       hostName: Room_SanitizeHostName(config.hostName),
       public: config.public === true,
       lastHeartbeat: now,
+      iceAt: now, // when the host's ICE servers were minted
     };
     const options = Room_SanitizeGameOptions(config.options);
     if (options !== undefined) room.options = options;
@@ -715,7 +730,7 @@ export class RtcLobby {
     ];
   }
 
-  _heartbeat(s, data, now) {
+  async _heartbeat(s, data, now) {
     if (s.role !== "host") return [];
     const beat = _parseJson(data);
     s.room.lastHeartbeat = now;
@@ -728,6 +743,27 @@ export class RtcLobby {
         Math.min(s.room.maxPlayers, Math.trunc(beat.players)),
       );
     }
-    return [];
+    return await this._refreshIce(s, now);
+  }
+
+  // A host keeps its ICE servers for every joiner's connection, for as long
+  // as the room lasts, and a TURN relay stops soon after its credentials
+  // expire. So before they do, mint fresh ones. A failed mint keeps the old
+  // ones (STUN only would replace credentials that still work) and tries
+  // again a minute later.
+  async _refreshIce(s, now) {
+    if (this.iceRefreshMs === null) return [];
+    const room = s.room;
+    const iceAt = Number.isFinite(room.iceAt) ? room.iceAt : 0;
+    if (now - iceAt < this.iceRefreshMs) return [];
+    // Set before the await, so a heartbeat meanwhile doesn't mint too
+    room.iceAt = now;
+    const servers = await this._mintIce(s, "host");
+    if (this.sessions.get(s.sid) !== s || s.room !== room) return [];
+    if (servers.length === 0) {
+      room.iceAt = now - this.iceRefreshMs + ICE_RETRY_MS;
+      return [];
+    }
+    return [_frame(s.sid, LOBBY_ICE, servers)];
   }
 }
