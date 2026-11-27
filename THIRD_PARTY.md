@@ -123,6 +123,13 @@ rg -il 'ironwail|quakespasm|fitzquake|johnfitz' src server main.js
   (file headers, which name FitzQuake's authors too). Source:
   [QuakeSpasm](https://sourceforge.net/projects/quakespasm/)
   ([sezero/quakespasm](https://github.com/sezero/quakespasm)).
+- **QuakeSpasm `snd_umx.c`, O. Sezer.** `snd_umx.js` ports its Unreal UMX
+  container parser (which its header says is partly based on Andy Ward's Unreal
+  Media Ripper), and `cd_audio.js` follows `bgmusic.c` for the music formats,
+  their search order and the `music` commands. Licence:
+  [GPL version 2 or later](https://github.com/sezero/quakespasm/blob/13f16f2b28f288ba29a0222c28bcf1e41d60cc5a/Quake/snd_umx.c#L1-L22)
+  (file header). Source:
+  [sezero/quakespasm](https://github.com/sezero/quakespasm).
 - **Quakespasm-Spiked, Spike.** `gl_model.js` cites it for two features (holey
   alias skins and the water visibility check), and `world.js` credits Spike for
   a fix taken by way of Ironwail. Licence:
@@ -164,6 +171,18 @@ rg -il 'ironwail|quakespasm|fitzquake|johnfitz' src server main.js
   download; imported only when a download is unpacked. Licence:
   [BSD 3-clause](https://cdn.jsdelivr.net/npm/@zip.js/zip.js@2.25.0/LICENSE).
   Source: [gildas-lormeau/zip.js](https://github.com/gildas-lormeau/zip.js).
+- **libopenmpt 0.8.10, from chiptune3 0.8.10** (`libopenmpt.worklet.js`, an
+  Emscripten build with the WebAssembly inlined). Plays tracker music (`.mod`,
+  `.s3m`, `.xm`, `.it`, and the module in a `.umx`) through
+  [src/bgm_tracker.js](src/bgm_tracker.js); imported only when such a file is
+  found. Licence: libopenmpt is
+  [BSD 3-clause](https://raw.githubusercontent.com/OpenMPT/openmpt/master/LICENSE);
+  chiptune3's own code is
+  [MIT](https://cdn.jsdelivr.net/npm/chiptune3@0.8.10/LICENSE), which says the
+  compiled libopenmpt keeps the OpenMPT BSD licence. Icaro loads only the
+  compiled libopenmpt file, not chiptune3's player. Source:
+  [OpenMPT](https://lib.openmpt.org/libopenmpt/) and
+  [DrSnuggles/chiptune](https://github.com/DrSnuggles/chiptune).
 
 ## Hosted services
 
