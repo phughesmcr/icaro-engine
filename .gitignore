@@ -23,8 +23,6 @@ node_modules/
 coverage/
 .claude/worktrees/
 .claude/settings.local.json
-# The quake-c-reference skill's id-Software/Quake checkout
-.claude/cache/
 
 # Registered Quake data: must never be committed or deployed publicly.
 # Any pak, in any case and folder (as in .dockerignore; CI fails if a pak is
@@ -51,3 +49,8 @@ static/librequake/
 .dev.vars
 # The client Worker's build output (deno task client-build)
 cloudflare/client/dist/
+
+*.dem
+*.zip
+*.sav
+.plan
