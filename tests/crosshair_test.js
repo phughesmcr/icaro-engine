@@ -60,6 +60,8 @@ Deno.test("G5: the crosshair is centred on scr_vrect, ignores cl_crossx/y and sh
   const old = [view.crosshair, view.cl_crossx, view.cl_crossy].map((v) =>
     v.string
   );
+  const oldAlpha = scr.scr_sbaralpha.value;
+  scr.scr_sbaralpha.value = 1; // an opaque bar takes lines from the view
   try {
     cvar.Cvar_Set("crosshair", "0");
     assertEqual(crosshairAt(cl, cls), "", "crosshair 0 draws nothing");
@@ -112,6 +114,7 @@ Deno.test("G5: the crosshair is centred on scr_vrect, ignores cl_crossx/y and sh
       "hidden during intermission (FitzQuake)",
     );
   } finally {
+    scr.scr_sbaralpha.value = oldAlpha;
     cvar.Cvar_Set("crosshair", old[0]);
     cvar.Cvar_Set("cl_crossx", old[1]);
     cvar.Cvar_Set("cl_crossy", old[2]);
@@ -137,6 +140,8 @@ Deno.test("Ironwail scr_crosshairscale draws on its own canvas, centred as befor
   }
 
   const oldCrosshair = view.crosshair.string;
+  const oldAlpha = scr.scr_sbaralpha.value;
+  scr.scr_sbaralpha.value = 1; // an opaque bar takes lines from the view
   try {
     cvar.Cvar_Set("crosshair", "1");
     scr.SCR_CalcRefdef();
@@ -153,6 +158,7 @@ Deno.test("Ironwail scr_crosshairscale draws on its own canvas, centred as befor
     assertEqual(crosshairAt(cl, cls), "+@156,92", "scale 3 clamps to 2");
     assertEqual(draw.Draw_GetVirtualWidth(), 320, "canvas scale reset");
   } finally {
+    scr.scr_sbaralpha.value = oldAlpha;
     cvar.Cvar_Set("scr_crosshairscale", "0");
     cvar.Cvar_Set("crosshair", oldCrosshair);
     scr.SCR_SetExternals({
