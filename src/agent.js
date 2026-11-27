@@ -118,7 +118,7 @@ import {
   NAV_NODE_WATER,
 } from "./nav.js";
 
-export const AGENT_TIC = 1 / 72; // one step tic: host_maxfps's default frame
+export const AGENT_TIC = 1 / 72; // one step tic: one 72 Hz game tick
 
 // STATE
 

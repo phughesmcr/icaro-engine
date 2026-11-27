@@ -90,6 +90,7 @@ import {
   Host_ClearMemory,
   Host_Error,
   host_frametime,
+  host_netinterval,
   Host_ShutdownServer,
   realtime,
   sv,
@@ -654,7 +655,12 @@ export function CL_DecayLights() {
 export function CL_LerpPoint() {
   let f = cl.mtime[0] - cl.mtime[1];
 
-  if (f === 0 || cl_nolerp.value !== 0 || cls.timedemo || sv.active) {
+  // QuakeSpasm/Ironwail: a local server's entities lerp too while
+  // renderer/network isolation draws frames between its ticks
+  if (
+    f === 0 || cl_nolerp.value !== 0 || cls.timedemo ||
+    (sv.active && host_netinterval === 0)
+  ) {
     cl.time = cl.mtime[0];
     return 1;
   }
@@ -976,7 +982,28 @@ const _lpFv = new Float32Array(3);
 const _lpRv = new Float32Array(3);
 const _lpUv = new Float32Array(3);
 
-function CL_LinkPlayers() {
+/**
+ * WinQuake/Ironwail CL_RelinkEntities lerp the view entity like any other
+ * (this port's local server and demos send players in svc_playerinfo, so it
+ * is done here): with a local server under renderer/network isolation, or in
+ * a demo, frames drawn between two messages move the camera between their
+ * origins. A local server's frac is 1 in WinQuake's single loop, which leaves
+ * the newest server origin. A move over 100 units on an axis is a teleport,
+ * as in CL_RelinkEntities.
+ */
+function CL_LerpViewOrigin(ent, frac) {
+  let f = frac;
+  for (let j = 0; j < 3; j++) {
+    const d = ent.msg_origins[0][j] - ent.msg_origins[1][j];
+    if (d > 100 || d < -100) f = 1;
+  }
+  for (let j = 0; j < 3; j++) {
+    ent.origin[j] = ent.msg_origins[1][j] +
+      f * (ent.msg_origins[0][j] - ent.msg_origins[1][j]);
+  }
+}
+
+function CL_LinkPlayers(frac) {
   const usePrediction = V_UsePrediction();
   const chase = Cvar_VariableValue("chase_active") !== 0;
 
@@ -999,6 +1026,9 @@ function CL_LinkPlayers() {
     // only valid while CL_PredictMove runs. Otherwise (local server, demo
     // playback) CL_SetPlayerInfo has already put the server origin on the
     // view entity, which is what V_CalcRefdef uses too.
+    if (isView && usePrediction === false) {
+      CL_LerpViewOrigin(ent, frac);
+    }
     const origin = (isView && usePrediction === false) ?
       ent.origin :
       pplayer.origin;
@@ -1166,7 +1196,7 @@ export function CL_RelinkEntities() {
     // Don't extrapolate other players during demo playback: the demo
     // already holds every frame the server sent.
     CL_SetUpPlayerPrediction(cls.demoplayback === false);
-    CL_LinkPlayers();
+    CL_LinkPlayers(frac);
   }
 
   // For QW path, skip player entity slots (they're handled above).

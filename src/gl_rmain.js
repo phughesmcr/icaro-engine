@@ -2070,7 +2070,7 @@ export const r_particlecap = {
 export const VID_QUALITY_PRESETS = [
   [1, 30, 4, 2048, 1], // 0: saver
   [1.5, 60, 8, 8192, 2], // 1: medium
-  [0, 72, 64, 0, 4], // 2: high (the engine's defaults, plus anisotropy)
+  [0, 250, 64, 0, 4], // 2: high (the engine's defaults, plus anisotropy)
 ];
 
 let _appliedQuality = -1;
