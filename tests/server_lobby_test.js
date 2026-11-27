@@ -216,6 +216,13 @@ Deno.test("game options are whitelisted and clamped to the Game Options menu ran
   } finally {
     RoomManager_SetConfig({ gameFlags: [] });
   }
+  // -game rogue runs Rogue too
+  RoomManager_SetConfig({ gameDir: "rogue" });
+  try {
+    assert.deepEqual(parse({ teamplay: 99 }), { teamplay: 6 });
+  } finally {
+    RoomManager_SetConfig({ gameDir: null });
+  }
   assert.deepEqual(parse({ teamplay: 99 }), { teamplay: 2 });
 });
 
@@ -527,7 +534,7 @@ Deno.test({
 
 Deno.test({
   name:
-    "room manager passes -rogue/-hipnotic and the game dir read grant to rooms",
+    "room manager passes -rogue/-quoth/-game and the game dir read grants to rooms",
   ignore: canRun === false,
   sanitizeOps: false,
   sanitizeResources: false,
@@ -537,7 +544,8 @@ Deno.test({
     RoomManager_SetConfig({
       denoPath: fake,
       pakPath: "/data/quake/pak0.pak",
-      gameFlags: ["-rogue", "-evil"],
+      gameFlags: ["-rogue", "-quoth", "-evil"],
+      gameDir: "my-mod",
     });
     const silence = console.log;
     console.log = () => {};
@@ -551,13 +559,20 @@ Deno.test({
       assert.ok(room !== null, "room should start");
       const args = (await Deno.readTextFile(argsFile)).split("\n");
       assert.ok(args.includes("-rogue"), "flag forwarded");
+      assert.ok(args.includes("-quoth"), "-quoth forwarded");
+      assert.ok(
+        args.includes("-game") && args.includes("my-mod"),
+        "-game forwarded",
+      );
       assert.ok(args.includes("-evil") === false, "unknown flags filtered out");
       const allowRead = args.find((a) => a.startsWith("--allow-read=")).split(
         ",",
       );
       assert.ok(
-        allowRead.includes("/data/quake/rogue"),
-        "game dir next to the pak is readable",
+        allowRead.includes("/data/quake/rogue") &&
+          allowRead.includes("/data/quake/quoth") &&
+          allowRead.includes("/data/quake/my-mod"),
+        "game dirs next to the pak are readable",
       );
       // quic_listen.ts binds [::] and 0.0.0.0 on the room's port
       assert.ok(
@@ -569,6 +584,7 @@ Deno.test({
       RoomManager_SetConfig({
         pakPath: "../static/librequake/id1/pak0.pak",
         gameFlags: [],
+        gameDir: null,
       });
       console.log = silence;
       Deno.env.delete("FAKE_ROOM_ARGS_FILE");

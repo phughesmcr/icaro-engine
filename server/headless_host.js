@@ -46,7 +46,11 @@
 //
 // The process holds one host: Host_Init can't run twice.
 
-import { COM_InitArgv } from "../src/common.js";
+import {
+  COM_GameDirArgs,
+  COM_GameDirIsValid,
+  COM_InitArgv,
+} from "../src/common.js";
 import {
   COM_AddGameDirectory,
   COM_AddPack,
@@ -238,20 +242,15 @@ export function headless_search_paths(opts = {}) {
   const argv = ["quake", ...(opts.argv !== undefined ? opts.argv : [])];
   const basedir = base !== null ? base : _gameBaseDirectory(pak);
 
-  // common.c COM_InitFilesystem: rogue, then hipnotic, then -game
-  const gameDirs = [];
-  if (argv.includes("-rogue") === true) gameDirs.push(basedir + "/rogue");
-  if (argv.includes("-hipnotic") === true) {
-    gameDirs.push(basedir + "/hipnotic");
-  }
-  const gameArg = argv.indexOf("-game");
-  if (gameArg > 0) {
-    const name = argv[gameArg + 1];
-    if (name === undefined || /^[A-Za-z0-9_-]+$/.test(name) === false) {
+  // common.c COM_InitFilesystem: rogue, hipnotic, quoth, then each -game
+  for (let i = 1; i < argv.length; i++) {
+    if (argv[i] !== "-game") continue;
+    const name = argv[i + 1];
+    if (name === undefined || COM_GameDirIsValid(name) === false) {
       throw new Error("headless_init: bad -game directory " + name);
     }
-    gameDirs.push(basedir + "/" + name);
   }
+  const gameDirs = COM_GameDirArgs(argv).map((name) => basedir + "/" + name);
   for (const dir of opts.game_dirs !== undefined ? opts.game_dirs : []) {
     gameDirs.push(_trimSlash(dir));
   }
@@ -284,9 +283,10 @@ export function headless_search_paths(opts = {}) {
  *   true. Without it, the basedir is the pak's directory, or its parent when
  *   that directory is named id1 (as game_server.js resolves it).
  * opts.argv: extra command-line arguments (com_argv), e.g. ['-nomonsters'].
- *   As in common.c COM_InitFilesystem, -rogue, -hipnotic and -game <dir>
- *   mount <basedir>/rogue, <basedir>/hipnotic and <basedir>/<dir>, in that
- *   order, after id1. -rogue and -hipnotic also set the mission-pack flags.
+ *   As in common.c COM_InitFilesystem, -rogue, -hipnotic, -quoth and each
+ *   -game <dir> mount <basedir>/<name>, in that order, after id1 (common.js
+ *   COM_GameDirArgs). They also set the mission-pack flags (-quoth and
+ *   -game quoth set hipnotic, as in QuakeSpasm).
  * opts.game_dirs: further game directories (paths), mounted after those in
  *   list order, so each is searched before the ones before it.
  *

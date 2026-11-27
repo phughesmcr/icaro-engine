@@ -57,6 +57,18 @@ Deno.test("URLCfg_Parse: ?game= mission packs and rerelease add-ons", () => {
     "quake",
     "-hipnotic",
   ], "hipnotic");
+  assertEqual(URLCfg_Argv(URLCfg_Parse("?game=quoth")), [
+    "quake",
+    "-quoth",
+  ], "quoth");
+  assertEqual(
+    URLCfg_Parse("?game=ROGUE").game,
+    { dir: "rogue", mission: true },
+    "mission packs in any case",
+  );
+  const mod = URLCfg_Parse("?game=My-Mod_2");
+  assertEqual(mod.game, { dir: "My-Mod_2", mission: false }, "any safe mod");
+  assertEqual(URLCfg_Argv(mod), ["quake", "-game", "My-Mod_2"], "mod argv");
   const mg1 = URLCfg_Parse("?game=mg1");
   assertEqual(mg1.game, { dir: "mg1", mission: false }, "mg1");
   assertEqual(URLCfg_Argv(mg1), ["quake", "-game", "mg1"], "mg1 argv");
@@ -64,7 +76,24 @@ Deno.test("URLCfg_Parse: ?game= mission packs and rerelease add-ons", () => {
 });
 
 Deno.test("URLCfg_Parse: an unknown or unsafe ?game= is ignored", () => {
-  for (const bad of ["../id1", "id1", "a/b", "", "rogue;quit", "ROGUE"]) {
+  for (
+    const bad of [
+      "../id1",
+      "id1",
+      "ID1",
+      "rerelease",
+      "librequake",
+      "a/b",
+      "a\\b",
+      "a.b",
+      ".",
+      "..",
+      "-x",
+      "",
+      "rogue;quit",
+      "x".repeat(33),
+    ]
+  ) {
     const cfg = URLCfg_Parse(new URLSearchParams({ game: bad }));
     assertEqual(cfg.game, null, bad);
     assert(cfg.messages.length === 1, bad + ": one message");

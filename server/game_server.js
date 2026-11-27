@@ -12,7 +12,13 @@ import {
   COM_EnsureFile,
   COM_SetLooseFileBasePaths,
 } from "../src/pak.js";
-import { COM_InitArgv, hipnotic, LOC_Init, rogue } from "../src/common.js";
+import {
+  com_argv,
+  COM_GameDirArgs,
+  COM_GameDirIsValid,
+  COM_InitArgv,
+  LOC_Init,
+} from "../src/common.js";
 import { Cbuf_Execute, Cbuf_Init, Cmd_Init } from "../src/cmd.js";
 import { Host_InitCommands } from "../src/host_cmd.js";
 import {
@@ -112,8 +118,8 @@ export function createConfig() {
     idleTimeout: 300, // Seconds to wait before exiting when empty (room mode)
     statusNonce: null, // Token for structured status lines to the lobby (room mode)
     parentWatch: false, // Exit when stdin closes (the lobby holds the other end)
-    gameFlags: [], // -rogue and/or -hipnotic: load <basedir>/rogue or hipnotic too
-    gameDir: null, // -game <dir>: load <basedir>/<dir> too (e.g. the rerelease's mg1)
+    gameFlags: [], // -rogue, -hipnotic, -quoth: load <basedir>/<name> too
+    gameDir: null, // -game <dir>: load <basedir>/<dir> too (mg1, a mod...)
     wsPort: null, // -wsport <port>: also accept WebSocket clients (TCP)
     wsHost: "127.0.0.1", // -wshost <addr>: WebSocket listen address
     wsTls: false, // -wstls: wss:// with -cert/-key instead of plain ws://
@@ -162,7 +168,7 @@ export function parseArgs(args = Deno.args, config = CONFIG) {
       config.statusNonce = args[++i];
     } else if (arg === "-parentwatch") {
       config.parentWatch = true;
-    } else if (arg === "-rogue" || arg === "-hipnotic") {
+    } else if (arg === "-rogue" || arg === "-hipnotic" || arg === "-quoth") {
       config.gameFlags.push(arg);
     } else if (arg === "-game" && args[i + 1]) {
       const dir = args[++i];
@@ -191,15 +197,22 @@ export function parseArgs(args = Deno.args, config = CONFIG) {
       const text = args[++i];
       if (/^[0-9]{1,6}$/.test(text)) {
         const [min, max] = GAME_OPTION_RANGES[name];
-        const top = name === "teamplay" && config.gameFlags.includes("-rogue") ?
-          6 :
-          max;
+        // Rogue's teamplay 3..6 is checked after the loop, once -rogue or
+        // -game rogue may have been read (they can come after -teamplay)
+        const top = name === "teamplay" ? 6 : max;
         config.gameOptions[name] = Math.max(
           min,
           Math.min(top, parseInt(text, 10)),
         );
       }
     }
+  }
+  const teamplay = config.gameOptions.teamplay;
+  if (teamplay !== undefined && configIsRogue(config) === false) {
+    config.gameOptions.teamplay = Math.min(
+      teamplay,
+      GAME_OPTION_RANGES.teamplay[1],
+    );
   }
   return config;
 }
@@ -230,27 +243,45 @@ export function wsTrustConfig(config) {
 }
 
 /**
- * A -game directory name: one path component, no '..' (common.c takes any).
+ * A -game directory name the browser would take too (common.js
+ * COM_GameDirIsValid: one path component, not id1 or a base).
  */
 export function isGameDirName(dir) {
-  return /^[A-Za-z0-9_-]+$/.test(dir);
+  return COM_GameDirIsValid(dir);
 }
 
 /**
- * common.c COM_InitFilesystem: <basedir>/rogue, then <basedir>/hipnotic, then
- * <basedir>/<-game dir>, after id1. When the -pak file is in a directory named
+ * Whether config runs Rogue (-rogue, or -game rogue as in QuakeSpasm's
+ * COM_InitFilesystem), whose teamplay has modes 3 to 6.
+ */
+export function configIsRogue(config) {
+  return config.gameFlags.includes("-rogue") ||
+    (config.gameDir !== null && config.gameDir.toLowerCase() === "rogue");
+}
+
+/**
+ * The COM_InitArgv arguments for config: only the game ones, since the rest
+ * are this server's own and NET_Init would read -port from com_argv.
+ */
+export function gameArgv(config) {
+  return [
+    "game_server",
+    ...config.gameFlags,
+    ...(config.gameDir !== null ? ["-game", config.gameDir] : []),
+  ];
+}
+
+/**
+ * common.c COM_InitFilesystem: <basedir>/<name> for each name, after id1, in
+ * COM_GameDirArgs order (rogue, hipnotic, quoth, then -game). When the -pak file is in a directory named
  * id1 (as in C, and the rerelease's rerelease/id1/pak0.pak), basedir is its
  * parent (LibreQuake's static/librequake/id1/pak0.pak gives
  * static/librequake/); otherwise it is the directory holding the -pak file.
  * Either separator is accepted so a Windows-style path works too.
  */
-export function gameDirectories(pakPath, isRogue, isHipnotic, gameDir = null) {
+export function gameDirectories(pakPath, names) {
   const basedir = gameBaseDirectory(pakPath);
-  const dirs = [];
-  if (isRogue) dirs.push(basedir + "/rogue");
-  if (isHipnotic) dirs.push(basedir + "/hipnotic");
-  if (gameDir !== null) dirs.push(basedir + "/" + gameDir);
-  return dirs;
+  return names.map((name) => basedir + "/" + name);
 }
 
 /**
@@ -350,9 +381,8 @@ async function Host_Init_Server() {
   }
   Sys_Printf("========================================\n\n");
 
-  // Only the mission-pack flags go to COM_InitArgv: the rest are this
-  // server's own, and NET_Init would read -port from com_argv
-  COM_InitArgv(["game_server", ...CONFIG.gameFlags]);
+  // Only the game arguments go to COM_InitArgv (see gameArgv)
+  COM_InitArgv(gameArgv(CONFIG));
 
   // Initialize subsystems in order (from host.js)
   Memory_Init();
@@ -499,18 +529,10 @@ async function Host_Init_Server() {
     throw new Error("Failed to load " + CONFIG.pakPath);
   }
 
-  const gameDirs = gameDirectories(
-    CONFIG.pakPath,
-    rogue,
-    hipnotic,
-    CONFIG.gameDir,
-  );
+  const gameDirs = gameDirectories(CONFIG.pakPath, COM_GameDirArgs(com_argv));
   for (const dir of gameDirs) {
     if (await COM_AddGameDirectory(dir) === 0) {
-      throw new Error(
-        "-" + dir.slice(dir.lastIndexOf("/") + 1) + " needs " + dir +
-          "/pak0.pak",
-      );
+      throw new Error("The game directory " + dir + " needs its pak0.pak");
     }
   }
 

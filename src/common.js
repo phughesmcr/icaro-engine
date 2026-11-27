@@ -767,7 +767,8 @@ export function COM_Parse(data) {
 export let com_argc = 0;
 export let com_argv = [];
 
-// Set by COM_InitArgv from -rogue and -hipnotic (main.js maps ?game= to these)
+// Set by COM_InitArgv from -rogue, -hipnotic and -quoth, and from -game
+// rogue, hipnotic or quoth (see COM_GameDirArgs; main.js maps ?game= to these)
 export let standard_quake = true;
 export let rogue = false;
 export let hipnotic = false;
@@ -882,10 +883,14 @@ export function COM_InitArgv(argv) {
 
   com_cmdline = n;
 
-  // common.c COM_InitArgv. Assigned on every call so that a later call
-  // without the flag (as the tests make) clears it again.
-  rogue = COM_CheckParm("-rogue") !== 0;
-  hipnotic = COM_CheckParm("-hipnotic") !== 0;
+  // common.c COM_InitArgv, with QuakeSpasm's additions: -quoth sets the
+  // hipnotic flag (Quoth uses Armagon's HUD), and so does -game hipnotic or
+  // -game quoth, as -game rogue sets rogue (QuakeSpasm COM_InitFilesystem,
+  // Ironwail COM_AddGameDirectory). Assigned on every call so that a later
+  // call without the flag (as the tests make) clears it again.
+  const dirs = COM_GameDirArgs(argv).map((dir) => dir.toLowerCase());
+  rogue = dirs.includes("rogue");
+  hipnotic = dirs.includes("hipnotic") || dirs.includes("quoth");
   standard_quake = rogue === false && hipnotic === false;
 }
 
@@ -896,6 +901,65 @@ export function COM_CheckParm(parm) {
   }
 
   return 0;
+}
+
+/**
+ * Names a game directory may not have, in any case: id1 is the base game,
+ * and the others are the folders beside the game directories in static/ (the
+ * rerelease's and LibreQuake's bases, the player's CD tracks and the site's
+ * own images).
+ */
+export const COM_RESERVED_GAMEDIRS = Object.freeze([
+  "id1",
+  "rerelease",
+  "librequake",
+  "music",
+  "screenshots",
+  "splash",
+]);
+
+/**
+ * Web-only rule for a game directory's name (-game, the servers' -game and
+ * the browser's ?game=): 1 to 32 ASCII letters, digits, _ and -, not starting
+ * with -, and not a name in COM_RESERVED_GAMEDIRS. So no '/', '\', ':', '.',
+ * '..' or leading dot can reach a path. QuakeSpasm and Ironwail
+ * (COM_InitFilesystem) refuse only paths and '..'; this is stricter, since
+ * the name comes from a link and becomes part of a URL.
+ */
+export function COM_GameDirIsValid(name) {
+  return typeof name === "string" &&
+    /^[A-Za-z0-9_][A-Za-z0-9_-]{0,31}$/.test(name) &&
+    COM_RESERVED_GAMEDIRS.includes(name.toLowerCase()) === false;
+}
+
+const COM_MISSION_PACK_ARGS = [
+  ["-rogue", "rogue"],
+  ["-hipnotic", "hipnotic"],
+  ["-quoth", "quoth"],
+];
+
+/**
+ * The game directories a command line (argv, the program's name first)
+ * mounts after id1, in order: common.c COM_InitFilesystem's mission packs
+ * (-rogue, then -hipnotic, then QuakeSpasm's -quoth), then each -game <dir>
+ * (Ironwail takes several). As in QuakeSpasm, a -game naming a mission pack
+ * already asked for is not mounted twice. A -game name COM_GameDirIsValid
+ * refuses is skipped (the C stops with Sys_Error; callers check names first).
+ */
+export function COM_GameDirArgs(argv) {
+  const dirs = [];
+  for (const [flag, dir] of COM_MISSION_PACK_ARGS) {
+    if (argv.indexOf(flag, 1) > 0) dirs.push(dir);
+  }
+  for (let i = 1; i < argv.length - 1; i++) {
+    if (argv[i] !== "-game") continue;
+    const dir = argv[i + 1];
+    if (COM_GameDirIsValid(dir) === false) continue;
+    const lower = dir.toLowerCase();
+    if (dirs.some((d) => d.toLowerCase() === lower)) continue;
+    dirs.push(dir);
+  }
+  return dirs;
 }
 
 // Console print stub (routes to real console when initialized)
