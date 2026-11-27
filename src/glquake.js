@@ -15,13 +15,6 @@ export const SKYMASK = SKYSIZE - 1;
 
 export const BACKFACE_EPSILON = 0.01;
 
-// GLQuake modulates texture by lightmap in display space (glBlendFunc on the
-// gamma-corrected palette colours). Three's Lambert path multiplies in linear
-// space and divides indirect light by PI. Decoding the lightmap as sRGB and
-// reading it at intensity PI gives back texture * lightmap / 255 in display
-// space, within a few levels of GLQuake across the range.
-export const LIGHTMAP_INTENSITY = Math.PI;
-
 // Multitexture
 export const TEXTURE0_SGIS = 0x835E;
 export const TEXTURE1_SGIS = 0x835F;
@@ -198,6 +191,27 @@ export const r_waterwarp = {
 };
 export const r_fullbright = { name: "r_fullbright", string: "0", value: 0 };
 export const r_lightmap = { name: "r_lightmap", string: "0", value: 0 };
+/**
+ * FitzQuake's overbright lighting (QuakeSpasm gl_rmain.c, registered in
+ * gl_rmisc.c R_Init). gl_overbright stores lightmaps at half scale, so light
+ * above GLQuake's 128-sample clamp survives, and doubles them in the world
+ * shader (gl_rsurf.js). gl_overbright_models doubles alias model light
+ * (gl_rmain.js R_SetupAliasLighting, gl_mesh.js). Both default to 1 and are
+ * archived, as in QuakeSpasm; 0 gives GLQuake's lighting. Ironwail keeps only
+ * gl_overbright_models and always overbrights the world.
+ */
+export const gl_overbright = {
+  name: "gl_overbright",
+  string: "1",
+  value: 1,
+  archive: true,
+};
+export const gl_overbright_models = {
+  name: "gl_overbright_models",
+  string: "1",
+  value: 1,
+  archive: true,
+};
 export const r_shadows = { name: "r_shadows", string: "0", value: 0 };
 export const r_mirroralpha = { name: "r_mirroralpha", string: "1", value: 1 };
 export const r_wateralpha = { name: "r_wateralpha", string: "1", value: 1 };
@@ -330,6 +344,19 @@ export function GL_ScaledTextureSize(width, height, mip = gl_picmip.value) {
   _scaledSize.width = Math.max(1, scaled_width);
   _scaledSize.height = Math.max(1, scaled_height);
   return _scaledSize;
+}
+
+/**
+ * Web-only: replaces anchor (a chunk include of three r183's shaders) in
+ * source, and throws if it is missing. A chunk renamed by a three.js upgrade
+ * would otherwise leave a surface silently shaded by Three's own lighting
+ * (R_PatchLightmapShader, AliasMaterial).
+ */
+export function GL_PatchShader(source, anchor, replacement) {
+  if (source.includes(anchor) === false) {
+    throw new Error("GL_PatchShader: no " + anchor + " in the shader");
+  }
+  return source.replace(anchor, replacement);
 }
 
 /**

@@ -19,7 +19,7 @@
 		{ "src": "static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
 	],
 	"screenshots": [
-		{ "src": "static/screenshots/e1m1.jpg", "sizes": "1280x720", "type": "image/jpeg", "form_factor": "wide", "label": "Playing E1M1, the Slipgate Complex" },
-		{ "src": "static/screenshots/menu.jpg", "sizes": "720x1280", "type": "image/jpeg", "form_factor": "narrow", "label": "The main menu" }
+		{ "src": "static/screenshots/e1m1.jpg", "sizes": "1280x720", "type": "image/jpeg", "form_factor": "wide", "label": "Playing Rogue's Passage, LibreQuake's E1M3" },
+		{ "src": "static/screenshots/menu.jpg", "sizes": "720x1280", "type": "image/jpeg", "form_factor": "narrow", "label": "The main menu, in LibreQuake" }
 	]
 }
