@@ -28,9 +28,12 @@ client prediction.
 - `docs/`: design notes and snapshots (`docs/README.md` indexes them; verify
   claims against current code).
 - `tools/`: offline helpers and `tools/bench/` headless Deno benchmarks (only
-  `tools/fetch_data.js` is linted/type-checked in CI). Benchmark checksums in
-  `server_bench.js`, `build_bench.js`, `model_bench.js`, and `net_bench.js` must
-  not change unless behaviour intentionally changes.
+  `tools/fetch_data.js` and `tools/layer_graph.js` are linted/type-checked in
+  CI). `tools/layer_graph.js` holds the platform/core/game layer table
+  (`docs/architecture-plan.md`); a new `src/` or `server/` file needs a row
+  there. Benchmark checksums in `server_bench.js`, `build_bench.js`,
+  `model_bench.js`, and `net_bench.js` must not change unless behaviour
+  intentionally changes.
 
 ## Commands
 
@@ -43,6 +46,9 @@ client prediction.
   with zero problems), and format (2 spaces, 80 cols, double quotes; includes
   Markdown). Use `_` prefix for unused C-parity params; line-level
   `// deno-lint-ignore` with a reason only for C-parity state.
+- `deno task layers`: reports imports that break the layer plan. The ratchet
+  test fails on a new violation or one gone from `tools/layer_baseline.txt`;
+  `deno task layers --update` rewrites the baseline (rerun it after a rebase).
 - `deno task fetch-data`: downloads pinned LibreQuake release (SHA-256 checked)
   into gitignored `static/librequake/`.
 - `deno task serve`: local dev server on `http://127.0.0.1:8137/` (supports HTTP

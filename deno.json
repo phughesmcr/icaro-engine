@@ -4,6 +4,7 @@
     "@modelcontextprotocol/server": "npm:@modelcontextprotocol/server@2.4.0",
     "@modelcontextprotocol/server/stdio": "npm:@modelcontextprotocol/server@2.4.0/stdio",
     "zod": "npm:zod@4.6.7",
+    "@babel/parser": "npm:@babel/parser@8.1.3",
     "@zip.js/zip.js": "https://cdn.jsdelivr.net/npm/@zip.js/zip.js@2.25.0/dist/zip-core-external.min.js"
   },
   "lint": {
@@ -14,7 +15,8 @@
       "server/",
       "tests/",
       "cloudflare/",
-      "tools/fetch_data.js"
+      "tools/fetch_data.js",
+      "tools/layer_graph.js"
     ],
     "exclude": [
       "static/",
@@ -61,9 +63,10 @@
     "test": "deno test --allow-read --allow-write --allow-env=FAKE_ROOM_PLAYERS_FILE,FAKE_ROOM_ARGS_FILE --allow-run=./tests/fixtures/fake_room_server.sh tests/",
     "serve": "deno run --allow-net=127.0.0.1:8137 --allow-read=. --allow-sys=networkInterfaces jsr:@std/http@1.1.4/file-server --host 127.0.0.1 --port 8137 --no-dotfiles --header 'Cache-Control: no-cache'",
     "agent-mcp": "deno run --no-prompt --allow-read=static server/agent_mcp.ts",
-    "check": "deno check main.js server/game_server.js server/lobby_server.js server/agent_mcp.ts server/room_process_manager.ts server/net_websocket_server.ts cloudflare/client/build.js tools/fetch_data.js tests/net_webtransport_server_test.ts tests/quic_listen_test.ts",
+    "check": "deno check main.js server/game_server.js server/lobby_server.js server/agent_mcp.ts server/room_process_manager.ts server/net_websocket_server.ts cloudflare/client/build.js tools/fetch_data.js tools/layer_graph.js tests/net_webtransport_server_test.ts tests/quic_listen_test.ts",
     "ci": "deno fmt --check && deno task test && deno task lint && deno task check",
     "fetch-data": "deno run --no-prompt --allow-net=github.com,release-assets.githubusercontent.com --allow-read=static/librequake --allow-write=static/librequake tools/fetch_data.js",
+    "layers": "deno run --allow-read=. --allow-write=tools/layer_baseline.txt tools/layer_graph.js",
     "image-check": "sh tools/check_container_image.sh",
     "client-build": "deno run --allow-read=. --allow-write=cloudflare/client/dist --allow-run=git cloudflare/client/build.js"
   }
