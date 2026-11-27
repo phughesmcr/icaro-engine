@@ -1745,6 +1745,10 @@ function M_GameOptions_Draw() {
     M_PrintWhite(0, 160, "Creating room...");
   } else if (m_return_reason) {
     M_PrintWhite(0, 160, m_return_reason.substring(0, 40));
+  } else if (m_host_in_browser) {
+    // Web addition: a hidden tab slows or stops the room (host_hidden.js)
+    M_Print(0, 160, "Keep this tab in front and the screen on");
+    M_Print(0, 168, "while you host, or the game stalls.");
   }
 
   // Cursor

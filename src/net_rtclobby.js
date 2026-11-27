@@ -21,6 +21,7 @@ import { Cvar_Set } from "./cvar.js";
 import { sv, svs } from "./server.js";
 import { RTC_HandleSignal, RTC_SetSignaller } from "./net_webrtc.js";
 import { Turnstile_Cancel, Turnstile_GetToken } from "./turnstile.js";
+import { HostHidden_SetHosting } from "./host_hidden.js";
 
 // Frame types, as in server/lobby_rtc.js
 const LOBBY_JOIN = 0x02;
@@ -430,6 +431,10 @@ export async function RTCLobby_HostRoom(config, spawnCount, exitRules) {
   };
   host_session = session;
 
+  // Keep the room running while this tab is hidden, hold a wake lock and
+  // warn the host (host_hidden.js), until RTCLobby_ServerShutdown
+  HostHidden_SetHosting(true);
+
   // Heartbeat: every RTCLOBBY_HEARTBEAT_MS, and at once when the player
   // count changes, so the lobby's "room is full" stays right
   let sentPlayers = 1;
@@ -526,6 +531,7 @@ export function RTCLobby_ServerShutdown() {
   host_token++;
   _RTCLobby_EndHost();
   _RTCLobby_ResetRules();
+  HostHidden_SetHosting(false);
 }
 
 function _RTCLobby_ResetRules() {

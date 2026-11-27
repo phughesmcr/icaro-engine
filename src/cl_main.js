@@ -105,7 +105,7 @@ import { S_StopAllSounds } from "./snd_dma.js";
 import { M_ConnectionError, M_ShouldReturnOnError } from "./menu.js";
 import { key_menu, set_key_dest } from "./keys.js";
 import { V_ResetEffects, V_ResetPunchAngles, V_UsePrediction } from "./view.js";
-import { Sys_PageURL } from "./sys.js";
+import { Sys_FloatTime, Sys_PageURL } from "./sys.js";
 import {
   CL_GetEntityFrame,
   CL_GetPredictedPlayer,
@@ -1473,6 +1473,10 @@ export function CL_Init() {
       typeof document !== "undefined" && document.visibilityState === "hidden",
     print: (str) => Con_Printf("%s", str),
     notify: (str) => SCR_CenterPrint(str),
+    messageAge: () =>
+      cls.signon === SIGNONS && cls.netcon != null ?
+        Sys_FloatTime() - cls.netcon.lastMessageTime :
+        -1,
     giveUp: (reason) => {
       Con_Printf("%s\n", reason);
       M_ConnectionError(reason);
