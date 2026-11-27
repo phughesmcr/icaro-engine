@@ -231,6 +231,7 @@ function _RTCLobby_Request(url, role, type, value) {
         return;
       }
 
+      if (_RTCLobby_TakeLateIce(session, frame) === true) return;
       if (
         frame.type === LOBBY_SIGNAL_RELAY && frame.value !== null &&
         typeof frame.value.from === "string"
@@ -249,6 +250,24 @@ function _RTCLobby_Request(url, role, type, value) {
     };
     socket.onerror = () => {};
   });
+}
+
+/**
+ * A LOBBY_ICE after the request settled: a host's fresh ICE servers, sent
+ * before its TURN credentials expire (server/lobby_rtc.js _refreshIce). The
+ * signaller's iceServers() hands them to joiners' connections from now on;
+ * connections already open keep the servers they started with. True if the
+ * frame was a LOBBY_ICE (an empty or malformed one keeps the old servers).
+ */
+function _RTCLobby_TakeLateIce(session, frame) {
+  if (frame.type !== LOBBY_ICE) return false;
+  if (
+    session.role === "host" && Array.isArray(frame.value) &&
+    frame.value.length > 0
+  ) {
+    session.iceServers = frame.value;
+  }
+  return true;
 }
 
 // The WebRTC driver's signaller

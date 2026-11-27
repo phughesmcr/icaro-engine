@@ -29,7 +29,7 @@
 //   LOBBY_ROOMS          the room record, after LOBBY_HOST or LOBBY_JOIN
 //   LOBBY_ICE            RTCIceServer[] for this client, after LOBBY_ROOMS;
 //                        a host may get fresh ones later, in reply to a
-//                        heartbeat, before its TURN credentials expire
+//                        heartbeat, for the connections it opens next
 //   LOBBY_SIGNAL_RELAY   { from, kind, data }
 //   LOBBY_VERIFY         { sitekey, action }: send the request again with a
 //                        Turnstile token in `turnstile` (server/turnstile.js)
@@ -746,11 +746,12 @@ export class RtcLobby {
     return await this._refreshIce(s, now);
   }
 
-  // A host keeps its ICE servers for every joiner's connection, for as long
-  // as the room lasts, and a TURN relay stops soon after its credentials
-  // expire. So before they do, mint fresh ones. A failed mint keeps the old
-  // ones (STUN only would replace credentials that still work) and tries
-  // again a minute later.
+  // A host keeps its ICE servers for every joiner's new connection, for as
+  // long as the room lasts, so a room open past the TURN credentials' TTL
+  // would hand joiners expired ones. Mint fresh ones now and then; they
+  // reach connections made after this, not ones already relaying. A failed
+  // mint keeps the old ones (STUN only would replace credentials that still
+  // work) and tries again a minute later.
   async _refreshIce(s, now) {
     if (this.iceRefreshMs === null) return [];
     const room = s.room;

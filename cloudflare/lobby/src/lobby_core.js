@@ -33,13 +33,20 @@ import {
 
 export const ALARM_INTERVAL_MS = 30 * 1000;
 
-// How long TURN credentials last. Cloudflare drops a relay soon after its
-// credentials expire (developers.cloudflare.com/realtime/turn/faq/), and
-// anyone holding them can relay through the account until then, so they
-// are short and a host gets fresh ones (RtcLobby iceRefreshMs) once
-// TURN_REFRESH_FRACTION of this has passed. TURN_TTL_SECONDS overrides it.
-export const TURN_TTL_SECONDS = 60 * 60;
-export const TURN_REFRESH_FRACTION = 0.75;
+// How long TURN credentials last (the TURN_TTL_SECONDS var overrides it).
+// A trade-off: a leaked credential relays through the account for up to
+// this long, and Cloudflare drops a relay soon after its credentials expire
+// (developers.cloudflare.com/realtime/turn/faq/). A relay in use can't take
+// new credentials without an ICE restart, which this client doesn't do, so
+// a relayed player connected for longer than this drops. Cloudflare
+// advises a TTL longer than a session; 3 h covers a long game, where 1 h
+// would drop relayed players about hourly.
+export const TURN_TTL_SECONDS = 3 * 60 * 60;
+// A host keeps its credentials for every joiner's new connection, so it gets
+// fresh ones (RtcLobby iceRefreshMs) once this fraction of the TTL has
+// passed: a connection made just before a refresh still has three quarters
+// of the TTL. The TTL bounds one relayed connection, not the room's life.
+export const TURN_REFRESH_FRACTION = 0.25;
 const TURN_TIMEOUT_MS = 5000;
 
 const _encoder = new TextEncoder();

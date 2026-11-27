@@ -297,8 +297,8 @@ Deno.test("Cloudflare lobby: TURN credentials from the TURN key, filtered; STUN 
   );
 });
 
-Deno.test("Cloudflare lobby: a host's TURN credentials last an hour and are refreshed over its socket", async () => {
-  assertEqual(TURN_TTL_SECONDS, 3600, "an hour by default");
+Deno.test("Cloudflare lobby: a host's TURN credentials last 3 hours and are refreshed over its socket", async () => {
+  assertEqual(TURN_TTL_SECONDS, 3 * 3600, "3 hours by default");
   const bodies = [];
   let n = 0;
   const fetch = (_url, init) => {

@@ -59,14 +59,17 @@ cd cloudflare/lobby && npx wrangler secret put TURN_KEY_API_TOKEN
 ```
 
 The lobby mints credentials only for a client that has just hosted a room or
-joined one, within the lobby's rate limits. They last an hour
-(`TURN_TTL_SECONDS` overrides that): Cloudflare drops a relay soon after its
-credentials expire, and anyone holding them can relay through the account until
-then. A host keeps its credentials for every joiner's connection, so after three
-quarters of that time its next heartbeat brings fresh ones (`LOBBY_ICE`,
-`server/lobby_rtc.js`); a failed refresh keeps the old ones and tries again a
-minute later. Each refresh counts toward `LOBBY_TURN_LIMIT`. If minting fails at
-host or join time, clients get STUN only.
+joined one, within the lobby's rate limits. They last 3 hours
+(`TURN_TTL_SECONDS` overrides that). That is a trade-off: anyone holding them
+can relay through the account until they expire, and Cloudflare drops a relay
+soon after they do. The client doesn't renew a relay in use (that needs an ICE
+restart), so a relayed player connected for longer than the TTL drops. A host
+keeps its credentials for every joiner's new connection, so once a quarter of
+the TTL has passed its next heartbeat brings fresh ones (`LOBBY_ICE`,
+`server/lobby_rtc.js`) for the connections it opens next; a failed refresh keeps
+the old ones and tries again a minute later. Each refresh counts toward
+`LOBBY_TURN_LIMIT`. If minting fails at host or join time, clients get STUN
+only.
 
 ## Abuse limits
 
