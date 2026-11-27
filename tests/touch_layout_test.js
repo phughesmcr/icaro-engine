@@ -10,6 +10,8 @@ const tl = await import("../src/touch_layout.js");
 const touch = await import("../src/touch.js");
 const editor = await import("../src/touch_editor.js");
 const sbar = await import("../src/sbar.js");
+const scr = await import("../src/gl_screen.js");
+const draw = await import("../src/gl_draw.js");
 
 // Keep the tests off Deno's own localStorage, which persists on disk
 const memoryStorage = new Map();
@@ -612,38 +614,84 @@ Deno.test("layout editor: a mirrored layout drags the other way", () => {
   });
 });
 
-// THE STATUS BAR
+// THE HUD
 //
-// The default buttons keep off the status bar (TL_HudRect, TL_HudClearance,
-// and Touch_Layout's lift).
+// The default buttons keep off the HUD: sbar.js's Sbar_GetFootprint, read
+// through TL_HudEdges and TL_HudLift by Touch_Layout.
 
-// The status bar's CSS px per sbar pixel, as gl_draw.js sizes it by default
-// (scr_conheight 240, scr_sbarscale 0) at a touch screen's pixel ratio cap 2
-function hudUnit(vw, vh, dpr = 2) {
-  let ui = Math.max(1, Math.floor(vh * dpr / 240));
-  while (ui > 1 && Math.floor(vw * dpr / ui) < 320) ui--;
-  return ui / dpr;
+const edges = (near, far, bottom, top) => ({ near, far, bottom, top });
+
+Deno.test("HUD: footprint rectangles measured from the action-side edge", () => {
+  const rect = { x: 166, y: 303, w: 480, h: 72 };
+  const e = tl.TL_HudEdges(rect, 812, 375, false, {});
+  assertEqual([e.near, e.far, e.bottom, e.top].join(), "166,646,0,72", "right");
+  tl.TL_HudEdges(rect, 812, 375, true, e);
+  assertEqual([e.near, e.far, e.bottom, e.top].join(), "166,646,0,72", "left");
+  tl.TL_HudEdges({ x: 24, y: 290, w: 156, h: 72 }, 812, 375, true, e);
+  assertEqual(
+    [e.near, e.far, e.bottom, e.top].join(),
+    "24,180,13,85",
+    "corner",
+  );
+  assertEqual(tl.TL_HudOverlap(48, 48, 64, edges(0, 0, 0, 0)), false, "empty");
+});
+
+Deno.test("HUD: the least lift that clears every rectangle", () => {
+  const m = tl.TL_HUD_MARGIN;
+  const jump = { x: 48, y: 48, size: 64 };
+  const fire = { x: 100, y: 112, size: 88 };
+  const bar = edges(0, 400, 0, 72); // under both
+  assertEqual(tl.TL_HudLift([jump, fire], 2, [], 0, 300), 0, "no HUD");
+  assertEqual(
+    tl.TL_HudLift([jump, fire], 2, [edges(166, 646, 0, 72)], 1, 300),
+    0,
+    "beside it",
+  );
+  // JUMP's bottom edge (16) to the bar's top and the margin
+  assertEqual(
+    tl.TL_HudLift([jump, fire], 2, [bar], 1, 300),
+    72 + m - 16,
+    "bar",
+  );
+  // A column part way up, beside FIRE, in the way of that lift: rise past it
+  const column = edges(0, 36, 100, 260);
+  assertEqual(
+    tl.TL_HudLift([jump, fire], 2, [bar, column], 2, 300),
+    260 + m - 16,
+    "over the column",
+  );
+  // ...unless that's too high: then clear the bar alone
+  assertEqual(
+    tl.TL_HudLift([jump, fire], 2, [bar, column], 2, 200),
+    72 + m - 16,
+    "the bar first",
+  );
+  // The column alone, where nothing touches it: no lift
+  assertEqual(tl.TL_HudLift([fire], 1, [column], 1, 300), 0, "clear");
+});
+
+// The fake screen at w x h, pixel ratio 2 (a touch screen's cap), for the
+// HUD sweep: sbar.js and gl_draw.js size the HUD from vid
+const hudVid = { width: 640, height: 480, numpages: 1 };
+function hudScreen(w, h) {
+  hudVid.width = w;
+  hudVid.height = h;
+  windowTarget.innerWidth = w;
+  windowTarget.innerHeight = h;
+  windowTarget.devicePixelRatio = 2;
 }
 
-// Touch_Layout's lift, at touch_size 1, for the default layout
-function defaultLift(vw, hud, mirror, inset) {
-  const near = mirror ? hud.left : vw - hud.right;
-  const far = mirror ? hud.right : vw - hud.left;
-  let lift = 0;
-  for (const d of tl.TL_MOVABLE) {
-    lift = Math.max(
-      lift,
-      tl.TL_HudClearance(
-        inset.side + d.cx,
-        inset.bottom + d.cy,
-        d.size,
-        near,
-        far,
-        hud.height,
-      ),
-    );
-  }
-  return { lift, near, far };
+// A button's box on the fake screen from its style, as { x, y, size }: its
+// centre in from the action-side edge and up from the bottom, insets added
+function shownButton(id, side, inset) {
+  const el = byId(id);
+  const px = (v) => Number(/\+ (-?[\d.]+)px\)$/.exec(v)[1]);
+  const size = parseFloat(el.style.width);
+  return {
+    x: inset.side + px(el.style[side]) + size / 2,
+    y: inset.bottom + px(el.style.bottom) + size / 2,
+    size,
+  };
 }
 
 const PHONES = [[812, 375], [844, 390], [932, 430], [667, 375]];
@@ -655,48 +703,7 @@ const INSETS = [
   { side: 59, bottom: 21 },
 ];
 
-Deno.test("status bar: footprint on phones, tablets and in deathmatch", () => {
-  const out = { left: 0, right: 0, height: 0 };
-  // 812x375 at ratio 2: UI scale 3, so 1.5 CSS px per sbar pixel
-  tl.TL_HudRect(812, hudUnit(812, 375), 48, false, out);
-  assertEqual(out.left, 166.5, "phone: centred, left");
-  assertEqual(out.right, 646.5, "phone: right");
-  assertEqual(out.height, 72, "phone: 48 lines tall");
-  // An iPad's bar nearly fills the bottom edge
-  tl.TL_HudRect(1024, hudUnit(1024, 768), 48, false, out);
-  assertEqual(out.right - out.left, 960, "tablet: 960 wide");
-  assertEqual(out.height, 144, "tablet: 144 tall");
-  // Deathmatch: at the left edge, with the frag list beside it
-  tl.TL_HudRect(812, 1.5, 48, true, out);
-  assertEqual(out.left, 0, "deathmatch: left edge");
-  assertEqual(out.right, 750, "deathmatch: frag list to x 500");
-  tl.TL_HudRect(667, 1.5, 48, true, out);
-  assertEqual(out.right, 480, "deathmatch, under 512 wide: no frag list");
-  // A bar wider than the screen (scr_sbarscale) stops at its edges
-  tl.TL_HudRect(400, 2, 24, false, out);
-  assertEqual(out.left, 0, "wide: left");
-  assertEqual(out.right, 400, "wide: right");
-  // viewsize 120: no bar, nothing to clear
-  tl.TL_HudRect(812, 1.5, 0, false, out);
-  assertEqual(out.height, 0, "no bar");
-  assertEqual(tl.TL_HudClearance(100, 20, 44, 0, 812, 0), 0, "no lift");
-});
-
-Deno.test("status bar: clearance is how far a button must rise", () => {
-  const m = tl.TL_HUD_MARGIN;
-  // Bar 72 tall from 166 to 646 px in from the action edge
-  assertEqual(tl.TL_HudClearance(48, 48, 64, 166, 646, 72), 0, "beside it");
-  assertEqual(
-    tl.TL_HudClearance(148, 40, 44, 166, 646, 72),
-    72 + m - 18,
-    "the old DOWN spot overlapped it",
-  );
-  assertEqual(tl.TL_HudClearance(176, 100, 44, 166, 646, 72), 0, "above it");
-  assertEqual(tl.TL_HudClearance(700, 30, 44, 166, 646, 72), 0, "past it");
-});
-
-Deno.test("status bar: no default button covers it, on phones and tablets", () => {
-  const hud = { left: 0, right: 0, height: 0 };
+Deno.test("HUD: no default button covers it, on phones and tablets", () => {
   // The default buttons never overlap each other (the lift moves them as one)
   for (const a of tl.TL_MOVABLE) {
     for (const b of tl.TL_MOVABLE) {
@@ -705,43 +712,104 @@ Deno.test("status bar: no default button covers it, on phones and tablets", () =
       if (gap < 4) throw new Error(`${a.id} and ${b.id} ${gap} px apart`);
     }
   }
-  for (const [vw, vh] of [...PHONES, ...TABLETS]) {
-    for (const inset of INSETS) {
-      for (const mirror of [false, true]) {
-        for (const dm of [false, true]) {
-          const what = `${vw}x${vh} inset ${inset.side}/${inset.bottom}` +
-            (mirror ? " mirrored" : "") + (dm ? " deathmatch" : "");
-          tl.TL_HudRect(vw, hudUnit(vw, vh), 48, dm, hud);
-          const { lift, near, far } = defaultLift(vw, hud, mirror, inset);
-          for (const d of tl.TL_MOVABLE) {
-            const x = inset.side + d.cx;
-            const y = inset.bottom + d.cy + lift;
-            // Clear of the bar by the margin...
-            const r = d.size / 2;
-            const beside = x + r <= near - tl.TL_HUD_MARGIN ||
-              x - r >= far + tl.TL_HUD_MARGIN;
-            if (!beside && y - r < hud.height + tl.TL_HUD_MARGIN) {
-              throw new Error(`${what}: ${d.id} covers the status bar`);
+  withFakeDom(() => {
+    setup();
+    tl.TL_SetStore(tl.TL_Parse(null));
+    if (cvar.Cvar_FindVar("hudstyle") === null) {
+      cvar.Cvar_RegisterVariable(scr.scr_hudstyle);
+    }
+    const sbcl = { intermission: 0, gametype: 0, items: 0, stats: [] };
+    sbcl.stats = new Array(32).fill(0);
+    sbcl.stats[0] = 100; // STAT_HEALTH, so no scoreboard
+    sbar.Sbar_SetExternals({ cl: sbcl, vid: hudVid });
+    draw.Draw_SetExternals({ vid: hudVid });
+    const oldStyle = scr.scr_hudstyle.string;
+    const oldScale = scr.scr_sbarscale.value;
+    const oldLines = sbar.sb_lines;
+    const oldMirror = touch.touch_lefthanded.string;
+    let inset = INSETS[0];
+    globalThis.getComputedStyle = () => ({
+      paddingLeft: inset.side + "px",
+      paddingRight: inset.side + "px",
+      paddingBottom: inset.bottom + "px",
+    });
+    const lifts = [];
+    try {
+      touch.Touch_Enable();
+      sbar.set_sb_lines(48);
+      for (const [vw, vh] of [...PHONES, ...TABLETS]) {
+        for (const style of ["0", "1", "2"]) {
+          for (const sbarscale of [0, 3]) { // automatic, LibreQuake's
+            for (inset of INSETS) {
+              for (const mirror of ["0", "1"]) {
+                const what = `${vw}x${vh} hudstyle ${style} scr_sbarscale ` +
+                  `${sbarscale} inset ${inset.side}/${inset.bottom}` +
+                  (mirror === "1" ? " mirrored" : "");
+                hudScreen(vw, vh);
+                cvar.Cvar_Set("hudstyle", style);
+                scr.scr_sbarscale.value = sbarscale;
+                cvar.Cvar_Set("touch_lefthanded", mirror);
+                touch.Touch_Frame();
+                const side = mirror === "1" ? "left" : "right";
+                const hud = [];
+                for (const r of sbar.Sbar_GetFootprint()) {
+                  if (r.w > 0 && r.h > 0) {
+                    hud.push(tl.TL_HudEdges(r, vw, vh, mirror === "1", {}));
+                  }
+                }
+                let lowest = Infinity;
+                for (const d of tl.TL_MOVABLE) {
+                  const b = shownButton(d.id, side, inset);
+                  lowest = Math.min(lowest, b.y - b.size / 2);
+                  for (const e of hud) {
+                    // Every rectangle along the bottom (the bar, the
+                    // corners, the ammo strip) stays the margin clear. On
+                    // phones the weapon column part way up isn't touched
+                    // either; a tablet may have no lift that clears both
+                    // (TL_HudLift then clears the bottom).
+                    const along = e.bottom < (e.top - e.bottom) / 2;
+                    if (!along && vh > 500) continue;
+                    const margin = along ? tl.TL_HUD_MARGIN : 0;
+                    if (tl.TL_HudOverlap(b.x, b.y, b.size, e, margin)) {
+                      throw new Error(`${what}: ${d.id} covers the HUD`);
+                    }
+                  }
+                  if (b.y + b.size / 2 > vh - 56) {
+                    throw new Error(`${what}: ${d.id} lifted off the top`);
+                  }
+                }
+                lifts.push(`${what}: ${lowest - inset.bottom - 16}`);
+              }
             }
-            // ...and under the top bar's row (12 + 32 px)
-            if (y + r > vh - 56) {
-              throw new Error(`${what}: ${d.id} lifted off the top`);
-            }
-          }
-          // Phones keep the usual spot outside deathmatch (667 px, a phone
-          // with no notch: FIRE's bottom edge dips 4 px under the bar's top,
-          // so a few px up)
-          if (!dm && vh < 500 && (vw !== 667 || inset.side === 0)) {
-            const most = vw === 667 ? 8 : 0;
-            if (lift > most) throw new Error(`${what}: lifted ${lift} px`);
           }
         }
       }
+      // The classic bar on phones keeps the usual spot (667 px, a phone with
+      // no notch: FIRE's edge dips 4 px under the bar, so a few px up)
+      for (const l of lifts) {
+        if (!/^(812|844|932|667)x\d+ hudstyle 0 /.test(l)) continue;
+        if (l.startsWith("667") && !l.includes("inset 0/0")) continue;
+        const lift = Number(l.slice(l.lastIndexOf(" ") + 1));
+        if (lift > (l.startsWith("667") ? 8 : 0)) {
+          throw new Error(`${l} px lift`);
+        }
+      }
+    } finally {
+      delete globalThis.getComputedStyle;
+      cvar.Cvar_Set("hudstyle", oldStyle);
+      cvar.Cvar_Set("touch_lefthanded", oldMirror);
+      scr.scr_sbarscale.value = oldScale;
+      sbar.set_sb_lines(oldLines);
+      hudScreen(640, 480);
+      windowTarget.devicePixelRatio = undefined;
+      tl.TL_SetStore(tl.TL_Parse(null));
+      touch.Touch_Frame();
+      touch.Touch_Disable();
     }
-  }
+  });
 });
 
-Deno.test("status bar: Touch_Layout lifts default buttons, not moved ones", () => {
+Deno.test("HUD: Touch_Layout lifts default buttons, not moved ones", () => {
   withFakeDom(() => {
     setup();
     tl.TL_SetStore(tl.TL_Parse(null));

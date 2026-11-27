@@ -35,8 +35,8 @@ export const TL_CUSTOM_KEY_BASE = 1000;
  *
  * Only JUMP sits low in the corner: a phone's status bar (about 480 x 72 px
  * in landscape) leaves just 93 px beside it on a 667 px screen. The rest
- * start above that bar; Touch_Layout lifts them further where the bar is
- * taller (tablets, scr_sbarscale) or in the way (deathmatch).
+ * start above that bar; Touch_Layout lifts them further where the HUD is in
+ * the way (tablets, scr_sbarscale, deathmatch, the modern HUD's corners).
  */
 // deno-fmt-ignore -- a table reads better in rows
 export const TL_MOVABLE = [
@@ -282,52 +282,96 @@ export function TL_AtDefault(id, cx, cy) {
   return d !== null && cx === d.cx && cy === d.cy;
 }
 
-// The status bar
+// The HUD
 //
-// Touch_Layout keeps the default buttons off the status bar and its numbers.
-// These work in CSS px on the screen, from what sbar.js draws.
+// Touch_Layout keeps the default buttons off the HUD (the status bar and its
+// numbers, or the modern HUD's corners), from sbar.js's Sbar_GetFootprint.
+// These work in CSS px on the screen, measured from the action-side edge (the
+// right, or the left when mirrored) and up from the bottom edge.
 
-/** Gap kept between a lifted button and the status bar, px */
+/** Gap kept between a button and the HUD, px */
 export const TL_HUD_MARGIN = 4;
 
 /**
- * The status bar's footprint as sbar.js draws it: 320 x lines sbar pixels on
- * the bottom edge, centred, or at the left edge in deathmatch with
- * Sbar_MiniDeathmatchOverlay's frag list (x 324 to 500) beside it once the
- * screen is 512 wide. vw: screen width in CSS px; unit: CSS px per sbar pixel
- * (the bar's canvas scale over the pixel ratio); lines: sbar.js's sb_lines
- * (0, 24 or 48). Fills out.left and out.right (px from the left edge) and
- * out.height (0: no bar). Returns out.
+ * Fills out with a footprint rectangle ({ x, y, w, h } from the top left of
+ * a vw x vh screen) as { near, far, bottom, top }: its distances from the
+ * action-side edge and from the bottom edge. Returns out.
  */
-export function TL_HudRect(vw, unit, lines, deathmatch, out) {
-  out.left = 0;
-  out.right = 0;
-  out.height = 0;
-  if (!(vw > 0) || !(unit > 0) || !(lines > 0)) return out;
-  const width = Math.ceil(vw / unit); // the bar canvas's virtual width
-  if (deathmatch) {
-    out.right = (width >= 512 && lines >= 24 ? 500 : 320) * unit;
-  } else {
-    out.left = Math.floor((width - 320) / 2) * unit;
-    out.right = out.left + 320 * unit;
-  }
-  out.left = Math.max(out.left, 0);
-  out.right = Math.min(out.right, vw);
-  out.height = lines * unit;
+export function TL_HudEdges(rect, vw, vh, mirror, out) {
+  out.near = mirror ? rect.x : vw - rect.x - rect.w;
+  out.far = mirror ? rect.x + rect.w : vw - rect.x;
+  out.bottom = vh - rect.y - rect.h;
+  out.top = vh - rect.y;
   return out;
 }
 
 /**
- * How far a button must rise to clear the status bar, or 0 if it is clear.
- * x, y: its centre in px from the action-side edge and the bottom edge
- * (safe-area insets included); size: its diameter in px. near, far: the
- * bar's distances from the action-side edge; height: the bar's height.
+ * Does a button, a circle (centre x px in from the action-side edge and y px
+ * up, safe-area insets included; size: its diameter), come within margin px
+ * (TL_HUD_MARGIN if left out) of HUD rectangle e (TL_HudEdges)? An empty
+ * rectangle covers nothing.
  */
-export function TL_HudClearance(x, y, size, near, far, height) {
-  if (!(height > 0)) return 0;
-  const r = size / 2;
-  if (x + r <= near - TL_HUD_MARGIN || x - r >= far + TL_HUD_MARGIN) return 0;
-  return Math.max(height + TL_HUD_MARGIN - (y - r), 0);
+export function TL_HudOverlap(x, y, size, e, margin = TL_HUD_MARGIN) {
+  if (!(e.far > e.near) || !(e.top > e.bottom)) return false;
+  const dx = Math.max(e.near - x, 0, x - e.far);
+  const dy = Math.max(e.bottom - y, 0, y - e.top);
+  const reach = size / 2 + margin;
+  return dx * dx + dy * dy < reach * reach;
+}
+
+// Is HUD rectangle e along the bottom edge: nearer it than half its own
+// height (the status bar, the modern HUD's corners and ammo strip; not its
+// weapon column)
+function TL_AlongBottom(e) {
+  return e.bottom < (e.top - e.bottom) / 2;
+}
+
+// Would raising every button by lift clear every rectangle? (only those
+// along the bottom edge when bottomOnly)
+function TL_LiftClears(buttons, n, edges, m, lift, bottomOnly) {
+  for (let j = 0; j < m; j++) {
+    const e = edges[j];
+    if (bottomOnly && !TL_AlongBottom(e)) continue;
+    for (let i = 0; i < n; i++) {
+      const b = buttons[i];
+      if (TL_HudOverlap(b.x, b.y + lift, b.size, e)) return false;
+    }
+  }
+  return true;
+}
+
+// The smallest of 0 and the lifts that set a button just over a rectangle
+// that clears them all, up to maxLift; -1 if none does
+function TL_LeastLift(buttons, n, edges, m, maxLift, bottomOnly) {
+  if (TL_LiftClears(buttons, n, edges, m, 0, bottomOnly)) return 0;
+  let best = -1;
+  for (let j = 0; j < m; j++) {
+    const e = edges[j];
+    if (!(e.far > e.near) || !(e.top > e.bottom)) continue;
+    if (bottomOnly && !TL_AlongBottom(e)) continue;
+    for (let i = 0; i < n; i++) {
+      const b = buttons[i];
+      const lift = e.top + TL_HUD_MARGIN - (b.y - b.size / 2);
+      if (lift <= 0 || lift > maxLift || (best >= 0 && lift >= best)) continue;
+      if (TL_LiftClears(buttons, n, edges, m, lift, bottomOnly)) best = lift;
+    }
+  }
+  return best;
+}
+
+/**
+ * How far to raise the default buttons, all together so they keep their
+ * spacing, to clear the HUD: the least lift up to maxLift that takes every
+ * button (the first n of buttons, { x, y, size } as TL_HudOverlap takes them)
+ * off every rectangle (the first m of edges, from TL_HudEdges). Where none
+ * does (a rectangle part way up the screen, like the modern HUD's weapon
+ * column, in the way at every height), the least lift that clears those
+ * along the bottom edge; failing that, 0.
+ */
+export function TL_HudLift(buttons, n, edges, m, maxLift) {
+  let lift = TL_LeastLift(buttons, n, edges, m, maxLift, false);
+  if (lift < 0) lift = TL_LeastLift(buttons, n, edges, m, maxLift, true);
+  return lift < 0 ? 0 : lift;
 }
 
 /**
