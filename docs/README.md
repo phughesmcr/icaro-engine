@@ -11,6 +11,9 @@ AGENTS.md, Git workflow).
   `audit/README.md` has the decisions, the roadmap and a status section saying
   what has been done since; the five track files are snapshots, each noting
   which of its findings have been addressed.
+- `browser-check-2026-11-27.md`: a browser check of `dev` at `bf3915f` after the
+  LibreQuake and protocol merges, with an in-game console audit of all 54
+  LibreQuake maps and a manual Safari checklist. A snapshot.
 - `port-review.md`: a fidelity review of the port against the C source. A
   snapshot.
 - `port-inventory.md`: every C function, cvar and command in the GLQuake build's
