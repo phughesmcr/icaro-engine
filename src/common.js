@@ -1,7 +1,7 @@
 // Ported from: WinQuake/common.c -- misc functions used in client and server
 // + WinQuake/common.h -- general definitions
 
-import { Sys_Error } from "./sys.js";
+import { Sys_Error, Sys_FormatPrintf } from "./sys.js";
 import { Cvar_RegisterVariable, Cvar_Set, cvar_t } from "./cvar.js";
 import { COM_LoadFile } from "./pak.js";
 import { unicode_translit_src } from "./unicode_translit.js";
@@ -1001,8 +1001,8 @@ export function Con_Printf(fmt, ...args) {
   if (_realConPrintf !== null) {
     _realConPrintf(fmt, ...args);
   } else {
-    // Fallback before console is initialized
-    console.log(fmt, ...args);
+    // Fallback before console is initialized, formatted as Sys_Printf
+    console.log(Sys_FormatPrintf(fmt, args));
   }
 }
 
@@ -1011,7 +1011,7 @@ export function Con_DPrintf(fmt, ...args) {
     _realConDPrintf(fmt, ...args);
   } else {
     // debug printf - only prints when developer cvar is set
-    console.debug(fmt, ...args);
+    console.debug(Sys_FormatPrintf(fmt, args));
   }
 }
 

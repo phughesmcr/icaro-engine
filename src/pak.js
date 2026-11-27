@@ -129,7 +129,7 @@ function COM_LoadPackDirectory(filename, dir) {
     pack.files.push(file);
   }
 
-  Con_Printf("Added packfile " + filename + " (" + numpackfiles + " files)\\n");
+  Con_Printf("Added packfile " + filename + " (" + numpackfiles + " files)\n");
 
   loadedPacks.push(pack);
 
@@ -449,6 +449,52 @@ export async function COM_PreloadLooseFile(filename, url) {
 }
 
 /**
+ * Not in id's common.c, which opens loose files when they are asked for. exec
+ * (cmd.js Cmd_Exec_f) reads its script synchronously, as cmd.c does, so the
+ * loose *.cfg files directly in each loose base path (LibreQuake's
+ * style_*.cfg, zoom90.cfg, dev.cfg) are loaded before the first exec: listed
+ * from the browser's storage (COM_SetUserFiles; HTTP has no directory
+ * listing), or from disk under Deno. A name found in an earlier base path wins,
+ * as COM_FindFile searches the game directory before id1. Returns the number
+ * loaded.
+ */
+export async function COM_PreloadLooseConfigs() {
+  let loaded = 0;
+  for (const basePath of looseFileBasePaths) {
+    for (const name of await COM_LooseConfigNames(basePath)) {
+      if (virtualFiles.has(name.toLowerCase())) continue;
+      if (await COM_PreloadLooseFile(name, basePath + name)) loaded++;
+    }
+  }
+  return loaded;
+}
+
+// The names of the *.cfg files directly in basePath, as COM_PreloadLooseConfigs
+async function COM_LooseConfigNames(basePath) {
+  const names = [];
+  const prefix = basePath.toLowerCase();
+  for (const url of com_userfiles.keys()) {
+    if (!url.startsWith(prefix) || !url.endsWith(".cfg")) continue;
+    const name = url.substring(prefix.length);
+    if (!name.includes("/")) names.push(name);
+  }
+
+  if (typeof Deno !== "undefined") {
+    try {
+      for await (const entry of Deno.readDir(basePath)) {
+        if (entry.isFile && entry.name.toLowerCase().endsWith(".cfg")) {
+          names.push(entry.name);
+        }
+      }
+    } catch {
+      // no such directory
+    }
+  }
+
+  return names;
+}
+
+/**
  * Preloads loose map files from the static/maps/ directory.
  * basePath is optional - used by Deno server to specify absolute path.
  */
@@ -468,7 +514,7 @@ export async function COM_PreloadMaps(mapList, basePath) {
   }
 
   if (loaded > 0) {
-    Sys_Printf("Preloaded %d custom maps\\n", loaded);
+    Sys_Printf("Preloaded %d custom maps\n", loaded);
   }
 
   return loaded;
@@ -796,7 +842,7 @@ export async function COM_FetchPak(
 ) {
   com_fetchmissing = false;
 
-  if (!optional) Sys_Printf("Fetching " + url + "...\\n");
+  if (!optional) Sys_Printf("Fetching " + url + "...\n");
 
   if (typeof Deno !== "undefined" && !/^https?:/.test(url)) {
     // Load from filesystem in Deno
@@ -827,7 +873,7 @@ export async function COM_FetchPak(
     } catch (e) {
       if (e instanceof Deno.errors.NotFound) com_fetchmissing = true;
       if (!(optional && e instanceof Deno.errors.NotFound)) {
-        Con_Printf("Failed to load " + url + ": " + e.message + "\\n");
+        Con_Printf("Failed to load " + url + ": " + e.message + "\n");
       }
       return null;
     }
@@ -839,7 +885,7 @@ export async function COM_FetchPak(
     // 416: an empty file, which has no byte 0
     if (response.status === 404) com_fetchmissing = true;
     if (!(optional && (response.status === 404 || response.status === 416))) {
-      Con_Printf("Failed to fetch " + url + ": " + response.statusText + "\\n");
+      Con_Printf("Failed to fetch " + url + ": " + response.statusText + "\n");
     }
     return null;
   }
@@ -880,7 +926,7 @@ export async function COM_FetchPak(
     // a small pak loads whole, as before
     response = await fetch(url);
     if (!response.ok) {
-      Con_Printf("Failed to fetch " + url + ": " + response.statusText + "\\n");
+      Con_Printf("Failed to fetch " + url + ": " + response.statusText + "\n");
       return null;
     }
   }
@@ -918,7 +964,7 @@ export async function COM_FetchPak(
 
   if (optional && !isPack(new Uint8Array(buffer))) return null;
 
-  Sys_Printf("Loaded " + url + " (" + buffer.byteLength + " bytes)\\n");
+  Sys_Printf("Loaded " + url + " (" + buffer.byteLength + " bytes)\n");
 
   return COM_LoadPackFile(filename || url, buffer);
 }

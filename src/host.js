@@ -32,7 +32,7 @@ import { Memory_Init } from "./zone.js";
 import { V_Init } from "./view.js";
 import { Chase_Init } from "./chase.js";
 import { W_LoadWadFile } from "./wad.js";
-import { COM_LoadFile } from "./pak.js";
+import { COM_LoadFile, COM_PreloadLooseConfigs } from "./pak.js";
 import {
   com_argc,
   com_argv,
@@ -369,8 +369,6 @@ export function Host_FindMaxClients() {
 
 // Host_Init
 
-// Kept async: main.js awaits Host_Init.
-// deno-lint-ignore require-await
 export async function Host_Init(parms) {
   host_parms = parms;
 
@@ -547,6 +545,10 @@ export async function Host_Init(parms) {
   R_Efrag_SetExternals({
     cl: cl,
   });
+
+  // Web-only: exec reads synchronously, and loose files are fetched on
+  // demand, so the game directories' loose *.cfg files load first (pak.js)
+  await COM_PreloadLooseConfigs();
 
   Cbuf_InsertText("exec quake.rc\n");
 
