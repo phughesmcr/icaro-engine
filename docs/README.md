@@ -13,7 +13,8 @@ AGENTS.md, Git workflow).
   which of its findings have been addressed.
 - `browser-check-2026-11-27.md`: a browser check of `dev` at `bf3915f` after the
   LibreQuake and protocol merges, with an in-game console audit of all 54
-  LibreQuake maps and a manual Safari checklist. A snapshot.
+  LibreQuake maps and a manual Safari checklist. A snapshot; its status line
+  lists the fixes merged since.
 - `port-review.md`: a fidelity review of the port against the C source. A
   snapshot.
 - `port-inventory.md`: every C function, cvar and command in the GLQuake build's
@@ -63,9 +64,11 @@ AGENTS.md, Git workflow).
   game layers with downward imports only: the file-by-file assignment, the edges
   that break the rule, the cut that keeps the renderer out of the dedicated
   server, duplicated state, TypeScript and bundling, and PR-sized steps.
-  Measured on `dev` at 694b2cc; a snapshot.
+  Measured on `dev` at 694b2cc; a snapshot. Since then the `gl_model.js` split
+  it raises (open question 10) has been done (PR #280); the layers aren't built.
 - `protocol-design.md`: design for a versioned Icaro network protocol: the hello
   with a revision, a game profile and capability words, a reserved svc range for
   Icaro's own messages, room for games that aren't Quake (Hexen II as the worked
   example), readers for 15/666/999 demos, and a migration plan. Compares FTEQW,
-  Quakespasm-Spiked, DarkPlaces and Ironwail. Nothing in it is built.
+  Quakespasm-Spiked, DarkPlaces and Ironwail. Migration steps 1 to 3 are built;
+  steps 4 to 6 are design only.

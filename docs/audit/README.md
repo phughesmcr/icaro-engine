@@ -19,19 +19,21 @@ reading code only) or **browser** (needs a browser or device to confirm).
 
 ## Status
 
-Checked at `dev` `991c6e2` (2026-11-27). The rest of this file is the older
+Checked at `dev` `3603119` (2026-11-27). The rest of this file is the older
 snapshot.
 
 The body is the snapshot, with a **Done** note after each item that has merged
-since. An item without one is open or wasn't rechecked; protocol dispatch with
-the 666 and 999 readers, the URL config, `?game=` for any safe directory with
-`-quoth`, frame pacing and the `gl_model.js` split are open. Each PR's limits
-are in its body. None of this status was rechecked in a browser.
+since. An item without one is open or wasn't rechecked. Each PR's limits are in
+its body. This status was checked by reading the code; browser results are those
+of the PRs and of `../browser-check-2026-11-27.md`, and weren't rerun.
 
 Decisions so far: 2 (`stuffcmd` trust), 3 (LibreQuake on first run) and 5
 (`THIRD_PARTY.md`) are done. Decision 1 is designed in `../protocol-design.md`
-(#256) and decision 6 planned in `../architecture-plan.md` (#260); neither is
-built.
+(#256) and partly built: migration steps 1 to 3 (dispatch tables, the 666 and
+999 demo readers, and the versioned hello with Icaro's svcs moved to 96 to 99;
+#274, #278, #288). Steps 4 to 6, game profiles among them, aren't. Decision 6 is
+planned in `../architecture-plan.md` (#260). `gl_model.js` has been split
+(#280), but the three layers aren't built.
 
 ## What was covered, and what wasn't
 
@@ -67,7 +69,9 @@ game time, one host per content set unless noted. **run**
   is 31500; `MAX_DATAGRAM` stays 4096. `demo2.dem` plays.
 - **LibreQuake's `demo3.dem` is protocol 999** (flags 130: int32 coordinates,
   short angles) and fails with `Server returned version 999`. `demo1` (protocol
-  15) plays. The standard content's attract loop needs the 999 reader.
+  15) plays. The standard content's attract loop needs the 999 reader. **Done
+  (#278, #282):** the 999 reader parses all of `demo3`. #282 fixed a demo whose
+  map hadn't been fetched yet, which played with no world.
 - **LibreQuake maps: clean.** 39 of 41 single-player maps (`start`, `lq_e0`–
   `lq_e4`, `lq_end`, `dev`) and all 13 `lqdm` maps plus 4 starts in deathmatch.
   The two failures, `lq_e2m8` and `lq_e3m8`, don't exist in v0.09. `lq_e3m4`
@@ -80,7 +84,10 @@ game time, one host per content set unless noted. **run**
   `r_particles`, `cl_alwaysrun`, `gl_texturemode_hud`...). Nothing fails, but
   those settings and binds are lost. **Partly done (#263, #269, #272):** `set`,
   `seta`, the key names and many of the cvars, `contrast` included, exist; `if`,
-  `serverinfo` and the rest don't.
+  `serverinfo` and the rest don't. Since then, loose cfgs such as the style
+  configs can be `exec`ed (#281), and `r_scale`, `r_softemu` (#289) and
+  `hudstyle` (#290) exist. `hudstyle 3` isn't ported, and `r_softemu 2` draws
+  like 3.
 - **Quoth: clean.** The pak ships only test and example maps; 11 of 12 load and
   run. `kellbase1_fan` has no `info_player_start` (a test map). Quoth's real
   content is third-party maps, which weren't run.
@@ -147,7 +154,10 @@ days, L a week or more.
 ### 0. Verification first
 
 - A browser smoke pass on each content set: load, render, a minute of play, save
-  and load, a demo. **browser**
+  and load, a demo. **browser** **Partly done (#283):**
+  `../browser-check-2026-11-27.md` covers LibreQuake, with some checks on retail
+  id1 and Arcane Dimensions. It didn't cover saving and loading, and ran no
+  mission pack or rerelease data.
 - Let `headless_host` mount game directories before `Host_Init`
   (`opts.game_dirs`), so mission packs and mods can be scripted and tested
   through MCP. Today it mounts one pak. S, **run**. Overlaps #237, #243, #244,
@@ -159,7 +169,7 @@ days, L a week or more.
   64000 and `SIGNON_SIZE` at 31500. Not tried in a browser or over a real
   network.
 - The 999 reader comes first among the demo readers: LibreQuake's `demo3` needs
-  it.
+  it. **Done (#278).**
 - An allocation gate: a test that runs `Host_Frame` many times and fails if a
   frame allocates. The architecture audit's hot-path counts are a grep, not
   measurements. M, **read**.
@@ -176,9 +186,17 @@ days, L a week or more.
   (`server/game_server.js:166`); the headless host mounts none (section 0).
   `compat-runtime.md` finding 3 says `?game=quoth` works in the browser, but
   `main.js` ignores names outside its list. M, **read**. Wait for #240 (players'
-  own paks), which edits the same files.
+  own paks), which edits the same files. **Mostly done (#277):** `?game=` takes
+  `rogue`, `hipnotic`, `quoth` or any other name `COM_GameDirIsValid` accepts,
+  and `-quoth` exists. The headless host mounts every `-game`, as does the
+  browser's command line, though a URL names one `?game=`. The servers still
+  take one. There is no `lq1` directory. A directory needs a `pak0.pak`. No
+  Quoth or mod data was run in #277; the browser check ran Arcane Dimensions.
 - **Protocol dispatch and the 666 and 999 demo readers**, after decision 1. M,
-  **read**.
+  **read**. **Done (#274, #278):** `src/cl_parse.js` has a reader per protocol.
+  LibreQuake's `demo3` (999) parses in a test. No 666 demo was available, so
+  666, like svcs 37 and 40 to 44, is covered by hand-built messages only. Entity
+  scale is read and dropped.
 - **QuakeC extensions.** `checkextension` returns 0 (`src/pr_cmds.js:1404`);
   Ironwail's `str2chr`, `chr2str`, `strconv`, `checkcommand`, `vectorvectors`,
   `clientcommand`, trig and `tokenize_console` are missing. M, **read**. **Done
@@ -190,11 +208,16 @@ days, L a week or more.
   on frame rate. The QuakeSpasm-style split of render and tick
   (`host_netinterval`) is already there: `Host_UpdateNetInterval`
   (`src/host.js:811`) turns it on when `host_maxfps` is above 72 or 0, so the
-  fix may be a default change. S, **read**, **browser** to confirm.
+  fix may be a default change. S, **read**, **browser** to confirm. **Done
+  (#279):** `host_maxfps` defaults to 250, so isolation is on, with physics at
+  72 Hz, and a local server's entities and view lerp between ticks. The PR
+  measured it in a browser at 120 Hz only. A saved `host_maxfps 72` still wins,
+  until the player changes it.
 - Each M: entity `scale` and lerp-finish, lit water, `gl_overbright`, 2PSB and
   BSPX, FLAC, Opus and tracker music, external texture replacement,
   `r_particles`, `vid_vsync`. **read** **Done:** `gl_overbright` and
-  `gl_overbright_models` (#269, #272) and `r_particles` (#263).
+  `gl_overbright_models` (#269, #272) and `r_particles` (#263). Lerp-finish is
+  read from 666 and 999 demos (#278); Icaro's server doesn't send it.
 - Small items: `ctfscores` unknown on ctf maps; `ctf4` exits to a missing
   `idctf1`; dopa can't start four id1 boss maps without mg1's rune model; an
   `ogre_rocket.md5anim` bone warning; headless `stop` throws. S each, **run**.
@@ -214,7 +237,10 @@ days, L a week or more.
 - Join links trust `?server=` and the map name the host sends. S, **read**.
 - URL config: a new `src/url_config.js` with a typed allowlist (`?cfg.<cvar>=…`,
   `?bind.<key>=+action`), applied with `Cvar_Set` and never saved.
-  `multiplayer-security.md` has the classification. M.
+  `multiplayer-security.md` has the classification. M. **Done (#276)**, without
+  `?bind.`, on purpose: `src/url_config.js`'s header says URL parameters never
+  bind keys. Values last for the page load and aren't saved. #284 made the intro
+  page validate `?game=` the same way.
 - Permanent servers: not now (decision 4).
 
 ### 3. Performance
@@ -240,7 +266,8 @@ days, L a week or more.
   keyboard keys in menus; bind them from the console or a config. No real
   controller was tried. `touch.js` takes a screen wake lock while touch play is
   on, which it already did at the audit's revision; nothing handles a hidden
-  host tab.
+  host tab. The default touch buttons now stay clear of the status bar and the
+  modern HUD (#287, #291); no real device was tried.
 
 ### 6. Three.js
 
@@ -252,7 +279,10 @@ days, L a week or more.
 
 - One 49-module import cycle, which pulls the renderer into the server and needs
   the 683-line `server/browser_shim.js`. Split `gl_model.js` first. L, **run**
-  (counted).
+  (counted). **Split done (#280):** `src/gl_model.js` re-exports the model
+  cache, loader and upload modules, and of those only `gl_model_upload.js`
+  imports `three`. The cycle isn't cut, the server still reaches `three`, and
+  the counts here weren't rerun.
 - `glquake.js` exports `const` copies of live `gl_rmain.js` state; make it
   constants only. M, **read**.
 - Deno Desktop exists from Deno 2.9.0 (the repo pins 2.9.8); CEF is opt-in. A

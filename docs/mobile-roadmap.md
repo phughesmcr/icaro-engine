@@ -7,7 +7,7 @@ relying on them.
 ## Status
 
 Checked at `dev` `694b2cc` (2026-11-26); the notes on later PRs are from `dev`
-`991c6e2` (2026-11-27). Tiers 1 and 2 are built, as are the fixes for what the
+`3603119` (2026-11-27). Tiers 1 and 2 are built, as are the fixes for what the
 phone test found. Tier 3 is built except item 23 (store wrappers). The rest of
 this doc is the older snapshot.
 
@@ -99,13 +99,25 @@ What tier 2 leaves out:
   (`rtc:<code>`) reconnect too since #239, which checked them in two tabs on one
   machine; a real network change, an iOS freeze and TURN were not checked.
 
-Later changes (`dev` `991c6e2`), none checked on a phone:
+Later changes (`dev` `3603119`), none checked on a phone:
 
 - A first run needs the LibreQuake download: about 116 MB, or 56 MB for lite
   (see [`librequake-content.md`](librequake-content.md)).
 - A controller's buttons and triggers are bindable keys, and `joy_enable` 0
   ignores the pad (#263). Menus still read the pad as keyboard keys, so the Keys
   menu can't capture a pad button. No real controller was tried.
+- `host_maxfps` now defaults to 250, not the 72 under "What already exists", so
+  every display frame is drawn while the game ticks at 72 Hz (#279). A saved
+  value still wins, and the quality presets can set their own.
+- The default touch buttons stay clear of the HUD: DOWN has a new default spot,
+  and default-placed buttons lift off the status bar or Ironwail's modern HUD
+  (#287, #291), following `Sbar_GetFootprint()` (#290). A button the player
+  moved stays put. With the modern HUD, phone layouts lift 75 CSS px, and #291
+  notes that on some tablets a button still clips the weapon column. Checked in
+  a desktop browser pane and in tests.
+- `scr_sbaralpha` defaults to 0.75, so the status bar is drawn over a
+  full-height view, and `hudstyle` selects Ironwail's modern HUD (#290). A saved
+  value, or one the content's configs set, wins.
 - The "C-faithful defaults" below predate #245: compatibility now has a
   reference for each layer of the engine (AGENTS.md, Compatibility and
   fidelity).
