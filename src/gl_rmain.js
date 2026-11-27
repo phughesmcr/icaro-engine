@@ -55,7 +55,7 @@ import {
   R_EntAlpha_IsClone,
 } from "./gl_entalpha.js";
 import { Fog_SetupFrame } from "./gl_fog.js";
-import { ENTALPHA_ZERO } from "./protocol.js";
+import { ENTALPHA_ZERO, ENTSCALE_DECODE } from "./protocol.js";
 import {
   Mod_EnhancedAliasHeader,
   Mod_PointInLeaf,
@@ -1558,7 +1558,10 @@ function R_DrawSpriteModel(e) {
   const rx = _sprite_v_right[0],
     ry = _sprite_v_right[1],
     rz = _sprite_v_right[2];
-  const l = frame.left, r = frame.right, u = frame.up, d = frame.down;
+  // QuakeSpasm r_sprite.c: the frame's edges times ENTSCALE_DECODE(e->scale)
+  const scale = ENTSCALE_DECODE(e.scale);
+  const l = frame.left * scale, r = frame.right * scale;
+  const u = frame.up * scale, d = frame.down * scale;
 
   positions[0] = ox + ux * d + rx * l;
   positions[1] = oy + uy * d + ry * l;

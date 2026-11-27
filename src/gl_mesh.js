@@ -27,6 +27,7 @@ import {
   r_refdef,
 } from "./render.js";
 import { MF_HOLEY, MOD_NOLERP, Mod_SetExtraFlags } from "./gl_model.js";
+import { ENTSCALE_DECODE } from "./protocol.js";
 
 // ALIAS MODEL DISPLAY LIST GENERATION
 
@@ -1301,25 +1302,28 @@ export function R_DrawAliasModel(entity, paliashdr, shadedots, shadecolor) {
     // scale_origin - ( 0, 0, 30 ) and scales by scale * 2. The template
     // already holds scale * v + scale_origin, so scale it by 2 and move
     // it by -scale_origin - ( 0, 0, 30 ) in the entity's frame.
+    // QuakeSpasm R_RotateForEntity( ..., e->scale ) scales by the entity's
+    // scale after the rotation, so the eyes offset below scales with it.
+    const entscale = ENTSCALE_DECODE(entity.scale);
     if (
       gl_doubleeyes.value !== 0 && entity.model != null &&
       entity.model.name === "progs/eyes.mdl"
     ) {
-      mesh.scale.setScalar(2);
+      mesh.scale.setScalar(2 * entscale);
       _eyesOffset.set(
         -paliashdr.scale_origin[0],
         -paliashdr.scale_origin[1],
         -paliashdr.scale_origin[2] - (22 + 8),
-      ).applyQuaternion(mesh.quaternion);
+      ).multiplyScalar(entscale).applyQuaternion(mesh.quaternion);
       mesh.position.add(_eyesOffset);
     } else if (entity === cl.viewent) {
       // Ironwail scales the model's y and z, and scale_origin's,
       // by fovscale. The template holds scale * v + scale_origin,
       // so scaling the mesh's local y and z does both.
       const fovscale = R_GunFovScale();
-      mesh.scale.set(1, fovscale, fovscale);
+      mesh.scale.set(entscale, fovscale * entscale, fovscale * entscale);
     } else {
-      mesh.scale.setScalar(1);
+      mesh.scale.setScalar(entscale);
     }
   }
 
@@ -1453,6 +1457,8 @@ export function GL_DrawAliasShadow(
     _shadowMat.multiply(_shadowRZ).multiply(_shadowRY).multiply(_shadowRX);
     shadowMesh.setRotationFromMatrix(_shadowMat);
   }
+  // QuakeSpasm GL_DrawAliasShadow: R_RotateForEntity( ..., e->scale )
+  shadowMesh.scale.setScalar(ENTSCALE_DECODE(entity.scale));
 
   return shadowMesh;
 }

@@ -41,7 +41,11 @@ import {
   CL_StopPlayback,
   CL_TimeDemo_f,
 } from "./cl_demo.js";
-import { CL_ClearStuffText, CL_ParseServerMessage } from "./cl_parse.js";
+import {
+  CL_ClearStuffText,
+  CL_EntityScale,
+  CL_ParseServerMessage,
+} from "./cl_parse.js";
 import {
   beam_t,
   ca_connected,
@@ -825,6 +829,7 @@ function CL_LinkPacketEntities(frac) {
     ent.skinnum = s1.skin;
     ent.effects = s1.effects;
     ent.alpha = s1.alpha; //johnfitz -- alpha
+    ent.scale = CL_EntityScale(s1.number); // ICARO_EXT_ENTSCALE (cl_parse.js)
 
     // set colormap
     if (s1.colormap === 0) {
@@ -1108,6 +1113,7 @@ function CL_LinkPlayers(frac) {
     ent.frame = pplayer.frame;
     ent.effects = pplayer.effects;
     ent.alpha = pplayer.alpha; //johnfitz -- alpha (svc_playerinfo PF_ALPHA)
+    ent.scale = CL_EntityScale(j + 1); // ICARO_EXT_ENTSCALE (cl_parse.js)
 
     // QW cl_ents.c: ent->colormap = info->translations
     // (NQ cl_parse.c: ent->colormap = cl.scores[i-1].translations)

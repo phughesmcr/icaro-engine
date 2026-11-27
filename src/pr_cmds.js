@@ -105,6 +105,7 @@ import {
   SV_ReserveSignonSpace,
   SV_StartParticle,
   SV_StartSound,
+  SV_WriteStaticScale,
 } from "./sv_main.js";
 import {
   Cbuf_AddText,
@@ -1312,6 +1313,7 @@ function PF_makestatic() {
     MSG_WriteAngle(sv.signon, ent.v.angles[i]);
   }
   MSG_WriteByte(sv.signon, ent.alpha); //johnfitz -- alpha
+  SV_WriteStaticScale(ent); // QuakeSpasm B_SCALE, as an Icaro extension
 
   // throw the entity away now
   ED_Free(ent);

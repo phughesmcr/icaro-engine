@@ -148,6 +148,7 @@ export class entity_t {
     this.effects = 0; // light, particles, etc
     this.skinnum = 0; // for Alias models
     this.alpha = 0; //johnfitz -- alpha (ENTALPHA_* in protocol.js; 0 is opaque)
+    this.scale = 16; // ENTSCALE_* byte (protocol.js; QuakeSpasm render.h), 16 is 1.0
     this.visframe = 0; // last frame this entity was found in an active leaf
 
     this.dlightframe = 0; // dynamic lighting
