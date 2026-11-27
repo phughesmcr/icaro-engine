@@ -408,15 +408,15 @@ from Chrome on throttling, so test 3 must run in real browsers.
 switching to another tab in its window, and in a second run by minimising its
 window:
 
-| What                                    | Hidden host, before `host_hidden.js`     | With it                                    |
-| --------------------------------------- | ---------------------------------------- | ------------------------------------------ |
-| `requestAnimationFrame`                 | Stops                                    | Stops                                      |
-| Page `setInterval( 50 )`                | Once a second (median gap 1,000 ms)      | Same                                       |
-| Worker `setInterval( 50 )`, on the page | Every 50 ms (max gap 55 ms over 3.5 min) | Same                                       |
-| Server time (`sv.time`)                 | Frozen                                   | Keeps wall time (405 s in 405 s)           |
-| Joiner                                  | Frozen game, no notice, connection open  | Game time keeps wall time                  |
-| Data channel                            | Stays open                               | Stays open                                 |
-| Rendering cost per hidden frame         |                                          | 0–3 ms (`host_speeds`), 20 frames a second |
+| What                                    | Hidden host, before `host_hidden.js`    | With it                                    |
+| --------------------------------------- | --------------------------------------- | ------------------------------------------ |
+| `requestAnimationFrame`                 | Stops                                   | Stops                                      |
+| Page `setInterval( 50 )`                | Once a second (60 s; same at 3.5 min)   | Same                                       |
+| Worker `setInterval( 50 )`, on the page | Every 50 ms (max gap 55 ms over 60 s)   | Same                                       |
+| Server time (`sv.time`)                 | Frozen                                  | Keeps wall time (405 s in 405 s)           |
+| Joiner                                  | Frozen game, no notice, connection open | Game time keeps wall time                  |
+| Data channel                            | Stays open                              | Stays open                                 |
+| Rendering cost per hidden frame         |                                         | 0–3 ms (`host_speeds`), 20 frames a second |
 
 Chrome's stricter tier (timers once a minute after 5 minutes hidden) doesn't
 apply to a page with an open data channel [docs], and with the host minimised
