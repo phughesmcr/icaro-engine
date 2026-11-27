@@ -18,7 +18,6 @@ import {
   TL_Active,
   TL_AddCustom,
   TL_AddProfile,
-  TL_Button,
   TL_DeleteActive,
   TL_HIDE_ONLY,
   TL_MAX_COMMAND,
@@ -47,6 +46,7 @@ import {
   Touch_LayoutScale,
   Touch_Relayout,
   Touch_SetEditing,
+  Touch_ShownButton,
 } from "./touch.js";
 
 let open = false;
@@ -284,7 +284,7 @@ function TE_Current(out) {
     out.hidden = c.hidden;
     return out;
   }
-  return TL_Button(selId, out);
+  return Touch_ShownButton(selId, out); // lifted off the status bar, as shown
 }
 
 function TE_Label(id) {
