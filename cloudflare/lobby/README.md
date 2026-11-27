@@ -63,11 +63,13 @@ joined one, within the lobby's rate limits. They last 3 hours
 (`TURN_TTL_SECONDS` overrides that). That is a trade-off: anyone holding them
 can relay through the account until they expire, and Cloudflare drops a relay
 soon after they do. The client doesn't renew a relay in use (that needs an ICE
-restart), so a relayed player connected for longer than the TTL drops. A host
+restart), so a relayed connection drops once its credentials expire. A host
 keeps its credentials for every joiner's new connection, so once a quarter of
 the TTL has passed its next heartbeat brings fresh ones (`LOBBY_ICE`,
 `server/lobby_rtc.js`) for the connections it opens next; a failed refresh keeps
-the old ones and tries again a minute later. Each refresh counts toward
+the old ones and tries again a minute later. A connection relayed on the host's
+side therefore lasts at least three quarters of the TTL (2 h 15 min), and one
+relayed on the joiner's side the whole TTL. Each refresh counts toward
 `LOBBY_TURN_LIMIT`. If minting fails at host or join time, clients get STUN
 only.
 

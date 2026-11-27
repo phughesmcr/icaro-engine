@@ -38,7 +38,7 @@ export const ALARM_INTERVAL_MS = 30 * 1000;
 // this long, and Cloudflare drops a relay soon after its credentials expire
 // (developers.cloudflare.com/realtime/turn/faq/). A relay in use can't take
 // new credentials without an ICE restart, which this client doesn't do, so
-// a relayed player connected for longer than this drops. Cloudflare
+// a relayed connection drops when its credentials expire. Cloudflare
 // advises a TTL longer than a session; 3 h covers a long game, where 1 h
 // would drop relayed players about hourly.
 export const TURN_TTL_SECONDS = 3 * 60 * 60;
