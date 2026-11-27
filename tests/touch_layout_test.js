@@ -9,6 +9,7 @@ const cvar = await import("../src/cvar.js");
 const tl = await import("../src/touch_layout.js");
 const touch = await import("../src/touch.js");
 const editor = await import("../src/touch_editor.js");
+const sbar = await import("../src/sbar.js");
 
 // Keep the tests off Deno's own localStorage, which persists on disk
 const memoryStorage = new Map();
@@ -607,6 +608,201 @@ Deno.test("layout editor: a mirrored layout drags the other way", () => {
       cvar.Cvar_Set("touch_lefthanded", old);
       tl.TL_SetStore(tl.TL_Parse(null));
       touch.Touch_Relayout();
+    }
+  });
+});
+
+// THE STATUS BAR
+//
+// The default buttons keep off the status bar (TL_HudRect, TL_HudClearance,
+// and Touch_Layout's lift).
+
+// The status bar's CSS px per sbar pixel, as gl_draw.js sizes it by default
+// (scr_conheight 240, scr_sbarscale 0) at a touch screen's pixel ratio cap 2
+function hudUnit(vw, vh, dpr = 2) {
+  let ui = Math.max(1, Math.floor(vh * dpr / 240));
+  while (ui > 1 && Math.floor(vw * dpr / ui) < 320) ui--;
+  return ui / dpr;
+}
+
+// Touch_Layout's lift, at touch_size 1, for the default layout
+function defaultLift(vw, hud, mirror, inset) {
+  const near = mirror ? hud.left : vw - hud.right;
+  const far = mirror ? hud.right : vw - hud.left;
+  let lift = 0;
+  for (const d of tl.TL_MOVABLE) {
+    lift = Math.max(
+      lift,
+      tl.TL_HudClearance(
+        inset.side + d.cx,
+        inset.bottom + d.cy,
+        d.size,
+        near,
+        far,
+        hud.height,
+      ),
+    );
+  }
+  return { lift, near, far };
+}
+
+const PHONES = [[812, 375], [844, 390], [932, 430], [667, 375]];
+const TABLETS = [[1024, 768], [768, 1024], [1180, 820], [1366, 1024]];
+// No notch, then iPhone notch and Dynamic Island insets in landscape
+const INSETS = [
+  { side: 0, bottom: 0 },
+  { side: 47, bottom: 21 },
+  { side: 59, bottom: 21 },
+];
+
+Deno.test("status bar: footprint on phones, tablets and in deathmatch", () => {
+  const out = { left: 0, right: 0, height: 0 };
+  // 812x375 at ratio 2: UI scale 3, so 1.5 CSS px per sbar pixel
+  tl.TL_HudRect(812, hudUnit(812, 375), 48, false, out);
+  assertEqual(out.left, 166.5, "phone: centred, left");
+  assertEqual(out.right, 646.5, "phone: right");
+  assertEqual(out.height, 72, "phone: 48 lines tall");
+  // An iPad's bar nearly fills the bottom edge
+  tl.TL_HudRect(1024, hudUnit(1024, 768), 48, false, out);
+  assertEqual(out.right - out.left, 960, "tablet: 960 wide");
+  assertEqual(out.height, 144, "tablet: 144 tall");
+  // Deathmatch: at the left edge, with the frag list beside it
+  tl.TL_HudRect(812, 1.5, 48, true, out);
+  assertEqual(out.left, 0, "deathmatch: left edge");
+  assertEqual(out.right, 750, "deathmatch: frag list to x 500");
+  tl.TL_HudRect(667, 1.5, 48, true, out);
+  assertEqual(out.right, 480, "deathmatch, under 512 wide: no frag list");
+  // A bar wider than the screen (scr_sbarscale) stops at its edges
+  tl.TL_HudRect(400, 2, 24, false, out);
+  assertEqual(out.left, 0, "wide: left");
+  assertEqual(out.right, 400, "wide: right");
+  // viewsize 120: no bar, nothing to clear
+  tl.TL_HudRect(812, 1.5, 0, false, out);
+  assertEqual(out.height, 0, "no bar");
+  assertEqual(tl.TL_HudClearance(100, 20, 44, 0, 812, 0), 0, "no lift");
+});
+
+Deno.test("status bar: clearance is how far a button must rise", () => {
+  const m = tl.TL_HUD_MARGIN;
+  // Bar 72 tall from 166 to 646 px in from the action edge
+  assertEqual(tl.TL_HudClearance(48, 48, 64, 166, 646, 72), 0, "beside it");
+  assertEqual(
+    tl.TL_HudClearance(148, 40, 44, 166, 646, 72),
+    72 + m - 18,
+    "the old DOWN spot overlapped it",
+  );
+  assertEqual(tl.TL_HudClearance(176, 100, 44, 166, 646, 72), 0, "above it");
+  assertEqual(tl.TL_HudClearance(700, 30, 44, 166, 646, 72), 0, "past it");
+});
+
+Deno.test("status bar: no default button covers it, on phones and tablets", () => {
+  const hud = { left: 0, right: 0, height: 0 };
+  // The default buttons never overlap each other (the lift moves them as one)
+  for (const a of tl.TL_MOVABLE) {
+    for (const b of tl.TL_MOVABLE) {
+      if (a === b) continue;
+      const gap = Math.hypot(a.cx - b.cx, a.cy - b.cy) - (a.size + b.size) / 2;
+      if (gap < 4) throw new Error(`${a.id} and ${b.id} ${gap} px apart`);
+    }
+  }
+  for (const [vw, vh] of [...PHONES, ...TABLETS]) {
+    for (const inset of INSETS) {
+      for (const mirror of [false, true]) {
+        for (const dm of [false, true]) {
+          const what = `${vw}x${vh} inset ${inset.side}/${inset.bottom}` +
+            (mirror ? " mirrored" : "") + (dm ? " deathmatch" : "");
+          tl.TL_HudRect(vw, hudUnit(vw, vh), 48, dm, hud);
+          const { lift, near, far } = defaultLift(vw, hud, mirror, inset);
+          for (const d of tl.TL_MOVABLE) {
+            const x = inset.side + d.cx;
+            const y = inset.bottom + d.cy + lift;
+            // Clear of the bar by the margin...
+            const r = d.size / 2;
+            const beside = x + r <= near - tl.TL_HUD_MARGIN ||
+              x - r >= far + tl.TL_HUD_MARGIN;
+            if (!beside && y - r < hud.height + tl.TL_HUD_MARGIN) {
+              throw new Error(`${what}: ${d.id} covers the status bar`);
+            }
+            // ...and under the top bar's row (12 + 32 px)
+            if (y + r > vh - 56) {
+              throw new Error(`${what}: ${d.id} lifted off the top`);
+            }
+          }
+          // Phones keep the usual spot outside deathmatch (667 px, a phone
+          // with no notch: FIRE's bottom edge dips 4 px under the bar's top,
+          // so a few px up)
+          if (!dm && vh < 500 && (vw !== 667 || inset.side === 0)) {
+            const most = vw === 667 ? 8 : 0;
+            if (lift > most) throw new Error(`${what}: lifted ${lift} px`);
+          }
+        }
+      }
+    }
+  }
+});
+
+Deno.test("status bar: Touch_Layout lifts default buttons, not moved ones", () => {
+  withFakeDom(() => {
+    setup();
+    tl.TL_SetStore(tl.TL_Parse(null));
+    const oldLines = sbar.sb_lines;
+    try {
+      touch.Touch_Enable();
+      // The fake screen is 640x480 at ratio 1: UI scale 2, so the bar fills
+      // the bottom edge, 96 px tall
+      sbar.set_sb_lines(48);
+      tl.TL_MoveButton("touch-fire", 100, 30); // the player put FIRE low
+      tl.TL_SetButton("touch-weapon-prev", undefined, undefined, 50); // resized
+      tl.TL_Save();
+      const saved = memoryStorage.get("icaro_touch_layouts");
+      touch.Touch_Frame(); // sees the bar change
+      const lift = 96 + tl.TL_HUD_MARGIN - (48 - 32); // JUMP's bottom edge
+      assertEqual(
+        byId("touch-jump").style.bottom,
+        `calc(env(safe-area-inset-bottom, 0px) + ${16 + lift}px)`,
+        "JUMP lifted over the bar",
+      );
+      assertEqual(
+        byId("touch-weapon-prev").style.bottom,
+        `calc(env(safe-area-inset-bottom, 0px) + ${176 - 25 + lift}px)`,
+        "a resized button at its default centre lifts too",
+      );
+      assertEqual(
+        byId("touch-fire").style.bottom,
+        "calc(env(safe-area-inset-bottom, 0px) + 0px)",
+        "the moved FIRE stays put",
+      );
+      assertEqual(
+        memoryStorage.get("icaro_touch_layouts"),
+        saved,
+        "nothing saved",
+      );
+
+      // The editor picks DOWN up where it is shown, so it doesn't jump
+      editor.TE_Open();
+      const layer = byId("touch-layout-editor");
+      windowTarget.fire("pointerdown", pointer("pointerdown", 300, 300, layer));
+      windowTarget.fire("pointermove", pointer("pointermove", 300, 290, layer));
+      windowTarget.fire("pointerup", pointer("pointerup", 300, 290, layer));
+      const b = tl.TL_Button("touch-movedown", {});
+      assertEqual(b.cy, 100 + lift + 10, "dragged up from its lifted spot");
+
+      // No bar (viewsize 120): back down
+      editor.TE_Close();
+      tl.TL_ResetButtons();
+      sbar.set_sb_lines(0);
+      touch.Touch_Frame();
+      assertEqual(
+        byId("touch-jump").style.bottom,
+        "calc(env(safe-area-inset-bottom, 0px) + 16px)",
+        "no bar, no lift",
+      );
+    } finally {
+      editor.TE_Close();
+      sbar.set_sb_lines(oldLines);
+      tl.TL_SetStore(tl.TL_Parse(null));
+      touch.Touch_Frame();
+      touch.Touch_Disable();
     }
   });
 });

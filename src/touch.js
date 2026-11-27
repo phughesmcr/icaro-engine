@@ -36,7 +36,11 @@ import {
   STAT_SHELLS,
 } from "./quakedef.js";
 import { S_UnlockAudio } from "./snd_dma.js";
-import { VID_IsTouchPrimary } from "./vid.js";
+import { VID_GetPixelRatio, VID_IsTouchPrimary } from "./vid.js";
+import { Draw_GetCanvasScale } from "./gl_draw.js";
+import { scr_sbarscale } from "./gl_screen.js";
+import { sb_lines } from "./sbar.js";
+import { GAME_DEATHMATCH } from "./protocol.js";
 import {
   Cvar_FindVar,
   Cvar_RegisterVariable,
@@ -47,11 +51,14 @@ import { Cbuf_AddText } from "./cmd.js";
 import { Con_SetNotifyTop } from "./console.js";
 import {
   TL_Active,
+  TL_AtDefault,
   TL_BindDown,
   TL_BindUp,
   TL_Button,
   TL_CUSTOM_KEY_BASE,
   TL_Hidden,
+  TL_HudClearance,
+  TL_HudRect,
   TL_MOVABLE,
   tl_version,
 } from "./touch_layout.js";
@@ -178,6 +185,20 @@ let stickOpacity = -1;
 let stickMirror = false; // touch_lefthanded the stick was built for
 let editing = false; // touch_editor.js is open: show every button, take no input
 const _tlButton = { cx: 0, cy: 0, size: 0, hidden: false }; // TL_Button's out
+
+// The status bar the layout was fitted to (Touch_MeasureHud), and how far
+// that lifted the buttons still at their default centre (px)
+const hud = { left: 0, right: 0, height: 0 }; // TL_HudRect's out
+let hudWidth = 0; // the screen the bar was measured on
+let hudHeight = 0;
+let hudLeft = -1;
+let hudRight = -1;
+let hudBarHeight = -1;
+let defaultLift = 0;
+let insetProbe = null; // reads the safe-area insets for the lift
+let insetLeft = 0;
+let insetRight = 0;
+let insetBottom = 0;
 
 // UI elements
 let overlay = null;
@@ -476,6 +497,18 @@ function Touch_CreateUI(container) {
   pauseButton.textContent = "❙❙";
   overlay.appendChild(pauseButton);
 
+  // Never shown: its padding is the safe-area insets, which only CSS can read
+  insetProbe = makeDiv(
+    "touch-inset-probe",
+    `
+		position: absolute;
+		visibility: hidden;
+		pointer-events: none;
+		padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+	`,
+  );
+  overlay.appendChild(insetProbe);
+
   container.appendChild(overlay);
 
   Touch_CreateMenuUI(container);
@@ -518,12 +551,38 @@ function Touch_Layout() {
     window.innerHeight :
     0;
 
-  // Circle centred (cx, cy) px from the near and bottom edges. Hidden ones
-  // show faintly while the layout editor is open, so they can be brought back.
-  const place = (el, cx, cy, size, hidden) => {
+  // Lift the buttons still at their default centre clear of the status bar
+  // and its numbers. All by the same amount, so they keep their spacing (one
+  // lifted alone could land on its neighbour); buttons the player moved stay
+  // where they put them, and nothing is saved.
+  Touch_MeasureHud();
+  Touch_ReadInsets();
+  const insetNear = mirror ? insetLeft : insetRight;
+  const hudNear = mirror ? hud.left : vw - hud.right;
+  const hudFar = mirror ? hud.right : vw - hud.left;
+  defaultLift = 0;
+  for (const d of TL_MOVABLE) {
+    TL_Button(d.id, _tlButton);
+    if (_tlButton.hidden) continue;
+    if (!TL_AtDefault(d.id, _tlButton.cx, _tlButton.cy)) continue;
+    const lift = TL_HudClearance(
+      insetNear + _tlButton.cx * scale,
+      insetBottom + _tlButton.cy * scale,
+      _tlButton.size * scale,
+      hudNear,
+      hudFar,
+      hud.height,
+    );
+    if (lift > defaultLift) defaultLift = lift;
+  }
+
+  // Circle centred (cx, cy) px from the near and bottom edges, raised lift
+  // px. Hidden ones show faintly while the layout editor is open, so they can
+  // be brought back.
+  const place = (el, cx, cy, size, hidden, lift) => {
     const s = size * scale;
     let x = cx * scale;
-    let y = cy * scale;
+    let y = cy * scale + lift;
     if (vw > 0) x = Math.min(Math.max(x, s / 2), Math.max(vw - s / 2, s / 2));
     if (vh > 0) y = Math.min(Math.max(y, s / 2), Math.max(vh - s / 2, s / 2));
     el.style.display = hidden && !editing ? "none" : "flex";
@@ -555,7 +614,14 @@ function Touch_Layout() {
     const b = Touch_ButtonById(d.id);
     if (b === null) continue;
     TL_Button(d.id, _tlButton);
-    place(b.el, _tlButton.cx, _tlButton.cy, _tlButton.size, _tlButton.hidden);
+    place(
+      b.el,
+      _tlButton.cx,
+      _tlButton.cy,
+      _tlButton.size,
+      _tlButton.hidden,
+      TL_AtDefault(d.id, _tlButton.cx, _tlButton.cy) ? defaultLift : 0,
+    );
     // A hold button hidden while held lets go (no touchend will come)
     if (
       _tlButton.hidden && !editing && b.touches !== undefined &&
@@ -572,7 +638,7 @@ function Touch_Layout() {
     const c = custom[i];
     b.el.style.border = "2px solid rgba(255, 210, 110, 0.7)";
     if (b.touches.size === 0) b.el.style.background = "rgba(0, 0, 0, 0.25)";
-    place(b.el, c.cx, c.cy, c.size, c.hidden);
+    place(b.el, c.cx, c.cy, c.size, c.hidden, 0);
     // A button hidden while held lets go
     if (c.hidden && !editing) Touch_ReleaseCustom(b);
   }
@@ -601,6 +667,42 @@ function Touch_Layout() {
     Stick_Destroy();
     Stick_Create();
   }
+}
+
+// Measures the status bar into hud, in CSS px (TL_HudRect); true if it
+// changed since the last call: the screen resized or turned, viewsize or
+// scr_sbarscale changed, or a deathmatch began or ended. Runs every frame, so
+// it allocates nothing.
+function Touch_MeasureHud() {
+  if (typeof window === "undefined") return false;
+  const vw = window.innerWidth > 0 ? window.innerWidth : 0;
+  const vh = window.innerHeight > 0 ? window.innerHeight : 0;
+  const unit = Draw_GetCanvasScale(scr_sbarscale.value) / VID_GetPixelRatio();
+  TL_HudRect(vw, unit, sb_lines, cl.gametype === GAME_DEATHMATCH, hud);
+  if (
+    vw === hudWidth && vh === hudHeight && hud.left === hudLeft &&
+    hud.right === hudRight && hud.height === hudBarHeight
+  ) {
+    return false;
+  }
+  hudWidth = vw;
+  hudHeight = vh;
+  hudLeft = hud.left;
+  hudRight = hud.right;
+  hudBarHeight = hud.height;
+  return true;
+}
+
+// Reads the safe-area insets (px) from insetProbe's padding
+function Touch_ReadInsets() {
+  insetLeft = 0;
+  insetRight = 0;
+  insetBottom = 0;
+  if (insetProbe === null || typeof getComputedStyle !== "function") return;
+  const cs = getComputedStyle(insetProbe);
+  insetLeft = parseFloat(cs.paddingLeft) || 0;
+  insetRight = parseFloat(cs.paddingRight) || 0;
+  insetBottom = parseFloat(cs.paddingBottom) || 0;
 }
 
 // Touch_LayoutBar
@@ -1783,7 +1885,11 @@ export function Touch_Frame() {
 
   const key = touch_size.string + "|" + touch_opacity.string + "|" +
     touch_lefthanded.string;
-  if (key !== layoutKey || tl_version !== layoutVersion) Touch_Layout();
+  if (
+    Touch_MeasureHud() || key !== layoutKey || tl_version !== layoutVersion
+  ) {
+    Touch_Layout();
+  }
 
   if ((touch_gyro.value !== 0) !== gyroListening) Gyro_Update(false);
 
@@ -2308,6 +2414,20 @@ export function Touch_LayoutScale() {
 
 export function Touch_LayoutMirrored() {
   return touch_lefthanded.value !== 0;
+}
+
+/**
+ * Fills out with built-in button id's centre, size and hidden flag as it is
+ * shown: TL_Button's, with Touch_Layout's lift off the status bar added to
+ * cy. The layout editor drags from here, so a lifted button doesn't jump
+ * down when picked up. Returns out.
+ */
+export function Touch_ShownButton(id, out) {
+  TL_Button(id, out);
+  if (TL_AtDefault(id, out.cx, out.cy)) {
+    out.cy += defaultLift / Touch_LayoutScale();
+  }
+  return out;
 }
 
 /**
