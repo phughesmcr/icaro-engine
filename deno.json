@@ -7,7 +7,15 @@
     "@zip.js/zip.js": "https://cdn.jsdelivr.net/npm/@zip.js/zip.js@2.25.0/dist/zip-core-external.min.js"
   },
   "lint": {
-    "include": ["main.js", "sw.js", "src/", "server/", "tests/", "cloudflare/"],
+    "include": [
+      "main.js",
+      "sw.js",
+      "src/",
+      "server/",
+      "tests/",
+      "cloudflare/",
+      "tools/fetch_data.js"
+    ],
     "exclude": [
       "static/",
       "docs/",
@@ -53,8 +61,9 @@
     "test": "deno test --allow-read --allow-write --allow-env=FAKE_ROOM_PLAYERS_FILE,FAKE_ROOM_ARGS_FILE --allow-run=./tests/fixtures/fake_room_server.sh tests/",
     "serve": "deno run --allow-net=127.0.0.1:8137 --allow-read=. --allow-sys=networkInterfaces jsr:@std/http@1.1.4/file-server --host 127.0.0.1 --port 8137 --no-dotfiles",
     "agent-mcp": "deno run --no-prompt --allow-read=static server/agent_mcp.ts",
-    "check": "deno check main.js server/game_server.js server/lobby_server.js server/agent_mcp.ts server/room_process_manager.ts server/net_websocket_server.ts cloudflare/client/build.js tests/net_webtransport_server_test.ts tests/quic_listen_test.ts",
+    "check": "deno check main.js server/game_server.js server/lobby_server.js server/agent_mcp.ts server/room_process_manager.ts server/net_websocket_server.ts cloudflare/client/build.js tools/fetch_data.js tests/net_webtransport_server_test.ts tests/quic_listen_test.ts",
     "ci": "deno fmt --check && deno task test && deno task lint && deno task check",
+    "fetch-data": "deno run --no-prompt --allow-net=github.com,release-assets.githubusercontent.com --allow-read=static/librequake --allow-write=static/librequake tools/fetch_data.js",
     "image-check": "sh tools/check_container_image.sh",
     "client-build": "deno run --allow-read=. --allow-write=cloudflare/client/dist --allow-run=git cloudflare/client/build.js"
   }

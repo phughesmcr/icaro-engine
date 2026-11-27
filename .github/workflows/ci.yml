@@ -42,6 +42,24 @@ jobs:
       - name: Format
         run: deno fmt --check
 
+      # LibreQuake (deno task fetch-data, into the gitignored
+      # static/librequake/). The release zip is cached under the SHA-256
+      # pinned in src/librequake.js (LQ_RELEASES); the fetch checks it either
+      # way and unpacks it.
+      - name: LibreQuake pin
+        id: librequake
+        run: |
+          sha256=$(deno run --no-prompt tools/fetch_data.js --print-sha)
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: static/librequake/v0.09-beta/full.zip
+          key: librequake-${{ steps.librequake.outputs.sha256 }}
+
+      - name: Fetch LibreQuake
+        run: deno task fetch-data
+
       # Tests read static/pak0.pak (shareware, committed).
       - name: Test
         run: deno task test

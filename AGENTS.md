@@ -120,7 +120,10 @@ process per room. It was forked from mrdoob's three-quake.
   the banners it deleted. Not linted or run in CI. `check_container_image.sh`
   (`deno task image-check`, needs Docker) fails if the game-room image or its
   build context holds any `.pak` but `static/pak0.pak`, or TLS or env files,
-  then starts a room in the image; CI runs it.
+  then starts a room in the image; CI runs it. `fetch_data.js`
+  (`deno task fetch-data`, see Commands) fetches LibreQuake for the tests and
+  servers; it is the one file in `tools/` that is linted and type-checked, and
+  CI runs it.
 - `tools/bench/`: headless Deno benchmarks (not linted or run in CI). They use
   pak0 by default; the server, build, model and net benchmarks also take
   `-base rerelease` (and, except model, the game flags) to run on the gitignored
@@ -151,9 +154,16 @@ process per room. It was forked from mrdoob's three-quake.
   (`server/room_process_manager.ts`), the WebSocket server driver
   (`server/net_websocket_server.ts`), the client Worker's build script
   (`cloudflare/client/build.js`) and the two TypeScript tests
-  (`tests/net_webtransport_server_test.ts`, `tests/quic_listen_test.ts`).
+  (`tests/net_webtransport_server_test.ts`, `tests/quic_listen_test.ts`), and
+  `tools/fetch_data.js`.
 - `deno task agent-mcp` runs the agent MCP server on stdio (reads only
   `static/`; no network).
+- `deno task fetch-data` (`tools/fetch_data.js`) downloads the LibreQuake
+  release pinned in `src/librequake.js` (`LQ_RELEASES`) from GitHub, refuses it
+  if its SHA-256 differs, and unpacks its `id1` into the gitignored
+  `static/librequake/id1/`, keeping the zip in `static/librequake/v0.09-beta/`
+  for the browser's download. A second run does nothing. CI runs it, with the
+  zip cached under its SHA-256. Run it outside the sandbox (network).
 - `deno task client-build` fills `cloudflare/client/dist/` for the client Worker
   (runs `git`; refuses uncommitted client files unless given `--allow-dirty`).
   Deploy with `cd cloudflare/client && npx wrangler deploy`.
@@ -173,18 +183,19 @@ process per room. It was forked from mrdoob's three-quake.
   call `icaro.help()` in the page.
 - CI (`.github/workflows/ci.yml`) runs on PRs to `dev` and `main` and on pushes
   to them: a check that no pak but `static/pak0.pak` is tracked, then
-  `deno fmt --check`, test, lint and check, on the Deno version pinned in
-  `.tool-versions`, and, in a second job, `tools/check_container_image.sh`. The
-  Dockerfile pins the same Deno version: bump both together
-  (`tests/deno_version_pin_test.js` fails if they differ). Actions are pinned by
-  SHA and Dependabot bumps them weekly. Tests cover logic only: rendering, audio
-  and touch changes need a browser check. If you didn't do one, say so.
+  `deno fmt --check`, `deno task fetch-data` (the zip cached under its SHA-256),
+  test, lint and check, on the Deno version pinned in `.tool-versions`, and, in
+  a second job, `tools/check_container_image.sh`. The Dockerfile pins the same
+  Deno version: bump both together (`tests/deno_version_pin_test.js` fails if
+  they differ). Actions are pinned by SHA and Dependabot bumps them weekly.
+  Tests cover logic only: rendering, audio and touch changes need a browser
+  check. If you didn't do one, say so.
 
 ### Lint and format
 
 - `deno task lint` (config in root `deno.json`: `main.js`, `sw.js`, `src/`,
-  `server/`, `tests/`, `cloudflare/`; `no-window` rules off) passes with zero
-  problems. The bar is **lint passes**; CI enforces it.
+  `server/`, `tests/`, `cloudflare/`, `tools/fetch_data.js`; `no-window` rules
+  off) passes with zero problems. The bar is **lint passes**; CI enforces it.
 - Unused parameters kept for C-signature parity get a `_` prefix
   (`Z_Free(_ptr)`). Use a line-level `// deno-lint-ignore no-unused-vars` with a
   reason only for C-parity state that has no reader in the port.

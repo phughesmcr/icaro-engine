@@ -128,7 +128,9 @@ so the zips and unpacked files never reach the static assets, and `sw.js` passes
 
 For local testing, put `full.zip` and `lite.zip` in
 `static/librequake/v0.09-beta/` and run `deno task serve`; Deno's file server
-honours `Range`.
+honours `Range`. `deno task fetch-data` puts `full.zip` there, checked against
+its pin, and unpacks it into `static/librequake/id1/` for the tests and servers
+(`--variant lite` replaces that with lite's).
 
 ## Content Security Policy
 
