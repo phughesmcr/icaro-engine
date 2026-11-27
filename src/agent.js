@@ -1686,7 +1686,12 @@ async function Agent_CommandNow(text) {
   // returned before it had run
   Cbuf_Execute();
   if (Agent_Ready()) {
+    // One frame lets it take effect (an impulse rides on the next move)
     if (agent_mode === "lockstep") Agent_Tic();
+    else {
+      const frame = host_framecount;
+      await Agent_WaitFor(() => host_framecount !== frame, 1000);
+    }
     await Agent_WaitReply();
   }
 
@@ -3214,7 +3219,7 @@ Map:    icaro.observe({ map: 21 })  // also the opts of step, goto, turn_to and 
         blank: nothing to stand on, or not in view.  D door  L lift  B button
         E exit  T teleporter  M monster  P player  w weapon  k key  i item  x box  * shot
 Menus:  icaro.key('down'|'up'|'enter'|'escape'|'y'|...), icaro.menu('Single Player')
-Console: await icaro.cmd('god')   // returns what it printed (lockstep, in game: runs one tic, two if the server runs it)
+Console: await icaro.cmd('god')   // returns what it printed (lockstep, in game: runs one or two tics)
 Image:  use your browser's own screenshot tool (icaro.screenshot() returns a data URL)
 Pixels: icaro.screen_rgba(84, 0, true)  // { width, height, data }: RGBA bytes of the view at
         that width (height 0 keeps the aspect); false leaves out the HUD, menus and console

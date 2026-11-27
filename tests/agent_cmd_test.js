@@ -5,6 +5,7 @@
 import { mcp_session } from "./agent_mcp_client.js";
 import { Agent_Attach, Agent_Command, Agent_Tics } from "../src/agent.js";
 import { headless_frame } from "../server/headless_host.js";
+import { host_framecount } from "../src/host.js";
 import { GD_MAPS } from "../server/game_data.js";
 
 function assert(cond, message) {
@@ -58,8 +59,11 @@ Deno.test({
     Agent_Attach("realtime");
     const driver = setInterval(() => headless_frame(), 60);
     try {
+      const frame = host_framecount;
       const echo = await Agent_Command("echo realtime-echo");
       assert(echo.includes("realtime-echo"), "echo:\n" + echo);
+      // In a game it waits for a frame, so the command has taken effect
+      assert(host_framecount !== frame, "echo returned before a frame ran");
 
       // god runs on the server: its reply comes back over the connection
       const on = await Agent_Command("god");
