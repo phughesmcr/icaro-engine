@@ -7,6 +7,8 @@ import {
   Intro_Decide,
   Intro_Describe,
   Intro_Gate,
+  Intro_IsDevHost,
+  Intro_LocalPaks,
   INTRO_PLAYED_KEY,
   Intro_Want,
 } from "../src/intro.js";
@@ -440,6 +442,131 @@ Deno.test("Intro_Gate offers registered Quake by name when pak1 is stored too", 
   await settle();
   env.document.button(/^Play Quake \(registered\)$/).click();
   assert(await gate === null, "id's data");
+});
+
+// A fetch that answers HEAD with each path's { status, type }, recording calls
+function headFetch(answers) {
+  const calls = [];
+  const fetch = (path, init) => {
+    calls.push({ path, method: init?.method });
+    const a = answers[path];
+    if (a === undefined) return Promise.reject(new Error("refused"));
+    return Promise.resolve(
+      new Response(null, {
+        status: a.status,
+        headers: { "content-type": a.type ?? "application/octet-stream" },
+      }),
+    );
+  };
+  return { fetch, calls };
+}
+
+Deno.test("Intro_IsDevHost: this machine only", () => {
+  for (const h of ["localhost", "127.0.0.1", "[::1]"]) {
+    assert(Intro_IsDevHost(h), h);
+  }
+  for (
+    const h of [
+      "quake.anglezarke.games",
+      "localhost.example.com",
+      "app.localhost",
+      "127.0.0.2",
+      "192.168.1.2",
+      "::1",
+      "",
+    ]
+  ) {
+    assert(Intro_IsDevHost(h) === false, h);
+  }
+});
+
+Deno.test("Intro_LocalPaks asks nothing on another host", async () => {
+  const f = headFetch({ "static/pak0.pak": { status: 200 } });
+  const local = await Intro_LocalPaks("quake.anglezarke.games", f.fetch);
+  assert(local.pak0 === false && local.pak1 === false, "none");
+  assert(f.calls.length === 0, "no request: " + JSON.stringify(f.calls));
+});
+
+Deno.test("Intro_LocalPaks: HEAD for static/'s id1 paks on a dev host", async () => {
+  let f = headFetch({
+    "static/pak0.pak": { status: 200 },
+    "static/pak1.pak": { status: 200 },
+  });
+  let local = await Intro_LocalPaks("localhost", f.fetch);
+  assert(local.pak0 && local.pak1, "both: " + JSON.stringify(local));
+  assert(f.calls.every((c) => c.method === "HEAD"), "HEAD only");
+  assert(
+    f.calls.map((c) => c.path).join(" ") === "static/pak0.pak static/pak1.pak",
+    "paths",
+  );
+
+  f = headFetch({ "static/pak0.pak": { status: 200 } });
+  local = await Intro_LocalPaks("127.0.0.1", f.fetch);
+  assert(local.pak0 && local.pak1 === false, "pak0 alone");
+
+  // no pak0: pak1 isn't asked about
+  f = headFetch({
+    "static/pak0.pak": { status: 404 },
+    "static/pak1.pak": { status: 200 },
+  });
+  local = await Intro_LocalPaks("[::1]", f.fetch);
+  assert(local.pak0 === false && local.pak1 === false, "404");
+  assert(f.calls.length === 1, "pak1 not asked");
+
+  // a server's HTML fallback for a missing file
+  f = headFetch({ "static/pak0.pak": { status: 200, type: "text/html" } });
+  local = await Intro_LocalPaks("localhost", f.fetch);
+  assert(local.pak0 === false, "HTML isn't a pak");
+
+  // the request fails
+  f = headFetch({});
+  local = await Intro_LocalPaks("localhost", f.fetch);
+  assert(local.pak0 === false, "network error");
+});
+
+Deno.test("Intro_Gate offers Quake from static/ on a dev host with nothing stored", async () => {
+  const env = fakeEnv();
+  env.localPaks = () => Promise.resolve({ pak0: true, pak1: true });
+  const gate = Intro_Gate(params(""), env);
+  await settle();
+  await settle();
+  env.document.button(/^Play Quake \(registered\)$/).click();
+  assert(await gate === null, "id's data");
+});
+
+Deno.test("Intro_Gate: ?base=id1 plays static/'s paks on a dev host", async () => {
+  const env = fakeEnv({ storage: { [INTRO_PLAYED_KEY]: "1" } });
+  env.localPaks = () => Promise.resolve({ pak0: true, pak1: false });
+  assert(await Intro_Gate(params("?base=id1"), env) === null, "id's data");
+  assert(env.document.getElementById("intro") === null, "no page");
+});
+
+Deno.test("Intro_Gate doesn't ask static/ when id1's pak0 is stored", async () => {
+  let asked = false;
+  const env = fakeEnv({
+    storage: { [INTRO_PLAYED_KEY]: "1" },
+    store: fakeStore({ "static/pak0.pak": new Blob(["PACK"]) }),
+  });
+  env.localPaks = () => {
+    asked = true;
+    return Promise.resolve({ pak0: false, pak1: false });
+  };
+  assert(await Intro_Gate(params("?base=id1"), env) === null, "id's data");
+  assert(asked === false, "not asked");
+});
+
+Deno.test("Intro_Gate doesn't ask static/ when the URL names another base", async () => {
+  let asked = false;
+  const env = fakeEnv({ storage: { [INTRO_PLAYED_KEY]: "1" } });
+  env.localPaks = () => {
+    asked = true;
+    return Promise.resolve({ pak0: true, pak1: true });
+  };
+  // the gate waits on LibreQuake's page; the probe would have run by now
+  Intro_Gate(params("?base=librequake"), env);
+  await settle();
+  await settle();
+  assert(asked === false, "not asked");
 });
 
 Deno.test("main.js waits on the intro page before it loads any game data", async () => {

@@ -5,7 +5,10 @@
 // install). The page offers LibreQuake, the standard content, downloaded on
 // first use (src/librequake.js), and id's own data when a player has added
 // id1's pak0.pak in Options, Game data (src/userdata.js). The site serves no
-// id pak, so id's data is never started without it.
+// id pak, so id's data is never started without it. The one exception is a
+// local development host (Intro_IsDevHost), where the page asks with HEAD
+// whether static/ serves id1's paks, so a developer's own copies start
+// without being added: on any other host nothing is asked.
 //
 // A person who has pressed Play on this device before skips the page when
 // what they start needs no download: that state (localStorage) is only ever
@@ -32,6 +35,50 @@ export const INTRO_PLAYED_KEY = "icaro_played";
 // add-ons (?game). Lobby rooms (?room) and links to a map (?map, as agents
 // use) start LibreQuake, which the rooms run.
 const INTRO_ID1_PARAMS = ["game"];
+
+// The hosts Intro_LocalPaks asks: this machine, as location.hostname writes
+// it. Not *.localhost or LAN addresses.
+/** How long a local pak's HEAD may take before it counts as absent. */
+const INTRO_LOCAL_TIMEOUT_MS = 2000;
+
+const INTRO_DEV_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** Whether hostname (location.hostname) is a local development host. */
+export function Intro_IsDevHost(hostname) {
+  return INTRO_DEV_HOSTS.has(hostname);
+}
+
+/**
+ * On a local development host only, whether static/ serves id1's paks where
+ * main.js fetches them when none is stored (static/pak0.pak, then pak1.pak):
+ * { pak0, pak1 }. Each is one HEAD request, so nothing is downloaded. A 2xx
+ * that is HTML (a server's fallback page) doesn't count. Any other host gets
+ * { pak0: false, pak1: false } without a request.
+ */
+export async function Intro_LocalPaks(hostname, doFetch = globalThis.fetch) {
+  if (Intro_IsDevHost(hostname) === false || typeof doFetch !== "function") {
+    return { pak0: false, pak1: false };
+  }
+  const served = async (path) => {
+    try {
+      const response = await doFetch(path, {
+        method: "HEAD",
+        cache: "no-store",
+        // a hung local server mustn't hold the intro page
+        signal: typeof AbortSignal.timeout === "function" ?
+          AbortSignal.timeout(INTRO_LOCAL_TIMEOUT_MS) :
+          undefined,
+      });
+      const type = response.headers.get("content-type") ?? "";
+      return response.ok && type.startsWith("text/html") === false;
+    } catch {
+      return false;
+    }
+  };
+  const pak0 = await served(UD_PakKey("id1/pak0"));
+  const pak1 = pak0 && await served(UD_PakKey("id1"));
+  return { pak0, pak1 };
+}
 
 const INTRO_GAME_LABELS = {
   hipnotic: "Scourge of Armagon",
@@ -144,6 +191,7 @@ function Intro_BrowserEnv() {
     },
     remember: UD_RememberChoice,
     openStore: UD_OpenStore,
+    localPaks: () => Intro_LocalPaks(globalThis.location?.hostname ?? ""),
     install: LQ_Install,
     persist: () => globalThis.navigator?.storage?.persist?.().catch(() => {}),
   };
@@ -175,6 +223,17 @@ export async function Intro_Gate(params, env = Intro_BrowserEnv()) {
     } catch {
       // can't list: no id data is offered
     }
+  }
+  // a developer's own paks in static/, on a local development host only
+  // (only when the URL names no base or id1's: another base never needs it)
+  const base = params.get("base");
+  if (
+    id1 === false && typeof env.localPaks === "function" &&
+    (base === null || base === "id1")
+  ) {
+    const local = await env.localPaks();
+    id1 = local.pak0 === true;
+    registered = id1 && local.pak1 === true;
   }
   const decision = Intro_Decide({
     params,

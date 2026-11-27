@@ -559,15 +559,15 @@ The image is the pinned `denoland/deno` Debian image (the Deno version in
 `.tool-versions`) plus an allowlist: `deno.json`, `deno.lock`, `server/`, `src/`
 and `tools/fetch_data.js`. A first build stage runs `deno task fetch-data`
 (LibreQuake's pinned `full.zip`, refused if its SHA-256 differs), and the image
-keeps only its `id1/pak0.pak`, `id1/pak1.pak` and loose `id1/maps/`, under
-`/app/static/librequake/`. It never copies `static/`: id's, registered and
-rerelease data (`static/*.pak`, `hipnotic/`, `rogue/`, `rerelease/`, `id1/`,
-`mg1/` and the other add-ons) must never reach an image or a registry. The root
-`.dockerignore` is a second guard: it excludes everything but the allowlist,
-then every `.pak`, and TLS and env files. Keep both when you change either. A
-room can only start on LibreQuake's maps. Building needs network access (the
-download), and the image doesn't yet carry LibreQuake's licence files, so don't
-publish it until it does (`THIRD_PARTY.md`).
+keeps only its `id1/pak0.pak`, `id1/pak1.pak`, loose `id1/maps/` and licence
+texts (`id1/docs/copying`, `id1/docs/misc-docs/copying`,
+`id1/docs/readme-important-licence-info`), under `/app/static/librequake/`. It
+never copies `static/`: id's, registered and rerelease data (`static/*.pak`,
+`hipnotic/`, `rogue/`, `rerelease/`, `id1/`, `mg1/` and the other add-ons) must
+never reach an image or a registry. The root `.dockerignore` is a second guard:
+it excludes everything but the allowlist, then every `.pak`, and TLS and env
+files. Keep both when you change either. A room can only start on LibreQuake's
+maps. Building needs network access (the download).
 
 The entry point is `deno run` on
 `server/game_server.js -pak /app/static/librequake/id1/pak0.pak`, as the
@@ -590,10 +590,10 @@ docker run --rm -v "$PWD/server/cert.pem:/certs/cert.pem:ro" -v "$PWD/server/key
 the build context of your working tree and of a copy with decoy paks and keys
 planted, builds the image, fails if it holds any `.pak` but LibreQuake's two
 (`/app/static/librequake/id1/pak0.pak` and `pak1.pak`) or any TLS or env file,
-and starts a room in it (`--no-run` skips that). CI runs it on PRs to `dev` and
-`main`. Run it before building an image from a working tree that has registered
-data in it. Nothing here pushes the image; publishing it is a later step of the
-hosting plan.
+or lacks LibreQuake's three licence texts, and starts a room in it (`--no-run`
+skips that). CI runs it on PRs to `dev` and `main`. Run it before building an
+image from a working tree that has registered data in it. Nothing here pushes
+the image; publishing it is a later step of the hosting plan.
 
 ## Turnstile
 

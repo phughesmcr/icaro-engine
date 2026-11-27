@@ -35,8 +35,8 @@ process per room. It was forked from mrdoob's three-quake.
   check and unpack; see `docs/librequake-content.md`). Some files port features
   from Ironwail or QuakeSpasm rather than id's C, and their headers cite it
   (`gl_fog.js`, `gl_sky.js`, `gl_md5.js`, `gl_entalpha.js`, `gl_screenwarp.js`,
-  `image.js`, `pr_sprintf.js`, `default_cfg.js`, `unicode_translit.js`). For
-  those, Ironwail's source is the reference.
+  `gl_gamma.js`, `image.js`, `pr_sprintf.js`, `default_cfg.js`,
+  `unicode_translit.js`). For those, Ironwail's source is the reference.
 - `main.js` and `index.html`: the browser entry. `index.html`'s import map loads
   `three` and `nipplejs` from jsDelivr, and zip.js (for LibreQuake's download)
   with an integrity hash; both `deno.json` files repeat the zip.js entry, and
@@ -71,8 +71,8 @@ process per room. It was forked from mrdoob's three-quake.
   root `.dockerignore` (`deno.json`, `deno.lock`, `server/`, `src/`,
   `tools/fetch_data.js`) as a second guard: a first stage runs
   `deno task fetch-data`, and the image gets only `deno.json`, `server/`, `src/`
-  and LibreQuake's two paks and loose maps. Never widen either allowlist to a
-  pak or registered data (see Game data).
+  and LibreQuake's two paks, loose maps and licence texts. Never widen either
+  allowlist to a pak or registered data (see Game data).
 - `cloudflare/lobby/`: the lobby Worker and Durable Object for rooms hosted in
   browsers, with TURN credentials and the Turnstile check (its README says how
   to deploy). `src/worker.js` imports `cloudflare:workers`, so tests run
@@ -81,6 +81,13 @@ process per room. It was forked from mrdoob's three-quake.
   `quake.anglezarke.games/mp/lobby`. Run wrangler only from that folder: from
   the repository root it offers to upload the whole repository, registered data
   included.
+- `cloudflare/librequake/`: the Worker that serves LibreQuake's release zips
+  from an R2 bucket on the route `quake.anglezarke.games/static/librequake/*`,
+  in front of the client Worker, so the intro page downloads them from its own
+  origin (`LQ_DOWNLOAD_BASE`). `src/serve.js` (allowlist, byte ranges,
+  conditional requests) is tested by `tests/cloudflare_librequake_test.js`
+  against a fake bucket; its README gives the bucket, upload and deploy steps.
+  Run wrangler only from that folder.
 - `cloudflare/client/`: the Worker that serves the game page at
   `quake.anglezarke.games` as static assets, with a script for the page alone
   that adds a CSP nonce (`src/nonce.js`, tested by
@@ -118,11 +125,11 @@ process per room. It was forked from mrdoob's three-quake.
   `--verify <ref>` checks that no comment text was lost but the name lines of
   the banners it deleted. Not linted or run in CI. `check_container_image.sh`
   (`deno task image-check`, needs Docker) fails if the game-room image or its
-  build context holds any `.pak`, the image any but LibreQuake's two, or either
-  TLS or env files, then starts a room in the image; CI runs it. `fetch_data.js`
-  (`deno task fetch-data`, see Commands) fetches LibreQuake for the tests and
-  servers; it is the one file in `tools/` that is linted and type-checked, and
-  CI runs it.
+  build context holds any `.pak`, the image any but LibreQuake's two or lacks
+  its licence texts, or either holds TLS or env files, then starts a room in the
+  image; CI runs it. `fetch_data.js` (`deno task fetch-data`, see Commands)
+  fetches LibreQuake for the tests and servers; it is the one file in `tools/`
+  that is linted and type-checked, and CI runs it.
 - `tools/bench/`: headless Deno benchmarks (not linted or run in CI). They use
   LibreQuake (`server/game_data.js`, `deno task fetch-data`) by default; the
   server, build, model and net benchmarks also take `-base rerelease` (and,
@@ -323,15 +330,17 @@ publicly; `.gitignore` covers those paths and every `.pak`, and CI fails if any
 pak is tracked. `.gitignore` also covers `static/music/`, a player's CD rips,
 which `sw.js` caches on the player's device for offline play (no other `music/`
 folder is cached). LibreQuake, the browser's default content, is never committed
-or deployed either: it is downloaded into the player's browser storage, and
-`static/librequake/` (a local copy for testing, and the release zips under
-`v0.09-beta/`) is gitignored and denied by the client build. The client loads a
-mission pack with `?game=hipnotic` or `?game=rogue`, a rerelease add-on with
-`?game=mg1` (etc.), the rerelease layout with `?base=rerelease`, LibreQuake with
-`?base=librequake` and id's data with `?base=id1`; the servers take `-hipnotic`,
-`-rogue` or `-game <dir>`. A player's own id1 pak (Options, Game data) is
-offered only once stored. If the data isn't present, test that LibreQuake is
-unchanged and list manual test steps in the PR.
+or deployed with the client either: its pinned release zips are uploaded
+unchanged to an R2 bucket (`cloudflare/librequake/`) and downloaded into the
+player's browser storage, and `static/librequake/` (a local copy for testing,
+and the release zips under `v0.09-beta/`) is gitignored and denied by the client
+build. The client loads a mission pack with `?game=hipnotic` or `?game=rogue`, a
+rerelease add-on with `?game=mg1` (etc.), the rerelease layout with
+`?base=rerelease`, LibreQuake with `?base=librequake` and id's data with
+`?base=id1`; the servers take `-hipnotic`, `-rogue` or `-game <dir>`. A player's
+own id1 pak (Options, Game data) is offered only once stored, or, on a local
+development host, when served from `static/`. If the data isn't present, test
+that LibreQuake is unchanged and list manual test steps in the PR.
 
 ## Git workflow
 

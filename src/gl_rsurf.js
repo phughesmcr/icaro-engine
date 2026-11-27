@@ -1,7 +1,10 @@
 // Ported from: WinQuake/gl_rsurf.c -- surface-related refresh code
+// gl_overbright: QuakeSpasm Quake/r_brush.c (R_BuildLightMap,
+// R_RebuildAllLightmaps) and r_world.c (the world shader's doubling), which
+// Ironwail Quake/gl_shaders.h keeps on always.
 
 import * as THREE from "three";
-import { GL_RegisterCullMaterial } from "./glquake.js";
+import { GL_PatchShader, GL_RegisterCullMaterial } from "./glquake.js";
 import { Sys_Error } from "./sys.js";
 import { Fog_PatchSkyShader } from "./gl_fog.js";
 import { Sky_GetSkyBox } from "./gl_sky.js";
@@ -14,21 +17,82 @@ import { Sky_GetSkyBox } from "./gl_sky.js";
  */
 const _lightmapOnly = { value: 0 };
 
+/**
+ * gl_overbright (QuakeSpasm r_world.c, "if (UseOverbright) result.rgb *= 2.0";
+ * Ironwail gl_shaders.h, "total_light *= 2.0"): 2 when the lightmaps hold half
+ * the light (R_BuildLightMap's >> 8), else 1. R_CheckLightmapCvars sets it with
+ * the lightmaps it rebuilds, so the two always agree.
+ */
+const _lightmapScale = { value: 1 };
+
+/**
+ * GLQuake modulates the texture by the lightmap on the gamma-encoded colours
+ * the card holds (GL_MODULATE, or R_BlendLightmaps' blend), with no colour
+ * management. Three's Lambert shading would decode both from sRGB and multiply
+ * in linear light, which leaves dim light at about a third of GLQuake's. So
+ * the patch lights a white surface, so that Three's sums hold the light alone,
+ * and does the C's sum itself on the encoded values:
+ * - the lightmap texel is the raw lightmap byte (NoColorSpace, see
+ *   GL_BuildLightmaps), and replaces Three's lightmap irradiance;
+ * - the PointLights' sum on white is display-space light in the same units
+ *   (gl_rlight.js R_DlightIntensity), as R_AddDynamicLights adds dlights to
+ *   the lightmap's blocklights;
+ * - their sum is clamped where R_BuildLightMap clamps the byte (255), then
+ *   doubled for gl_overbright;
+ * - texture times light, plus the fullbright texel, is clamped to 1 as the
+ *   framebuffer (and QuakeSpasm's world shader) clamps;
+ * - the result is decoded once, so that Three's sRGB output gives it back.
+ * The diffuse texture stays sRGB for the other materials that share it, so
+ * it is re-encoded here and filtered in linear light (a small difference at
+ * texel edges only).
+ */
+const LIGHTMAP_TEXEL_GLSL = [
+  "#ifdef USE_LIGHTMAP",
+  "\tvec3 quakeLightmap = texture2D( lightMap, vLightMapUv ).rgb;",
+  "#else",
+  "\tvec3 quakeLightmap = vec3( 0.0 );",
+  "#endif",
+].join("\n");
+
+const LIGHTMAP_MODULATE_GLSL = [
+  "\tvec3 quakeLight = min( quakeLightmap + ( reflectedLight.directDiffuse + reflectedLight.indirectDiffuse ) / quakeLightmapScale, vec3( 1.0 ) ) * quakeLightmapScale;",
+  "\tvec3 quakeColor = quakeTexel * quakeLight + sRGBTransferOETF( vec4( totalEmissiveRadiance, 1.0 ) ).rgb;",
+  "\toutgoingLight = sRGBTransferEOTF( vec4( min( quakeColor, vec3( 1.0 ) ), 1.0 ) ).rgb;",
+  "#include <opaque_fragment>",
+].join("\n");
+
 export function R_PatchLightmapShader(shader) {
   shader.uniforms.quakeLightmapOnly = _lightmapOnly;
-  shader.fragmentShader = shader.fragmentShader
-    .replace(
-      "uniform vec3 emissive;",
-      "uniform vec3 emissive;\nuniform float quakeLightmapOnly;",
-    )
-    .replace(
-      "#include <map_fragment>",
-      "#include <map_fragment>\n\tdiffuseColor.rgb = mix( diffuseColor.rgb, vec3( 1.0 ), quakeLightmapOnly );",
-    )
-    .replace(
-      "#include <emissivemap_fragment>",
-      "#include <emissivemap_fragment>\n\ttotalEmissiveRadiance *= 1.0 - quakeLightmapOnly;",
-    );
+  shader.uniforms.quakeLightmapScale = _lightmapScale;
+  let fs = shader.fragmentShader;
+  fs = GL_PatchShader(
+    fs,
+    "uniform vec3 emissive;",
+    "uniform vec3 emissive;\nuniform float quakeLightmapOnly;\nuniform float quakeLightmapScale;",
+  );
+  // the encoded texel, or white for r_lightmap
+  fs = GL_PatchShader(
+    fs,
+    "#include <map_fragment>",
+    "#include <map_fragment>\n\tvec3 quakeTexel = mix( sRGBTransferOETF( vec4( diffuseColor.rgb, 1.0 ) ).rgb, vec3( 1.0 ), quakeLightmapOnly );",
+  );
+  fs = GL_PatchShader(
+    fs,
+    "#include <emissivemap_fragment>",
+    "#include <emissivemap_fragment>\n\ttotalEmissiveRadiance *= 1.0 - quakeLightmapOnly;",
+  );
+  fs = GL_PatchShader(
+    fs,
+    "#include <lights_lambert_fragment>",
+    "#include <lights_lambert_fragment>\n\tmaterial.diffuseColor = vec3( 1.0 );",
+  );
+  fs = GL_PatchShader(
+    fs,
+    "#include <lights_fragment_maps>",
+    LIGHTMAP_TEXEL_GLSL,
+  );
+  fs = GL_PatchShader(fs, "#include <opaque_fragment>", LIGHTMAP_MODULATE_GLSL);
+  shader.fragmentShader = fs;
 }
 
 function R_LightmapProgramKey() {
@@ -278,7 +342,6 @@ function createQuakeLightmapMaterial(
   const matOptions = {
     map: diffuseMap,
     lightMap: lightmapTex,
-    lightMapIntensity: LIGHTMAP_INTENSITY,
     alphaTest: R_SurfaceAlphaTest(diffuseMap),
   };
 
@@ -375,7 +438,7 @@ import {
 } from "./gl_model.js";
 import { COM_Parse, com_token } from "./common.js";
 import { realtime } from "./host.js";
-import { LIGHTMAP_INTENSITY } from "./glquake.js";
+import { gl_overbright } from "./glquake.js";
 import { MAX_MODELS } from "./quakedef.js";
 import { R_MirrorGate } from "./gl_rmirror.js";
 import { isXRActive } from "./webxr.js";
@@ -405,6 +468,36 @@ export function set_skytexturenum(v) {
 
 // 1 (GL_LUMINANCE), or 4 (GL_RGBA) when a model has .lit coloured lighting
 let lightmap_bytes = 1;
+
+/**
+ * gl_overbright as the lightmaps were last built: QuakeSpasm's R_BuildLightMap
+ * reads the cvar, but here GL_BuildLightmaps and R_CheckLightmapCvars latch it,
+ * so a block never mixes the two scales with the shader's _lightmapScale.
+ */
+let lightmap_overbright = false;
+
+/**
+ * The blocklights fill for r_fullbright or a world with no light data: id's
+ * 255 * 256, or 128 * 256 with gl_overbright so the shader's doubling shows
+ * the texture at x1 (to 1/255), as QuakeSpasm's texture-only
+ * r_fullbright_cheatsafe path does (gl_rmain.c R_SetupView).
+ */
+export function R_FullLight(overbright) {
+  return overbright === true ? 128 * 256 : 255 * 256;
+}
+
+/**
+ * R_BuildLightMap's "bound, invert, and shift" for one channel: blocklights
+ * holds 8.8 light, a sample times its style (256 is normal). GLQuake shifts by
+ * 7, so sample 128 is full light and brighter samples clamp. QuakeSpasm's
+ * gl_overbright shifts by 8 and the shader doubles it, which keeps samples up
+ * to 255. Returns the stored byte, 255 - light.
+ */
+export function R_LightmapByte(t, overbright) {
+  t >>= overbright === true ? 8 : 7;
+  if (t > 255) t = 255;
+  return 255 - t;
+}
 
 // Deliberate deviation: GLQuake's 18*18 only fits 256-unit extents (WinQuake's
 // limit), not GLQuake's own 512, and writes past it were dropped. Size it for
@@ -1547,8 +1640,9 @@ export function R_BuildLightMap(surf, dest, destOffset, stride) {
     r_fullbright.value ||
     (cl.worldmodel != null && cl.worldmodel.lightdata == null)
   ) {
+    const full = R_FullLight(lightmap_overbright);
     for (let i = 0; i < size; i++) {
-      blocklights[i] = 255 * 256;
+      blocklights[i] = full;
     }
   } else {
     // clear to no light
@@ -1580,16 +1674,14 @@ export function R_BuildLightMap(surf, dest, destOffset, stride) {
 
   // bound, invert, and shift
   // store as luminance (single byte per texel)
+  const overbright = lightmap_overbright;
   stride -= smax;
   let bl = 0; // index into blocklights
   let di = destOffset;
 
   for (let i = 0; i < tmax; i++, di += stride) {
     for (let j = 0; j < smax; j++) {
-      let t = blocklights[bl++];
-      t >>= 7;
-      if (t > 255) t = 255;
-      dest[di] = 255 - t;
+      dest[di] = R_LightmapByte(blocklights[bl++], overbright);
       di++;
     }
   }
@@ -1598,8 +1690,8 @@ export function R_BuildLightMap(surf, dest, destOffset, stride) {
 /**
  * R_BuildLightMap for GL_RGBA blocks, used when a model has a .lit: QuakeSpasm's
  * "lit support via lordhavoc" version, which keeps r, g and b in blocklights. It
- * bounds, inverts and shifts each channel as the GL_LUMINANCE case does (no
- * overbright), so a white .lit looks like the mono map. Surfaces without RGB
+ * bounds, inverts and shifts each channel as the GL_LUMINANCE case does, so a
+ * white .lit looks like the mono map. Surfaces without RGB
  * samples (a model with no .lit in a map that has one) add their mono sample to
  * all three channels. The fourth byte is never read.
  */
@@ -1615,8 +1707,9 @@ function R_BuildLightMapRGBA(surf, dest, destOffset, stride) {
     r_fullbright.value ||
     (cl.worldmodel != null && cl.worldmodel.lightdata == null)
   ) {
+    const full = R_FullLight(lightmap_overbright);
     for (let i = 0; i < size3; i++) {
-      blocklights[i] = 255 * 256;
+      blocklights[i] = full;
     }
   } else {
     // clear to no light
@@ -1658,6 +1751,7 @@ function R_BuildLightMapRGBA(surf, dest, destOffset, stride) {
   }
 
   // bound, invert, and shift
+  const overbright = lightmap_overbright;
   stride -= smax * 4;
   let bl = 0; // index into blocklights
   let di = destOffset;
@@ -1665,10 +1759,7 @@ function R_BuildLightMapRGBA(surf, dest, destOffset, stride) {
   for (let i = 0; i < tmax; i++, di += stride) {
     for (let j = 0; j < smax; j++, di += 4) {
       for (let c = 0; c < 3; c++) {
-        let t = blocklights[bl++];
-        t >>= 7;
-        if (t > 255) t = 255;
-        dest[di + c] = 255 - t;
+        dest[di + c] = R_LightmapByte(blocklights[bl++], overbright);
       }
     }
   }
@@ -2166,17 +2257,29 @@ export function DrawTextureChains() {
 // GLQuake reads r_fullbright in R_BuildLightMap (fill with full light) and
 // r_lightmap in R_BlendLightmaps. Here the lightmaps are textures on the
 // materials, so a change of r_fullbright rebuilds every lightmap block and
-// r_lightmap flips the shared shader uniform.
+// r_lightmap flips the shared shader uniform. A change of gl_overbright
+// rebuilds them too, as QuakeSpasm's GL_Overbright_f callback runs
+// R_RebuildAllLightmaps (gl_rmisc.c, r_brush.c).
 let _oldFullbright = 0;
+
+/** Latches gl_overbright for R_BuildLightMap and the world shader's scale. */
+function R_LatchOverbright() {
+  lightmap_overbright = gl_overbright.value !== 0;
+  _lightmapScale.value = lightmap_overbright === true ? 2 : 1;
+}
 
 function R_CheckLightmapCvars() {
   _lightmapOnly.value = r_lightmap.value ? 1 : 0;
 
   const fullbright = r_fullbright.value ? 1 : 0;
-  if (fullbright === _oldFullbright) {
+  const overbright = gl_overbright.value !== 0;
+  if (
+    fullbright === _oldFullbright && overbright === lightmap_overbright
+  ) {
     return;
   }
   _oldFullbright = fullbright;
+  R_LatchOverbright();
 
   // Same models as GL_BuildLightmaps; inline submodels ('*n') share the
   // world's surface array.
@@ -3362,6 +3465,8 @@ export function GL_BuildLightmaps() {
     }
   }
 
+  R_LatchOverbright();
+
   if (litfile) {
     gl_lightmap_format = GL_RGBA;
     lightmap_bytes = 4;
@@ -3430,8 +3535,9 @@ export function GL_BuildLightmaps() {
     texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
     texture.flipY = false;
-    // GLQuake's lightmap scales display-space colour; see LIGHTMAP_INTENSITY.
-    texture.colorSpace = THREE.SRGBColorSpace;
+    // The raw lightmap byte: R_PatchLightmapShader modulates on encoded
+    // values, as GLQuake does
+    texture.colorSpace = THREE.NoColorSpace;
     texture.needsUpdate = true;
 
     lightmapTextures[i] = texture;

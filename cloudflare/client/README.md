@@ -55,11 +55,11 @@ precache until its `CACHE_NAME` changes. No pak is deployed: LibreQuake and a
 player's own data live in the player's browser storage.
 
 LibreQuake's release zips are too big for static assets (25 MiB a file) and
-aren't deployed here. Serve `static/librequake/v0.09-beta/` some other way, or
-change `LQ_DOWNLOAD_BASE` in `src/librequake.js`; see
-`docs/librequake-content.md`, Hosting. Until then the intro page's download
-button reports the download isn't available, and only a player's own Quake files
-(Options, Game data) can be played.
+aren't deployed here: `../librequake/` serves `static/librequake/v0.09-beta/`
+from R2 on a route in front of this Worker (see `docs/librequake-content.md`,
+Hosting). Until it is deployed the intro page's download button reports the
+download isn't available, and only a player's own Quake files (Options, Game
+data) can be played.
 
 ### First deploy
 

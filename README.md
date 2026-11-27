@@ -11,18 +11,21 @@ No game data is included. The browser offers
 for Quake's data, downloaded on first run behind an intro page
 ([docs/librequake-content.md](docs/librequake-content.md)). To play id's Quake,
 shareware or registered, add the `pak0.pak` (and `pak1.pak`) from your copy's
-`id1` folder in Options, Game data; they stay in your browser. The tests,
-benchmarks and servers use LibreQuake too: `deno task fetch-data` downloads the
-pinned release into `static/librequake/`. The client and the room server load
-`pak0.pak`, `pak1.pak`, ... until one is missing. A pak over 64 MB (such as the
-2021 rerelease's) is not downloaded whole: the client reads its directory and
-the files the engine needs at startup with HTTP Range requests, and fetches each
-map when it is first loaded. That needs a web server that honours Range, such as
-`deno task serve` (Deno's file server on http://localhost:8137/);
-`python3 -m http.server` doesn't, so it sends the whole pak instead, which still
-works. The room server reads big paks from disk as needed. No pak may be
-committed (CI fails if one is tracked), and id's data must not be deployed
-publicly; `.gitignore` excludes every `.pak`.
+`id1` folder in Options, Game data; they stay in your browser. On a local
+development host (`localhost`, `127.0.0.1` or `[::1]`) the intro page also finds
+id1 paks you put in `static/` (`static/pak0.pak`, `static/pak1.pak`) when none
+are stored and the URL names no other `?base=`, so they start without adding
+them. The tests, benchmarks and servers use LibreQuake too:
+`deno task fetch-data` downloads the pinned release into `static/librequake/`.
+The client and the room server load `pak0.pak`, `pak1.pak`, ... until one is
+missing. A pak over 64 MB (such as the 2021 rerelease's) is not downloaded
+whole: the client reads its directory and the files the engine needs at startup
+with HTTP Range requests, and fetches each map when it is first loaded. That
+needs a web server that honours Range, such as `deno task serve` (Deno's file
+server on http://localhost:8137/); `python3 -m http.server` doesn't, so it sends
+the whole pak instead, which still works. The room server reads big paks from
+disk as needed. No pak may be committed (CI fails if one is tracked), and id's
+data must not be deployed publicly; `.gitignore` excludes every `.pak`.
 
 #### Mission packs
 

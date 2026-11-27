@@ -4,7 +4,7 @@
 # There, `wrangler deploy` offers to publish the whole folder as a static site;
 # from the repository root that is every file, registered game data included.
 # Run wrangler from a Worker folder (cloudflare/lobby, cloudflare/client,
-# tools/do_cpu_probe) or pass --config / --cwd.
+# cloudflare/librequake, tools/do_cpu_probe) or pass --config / --cwd.
 #
 # The check is a safety net, not a parser: it looks for wrangler in command
 # position (start, after ; & | ( or a package runner) and takes the folder from

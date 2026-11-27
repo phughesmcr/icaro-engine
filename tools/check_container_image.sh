@@ -16,7 +16,7 @@
 #    tested even on a clean checkout. The working tree is never written to.
 # 3. The image built from that copy holds exactly two .pak in its whole
 #    filesystem, LibreQuake's /app/static/librequake/id1/pak0.pak and pak1.pak,
-#    and no TLS files under /app.
+#    LibreQuake's licence texts beside them, and no TLS files under /app.
 # 4. A room started in the image with a throwaway certificate initializes
 #    and its WebSocket port answers from outside the container.
 set -eu
@@ -106,9 +106,17 @@ paks=$(grep -i '\.pak$' "$work/image-files" | sort | tr '\n' ' ' || true)
 # Decoys must not have shadowed the fetched paks: the real ones are 95 and 100 MB.
 size=$(docker run --rm --entrypoint stat "$image" -c %s /app/static/librequake/id1/pak1.pak 2>/dev/null || echo 0)
 [ "$size" -gt 1000000 ] || fail "image pak1.pak is $size bytes: not LibreQuake's"
+# LibreQuake's licence texts (BSD 3-clause asks a redistribution to carry its
+# notice), with something in them
+for f in docs/copying docs/misc-docs/copying docs/readme-important-licence-info; do
+	grep -qx "app/static/librequake/id1/$f" "$work/image-files" ||
+		fail "image lacks LibreQuake's licence file id1/$f"
+	size=$(docker run --rm --entrypoint stat "$image" -c %s "/app/static/librequake/id1/$f" 2>/dev/null || echo 0)
+	[ "$size" -gt 100 ] || fail "image's LibreQuake id1/$f is $size bytes"
+done
 secrets=$(grep -i -E '^app/.*(\.pem|\.key|\.crt|/\.env.*)$' "$work/image-files" || true)
 [ -z "$secrets" ] || fail "image holds TLS or env files: $secrets"
-echo "ok: image holds no .pak but LibreQuake's two, and no TLS or env files"
+echo "ok: image holds no .pak but LibreQuake's two, its licence texts, and no TLS or env files"
 
 # 4. Start a room with the image's default arguments and a throwaway cert
 # mounted at /certs. The image runs as uid 1993, so the key must be readable.

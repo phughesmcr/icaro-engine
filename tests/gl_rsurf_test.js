@@ -3,6 +3,7 @@ const gl_rsurf = await import("../src/gl_rsurf.js");
 
 const gl_rmain = await import("../src/gl_rmain.js");
 const { cl } = await import("../src/client.js");
+const { R183_MESHLAMBERT_FRAGMENT } = await import("./three_r183_shaders.js");
 const { SURF_DRAWWATER } = await import("../src/gl_model.js");
 
 function assertEqual(actual, expected, message) {
@@ -545,8 +546,7 @@ Deno.test("grown lightmap blocks upload changed rows and r_fullbright rebuilds",
 Deno.test("underwater world materials warp vertices like DrawGLWaterPoly", () => {
   const vertexShader =
     "#include <common>\nvoid main() {\n#include <begin_vertex>\n}";
-  const fragmentShader =
-    "uniform vec3 emissive;\n#include <map_fragment>\n#include <emissivemap_fragment>";
+  const fragmentShader = R183_MESHLAMBERT_FRAGMENT;
   const lmTex = { channel: 0 };
 
   const underwater = gl_rsurf.R_CreateWorldMaterial(
