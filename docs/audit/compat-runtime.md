@@ -6,7 +6,7 @@ under Deno. Findings from reading the code are marked as such.
 
 ## Status
 
-Checked at `dev` `3603119` (2026-11-27). The rest of this file is the older
+Checked at `dev` `eac77a1` (2026-11-28). The rest of this file is the older
 snapshot.
 
 - Finding 1 is fixed in `headless_host` (#252). The MCP server doesn't expose
@@ -19,7 +19,9 @@ snapshot.
   pak is no longer tracked (#270).
 - LibreQuake is now the default content (`../librequake-content.md`).
 - Finding 2: the client reads 666 and 999 (#278); no 666 demo was run.
-- Finding 3: `-quoth` is recognised (#277); Quoth's data wasn't run with it.
+- Finding 3: `-quoth` is recognised (#277). With Quoth's data, a browser check
+  at `3603119` (`../browser-check-content-2026-11-27.md`, #306) loaded 11 of 12
+  maps; `kellbase1_fan` has no player start. Third-party Quoth maps weren't run.
 - The others weren't rechecked.
 
 ## Method

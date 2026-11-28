@@ -12,7 +12,7 @@ below that overlap them say so and do not duplicate them.
 
 ## Status
 
-Checked at `dev` `3603119` (2026-11-27). The rest of this file is the older
+Checked at `dev` `eac77a1` (2026-11-28). The rest of this file is the older
 snapshot.
 
 - Finding 3: the patches go through `GL_PatchShader`, which throws when its
@@ -22,8 +22,10 @@ snapshot.
 - Finding 4: `gl_overbright` and `gl_overbright_models` (#269, #272) and
   `r_particles` (#263) are done. Lightmaps are now combined with textures on
   their encoded values, as GLQuake does, so `lightMapIntensity` and the sRGB
-  lightmap described here are gone. `r_litwater`, external textures and the
-  other cvars are open.
+  lightmap described here are gone. `r_litwater` (#303), external world textures
+  and alias skins from paks (#305; sky isn't replaced) and `vid_vsync` (#298,
+  default 1; checked at 120 Hz only) are done. The other cvars it lists are
+  open.
 - Finding 5: pad buttons, shoulders and triggers are bindable keys, and
   `joy_enable` exists (#263). The Keys menu can't capture them, because the pad
   sends keyboard keys in menus. No real controller was tried.
@@ -35,6 +37,9 @@ snapshot.
 - Finding 1: `host_maxfps` defaults to 250, and a local server's entities and
   view lerp between ticks (#279). Measured in a browser at 120 Hz only; a saved
   72 still wins.
+- Finding 11: `.flac`, `.opus`, `.wav` and tracker music play (#300, #301;
+  nobody listened in the browser check). The latency and gain-ramp points
+  weren't rechecked.
 - Finding 9: `?game=` takes any safe directory name (#277). Whether the rest of
   the finding still holds wasn't rechecked.
 - The others weren't rechecked.

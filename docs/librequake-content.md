@@ -160,6 +160,11 @@ off. Stored music plays from `blob:` URLs, which `media-src` allows. Checked
 under `wrangler dev` (the `client-worker` preview): zip.js loaded, and the
 download's 404 was reported on the page with no policy violation.
 
+Later, #301 added `'wasm-unsafe-eval'` to `script-src`, for the tracker music
+player (#300), not for the download. It wasn't checked on the deployed site,
+which needs a client rebuild and redeploy to get it, and the player wasn't tried
+under the built `_headers`.
+
 ## Not covered
 
 - LibreQuake's configs: `set`, `seta` and its key names are accepted (PR #263);

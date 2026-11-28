@@ -40,8 +40,9 @@ AGENTS.md, Git workflow).
   were: the project went with browser-hosted rooms instead. A snapshot.
 - `browser-hosted-rooms.md`: design for rooms hosted in a player's browser tab
   and joined over WebRTC, with a Durable Object lobby for signalling. Built
-  through PR 5 (the menus), with reconnect to a browser-hosted room since; its
-  status line says what has been checked in a browser.
+  through PR 5 (the menus), with reconnect to a browser-hosted room since, and a
+  hidden host tab that keeps its room running (measured in desktop Chrome; no
+  phone tried); its status line says what has been checked in a browser.
 - `mobile-roadmap.md`: mobile-friendliness review (controls, rendering, offline,
   lifecycle, networking, competitive landscape) with confirmed bugs and a ranked
   roadmap; its status section lists the items built since (all three tiers but
@@ -69,7 +70,8 @@ AGENTS.md, Git workflow).
   that break the rule, the cut that keeps the renderer out of the dedicated
   server, duplicated state, TypeScript and bundling, and PR-sized steps.
   Measured on `dev` at 694b2cc; a snapshot. Since then the `gl_model.js` split
-  it raises (open question 10) has been done (PR #280); the layers aren't built.
+  it raises (open question 10) has been done (PR #280), and so has step 1, the
+  layer checker and its ratchet (PR #295); the layers aren't built.
 - `protocol-design.md`: design for a versioned Icaro network protocol: the hello
   with a revision, a game profile and capability words, a reserved svc range for
   Icaro's own messages, room for games that aren't Quake (Hexen II as the worked

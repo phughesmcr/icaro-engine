@@ -6,8 +6,8 @@ relying on them.
 
 ## Status
 
-Checked at `dev` `694b2cc` (2026-11-26); the notes on later PRs are from `dev`
-`3603119` (2026-11-27). Tiers 1 and 2 are built, as are the fixes for what the
+Checked at `dev` `694b2cc` (2026-11-26); the notes on later PRs run to `dev`
+`eac77a1` (2026-11-28). Tiers 1 and 2 are built, as are the fixes for what the
 phone test found. Tier 3 is built except item 23 (store wrappers). The rest of
 this doc is the older snapshot.
 
@@ -99,7 +99,7 @@ What tier 2 leaves out:
   (`rtc:<code>`) reconnect too since #239, which checked them in two tabs on one
   machine; a real network change, an iOS freeze and TURN were not checked.
 
-Later changes (`dev` `3603119`), none checked on a phone:
+Later changes (up to `dev` `eac77a1`), none checked on a phone:
 
 - A first run needs the LibreQuake download: about 116 MB, or 56 MB for lite
   (see [`librequake-content.md`](librequake-content.md)).
@@ -118,6 +118,14 @@ Later changes (`dev` `3603119`), none checked on a phone:
 - `scr_sbaralpha` defaults to 0.75, so the status bar is drawn over a
   full-height view, and `hudstyle` selects Ironwail's modern HUD (#290). A saved
   value, or one the content's configs set, wins.
+- Hosting a room takes the same screen wake lock as touch play
+  (`src/wake_lock.js`), and a Worker's ticks keep the room running while the
+  host's tab is hidden (#304). That was measured in desktop Chrome only. A phone
+  is expected to freeze the hidden page and its Workers; joiners then see
+  "Waiting for the host…".
+- FLAC, Opus, WAV and tracker music play (#300), tried in no mobile browser. The
+  player's stored tracks and the service worker's offline music (#232) still
+  take only `.ogg` and `.mp3`.
 - The "C-faithful defaults" below predate #245: compatibility now has a
   reference for each layer of the engine (AGENTS.md, Compatibility and
   fidelity).

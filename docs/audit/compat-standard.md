@@ -20,7 +20,7 @@ not inspected (#235 and #238 were not in the list I was given and `gh` shows
 
 ## Status
 
-Checked at `dev` `3603119` (2026-11-27). The rest of this file is the older
+Checked at `dev` `eac77a1` (2026-11-28). The rest of this file is the older
 snapshot.
 
 - Finding 3: Ironwail's builtin set and its `checkextension` answer are ported
@@ -28,8 +28,10 @@ snapshot.
   isn't. No mod was run. This changes the matrix's `checkextension` row to
   Ironwail's one name and the `str2chr` row to yes.
 - Finding 6: fence textures are alpha-tested (#253), tried in a browser on
-  rerelease maps but no Quoth or AD map. Lit water is open. MF_HOLEY skins and
-  sprites don't get the edge fix.
+  rerelease maps but no Quoth or AD map. MF_HOLEY skins and sprites don't get
+  the edge fix. Lit water is ported (`r_litwater`, #303), checked in a browser
+  on one LibreQuake lite map only. This changes the matrix's lit water row to
+  yes.
 - Finding 4: `headless_host` mounts game directories (#252). `?game=` takes any
   safe directory name and `-quoth` exists (#277). The headless host mounts
   several `-game` directories; a URL names one and the servers take one.
@@ -39,8 +41,23 @@ snapshot.
   `demo2.dem` (since #262) and `demo3.dem` (protocol 999, since #278) play.
   `set`, `seta`, the key names and more cvars are accepted (#263, #289, #290);
   `if` isn't. Loose cfgs can be `exec`ed (#281). Fence textures are done.
-- Finding 1: the client reads 666 and 999 (#274, #278). No 666 demo was run, and
-  entity scale is read and dropped.
+- Finding 1: the client reads 666 and 999 (#274, #278). No 666 demo was run.
+- Finding 5: entity scale is ported (#299) for QuakeC, 666, 999 and Icaro's
+  wire, on alias models and sprites; brush models aren't scaled, and no 666 or
+  999 demo with scale was run. `colormod` isn't ported, and Icaro's wire doesn't
+  send lerp-finish. The matrix's entity scale row is now yes, except brush
+  models.
+- Finding 7: 2PSB loads, and `.lit` colour can come from BSPX's `RGBLIGHTING`
+  (#293). Other BSPX lumps are ignored, and Q64 BSP, MD3 and IQM aren't loaded.
+  Tested with synthetic maps, with no real map in a browser. This changes the
+  matrix's 2PSB row to yes and its BSPX row to `RGBLIGHTING` only (Q64 no).
+- Finding 9: FLAC, Opus, WAV and tracker music play (#300, #301); nobody
+  listened in the browser check, stored and offline tracks are still `.ogg` and
+  `.mp3` only, music inside paks isn't played, and the tracker player wasn't
+  tried under the client build's CSP. External world textures and alias skins
+  load from paks only (#305); no real texture pack was tried, and `gl_load24bit`
+  isn't ported. This changes the matrix's flac/opus/tracker row to yes and its
+  external textures row to paks only. Sound effects weren't rechecked.
 - Finding 2: Icaro's svcs moved to 96 to 99 behind a versioned hello (#288), and
   each protocol has its own handler table (#274). The 666 and 999 readers handle
   37 and 40 to 44. The 15 reader and Icaro's revision 1 reader don't; revision

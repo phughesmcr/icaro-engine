@@ -14,10 +14,21 @@ tried between two real browsers). At `dev` `3603119`: the transport hello is
 version 2 since Icaro's protocol revision 1 (#288), so the host and joiners need
 matching builds, and `host_maxfps` defaults to 250 (#279), so a host runs
 renderer/network isolation unless a saved value from 1 to 72 turns it off.
-Neither was checked between two browsers. The goal is free multiplayer that
-doesn't depend on the maintainer's Mac or a paid server, on desktop and mobile.
-One player's browser tab hosts the room, the way a NetQuake listen server does,
-and the other players join it directly over WebRTC.
+Neither was checked between two browsers. At `dev` `eac77a1` (2026-11-28): a
+room keeps running while its host's tab is hidden (#304; measured in desktop
+Chrome only, see "Hidden host"); guests can't `kick` or `pause`, their cheats
+need the host's `sv_guestcheats 1`, and their chat and name changes are limited
+(#294; not tried in a live room); TURN credentials last 3 hours, and a live host
+gets fresh ones for new connections (#302; tested with fakes); the Cloudflare
+lobby refuses an upgrade with no `Origin`, and the client checks a join link's
+`?server=` and the world model's path the host sends (#297); and a host no
+longer reads a null `usercmd` as a guest joins (#307; it froze a room once in a
+live two-player test, and wasn't reproduced or rerun in a browser). The lobby
+changes in #297 and #302 need a redeploy (for #302, the client first or with
+it), and weren't checked on the deployed lobby. The goal is free multiplayer
+that doesn't depend on the maintainer's Mac or a paid server, on desktop and
+mobile. One player's browser tab hosts the room, the way a NetQuake listen
+server does, and the other players join it directly over WebRTC.
 
 Tags, as in [always-on-hosting.md](always-on-hosting.md):
 
@@ -31,11 +42,12 @@ Tags, as in [always-on-hosting.md](always-on-hosting.md):
 
 ## What it gives, in short
 
-- **Who can host:** desktop browsers, and only while the host's tab stays in the
-  foreground (see "Where the host's server runs"). Phones can host only while
-  the browser is in front and the screen is on. iOS suspends a backgrounded tab,
-  and WebRTC and Web Audio stop when the screen locks (from forum reports, so
-  treat it as [unverified]). Nothing in this design changes that.
+- **Who can host:** desktop browsers. Since #304 a hidden host tab keeps its
+  room running in desktop Chrome; other browsers weren't tried (see "Where the
+  host's server runs"). Phones can host only while the browser is in front and
+  the screen is on. iOS suspends a backgrounded tab, and WebRTC and Web Audio
+  stop when the screen locks (from forum reports, so treat it as [unverified]).
+  Nothing in this design changes that.
 - **Who can join:** any browser with WebRTC data channels, desktop or mobile
   [unverified: confirm unreliable channels on iOS Safari in the spike].
 - **What it costs:**
@@ -101,8 +113,8 @@ joiners' data channels are transferred to the Worker.
   [Firefox](https://bugzilla.mozilla.org/show_bug.cgi?id=1209163),
   [WebKit](https://bugs.webkit.org/show_bug.cgi?id=222965)). The spike
   transferred both kinds of channel in Chromium 156 [measured].
-- Whether Worker timers keep a 20 Hz cadence in a hidden tab is [unverified];
-  the spike measures it.
+- A Worker's ticks, posted to the page, kept 20 Hz in a hidden tab in desktop
+  Chrome [measured; see "Hidden host"]. Other browsers are [unverified].
 - The engine imports `three` as a bare specifier, which `index.html`'s import
   map resolves. A module Worker in Chromium 156 doesn't honour the page's import
   map [measured]. So B needs a bundle (for example `deno bundle`, mapping
@@ -263,9 +275,11 @@ behind a `typeof RTCPeerConnection` guard [code: `src/net_main.js` `NET_Init`].
   `{ "rtc": true }`, since older clients would look for a port. A joiner may
   signal only the room it joined, a host only that room's joiners, and failed
   joins of browser-room codes are rate limited per IP. ICE servers (and TURN
-  credentials) go only to a client that has just hosted or joined. The
-  Cloudflare lobby also refuses other sites' pages and caps connections and TURN
-  credentials per IP (`cloudflare/lobby/README.md`, "Abuse limits").
+  credentials) go to a client that has just hosted or joined, and again to a
+  live host with a heartbeat once a quarter of their lifetime has passed (#302).
+  The Cloudflare lobby also refuses other sites' pages and upgrades with no
+  `Origin` (#297), and caps connections and TURN credentials per IP
+  (`cloudflare/lobby/README.md`, "Abuse limits").
 
   Lobby sockets become long-lived for hosts and for joiners until they connect.
   List and create requests still open one socket each [code:
