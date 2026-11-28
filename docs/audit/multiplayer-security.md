@@ -9,7 +9,7 @@ Run: `tools/bench/net_bench.js -clients 4` and
 
 ## Status
 
-Checked at `dev` `3603119` (2026-11-27). The rest of this file is the older
+Checked at `dev` `eac77a1` (2026-11-28). The rest of this file is the older
 snapshot.
 
 - S1 is fixed (#258): a remote host's `stuffcmd` runs only the commands in
@@ -18,8 +18,31 @@ snapshot.
   Only the player's own local server is trusted, and demos aren't. Not tried in
   a live room. The threat model's "Malicious host" row is now gated by this.
 - Netcode, reconnect: browser-hosted rooms are retried too (#239).
-- S2: `touch.js` takes a screen wake lock while touch play is on (it did at the
-  audit's revision too). Nothing handles a hidden host tab.
+- S2: partly done (#304). Hosting takes the screen wake lock that touch play
+  takes (`src/wake_lock.js`), a Worker's ticks run a hidden host tab's room
+  (outside WebXR), and joiners are told. Measured in desktop Chrome on macOS; no
+  phone was tried, and one is expected to freeze the page and its Workers. #307
+  separately fixed a null `usercmd` that froze a host once as a guest joined.
+- S4: done (#294). Guests can't `kick` or `pause`, cheats need
+  `sv_guestcheats 1` (never in deathmatch), and chat and name changes are
+  limited as in QuakeWorld, not by the token bucket suggested below. `color`
+  isn't rate limited, and `status` still shows a guest every player's address.
+  Not tried in a live room.
+- S5: partly done (#302, #297). TURN credentials last 3 hours, not the 1 or less
+  recommended, and a live host gets fresh ones for new connections. In-band ICE
+  restart and the other recommendations aren't done. An allowlisting lobby
+  refuses an upgrade with no `Origin`, which can still be forged. Real expiry
+  wasn't tried.
+- S7: partly done (#297). `?server=` is limited to public DNS names and local or
+  private hosts (`ws://` only to the latter), and the world model's path is
+  checked before it's fetched. There is no confirm for a non-default `?server=`,
+  and sky and MD5 mesh fetches aren't checked this way.
+- S8: the client build's CSP gained `'wasm-unsafe-eval'` in `script-src`, for
+  tracker music (#301).
+- In the threat model, #294 narrows the "Joiner (guest)" row, and #297 changes
+  the Origin check that the "Anonymous web client" row relies on.
+- #297, #301 and #302 need the Workers redeployed (for #302, the client first or
+  with the lobby) and weren't checked on a deployed site.
 - S8 and S9: the service worker caches no pak, and the client build denies every
   pak, so the shareware SHA-256 pin is gone (#270). The CSP nonce merged (#238).
 - The URL config design is built in `src/url_config.js` (#276), without `?bind.`

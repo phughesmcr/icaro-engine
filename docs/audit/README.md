@@ -19,21 +19,28 @@ reading code only) or **browser** (needs a browser or device to confirm).
 
 ## Status
 
-Checked at `dev` `3603119` (2026-11-27). The rest of this file is the older
+Checked at `dev` `eac77a1` (2026-11-28). The rest of this file is the older
 snapshot.
 
 The body is the snapshot, with a **Done** note after each item that has merged
 since. An item without one is open or wasn't rechecked. Each PR's limits are in
 its body. This status was checked by reading the code; browser results are those
-of the PRs and of `../browser-check-2026-11-27.md`, and weren't rerun.
+of the PRs, of `../browser-check-2026-11-27.md` and of
+`../browser-check-content-2026-11-27.md`, and weren't rerun. The last one ran at
+`3603119`, so it checked nothing from #293–#305 or #307. #307, a fix outside the
+roadmap, zeroes each client's `usercmd`: a browser-hosted room froze once, in a
+live two-player test, when the host threw on a null one as the guest joined. It
+wasn't reproduced or rerun in a browser, and `main.js` still has no `try` around
+`Host_Frame`, so any throw there ends the host's loop.
 
 Decisions so far: 2 (`stuffcmd` trust), 3 (LibreQuake on first run) and 5
 (`THIRD_PARTY.md`) are done. Decision 1 is designed in `../protocol-design.md`
 (#256) and partly built: migration steps 1 to 3 (dispatch tables, the 666 and
 999 demo readers, and the versioned hello with Icaro's svcs moved to 96 to 99;
 #274, #278, #288). Steps 4 to 6, game profiles among them, aren't. Decision 6 is
-planned in `../architecture-plan.md` (#260). `gl_model.js` has been split
-(#280), but the three layers aren't built.
+planned in `../architecture-plan.md` (#260). `gl_model.js` has been split (#280)
+and the plan's step 1, a layer checker with a ratchet, is done (#295), but the
+three layers aren't built.
 
 ## What was covered, and what wasn't
 
@@ -154,10 +161,17 @@ days, L a week or more.
 ### 0. Verification first
 
 - A browser smoke pass on each content set: load, render, a minute of play, save
-  and load, a demo. **browser** **Partly done (#283):**
-  `../browser-check-2026-11-27.md` covers LibreQuake, with some checks on retail
-  id1 and Arcane Dimensions. It didn't cover saving and loading, and ran no
-  mission pack or rerelease data.
+  and load, a demo. **browser** **Mostly done (#283, #306):**
+  `../browser-check-2026-11-27.md` covers LibreQuake, its download and stored
+  install included, with some checks on retail id1 and Arcane Dimensions.
+  `../browser-check-content-2026-11-27.md` ran retail id1, hipnotic, rogue,
+  Quoth, the rerelease's id1, mg1 and LibreQuake: a minute of agent play with
+  `god` on, save and load, any bundled demos (mg1 ships none) and a map sweep.
+  All passed; one Quoth map file with no player start stops with a `Host_Error`
+  from Quoth's QuakeC. It used the desktop app's browser pane with a harness. It
+  didn't check protocol 666, the rerelease's other game directories,
+  multiplayer, real input, audio or another browser, and compared nothing with
+  Ironwail. Its engine follow-ups are open.
 - Let `headless_host` mount game directories before `Host_Init`
   (`opts.game_dirs`), so mission packs and mods can be scripted and tested
   through MCP. Today it mounts one pak. S, **run**. Overlaps #237, #243, #244,
@@ -191,12 +205,13 @@ days, L a week or more.
   and `-quoth` exists. The headless host mounts every `-game`, as does the
   browser's command line, though a URL names one `?game=`. The servers still
   take one. There is no `lq1` directory. A directory needs a `pak0.pak`. No
-  Quoth or mod data was run in #277; the browser check ran Arcane Dimensions.
+  Quoth or mod data was run in #277; the browser check ran Arcane Dimensions,
+  and #306 later loaded 11 of Quoth's 12 maps in a browser.
 - **Protocol dispatch and the 666 and 999 demo readers**, after decision 1. M,
   **read**. **Done (#274, #278):** `src/cl_parse.js` has a reader per protocol.
   LibreQuake's `demo3` (999) parses in a test. No 666 demo was available, so
   666, like svcs 37 and 40 to 44, is covered by hand-built messages only. Entity
-  scale is read and dropped.
+  scale, dropped then, is applied since #299.
 - **QuakeC extensions.** `checkextension` returns 0 (`src/pr_cmds.js:1404`);
   Ironwail's `str2chr`, `chr2str`, `strconv`, `checkcommand`, `vectorvectors`,
   `clientcommand`, trig and `tokenize_console` are missing. M, **read**. **Done
@@ -215,9 +230,34 @@ days, L a week or more.
   until the player changes it.
 - Each M: entity `scale` and lerp-finish, lit water, `gl_overbright`, 2PSB and
   BSPX, FLAC, Opus and tracker music, external texture replacement,
-  `r_particles`, `vid_vsync`. **read** **Done:** `gl_overbright` and
-  `gl_overbright_models` (#269, #272) and `r_particles` (#263). Lerp-finish is
-  read from 666 and 999 demos (#278); Icaro's server doesn't send it.
+  `r_particles`, `vid_vsync`. **read** **Mostly done,** with the limits below.
+  Lerp-finish is read from 666 and 999 demos (#278), but Icaro's server doesn't
+  send it.
+  - **Done (#269, #272, #263):** `gl_overbright`, `gl_overbright_models` and
+    `r_particles`.
+  - **Done (#299):** entity `scale`, from QuakeC, from 666 and 999 messages and
+    on Icaro's wire, for alias models and sprites. Brush models aren't scaled. A
+    browser check used patched LibreQuake progs; no 666 or 999 demo with scale,
+    and no multiplayer over a real network, was tried.
+  - **Done (#303):** lit water (`r_litwater`, default 1). Checked in a browser
+    on one LibreQuake lite map; not on retail maps, with a light changing on a
+    liquid, or with `gl_texsort 0`.
+  - **Done (#293):** 2PSB, and BSPX's `RGBLIGHTING` lump only; other BSPX lumps
+    are ignored. Tested with synthetic maps; no real 2PSB or BSPX map was loaded
+    in a browser.
+  - **Done (#300, #301):** FLAC, Opus, WAV and tracker music, and the client
+    build's CSP allows the WebAssembly the tracker player needs. A browser check
+    used generated files and nobody listened; Safari, Firefox, mobile and the
+    player under the built CSP weren't tried. The CSP change needs a client
+    rebuild and redeploy. Stored and offline tracks are still only `.ogg` and
+    `.mp3`, and music inside paks isn't played.
+  - **Done (#305):** external world textures and alias skins, from paks only (no
+    loose files); sky isn't replaced. The browser check used virtual files, not
+    a real texture pack, and alias skins' load-time hook was checked only in a
+    Deno test.
+  - **Done (#298):** `vid_vsync`, default 1 (QuakeSpasm and Ironwail default to
+    0). 0 helps benchmarking more than play. Checked at 120 Hz only; not in
+    Safari, Firefox or WebXR.
 - Small items: `ctfscores` unknown on ctf maps; `ctf4` exits to a missing
   `idctf1`; dopa can't start four id1 boss maps without mg1's rune model; an
   `ogre_rocket.md5anim` bone warning; headless `stop` throws. S each, **run**.
@@ -229,12 +269,41 @@ days, L a week or more.
   tried in a live room.
 - Guests have too much power: `kick` outside deathmatch (whether a guest can
   kick the host was **not run**), `pause`, coop cheats gated only by
-  `deathmatch`, and no rate limit on chat or name changes. M, **read**.
+  `deathmatch`, and no rate limit on chat or name changes. M, **read**. **Done
+  (#294):** a guest is any client that is neither privileged nor loopback, so
+  every network client. Guests can't `kick` or `pause`, or use `god`,
+  `notarget`, `fly`, `noclip` or `give` unless the host sets `sv_guestcheats 1`
+  (never in deathmatch). Chat has QuakeWorld's flood protection and name changes
+  its limit. The PR reports a test in which, at `3603119`, a coop guest could
+  kick the host. Not tried in a live room or a browser. `color` isn't rate
+  limited, and a guest's `status` still prints every player's address (with the
+  port, in lobby rooms).
 - A phone host dies when its tab is hidden; nothing takes a wake lock. Add one,
   warn the host, and pair it with #239's reconnect. M, **read**, **browser**.
+  **Partly done (#304):** while a room's host tab is hidden (outside WebXR), a
+  Worker's ticks run the host at 20 Hz, with a page timer at about 1 Hz as the
+  fallback. Hosting takes a wake lock, the host is warned, joiners are told when
+  the host is hidden and back, and a joiner who hears nothing for 3 s sees
+  "Waiting for the host…". Measured in desktop Chrome on macOS only. No phone
+  was tried: one is expected to freeze the page and its Workers, so a phone host
+  may still stop.
 - TURN credentials last 6 hours, and non-browser clients skip the Origin check.
-  S, **read**.
+  S, **read**. **Partly done (#297, #302):** they last 3 hours (finding S5 in
+  `multiplayer-security.md` asked for 1 or less), and a live host gets fresh
+  ones for new connections; an open relayed connection drops when its
+  credentials expire. S5's other recommendations aren't done. A lobby with an
+  Origin allowlist (the Cloudflare one) now refuses an upgrade with no `Origin`,
+  which a non-browser client can still forge. These need a lobby redeploy, with
+  the client deployed first or at the same time, and weren't checked on a
+  deployed lobby. Real credential expiry wasn't tried.
 - Join links trust `?server=` and the map name the host sends. S, **read**.
+  **Partly done (#297):** `?server=` must name a public DNS host, or a local or
+  private one (plain `ws://` reaches only those), and the client checks the
+  world model's path the server names (`Bad map name`). There is still no
+  confirm for a non-default `?server=`, so a hostile lobby on a real domain is
+  accepted, and other files a host can name, such as skyboxes and MD5 meshes,
+  aren't checked this way. Not tried on a deployed site, or with a bad map name
+  in a live room.
 - URL config: a new `src/url_config.js` with a typed allowlist (`?cfg.<cvar>=…`,
   `?bind.<key>=+action`), applied with `Cvar_Set` and never saved.
   `multiplayer-security.md` has the classification. M. **Done (#276)**, without
@@ -264,9 +333,10 @@ days, L a week or more.
   #247 and #248 merged, and #263 gave the pad's buttons and triggers bindable
   key names. The Keys menu still can't capture them, because the pad sends
   keyboard keys in menus; bind them from the console or a config. No real
-  controller was tried. `touch.js` takes a screen wake lock while touch play is
-  on, which it already did at the audit's revision; nothing handles a hidden
-  host tab. The default touch buttons now stay clear of the status bar and the
+  controller was tried. Touch play takes a screen wake lock, as it did at the
+  audit's revision; since #304 hosting shares it (`src/wake_lock.js`), and a
+  hidden host tab keeps running in desktop Chrome (section 2; no phone was
+  tried). The default touch buttons now stay clear of the status bar and the
   modern HUD (#287, #291); no real device was tried.
 
 ### 6. Three.js
@@ -281,8 +351,12 @@ days, L a week or more.
   the 683-line `server/browser_shim.js`. Split `gl_model.js` first. L, **run**
   (counted). **Split done (#280):** `src/gl_model.js` re-exports the model
   cache, loader and upload modules, and of those only `gl_model_upload.js`
-  imports `three`. The cycle isn't cut, the server still reaches `three`, and
-  the counts here weren't rerun.
+  imports `three`. **Layer checker done (#295):** the plan's step 1
+  (`tools/layer_graph.js`), with a test that fails on a new import against the
+  layers. At `eac77a1`, `deno task layers` counts 132 upward imports, 49 imports
+  of browser-only modules by core or game code, and static import cycles of 61
+  and 4 modules, by its own method rather than the audit's. The cycle isn't cut,
+  and the server still reaches `three`.
 - `glquake.js` exports `const` copies of live `gl_rmain.js` state; make it
   constants only. M, **read**.
 - Deno Desktop exists from Deno 2.9.0 (the repo pins 2.9.8); CEF is opt-in. A

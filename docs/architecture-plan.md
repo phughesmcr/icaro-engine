@@ -15,9 +15,21 @@ parses every module in `src/`, `main.js` and `server/` with `@babel/parser` and
 counts unique (importer, imported, kind) pairs; `import type` is ignored and
 re-exports count. The audit's numbers (`docs/audit/architecture.md`, measured at
 2798ac9 with another method) differ slightly; where they disagree, this doc's
-are the current ones. The script is not in the repository until step 1 lands it;
-until then these numbers are a snapshot, and after it, re-run it before relying
-on one.
+are the current ones. These numbers are a snapshot: re-run the script, now in
+the repository (`deno task layers`), before relying on one.
+
+Status, checked at `dev` `eac77a1` (2026-11-28): step 1 is done (#295); the
+later steps' layer moves aren't built. The `gl_model.js` split was done
+separately (#280). The checker reproduced this doc's 107 and 40 at 694b2cc, as
+#295 reports. At `eac77a1` it reads 128 files and 816 import pairs and counts
+132 upward imports (up from 107) and 49 target ones (browser-only modules
+imported by core or game, up from 40), with static import cycles of 61 and 4
+modules. Its test is stricter than step 1 asks: a baseline edge that has gone
+fails it too, until the baseline is rewritten. It also fails on a file with no
+row, or a row with no file. Cycles are reported, not ratcheted. #295 asks the
+maintainer to confirm some placements: `url_config.js`, `intro.js` and
+`librequake.js` as browser, `server/game_data.js` as app, and the files from
+#280, `gl_softemu.js` and `gl_rdebug.js` as core.
 
 It follows the agreed direction in the audit (`docs/audit/README.md`, decision
 6, "three layers") and the rules in AGENTS.md's "Compatibility and fidelity"
@@ -435,7 +447,8 @@ and the docs-only #257. `docs/protocol-design.md` (#256, merged) will lead to
    tagged) and a test that fails when a new violating edge appears, with today's
    107 layer pairs and 40 browser-module pairs as its baseline, and that reports
    pairs that disappeared so each later step lowers the baseline. Add the script
-   to AGENTS.md's `tools/` list. Conflicts: none open.
+   to AGENTS.md's `tools/` list. Conflicts: none open. **Done (#295):** see the
+   status above.
 2. **Delete dead duplicates.** The unimported copies in `glquake.js` and the
    empty `render.js` stubs. Conflicts: none of the open PRs touch those two
    files; land after #253 in case it adds an importer.
@@ -567,6 +580,7 @@ apart from the open PRs they wait for.
 6. **The checker**: commit `tools/layer_graph.js` with a ratchet test (it uses
    `@babel/parser`, already in `deno.lock`), or use `deno info --json` instead
    (no parser, but `deno task test` would need `--allow-run` for `deno`)?
+   **Settled by #295:** the script is committed and uses `@babel/parser`.
 7. **Moves**: a codemod that rewrites every import (this plan), or leave
    re-export stubs at the old paths for a while to spare open PRs?
 8. **`PLANE_ANYZ`**: make `gl_rmain.js` use the C value 5 from `bspfile.js`? The
@@ -575,4 +589,5 @@ apart from the open PRs they wait for.
 9. **Injected copies** (step 13): collapse them once the cycles allow, or keep
    the pattern as the audit recommends?
 10. **`gl_model.js`** is 3552 lines. Split it into brush, alias and sprite
-    loaders while doing step 5, or leave it whole?
+    loaders while doing step 5, or leave it whole? **Settled by #280:** it was
+    split, ahead of step 5.
