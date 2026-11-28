@@ -74,6 +74,9 @@ export const LAYERS = {
   "src/url_config.js": "browser",
   "src/userdata.js": "browser", // split
   "src/vid.js": "browser", // split
+  // Not in the plan: vid_vsync's frame loop (requestAnimationFrame or a
+  // MessageChannel loop, paused while the page is hidden).
+  "src/vid_vsync.js": "browser",
   // Not in the plan: the Screen Wake Lock shared by touch and hosting.
   "src/wake_lock.js": "browser",
   "src/webxr.js": "browser",

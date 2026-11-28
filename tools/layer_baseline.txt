@@ -2,7 +2,7 @@
 # Written by `deno task layers --update`; don't edit by hand.
 # tests/layer_graph_test.js fails if an edge is added to or gone from
 # this list; each step of docs/architecture-plan.md lowers it.
-# upward 131, target 48
+# upward 132, target 49
 target src/agent.js -> src/in_web.js
 target src/cl_demo.js -> src/userdata.js
 target src/cl_input.js -> src/in_web.js
@@ -34,6 +34,7 @@ target src/host_cmd.js -> src/autosave.js
 target src/host.js -> src/cd_audio.js
 target src/host.js -> src/in_web.js
 target src/host.js -> src/net_rtclobby.js
+target src/host.js -> src/vid_vsync.js
 target src/host.js -> src/vid.js
 target src/host.js -> src/webxr.js
 target src/menu.js -> src/touch.js
@@ -179,6 +180,7 @@ upward src/userdata.js -> src/common.js
 upward src/userdata.js -> src/cvar.js
 upward src/userdata.js -> src/keys.js
 upward src/userdata.js -> src/pak.js
+upward src/vid_vsync.js -> src/cvar.js
 upward src/vid.js -> src/console.js
 upward src/vid.js -> src/cvar.js
 upward src/webxr.js -> src/gl_draw.js
