@@ -11,7 +11,7 @@
 // first reaches each count. R_WarmupStart asks Three.js to compile those
 // programs for every bucket during the load, with no frame drawn:
 //
-//   renderer.compileAsync( scene, view, lights )
+//   renderer.compile( scene, view, lights )
 //
 // compiles the real scene's materials (the world's BatchedMeshes exist once
 // R_NewMap has run) against `lights`, a scene holding only the bucket's
@@ -22,6 +22,14 @@
 // R_SpriteMaterial in gl_rmain.js); none of them is added to the real
 // scene. Three.js keeps every program a material has compiled until the
 // material is disposed, so the warm-up needs no bookkeeping.
+//
+// compile() returns the materials, and R_WarmupWaitReady polls them until
+// their programs are ready. WebGLRenderer.compileAsync isn't used: r183's
+// poll (checkMaterialsReady) reads currentProgram from a timer, and a
+// material loses it when disposed (the next map's R_NewMap) or when a context
+// restore replaces renderer.properties. The TypeError is then uncaught and
+// the promise never settles, so no handler of ours could catch it. Check the
+// poll against compileAsync when the Three.js version changes.
 //
 // Not warmed: alias model materials (the variant depends on the skin, the
 // lighting, r_lerpmodels and the entity alpha), the mirror pass and the
@@ -50,6 +58,7 @@ import { R_GetParticleMaterial } from "./r_part.js";
 import { Con_DPrintf } from "./common.js";
 
 export const R_WARMUP_MAX_WAIT_MS = 1500;
+const R_WARMUP_POLL_MS = 10; // compileAsync's interval
 
 // 0, then 4, 8, 16, 32 and 64 with MAX_DLIGHTS 64: the light counts
 // R_PadDlights can reach. Pure. With gl_flashblend 0 no dlight light is ever
@@ -86,7 +95,8 @@ let _lightsInScene = 0;
 let _generation = 0;
 let _pending = false;
 let _waiting = null; // callback to run when the warm-up ends
-let _timer = null;
+let _timer = null; // the plaque wait cap
+let _pollTimer = null; // the next readiness check; outlives the cap
 
 // the real camera once R_SetupGL has made it, else a stand-in
 export function R_WarmupCamera() {
@@ -239,11 +249,12 @@ export function R_WarmupStart(cl) {
     clearTimeout(_timer);
     _timer = null;
   }
+  R_WarmupStopPoll();
 
   const r = _test !== null ? _test.renderer : renderer;
   const s = _test !== null ? _test.scene : scene;
   if (
-    r === null || typeof r.compileAsync !== "function" ||
+    r === null || typeof r.compile !== "function" ||
     s === null || cl === null || cl.worldmodel === null ||
     isXRActive() === true
   ) return;
@@ -290,8 +301,8 @@ export function R_WarmupStart(cl) {
   _timer = setTimeout(R_WarmupCapped, R_WARMUP_MAX_WAIT_MS, generation);
 
   // One bucket after another: compiling the same materials for the next
-  // bucket replaces their currentProgram, and compileAsync of the earlier
-  // bucket polls that, so overlapping buckets could report ready early.
+  // bucket replaces their currentProgram, which the earlier bucket's poll
+  // reads, so overlapping buckets could report ready early.
   R_WarmupRun(r, s, view, group, fog, fillers, generation).then(() => {
     if (generation !== _generation) return;
     Con_DPrintf(
@@ -318,10 +329,62 @@ async function R_WarmupRun(r, s, view, group, fog, plan, generation) {
     // compile( scene ) also counts the lights already in the scene; the
     // stand-in group has none, so it needs the whole bucket
     R_WarmupLights(fog, plan[i].fillers);
-    const a = r.compileAsync(s, view, _lightScene);
+    const materials = r.compile(s, view, _lightScene);
     R_WarmupLights(fog, plan[i].bucket);
-    const b = r.compileAsync(group, view, _lightScene);
-    await Promise.all([a, b]);
+    for (const material of r.compile(group, view, _lightScene)) {
+      materials.add(material);
+    }
+
+    await R_WarmupWaitReady(r, materials);
+  }
+}
+
+// Removes the materials with nothing left to wait for: the program is ready,
+// or the material no longer has one (disposed, or the context restored). True
+// when none are left. r.properties is read each time: a restore replaces it.
+function R_WarmupMaterialsReady(r, materials) {
+  for (const material of materials) {
+    if (r.properties.has(material) === true) {
+      const program = r.properties.get(material).currentProgram;
+      if (program !== undefined && program.isReady() !== true) continue;
+    }
+
+    materials.delete(material);
+  }
+
+  return materials.size === 0;
+}
+
+// Rejects, rather than throwing from the timer, on any error. A superseded or
+// cancelled warm-up's promise never settles: R_WarmupStopPoll drops its timer.
+function R_WarmupWaitReady(r, materials) {
+  return new Promise((resolve, reject) => {
+    function poll() {
+      _pollTimer = null;
+      try {
+        // a lost context has no programs left to wait for
+        if (r.getContext().isContextLost() === true) {
+          throw new Error("WebGL context lost");
+        }
+
+        if (R_WarmupMaterialsReady(r, materials) === true) {
+          resolve();
+        } else {
+          _pollTimer = setTimeout(poll, R_WARMUP_POLL_MS);
+        }
+      } catch (e) {
+        reject(e);
+      }
+    }
+
+    poll();
+  });
+}
+
+function R_WarmupStopPoll() {
+  if (_pollTimer !== null) {
+    clearTimeout(_pollTimer);
+    _pollTimer = null;
   }
 }
 
@@ -353,6 +416,7 @@ export function R_WarmupCancel() {
     clearTimeout(_timer);
     _timer = null;
   }
+  R_WarmupStopPoll();
 
   // the plaque callback still has to run, or the screen stays disabled
   // until the 60 s "load failed" reset
