@@ -28,6 +28,7 @@ import { camera, scene } from "./src/gl_rmain.js";
 import { renderer } from "./src/vid.js";
 import { Draw_CachePicFromPNG, Draw_GetOverlayCanvas } from "./src/gl_draw.js";
 import { XR_Init } from "./src/webxr.js";
+import { HostHidden_Init } from "./src/host_hidden.js";
 import { UD_Init, UD_MountPaks } from "./src/userdata.js";
 import { Intro_Gate } from "./src/intro.js";
 import { PWA_InitLaunchQueue } from "./src/pwa_launch.js";
@@ -259,16 +260,22 @@ async function main() {
     // This is required for WebXR — Three.js automatically switches to
     // xrSession.requestAnimationFrame when a VR session is active.
     // In non-XR mode, behavior is identical to regular rAF.
-    renderer.setAnimationLoop(function (timestamp) {
+    // While a room's host tab is hidden, src/host_hidden.js runs the same
+    // function from a Worker's ticks, so both share one clock.
+    const frame = function (timestamp) {
       const newtime = timestamp / 1000;
       const time = newtime - oldtime;
+      // A frame's timestamp can be older than the last hidden tick
+      if (time < 0) return;
       oldtime = newtime;
 
       // In lockstep the agent runs the frames (src/agent.js Agent_Step)
       if (Agent_Lockstep()) return;
 
       Host_Frame(time);
-    });
+    };
+    HostHidden_Init(frame);
+    renderer.setAnimationLoop(frame);
   } catch (e) {
     console.error("Icaro Engine Fatal Error:", e);
     Sys_Error(e.message);

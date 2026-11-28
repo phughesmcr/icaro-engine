@@ -15,6 +15,11 @@
 // (its host left), the driver calls CLR_GiveUp, which ends the retries at once
 // with that reason instead of running through the remaining attempts.
 //
+// While connected, it also tells the player when the server goes quiet
+// (CLR_StallCheck): a browser-hosted room stops when its host's tab is hidden
+// or the host's phone locks, and the joiner would otherwise see a frozen game
+// with no word until net_messagetimeout (300 s) ends it.
+//
 // The module touches no browser global at import time: CL_Init calls
 // CLR_Init, which registers the page listeners if the page has them.
 
@@ -42,6 +47,11 @@ export function CLR_IsReconnectable(host) {
   return true;
 }
 
+/** Silence from the server, in ms, before the joiner is told. */
+export const CLR_STALL_MS = 3000;
+/** How often a connected client checks for silence. */
+export const CLR_STALL_POLL_MS = 1000;
+
 // Dependencies, set by CLR_Init (cl_main.js; tests pass fakes):
 //   connect( host )  async; true when the connect succeeded (quiet: shows no menu)
 //   canReconnect()   false in a local game or demo, or when dedicated
@@ -49,6 +59,8 @@ export function CLR_IsReconnectable(host) {
 //   print( str )     console line
 //   notify( str )    on-screen message
 //   giveUp( str )    out of attempts: tell the player and return to the menu
+//   messageAge()     seconds since the server's last message while in a
+//                    game (signon done), else -1; optional
 //   now()            milliseconds
 //   setTimer( fn, ms ) / clearTimer( id )
 let deps = null;
@@ -60,6 +72,9 @@ let timer = null;
 let epoch = 0; // bumped by cancel, so a stale connect result is ignored
 let connectedAt = 0;
 let listeners_installed = false;
+let stall_timer = null;
+let stall_shown = false;
+let stall_visible_since = -1; // when the page was last shown (ms), -1 = hidden
 
 export function CLR_Phase() {
   return phase;
@@ -97,9 +112,78 @@ function _clearTimer() {
   timer = null;
 }
 
+function _stallStop() {
+  if (stall_timer !== null && deps !== null) deps.clearTimer(stall_timer);
+  stall_timer = null;
+  if (stall_shown === true && deps !== null) deps.notify("");
+  stall_shown = false;
+  stall_visible_since = -1;
+}
+
+function _stallSchedule() {
+  stall_timer = deps.setTimer(() => {
+    stall_timer = null;
+    CLR_StallCheck();
+    if (session !== null && phase === "idle") _stallSchedule();
+  }, CLR_STALL_POLL_MS);
+}
+
+// "host" for a browser-hosted room, whose host may have hidden its tab
+function _stallWho() {
+  return session !== null && session.host.slice(0, 4).toLowerCase() === "rtc:" ?
+    "host" :
+    "server";
+}
+
+/**
+ * One silence check while connected (run every CLR_STALL_POLL_MS; exported
+ * for tests). After CLR_STALL_MS with no message from the server, prints a
+ * line and keeps an on-screen notice up, with the seconds waited; a message
+ * clears it. Skipped while this page is hidden, and for CLR_STALL_MS after it
+ * is shown again, since a hidden page reads no messages of its own.
+ */
+export function CLR_StallCheck() {
+  if (
+    deps === null || session === null || phase !== "idle" ||
+    typeof deps.messageAge !== "function"
+  ) return;
+
+  const now = deps.now();
+  if (deps.isHidden() === true) {
+    stall_visible_since = -1;
+    return;
+  }
+  if (stall_visible_since < 0) stall_visible_since = now;
+
+  const age = deps.messageAge();
+  if (
+    age < 0 || age * 1000 < CLR_STALL_MS ||
+    now - stall_visible_since < CLR_STALL_MS
+  ) {
+    if (stall_shown === true) {
+      stall_shown = false;
+      deps.notify("");
+      if (age >= 0) deps.print("The " + _stallWho() + " is back\n");
+    }
+    return;
+  }
+
+  const who = _stallWho();
+  if (stall_shown === false) {
+    stall_shown = true;
+    deps.print(
+      "No word from the " + who + " for " + Math.floor(age) + " s" +
+        (who === "host" ? ": its game may be in the background" : "") +
+        "\n",
+    );
+  }
+  deps.notify("Waiting for the " + who + "... (" + Math.floor(age) + " s)");
+}
+
 /** A connect to host succeeded. */
 export function CLR_Connected(host) {
   _clearTimer();
+  _stallStop();
   phase = "idle";
   if (CLR_IsReconnectable(host) === false) {
     session = null;
@@ -109,6 +193,10 @@ export function CLR_Connected(host) {
 
   session = { host };
   connectedAt = deps !== null ? deps.now() : 0;
+
+  if (deps !== null && typeof deps.messageAge === "function") {
+    _stallSchedule();
+  }
 }
 
 /**
@@ -117,6 +205,7 @@ export function CLR_Connected(host) {
  */
 export function CLR_Cancel() {
   _clearTimer();
+  _stallStop();
   epoch++;
   session = null;
   phase = "idle";
@@ -153,6 +242,7 @@ export function CLR_ConnectionLost() {
     return false;
   }
 
+  _stallStop();
   deps.print("Connection to " + session.host + " lost\n");
   deps.notify("Reconnecting...");
   _schedule(CLR_BackoffMs(attempts));
