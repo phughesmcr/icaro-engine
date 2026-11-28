@@ -189,10 +189,20 @@ export function VID_DynResInit() {
 }
 
 /**
+ * Whether dynamic resolution holds at full scale: during a timedemo, while a
+ * WebXR session presents, or with vid_vsync 0, whose frames come faster than
+ * the display shows them (vid_vsync.js). Sampling those would make it chase
+ * host_maxfps at a cost no one sees, and keep their short intervals as the
+ * refresh interval after vid_vsync goes back to 1.
+ */
+export function DynRes_Held(timedemo, xr, vsync) {
+  return timedemo === true || xr === true || vsync === 0;
+}
+
+/**
  * Once a frame, before the screen is drawn (Host_Frame), so a new buffer size
  * never clears a drawn frame. Does nothing without a renderer (the server and
- * the headless host); hold is true during a timedemo or while a WebXR session
- * presents, and puts the full scale back.
+ * the headless host); hold (DynRes_Held) puts the full scale back.
  */
 export function VID_DynResFrame(maxfps, hold) {
   if (renderer === null) return;

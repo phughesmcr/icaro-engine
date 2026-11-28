@@ -6,6 +6,7 @@ import { COM_GameDirArgs, COM_InitArgv } from "./src/common.js";
 import {
   Host_Frame,
   Host_Init,
+  host_maxfps,
   Host_SetConfigDoneCallback,
 } from "./src/host.js";
 import { Cvar_SetTransient } from "./src/cvar.js";
@@ -26,6 +27,7 @@ import { ca_connected, cl, cls } from "./src/client.js";
 import { sv } from "./src/server.js";
 import { camera, scene } from "./src/gl_rmain.js";
 import { renderer } from "./src/vid.js";
+import { VID_StartFrameLoop, VID_UncappedInterval } from "./src/vid_vsync.js";
 import { Draw_CachePicFromPNG, Draw_GetOverlayCanvas } from "./src/gl_draw.js";
 import { XR_Init } from "./src/webxr.js";
 import { HostHidden_Init } from "./src/host_hidden.js";
@@ -256,26 +258,34 @@ async function main() {
 
     let oldtime = performance.now() / 1000;
 
-    // Use renderer.setAnimationLoop instead of requestAnimationFrame.
-    // This is required for WebXR — Three.js automatically switches to
-    // xrSession.requestAnimationFrame when a VR session is active.
-    // In non-XR mode, behavior is identical to regular rAF.
-    // While a room's host tab is hidden, src/host_hidden.js runs the same
-    // function from a Worker's ticks, so both share one clock.
+    // The one place that runs Host_Frame in the browser. VID_StartFrameLoop
+    // drives it from renderer.setAnimationLoop (requestAnimationFrame, which
+    // Three.js swaps for the XR session's during WebXR) or, with vid_vsync 0,
+    // from an uncapped loop (src/vid_vsync.js). While a room's host tab is
+    // hidden, src/host_hidden.js runs the same function from a Worker's ticks,
+    // so all of them share one clock. timestamp is in ms; returns false when
+    // it ran no frame.
     const frame = function (timestamp) {
       const newtime = timestamp / 1000;
       const time = newtime - oldtime;
-      // A frame's timestamp can be older than the last hidden tick
-      if (time < 0) return;
+      // A frame's timestamp can be older than the last hidden tick, and a
+      // switch between the vsync loops can hand over one a little older than
+      // the last frame. Not false: the uncapped loop carries on.
+      if (time < 0) return true;
       oldtime = newtime;
 
       // In lockstep the agent runs the frames (src/agent.js Agent_Step)
-      if (Agent_Lockstep()) return;
+      if (Agent_Lockstep()) return false;
 
       Host_Frame(time);
+      return true;
     };
     HostHidden_Init(frame);
-    renderer.setAnimationLoop(frame);
+    VID_StartFrameLoop(
+      renderer,
+      frame,
+      () => VID_UncappedInterval(host_maxfps.value, cls.timedemo === true),
+    );
   } catch (e) {
     console.error("Icaro Engine Fatal Error:", e);
     Sys_Error(e.message);
