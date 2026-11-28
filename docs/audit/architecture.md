@@ -10,16 +10,22 @@ under a day, M is days, L is weeks.
 
 ## Status
 
-Checked at `dev` `eac77a1` (2026-11-28). The rest of this file is the older
-snapshot.
+Checked at `dev` `eac77a1` (2026-11-28), with A1 and A2 rechecked at `da4ea21`.
+The rest of this file is the older snapshot.
 
 - A1 is open; `../architecture-plan.md` (#260) plans the layering. The
   `gl_model.js` split A1 asks for first is done (#280), as is the plan's step 1,
   a layer checker with a ratchet (#295), but the server still reaches `three`.
-  At `eac77a1` `deno task layers` counts static import cycles of 61 and 4
+  At `da4ea21` `deno task layers` counts static import cycles of 61 and 4
   modules, 132 upward imports and 49 imports of browser-only modules by core or
   game code. Its method isn't this audit's, so don't compare the cycle sizes
   with A1's.
+- A2: partly done (#312, the plan's step 2). The unused copies in `glquake.js`,
+  the `r_worldentity`, `currententity`, `gldepthmin` and `currenttexture` named
+  below among them, are deleted, as are the empty stubs in `render.js`.
+  `glquake.js` isn't constants only: it still holds some mutable state and GL
+  helpers, `VERTEXSIZE` and `MAXLIGHTMAPS` are still defined in both files, and
+  the duplicate-export test wasn't added.
 - B3 and B4: no pak is tracked or deployed, so the client build's SHA-256 pin
   and the service worker's cache-first `pak0.pak` are gone (#270). The community
   maps were removed (#259). The client build also denies `static/librequake/`.

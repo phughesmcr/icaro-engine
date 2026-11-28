@@ -19,7 +19,7 @@ reading code only) or **browser** (needs a browser or device to confirm).
 
 ## Status
 
-Checked at `dev` `eac77a1` (2026-11-28). The rest of this file is the older
+Checked at `dev` `da4ea21` (2026-11-28). The rest of this file is the older
 snapshot.
 
 The body is the snapshot, with a **Done** note after each item that has merged
@@ -27,20 +27,20 @@ since. An item without one is open or wasn't rechecked. Each PR's limits are in
 its body. This status was checked by reading the code; browser results are those
 of the PRs, of `../browser-check-2026-11-27.md` and of
 `../browser-check-content-2026-11-27.md`, and weren't rerun. The last one ran at
-`3603119`, so it checked nothing from #293–#305 or #307. #307, a fix outside the
-roadmap, zeroes each client's `usercmd`: a browser-hosted room froze once, in a
-live two-player test, when the host threw on a null one as the guest joined. It
-wasn't reproduced or rerun in a browser, and `main.js` still has no `try` around
-`Host_Frame`, so any throw there ends the host's loop.
+`3603119`, so it checked nothing from #293–#305, #307 or #309–#312. #307, a fix
+outside the roadmap, zeroes each client's `usercmd`: a browser-hosted room froze
+once, in a live two-player test, when the host threw on a null one as the guest
+joined. It wasn't reproduced or rerun in a browser, and `main.js` still has no
+`try` around `Host_Frame`, so any throw there ends the host's loop.
 
 Decisions so far: 2 (`stuffcmd` trust), 3 (LibreQuake on first run) and 5
 (`THIRD_PARTY.md`) are done. Decision 1 is designed in `../protocol-design.md`
 (#256) and partly built: migration steps 1 to 3 (dispatch tables, the 666 and
 999 demo readers, and the versioned hello with Icaro's svcs moved to 96 to 99;
 #274, #278, #288). Steps 4 to 6, game profiles among them, aren't. Decision 6 is
-planned in `../architecture-plan.md` (#260). `gl_model.js` has been split (#280)
-and the plan's step 1, a layer checker with a ratchet, is done (#295), but the
-three layers aren't built.
+planned in `../architecture-plan.md` (#260). `gl_model.js` has been split
+(#280), and the plan's steps 1, a layer checker with a ratchet (#295), and 2,
+deleting unused duplicates (#312), are done, but the three layers aren't built.
 
 ## What was covered, and what wasn't
 
@@ -171,7 +171,12 @@ days, L a week or more.
   from Quoth's QuakeC. It used the desktop app's browser pane with a harness. It
   didn't check protocol 666, the rerelease's other game directories,
   multiplayer, real input, audio or another browser, and compared nothing with
-  Ironwail. Its engine follow-ups are open.
+  Ironwail. Of its candidate follow-ups, #310 fixed five small ones (1 to 4 and
+  7; no browser check) and #309 the shader warm-up's `isReady` error (6; shown
+  in the app's pane with an injected disposal). #311 addresses the blank 2D
+  canvases (5) by redrawing them on `contextrestored`, but only a simulated loss
+  was tested: a real one was never reproduced in Chrome. Agent pathing (8) is
+  open. The report wasn't rerun.
 - Let `headless_host` mount game directories before `Host_Init`
   (`opts.game_dirs`), so mission packs and mods can be scripted and tested
   through MCP. Today it mounts one pak. S, **run**. Overlaps #237, #243, #244,
@@ -353,12 +358,16 @@ days, L a week or more.
   cache, loader and upload modules, and of those only `gl_model_upload.js`
   imports `three`. **Layer checker done (#295):** the plan's step 1
   (`tools/layer_graph.js`), with a test that fails on a new import against the
-  layers. At `eac77a1`, `deno task layers` counts 132 upward imports, 49 imports
+  layers. At `da4ea21`, `deno task layers` counts 132 upward imports, 49 imports
   of browser-only modules by core or game code, and static import cycles of 61
   and 4 modules, by its own method rather than the audit's. The cycle isn't cut,
   and the server still reaches `three`.
 - `glquake.js` exports `const` copies of live `gl_rmain.js` state; make it
-  constants only. M, **read**.
+  constants only. M, **read**. **Partly done (#312):** the unused copies, and
+  the empty stubs in `render.js`, are deleted. `glquake.js` still isn't
+  constants only: it holds some render state, the cvar objects, the texture
+  registry and GL helpers, and `VERTEXSIZE` and `MAXLIGHTMAPS` are still defined
+  in both it and `gl_rmain.js`. No gameplay was checked in a browser.
 - Deno Desktop exists from Deno 2.9.0 (the repo pins 2.9.8); CEF is opt-in. A
   one-day spike: how command-line flags reach the app, and whether WebTransport
   works. **read** (docs).

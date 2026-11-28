@@ -18,7 +18,8 @@ AGENTS.md, Git workflow).
 - `browser-check-content-2026-11-27.md`: a browser check of `dev` at `3603119`
   across content sets (id1, hipnotic, rogue, quoth, the rerelease and its add-on
   mg1, LibreQuake): play, save and load, bundled demos, a map sweep with a
-  console audit, and the HUD styles. A snapshot.
+  console audit, and the HUD styles. A snapshot; its status line says which of
+  its follow-ups have been fixed or addressed since.
 - `port-review.md`: a fidelity review of the port against the C source. A
   snapshot.
 - `port-inventory.md`: every C function, cvar and command in the GLQuake build's
@@ -70,8 +71,9 @@ AGENTS.md, Git workflow).
   that break the rule, the cut that keeps the renderer out of the dedicated
   server, duplicated state, TypeScript and bundling, and PR-sized steps.
   Measured on `dev` at 694b2cc; a snapshot. Since then the `gl_model.js` split
-  it raises (open question 10) has been done (PR #280), and so has step 1, the
-  layer checker and its ratchet (PR #295); the layers aren't built.
+  it raises (open question 10) has been done (PR #280), and so have step 1, the
+  layer checker and its ratchet (PR #295), and step 2, deleting unused
+  duplicates (PR #312); the layers aren't built.
 - `protocol-design.md`: design for a versioned Icaro network protocol: the hello
   with a revision, a game profile and capability words, a reserved svc range for
   Icaro's own messages, room for games that aren't Quake (Hexen II as the worked
