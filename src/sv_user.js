@@ -470,7 +470,7 @@ export function SV_ClientThink() {
 
   // angles
   // show 1/3 the pitch angle and all the roll angle
-  cmd = host_client.cmd;
+  cmd = SV_EnsureClientCmd(host_client);
   angles = sv_player.v.angles;
 
   VectorAdd(sv_player.v.v_angle, sv_player.v.punchangle, v_angle);
