@@ -6,6 +6,7 @@ import { Sbar_Changed } from "./sbar.js";
 import { W_GetLumpName } from "./wad.js";
 import { d_8to24table as vid_d_8to24table, VID_GetPixelRatio } from "./vid.js";
 import { COM_FindFile } from "./pak.js";
+import { Canvas2D_DrawRestorable } from "./canvas2d.js";
 import { Cmd_AddCommand, Cmd_Argc, Cmd_Argv } from "./cmd.js";
 import { GLQUAKE_VERSION, VERSION } from "./quakedef.js";
 import {
@@ -392,7 +393,7 @@ function _loadCharset() {
     pixels[i * 4 + 3] = palIdx === 255 ? 0 : 255;
   }
 
-  ctx.putImageData(imageData, 0, 0);
+  _putPixels(cs, imageData);
   char_canvas = cs;
   draw_chars = data;
 }
@@ -786,6 +787,20 @@ let _tile_pattern_ctx = null;
 let _tile_pattern_canvas = null;
 
 /**
+ * Puts imageData on a canvas that is drawn once, and again after a lost
+ * context. imageData is kept for that: the lumps it was made from may not be
+ * there later, and VID_ShiftPalette rewrites the palette in place.
+ */
+function _putPixels(canvas, imageData) {
+  Canvas2D_DrawRestorable(canvas, function (ctx) {
+    ctx.putImageData(imageData, 0, 0);
+    // a pattern copies its source, so one made while a canvas was blank
+    // would stay blank
+    _tile_pattern = null;
+  });
+}
+
+/**
  * This repeats a 64*64 tile graphic to fill the screen around a sized down
  * refresh window.
  */
@@ -923,7 +938,7 @@ function _qpicToCanvas(width, height, data, alpha) {
     pixels[i * 4 + 3] = alpha && palIdx === 255 ? 0 : 255;
   }
 
-  ctx.putImageData(imageData, 0, 0);
+  _putPixels(cs, imageData);
   return cs;
 }
 
@@ -939,8 +954,9 @@ export function Draw_CachePicFromPNG(path, url) {
       const cs = document.createElement("canvas");
       cs.width = img.width;
       cs.height = img.height;
-      const ctx = cs.getContext("2d");
-      ctx.drawImage(img, 0, 0);
+      Canvas2D_DrawRestorable(cs, function (ctx) {
+        ctx.drawImage(img, 0, 0);
+      });
 
       const pic = {
         width: img.width,
