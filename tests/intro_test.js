@@ -262,6 +262,12 @@ Deno.test("Intro_Describe names what a link starts", () => {
       "Quake (2021 rerelease): Dimension of the Machine",
     "mg1",
   );
+  assert(Intro_Describe(params("?game=quoth")) === "Quoth", "quoth");
+  assert(
+    Intro_Describe(params("?base=rerelease&game=quoth")) ===
+      "Quake (2021 rerelease): Quoth",
+    "quoth over the rerelease",
+  );
   assert(Intro_Describe(params("?map=lq_e1m1")) === "LibreQuake", "map");
   assert(Intro_Describe(params("?base=id1")) === "Quake", "id's data");
 });

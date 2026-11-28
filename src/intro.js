@@ -84,6 +84,7 @@ export async function Intro_LocalPaks(hostname, doFetch = globalThis.fetch) {
 const INTRO_GAME_LABELS = {
   hipnotic: "Scourge of Armagon",
   rogue: "Dissolution of Eternity",
+  quoth: "Quoth",
   mg1: "Dimension of the Machine",
   mg3: "Add-on mg3",
   dopa: "Dimension of the Past",

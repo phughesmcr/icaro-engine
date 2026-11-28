@@ -1,4 +1,4 @@
-import { sizebuf_t, SZ_Alloc } from "../src/common.js";
+import { Con_SetPrintFunctions, sizebuf_t, SZ_Alloc } from "../src/common.js";
 import {
   edict_t,
   pr_fielddefs,
@@ -19,10 +19,24 @@ import {
   svc_clientdata,
   svc_sound,
 } from "../src/protocol.js";
-import { sv } from "../src/server.js";
+import {
+  client_t,
+  host_client,
+  set_host_client,
+  sv,
+  svs,
+} from "../src/server.js";
+import {
+  net_activeconnections,
+  set_net_activeconnections,
+} from "../src/net.js";
 import { GetEdictFieldValue } from "../src/pr_edict.js";
 import { sv_player, SV_SetPlayer } from "../src/sv_phys.js";
-import { SV_StartSound, SV_WriteClientdataToMessage } from "../src/sv_main.js";
+import {
+  SV_DropClient,
+  SV_StartSound,
+  SV_WriteClientdataToMessage,
+} from "../src/sv_main.js";
 
 function assertEqual(actual, expected, message) {
   if (actual !== expected) {
@@ -136,4 +150,38 @@ Deno.test("SV_WriteClientdataToMessage packs an optional items2 field", () => {
     PR_SetStringsData(oldStringsData);
     SV_SetPlayer(oldPlayer);
   }
+});
+
+Deno.test("SV_DropClient logs the removal with Sys_Printf, as WinQuake's host.c does", () => {
+  const oldHostClient = host_client;
+  const oldClients = svs.clients;
+  const oldMaxclients = svs.maxclients;
+  const oldConnections = net_activeconnections;
+  const oldLog = console.log;
+  const logged = [];
+  const printed = [];
+
+  try {
+    const client = new client_t();
+    client.active = true;
+    client.name = "100%s";
+    svs.clients = [client];
+    svs.maxclients = 1;
+    set_host_client(client);
+    set_net_activeconnections(1);
+    Con_SetPrintFunctions((fmt) => printed.push(String(fmt)), () => {});
+    console.log = (line) => logged.push(line);
+
+    SV_DropClient(true);
+  } finally {
+    console.log = oldLog;
+    Con_SetPrintFunctions(null, null);
+    svs.clients = oldClients;
+    svs.maxclients = oldMaxclients;
+    set_host_client(oldHostClient);
+    set_net_activeconnections(oldConnections);
+  }
+
+  assertEqual(logged.join("|"), "Client 100%s removed\n", "system log");
+  assertEqual(printed.length, 0, "nothing in the game console");
 });

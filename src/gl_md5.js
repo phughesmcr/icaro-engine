@@ -26,7 +26,7 @@
 //   only as .lmp (what the rerelease ships), not .png, .tga, .jpg or .pcx.
 
 import * as THREE from "three";
-import { Con_Printf } from "./common.js";
+import { Con_DPrintf, Con_Printf } from "./common.js";
 import { r_avertexnormals } from "./anorm_dots.js";
 import { COM_FindFile } from "./pak.js";
 import { vid } from "./vid.js";
@@ -1095,8 +1095,10 @@ export function Mod_LoadMD5MeshModel(mod, meshText, animText) {
   MD5_CullSphere(hdr);
   Mod_LoadMD5Skins(mod, hdr, md5.shader);
   if (md5.maxinfluences > MD5_MAXINFLUENCES) {
-    Con_Printf(
-      "%s uses up to %d influences per vertex\n",
+    // Ironwail's Con_DWarning (MD5_BakeInfluences); the port has no
+    // Con_DWarning, so Con_DPrintf with its prefix
+    Con_DPrintf(
+      "\x02Warning: %s uses up to %d influences per vertex\n",
       mod.name,
       md5.maxinfluences,
     );

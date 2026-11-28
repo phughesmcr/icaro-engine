@@ -113,6 +113,7 @@ Deno.test("Intro_Describe names packs as url_config.js reads them", () => {
     Intro_Describe(params("?game=HIPNOTIC")) === "Scourge of Armagon",
     "mission pack in any case",
   );
+  assert(Intro_Describe(params("?game=QUOTH")) === "Quoth", "quoth, any case");
   assert(
     Intro_Describe(params("?base=rerelease&game=../mg1")) ===
       "Quake (2021 rerelease)",
