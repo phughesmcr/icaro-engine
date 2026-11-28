@@ -6,7 +6,7 @@ under Deno. Findings from reading the code are marked as such.
 
 ## Status
 
-Checked at `dev` `991c6e2` (2026-11-27). The rest of this file is the older
+Checked at `dev` `3603119` (2026-11-27). The rest of this file is the older
 snapshot.
 
 - Finding 1 is fixed in `headless_host` (#252). The MCP server doesn't expose
@@ -18,7 +18,9 @@ snapshot.
 - The 8 community maps in `static/maps/` were removed (#259), and the shareware
   pak is no longer tracked (#270).
 - LibreQuake is now the default content (`../librequake-content.md`).
-- Findings 2 and 3 are open. The others weren't rechecked.
+- Finding 2: the client reads 666 and 999 (#278); no 666 demo was run.
+- Finding 3: `-quoth` is recognised (#277); Quoth's data wasn't run with it.
+- The others weren't rechecked.
 
 ## Method
 

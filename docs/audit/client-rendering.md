@@ -12,7 +12,7 @@ below that overlap them say so and do not duplicate them.
 
 ## Status
 
-Checked at `dev` `991c6e2` (2026-11-27). The rest of this file is the older
+Checked at `dev` `3603119` (2026-11-27). The rest of this file is the older
 snapshot.
 
 - Finding 3: the patches go through `GL_PatchShader`, which throws when its
@@ -32,7 +32,12 @@ snapshot.
   menus, and doesn't run in WebXR. The renderer still sets no `powerPreference`.
 - Finding 12: the phone-test bugs it lists were fixed (#236).
 - Finding 14: the MCP `screenshot` tool and the `screen` tier were added (#246).
-- Finding 1 is open. The others weren't rechecked.
+- Finding 1: `host_maxfps` defaults to 250, and a local server's entities and
+  view lerp between ticks (#279). Measured in a browser at 120 Hz only; a saved
+  72 still wins.
+- Finding 9: `?game=` takes any safe directory name (#277). Whether the rest of
+  the finding still holds wasn't rechecked.
+- The others weren't rechecked.
 
 ## Verdict
 

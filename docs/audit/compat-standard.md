@@ -20,7 +20,7 @@ not inspected (#235 and #238 were not in the list I was given and `gh` shows
 
 ## Status
 
-Checked at `dev` `991c6e2` (2026-11-27). The rest of this file is the older
+Checked at `dev` `3603119` (2026-11-27). The rest of this file is the older
 snapshot.
 
 - Finding 3: Ironwail's builtin set and its `checkextension` answer are ported
@@ -30,15 +30,22 @@ snapshot.
 - Finding 6: fence textures are alpha-tested (#253), tried in a browser on
   rerelease maps but no Quoth or AD map. Lit water is open. MF_HOLEY skins and
   sprites don't get the edge fix.
-- Finding 4: `headless_host` mounts game directories (#252). The browser's list,
-  `-quoth` and layering are open. LibreQuake is the default content as
-  `?base=librequake`, not as an `lq1` game directory.
-- LibreQuake section: no pak is tracked (#270). `demo1.dem` (protocol 15) and,
-  since #262, `demo2.dem` play; `demo3.dem` is protocol 999 and doesn't. `set`,
-  `seta`, the key names and more cvars are accepted (#263); `if` isn't. Fence
-  textures are done.
-- Findings 1 and 2 are open (`../protocol-design.md`, #256, designs them). The
-  others weren't rechecked.
+- Finding 4: `headless_host` mounts game directories (#252). `?game=` takes any
+  safe directory name and `-quoth` exists (#277). The headless host mounts
+  several `-game` directories; a URL names one and the servers take one.
+  LibreQuake is the default content as `?base=librequake`, not as an `lq1` game
+  directory.
+- LibreQuake section: no pak is tracked (#270). `demo1.dem` (protocol 15),
+  `demo2.dem` (since #262) and `demo3.dem` (protocol 999, since #278) play.
+  `set`, `seta`, the key names and more cvars are accepted (#263, #289, #290);
+  `if` isn't. Loose cfgs can be `exec`ed (#281). Fence textures are done.
+- Finding 1: the client reads 666 and 999 (#274, #278). No 666 demo was run, and
+  entity scale is read and dropped.
+- Finding 2: Icaro's svcs moved to 96 to 99 behind a versioned hello (#288), and
+  each protocol has its own handler table (#274). The 666 and 999 readers handle
+  37 and 40 to 44. The 15 reader and Icaro's revision 1 reader don't; revision
+  0, kept for old Icaro demos, reads 42 as `svc_playerinfo`.
+- The others weren't rechecked.
 
 ## Summary
 

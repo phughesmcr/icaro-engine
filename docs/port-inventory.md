@@ -16,7 +16,10 @@ It lists gaps only. It fixes nothing.
 - Port: the raw tables, counts and statuses are from `dev` at `c0ea1d7`
   (2026-11-26). The first scan was at `06d4414` (after #31–#33). The
   hand-written analysis (reasons, ranked gaps, parm and platform notes) was only
-  spot-updated since, not re-reviewed.
+  spot-updated since, not re-reviewed. PR #280 has since split
+  `src/gl_model.js`, so this doc's `src/gl_model.js` locations and line numbers
+  are out of date: the code is in `src/model.js`, `src/mod_*.js` and
+  `src/gl_model_upload.js`.
 - C: [id-Software/Quake](https://github.com/id-Software/Quake) `WinQuake/` at
   `bf4ac42`, the same tree `docs/port-review.md` used.
 - Script: [`tools/port_inventory.py`](../tools/port_inventory.py) (Python 3,

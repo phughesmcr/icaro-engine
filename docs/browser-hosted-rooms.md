@@ -10,10 +10,14 @@ on_ starts at "This browser" (#235, `NET_DefaultHostInBrowser`; not checked on
 the deployed site), and a joiner that loses its connection reconnects by code
 (#239, below). At `dev` `991c6e2`: a joiner runs only an allowlist of the host's
 `stuffcmd` commands (#258), and a message may be up to 64,000 bytes (#262; not
-tried between two real browsers). The goal is free multiplayer that doesn't
-depend on the maintainer's Mac or a paid server, on desktop and mobile. One
-player's browser tab hosts the room, the way a NetQuake listen server does, and
-the other players join it directly over WebRTC.
+tried between two real browsers). At `dev` `3603119`: the transport hello is
+version 2 since Icaro's protocol revision 1 (#288), so the host and joiners need
+matching builds, and `host_maxfps` defaults to 250 (#279), so a host runs
+renderer/network isolation unless a saved value from 1 to 72 turns it off.
+Neither was checked between two browsers. The goal is free multiplayer that
+doesn't depend on the maintainer's Mac or a paid server, on desktop and mobile.
+One player's browser tab hosts the room, the way a NetQuake listen server does,
+and the other players join it directly over WebRTC.
 
 Tags, as in [always-on-hosting.md](always-on-hosting.md):
 

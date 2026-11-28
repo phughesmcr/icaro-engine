@@ -10,10 +10,12 @@ under a day, M is days, L is weeks.
 
 ## Status
 
-Checked at `dev` `991c6e2` (2026-11-27). The rest of this file is the older
+Checked at `dev` `3603119` (2026-11-27). The rest of this file is the older
 snapshot.
 
-- A1 is open; `../architecture-plan.md` (#260) plans the layering.
+- A1 is open; `../architecture-plan.md` (#260) plans the layering. The
+  `gl_model.js` split A1 asks for first is done (#280), but the server still
+  reaches `three`. The cycle wasn't re-measured.
 - B3 and B4: no pak is tracked or deployed, so the client build's SHA-256 pin
   and the service worker's cache-first `pak0.pak` are gone (#270). The community
   maps were removed (#259). The client build also denies `static/librequake/`.
