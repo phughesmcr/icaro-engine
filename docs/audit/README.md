@@ -205,7 +205,8 @@ days, L a week or more.
   and `-quoth` exists. The headless host mounts every `-game`, as does the
   browser's command line, though a URL names one `?game=`. The servers still
   take one. There is no `lq1` directory. A directory needs a `pak0.pak`. No
-  Quoth or mod data was run in #277; the browser check ran Arcane Dimensions.
+  Quoth or mod data was run in #277; the browser check ran Arcane Dimensions,
+  and #306 later loaded 11 of Quoth's 12 maps in a browser.
 - **Protocol dispatch and the 666 and 999 demo readers**, after decision 1. M,
   **read**. **Done (#274, #278):** `src/cl_parse.js` has a reader per protocol.
   LibreQuake's `demo3` (999) parses in a test. No 666 demo was available, so
@@ -247,8 +248,9 @@ days, L a week or more.
   - **Done (#300, #301):** FLAC, Opus, WAV and tracker music, and the client
     build's CSP allows the WebAssembly the tracker player needs. A browser check
     used generated files and nobody listened; Safari, Firefox, mobile and the
-    player under the built CSP weren't tried. Stored and offline tracks are
-    still only `.ogg` and `.mp3`, and music inside paks isn't played.
+    player under the built CSP weren't tried. The CSP change needs a client
+    rebuild and redeploy. Stored and offline tracks are still only `.ogg` and
+    `.mp3`, and music inside paks isn't played.
   - **Done (#305):** external world textures and alias skins, from paks only (no
     loose files); sky isn't replaced. The browser check used virtual files, not
     a real texture pack, and alias skins' load-time hook was checked only in a
@@ -286,7 +288,7 @@ days, L a week or more.
   was tried: one is expected to freeze the page and its Workers, so a phone host
   may still stop.
 - TURN credentials last 6 hours, and non-browser clients skip the Origin check.
-  S, **read**. **Done (#297, #302):** they last 3 hours (finding S5 in
+  S, **read**. **Partly done (#297, #302):** they last 3 hours (finding S5 in
   `multiplayer-security.md` asked for 1 or less), and a live host gets fresh
   ones for new connections; an open relayed connection drops when its
   credentials expire. S5's other recommendations aren't done. A lobby with an

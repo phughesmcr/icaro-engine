@@ -854,7 +854,7 @@ in section 7.
     `BSP2VERSION_BSP2`, with 32-bit edges, faces, marksurfaces, leafs, nodes and
     clipnodes, and no leaf limit. WinQuake loads only version 29. The
     rerelease's dopa, mg1 and mg3 maps and two id1 maps need it. BSP29 maps load
-    as before; the older RMQ `2PSB` variant is still refused.
+    as before; the older RMQ `2PSB` variant loads since #293.
   - 2021 rerelease localisation (#124): Ironwail's `LOC_*` loader reads
     `localization/loc_<language>.txt` (`language` cvar, default `auto`), and on
     the server `PF_VarString` and `PF_WriteString` resolve `$key` strings

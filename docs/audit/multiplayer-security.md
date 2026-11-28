@@ -39,6 +39,8 @@ snapshot.
   and sky and MD5 mesh fetches aren't checked this way.
 - S8: the client build's CSP gained `'wasm-unsafe-eval'` in `script-src`, for
   tracker music (#301).
+- In the threat model, #294 narrows the "Joiner (guest)" row, and #297 changes
+  the Origin check that the "Anonymous web client" row relies on.
 - #297, #301 and #302 need the Workers redeployed (for #302, the client first or
   with the lobby) and weren't checked on a deployed site.
 - S8 and S9: the service worker caches no pak, and the client build denies every
