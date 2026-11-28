@@ -6,8 +6,14 @@ headless audio) against `deno task serve` on port 8137, with LibreQuake from
 [`browser-check-2026-11-27/`](browser-check-2026-11-27/). Screenshots 19 and 20
 showed retail Quake and Arcane Dimensions data and are not committed.
 
-Status since: FAIL A and FAIL B were fixed in PR #282, the loose `.cfg` files
-and the literal `\n` log lines in PR #281. A snapshot otherwise.
+Status since (checked at `dev` `3603119` by reading the code, not rerun in a
+browser): FAIL A and FAIL B were fixed in PR #282; the loose `.cfg` files, the
+literal `\n` log lines and the unformatted `LibreQuake in %s` in #281; the intro
+page's raw `?game=` in #284; the stale cached modules in #285; the late
+`icaro.cmd` output in #286; and the DOWN button over the status bar in #287 and
+#291. `r_scale`, `r_softemu`, `r_showtris`, `r_showbboxes` (#289) and `hudstyle`
+(#290) now exist. The missing local `lite.zip` wasn't addressed by these. A
+snapshot otherwise.
 
 ## Outcome
 

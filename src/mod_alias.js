@@ -24,6 +24,7 @@ import {
 } from "./mod_types.js";
 import { loadmodel, readString, set_loadmodel } from "./model.js";
 import {
+  GL_LoadExternalSkin,
   GL_LoadTexture,
   GL_MakeAliasModelDisplayLists,
   Mod_LoadMD5MeshModel,
@@ -267,6 +268,9 @@ function Mod_LoadAllSkins(buf, numskins, offset) {
             splitFullbright,
             true,
           );
+      if (cls.state !== ca_dedicated) { // QSS external skins
+        GL_LoadExternalSkin(pheader.gl_texturenum[i][0], name);
+      }
 
       pos = skinDataOfs + s;
     } else {

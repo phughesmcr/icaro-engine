@@ -1,6 +1,6 @@
 # LibreQuake as the standard content
 
-Status (checked at `dev` `991c6e2`, 2026-11-27): built. `src/intro.js` (the
+Status (checked at `dev` `3603119`, 2026-11-27): built. `src/intro.js` (the
 intro page), `src/librequake.js` (download, check, unpack) and the hooks in
 `main.js`, `src/userdata.js`, `src/pak.js`, `src/cd_audio.js` and `sw.js`. The
 release zips are served from R2 by `cloudflare/librequake/` (see Hosting). The
@@ -164,9 +164,13 @@ download's 404 was reported on the page with no policy violation.
 
 - LibreQuake's configs: `set`, `seta` and its key names are accepted (PR #263);
   `if` and `serverinfo` are not, and print harmless messages. The `contrast` and
-  `gl_overbright_models` cvars they set exist since PRs #272 and #269.
-- `demo3.dem` is protocol 999, which the client doesn't read, so it doesn't
-  play. `demo2.dem` plays since the message limits were raised (PR #262).
+  `gl_overbright_models` cvars they set exist since PRs #272 and #269. Loose
+  cfgs in its `id1/`, such as the style configs, can be `exec`ed (PR #281), and
+  the `r_scale`, `r_softemu` (PR #289) and `hudstyle` (PR #290) cvars those set
+  exist.
+- Demos: `demo2.dem` plays since the message limits were raised (PR #262), and
+  `demo3.dem` (protocol 999) since the client reads 999 (PR #278). A demo whose
+  map still has to be fetched waits for it (PR #282).
 - Darkness: the engine's causes were fixed by the overbright and lightmap colour
   space changes (PRs #269 and #272). PR #272 found `lq_e1m1` still dark after
   them, because its lightmaps are dark.

@@ -125,6 +125,15 @@ export class client_t {
     this.num_pings = 0; // ping_times[num_pings%NUM_PING_TIMES]
     this.localtime = 0; // server time of last message (for PF_MSEC)
 
+    // Flood protection, from QW's client_t (QW/server/server.h) and its name
+    // spam check (QW/server/sv_main.c SV_ExtractFromUserinfo). host_cmd.js
+    // Host_ChatFlooded and Host_NameFlooded use them.
+    this.whensaid = new Float64Array(10); // realtime of recent chat lines
+    this.whensaidhead = 0;
+    this.lockedtill = 0; // realtime the client may talk again
+    this.lastnametime = 0;
+    this.lastnamecount = 0;
+
     // spawn parms are carried from level to level
     this.spawn_parms = new Float32Array(NUM_SPAWN_PARMS);
 

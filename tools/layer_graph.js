@@ -45,8 +45,16 @@ import { parse } from "@babel/parser";
 export const LAYERS = {
   // platform/browser/
   "src/autosave.js": "browser",
+  // Not in the plan: tracker music through libopenmpt and Web Audio.
+  "src/bgm_tracker.js": "browser",
   "src/cd_audio.js": "browser", // split
   "src/gl_contextloss.js": "browser",
+  // Not in the plan: keeps a browser-hosted room running while its tab is
+  // hidden (visibility, a Worker's ticks). Its server and console imports
+  // become hooks registered by main.js.
+  "src/host_hidden.js": "browser",
+  // Not in the plan: the Worker script host_hidden.js starts.
+  "src/host_tick_worker.js": "browser",
   "src/in_web.js": "browser", // split
   // Not in the plan (later than it): the intro page gating main.js (DOM).
   "src/intro.js": "browser",
@@ -66,6 +74,8 @@ export const LAYERS = {
   "src/url_config.js": "browser",
   "src/userdata.js": "browser", // split
   "src/vid.js": "browser", // split
+  // Not in the plan: the Screen Wake Lock shared by touch and hosting.
+  "src/wake_lock.js": "browser",
   "src/webxr.js": "browser",
   // platform/deno/, staying in server/ for now
   "server/browser_shim.js": "deno",
@@ -107,6 +117,8 @@ export const LAYERS = {
   "src/snd_dma.js": "core",
   "src/snd_mem.js": "core",
   "src/snd_mix.js": "core",
+  // Not in the plan: finds the music inside an Unreal .umx (pure parsing).
+  "src/snd_umx.js": "core",
   "src/sound.js": "core",
   // core: models (gl_model.js is a facade over the #280 split)
   "src/gl_md5.js": "core",

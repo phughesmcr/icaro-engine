@@ -99,9 +99,9 @@ for (const name of ["noexit", "samelevel"]) {
 
 // The lobby, behind a WebSocket stub: each new WebSocket( url ) is the client
 // end of a fake pair whose server end runs RtcLobby, as lobby_server.js does
-function makeLobbyServer(turnstile = null) {
+function makeLobbyServer(turnstile = null, iceServers = null) {
   const lobby = new RtcLobby({
-    iceServers: () => [{ urls: "stun:stun.example.test" }],
+    iceServers: iceServers ?? (() => [{ urls: "stun:stun.example.test" }]),
     turnstile,
   });
   const sockets = new Map(); // session id -> server end
@@ -146,7 +146,7 @@ function roles(lobby) {
 
 // Host setup, as in net_webrtc_test.js: the WebRTC driver in slot 1, a
 // listening server with free client slots
-function setup({ maxclients = 2, turnstile = null } = {}) {
+function setup({ maxclients = 2, turnstile = null, iceServers = null } = {}) {
   const saved = {
     maxclients: svs.maxclients,
     clients: svs.clients,
@@ -195,7 +195,7 @@ function setup({ maxclients = 2, turnstile = null } = {}) {
   rtc.RTC_Listen(true);
   FakeRTCPeerConnection.instances.length = 0;
 
-  const lobbyServer = makeLobbyServer(turnstile);
+  const lobbyServer = makeLobbyServer(turnstile, iceServers);
   RTCLobby_Init(() => LOBBY_URL, () => true); // net_main.js passes its "listening"
   Cvar_Set("noexit", "0");
   Cvar_Set("samelevel", "0");
@@ -396,6 +396,92 @@ Deno.test("RTC lobby: host a room once the map is up, join it by code, heartbeat
       "room removed",
     );
   } finally {
+    await teardown();
+  }
+});
+
+Deno.test("RTC lobby: a host's fresh ICE servers from a heartbeat go to joiners that connect later", async () => {
+  // Each mint is a new TURN credential, as the Cloudflare lobby's would be
+  let minted = 0;
+  const iceServers = (_ip, role) => {
+    minted++;
+    return [{
+      urls: ["turn:turn.example.test:3478"],
+      username: role + minted,
+      credential: "c",
+    }];
+  };
+  const { lobbyServer, teardown } = setup({ maxclients: 3, iceServers });
+  try {
+    const { room } = await hostAndJoin();
+    const host = RTCLobby_GetStateForTest().host;
+    const first = host.iceServers[0].username;
+    assert(first.startsWith("host"), "the host's own credentials: " + first);
+    await waitFor(
+      () => RTCLobby_GetStateForTest().join === null,
+      1000,
+      "the joiner leaves the lobby",
+    );
+    const opened = FakeRTCPeerConnection.instances.slice();
+
+    // Due at once: the next heartbeat (a player count change) brings more
+    lobbyServer.lobby.iceRefreshMs = 0;
+    svs.clients[1].active = true;
+    await waitFor(
+      () => host.iceServers[0].username !== first,
+      1000,
+      "fresh ICE servers from the heartbeat",
+    );
+    const fresh = host.iceServers[0].username;
+    assert(fresh.startsWith("host"), "a host credential: " + fresh);
+    for (const pc of opened) {
+      assert(
+        pc.config.iceServers.every((s) => s.username !== fresh),
+        "open connections keep the servers they started with",
+      );
+    }
+
+    // An empty LOBBY_ICE keeps them
+    const [sid] = [...lobbyServer.lobby.sessions.values()]
+      .filter((s) => s.role === "host").map((s) => s.sid);
+    lobbyServer.sockets.get(sid).send(Lobby_EncodeFrame(
+      0x84,
+      new TextEncoder().encode("[]"),
+    ));
+    await delay(10);
+    assertEqual(host.iceServers[0].username, fresh, "empty list ignored");
+
+    // A joiner that offers now gets an answer from a connection made with
+    // the fresh servers (another tab: a raw lobby socket, no join session
+    // here)
+    const before = FakeRTCPeerConnection.instances.length;
+    const ws = new WebSocket(LOBBY_URL);
+    ws.binaryType = "arraybuffer";
+    await waitFor(() => ws.readyState === OPEN, 1000, "the socket opens");
+    ws.send(Lobby_EncodeFrame(0x02, new TextEncoder().encode(room.id)));
+    await delay(10);
+    ws.send(Lobby_EncodeFrame(
+      0x05,
+      new TextEncoder().encode(JSON.stringify({
+        to: room.id,
+        kind: "offer",
+        data: { type: "offer", sdp: "v=0 fake-offer-other-tab" },
+      })),
+    ));
+    await waitFor(
+      () => FakeRTCPeerConnection.instances.length > before,
+      1000,
+      "the host answers the offer",
+    );
+    const answerer = FakeRTCPeerConnection.instances.at(-1);
+    assertEqual(
+      answerer.config.iceServers[0].username,
+      fresh,
+      "the new connection uses the fresh servers",
+    );
+    ws.close();
+  } finally {
+    RTCLobby_ServerShutdown();
     await teardown();
   }
 });

@@ -10,10 +10,14 @@ on_ starts at "This browser" (#235, `NET_DefaultHostInBrowser`; not checked on
 the deployed site), and a joiner that loses its connection reconnects by code
 (#239, below). At `dev` `991c6e2`: a joiner runs only an allowlist of the host's
 `stuffcmd` commands (#258), and a message may be up to 64,000 bytes (#262; not
-tried between two real browsers). The goal is free multiplayer that doesn't
-depend on the maintainer's Mac or a paid server, on desktop and mobile. One
-player's browser tab hosts the room, the way a NetQuake listen server does, and
-the other players join it directly over WebRTC.
+tried between two real browsers). At `dev` `3603119`: the transport hello is
+version 2 since Icaro's protocol revision 1 (#288), so the host and joiners need
+matching builds, and `host_maxfps` defaults to 250 (#279), so a host runs
+renderer/network isolation unless a saved value from 1 to 72 turns it off.
+Neither was checked between two browsers. The goal is free multiplayer that
+doesn't depend on the maintainer's Mac or a paid server, on desktop and mobile.
+One player's browser tab hosts the room, the way a NetQuake listen server does,
+and the other players join it directly over WebRTC.
 
 Tags, as in [always-on-hosting.md](always-on-hosting.md):
 
@@ -78,9 +82,12 @@ through loopback, and it skips prediction and lerp under `sv.active` [code:
   and an open data channel only exempts a page from the stricter once-a-minute
   tier [docs]
   ([Chrome 88 throttling](https://developer.chrome.com/blog/timer-throttling-in-chrome-88)).
-- So in v1 the host keeps the tab visible. The design has the host page ask for
-  a Screen Wake Lock and show a warning while hosting. Neither is built; the
-  only wake lock is the one the touch controls take.
+- A Worker's timer does rescue it in desktop Chrome [measured; see "Hidden host"
+  below]: `src/host_hidden.js` runs the frame loop from a Worker's 20 Hz ticks
+  while the host's tab is hidden. It also holds a Screen Wake Lock while
+  hosting, warns the host, and tells joiners when the host's tab is hidden.
+  Phones freeze a hidden page, Workers included, so there the host still keeps
+  the tab in front.
 
 **B. A Worker running the dedicated-room loop (later, if the spike allows it).**
 A second copy of the engine runs in a dedicated Worker, ticking at 20 Hz as
@@ -398,6 +405,33 @@ they mix delivery with that page's event delays; a joiner on another device is
 the true receiver. The pane's Chromium is embedded in Electron and may differ
 from Chrome on throttling, so test 3 must run in real browsers.
 
+### Hidden host
+
+**Chrome 158, macOS, 2026-11-27** [measured], with a room hosted in one tab
+(local Deno lobby) and joined from another window. The host tab was hidden by
+switching to another tab in its window, and in a second run by minimising its
+window:
+
+| What                                    | Hidden host, before `host_hidden.js`    | With it                                    |
+| --------------------------------------- | --------------------------------------- | ------------------------------------------ |
+| `requestAnimationFrame`                 | Stops                                   | Stops                                      |
+| Page `setInterval( 50 )`                | Once a second (60 s; same at 3.5 min)   | Same                                       |
+| Worker `setInterval( 50 )`, on the page | Every 50 ms (max gap 55 ms over 60 s)   | Same                                       |
+| Server time (`sv.time`)                 | Frozen                                  | Keeps wall time (405 s in 405 s)           |
+| Joiner                                  | Frozen game, no notice, connection open | Game time keeps wall time                  |
+| Data channel                            | Stays open                              | Stays open                                 |
+| Rendering cost per hidden frame         |                                         | 0–3 ms (`host_speeds`), 20 frames a second |
+
+Chrome's stricter tier (timers once a minute after 5 minutes hidden) doesn't
+apply to a page with an open data channel [docs], and with the host minimised
+for 405 s the server kept wall time throughout and the joiner's game time
+matched it for the first 6 minutes, after which the joiner's own window was
+covered and its frames stopped. Not measured: Firefox, Safari, and any phone.
+Phones are expected to freeze the page and its Workers when the screen locks or
+the browser goes to the background [unverified]; the wake lock keeps the screen
+from locking by itself, and joiners say "Waiting for the host" after 3 s without
+a message (`src/cl_reconnect.js`).
+
 **Still to run, on the maintainer's devices:**
 
 - test 3 in desktop Chrome, Firefox and Safari;
@@ -494,9 +528,9 @@ Decided by the maintainer on 2026-11-25:
 
 - Unreliable data channels on iOS Safari and desktop Safari, and the loss of
   messages near the MTU.
-- Timer cadence in a hidden tab for the main thread and for Workers, in every
-  browser (the spike's test 3 hasn't run anywhere yet), and data-channel
-  delivery while hidden.
+- Timer cadence in a hidden tab for the main thread and for Workers, and
+  data-channel delivery while hidden, outside desktop Chrome (see "Hidden
+  host"); a hidden host on a phone.
 - Data-channel transfer to Workers in Safari and Firefox, and import maps in
   module Workers outside Chromium.
 - Whether TURN needs a billing method on file.

@@ -50,7 +50,10 @@ import {
   R_RenderView,
   r_worldentity,
 } from "./gl_rmain.js";
-import { set_skytexturenum as set_skytexturenum_rsurf } from "./gl_rsurf.js";
+import {
+  r_litwater,
+  set_skytexturenum as set_skytexturenum_rsurf,
+} from "./gl_rsurf.js";
 import { Mod_EnhancedAliasHeader } from "./gl_model.js";
 import { R_ReadPointFile_f } from "./r_part.js";
 import { Fog_Init, Fog_NewMap } from "./gl_fog.js";
@@ -175,6 +178,7 @@ export function R_Init() {
     _Cvar_RegisterVariable(r_shadows);
     _Cvar_RegisterVariable(r_mirroralpha);
     _Cvar_RegisterVariable(r_wateralpha);
+    _Cvar_RegisterVariable(r_litwater); // QuakeSpasm/Ironwail gl_rmisc.c
     _Cvar_RegisterVariable(r_dynamic);
     _Cvar_RegisterVariable(r_novis);
     _Cvar_RegisterVariable(r_speeds);

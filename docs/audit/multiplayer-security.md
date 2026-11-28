@@ -9,7 +9,7 @@ Run: `tools/bench/net_bench.js -clients 4` and
 
 ## Status
 
-Checked at `dev` `991c6e2` (2026-11-27). The rest of this file is the older
+Checked at `dev` `3603119` (2026-11-27). The rest of this file is the older
 snapshot.
 
 - S1 is fixed (#258): a remote host's `stuffcmd` runs only the commands in
@@ -22,7 +22,9 @@ snapshot.
   audit's revision too). Nothing handles a hidden host tab.
 - S8 and S9: the service worker caches no pak, and the client build denies every
   pak, so the shareware SHA-256 pin is gone (#270). The CSP nonce merged (#238).
-- The URL config design isn't built. The other findings weren't rechecked.
+- The URL config design is built in `src/url_config.js` (#276), without `?bind.`
+  or the `?cfg=` shorthand; its header gives the departures.
+- The other findings weren't rechecked.
 
 ## Summary
 

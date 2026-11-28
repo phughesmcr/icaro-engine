@@ -153,6 +153,7 @@ import {
   SV_BroadcastPrintf,
   SV_ClientPrintf,
 } from "./host.js";
+import { Loop_IsServerSocket } from "./net_loop.js";
 import { COM_EnsureFile, COM_FindFile } from "./pak.js";
 import {
   mod_alias,
@@ -173,10 +174,178 @@ export function set_noclip_anglehack(v) {
 // (Host_AutoSave). 0 turns it off.
 const web_autosave = new cvar_t("web_autosave", "1", true);
 
+// Deliberate deviation from host_cmd.c, which trusts every client: it gates
+// god, notarget, fly, noclip, give and kick on deathmatch alone, and pause not
+// at all, because NetQuake assumed a LAN of friends. Anyone with an Icaro
+// room's link can join it, so a guest (Host_ClientIsGuest) can't kick or
+// pause, and gets the cheats only when the server sets sv_guestcheats 1. The
+// player at this machine (single-player, a room's host, the agent's headless
+// host) keeps id's powers. Not saved: every server starts with guests barred.
+const sv_guestcheats = new cvar_t("sv_guestcheats", "0");
+
+/**
+ * Whether client joined over a network driver and isn't privileged: anyone
+ * but the player on this machine's loopback connection (net_loop.js).
+ */
+export function Host_ClientIsGuest(client) {
+  return client.privileged === false &&
+    Loop_IsServerSocket(client.netconnection) === false;
+}
+
+/** The cheat commands' check: host_cmd.c's, then Icaro's guest rule. */
+function Host_CheatAllowed() {
+  if (pr_global_struct.deathmatch !== 0 && host_client.privileged === false) {
+    return false; // id's C refuses silently
+  }
+
+  if (sv_guestcheats.value === 0 && Host_ClientIsGuest(host_client)) {
+    SV_ClientPrintf("Cheats are for the host only.\n");
+    return false;
+  }
+
+  return true;
+}
+
+// QuakeWorld's chat flood protection (QW/server/sv_ccmds.c): more than
+// fp_messages lines in fp_persecond seconds silences the client for
+// fp_secondsdead seconds. NetQuake has none. Icaro applies it to guests only.
+// QW times it with realtime; net_time is the same clock, and NET_GetMessage
+// refreshes it just before the client's command runs.
+let fp_messages = 4;
+let fp_persecond = 4;
+let fp_secondsdead = 10;
+let fp_msg = "";
+
+/** sv.paused starts false and pause toggles it to a number (sv.paused ^ 1). */
+function Host_ServerPaused() {
+  return sv.paused !== false && sv.paused !== 0;
+}
+
+/** QW/server/sv_ccmds.c SV_Floodprot_f. */
+function Host_Floodprot_f() {
+  if (Cmd_Argc() === 1) {
+    if (fp_messages !== 0) {
+      Con_Printf(
+        "Current floodprot settings: \nAfter %d msgs per %d seconds, silence for %d seconds\n",
+        fp_messages,
+        fp_persecond,
+        fp_secondsdead,
+      );
+      return;
+    }
+    Con_Printf("No floodprots enabled.\n");
+  }
+
+  if (Cmd_Argc() !== 4) {
+    Con_Printf(
+      "Usage: floodprot <# of messages> <per # of seconds> <seconds to silence>\n",
+    );
+    Con_Printf(
+      "Use floodprotmsg to set a custom message to say to the flooder.\n",
+    );
+    return;
+  }
+
+  const arg1 = parseInt(Cmd_Argv(1)) || 0; // atoi
+  const arg2 = parseInt(Cmd_Argv(2)) || 0;
+  const arg3 = parseInt(Cmd_Argv(3)) || 0;
+
+  if (arg1 <= 0 || arg2 <= 0 || arg3 <= 0) {
+    Con_Printf("All values must be positive numbers\n");
+    return;
+  }
+
+  if (arg1 > 10) {
+    Con_Printf("Can only track up to 10 messages.\n");
+    return;
+  }
+
+  fp_messages = arg1;
+  fp_persecond = arg2;
+  fp_secondsdead = arg3;
+}
+
+/** QW/server/sv_ccmds.c SV_Floodprotmsg_f. */
+function Host_Floodprotmsg_f() {
+  if (Cmd_Argc() === 1) {
+    Con_Printf("Current msg: %s\n", fp_msg);
+    return;
+  } else if (Cmd_Argc() !== 2) {
+    Con_Printf('Usage: floodprotmsg "<message>"\n');
+    return;
+  }
+  fp_msg = Cmd_Argv(1);
+}
+
+/**
+ * QW/server/sv_user.c SV_Say's flood check: true (and the client is told) when
+ * client may not send this chat line. Records the line otherwise.
+ */
+export function Host_ChatFlooded(client) {
+  if (fp_messages === 0 || Host_ClientIsGuest(client) === false) {
+    return false;
+  }
+
+  if (Host_ServerPaused() === false && net_time < client.lockedtill) {
+    // host.js SV_ClientPrintf formats only %s
+    const left = (client.lockedtill - net_time) | 0;
+    SV_ClientPrintf("You can't talk for %s more seconds\n", String(left));
+    return true;
+  }
+
+  let tmp = client.whensaidhead - fp_messages + 1;
+  if (tmp < 0) tmp = 10 + tmp;
+  if (
+    Host_ServerPaused() === false && client.whensaid[tmp] !== 0 &&
+    net_time - client.whensaid[tmp] < fp_persecond
+  ) {
+    client.lockedtill = net_time + fp_secondsdead;
+    if (fp_msg !== "") {
+      SV_ClientPrintf("FloodProt: %s\n", fp_msg);
+    } else {
+      SV_ClientPrintf(
+        "FloodProt: You can't talk for %s seconds.\n",
+        String(fp_secondsdead),
+      );
+    }
+    return true;
+  }
+
+  client.whensaidhead++;
+  if (client.whensaidhead > 9) client.whensaidhead = 0;
+  client.whensaid[client.whensaidhead] = net_time;
+  return false;
+}
+
+/**
+ * QW/server/sv_main.c SV_ExtractFromUserinfo's name spam check: true when
+ * client may not change its name now. Deviation: QW kicks the client for a
+ * seventh change within five seconds of the first; Icaro refuses the change.
+ * Guests only, as with chat.
+ */
+export function Host_NameFlooded(client) {
+  if (Host_ServerPaused() || Host_ClientIsGuest(client) === false) return false;
+
+  if (client.lastnametime === 0 || net_time - client.lastnametime > 5) {
+    client.lastnamecount = 0;
+    client.lastnametime = net_time;
+  } else if (client.lastnamecount++ > 4) {
+    SV_ClientPrintf("You can't change your name that often.\n");
+    return true;
+  }
+
+  return false;
+}
+
 export function Host_InitCommands() {
   if (Cvar_FindVar(web_autosave.name) === null) {
     Cvar_RegisterVariable(web_autosave);
   }
+  if (Cvar_FindVar(sv_guestcheats.name) === null) {
+    Cvar_RegisterVariable(sv_guestcheats);
+  }
+  Cmd_AddCommand("floodprot", Host_Floodprot_f);
+  Cmd_AddCommand("floodprotmsg", Host_Floodprotmsg_f);
 
   Cmd_AddCommand("status", Host_Status_f);
   Cmd_AddCommand("quit", Host_Quit_f);
@@ -520,6 +689,8 @@ function Host_Name_f() {
     return; // No change, skip update
   }
 
+  if (Host_NameFlooded(host_client)) return;
+
   if (host_client.name !== "" && host_client.name !== "unconnected") {
     Con_Printf("%s renamed to %s\n", host_client.name, newName);
   }
@@ -547,6 +718,12 @@ function Host_Pause_f() {
 
   if (cmd_source === src_command) {
     Cmd_ForwardToServer();
+    return;
+  }
+
+  // Icaro: a guest can't pause (see sv_guestcheats above); id's C lets anyone
+  if (Host_ClientIsGuest(host_client)) {
+    SV_ClientPrintf("Only the host can pause.\n");
     return;
   }
 
@@ -615,6 +792,8 @@ function Host_Say(teamonly) {
 
   if (Cmd_Argc() < 2) return;
 
+  if (fromServer === false && Host_ChatFlooded(host_client)) return;
+
   const save = host_client;
 
   let p = Cmd_Args();
@@ -671,6 +850,9 @@ function Host_Tell_f() {
   }
 
   if (Cmd_Argc() < 3) return;
+
+  // Icaro: tell shares say's flood protection (QW has no tell)
+  if (Host_ChatFlooded(host_client)) return;
 
   let p = Cmd_Args();
 
@@ -767,7 +949,7 @@ function Host_God_f() {
     return;
   }
 
-  if (pr_global_struct.deathmatch && !host_client.privileged) {
+  if (Host_CheatAllowed() === false) {
     return;
   }
 
@@ -803,7 +985,7 @@ function Host_Notarget_f() {
     return;
   }
 
-  if (pr_global_struct.deathmatch && !host_client.privileged) {
+  if (Host_CheatAllowed() === false) {
     return;
   }
 
@@ -841,7 +1023,7 @@ function Host_Fly_f() {
     return;
   }
 
-  if (pr_global_struct.deathmatch && !host_client.privileged) {
+  if (Host_CheatAllowed() === false) {
     return;
   }
 
@@ -860,7 +1042,7 @@ function Host_Noclip_f() {
     return;
   }
 
-  if (pr_global_struct.deathmatch && !host_client.privileged) {
+  if (Host_CheatAllowed() === false) {
     return;
   }
 
@@ -881,7 +1063,7 @@ function Host_Give_f() {
     return;
   }
 
-  if (pr_global_struct.deathmatch !== 0 && host_client.privileged === false) {
+  if (Host_CheatAllowed() === false) {
     return;
   }
 
@@ -1115,6 +1297,10 @@ function Host_Kick_f() {
   } else if (
     pr_global_struct.deathmatch !== 0 && host_client.privileged === false
   ) {
+    return;
+  } else if (Host_ClientIsGuest(host_client)) {
+    // Icaro: a guest can't kick (see sv_guestcheats above)
+    SV_ClientPrintf("Only the host can kick.\n");
     return;
   }
 

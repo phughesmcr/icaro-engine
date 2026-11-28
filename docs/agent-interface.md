@@ -17,6 +17,11 @@ Phase 1 is built: `src/agent.js`, exposed as `window.icaro` by `main.js`
 - Events come from two hooks, `Con_SetAgentHook` (`src/console.js`) and
   `SCR_SetAgentHook` (`src/gl_screen.js`), plus stat changes compared after each
   tic. There is no hook in `cl_parse.js`.
+- `cmd( text )` returns its own call's output (#286). It runs the text at once;
+  in a game it then runs one tic in lockstep (or waits for a host frame in
+  realtime), and for a command forwarded to the server waits for the reply. In
+  lockstep that is one or two tics. The wait for a remote server's reply is a
+  heuristic and wasn't checked against one.
 - Lockstep pins `host_framerate` to 1/72 (and `host_maxfps` to 72,
   `host_timescale` to 0), restoring them on detach. Each `Host_Frame` therefore
   advances exactly one tic.

@@ -2,13 +2,14 @@
 # Written by `deno task layers --update`; don't edit by hand.
 # tests/layer_graph_test.js fails if an edge is added to or gone from
 # this list; each step of docs/architecture-plan.md lowers it.
-# upward 121, target 46
+# upward 131, target 48
 target src/agent.js -> src/in_web.js
 target src/cl_demo.js -> src/userdata.js
 target src/cl_input.js -> src/in_web.js
 target src/cl_input.js -> src/webxr.js
 target src/cl_main.js -> src/in_web.js
 target src/cl_parse.js -> src/cd_audio.js
+target src/cl_parse.js -> src/url_config.js
 target src/cl_parse.js -> src/vid.js
 target src/gl_draw.js -> src/vid.js
 target src/gl_gamma.js -> src/vid.js
@@ -43,6 +44,7 @@ target src/net_main.js -> src/net_webrtc.js
 target src/net_main.js -> src/net_websocket.js
 target src/net_main.js -> src/net_webtransport.js
 target src/net_main.js -> src/turnstile.js
+target src/net_main.js -> src/url_config.js
 target src/r_part.js -> src/vid.js
 target src/r_part.js -> src/webxr.js
 target src/render.js -> src/vid.js
@@ -55,7 +57,9 @@ upward src/cd_audio.js -> src/cmd.js
 upward src/cd_audio.js -> src/common.js
 upward src/cd_audio.js -> src/console.js
 upward src/cd_audio.js -> src/cvar.js
+upward src/cd_audio.js -> src/pak.js
 upward src/cd_audio.js -> src/snd_dma.js
+upward src/cd_audio.js -> src/snd_umx.js
 upward src/cd_audio.js -> src/sound.js
 upward src/cmd.js -> src/default_cfg.js
 upward src/cmd.js -> src/protocol.js
@@ -68,12 +72,14 @@ upward src/gl_entalpha.js -> src/protocol.js
 upward src/gl_fog.js -> src/client.js
 upward src/gl_gamma.js -> src/view.js
 upward src/gl_mesh.js -> src/client.js
+upward src/gl_mesh.js -> src/protocol.js
 upward src/gl_model_upload.js -> src/client.js
 upward src/gl_rdebug.js -> src/client.js
 upward src/gl_rdebug.js -> src/server.js
 upward src/gl_rdebug.js -> src/sv_main.js
 upward src/gl_rdebug.js -> src/sv_phys.js
 upward src/gl_refrag.js -> src/client.js
+upward src/gl_refrag.js -> src/protocol.js
 upward src/gl_rlight.js -> src/client.js
 upward src/gl_rlight.js -> src/quakedef.js
 upward src/gl_rmain.js -> src/chase.js
@@ -86,6 +92,11 @@ upward src/gl_rsurf.js -> src/host.js
 upward src/gl_rsurf.js -> src/quakedef.js
 upward src/gl_softemu.js -> src/client.js
 upward src/gl_warmup.js -> src/client.js
+upward src/host_hidden.js -> src/common.js
+upward src/host_hidden.js -> src/console.js
+upward src/host_hidden.js -> src/protocol.js
+upward src/host_hidden.js -> src/server.js
+upward src/host_hidden.js -> src/vid_dynres.js
 upward src/in_web.js -> src/cl_input.js
 upward src/in_web.js -> src/cl_main.js
 upward src/in_web.js -> src/client.js
@@ -162,6 +173,7 @@ upward src/touch.js -> src/server.js
 upward src/touch.js -> src/snd_dma.js
 upward src/url_config.js -> src/common.js
 upward src/url_config.js -> src/menu_cvars.js
+upward src/url_config.js -> src/quakedef.js
 upward src/userdata.js -> src/cmd.js
 upward src/userdata.js -> src/common.js
 upward src/userdata.js -> src/cvar.js

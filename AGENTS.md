@@ -115,8 +115,9 @@ client prediction.
 - Never commit or publicly deploy `.pak` files, id/commercial data (`pak0.pak`,
   `pak1.pak`, `hipnotic`, `rogue`, `rerelease`, `id1`, `mg1`, `mg3`, `dopa`,
   `ctf`), or `static/music/`. CI fails if any `.pak` is tracked.
-- Client flags: `?base=librequake|id1|rerelease`, `?game=hipnotic|rogue|mg1`.
-  Server flags: `-hipnotic`, `-rogue`, `-game <dir>`.
+- Client flags: `?base=librequake|id1|rerelease`, `?game=<dir>` (`rogue`,
+  `hipnotic`, `quoth` or any name `COM_GameDirIsValid` accepts). Server flags:
+  `-hipnotic`, `-rogue`, `-quoth`, `-game <dir>`.
 
 ## Git workflow
 

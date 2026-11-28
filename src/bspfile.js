@@ -37,9 +37,13 @@ export const BSPVERSION = 29;
 
 // Deliberate addition (Ironwail bspfile.h BSP2VERSION_BSP2): the BSP2 format,
 // with 32-bit fields where BSP29 has shorts and float bounding boxes. The 2021
-// rerelease's dopa, mg1 and mg3 maps and two id1 vault maps use it. Ironwail's older RMQ "2PSB"
-// variant isn't supported: nothing in the rerelease uses it.
+// rerelease's dopa, mg1 and mg3 maps and two id1 vault maps use it.
 export const BSP2VERSION_BSP2 = 0x32505342; // ('B' << 0) | ('S' << 8) | ('P' << 16) | ('2' << 24)
+
+// Deliberate addition (Ironwail bspfile.h BSP2VERSION_2PSB): RMQ's first
+// version of BSP2, with 32-bit fields like BSP2 but short node and leaf
+// bounding boxes (dl1node_t, dl1leaf_t). Old RMQ-era maps use it.
+export const BSP2VERSION_2PSB = 0x42535032; // ('B' << 24) | ('S' << 16) | ('P' << 8) | '2'
 
 export const TOOLVERSION = 2;
 

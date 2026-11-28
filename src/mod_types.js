@@ -571,6 +571,7 @@ export class model_t {
     this.viswarn = false; // QuakeSpasm: Mod_DecompressVis warned once
     this.lightdata = null; // Uint8Array
     this.litfile = false; // Ironwail: lightdata is RGB from a .lit
+    this.haslitwater = false; // QuakeSpasm/Ironwail: a liquid face has a lightmap
     this.entities = null; // string
     this.contentstransparent = 0; // SURF_DRAW* liquids the vis sees through (Mod_CheckWaterVis)
 
