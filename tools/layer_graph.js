@@ -93,6 +93,8 @@ export const LAYERS = {
   // core: files and data
   "src/anorm_dots.js": "core",
   "src/bspfile.js": "core",
+  // Not in the plan: redraws a 2D canvas after a lost context.
+  "src/canvas2d.js": "core",
   "src/common.js": "core", // split, step 12
   "src/crc.js": "core",
   "src/image.js": "core",
