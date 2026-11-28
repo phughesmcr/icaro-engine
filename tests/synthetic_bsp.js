@@ -1,15 +1,22 @@
-// Synthetic BSP29 and BSP2 maps for tests. Commercial map data must never be
+// Synthetic BSP29, BSP2 and 2PSB maps for tests. Commercial map data must never be
 // committed, so tests build what they need from a description.
 
 import * as bspfile from "../src/bspfile.js";
 
-// Synthetic BSP builder: one description, written as BSP29 or BSP2
+// Synthetic BSP builder: one description, written as BSP29, BSP2 or 2PSB.
+// bspx, if given, is [ [ name, Uint8Array ] ]: a BSPX lump table and its
+// lumps, appended after the standard lumps as ericw-tools writes them.
 
-export function buildBsp(version, lumps) {
+export function buildBsp(version, lumps, bspx = []) {
   const header = 4 + bspfile.HEADER_LUMPS * 8;
   let size = header;
   for (let i = 0; i < bspfile.HEADER_LUMPS; i++) {
     size += (lumps[i] !== undefined) ? (lumps[i].length + 3) & ~3 : 0;
+  }
+  const bspxofs = size;
+  if (bspx.length > 0) {
+    size += 8 + 32 * bspx.length;
+    for (const [, data] of bspx) size += (data.length + 3) & ~3;
   }
 
   const bytes = new Uint8Array(size);
@@ -26,6 +33,20 @@ export function buildBsp(version, lumps) {
       bytes.set(lump, ofs);
       ofs += (len + 3) & ~3;
     }
+  }
+
+  if (bspx.length > 0) {
+    bytes.set(new TextEncoder().encode("BSPX"), bspxofs);
+    view.setInt32(bspxofs + 4, bspx.length, true);
+    ofs = bspxofs + 8 + 32 * bspx.length;
+    bspx.forEach(([name, data], i) => {
+      const e = bspxofs + 8 + i * 32;
+      bytes.set(new TextEncoder().encode(name), e);
+      view.setInt32(e + 24, ofs, true);
+      view.setInt32(e + 28, data.length, true);
+      bytes.set(data, ofs);
+      ofs += (data.length + 3) & ~3;
+    });
   }
 
   return bytes;
@@ -51,9 +72,13 @@ export function lump(count, size, fill) {
 //   leafs: [ { contents, mins, maxs, firstmark, nummark, ambient } ],
 //   nodes: [ { planenum, children, mins, maxs, firstface, numfaces } ],
 //   clipnodes: [ [ planenum, child0, child1 ] ], visleafs,
-//   lighting: Uint8Array (optional)
+//   lighting: Uint8Array (optional),
+//   bspx: [ [ name, Uint8Array ] ] (optional)
 // }
+// bsp2: false for BSP29, true for BSP2, "2psb" for RMQ's 2PSB (BSP2 with
+// short node and leaf bounds)
 export function writeMap(bsp2, map) {
+  const psb = bsp2 === "2psb";
   const L = [];
   L[bspfile.LUMP_PLANES] = lump(map.planes, 20, (v, o, i) => {
     v.setFloat32(o + (i % 3) * 4, 1, true); // axial normal
@@ -111,10 +136,21 @@ export function writeMap(bsp2, map) {
       else v.setUint16(o, map.marksurfaces[i], true);
     },
   );
-  L[bspfile.LUMP_LEAFS] = lump(map.leafs.length, bsp2 ? 44 : 28, (v, o, i) => {
+  const leafsize = psb ? 32 : (bsp2 ? 44 : 28);
+  L[bspfile.LUMP_LEAFS] = lump(map.leafs.length, leafsize, (v, o, i) => {
     const l = map.leafs[i];
     v.setInt32(o, l.contents, true);
     v.setInt32(o + 4, -1, true); // no vis
+    if (psb) {
+      for (let j = 0; j < 3; j++) {
+        v.setInt16(o + 8 + j * 2, l.mins[j], true);
+        v.setInt16(o + 14 + j * 2, l.maxs[j], true);
+      }
+      v.setUint32(o + 20, l.firstmark, true);
+      v.setUint32(o + 24, l.nummark, true);
+      for (let j = 0; j < 4; j++) v.setUint8(o + 28 + j, l.ambient[j]);
+      return;
+    }
     for (let j = 0; j < 3; j++) {
       if (bsp2) {
         v.setFloat32(o + 8 + j * 4, l.mins[j], true);
@@ -137,9 +173,22 @@ export function writeMap(bsp2, map) {
       v.setUint8(o + (bsp2 ? 40 : 24) + j, l.ambient[j]);
     }
   });
-  L[bspfile.LUMP_NODES] = lump(map.nodes.length, bsp2 ? 44 : 24, (v, o, i) => {
+  const nodesize = psb ? 32 : (bsp2 ? 44 : 24);
+  L[bspfile.LUMP_NODES] = lump(map.nodes.length, nodesize, (v, o, i) => {
     const n = map.nodes[i];
     v.setInt32(o, n.planenum, true);
+    if (psb) {
+      for (let j = 0; j < 2; j++) {
+        v.setInt32(o + 4 + j * 4, n.children[j], true);
+      }
+      for (let j = 0; j < 3; j++) {
+        v.setInt16(o + 12 + j * 2, n.mins[j], true);
+        v.setInt16(o + 18 + j * 2, n.maxs[j], true);
+      }
+      v.setUint32(o + 24, n.firstface, true);
+      v.setUint32(o + 28, n.numfaces, true);
+      return;
+    }
     for (let j = 0; j < 2; j++) {
       if (bsp2) v.setInt32(o + 4 + j * 4, n.children[j], true);
       else v.setInt16(o + 4 + j * 2, n.children[j], true);
@@ -187,7 +236,10 @@ export function writeMap(bsp2, map) {
     v.setInt32(o + 52, map.visleafs, true);
     v.setInt32(o + 60, map.faces.length, true);
   });
-  return buildBsp(bsp2 ? bspfile.BSP2VERSION_BSP2 : bspfile.BSPVERSION, L);
+  const version = psb ?
+    bspfile.BSP2VERSION_2PSB :
+    (bsp2 ? bspfile.BSP2VERSION_BSP2 : bspfile.BSPVERSION);
+  return buildBsp(version, L, map.bspx !== undefined ? map.bspx : []);
 }
 
 // A small map that fits both formats: a square face and a triangle, two
