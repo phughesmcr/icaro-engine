@@ -112,7 +112,10 @@ export class client_t {
 
     this.netconnection = null; // struct qsocket_s * -- communications handle
 
-    this.cmd = null; // usercmd_t -- movement
+    // usercmd_t -- movement. A struct inside client_t in C, zeroed by
+    // SV_ConnectClient's memset, so a client that spawns before its first
+    // clc_move thinks with no movement rather than reading null.
+    this.cmd = { forwardmove: 0, sidemove: 0, upmove: 0 };
     this.wishdir = new Float32Array(3); // intended motion calced from cmd
 
     this.message = new sizebuf_t(); // can be added to at any time, copied and clear once per frame
