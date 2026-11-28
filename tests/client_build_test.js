@@ -184,7 +184,15 @@ Deno.test("client build: _headers hashes every inline script in index.html", asy
     assert(csp.includes(needed), `CSP lacks ${needed}`);
   }
   assert(csp.includes("'unsafe-inline'; img-src"), "inline styles only");
-  assert(/script-src[^;]*unsafe/.test(csp) === false, "no unsafe scripts");
+  // WebAssembly compiles (tracker music); JavaScript eval and inline
+  // scripts stay blocked
+  const scriptSrc = csp.split("; ").find((d) => d.startsWith("script-src "));
+  assert(scriptSrc !== undefined, "no script-src");
+  assert(scriptSrc.includes(" 'wasm-unsafe-eval'"), "WebAssembly blocked");
+  assert(
+    /'unsafe-(eval|inline|hashes)'/.test(scriptSrc) === false,
+    "no unsafe scripts",
+  );
   // Workers static assets: 100 rules, 2,000 characters a line
   for (const line of lines) {
     assert(line.length <= 2000, `line of ${line.length} characters`);

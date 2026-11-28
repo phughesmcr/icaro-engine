@@ -1,11 +1,12 @@
 // Ported from: QuakeSpasm Quake/image.c (Image_LoadTGA) and Ironwail
 // Quake/image.c (Image_LoadImage) -- loading external images
 //
-// Only targa is ported: the skyboxes (gl_sky.js) are its one user, and the
-// 2021 rerelease add-ons ship their skyboxes as .tga.
+// The skyboxes (gl_sky.js) read targa only: the 2021 rerelease add-ons ship
+// their skyboxes as .tga. External textures (Image_FindExternal,
+// Image_LoadExternal) also take png and jpg, decoded by the browser.
 
 import { Con_Printf } from "./common.js";
-import { COM_FindFile } from "./pak.js";
+import { COM_EnsureFile, COM_FileExists, COM_FindFile } from "./pak.js";
 
 /**
  * returns { data, width, height }, data being RGBA top to bottom, or null.
@@ -23,6 +24,102 @@ export function Image_LoadImage(name) {
   }
 
   return Image_LoadTGA(file.data.subarray(0, file.size), loadfilename);
+}
+
+// External textures (mod_brush.js Mod_LoadTextures, mod_alias.js skins,
+// through gl_model_upload.js GL_LoadExternalTexture)
+
+/**
+ * Ironwail image.c Image_LoadImage's order for the formats a browser can
+ * decode: png, tga, jpg (pcx and lmp are not looked for).
+ */
+export const IMAGE_EXTENSIONS = [".png", ".tga", ".jpg"];
+
+/**
+ * The first of name.png, name.tga and name.jpg in the search path, or null.
+ *
+ * Deliberate deviation: Ironwail opens each name in turn; this asks only the
+ * directories of the paks in the search path (the player's own paks too) and
+ * the virtual files (COM_FileExists), never the server, so a map whose
+ * textures have no replacement costs no request. A loose image, on the
+ * server (static/textures/) or among the player's imported loose files, is
+ * therefore not found: replacements go in a pak.
+ */
+export function Image_FindExternal(name) {
+  for (let i = 0; i < IMAGE_EXTENSIONS.length; i++) {
+    const filename = name + IMAGE_EXTENSIONS[i];
+    if (COM_FileExists(filename) >= 0) {
+      return filename;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Fetches (from its pak, if deferred) and decodes filename, one that
+ * Image_FindExternal returned. Resolves to { data, width, height }, data RGBA
+ * top row first, or null. A .tga is read by Image_LoadTGA; .png and .jpg by
+ * the browser (Image_DecodeBrowser), so not under Deno.
+ */
+export async function Image_LoadExternal(filename) {
+  if (await COM_EnsureFile(filename) === false) {
+    return null;
+  }
+
+  const file = COM_FindFile(filename);
+  if (file === null) {
+    return null;
+  }
+
+  const buf = file.data.subarray(0, file.size);
+  if (filename.endsWith(".tga")) {
+    return Image_LoadTGA(buf, filename);
+  }
+
+  return await Image_DecodeBrowser(
+    buf,
+    filename.endsWith(".png") ? "image/png" : "image/jpeg",
+    filename,
+  );
+}
+
+/**
+ * Not in the C: decodes a png or jpg with createImageBitmap and reads its
+ * pixels back through an OffscreenCanvas. Resolves to { data, width, height }
+ * or null (with a message), and to null where there is no OffscreenCanvas
+ * (Deno). The canvas stores premultiplied colour, so a half-transparent
+ * texel's colour may come back off by a step.
+ */
+async function Image_DecodeBrowser(buf, type, filename) {
+  if (
+    typeof createImageBitmap !== "function" ||
+    typeof OffscreenCanvas !== "function"
+  ) {
+    return null;
+  }
+
+  let bitmap = null;
+  try {
+    bitmap = await createImageBitmap(new Blob([buf], { type: type }), {
+      premultiplyAlpha: "none",
+      colorSpaceConversion: "none",
+    });
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(bitmap, 0, 0);
+    const pixels = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+    return {
+      data: new Uint8Array(pixels.data.buffer),
+      width: bitmap.width,
+      height: bitmap.height,
+    };
+  } catch (e) {
+    Con_Printf("Couldn't decode " + filename + ": " + e.message + "\n");
+    return null;
+  } finally {
+    if (bitmap !== null) bitmap.close();
+  }
 }
 
 // Targa

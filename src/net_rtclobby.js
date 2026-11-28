@@ -21,6 +21,7 @@ import { Cvar_Set } from "./cvar.js";
 import { sv, svs } from "./server.js";
 import { RTC_HandleSignal, RTC_SetSignaller } from "./net_webrtc.js";
 import { Turnstile_Cancel, Turnstile_GetToken } from "./turnstile.js";
+import { HostHidden_SetHosting } from "./host_hidden.js";
 
 // Frame types, as in server/lobby_rtc.js
 const LOBBY_JOIN = 0x02;
@@ -231,6 +232,7 @@ function _RTCLobby_Request(url, role, type, value) {
         return;
       }
 
+      if (_RTCLobby_TakeLateIce(session, frame) === true) return;
       if (
         frame.type === LOBBY_SIGNAL_RELAY && frame.value !== null &&
         typeof frame.value.from === "string"
@@ -249,6 +251,24 @@ function _RTCLobby_Request(url, role, type, value) {
     };
     socket.onerror = () => {};
   });
+}
+
+/**
+ * A LOBBY_ICE after the request settled: a host's fresh ICE servers, sent
+ * before its TURN credentials expire (server/lobby_rtc.js _refreshIce). The
+ * signaller's iceServers() hands them to joiners' connections from now on;
+ * connections already open keep the servers they started with. True if the
+ * frame was a LOBBY_ICE (an empty or malformed one keeps the old servers).
+ */
+function _RTCLobby_TakeLateIce(session, frame) {
+  if (frame.type !== LOBBY_ICE) return false;
+  if (
+    session.role === "host" && Array.isArray(frame.value) &&
+    frame.value.length > 0
+  ) {
+    session.iceServers = frame.value;
+  }
+  return true;
 }
 
 // The WebRTC driver's signaller
@@ -430,6 +450,10 @@ export async function RTCLobby_HostRoom(config, spawnCount, exitRules) {
   };
   host_session = session;
 
+  // Keep the room running while this tab is hidden, hold a wake lock and
+  // warn the host (host_hidden.js), until RTCLobby_ServerShutdown
+  HostHidden_SetHosting(true);
+
   // Heartbeat: every RTCLOBBY_HEARTBEAT_MS, and at once when the player
   // count changes, so the lobby's "room is full" stays right
   let sentPlayers = 1;
@@ -526,6 +550,7 @@ export function RTCLobby_ServerShutdown() {
   host_token++;
   _RTCLobby_EndHost();
   _RTCLobby_ResetRules();
+  HostHidden_SetHosting(false);
 }
 
 function _RTCLobby_ResetRules() {

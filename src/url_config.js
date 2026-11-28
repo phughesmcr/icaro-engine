@@ -23,7 +23,9 @@
 //                        so it is never written to the saved config
 //
 // Not read here: ?room=, ?server= and ?transport= (connection plumbing in
-// sys.js, net_main.js and the net drivers, which check them themselves).
+// sys.js, net_main.js and the net drivers). URLCfg_LobbyServer below is the
+// check net_main.js runs on ?server=, and URLCfg_MapPathIsSafe the one
+// cl_parse.js runs on the map a server names before fetching it.
 //
 // The design is docs/audit/multiplayer-security.md, "URL-param config
 // design". Deliberate departures from it: no ?bind.<key>= (AGENTS.md: URL
@@ -35,6 +37,8 @@
 
 import { advancedPages } from "./menu_cvars.js";
 import { COM_GameDirIsValid } from "./common.js";
+import { MAX_QPATH } from "./quakedef.js";
+import { Sys_ParseLobbyURL } from "./sys.js";
 
 /**
  * ?game= names that stand in for WinQuake's -rogue and -hipnotic, and
@@ -507,4 +511,83 @@ export function URLCfg_BaseDirs(base) {
     message: base === null ? null : 'Ignoring unknown base "' + base +
       '" (expected ' + Object.keys(URLCFG_BASE_DIRS).join(", ") + ")",
   };
+}
+
+// ?server= and the map a server names: addresses and paths that come from
+// someone else (a crafted link, a remote host), checked before the engine
+// connects to them or fetches them (multiplayer-security.md, S7).
+
+// A DNS label: letters, digits and hyphens, not at either end (RFC 1123)
+const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+/**
+ * Whether hostname (lowercase, as URL parses it) is this machine or a private
+ * network: localhost, *.localhost, 127.0.0.0/8, [::1], 10.0.0.0/8,
+ * 172.16.0.0/12 or 192.168.0.0/16.
+ */
+function URLCfg_HostIsLocal(hostname) {
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) return true;
+  if (hostname === "[::1]") return true;
+  const ip = IPV4.exec(hostname);
+  if (ip === null) return false;
+  const a = Number(ip[1]);
+  const b = Number(ip[2]);
+  return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168);
+}
+
+/** Whether hostname is a public DNS name: two or more labels, a TLD that isn't all digits */
+function URLCfg_HostIsDnsName(hostname) {
+  if (hostname.length > 253) return false;
+  const labels = hostname.split(".");
+  if (labels.length < 2) return false;
+  if (labels.every((label) => DNS_LABEL.test(label)) === false) return false;
+  return /^[0-9]+$/.test(labels[labels.length - 1]) === false;
+}
+
+/**
+ * The lobby a page's ?server= names, as Sys_ParseLobbyURL returns it
+ * ('https://host[:port]', or 'wss://host[:port]/path' or ws://), or null
+ * when the link's lobby is refused. On top of Sys_ParseLobbyURL's syntax:
+ * - the host is a public DNS name (two or more labels, no underscores) or
+ *   this machine or a private network (URLCfg_HostIsLocal); not a public
+ *   IP address or a single-label intranet name
+ * - plain ws:// only to this machine or a private network (LAN play and
+ *   local development); a public lobby needs wss://, https:// or wts://
+ * This narrows what a crafted link can point at; it can't tell a hostile
+ * lobby on a real domain from a friendly one.
+ */
+export function URLCfg_LobbyServer(raw) {
+  const lobby = Sys_ParseLobbyURL(raw);
+  if (lobby === null) return null;
+  let u;
+  try {
+    u = new URL(lobby);
+  } catch {
+    return null;
+  }
+  const hostname = u.hostname.toLowerCase();
+  if (URLCfg_HostIsLocal(hostname)) return lobby;
+  if (URLCfg_HostIsDnsName(hostname) === false) return null;
+  return u.protocol === "ws:" ? null : lobby;
+}
+
+// A world model path: maps/, plain directory names, and a file name of
+// letters, digits, _ and - with single dots between, ending in .bsp. No
+// empty, "." or ".." segment, backslash, colon or query, so it stays inside
+// maps/ whether it becomes a URL (pak.js fetches static/<name>) or a Deno
+// file path. Wider than Room_SanitizeMapName (server/room_config.js), which
+// is for names a lobby lists: community maps use hyphens and dots.
+const MAP_PATH =
+  /^maps\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.bsp$/i;
+
+/**
+ * Whether a world model name a server sent (serverinfo's first model
+ * precache, "maps/<name>.bsp") is safe to fetch or read when this client
+ * doesn't have it yet.
+ */
+export function URLCfg_MapPathIsSafe(name) {
+  return typeof name === "string" && name.length < MAX_QPATH &&
+    MAP_PATH.test(name);
 }

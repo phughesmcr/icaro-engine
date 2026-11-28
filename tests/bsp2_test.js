@@ -108,6 +108,60 @@ Deno.test('BSP2VERSION_BSP2 is the "BSP2" magic', () => {
   assertEqual(new TextDecoder().decode(bytes), "BSP2", "magic");
 });
 
+Deno.test('BSP2VERSION_2PSB is the "2PSB" magic', () => {
+  const bytes = new Uint8Array(4);
+  new DataView(bytes.buffer).setInt32(0, bspfile.BSP2VERSION_2PSB, true);
+  assertEqual(new TextDecoder().decode(bytes), "2PSB", "magic");
+});
+
+Deno.test("the same map loads identically from BSP29 and 2PSB", () => {
+  const a = describe(loadBsp(writeMap(false, smallMap())));
+  const b = loadBsp(writeMap("2psb", smallMap()));
+  assertEqual(describe(b), a, "loaded structures");
+  assertEqual(b.leafs[2].ambient_sound_level[3], 7, "ambient level");
+  assertEqual(b.nodes[1].children[1], b.leafs[0], "leaf 0 child");
+});
+
+Deno.test("2PSB reads int children with short bounds, and has no leaf limit", () => {
+  // 70000 leafs: past both the BSP29 limit and 16 bits
+  const map = smallMap();
+  const extra = 70000 - map.leafs.length;
+  for (let i = 0; i < extra; i++) {
+    map.leafs.push({
+      contents: bspfile.CONTENTS_EMPTY,
+      mins: [-1, -2, -3],
+      maxs: [4, 5, 6],
+      firstmark: 0,
+      nummark: 0,
+      ambient: [0, 0, 0, 0],
+    });
+  }
+  map.nodes[1].children[0] = -1 - 69999;
+  map.nodes[0].mins = [-30000, -2, -3];
+  map.nodes[0].maxs = [30000, 5, 6];
+  map.nodes[1].children[1] = -1 - 80000; // bad: maps to the solid leaf
+  const mod = loadBsp(writeMap("2psb", map));
+  assertEqual(mod.leafs.length, 70000, "no leaf limit");
+  assertEqual(mod.nodes[1].children[0], mod.leafs[69999], "leaf past 16 bits");
+  assertEqual(mod.nodes[1].children[1], mod.leafs[0], "bad child");
+  assertEqual(mod.nodes[0].minmaxs[0], -30000, "short node mins");
+  assertEqual(mod.nodes[0].minmaxs[3], 30000, "short node maxs");
+  assertEqual(mod.leafs[69999].minmaxs[2], -3, "short leaf mins");
+  assertEqual(mod.leafs[69999].minmaxs[5], 6, "short leaf maxs");
+});
+
+Deno.test("2PSB lump sizes are checked against the 2PSB structs", () => {
+  // BSP2 lumps (3 leafs * 44 bytes is not a multiple of 32) under a 2PSB
+  // header: the leaf lump is refused
+  const bytes = writeMap(true, smallMap());
+  new DataView(bytes.buffer).setInt32(0, bspfile.BSP2VERSION_2PSB, true);
+  assertThrows(
+    () => loadBsp(bytes),
+    /Mod_ProcessLeafs: funny lump size/,
+    "leafs",
+  );
+});
+
 Deno.test("the same map loads identically from BSP29 and BSP2", () => {
   const a = loadBsp(writeMap(false, smallMap()));
   const da = describe(a);
@@ -366,10 +420,6 @@ Deno.test("other BSP versions are refused", () => {
     /unsupported version number \(30\)/,
     "version 30",
   );
-
-  // RMQ's 2PSB isn't supported
-  new DataView(bytes.buffer).setInt32(0, 0x42535032, true);
-  assertThrows(() => loadBsp(bytes), /unsupported version number/, "2PSB");
 });
 
 Deno.test("BSP2 faces beyond id's 999999 / -99999 extents seeds get the right extents (Ironwail FLT_MAX seeds)", () => {

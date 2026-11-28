@@ -301,3 +301,111 @@ Deno.test("CLR_GiveUp does nothing outside a retry's connect", () => {
   assertEqual(env.timers.length, 1, "the retry is still scheduled");
   assertEqual(env.giveUps.length, 0, "no give up");
 });
+
+// A connected client with a messageAge dependency (seconds, or -1)
+function makeStallEnv(host) {
+  const env = makeEnv();
+  env.age = 0;
+  env.deps.messageAge = () => env.age;
+  r.CLR_Init(env.deps);
+  r.CLR_Connected(host);
+  return env;
+}
+
+Deno.test("CLR stall: polls only with messageAge, and stops on cancel", () => {
+  const plain = makeEnv();
+  r.CLR_Connected("rtc:ABCDEFGH");
+  assertEqual(plain.timers.length, 0, "no messageAge: no poll");
+
+  const env = makeStallEnv("rtc:ABCDEFGH");
+  assertEqual(env.timers.length, 1, "one poll scheduled");
+  assertEqual(env.timers[0].ms, r.CLR_STALL_POLL_MS, "poll interval");
+  r.CLR_Cancel();
+  assertEqual(env.timers.length, 0, "cancel stops the poll");
+});
+
+Deno.test("CLR stall: a quiet host is shown, with the wait, then cleared", async () => {
+  const env = makeStallEnv("rtc:ABCDEFGH");
+  env.age = 1;
+  await env.fire(); // first visible check starts the visibility clock
+  env.time += 3000;
+  env.age = 2.5;
+  await env.fire();
+  assertEqual(env.notes.length, 0, "under CLR_STALL_MS: nothing shown");
+
+  env.time += 1000;
+  env.age = 4.2;
+  await env.fire();
+  assertEqual(env.notes.at(-1), "Waiting for the host... (4 s)", "notice");
+  assertEqual(env.log.length, 1, "one console line");
+  if (!env.log[0].includes("background")) {
+    throw new Error("the line names the background: " + env.log[0]);
+  }
+
+  env.time += 1000;
+  env.age = 5.3;
+  await env.fire();
+  assertEqual(env.notes.at(-1), "Waiting for the host... (5 s)", "updated");
+  assertEqual(env.log.length, 1, "printed once");
+
+  env.time += 1000;
+  env.age = 0.05;
+  await env.fire();
+  assertEqual(env.notes.at(-1), "", "cleared");
+  assertEqual(env.log.at(-1), "The host is back\n", "back line");
+  assertEqual(env.timers.length, 1, "still polling");
+  r.CLR_Cancel();
+});
+
+Deno.test("CLR stall: a server is named as one; not in a game is no stall", async () => {
+  const env = makeStallEnv("wss://host/mp/room/x");
+  await env.fire();
+  env.time += 4000;
+  env.age = 4;
+  await env.fire();
+  assertEqual(env.notes.at(-1), "Waiting for the server... (4 s)", "server");
+
+  // a map change (signon not done): clear without a "back" line
+  env.time += 1000;
+  env.age = -1;
+  await env.fire();
+  assertEqual(env.notes.at(-1), "", "cleared");
+  assertEqual(env.log.length, 1, "no back line");
+  r.CLR_Cancel();
+});
+
+Deno.test("CLR stall: not while this page is hidden, nor just after", async () => {
+  const env = makeStallEnv("rtc:ABCDEFGH");
+  env.hidden = true;
+  env.age = 60;
+  await env.fire();
+  env.time += 5000;
+  await env.fire();
+  assertEqual(env.notes.length, 0, "hidden: nothing");
+
+  // shown again: its own messages haven't been read yet
+  env.hidden = false;
+  await env.fire();
+  env.time += 1000;
+  await env.fire();
+  assertEqual(env.notes.length, 0, "just shown: nothing");
+
+  env.time += 2000;
+  await env.fire();
+  assertEqual(env.notes.at(-1), "Waiting for the host... (60 s)", "then shown");
+  r.CLR_Cancel();
+  assertEqual(env.notes.at(-1), "", "cancel clears the notice");
+});
+
+Deno.test("CLR stall: a lost connection clears the notice for the retry", async () => {
+  const env = makeStallEnv("rtc:ABCDEFGH");
+  await env.fire();
+  env.time += 4000;
+  env.age = 4;
+  await env.fire();
+  r.CLR_ConnectionLost();
+  assertEqual(env.notes.at(-2), "", "notice cleared");
+  assertEqual(env.notes.at(-1), "Reconnecting...", "then the retry's");
+  assertEqual(env.timers.length, 1, "only the retry timer");
+  r.CLR_Cancel();
+});

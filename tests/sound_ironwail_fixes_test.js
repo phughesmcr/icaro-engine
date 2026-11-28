@@ -332,13 +332,18 @@ class FakeAudio {
 // let promise callbacks run
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-Deno.test("CDAudio_TrackURLs searches the mission pack before id1, ogg before mp3", () => {
-  const urls = cd_audio.CDAudio_TrackURLs(2, ["static/rogue", "static"]);
-  assertEqual(
-    urls.join(" "),
-    "static/rogue/music/track02.ogg static/rogue/music/track02.mp3 static/music/track02.ogg static/music/track02.mp3",
-    "candidates",
-  );
+Deno.test("CDAudio_TrackURLs searches the mission pack before id1, then bgmusic.c's extension order", () => {
+  try {
+    cd_audio.CDAudio_SetMusicExtensions(["ogg", "mp3"]);
+    const urls = cd_audio.CDAudio_TrackURLs(2, ["static/rogue", "static"]);
+    assertEqual(
+      urls.join(" "),
+      "static/rogue/music/track02.ogg static/rogue/music/track02.mp3 static/music/track02.ogg static/music/track02.mp3",
+      "candidates",
+    );
+  } finally {
+    cd_audio.CDAudio_SetMusicExtensions(null);
+  }
 });
 
 Deno.test("CD tracks fall through missing files and retry autoplay on a user gesture", async () => {
@@ -347,6 +352,8 @@ Deno.test("CD tracks fall through missing files and retry autoplay on a user ges
   globalThis.Audio = FakeAudio;
 
   try {
+    // two candidates per directory
+    cd_audio.CDAudio_SetMusicExtensions(["ogg", "mp3"]);
     cd_audio.CDAudio_Init();
     cd_audio.CDAudio_SetTrackURLProvider((track) =>
       cd_audio.CDAudio_TrackURLs(track, ["static/rogue", "static"])
@@ -449,6 +456,7 @@ Deno.test("CD tracks fall through missing files and retry autoplay on a user ges
       "retried after a network error",
     );
   } finally {
+    cd_audio.CDAudio_SetMusicExtensions(null);
     cd_audio.CDAudio_Shutdown();
     if (hadAudio) globalThis.Audio = oldAudio;
     else delete globalThis.Audio;

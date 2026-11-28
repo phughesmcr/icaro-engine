@@ -308,6 +308,11 @@ export function COM_SetLooseFileBasePaths(basePaths) {
   looseFileBasePaths = basePaths.slice();
 }
 
+/** The loose-file base paths, highest priority first (cd_audio.js music) */
+export function COM_GetLooseFileBasePaths() {
+  return looseFileBasePaths.slice();
+}
+
 /**
  * Checks if a file is available in pak or virtualFiles.
  * If not, attempts to fetch it on demand and cache it.

@@ -414,7 +414,7 @@ Proposed first allocations (to be confirmed in the PRs that add them):
 | -------- | --- | -------------------- | ------------------------------------------------ |
 | required | 0   | `ICAP_ENTITY_EXTRAS` | `PE_EXTEND2` / `PF_EXTEND` byte: scale, colormod |
 | required | 1   | `ICAP_GAME_FIELDS`   | Profile-defined entity and player bits in use    |
-| optional | 0   | (none yet)           | First optional extension, e.g. voice or hints    |
+| optional | 0   | `ICAP_OPT_ENTSCALE`  | Entity scale in escapes `0x0001` and `0x0002`    |
 
 ### The escape message
 
@@ -436,6 +436,20 @@ byte    payload[length]
 - The length is a short, like FTE's `_sized` messages
   (`fteqw/engine/common/protocol.h:365-367`). A message can't exceed
   `NET_MAXMESSAGE` anyway.
+
+Allocated engine escape ids:
+
+| Id       | Name                    | Capability          | Payload                                                        |
+| -------- | ----------------------- | ------------------- | -------------------------------------------------------------- |
+| `0x0001` | `ICARO_EXT_ENTSCALE`    | `ICAP_OPT_ENTSCALE` | `[short entnum][byte scale]` pairs, before the packet entities |
+| `0x0002` | `ICARO_EXT_STATICSCALE` | `ICAP_OPT_ENTSCALE` | `[byte scale]` for the `svc_spawnstatic` just before it        |
+
+`ICAP_OPT_ENTSCALE` carries QuakeSpasm's `U_SCALE` and `B_SCALE` (`ENTSCALE_*`
+bytes, 16 is 1.0) in revision 1. The server sets it only when the progs declares
+a `scale` field. `0x0001` lists every entity and player in the datagram whose
+scale isn't the default; a datagram without it means all are the default.
+Revision 2's `ICAP_ENTITY_EXTRAS` is the planned home for scale on the entity
+paths, which would retire these ids.
 
 ### Entity, player and baseline extension room
 

@@ -33,9 +33,20 @@ import {
 
 export const ALARM_INTERVAL_MS = 30 * 1000;
 
-// TURN credentials outlive a game: a relay can't be refreshed once they
-// expire. TURN_TTL_SECONDS overrides this.
-export const TURN_TTL_SECONDS = 6 * 60 * 60;
+// How long TURN credentials last (the TURN_TTL_SECONDS var overrides it).
+// A trade-off: a leaked credential relays through the account for up to
+// this long, and Cloudflare drops a relay soon after its credentials expire
+// (developers.cloudflare.com/realtime/turn/faq/). A relay in use can't take
+// new credentials without an ICE restart, which this client doesn't do, so
+// a relayed connection drops when its credentials expire. Cloudflare
+// advises a TTL longer than a session; 3 h covers a long game, where 1 h
+// would drop relayed players about hourly.
+export const TURN_TTL_SECONDS = 3 * 60 * 60;
+// A host keeps its credentials for every joiner's new connection, so it gets
+// fresh ones (RtcLobby iceRefreshMs) once this fraction of the TTL has
+// passed: a connection made just before a refresh still has three quarters
+// of the TTL. The TTL bounds one relayed connection, not the room's life.
+export const TURN_REFRESH_FRACTION = 0.25;
 const TURN_TIMEOUT_MS = 5000;
 
 const _encoder = new TextEncoder();
@@ -58,8 +69,13 @@ export class LobbyCore {
     this.now = now;
     // TURNSTILE_HOSTNAMES is a var; TURNSTILE_SITEKEY and TURNSTILE_SECRET are secrets
     this.turnstileConfig = Turnstile_ConfigFrom((name) => env[name]);
+    const ttl = Number.parseInt(env.TURN_TTL_SECONDS ?? "", 10);
+    this.turnTtl = Number.isInteger(ttl) && ttl > 0 ? ttl : TURN_TTL_SECONDS;
     this.lobby = new RtcLobby({
       iceServers: (ip, role) => this.iceServers(ip, role),
+      iceRefreshMs: this._turnConfigured() ?
+        Math.round(this.turnTtl * 1000 * TURN_REFRESH_FRACTION) :
+        null,
       turnstile: (token, ip, action) =>
         Turnstile_Check(this.turnstileConfig, token, ip, action, this.fetch),
     });
@@ -179,23 +195,20 @@ export class LobbyCore {
    * TURN credentials when TURN_KEY_ID and TURN_KEY_API_TOKEN are set (as
    * secrets), else STUN only (lobby_rtc.js falls back to it on any
    * failure). The lobby only asks after a LOBBY_HOST or LOBBY_JOIN passes
-   * its limits, so a client can't mint credentials by connecting alone.
+   * its limits, or for a live host's refresh, so a client can't mint
+   * credentials by connecting alone.
    * Those limits live in memory and start again when the object
    * hibernates, so the LOBBY_TURN_LIMIT binding also caps minting per IP;
    * past it, the client gets STUN only.
    */
   async iceServers(ip, _role) {
-    const keyId = this.env.TURN_KEY_ID;
-    const token = this.env.TURN_KEY_API_TOKEN;
-    if (
-      typeof keyId !== "string" || keyId === "" || typeof token !== "string" ||
-      token === ""
-    ) return [];
+    if (this._turnConfigured() === false) return [];
     if (await Lobby_RateLimitOk(this.env.LOBBY_TURN_LIMIT, ip) === false) {
       return [];
     }
 
-    const ttl = Number.parseInt(this.env.TURN_TTL_SECONDS ?? "", 10);
+    const keyId = this.env.TURN_KEY_ID;
+    const token = this.env.TURN_KEY_API_TOKEN;
     const response = await this.fetch(
       "https://rtc.live.cloudflare.com/v1/turn/keys/" +
         encodeURIComponent(keyId) + "/credentials/generate-ice-servers",
@@ -205,9 +218,7 @@ export class LobbyCore {
           authorization: "Bearer " + token,
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          ttl: Number.isInteger(ttl) && ttl > 0 ? ttl : TURN_TTL_SECONDS,
-        }),
+        body: JSON.stringify({ ttl: this.turnTtl }),
         signal: AbortSignal.timeout(TURN_TIMEOUT_MS),
       },
     );
@@ -216,6 +227,13 @@ export class LobbyCore {
     }
     const body = await response.json();
     return body !== null && typeof body === "object" ? body.iceServers : [];
+  }
+
+  _turnConfigured() {
+    const keyId = this.env.TURN_KEY_ID;
+    const token = this.env.TURN_KEY_API_TOKEN;
+    return typeof keyId === "string" && keyId !== "" &&
+      typeof token === "string" && token !== "";
   }
 
   _sid(ws) {
