@@ -27,22 +27,25 @@ coverage/
 # Registered Quake data: must never be committed or deployed publicly.
 # Any pak, in any case and folder (as in .dockerignore; CI fails if a pak is
 # tracked).
+# The data folders have no trailing slash, so a symlink to one matches too.
 *.[pP][aA][kK]
-static/hipnotic/
-static/rogue/
+static/hipnotic
+static/rogue
+static/quoth
+static/ad
 # 2021 rerelease data (?base=rerelease) and its add-ons; id1/ for a C-style layout
-static/rerelease/
-static/id1/
-static/mg1/
-static/mg3/
-static/dopa/
-static/ctf/
+static/rerelease
+static/id1
+static/mg1
+static/mg3
+static/dopa
+static/ctf
 # A player's CD rips (music/trackNN.ogg or .mp3)
-static/music/
+static/music
 # LibreQuake (?base=librequake): a developer's unpacked copy and the release
 # zips. Players download it into browser storage; it is never committed or
 # deployed with the client (cloudflare/client/build.js denies the folder).
-static/librequake/
+static/librequake
 
 # Wrangler local state and secrets (tools/do_cpu_probe)
 .wrangler/
