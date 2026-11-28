@@ -51,8 +51,14 @@ import {
   ENTALPHA_DEFAULT,
   ENTALPHA_ENCODE,
   ENTALPHA_ZERO,
+  ENTSCALE_DEFAULT,
+  ENTSCALE_ENCODE,
   GAME_COOP,
   GAME_DEATHMATCH,
+  ICAP_OPT_ENTSCALE,
+  ICARO_EXT_ENTSCALE,
+  ICARO_EXT_HEADER_BYTES,
+  ICARO_EXT_STATICSCALE,
   ICARO_GAME_QUAKE,
   ICARO_HELLO_MARKER,
   ICARO_REVISION,
@@ -116,6 +122,7 @@ import {
   svc_damage,
   svc_deltapacketentities,
   svc_disconnect,
+  svc_icaro_ext,
   svc_localsound,
   svc_nop,
   svc_packetentities,
@@ -583,7 +590,13 @@ export function SV_SendServerinfo(client) {
   MSG_WriteShort(client.message, ICARO_REVISION);
   MSG_WriteString(client.message, ICARO_GAME_QUAKE);
   MSG_WriteByte(client.message, 0); // required capability words: none in use
-  MSG_WriteByte(client.message, 0); // optional capability words: none in use
+  // optional capability words: ICAP_OPT_ENTSCALE when the progs has "scale"
+  if (SV_EntScaleInUse()) {
+    MSG_WriteByte(client.message, 1);
+    MSG_WriteLong(client.message, ICAP_OPT_ENTSCALE);
+  } else {
+    MSG_WriteByte(client.message, 0);
+  }
   MSG_WriteByte(client.message, svs.maxclients);
 
   if (!coop.value && deathmatch.value) {
@@ -1432,11 +1445,99 @@ export function SV_WriteEntitiesToClient(client, clent, pvs, msg) {
     state.skin = ent.v.skin;
     state.effects = effects;
     state.alpha = ent.alpha;
+
+    // QuakeSpasm sv_main.c: ent->scale from the "scale" field
+    if (pr_extfields.scale >= 0) {
+      const scale = SV_EntScale(ent);
+      if (scale !== ENTSCALE_DEFAULT) {
+        sv_scale_nums[sv_scale_count] = e;
+        sv_scale_vals[sv_scale_count] = scale;
+        sv_scale_count++;
+      }
+    }
+  }
+
+  // Entity scale (ICARO_EXT_ENTSCALE), before the packet entities so that
+  // their overflow handling leaves room for it
+  if (sv_scale_count > 0) {
+    SV_WriteEntScale(msg);
   }
 
   // encode the packet entities as a delta from the
   // last packetentities acknowledged by the client
   SV_EmitPacketEntities(client, pack, msg);
+}
+
+// The entities and players with a scale other than ENTSCALE_DEFAULT that
+// this datagram sends (SV_WritePlayersToClient, SV_WriteEntitiesToClient)
+const sv_scale_nums = new Uint16Array(MAX_EDICTS);
+const sv_scale_vals = new Uint8Array(MAX_EDICTS);
+let sv_scale_count = 0;
+
+/**
+ * Not in C: whether this server's stream carries entity scale, which is
+ * QuakeSpasm's U_SCALE and B_SCALE (sent for any progs under protocol 666
+ * or 999). Icaro sends it in svc_icaro_ext messages, under the optional
+ * capability ICAP_OPT_ENTSCALE (protocol.js), and only for a progs that
+ * declares the "scale" field, so other streams don't change.
+ */
+export function SV_EntScaleInUse() {
+  return pr_extfields.scale >= 0;
+}
+
+/**
+ * QuakeSpasm sv_main.c SV_WriteEntitiesToClient: ENTSCALE_ENCODE of the
+ * "scale" field, or ENTSCALE_DEFAULT when the progs lacks it. QuakeSpasm
+ * stores it in ent->scale; nothing else here reads it, so it isn't kept.
+ */
+export function SV_EntScale(ent) {
+  if (pr_extfields.scale < 0) {
+    return ENTSCALE_DEFAULT;
+  }
+  return ENTSCALE_ENCODE(ent._fieldAccessor.getFloat(pr_extfields.scale));
+}
+
+/**
+ * Writes ICARO_EXT_ENTSCALE (protocol.js) with the scales collected for this
+ * datagram, then empties the list. Entries that don't fit are left out (the
+ * client draws those at the default scale for this frame); room is kept for
+ * an empty svc_packetentities after it.
+ */
+function SV_WriteEntScale(msg) {
+  const room = msg.maxsize - msg.cursize - ICARO_EXT_HEADER_BYTES -
+    MIN_PACKETENTITIES_BYTES;
+  let count = sv_scale_count;
+  if (count * 3 > room) {
+    count = room > 0 ? (room / 3) | 0 : 0;
+  }
+  sv_scale_count = 0;
+  if (count === 0) {
+    return;
+  }
+  MSG_WriteByte(msg, svc_icaro_ext);
+  MSG_WriteShort(msg, ICARO_EXT_ENTSCALE);
+  MSG_WriteShort(msg, count * 3);
+  for (let i = 0; i < count; i++) {
+    MSG_WriteShort(msg, sv_scale_nums[i]);
+    MSG_WriteByte(msg, sv_scale_vals[i]);
+  }
+}
+
+/**
+ * QuakeSpasm pr_cmds.c PF_makestatic: B_SCALE. Icaro writes the scale as
+ * ICARO_EXT_STATICSCALE right after the svc_spawnstatic, when it isn't the
+ * default; a client without ICAP_OPT_ENTSCALE skips it.
+ */
+export function SV_WriteStaticScale(ent) {
+  const scale = SV_EntScale(ent);
+  if (scale === ENTSCALE_DEFAULT) {
+    return;
+  }
+  SV_ReserveSignonSpace(ICARO_EXT_HEADER_BYTES + 1);
+  MSG_WriteByte(sv.signon, svc_icaro_ext);
+  MSG_WriteShort(sv.signon, ICARO_EXT_STATICSCALE);
+  MSG_WriteShort(sv.signon, 1);
+  MSG_WriteByte(sv.signon, scale);
 }
 
 /**
@@ -1717,6 +1818,8 @@ export function SV_WritePlayersToClient(_client, clent, pvs, msg) {
     sv_playermodel = SV_ModelIndex("progs/player.mdl");
   }
 
+  sv_scale_count = 0; // the scale list starts here (SV_WriteEntScale)
+
   for (let j = 0; j < svs.maxclients; j++) {
     const cl = svs.clients[j];
     if (cl.active === false || cl.spawned === false) {
@@ -1753,6 +1856,17 @@ export function SV_WritePlayersToClient(_client, clent, pvs, msg) {
     ) {
       Con_Printf("packet overflow\n");
       return;
+    }
+
+    // QuakeSpasm sends players with the other entities, U_SCALE included;
+    // SV_WriteEntitiesToClient writes the list
+    if (pr_extfields.scale >= 0) {
+      const scale = SV_EntScale(ent);
+      if (scale !== ENTSCALE_DEFAULT) {
+        sv_scale_nums[sv_scale_count] = j + 1;
+        sv_scale_vals[sv_scale_count] = scale;
+        sv_scale_count++;
+      }
     }
 
     let pflags = PF_MSEC | PF_COMMAND;

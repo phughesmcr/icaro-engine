@@ -138,7 +138,7 @@ export function ED_ClearEdict(e) {
 
 // Ironwail's qcvm->extfields: field offsets for the extension fields the
 // engine reads (set by PR_LoadProgs; -1 if the progs lacks the field)
-export const pr_extfields = { alpha: -1 };
+export const pr_extfields = { alpha: -1, scale: -1 };
 
 // Ironwail's qcvm->effects_mask (set by PR_LoadProgs): the effects bits the
 // server sends. The 2021 rerelease light bits are on only for a progs that
@@ -1128,6 +1128,9 @@ export function PR_LoadProgs(fileData) {
   // extensions the engine reads, -1 when the progs doesn't declare them
   const alphadef = ED_FindField("alpha");
   pr_extfields.alpha = alphadef !== null ? alphadef.ofs : -1;
+  // QuakeSpasm sv_main.c reads GetEdictFieldValue(ent, "scale")
+  const scaledef = ED_FindField("scale");
+  pr_extfields.scale = scaledef !== null ? scaledef.ofs : -1;
 
   pr_effects_mask = PR_FindSupportedEffects();
 }

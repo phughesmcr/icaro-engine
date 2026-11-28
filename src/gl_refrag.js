@@ -2,6 +2,7 @@
 
 import { CONTENTS_SOLID } from "./bspfile.js";
 import { efrag_t } from "./client.js";
+import { ENTSCALE_DECODE } from "./protocol.js";
 
 // ENTITY FRAGMENT FUNCTIONS
 
@@ -232,9 +233,11 @@ export function R_AddEfrags(ent) {
 
   const entmodel = ent.model;
 
+  // QuakeSpasm gl_refrag.c: the bounds times ENTSCALE_DECODE(ent->scale)
+  const scalefactor = ENTSCALE_DECODE(ent.scale);
   for (let i = 0; i < 3; i++) {
-    r_emins[i] = ent.origin[i] + entmodel.mins[i];
-    r_emaxs[i] = ent.origin[i] + entmodel.maxs[i];
+    r_emins[i] = ent.origin[i] + scalefactor * entmodel.mins[i];
+    r_emaxs[i] = ent.origin[i] + scalefactor * entmodel.maxs[i];
   }
 
   if (_cl.worldmodel != null && _cl.worldmodel.nodes != null) {

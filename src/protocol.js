@@ -40,11 +40,15 @@ export const ICARO_HELLO_MARKER = 0;
 // game directory, so rogue, hipnotic and other mods are "quake" too.
 export const ICARO_GAME_QUAKE = "quake";
 // The capability bits this build knows, one 32-bit word per entry, word 0
-// first. Revision 1 defines none; a server stream that sets a required bit
+// first. Revision 1 defines no required bits; a stream that sets a required bit
 // the client lacks is refused, and an optional bit only gates svc_icaro_ext
 // ids, so an unknown one is ignored.
 export const ICAP_REQUIRED_KNOWN = Object.freeze([]);
-export const ICAP_OPTIONAL_KNOWN = Object.freeze([]);
+// Optional word 0, bit 0: entity scale (QuakeSpasm's U_SCALE and B_SCALE)
+// in ICARO_EXT_ENTSCALE and ICARO_EXT_STATICSCALE messages. The server sets
+// it only for a progs that declares the "scale" field.
+export const ICAP_OPT_ENTSCALE = 1 << 0;
+export const ICAP_OPTIONAL_KNOWN = Object.freeze([ICAP_OPT_ENTSCALE]);
 
 // Ironwail protocol.h: FitzQuake's and RMQ's protocols. The client reads
 // them for demos (cl_parse.js); the server never writes them.
@@ -133,7 +137,7 @@ export const SND_LARGESOUND = 1 << 4; // a short soundindex (instead of a byte)
 export const B_LARGEMODEL = 1 << 0; // modelindex is short instead of byte
 export const B_LARGEFRAME = 1 << 1; // frame is short instead of byte
 export const B_ALPHA = 1 << 2; // 1 byte, uses ENTALPHA_ENCODE, not sent if ENTALPHA_DEFAULT
-export const B_SCALE = 1 << 3;
+export const B_SCALE = 1 << 3; // 1 byte, ENTSCALE_* (PROTOCOL_RMQ)
 
 // defaults for clientinfo messages
 export const DEFAULT_VIEWHEIGHT = 22;
@@ -295,6 +299,18 @@ export const svc_serversequence = 99; // [long] server frame sequence number
 export const svc_icaro_ext = 127;
 export const ICARO_EXT_HEADER_BYTES = 1 + 2 + 2;
 
+// svc_icaro_ext ids (docs/protocol-design.md, "The escape message").
+// ICARO_EXT_ENTSCALE, with ICAP_OPT_ENTSCALE: [short entnum] [byte scale]
+// pairs, ENTSCALE_* bytes, for every entity and player whose scale isn't
+// ENTSCALE_DEFAULT. It is the whole state, not a delta: the server writes it
+// in each datagram before svc_packetentities, and an entity it doesn't list,
+// or a datagram without it, has the default scale. Not in the packet entity
+// deltas, whose PE_* bits have no room without a new revision.
+export const ICARO_EXT_ENTSCALE = 0x0001;
+// ICARO_EXT_STATICSCALE, with ICAP_OPT_ENTSCALE: [byte scale] for the
+// svc_spawnstatic just before it, sent only when not ENTSCALE_DEFAULT
+export const ICARO_EXT_STATICSCALE = 0x0002;
+
 // The 1015 revision 0 numbers, for demos recorded before the versioned hello
 export const svc_playerinfo_rev0 = 42;
 export const svc_packetentities_rev0 = 47;
@@ -377,4 +393,25 @@ export function ENTALPHA_TOSAVE(a) {
   return a === ENTALPHA_DEFAULT ?
     0.0 :
     (a === ENTALPHA_ZERO ? -1.0 : (a - 1) / 254);
+}
+
+// Entity scale
+// Ported from: QuakeSpasm Quake/protocol.h (also Ironwail and QSS)
+
+export const ENTSCALE_DEFAULT = 16; // Equivalent to float 1.0f due to byte packing.
+
+/**
+ * server convert to byte to send to client. The C macro, ((a) ? ((a) * 16) :
+ * 16), lands in an unsigned char with no clamp, so out of range values are
+ * undefined behaviour; x86 builds keep the low 8 bits of the truncated value
+ * (scale 16 or more wraps, a negative scale becomes a large one). JS's
+ * ToInt32 truncates the same way, so `& 0xFF` matches them.
+ */
+export function ENTSCALE_ENCODE(a) {
+  return a !== 0 ? (a * ENTSCALE_DEFAULT) & 0xFF : ENTSCALE_DEFAULT;
+}
+
+/** client convert to float for rendering */
+export function ENTSCALE_DECODE(a) {
+  return a / ENTSCALE_DEFAULT;
 }

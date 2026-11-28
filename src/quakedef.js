@@ -157,6 +157,10 @@ export class entity_state_t {
     this.mins = new Float32Array(3); // box for PS_BOX
     this.maxs = new Float32Array(3);
     this.alpha = 0; // ENTALPHA_* byte (Ironwail entity_state_t), sent with PE_ALPHA
+    // ENTSCALE_* byte (QuakeSpasm entity_state_t), 16 is ENTSCALE_DEFAULT
+    // (protocol.js; not imported here). Only the 666 and 999 baselines
+    // (B_SCALE) set it; Icaro sends scale in svc_icaro_ext (protocol.js).
+    this.scale = 16;
   }
 
   copyFrom(other) {
@@ -181,6 +185,7 @@ export class entity_state_t {
     this.maxs[1] = other.maxs[1];
     this.maxs[2] = other.maxs[2];
     this.alpha = other.alpha;
+    this.scale = other.scale;
   }
 }
 

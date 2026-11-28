@@ -110,6 +110,7 @@ const {
   ENTALPHA_ENCODE,
   ENTALPHA_DECODE,
   ENTALPHA_TOSAVE,
+  ENTSCALE_DEFAULT,
 } = await import("../src/protocol.js");
 const { cl, cls, cl_entities, cl_static_entities, scoreboard_t, SIGNONS } =
   await import("../src/client.js");
@@ -801,7 +802,7 @@ Deno.test("svc_spawnbaseline2 reads FitzQuake's B_* fields under PROTOCOL_RMQ", 
       writeAngleShort(m, -90 + i * 90);
     }
     common.MSG_WriteByte(m, ENTALPHA_ENCODE(0.5));
-    common.MSG_WriteByte(m, 32); // scale: read and dropped
+    common.MSG_WriteByte(m, 32); // scale 2.0
 
     // with no B_* bits: id's byte model and frame, no alpha
     common.MSG_WriteByte(m, svc_spawnbaseline2);
@@ -831,13 +832,15 @@ Deno.test("svc_spawnbaseline2 reads FitzQuake's B_* fields under PROTOCOL_RMQ", 
     assertEqual(b2.origin[1], 1.0625, "int32 sixteenths");
     assertEqual(b2.angles[1], 45, "short angle");
     assertEqual(b2.alpha, ENTALPHA_DEFAULT, "no B_ALPHA");
+    assertEqual(b.scale, 32, "B_SCALE");
+    assertEqual(b2.scale, ENTSCALE_DEFAULT, "no B_SCALE");
   }, PRFL_SHORTANGLE | PRFL_INT32COORD);
 });
 
 Deno.test("svc_spawnstatic2 and svc_spawnstaticsound2 under PROTOCOL_FITZQUAKE", () => {
   clientParse(PROTOCOL_FITZQUAKE, (m) => {
     common.MSG_WriteByte(m, svc_spawnstatic2);
-    common.MSG_WriteByte(m, B_LARGEFRAME | B_ALPHA);
+    common.MSG_WriteByte(m, B_LARGEFRAME | B_ALPHA | B_SCALE);
     common.MSG_WriteByte(m, 4); // model: a byte without B_LARGEMODEL
     common.MSG_WriteShort(m, 513); // frame
     common.MSG_WriteByte(m, 0);
@@ -847,6 +850,7 @@ Deno.test("svc_spawnstatic2 and svc_spawnstaticsound2 under PROTOCOL_FITZQUAKE",
       common.MSG_WriteAngle(m, 90);
     }
     common.MSG_WriteByte(m, ENTALPHA_ENCODE(0.25));
+    common.MSG_WriteByte(m, 8); // scale 0.5
 
     // a short sound index, short coords
     common.MSG_WriteByte(m, svc_spawnstaticsound2);
@@ -869,6 +873,7 @@ Deno.test("svc_spawnstatic2 and svc_spawnstaticsound2 under PROTOCOL_FITZQUAKE",
     assertEqual(ent.origin[1], -4000.5, "static origin");
     assertEqual(ent.angles[1], 90, "static angle");
     assertEqual(ent.alpha, ENTALPHA_ENCODE(0.25), "static alpha");
+    assertEqual(ent.scale, 8, "static B_SCALE");
   });
 });
 
@@ -931,7 +936,7 @@ Deno.test("a Fitz fast update reads U_EXTEND1, alpha, frame2, model2 and lerpfin
     writeCoordInt32(m, 6000.25);
     writeAngleShort(m, 270 - 360);
     common.MSG_WriteByte(m, 77); // alpha
-    common.MSG_WriteByte(m, 16); // scale: dropped
+    common.MSG_WriteByte(m, 40); // scale 2.5
     common.MSG_WriteByte(m, 0x01); // frame2
     common.MSG_WriteByte(m, model2);
     if (lerp) common.MSG_WriteByte(m, 51);
@@ -948,6 +953,7 @@ Deno.test("a Fitz fast update reads U_EXTEND1, alpha, frame2, model2 and lerpfin
       assertEqual(ent.frame, 0x110, "U_FRAME2");
       assertEqual(ent.model, cl.model_precache[0x234], "U_MODEL2");
       assertEqual(ent.alpha, 77, "U_ALPHA");
+      assertEqual(ent.scale, 40, "U_SCALE");
       assertEqual(ent.lerpfinish, 10 + 51 / 255, "U_LERPFINISH");
       assertEqual((ent.lerpflags & LERP_FINISH) !== 0, true, "LERP_FINISH");
     }, PRFL_SHORTANGLE | PRFL_INT32COORD);
