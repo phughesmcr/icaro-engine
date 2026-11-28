@@ -53,6 +53,7 @@ import {
   slistSilent,
 } from "./net.js";
 import { sv } from "./server.js";
+import { URLCfg_LobbyServer } from "./url_config.js";
 import { svs } from "./server.js";
 import {
   Loop_CanSendMessage,
@@ -633,13 +634,13 @@ export function NET_MultiplayerAvailable() {
 }
 
 /**
- * The lobby URL: ?server=, or the transport's default, checked by
- * Sys_ParseLobbyURL. Null when ?server= is not a valid lobby address (callers
+ * The lobby URL: ?server= checked by URLCfg_LobbyServer, or the transport's
+ * default. Null when ?server= is not a valid lobby address (callers
  * refuse to connect rather than fall back to a default).
  */
 export function NET_LobbyServer() {
   const server = _NET_PageParam("server");
-  if (server !== null && server.length > 0) return Sys_ParseLobbyURL(server);
+  if (server !== null && server.length > 0) return URLCfg_LobbyServer(server);
   return NET_UseWebSocket() ?
     Sys_ParseLobbyURL(WS_DefaultServer()) :
     SYS_DEFAULT_LOBBY;

@@ -28,8 +28,9 @@
     // TURNSTILE_SITEKEY secret is stored.
     "TURNSTILE_HOSTNAMES": "quake.anglezarke.games",
     // Pages allowed to open lobby sockets (src/gate.js), comma-separated.
-    // Requests with no Origin (non-browser clients) still pass. Add
-    // "http://localhost:8137" to test a local page against this lobby.
+    // While it is set, a request with no Origin is refused too. Add
+    // "http://localhost:8137" to test a local page against this lobby, or
+    // pass --var LOBBY_ORIGINS: to wrangler dev to accept anything.
     "LOBBY_ORIGINS": "https://quake.anglezarke.games"
   },
   // Per-IP limits that survive the Durable Object's hibernation (its own

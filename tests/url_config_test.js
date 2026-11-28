@@ -8,6 +8,8 @@ import {
   URLCfg_Argv,
   URLCfg_BaseDirs,
   URLCFG_CVARS,
+  URLCfg_LobbyServer,
+  URLCfg_MapPathIsSafe,
   URLCFG_MAX_CVARS,
   URLCfg_Parse,
   URLCfg_ParseCvarValue,
@@ -368,4 +370,95 @@ Deno.test("Host_SetConfigDoneCallback runs once the command buffer drains", () =
   assertEqual(calls, 1, "once drained");
   headless_frame();
   assertEqual(calls, 1, "only once");
+});
+
+Deno.test("URLCfg_LobbyServer: public lobbies need a DNS name and TLS", () => {
+  const cases = [
+    // [?server=, expected]
+    ["wss://quake.example.com/mp/lobby", "wss://quake.example.com/mp/lobby"],
+    [
+      "wss://icaro-lobby.acct.workers.dev",
+      "wss://icaro-lobby.acct.workers.dev",
+    ],
+    ["https://mp.example:4433", "https://mp.example:4433"],
+    ["wts://lobby.example:4433", "https://lobby.example:4433"],
+    ["lobby.example", "https://lobby.example"],
+    ["wss://xn--bcher-kva.example/mp", "wss://xn--bcher-kva.example/mp"],
+    // Plain ws:// and IP literals only on this machine or a LAN
+    ["ws://127.0.0.1:4433", "ws://127.0.0.1:4433"],
+    ["ws://localhost:4433/mp", "ws://localhost:4433/mp"],
+    ["ws://game.localhost:4433", "ws://game.localhost:4433"],
+    ["ws://192.168.1.20:4433/mp", "ws://192.168.1.20:4433/mp"],
+    ["ws://10.0.0.5:4433", "ws://10.0.0.5:4433"],
+    ["ws://172.20.0.5:4433", "ws://172.20.0.5:4433"],
+    ["ws://[::1]:4433", "ws://[::1]:4433"],
+    ["https://localhost:4433", "https://localhost:4433"],
+    ["ws://quake.example.com/mp", null],
+    ["wss://203.0.113.7/mp", null],
+    ["https://203.0.113.7:4433", null],
+    ["ws://172.32.0.5:4433", null],
+    ["wss://[2001:db8::1]/mp", null],
+    ["wss://intranet/mp", null],
+    ["wss://bad_host.example/mp", null],
+    ["wss://-bad.example/mp", null],
+    ["wss://bad-.example/mp", null],
+    ["wss://example.123/mp", null],
+    // Sys_ParseLobbyURL's own refusals still hold
+    ["wss://a.example/mp%22;bind%20w%20quit;%22", null],
+    ["wss://user:pw@a.example/mp", null],
+    ["javascript:alert(1)", null],
+    ["https://a.example/path", null],
+    ["", null],
+  ];
+  for (const [raw, expected] of cases) {
+    const got = URLCfg_LobbyServer(raw);
+    if (got !== expected) {
+      throw new Error(`${raw}: expected ${expected}, got ${got}`);
+    }
+  }
+});
+
+Deno.test("URLCfg_MapPathIsSafe: only plain maps/*.bsp paths", () => {
+  for (
+    const name of [
+      "maps/e1m1.bsp",
+      "maps/start.bsp",
+      "maps/ad_e1m1.bsp",
+      "maps/jam9-author.bsp",
+      "maps/E1M1.BSP",
+      "maps/dm/arena.bsp",
+      "maps/lq.e1m1.bsp",
+    ]
+  ) {
+    if (URLCfg_MapPathIsSafe(name) !== true) throw new Error(name);
+  }
+  for (
+    const name of [
+      "maps/../pak0.pak",
+      "maps/../../etc/passwd.bsp",
+      "maps/..bsp",
+      "maps/./e1m1.bsp",
+      "maps//e1m1.bsp",
+      "maps/e1m1..bsp",
+      "/maps/e1m1.bsp",
+      "maps\\..\\e1m1.bsp",
+      "maps/e1m1.bsp?x=1",
+      "maps/e1m1.bsp#x",
+      "maps/c:e1m1.bsp",
+      "maps/e1 m1.bsp",
+      "maps/%2e%2e/e1m1.bsp",
+      "https://evil.example/maps/e1m1.bsp",
+      "progs/player.mdl",
+      "maps/e1m1",
+      "maps/.bsp",
+      "maps/" + "a".repeat(60) + ".bsp",
+      "",
+      null,
+      undefined,
+    ]
+  ) {
+    if (URLCfg_MapPathIsSafe(name) !== false) {
+      throw new Error("accepted " + JSON.stringify(name));
+    }
+  }
 });

@@ -52,6 +52,7 @@ import {
 } from "./common.js";
 import { Sys_FloatTime } from "./sys.js";
 import { COM_EnsureFile, COM_FindFile } from "./pak.js";
+import { URLCfg_MapPathIsSafe } from "./url_config.js";
 import { Cbuf_AddServerText, Cbuf_AddText } from "./cmd.js";
 import { Cmd_ExecuteString } from "./cmd.js";
 import { src_command } from "./cmd.js";
@@ -668,6 +669,8 @@ export function CL_ParseServerInfo() {
   // Lazy-load (web-only): if the world BSP isn't cached yet, fetch it on
   // demand and reconnect
   if (nummodels > 1 && COM_FindFile(model_precache[1]) === null) {
+    // The server names the file: fetch only a plain maps/*.bsp path
+    if (!URLCfg_MapPathIsSafe(model_precache[1])) Host_Error("Bad map name");
     Con_Printf("Fetching %s...\n", model_precache[1]);
 
     // A demo waits at this message for the map, then reads it again. The

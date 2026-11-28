@@ -71,11 +71,15 @@ Three layers, from the edge in:
    Durable Object, so it costs no Durable Object request:
    - The page's `Origin` must be in `LOBBY_ORIGINS` (a var in `wrangler.jsonc`,
      comma-separated). Other sites' pages can't use this lobby, or its TURN
-     relays, through their visitors' browsers. A request with no `Origin` (curl,
-     `tools/room_bench.js`) still passes: a non-browser client could forge one
-     anyway, so the limits below are what hold it. Leave the var empty to accept
-     any page, or add `http://localhost:8137` to test a local page against the
-     deployed lobby.
+     relays, through their visitors' browsers. While the var is set, a request
+     with no `Origin` (curl, a script's bare WebSocket) is refused too. A
+     non-browser client could forge the header, so this only stops casual
+     scripts; the limits below are what hold a determined one. Deno clients (the
+     headless host, the agent MCP server) send no `Origin` and are refused, but
+     lose nothing: this lobby serves only rooms hosted in browsers, and Deno has
+     no WebRTC to join one. The Deno lobby (`deno task lobby`) doesn't use this
+     gate. Leave the var empty to accept any request, or add
+     `http://localhost:8137` to test a local page against the deployed lobby.
    - `LOBBY_CONNECT_LIMIT`, a Workers rate-limit binding: 30 lobby connections
      per IP per minute, then 429. Every room-list refresh, host and join is one
      connection.
