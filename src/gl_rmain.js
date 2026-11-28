@@ -1862,7 +1862,7 @@ function _R_MirrorRemovePlayerMesh(mesh) {
 // Called at startup to initialize the renderer
 
 export function R_Init() {
-  Con_Printf("R_Init");
+  Con_Printf("R_Init\n");
 
   // Initialize r_worldentity here (deferred from module scope to avoid circular dep crash)
   r_worldentity = new entity_t();
@@ -1894,7 +1894,7 @@ export function R_Init() {
   R_InitParticles();
   R_SetParticleExternals({ scene: scene });
 
-  Con_Printf("R_Init: Three.js renderer ready");
+  Con_Printf("R_Init: Three.js renderer ready\n");
 }
 
 // R_NewMap
