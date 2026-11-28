@@ -12,7 +12,9 @@ const gl_md5 = await import("../src/gl_md5.js");
 const { cl, cls, ca_dedicated, cl_entities } = await import("../src/client.js");
 const gl_rmisc = await import("../src/gl_rmisc.js");
 const { r_avertexnormals } = await import("../src/anorm_dots.js");
-const { COM_SetModified, com_modified } = await import("../src/common.js");
+const { COM_SetModified, com_modified, Con_SetPrintFunctions } = await import(
+  "../src/common.js"
+);
 const {
   COM_AddPack,
   COM_AddPakSequence,
@@ -329,6 +331,32 @@ Deno.test("MD5_ParseModel rejects a missing anim, extra meshes and bad indices",
 });
 
 // Loading beside the .mdl
+
+Deno.test("the influences-per-vertex notice is a developer print", () =>
+  withEnhanced(1, () => {
+    const mesh = md5mesh("__md5_" + serial, {
+      weights: [0, 1, 2, 3, 4, 5, 6].map((i) =>
+        `weight ${i} 0 ${i < 2 ? 1 : 0.2} ( 0 0 0 )`
+      ),
+      counts: [[0, 1], [1, 1], [2, 5]],
+    });
+    const name = addModel({ mesh: mesh });
+    const printed = [];
+    const developer = [];
+    Con_SetPrintFunctions(
+      (fmt) => printed.push(String(fmt)),
+      (fmt) => developer.push(String(fmt)),
+    );
+    try {
+      const mod = gl_model.Mod_ForName(name + ".mdl", true);
+      assertEqual(mod.md5state, gl_model.MD5_DONE, "the MD5 loaded");
+    } finally {
+      Con_SetPrintFunctions(null, null);
+    }
+    const notice = (line) => line.includes("influences per vertex");
+    assertEqual(developer.filter(notice).length, 1, "Con_DPrintf");
+    assertEqual(printed.filter(notice).length, 0, "not Con_Printf");
+  }));
 
 Deno.test("an .md5mesh replaces the .mdl for drawing only", () =>
   withEnhanced(1, () => {
