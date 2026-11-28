@@ -146,9 +146,9 @@ a browser:
 
 Since then, checked against the code at `dev` `da4ea21` (2026-11-28):
 
-- **#309** (merged): finding 12. The warm-up no longer calls `compileAsync`, as
-  the #215 note above says: it calls the synchronous `compile()` and polls the
-  programs itself, because r183's poll threw an uncaught `TypeError` when a
+- **#309** (merged): finding 12. The #215 note above is out of date on
+  `compileAsync`: the warm-up now calls the synchronous `compile()` and polls
+  the programs itself, because r183's poll threw an uncaught `TypeError` when a
   material lost its program while it was pending. The new poll reads
   `renderer.properties`, which isn't a stable API, so check it against
   `compileAsync` when the Three.js version changes. In the desktop app's browser
