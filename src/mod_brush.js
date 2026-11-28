@@ -936,6 +936,7 @@ function Mod_LoadFaces(fileofs, filelen, bsp2 = false) {
 
   loadmodel.surfaces = out;
   loadmodel.numsurfaces = count;
+  loadmodel.haslitwater = false;
 
   const slabBytes = MSURFACE_SLAB_BYTES();
   const slab = new ArrayBuffer(count * slabBytes);
@@ -997,12 +998,23 @@ function Mod_LoadFaces(fileofs, filelen, bsp2 = false) {
     }
 
     if (s.texinfo.texture && s.texinfo.texture.name.charAt(0) === "*") {
-      s.flags |= SURF_DRAWTURB | SURF_DRAWTILED;
-      s.flags |= Mod_LiquidFlagFromName(s.texinfo.texture.name);
-      for (let i = 0; i < 2; i++) {
-        s.extents[i] = 16384;
-        s.texturemins[i] = -8192;
+      // Deliberate deviation (QuakeSpasm/Ironwail Mod_LoadFaces, lit water):
+      // only a TEX_SPECIAL liquid is tiled (unlit, with GLQuake's huge
+      // extents). A liquid face a compiler lit (no TEX_SPECIAL) keeps its
+      // real extents and gets a lightmap, which gl_rsurf.js uses while
+      // r_litwater is on; with samples, it marks the map as having lit water.
+      s.flags |= SURF_DRAWTURB;
+      if (s.texinfo.flags & TEX_SPECIAL) {
+        s.flags |= SURF_DRAWTILED;
+        for (let i = 0; i < 2; i++) {
+          s.extents[i] = 16384;
+          s.texturemins[i] = -8192;
+        }
+      } else if (s.samples !== null && !loadmodel.haslitwater) {
+        Con_DPrintf("Map has lit water\n");
+        loadmodel.haslitwater = true;
       }
+      s.flags |= Mod_LiquidFlagFromName(s.texinfo.texture.name);
 
       GL_SubdivideSurface(s);
       out[surfnum] = s;
@@ -1653,6 +1665,7 @@ export function Mod_LoadBrushModel(mod, buffer) {
       nextmodel.visdata = mod.visdata;
       nextmodel.lightdata = mod.lightdata;
       nextmodel.litfile = mod.litfile;
+      nextmodel.haslitwater = mod.haslitwater;
       nextmodel.entities = mod.entities;
       nextmodel.needload = false;
 
