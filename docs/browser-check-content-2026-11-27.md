@@ -20,12 +20,16 @@ screenshots are of LibreQuake; none shows id's or other commercial content.
 | rogue (`?game=rogue`)            | PASS   | demo1-3 (15), clean                               | PASS (r1m1)             | 17/17 clean      |
 | Quoth (`?game=quoth`)            | PASS   | vongug, coop, coop2 (15); 2 missing sounds (data) | PASS (e1m1quoth)        | 11/12; 1 is data |
 | Rerelease (`?base=rerelease`)    | PASS   | demo1-3 (15), clean                               | PASS (e1m1)             | 42/42 load       |
-| mg1 (`?base=rerelease&game=mg1`) | PASS   | none ship; id1's demo1-3 play at startup          | PASS (mge1m1, mge2m1)   | 25/25 load       |
+| mg1 (`?base=rerelease&game=mg1`) | PASS   | none ship; the rerelease's demo1-3 play           | PASS (mge1m1, mge2m1)   | 25/25 load       |
 | LibreQuake (`?base=librequake`)  | PASS   | demo1, demo2 (15), demo3 (999)                    | PASS (lq_e1m1, lq_e1m2) | 54/54 load       |
 
 No content set ships a protocol 666 demo, so 666 playback was not checked (see
 Not verified). No `Host_Error` came from the engine; the one `Host_Error` seen
 is a Quoth file that isn't a playable map (below).
+
+The finding most worth triaging is not tied to a content set: after a long
+session with the page often hidden, the status bar and all 2D text stopped
+drawing until a reload (follow-up 5).
 
 ## Setup
 
@@ -189,7 +193,9 @@ LibreQuake."
   (`librequake/manifest.json`, no files) into the origin's store, and the engine
   read LibreQuake's paks and loose files from `static/librequake/id1/` over
   HTTP. The download and stored install were checked in
-  `browser-check-2026-11-27.md`, not here.
+  `browser-check-2026-11-27.md`, not here. At a later reload the stand-in
+  manifest was gone (the store empty, `icaro_played` still set) and had to be
+  written again; I didn't look into what removed it.
 - With nothing stored, `COM_PreloadLooseConfigs` (`src/pak.js`) has no listing
   of loose `.cfg` files (HTTP has none, by design), so `default.cfg`'s
   `exec style_ironwail_modern.cfg` printed `couldn't exec` and the style's cvars
@@ -216,12 +222,13 @@ LibreQuake."
   bar, crosshair, console text and centre prints stopped drawing; the 3D view
   went on. The 2D overlay canvas itself drew a test fill, and a status bar pic
   made from `gfx.wad` there and then drew, but `Draw_String` drew nothing: the
-  canvases made once at startup (the charset in `src/gl_draw.js`, the status bar
-  pics in `src/sbar.js`) had gone blank. A reload brought everything back.
-  Chrome can discard the backing store of a 2D canvas in a background page (the
-  `contextlost` event), and nothing in `src/` handles that event for 2D canvases
-  (`src/gl_contextloss.js` covers WebGL only). The cause is likely but not
-  proven (follow-up 5).
+  charset canvas made once at startup (`src/gl_draw.js`) had gone blank, and the
+  status bar pics made at startup (`src/sbar.js`) presumably had too: I didn't
+  read them back, and the pic I tested may have been made fresh. A reload
+  brought everything back. Chrome can discard the backing store of a 2D canvas
+  in a background page (the `contextlost` event), and nothing in `src/` handles
+  that event for 2D canvases (`src/gl_contextloss.js` covers WebGL only). The
+  cause is likely but not proven (follow-up 5).
 - Five
   `Uncaught TypeError: Cannot read properties of undefined (reading
   'isReady')`
@@ -251,10 +258,10 @@ changes one setting from the row before. All ten look as intended:
 | [09](browser-check-content-2026-11-27/09-r_softemu2.jpg)         | `r_softemu 2`                      | Stronger dithering and banding                                                                                       |
 | [10](browser-check-content-2026-11-27/10-r_softemu3.jpg)         | `r_softemu 3`                      | The strongest: darker, the heaviest dithering; the HUD unaffected                                                    |
 
-On id1, hipnotic, rogue and Quoth, `hudstyle` 0, 1 and 2 were looked at but not
-saved, since those screens show commercial art: hipnotic's and Quoth's extra
-weapons and rogue's layout showed as expected. These checks are by eye: nothing
-was compared against Ironwail's own output.
+On hipnotic, `hudstyle` 0, 1 and 2 were looked at but not saved (commercial
+art): its extra weapons showed in all three. The rogue and Quoth status bars
+were looked at in the default style only. These checks are by eye: nothing was
+compared against Ironwail's own output.
 
 ## Console audit
 
@@ -283,16 +290,16 @@ above and `Fetching maps/...`.
 None of these stops a content set from playing. Ranked by how much a player
 would notice:
 
-| # | Finding                                                                                                                                                                                                                                                                                                | Likely files                                                                     |
-| - | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
-| 5 | The HUD and all 2D text can vanish in a long session with the page often hidden: canvases made once at startup go blank and are never rebuilt. Likely Chrome discarding 2D canvas backing stores (`contextlost`), which isn't handled. Needs a reproduction                                            | `src/gl_draw.js` (charset, pic canvases), `src/sbar.js`, `src/gl_contextloss.js` |
-| 6 | `Uncaught TypeError: ... 'isReady'` from Three.js `checkMaterialsReady`, seen five times in one long session                                                                                                                                                                                           | `src/gl_warmup.js` (`R_WarmupRun`, `compileAsync`)                               |
-| 3 | `progs/<name>.mdl uses up to N influences per vertex` shows in the console for most rerelease monsters; a developer notice, so `Con_DPrintf` may fit better (check what Ironwail prints)                                                                                                               | `src/gl_md5.js:1097`                                                             |
-| 4 | `Client <name> removed` prints in the game console at every map change; id's `host.c:368` uses `Sys_Printf`, which doesn't reach the console. Check whether the browser-hosted rooms rely on it before changing                                                                                        | `src/sv_main.js:2077`                                                            |
-| 2 | The intro page says "This link starts Quake." for `?game=quoth`: `INTRO_GAME_LABELS` has no `quoth` entry                                                                                                                                                                                              | `src/intro.js`                                                                   |
-| 1 | `R_InitR_Init: Three.js renderer ready`: the `R_Init` print has no newline                                                                                                                                                                                                                             | `src/gl_rmain.js:1862`                                                           |
-| 7 | `.gitignore` has no entry for `static/quoth` or `static/ad`, and its `static/hipnotic/`-style entries (trailing slash) don't match a symlink, so symlinked data dirs in a worktree show as untracked; here only the main checkout's `.git/info/exclude` covered id1, hipnotic, rogue and the rerelease | `.gitignore`                                                                     |
-| 8 | The agent's `goto` found no path to most targets on mg1's mge1m1 and mge2m1 and on LibreQuake's lq_e1m1, so a minute of agent play covers little there. Not a player-facing bug                                                                                                                        | `src/nav.js`, `src/agent.js`                                                     |
+| # | Finding                                                                                                                                                                                                                                                                                                   | Likely files                                                                     |
+| - | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 5 | The HUD and all 2D text can vanish in a long session with the page often hidden: the charset canvas made at startup went blank (the status bar pics presumably too) and nothing rebuilds it. Likely Chrome discarding 2D canvas backing stores (`contextlost`), which isn't handled. Needs a reproduction | `src/gl_draw.js` (charset, pic canvases), `src/sbar.js`, `src/gl_contextloss.js` |
+| 6 | `Uncaught TypeError: ... 'isReady'` from Three.js `checkMaterialsReady`, seen five times in one long session                                                                                                                                                                                              | `src/gl_warmup.js` (`R_WarmupRun`, `compileAsync`)                               |
+| 3 | `progs/<name>.mdl uses up to N influences per vertex` shows in the console for most rerelease monsters; a developer notice, so `Con_DPrintf` may fit better (check what Ironwail prints)                                                                                                                  | `src/gl_md5.js:1097`                                                             |
+| 4 | `Client <name> removed` prints in the game console at every map change; id's `host.c:368` uses `Sys_Printf`, which doesn't reach the console. Check whether the browser-hosted rooms rely on it before changing                                                                                           | `src/sv_main.js:2077`                                                            |
+| 2 | The intro page says "This link starts Quake." for `?game=quoth`: `INTRO_GAME_LABELS` has no `quoth` entry                                                                                                                                                                                                 | `src/intro.js`                                                                   |
+| 1 | `R_InitR_Init: Three.js renderer ready`: the `R_Init` print has no newline                                                                                                                                                                                                                                | `src/gl_rmain.js:1862`                                                           |
+| 7 | `.gitignore` has no entry for `static/quoth` or `static/ad`, and its `static/hipnotic/`-style entries (trailing slash) don't match a symlink, so symlinked data dirs in a worktree show as untracked; here only the main checkout's `.git/info/exclude` covered id1, hipnotic, rogue and the rerelease    | `.gitignore`                                                                     |
+| 8 | The agent's `goto` found no path to most targets on mg1's mge1m1 and mge2m1 and on LibreQuake's lq_e1m1, so a minute of agent play covers little there. Not a player-facing bug                                                                                                                           | `src/nav.js`, `src/agent.js`                                                     |
 
 Data issues, not the engine's (for reference only): Quoth's missing
 `necros/sec_shft.wav` and `weapons/click.wav` and its `kellbase1_fan` map file;
@@ -312,6 +319,8 @@ lines (unchanged since the earlier report).
 - Real keyboard, mouse, touch and gamepad input: play went through the agent
   API, and only the console key was pressed (synthetically). Audio was not
   listened to.
+- The status bar on id1, the rerelease and mg1, and `hudstyle` 1 and 2 on any
+  commercial set but hipnotic.
 - Rendering beyond the screenshots and a look at each set: no comparison with
   Ironwail or QuakeSpasm, and fog, skyboxes, `.lit` files and alpha surfaces
   were not specifically checked.
