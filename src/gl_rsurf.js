@@ -183,6 +183,38 @@ function R_TurbProgramKey() {
 }
 
 /**
+ * r_litwater (QuakeSpasm/Ironwail gl_rmain.c, registered in gl_rmisc.js): when
+ * the map has lit water (model_t haslitwater), its lightmapped liquid faces
+ * are drawn with their lightmaps, as Ironwail's WORLDSHADER_WATER does: the
+ * texture coordinates warp, the lightmap's don't. With 0, or on a map whose
+ * liquids are all TEX_SPECIAL, they are drawn fullbright as before.
+ */
+export const r_litwater = { name: "r_litwater", string: "1", value: 1 };
+
+function R_PatchLitTurbShader(shader) {
+  R_PatchLightmapShader(shader);
+  R_PatchTurbVertexShader(shader);
+}
+
+function R_LitTurbProgramKey() {
+  return "quake-lightmap-turb";
+}
+
+/**
+ * A liquid face with a lightmap: SURF_DRAWTURB without SURF_DRAWTILED
+ * (mod_brush.js Mod_LoadFaces, from QuakeSpasm/Ironwail)
+ */
+export function R_IsLitTurb(s) {
+  return (s.flags & (SURF_DRAWTURB | SURF_DRAWTILED)) === SURF_DRAWTURB;
+}
+
+/** QuakeSpasm/Ironwail R_DrawBrushModels_Water's choice of program */
+function R_LitWaterActive() {
+  return cl.worldmodel != null && cl.worldmodel.haslitwater === true &&
+    r_litwater.value !== 0;
+}
+
+/**
  * Sky: gl_warp.c EmitSkyPolys, per vertex:
  * 	VectorSubtract (v, r_origin, dir);
  * 	dir[2] *= 3;	// flatten the sphere
@@ -412,6 +444,7 @@ import {
   set_r_framecount,
   set_r_oldviewleaf,
   SURF_DRAWSKY,
+  SURF_DRAWTILED,
   SURF_DRAWTURB,
   SURF_PLANEBACK,
   SURF_UNDERWATER,
@@ -620,6 +653,8 @@ const _turbSkySurfaces = new Set();
 
 // Water/sky material caches: texture -> material (avoid per-frame material creation)
 const _waterMaterialCache = new Map();
+// Lit water materials, keyed by texture, lightmap block and opacity bucket
+const _litWaterMaterialCache = new Map();
 
 // Brush entity rendering support
 // currentRenderGroup is the THREE.Group that surface renderers add meshes to.
@@ -815,6 +850,61 @@ function _getWaterMaterial(t, opacity) {
   if (material.opacity !== opacity) material.opacity = opacity;
 
   return material;
+}
+
+/**
+ * Returns a cached material for a lit water surface (r_litwater): the turb
+ * texture times its lightmap block, through R_PatchLightmapShader as the
+ * world's surfaces are. Liquids have no fullbright layer (Ironwail loads
+ * them without one), so lit *lava is darkened by its lightmap too.
+ */
+function _getLitWaterMaterial(t, lightmapnum, opacity) {
+  const opKey = opacity < 1.0 ? 0 : 1;
+  const tex = (t && t.gl_texture) ? t.gl_texture : null;
+  const cacheKey = ((tex !== null ? tex.id + 1 : 0) * MAX_SANITY_LIGHTMAPS +
+        lightmapnum) * 2 + opKey;
+
+  let material = _litWaterMaterialCache.get(cacheKey);
+  if (material === undefined) {
+    const lightmapTex = lightmapTextures[lightmapnum];
+    lightmapTex.channel = 1; // uv1, from EmitWaterPolysQuake
+    material = new THREE.MeshLambertMaterial({
+      map: tex,
+      color: tex !== null ? 0xffffff : 0x406080,
+      lightMap: lightmapTex,
+      transparent: opKey === 0,
+      opacity: opacity,
+      side: THREE.DoubleSide,
+    });
+    material.onBeforeCompile = R_PatchLitTurbShader;
+    material.customProgramCacheKey = R_LitTurbProgramKey;
+    _litWaterMaterialCache.set(cacheKey, material);
+  }
+  if (material.opacity !== opacity) material.opacity = opacity;
+
+  return material;
+}
+
+/**
+ * Draws a turb surface into renderGroup: lit, with its lightmap kept up to
+ * date as R_RenderDynamicLightmaps does for the world, while R_IsLitTurb and
+ * R_LitWaterActive; else fullbright.
+ */
+function R_DrawTurbSurface(s, t, renderGroup) {
+  const geometry = EmitWaterPolysQuake(s, R_WarpTime());
+  if (geometry === null) {
+    return;
+  }
+
+  const alpha = GL_WaterAlphaForSurface(s);
+  let material;
+  if (R_IsLitTurb(s) && R_LitWaterActive()) {
+    R_UpdateSurfaceLightmap(s);
+    material = _getLitWaterMaterial(t, s.lightmaptexturenum, alpha);
+  } else {
+    material = _getWaterMaterial(t, alpha);
+  }
+  _getWaterMesh(s, geometry, material, renderGroup);
 }
 
 /**
@@ -1146,6 +1236,7 @@ function EmitWaterPolysQuake(fa, time) {
     // First time: build positions, UVs, indices and cache them
     const posArr = [];
     const uvArr = [];
+    const lmArr = R_IsLitTurb(fa) ? [] : null;
     const idxArr = [];
     let vertexCount = 0;
 
@@ -1174,6 +1265,17 @@ function EmitWaterPolysQuake(fa, time) {
 
         posArr.push(vx, vy, vz);
         uvArr.push(os, ot); // unwarped s/t; the shader adds the turbulence
+        if (lmArr !== null) {
+          // BuildSurfaceDisplayList's lightmap coordinates: os/ot are the
+          // texture's s/t without the vecs[3] offset (gl_warp.js
+          // SubdividePolygon, as in C)
+          lmArr.push(
+            (os + fa.texinfo.vecs[0][3] - fa.texturemins[0] +
+              fa.light_s * 16 + 8) / (BLOCK_WIDTH * 16),
+            (ot + fa.texinfo.vecs[1][3] - fa.texturemins[1] +
+              fa.light_t * 16 + 8) / (BLOCK_HEIGHT * 16),
+          );
+        }
         vertexCount++;
       }
 
@@ -1192,6 +1294,12 @@ function EmitWaterPolysQuake(fa, time) {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+    if (lmArr !== null) {
+      geometry.setAttribute(
+        "uv1",
+        new THREE.BufferAttribute(new Float32Array(lmArr), 2),
+      );
+    }
     geometry.setIndex(idxArr);
     geometry.computeVertexNormals();
 
@@ -1303,12 +1411,7 @@ export function R_DrawSequentialPoly(s) {
   if (s.flags & SURF_DRAWTURB) {
     const renderGroup = currentRenderGroup || worldGroup;
     if (s.polys && renderGroup) {
-      const geometry = EmitWaterPolysQuake(s, R_WarpTime());
-      if (geometry) {
-        const t = R_TextureAnimation(s.texinfo.texture);
-        const material = _getWaterMaterial(t, GL_WaterAlphaForSurface(s));
-        _getWaterMesh(s, geometry, material, renderGroup);
-      }
+      R_DrawTurbSurface(s, R_TextureAnimation(s.texinfo.texture), renderGroup);
     }
 
     return;
@@ -1342,11 +1445,7 @@ export function R_RenderBrushPoly(fa) {
   if (fa.flags & SURF_DRAWTURB) {
     const renderGroup = currentRenderGroup || worldGroup;
     if (fa.polys && renderGroup) {
-      const geometry = EmitWaterPolysQuake(fa, R_WarpTime());
-      if (geometry) {
-        const material = _getWaterMaterial(t, GL_WaterAlphaForSurface(fa));
-        _getWaterMesh(fa, geometry, material, renderGroup);
-      }
+      R_DrawTurbSurface(fa, t, renderGroup);
     }
 
     return;
@@ -1449,8 +1548,6 @@ export function R_RenderBrushPoly(fa) {
 // R_RenderDynamicLightmaps (multitexture path)
 
 export function R_RenderDynamicLightmaps(fa) {
-  let maps;
-
   inc_c_brush_polys();
 
   if (fa.flags & (SURF_DRAWSKY | SURF_DRAWTURB)) {
@@ -1461,6 +1558,18 @@ export function R_RenderDynamicLightmaps(fa) {
     fa.polys.chain = lightmap_polys[fa.lightmaptexturenum];
     lightmap_polys[fa.lightmaptexturenum] = fa.polys;
   }
+
+  R_UpdateSurfaceLightmap(fa);
+}
+
+/**
+ * The second half of R_RenderDynamicLightmaps: rebuilds the surface's part of
+ * its lightmap block when a lightstyle or dlight changed it. Lit water
+ * (R_DrawTurbSurface) uses it alone: its polys are warp polygons, not
+ * lightmap chain polys.
+ */
+function R_UpdateSurfaceLightmap(fa) {
+  let maps;
 
   // check for lightmap modification
   for (maps = 0; maps < MAXLIGHTMAPS && fa.styles[maps] !== 255; maps++) {
@@ -2294,7 +2403,8 @@ function R_CheckLightmapCvars() {
 
     for (let i = 0; i < m.numsurfaces; i++) {
       const surf = m.surfaces[i];
-      if (surf.flags & (SURF_DRAWSKY | SURF_DRAWTURB)) {
+      // the surfaces GL_CreateSurfaceLightmap gave a lightmap
+      if (surf.flags & (SURF_DRAWSKY | SURF_DRAWTILED)) {
         continue;
       }
 
@@ -2479,14 +2589,7 @@ export function R_DrawWaterSurfaces() {
 
     for (let s = waterchain; s; s = s.texturechain) {
       if (s.polys && worldGroup) {
-        const geometry = EmitWaterPolysQuake(s, R_WarpTime());
-        if (geometry) {
-          const material = _getWaterMaterial(
-            s.texinfo.texture,
-            GL_WaterAlphaForSurface(s),
-          );
-          _getWaterMesh(s, geometry, material, worldGroup);
-        }
+        R_DrawTurbSurface(s, s.texinfo.texture, worldGroup);
       }
     }
 
@@ -2507,16 +2610,18 @@ export function R_DrawWaterSurfaces() {
 
       for (; s; s = s.texturechain) {
         if (s.polys && worldGroup) {
-          const geometry = EmitWaterPolysQuake(s, R_WarpTime());
-          if (geometry) {
-            const material = _getWaterMaterial(t, GL_WaterAlphaForSurface(s));
-            _getWaterMesh(s, geometry, material, worldGroup);
-          }
+          R_DrawTurbSurface(s, t, worldGroup);
         }
       }
 
       t.texturechain = null;
     }
+  }
+
+  // R_DrawWorld uploaded the lightmaps before these were drawn: upload what
+  // lit water changed this frame, not next
+  if (R_LitWaterActive()) {
+    R_BlendLightmaps();
   }
 }
 
@@ -3016,7 +3121,9 @@ export function BuildSurfaceDisplayList(fa) {
 // GL_CreateSurfaceLightmap
 
 export function GL_CreateSurfaceLightmap(surf) {
-  if (surf.flags & (SURF_DRAWSKY | SURF_DRAWTURB)) {
+  // QuakeSpasm/Ironwail: SURF_DRAWTILED (sky, TEX_SPECIAL liquids); a lit
+  // liquid gets a lightmap (R_IsLitTurb)
+  if (surf.flags & (SURF_DRAWSKY | SURF_DRAWTILED)) {
     return;
   }
 
@@ -3405,6 +3512,8 @@ export function GL_BuildLightmaps() {
   R_DisposeTurbSkyGeometry();
   for (const mat of _waterMaterialCache.values()) mat.dispose();
   _waterMaterialCache.clear();
+  for (const mat of _litWaterMaterialCache.values()) mat.dispose();
+  _litWaterMaterialCache.clear();
 
   // Clear brush entity material cache (dispose old materials first)
   for (const mat of _brushMaterialCache.values()) mat.dispose();

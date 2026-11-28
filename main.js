@@ -30,6 +30,7 @@ import { renderer } from "./src/vid.js";
 import { VID_StartFrameLoop, VID_UncappedInterval } from "./src/vid_vsync.js";
 import { Draw_CachePicFromPNG, Draw_GetOverlayCanvas } from "./src/gl_draw.js";
 import { XR_Init } from "./src/webxr.js";
+import { HostHidden_Init } from "./src/host_hidden.js";
 import { UD_Init, UD_MountPaks } from "./src/userdata.js";
 import { Intro_Gate } from "./src/intro.js";
 import { PWA_InitLaunchQueue } from "./src/pwa_launch.js";
@@ -260,21 +261,26 @@ async function main() {
     // The one place that runs Host_Frame in the browser. VID_StartFrameLoop
     // drives it from renderer.setAnimationLoop (requestAnimationFrame, which
     // Three.js swaps for the XR session's during WebXR) or, with vid_vsync 0,
-    // from an uncapped loop (src/vid_vsync.js). timestamp is in ms; returns
-    // false when it ran no frame.
+    // from an uncapped loop (src/vid_vsync.js). While a room's host tab is
+    // hidden, src/host_hidden.js runs the same function from a Worker's ticks,
+    // so all of them share one clock. timestamp is in ms; returns false when
+    // it ran no frame.
     const frame = function (timestamp) {
       const newtime = timestamp / 1000;
       const time = newtime - oldtime;
+      // A frame's timestamp can be older than the last hidden tick, and a
+      // switch between the vsync loops can hand over one a little older than
+      // the last frame. Not false: the uncapped loop carries on.
+      if (time < 0) return true;
       oldtime = newtime;
 
       // In lockstep the agent runs the frames (src/agent.js Agent_Step)
       if (Agent_Lockstep()) return false;
 
-      // a switch between the loops can hand over a timestamp a little older
-      // than the last one
-      Host_Frame(time > 0 ? time : 0);
+      Host_Frame(time);
       return true;
     };
+    HostHidden_Init(frame);
     VID_StartFrameLoop(
       renderer,
       frame,

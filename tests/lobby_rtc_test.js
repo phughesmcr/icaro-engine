@@ -711,3 +711,93 @@ Deno.test("LOBBY_HOST with Turnstile: a socket that closes while Siteverify answ
   assertEqual((await pending).length, 0, "no frames");
   assertEqual(lobby.rooms.size, 0, "no room");
 });
+
+Deno.test("a host's heartbeat brings fresh ICE servers before its credentials expire", async () => {
+  const refresh = 45 * 60 * 1000;
+  let n = 0;
+  let failing = false;
+  const asked = [];
+  const lobby = makeLobby({
+    iceRefreshMs: refresh,
+    iceServers: (ip, role) => {
+      asked.push(ip + " " + role);
+      if (failing) return Promise.reject(new Error("down"));
+      n++;
+      return [{ urls: "turn:t:3478", username: "u" + n, credential: "c" }];
+    },
+  });
+  const { room } = await host(lobby, "h1", "10.0.0.1");
+  const beat = (now) =>
+    lobby.handle("h1", LOBBY_HEARTBEAT, json({ players: 1 }), now);
+
+  assertEqual((await beat(refresh - 1)).length, 0, "too early");
+  const fresh = await beat(refresh);
+  assertEqual(fresh.length, 1, "one frame");
+  assertEqual(fresh[0].type, LOBBY_ICE, "LOBBY_ICE");
+  assertEqual(fresh[0].to, "h1", "to the host");
+  assertEqual(body(fresh[0])[0].username, "u2", "newly minted");
+  assertEqual(asked.at(-1), "10.0.0.1 host", "minted for the host's IP");
+  assertEqual((await beat(refresh + 30000)).length, 0, "not again at once");
+
+  // A failed mint sends nothing (the old credentials still work) and
+  // tries again a minute later, not on every heartbeat
+  failing = true;
+  const due = 2 * refresh;
+  assertEqual((await beat(due)).length, 0, "nothing on failure");
+  const tries = asked.length;
+  assertEqual((await beat(due + 30000)).length, 0, "waits");
+  assertEqual(asked.length, tries, "no mint while waiting");
+  failing = false;
+  const retried = await beat(due + 60000);
+  assertEqual(retried[0].type, LOBBY_ICE, "retried after a minute");
+
+  // A joiner's or another socket's frames never mint
+  // (soon after the host's last heartbeat, so the join's prune keeps it)
+  assertEqual(
+    (await join(lobby, "j1", "10.0.0.2", room.id, due + 61000))[0].type,
+    LOBBY_ROOMS,
+    "joined",
+  );
+  const before = asked.length;
+  await lobby.handle("j1", LOBBY_HEARTBEAT, json({}), due + 61000);
+  assertEqual(asked.length, before, "joiner heartbeat ignored");
+
+  // The refresh time survives a Durable Object's hibernation
+  const record = JSON.parse(JSON.stringify(lobby.record("h1")));
+  const after = makeLobby({
+    iceRefreshMs: refresh,
+    iceServers: () => [{ urls: "turn:t:3478", username: "r" }],
+  });
+  after.restore("h1", record);
+  assertEqual(
+    (await after.handle(
+      "h1",
+      LOBBY_HEARTBEAT,
+      json({}),
+      due + 60000 + refresh - 1,
+    )).length,
+    0,
+    "restored: not yet",
+  );
+  assertEqual(
+    (await after.handle(
+      "h1",
+      LOBBY_HEARTBEAT,
+      json({}),
+      due + 60000 + refresh,
+    ))[0].type,
+    LOBBY_ICE,
+    "restored: due",
+  );
+
+  // Without iceRefreshMs (the Deno lobby, STUN only) heartbeats never mint
+  const plain = makeLobby({
+    iceServers: () => {
+      asked.push("plain");
+      return RTC_DEFAULT_ICE_SERVERS;
+    },
+  });
+  await host(plain, "h1", "10.0.0.1");
+  await plain.handle("h1", LOBBY_HEARTBEAT, json({}), 100 * refresh);
+  assertEqual(asked.filter((a) => a === "plain").length, 1, "only at host");
+});

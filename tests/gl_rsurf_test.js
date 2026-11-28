@@ -170,7 +170,7 @@ Deno.test("cached water materials track fractional opacity changes", () => {
     dispose() {},
   };
   const surface = {
-    flags: gl_rmain.SURF_DRAWTURB,
+    flags: gl_rmain.SURF_DRAWTURB | gl_rmain.SURF_DRAWTILED, // unlit (TEX_SPECIAL)
     polys: {},
     texinfo: {
       texture: { anim_total: 0, gl_texture: { id: 987654 } },
@@ -873,7 +873,7 @@ Deno.test("rebuilding lightmaps disposes water geometry no longer in the scene",
   const oldModels = cl.model_precache.slice();
   const oldFrame = gl_rmain.r_framecount;
   const surface = {
-    flags: gl_rmain.SURF_DRAWTURB,
+    flags: gl_rmain.SURF_DRAWTURB | gl_rmain.SURF_DRAWTILED, // unlit (TEX_SPECIAL)
     polys: {
       next: null,
       numverts: 3,

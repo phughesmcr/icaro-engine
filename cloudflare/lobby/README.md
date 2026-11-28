@@ -59,9 +59,19 @@ cd cloudflare/lobby && npx wrangler secret put TURN_KEY_API_TOKEN
 ```
 
 The lobby mints credentials only for a client that has just hosted a room or
-joined one, within the lobby's rate limits. They last 6 hours
-(`TURN_TTL_SECONDS` overrides that), since a relay can't be refreshed once they
-expire. If minting fails, clients get STUN only.
+joined one, within the lobby's rate limits. They last 3 hours
+(`TURN_TTL_SECONDS` overrides that). That is a trade-off: anyone holding them
+can relay through the account until they expire, and Cloudflare drops a relay
+soon after they do. The client doesn't renew a relay in use (that needs an ICE
+restart), so a relayed connection drops once its credentials expire. A host
+keeps its credentials for every joiner's new connection, so once a quarter of
+the TTL has passed its next heartbeat brings fresh ones (`LOBBY_ICE`,
+`server/lobby_rtc.js`) for the connections it opens next; a failed refresh keeps
+the old ones and tries again a minute later. A connection relayed on the host's
+side therefore lasts at least three quarters of the TTL (2 h 15 min), and one
+relayed on the joiner's side the whole TTL. Each refresh counts toward
+`LOBBY_TURN_LIMIT`. If minting fails at host or join time, clients get STUN
+only.
 
 ## Abuse limits
 
@@ -71,11 +81,15 @@ Three layers, from the edge in:
    Durable Object, so it costs no Durable Object request:
    - The page's `Origin` must be in `LOBBY_ORIGINS` (a var in `wrangler.jsonc`,
      comma-separated). Other sites' pages can't use this lobby, or its TURN
-     relays, through their visitors' browsers. A request with no `Origin` (curl,
-     `tools/room_bench.js`) still passes: a non-browser client could forge one
-     anyway, so the limits below are what hold it. Leave the var empty to accept
-     any page, or add `http://localhost:8137` to test a local page against the
-     deployed lobby.
+     relays, through their visitors' browsers. While the var is set, a request
+     with no `Origin` (curl, a script's bare WebSocket) is refused too. A
+     non-browser client could forge the header, so this only stops casual
+     scripts; the limits below are what hold a determined one. Deno clients (the
+     headless host, the agent MCP server) send no `Origin` and are refused, but
+     lose nothing: this lobby serves only rooms hosted in browsers, and Deno has
+     no WebRTC to join one. The Deno lobby (`deno task lobby`) doesn't use this
+     gate. Leave the var empty to accept any request, or add
+     `http://localhost:8137` to test a local page against the deployed lobby.
    - `LOBBY_CONNECT_LIMIT`, a Workers rate-limit binding: 30 lobby connections
      per IP per minute, then 429. Every room-list refresh, host and join is one
      connection.

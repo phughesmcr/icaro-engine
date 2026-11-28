@@ -52,6 +52,7 @@ import {
 } from "./common.js";
 import { Sys_FloatTime } from "./sys.js";
 import { COM_EnsureFile, COM_FindFile } from "./pak.js";
+import { URLCfg_MapPathIsSafe } from "./url_config.js";
 import { Cbuf_AddServerText, Cbuf_AddText } from "./cmd.js";
 import { Cmd_ExecuteString } from "./cmd.js";
 import { src_command } from "./cmd.js";
@@ -73,7 +74,11 @@ import {
   DEFAULT_SOUND_PACKET_VOLUME,
   DEFAULT_VIEWHEIGHT,
   ENTALPHA_DEFAULT,
+  ENTSCALE_DEFAULT,
+  ICAP_OPT_ENTSCALE,
   ICAP_REQUIRED_KNOWN,
+  ICARO_EXT_ENTSCALE,
+  ICARO_EXT_STATICSCALE,
   ICARO_GAME_QUAKE,
   ICARO_HELLO_MARKER,
   ICARO_REVISION,
@@ -257,6 +262,7 @@ import {
   LERP_RESETMOVE,
   R_AddEfrags,
   R_ParseParticleEffect,
+  R_RemoveEfrags,
 } from "./render.js";
 import { Host_EndGame, Host_Error, realtime, sv } from "./host.js";
 import { NET_SendMessage } from "./net_main.js";
@@ -575,6 +581,9 @@ export function CL_ParseServerInfo() {
   cl_icaro.game = ICARO_GAME_QUAKE;
   cl_icaro.required.length = 0;
   cl_icaro.optional.length = 0;
+  CL_ResetEntScale();
+  cl_entscale_fresh = false;
+  cl_static_scalable = null;
   if (i === PROTOCOL_RMQ) {
     // mh - read protocol flags from server so that we know what protocol
     // features to expect
@@ -668,6 +677,8 @@ export function CL_ParseServerInfo() {
   // Lazy-load (web-only): if the world BSP isn't cached yet, fetch it on
   // demand and reconnect
   if (nummodels > 1 && COM_FindFile(model_precache[1]) === null) {
+    // The server names the file: fetch only a plain maps/*.bsp path
+    if (!URLCfg_MapPathIsSafe(model_precache[1])) Host_Error("Bad map name");
     Con_Printf("Fetching %s...\n", model_precache[1]);
 
     // A demo waits at this message for the map, then reads it again. The
@@ -868,6 +879,13 @@ function CL_ParsePacketEntities(delta) {
     cls.signon = SIGNONS;
     CL_SignonReply();
   }
+
+  // ICARO_EXT_ENTSCALE comes before the packet entities it goes with; a
+  // datagram without it means every entity has the default scale
+  if (cl_entscale_fresh === false) {
+    CL_ResetEntScale();
+  }
+  cl_entscale_fresh = false;
 
   const seq = CL_GetServerSequence();
   const eframe = CL_GetEntityFrame(seq);
@@ -1173,6 +1191,7 @@ export function CL_ParseUpdate(bits) {
 
   // NetQuake 15 has no U_ALPHA (Fitz/Ironwail): keep the baseline's
   ent.alpha = ent.baseline.alpha;
+  ent.scale = ent.baseline.scale; // nor U_SCALE (QuakeSpasm cl_parse.c)
 
   // shift the known values for interpolation
   VectorCopy(ent.msg_origins[0], ent.msg_origins[1]);
@@ -1234,8 +1253,7 @@ export function CL_ParseUpdate(bits) {
  * U_EXTEND1 and U_EXTEND2 bytes, and alpha, scale, a second frame and model
  * byte and the lerp finish time after the angles. The model is looked up
  * after U_MODEL2, as in Ironwail. Not ported: ST_FRAMETIME (gl_model.js has
- * no such synctype) and entity scale (entities have no scale field, so the
- * U_SCALE byte is read and dropped).
+ * no such synctype).
  */
 function CL_ParseUpdateFitz(bits) {
   if (cls.signon === SIGNONS - 1) {
@@ -1391,7 +1409,9 @@ function CL_ParseUpdateFitz(bits) {
     ent.alpha = ent.baseline.alpha;
   }
   if (bits & U_SCALE) {
-    MSG_ReadByte(); // no entity scale (see above)
+    ent.scale = MSG_ReadByte();
+  } else {
+    ent.scale = ent.baseline.scale;
   }
   if (bits & U_FRAME2) {
     ent.frame = (ent.frame & 0x00FF) | (MSG_ReadByte() << 8);
@@ -1461,8 +1481,9 @@ const B_ICARO = B_LARGEMODEL | B_LARGEFRAME | B_ALPHA;
 /**
  * Ironwail added the version argument. Version 2 (FitzQuake) starts with a
  * byte of B_* bits; PROTOCOL_ICARO always has a short model index and frame
- * and an alpha byte (protocol.js); id's layout has none of them.
- * Entities have no scale field, so the B_SCALE byte is read and dropped.
+ * and an alpha byte (protocol.js); id's layout has none of them. B_SCALE
+ * (QuakeSpasm) is valid only in 999 streams with PRFL_EDICTSCALE, but like
+ * QuakeSpasm and QSS the byte is read whenever the bit is set.
  */
 export function CL_ParseBaseline(ent, version) {
   let bits = 0;
@@ -1487,9 +1508,9 @@ export function CL_ParseBaseline(ent, version) {
   ent.baseline.alpha = (bits & B_ALPHA) !== 0 ?
     MSG_ReadByte() :
     ENTALPHA_DEFAULT;
-  if ((bits & B_SCALE) !== 0) {
-    MSG_ReadByte(); // no entity scale
-  }
+  ent.baseline.scale = (bits & B_SCALE) !== 0 ?
+    MSG_ReadByte() :
+    ENTSCALE_DEFAULT;
 }
 
 /**
@@ -1838,6 +1859,8 @@ export function CL_ParseStatic(version) { // Ironwail added the argument
   ent.skinnum = ent.baseline.skin;
   ent.effects = ent.baseline.effects;
   ent.alpha = ent.baseline.alpha; //johnfitz -- alpha (Ironwail cl_parse.c)
+  ent.scale = ent.baseline.scale; // QuakeSpasm cl_parse.c
+  cl_static_scalable = ent; // ICARO_EXT_STATICSCALE may follow
 
   VectorCopy(ent.baseline.origin, ent.origin);
   VectorCopy(ent.baseline.angles, ent.angles);
@@ -2229,9 +2252,77 @@ function CL_Parse_svc_icaro_ext(_cmd) {
       "CL_ParseServerMessage: svc_icaro_ext " + id + " overruns the message",
     );
   }
-  for (let i = 0; i < length; i++) {
+  const end = msg_readcount + length;
+  if (
+    (id === ICARO_EXT_ENTSCALE || id === ICARO_EXT_STATICSCALE) &&
+    cl_icaro.optional.length > 0 &&
+    (cl_icaro.optional[0] & ICAP_OPT_ENTSCALE) !== 0
+  ) {
+    if (id === ICARO_EXT_ENTSCALE) {
+      CL_ParseEntScale(length);
+    } else if (length >= 1 && cl_static_scalable !== null) {
+      CL_ParseStaticScale();
+    }
+  }
+  while (msg_readcount < end) {
     MSG_ReadByte();
   }
+}
+
+// Entity scale under PROTOCOL_ICARO (ICARO_EXT_ENTSCALE in protocol.js): the
+// ENTSCALE_* byte of each entity number for the latest datagram. Entities
+// not in cl_entscale_nums have ENTSCALE_DEFAULT; the list lets a reset touch
+// only the entries a datagram set. CL_RelinkEntities copies them to
+// cl_entities (cl_main.js).
+const cl_entscale = new Uint8Array(MAX_EDICTS).fill(ENTSCALE_DEFAULT);
+const cl_entscale_nums = new Uint16Array(MAX_EDICTS);
+let cl_entscale_count = 0;
+let cl_entscale_fresh = false; // set by ICARO_EXT_ENTSCALE until the packet entities
+// The static entity ICARO_EXT_STATICSCALE applies to: the last one parsed
+let cl_static_scalable = null;
+
+/** The ENTSCALE_* byte for an entity number under PROTOCOL_ICARO */
+export function CL_EntityScale(num) {
+  return num < MAX_EDICTS ? cl_entscale[num] : ENTSCALE_DEFAULT;
+}
+
+function CL_ResetEntScale() {
+  for (let i = 0; i < cl_entscale_count; i++) {
+    cl_entscale[cl_entscale_nums[i]] = ENTSCALE_DEFAULT;
+  }
+  cl_entscale_count = 0;
+}
+
+/** ICARO_EXT_ENTSCALE: [short entnum] [byte scale] pairs, the whole state */
+function CL_ParseEntScale(length) {
+  CL_ResetEntScale();
+  const count = (length / 3) | 0;
+  for (let i = 0; i < count; i++) {
+    const num = MSG_ReadShort() & PE_ENT_MASK;
+    const scale = MSG_ReadByte();
+    if (num >= MAX_EDICTS) {
+      continue;
+    }
+    if (cl_entscale[num] === ENTSCALE_DEFAULT) {
+      cl_entscale_nums[cl_entscale_count++] = num;
+    }
+    cl_entscale[num] = scale;
+  }
+  cl_entscale_fresh = true;
+}
+
+/**
+ * ICARO_EXT_STATICSCALE: the scale of the static entity just parsed
+ * (QuakeSpasm's B_SCALE in svc_spawnstatic2). CL_ParseStatic linked it into
+ * the world at the default scale, so it is linked again at its own size.
+ */
+function CL_ParseStaticScale() {
+  const ent = cl_static_scalable;
+  cl_static_scalable = null;
+  ent.baseline.scale = MSG_ReadByte();
+  ent.scale = ent.baseline.scale;
+  R_RemoveEfrags(ent);
+  R_AddEfrags(ent);
 }
 
 // used by the 2021 re-release (Ironwail cl_parse.c). Ironwail hands the id

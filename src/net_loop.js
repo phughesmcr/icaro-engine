@@ -73,6 +73,15 @@ export function Loop_IsClientSocket(sock) {
   return loop_client !== null && sock === loop_client;
 }
 
+/**
+ * Web-only: whether sock is the server end of the loopback connection, the
+ * client_t of the player at this machine (single-player, or the host of a room
+ * this browser runs). Every other client came in over a network driver.
+ */
+export function Loop_IsServerSocket(sock) {
+  return loop_server !== null && sock === loop_server;
+}
+
 export function Loop_Connect(host) {
   if (host !== "local") {
     return null;

@@ -38,7 +38,9 @@ import {
   readString,
   set_loadmodel,
 } from "./model.js";
+import { Image_FindExternal } from "./image.js";
 import {
+  GL_LoadExternalTexture,
   GL_LoadTexture,
   GL_SubdivideSurface,
   R_InitSky,
@@ -52,6 +54,7 @@ import { Length, VectorCopy } from "./mathlib.js";
 import { ca_dedicated, cls } from "./client.js";
 import { r_novis } from "./glquake.js";
 import {
+  BSP2VERSION_2PSB,
   BSP2VERSION_BSP2,
   BSPVERSION,
   CONTENTS_EMPTY,
@@ -84,6 +87,93 @@ import {
 // mod_base: Uint8Array - the raw file bytes of the BSP currently being loaded
 let mod_base = null;
 
+// Q1BSPX_Setup / Q1BSPX_FindLump (Quakespasm-Spiked gl_model.c)
+
+// Deliberate addition: the BSPX extension lump table. Ironwail and QuakeSpasm
+// do not read it; this follows Quakespasm-Spiked, the community fallback
+// (AGENTS.md). Compilers such as ericw-tools append "BSPX", a lump count and
+// { char name[24], int fileofs, int filelen } entries after the last standard
+// lump. Only RGBLIGHTING is used (Mod_LoadLighting); every other lump
+// (LIGHTING_E5BGR9, LMSHIFT, LMOFFSET, LMSTYLE, DECOUPLED_LM, LIGHTINGDIR,
+// BRUSHLIST, LIGHTGRID_OCTREE, ...) is ignored.
+const SIZEOF_BSPX_LUMP = 32;
+
+// bspx_lumps: Map of lump name to { fileofs, filelen }, or null when the BSP
+// being loaded has no valid table
+let bspx_lumps = null;
+
+function Q1BSPX_Setup(lumps, filelen) {
+  bspx_lumps = null;
+
+  let misaligned = false;
+  let offs = 0;
+  for (let i = 0; i < HEADER_LUMPS; i++) {
+    if ((lumps[i].fileofs & 3) !== 0 && i !== LUMP_ENTITIES) {
+      misaligned = true;
+    }
+    if (offs < lumps[i].fileofs + lumps[i].filelen) {
+      offs = lumps[i].fileofs + lumps[i].filelen;
+    }
+  }
+  if (misaligned) {
+    Con_DPrintf("%s contains misaligned lumps\n", loadmodel.name);
+  }
+  offs = (offs + 3) & ~3;
+  if (offs + 8 > filelen) {
+    return; // no space for it
+  }
+
+  // verify the header
+  if (
+    mod_base[offs] !== 0x42 || mod_base[offs + 1] !== 0x53 ||
+    mod_base[offs + 2] !== 0x50 || mod_base[offs + 3] !== 0x58
+  ) { // "BSPX"
+    return;
+  }
+  const view = new DataView(mod_base.buffer, mod_base.byteOffset);
+  const numlumps = view.getInt32(offs + 4, true);
+  if (numlumps < 0 || offs + 8 + SIZEOF_BSPX_LUMP * numlumps > filelen) {
+    return;
+  }
+
+  const table = new Map();
+  for (let i = 0; i < numlumps; i++) {
+    const e = offs + 8 + i * SIZEOF_BSPX_LUMP;
+    let name = "";
+    for (let j = 0; j < 24 && mod_base[e + j] !== 0; j++) {
+      name += String.fromCharCode(mod_base[e + j]);
+    }
+    const fileofs = view.getInt32(e + 24, true);
+    const len = view.getInt32(e + 28, true);
+    if ((fileofs & 3) !== 0) {
+      Con_DPrintf(
+        "%s contains misaligned bspx lump %s\n",
+        loadmodel.name,
+        name,
+      );
+    }
+    // C: unsigned, so a negative offset or length is out of range too
+    if ((fileofs >>> 0) + (len >>> 0) > filelen) {
+      return;
+    }
+    // C: the first entry with a name wins (strncmp from lump 0)
+    if (!table.has(name)) {
+      table.set(name, { fileofs: fileofs, filelen: len });
+    }
+  }
+
+  bspx_lumps = table;
+}
+
+/** @returns {{fileofs: number, filelen: number} | null} */
+function Q1BSPX_FindLump(lumpname) {
+  if (bspx_lumps === null) {
+    return null;
+  }
+  const l = bspx_lumps.get(lumpname);
+  return l !== undefined ? l : null;
+}
+
 //                     BRUSHMODEL LOADING
 
 // On-disk structure sizes (must match the BSP file layout)
@@ -99,11 +189,56 @@ const SIZEOF_DLFACE = 28; // int planenum, int side, int firstedge, int numedges
 const SIZEOF_DL2NODE = 44; // int planenum, int children[2], float mins[3], float maxs[3], unsigned int firstface, unsigned int numfaces
 const SIZEOF_DL2LEAF = 44; // int contents, int visofs, float mins[3], float maxs[3], unsigned int firstmarksurface, unsigned int nummarksurfaces, byte ambient_level[4]
 const SIZEOF_DLCLIPNODE = 12; // int planenum, int children[2]
+// 2PSB (Ironwail bspfile.h dl1node_t, dl1leaf_t): BSP2's int fields with short bounds
+const SIZEOF_DL1NODE = 32; // int planenum, int children[2], short mins[3], short maxs[3], unsigned int firstface, unsigned int numfaces
+const SIZEOF_DL1LEAF = 32; // int contents, int visofs, short mins[3], short maxs[3], unsigned int firstmarksurface, unsigned int nummarksurfaces, byte ambient_level[4]
+
+// Ironwail Mod_LoadBrushModel's bsp2 levels: 0 for BSP29, 1 for 2PSB ("first
+// iteration") and 2 for BSP2 ("sanitised revision")
+const BSP2_2PSB = 1;
+const BSP2_BSP2 = 2;
 const SIZEOF_TEXINFO = 40; // float vecs[2][4], int miptex, int flags
 const SIZEOF_DPLANE = 20; // float normal[3], float dist, int type
 const SIZEOF_DMODEL = 64; // float mins[3], maxs[3], origin[3], int headnode[4], int visleafs, int firstface, int numfaces
 
 // Mod_LoadTextures
+
+/**
+ * QuakeSpasm gl_model.c Mod_LoadTextures' external textures: "first look in
+ * textures/mapname/ then look in textures/". A liquid ('*' or '!') is looked
+ * for as #name, with no fullbright layer; any other texture also takes the
+ * found image's _glow, else _luma, image as its fullbright layer. mapname is
+ * QuakeSpasm's COM_StripExtension( loadmodel->name + 5 ), so start for
+ * maps/start.bsp. Sky textures are not replaced, as in QuakeSpasm (Ironwail
+ * loads skyboxes instead). QuakeSpasm has no cvar for this (its
+ * external_textures cvar is for Half-Life wads), so neither does Icaro.
+ */
+function Mod_LoadExternalTexture(tx) {
+  const mapname = COM_StripExtension(loadmodel.name.substring(5));
+  const c = tx.name.charAt(0);
+  const liquid = c === "*" || c === "!";
+  // this also replaces the '*' with a '#'
+  const name = liquid ? "#" + tx.name.substring(1) : tx.name;
+
+  let base = Image_FindExternal("textures/" + mapname + "/" + name);
+  if (base === null) {
+    base = Image_FindExternal("textures/" + name);
+  }
+  if (base === null) {
+    return;
+  }
+
+  let glow = null;
+  if (!liquid) {
+    const found = COM_StripExtension(base);
+    glow = Image_FindExternal(found + "_glow");
+    if (glow === null) {
+      glow = Image_FindExternal(found + "_luma");
+    }
+  }
+
+  GL_LoadExternalTexture(tx.gl_texture, base, glow, false);
+}
 
 function Mod_LoadTextures(fileofs, filelen) {
   if (filelen === 0) {
@@ -237,6 +372,9 @@ function Mod_LoadTextures(fileofs, filelen) {
         false,
         fence,
       );
+      if (cls.state !== ca_dedicated) {
+        Mod_LoadExternalTexture(tx);
+      }
     }
   }
 
@@ -346,6 +484,9 @@ function Mod_LoadTextures(fileofs, filelen) {
 // renderer which it is, so maps without a .lit cost nothing extra. A
 // dedicated server, which never draws, does not read the .lit.
 // COM_EnsureFile fetches the .lit with its map (pak.js COM_EnsureLitFile).
+// Without a good .lit, a BSPX RGBLIGHTING lump is the RGB data, as in
+// Quakespasm-Spiked (litfile then means "lightdata is RGB", whichever
+// source it came from).
 function Mod_LoadLighting(fileofs, filelen) {
   loadmodel.lightdata = null;
   loadmodel.litfile = false;
@@ -389,6 +530,22 @@ function Mod_LoadLighting(fileofs, filelen) {
     } else {
       Con_Printf("Corrupt .lit file (old version?), ignoring\n");
     }
+  }
+
+  const rgb = cls.state !== ca_dedicated ?
+    Q1BSPX_FindLump("RGBLIGHTING") :
+    null;
+  if (
+    rgb !== null &&
+    (filelen === 0 || (rgb.filelen !== 0 && rgb.filelen === filelen * 3))
+  ) {
+    loadmodel.lightdata = mod_base.slice(
+      rgb.fileofs,
+      rgb.fileofs + rgb.filelen,
+    );
+    loadmodel.litfile = true;
+    Con_DPrintf("bspx ldr lighting loaded\n");
+    return;
   }
 
   if (filelen === 0) {
@@ -821,6 +978,7 @@ function Mod_LoadFaces(fileofs, filelen, bsp2 = false) {
 
   loadmodel.surfaces = out;
   loadmodel.numsurfaces = count;
+  loadmodel.haslitwater = false;
 
   const slabBytes = MSURFACE_SLAB_BYTES();
   const slab = new ArrayBuffer(count * slabBytes);
@@ -882,12 +1040,23 @@ function Mod_LoadFaces(fileofs, filelen, bsp2 = false) {
     }
 
     if (s.texinfo.texture && s.texinfo.texture.name.charAt(0) === "*") {
-      s.flags |= SURF_DRAWTURB | SURF_DRAWTILED;
-      s.flags |= Mod_LiquidFlagFromName(s.texinfo.texture.name);
-      for (let i = 0; i < 2; i++) {
-        s.extents[i] = 16384;
-        s.texturemins[i] = -8192;
+      // Deliberate deviation (QuakeSpasm/Ironwail Mod_LoadFaces, lit water):
+      // only a TEX_SPECIAL liquid is tiled (unlit, with GLQuake's huge
+      // extents). A liquid face a compiler lit (no TEX_SPECIAL) keeps its
+      // real extents and gets a lightmap, which gl_rsurf.js uses while
+      // r_litwater is on; with samples, it marks the map as having lit water.
+      s.flags |= SURF_DRAWTURB;
+      if (s.texinfo.flags & TEX_SPECIAL) {
+        s.flags |= SURF_DRAWTILED;
+        for (let i = 0; i < 2; i++) {
+          s.extents[i] = 16384;
+          s.texturemins[i] = -8192;
+        }
+      } else if (s.samples !== null && !loadmodel.haslitwater) {
+        Con_DPrintf("Map has lit water\n");
+        loadmodel.haslitwater = true;
       }
+      s.flags |= Mod_LiquidFlagFromName(s.texinfo.texture.name);
 
       GL_SubdivideSurface(s);
       out[surfnum] = s;
@@ -912,11 +1081,14 @@ function Mod_SetParent(node, parent) {
 // Mod_LoadNodes
 
 // bsp2 (Ironwail Mod_LoadNodes_L2): read dl2node_t, with int children, float
-// bounds and unsigned int face numbers. Ironwail splits the two layouts into
-// Mod_LoadNodes_S and Mod_LoadNodes_L2; one function with a branch here.
+// bounds and unsigned int face numbers. 2PSB (Mod_LoadNodes_L1) reads
+// dl1node_t, the same with short bounds. Ironwail splits the three layouts
+// into Mod_LoadNodes_S, _L1 and _L2; one function with branches here.
 
-function Mod_LoadNodes(fileofs, filelen, bsp2 = false) {
-  const size = bsp2 ? SIZEOF_DL2NODE : SIZEOF_DNODE;
+function Mod_LoadNodes(fileofs, filelen, bsp2 = 0) {
+  const size = bsp2 === BSP2_BSP2 ?
+    SIZEOF_DL2NODE :
+    (bsp2 === BSP2_2PSB ? SIZEOF_DL1NODE : SIZEOF_DNODE);
   if (filelen % size) {
     Sys_Error(
       (bsp2 ? "Mod_LoadNodes" : "MOD_LoadBmodel") + ": funny lump size in " +
@@ -950,18 +1122,30 @@ function Mod_LoadNodes(fileofs, filelen, bsp2 = false) {
     const p = view.getInt32(base, true);
     node.plane = loadmodel.planes[p];
 
-    if (bsp2) {
-      for (let j = 0; j < 3; j++) {
-        node.minmaxs[j] = view.getFloat32(base + 12 + j * 4, true);
-        node.minmaxs[3 + j] = view.getFloat32(base + 24 + j * 4, true);
+    if (bsp2 !== 0) {
+      if (bsp2 === BSP2_BSP2) {
+        for (let j = 0; j < 3; j++) {
+          node.minmaxs[j] = view.getFloat32(base + 12 + j * 4, true);
+          node.minmaxs[3 + j] = view.getFloat32(base + 24 + j * 4, true);
+        }
+
+        node.firstsurface = view.getUint32(base + 36, true);
+        node.numsurfaces = view.getUint32(base + 40, true);
+      } else {
+        for (let j = 0; j < 3; j++) {
+          node.minmaxs[j] = view.getInt16(base + 12 + j * 2, true);
+          node.minmaxs[3 + j] = view.getInt16(base + 18 + j * 2, true);
+        }
+
+        node.firstsurface = view.getUint32(base + 24, true);
+        node.numsurfaces = view.getUint32(base + 28, true);
       }
 
-      node.firstsurface = view.getUint32(base + 36, true);
-      node.numsurfaces = view.getUint32(base + 40, true);
-
+      // Ironwail: _L1 takes child 0 as a node, _L2 as leaf -1 - 0 (leaf 0)
+      const firstnode = bsp2 === BSP2_2PSB ? 0 : 1;
       for (let j = 0; j < 2; j++) {
         let c = view.getInt32(base + 4 + j * 4, true);
-        if (c > 0 && c < count) {
+        if (c >= firstnode && c < count) {
           nodeChild[i * 2 + j] = c;
         } else {
           c = -1 - c; // C: 0xffffffff - p; -1 is leaf 0
@@ -1032,10 +1216,13 @@ function Mod_LoadNodes(fileofs, filelen, bsp2 = false) {
 // Mod_LoadLeafs
 
 // bsp2 (Ironwail Mod_ProcessLeafs_L2): read dl2leaf_t, with float bounds and
-// unsigned int marksurface numbers, and no leaf limit
+// unsigned int marksurface numbers, and no leaf limit. 2PSB
+// (Mod_ProcessLeafs_L1) reads dl1leaf_t, the same with short bounds.
 
-function Mod_LoadLeafs(fileofs, filelen, bsp2 = false) {
-  const size = bsp2 ? SIZEOF_DL2LEAF : SIZEOF_DLEAF;
+function Mod_LoadLeafs(fileofs, filelen, bsp2 = 0) {
+  const size = bsp2 === BSP2_BSP2 ?
+    SIZEOF_DL2LEAF :
+    (bsp2 === BSP2_2PSB ? SIZEOF_DL1LEAF : SIZEOF_DLEAF);
   if (filelen % size) {
     Sys_Error(
       (bsp2 ? "Mod_ProcessLeafs" : "MOD_LoadBmodel") + ": funny lump size in " +
@@ -1053,8 +1240,8 @@ function Mod_LoadLeafs(fileofs, filelen, bsp2 = false) {
 
   // Deliberate deviation: QuakeSpasm's BSP29 limit check (the C has none),
   // raised with Host_Error as Ironwail does so a bad map isn't fatal.
-  // BSP2 leafs have none, as in Ironwail.
-  if (!bsp2 && count > MAX_MAP_LEAFS) {
+  // BSP2 and 2PSB leafs have none, as in Ironwail.
+  if (bsp2 === 0 && count > MAX_MAP_LEAFS) {
     Host_Error(
       "Mod_LoadLeafs: " + count + " leafs exceeds limit of " + MAX_MAP_LEAFS +
         ".",
@@ -1075,7 +1262,7 @@ function Mod_LoadLeafs(fileofs, filelen, bsp2 = false) {
     const base = i * size;
 
     let firstmarksurfaceIdx, ambientofs;
-    if (bsp2) {
+    if (bsp2 === BSP2_BSP2) {
       for (let j = 0; j < 3; j++) {
         leaf.minmaxs[j] = view.getFloat32(base + 8 + j * 4, true);
         leaf.minmaxs[3 + j] = view.getFloat32(base + 20 + j * 4, true);
@@ -1084,6 +1271,15 @@ function Mod_LoadLeafs(fileofs, filelen, bsp2 = false) {
       firstmarksurfaceIdx = view.getUint32(base + 32, true);
       leaf.nummarksurfaces = view.getUint32(base + 36, true);
       ambientofs = 40;
+    } else if (bsp2 === BSP2_2PSB) {
+      for (let j = 0; j < 3; j++) {
+        leaf.minmaxs[j] = view.getInt16(base + 8 + j * 2, true);
+        leaf.minmaxs[3 + j] = view.getInt16(base + 14 + j * 2, true);
+      }
+
+      firstmarksurfaceIdx = view.getUint32(base + 20, true);
+      leaf.nummarksurfaces = view.getUint32(base + 24, true);
+      ambientofs = 28;
     } else {
       for (let j = 0; j < 3; j++) {
         leaf.minmaxs[j] = view.getInt16(base + 8 + j * 2, true);
@@ -1364,14 +1560,18 @@ export function Mod_LoadBrushModel(mod, buffer) {
   const bytes = new Uint8Array(buffer);
   const view = new DataView(buffer);
 
-  // Deliberate deviation (Ironwail Mod_LoadBrushModel): BSP2 loads as well
-  // as BSP29 (see BSP2VERSION_BSP2 in bspfile.js)
+  // Deliberate deviation (Ironwail Mod_LoadBrushModel): BSP2 and 2PSB load
+  // as well as BSP29 (see BSP2VERSION_BSP2 and BSP2VERSION_2PSB in
+  // bspfile.js). Edges, faces, marksurfaces and clipnodes are the same in
+  // both; nodes and leafs differ.
   const version = view.getInt32(0, true);
   let bsp2;
   if (version === BSPVERSION) {
-    bsp2 = false;
+    bsp2 = 0;
+  } else if (version === BSP2VERSION_2PSB) {
+    bsp2 = BSP2_2PSB;
   } else if (version === BSP2VERSION_BSP2) {
-    bsp2 = true;
+    bsp2 = BSP2_BSP2;
   } else {
     Sys_Error(
       "Mod_LoadBrushModel: " + mod.name + " has unsupported version number (" +
@@ -1390,10 +1590,12 @@ export function Mod_LoadBrushModel(mod, buffer) {
       filelen: view.getInt32(4 + i * 8 + 4, true),
     };
   }
+  Q1BSPX_Setup(lumps, bytes.length);
+  const wide = bsp2 !== 0; // 32-bit edges, faces, marksurfaces, clipnodes
 
   // load into heap (order matters! same as original C code)
   Mod_LoadVertexes(lumps[LUMP_VERTEXES].fileofs, lumps[LUMP_VERTEXES].filelen);
-  Mod_LoadEdges(lumps[LUMP_EDGES].fileofs, lumps[LUMP_EDGES].filelen, bsp2);
+  Mod_LoadEdges(lumps[LUMP_EDGES].fileofs, lumps[LUMP_EDGES].filelen, wide);
   Mod_LoadSurfedges(
     lumps[LUMP_SURFEDGES].fileofs,
     lumps[LUMP_SURFEDGES].filelen,
@@ -1402,11 +1604,11 @@ export function Mod_LoadBrushModel(mod, buffer) {
   Mod_LoadLighting(lumps[LUMP_LIGHTING].fileofs, lumps[LUMP_LIGHTING].filelen);
   Mod_LoadPlanes(lumps[LUMP_PLANES].fileofs, lumps[LUMP_PLANES].filelen);
   Mod_LoadTexinfo(lumps[LUMP_TEXINFO].fileofs, lumps[LUMP_TEXINFO].filelen);
-  Mod_LoadFaces(lumps[LUMP_FACES].fileofs, lumps[LUMP_FACES].filelen, bsp2);
+  Mod_LoadFaces(lumps[LUMP_FACES].fileofs, lumps[LUMP_FACES].filelen, wide);
   Mod_LoadMarksurfaces(
     lumps[LUMP_MARKSURFACES].fileofs,
     lumps[LUMP_MARKSURFACES].filelen,
-    bsp2,
+    wide,
   );
   Mod_LoadVisibility(
     lumps[LUMP_VISIBILITY].fileofs,
@@ -1417,10 +1619,12 @@ export function Mod_LoadBrushModel(mod, buffer) {
   Mod_LoadClipnodes(
     lumps[LUMP_CLIPNODES].fileofs,
     lumps[LUMP_CLIPNODES].filelen,
-    bsp2,
+    wide,
   );
   Mod_LoadEntities(lumps[LUMP_ENTITIES].fileofs, lumps[LUMP_ENTITIES].filelen);
   Mod_LoadSubmodels(lumps[LUMP_MODELS].fileofs, lumps[LUMP_MODELS].filelen);
+
+  bspx_lumps = null; // the table is only valid while mod_base is
 
   Mod_MakeHull0();
 
@@ -1503,6 +1707,7 @@ export function Mod_LoadBrushModel(mod, buffer) {
       nextmodel.visdata = mod.visdata;
       nextmodel.lightdata = mod.lightdata;
       nextmodel.litfile = mod.litfile;
+      nextmodel.haslitwater = mod.haslitwater;
       nextmodel.entities = mod.entities;
       nextmodel.needload = false;
 

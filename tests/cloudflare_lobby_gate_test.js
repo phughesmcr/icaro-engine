@@ -71,8 +71,9 @@ Deno.test("lobby gate: Origin must be listed when a list is set", () => {
     "unlisted",
   );
   assertEqual(Lobby_OriginAllowed("null", list), false, "opaque origin");
-  assertEqual(Lobby_OriginAllowed(null, list), true, "no Origin header");
+  assertEqual(Lobby_OriginAllowed(null, list), false, "no Origin header");
   assertEqual(Lobby_OriginAllowed("https://evil.example", []), true, "no list");
+  assertEqual(Lobby_OriginAllowed(null, []), true, "no list, no Origin");
 });
 
 Deno.test("lobby gate: path, upgrade and Origin answers", async () => {
@@ -98,7 +99,12 @@ Deno.test("lobby gate: path, upgrade and Origin answers", async () => {
     null,
     "the game page",
   );
-  assertEqual(await Lobby_Gate(upgrade(), env), null, "no Origin");
+  assertEqual(
+    (await Lobby_Gate(upgrade(), env)).status,
+    403,
+    "no Origin while a list is set",
+  );
+  assertEqual(await Lobby_Gate(upgrade(), {}), null, "no Origin, no list");
   assertEqual(
     await Lobby_Gate(upgrade({}, "/lobby/"), {}),
     null,

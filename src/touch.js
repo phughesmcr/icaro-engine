@@ -59,6 +59,7 @@ import {
   TL_MOVABLE,
   tl_version,
 } from "./touch_layout.js";
+import { WakeLock_Hold, WakeLock_Release } from "./wake_lock.js";
 
 // CVARS (archived, set from the Touch Controls menu)
 
@@ -129,8 +130,6 @@ let menuTouchCallback = null;
 let menuSurfaceGetter = null; // returns the element the menu is drawn into
 let fullscreenActivated = false;
 let fullscreenPending = false;
-let wakeLock = null;
-let wakeLockPending = false;
 
 // Movement stick (nipplejs, loaded on demand from the import map)
 const JOYSTICK_SIZE = 120; // px, at touch_size 1
@@ -2022,53 +2021,6 @@ function Touch_UpdateBar() {
   }
 }
 
-// Wake Lock - prevents screen from dimming while playing
-
-async function Touch_RequestWakeLock() {
-  if (wakeLock !== null || wakeLockPending) return;
-  if (typeof navigator === "undefined" || !("wakeLock" in navigator)) return;
-
-  // The request is refused while the page is hidden; the visibilitychange
-  // handler retries when it comes back
-  if (document.visibilityState !== "visible") return;
-
-  wakeLockPending = true;
-
-  try {
-    const lock = await navigator.wakeLock.request("screen");
-
-    // Controls were disabled while the request was pending
-    if (!enabled) {
-      lock.release().catch(() => {});
-      return;
-    }
-
-    wakeLock = lock;
-    lock.addEventListener("release", () => {
-      if (wakeLock === lock) wakeLock = null;
-    });
-  } catch (err) {
-    console.log("Wake Lock request failed:", err.message);
-  } finally {
-    wakeLockPending = false;
-  }
-}
-
-function Touch_ReleaseWakeLock() {
-  if (wakeLock !== null) {
-    const lock = wakeLock;
-    wakeLock = null;
-    lock.release().catch(() => {});
-  }
-}
-
-// The browser releases the wake lock when the page is hidden: take it back
-function onVisibilityChange() {
-  if (enabled && document.visibilityState === "visible") {
-    Touch_RequestWakeLock();
-  }
-}
-
 // Reset when the user leaves fullscreen, so the next tap can enter it again
 function onFullscreenChange() {
   if (!document.fullscreenElement && !document.webkitFullscreenElement) {
@@ -2153,7 +2105,6 @@ export function Touch_Init(container) {
   Touch_CreateUI(container || document.body);
   Touch_BuildListeners();
 
-  document.addEventListener("visibilitychange", onVisibilityChange);
   document.addEventListener("fullscreenchange", onFullscreenChange);
   document.addEventListener("webkitfullscreenchange", onFullscreenChange);
 
@@ -2190,8 +2141,9 @@ export function Touch_Enable() {
   // Gyro if switched on and already allowed (the iOS prompt waits for a tap)
   Gyro_Update(false);
 
-  // Keep screen on while playing
-  Touch_RequestWakeLock();
+  // Keep screen on while playing (wake_lock.js takes it back when the page
+  // is shown again)
+  WakeLock_Hold("touch");
 }
 
 /** Disable touch controls (hide UI, remove listeners) */
@@ -2212,7 +2164,7 @@ export function Touch_Disable() {
   Gyro_Stop();
 
   // Release wake lock when not playing
-  Touch_ReleaseWakeLock();
+  WakeLock_Release("touch");
 
   // Release FIRE/JUMP (their touchend will never arrive), reset the stick
   Touch_ReleaseButtons();
