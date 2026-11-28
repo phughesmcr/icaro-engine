@@ -18,18 +18,20 @@ re-exports count. The audit's numbers (`docs/audit/architecture.md`, measured at
 are the current ones. These numbers are a snapshot: re-run the script, now in
 the repository (`deno task layers`), before relying on one.
 
-Status, checked at `dev` `eac77a1` (2026-11-28): step 1 is done (#295); the
-later steps' layer moves aren't built. The `gl_model.js` split was done
-separately (#280). The checker reproduced this doc's 107 and 40 at 694b2cc, as
-#295 reports. At `eac77a1` it reads 128 files and 816 import pairs and counts
-132 upward imports (up from 107) and 49 target ones (browser-only modules
-imported by core or game, up from 40), with static import cycles of 61 and 4
-modules. Its test is stricter than step 1 asks: a baseline edge that has gone
-fails it too, until the baseline is rewritten. It also fails on a file with no
-row, or a row with no file. Cycles are reported, not ratcheted. #295 asks the
-maintainer to confirm some placements: `url_config.js`, `intro.js` and
-`librequake.js` as browser, `server/game_data.js` as app, and the files from
-#280, `gl_softemu.js` and `gl_rdebug.js` as core.
+Status, checked at `dev` `da4ea21` (2026-11-28): steps 1 (#295) and 2 (#312) are
+done; the later steps' layer moves aren't built. The `gl_model.js` split was
+done separately (#280). The checker reproduced this doc's 107 and 40 at 694b2cc,
+as #295 reports. At `da4ea21` it reads 129 files and 817 import pairs (one more
+of each than at `eac77a1`: #311's `src/canvas2d.js`, a core file that the
+assignment below doesn't list) and counts 132 upward imports (up from 107) and
+49 target ones (browser-only modules imported by core or game, up from 40), with
+static import cycles of 61 and 4 modules. Step 2 changed none of these. The
+checker's test is stricter than step 1 asks: a baseline edge that has gone fails
+it too, until the baseline is rewritten. It also fails on a file with no row, or
+a row with no file. Cycles are reported, not ratcheted. #295 asks the maintainer
+to confirm some placements: `url_config.js`, `intro.js` and `librequake.js` as
+browser, `server/game_data.js` as app, and the files from #280, `gl_softemu.js`
+and `gl_rdebug.js` as core.
 
 It follows the agreed direction in the audit (`docs/audit/README.md`, decision
 6, "three layers") and the rules in AGENTS.md's "Compatibility and fidelity"
@@ -451,7 +453,18 @@ and the docs-only #257. `docs/protocol-design.md` (#256, merged) will lead to
    status above.
 2. **Delete dead duplicates.** The unimported copies in `glquake.js` and the
    empty `render.js` stubs. Conflicts: none of the open PRs touch those two
-   files; land after #253 in case it adds an importer.
+   files; land after #253 in case it adds an importer. **Done (#312):** 60
+   unused exports are gone from `glquake.js` (the copies, `particle_t` and
+   `pt_*`, `GL_Bind` and the empty `GL_BeginRendering` and `GL_EndRendering`
+   among them) and 16 from `render.js` (13 empty stubs and 3 placeholder
+   values). The two bullets for this step under Duplicated state describe the
+   code before it. Some duplicates remain, imported ones or ones outside this
+   step: `VERTEXSIZE`, `MAXLIGHTMAPS`, `glpoly_t`, `gl_warp.js`'s
+   `skytexturenum`, `gl_rmain.js`'s `r_notexture_mip`, and
+   `TOP_RANGE`/`BOTTOM_RANGE` in `menu.js` and `gl_rmisc.js`. Unimported header
+   leftovers that copy nothing live also stay. The PR reports unchanged bench
+   checksums. Its browser check reached only the intro screen, so gameplay
+   wasn't verified.
 3. **Net driver table to the entry points** (S5, and the `net_main` row of
    Browser-only modules). `NET_Init` keeps loopback in slot 0; the browser
    drivers are registered by the browser entry instead of being imported by

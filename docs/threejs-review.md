@@ -144,6 +144,18 @@ a browser:
   devices are capped at 2, `?dpr=` overrides, and `vid_quality` presets can set
   `vid_dprcap` (`src/vid.js` `VID_ComputePixelRatio`).
 
+Since then, checked against the code at `dev` `da4ea21` (2026-11-28):
+
+- **#309** (merged): finding 12. The warm-up no longer calls `compileAsync`, as
+  the #215 note above says: it calls the synchronous `compile()` and polls the
+  programs itself, because r183's poll threw an uncaught `TypeError` when a
+  material lost its program while it was pending. The new poll reads
+  `renderer.properties`, which isn't a stable API, so check it against
+  `compileAsync` when the Three.js version changes. In the desktop app's browser
+  pane the PR reproduced the error with an injected disposal, and didn't get it
+  with the fix. The context-restore path to the error is from reading the source
+  only, and hitch timing, XR, mobile and other browsers weren't checked.
+
 ## Summary
 
 | #  | Sev     | Area     | Finding                                                                                                 | Status                                                   |

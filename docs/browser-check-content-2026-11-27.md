@@ -11,6 +11,27 @@ the in-game console. Then the overlaid status bar (`hudstyle`, `scr_sbaralpha`),
 Nothing here was fixed: the findings are listed for triage at the end. The only
 screenshots are of LibreQuake; none shows id's or other commercial content.
 
+Status since (checked at `dev` `da4ea21` by reading the code; this check wasn't
+rerun): of the candidate follow-ups at the end,
+
+- **1** (`R_Init`'s newlines), **2** (Quoth's intro label), **3** (the
+  influences notice is developer-only), **4** (`Client <name> removed` goes to
+  `Sys_Printf`, not the game console; a crash drop prints it too, a marked
+  deviation) and **7** (`.gitignore`) were fixed in #310, which had no browser
+  check or live dedicated server run.
+- **6** (`isReady`) was fixed in #309: the shader warm-up polls its programs
+  itself instead of calling `compileAsync`. In the desktop app's browser pane
+  the PR reproduced the error on `dev` with an injected disposal, and didn't get
+  it with the fix. What caused this report's five errors wasn't reproduced.
+- **5** (blank 2D canvases) is addressed in #311, not confirmed fixed: the
+  charset, pic and PNG canvases are redrawn on `contextrestored`. Only a
+  simulated loss was tested. A real discard was never reproduced, so it isn't
+  shown that one caused this symptom, or that Chrome fires the event on these
+  canvases.
+- **8** (agent pathing) is open.
+
+A snapshot otherwise.
+
 ## Summary
 
 | Content set                      | Result | Demos (protocol)                                  | Play, save and load     | Map sweep        |
