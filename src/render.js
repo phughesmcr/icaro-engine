@@ -177,45 +177,10 @@ export const vpn = new Float32Array(3); // view plane normal (forward)
 export const vright = new Float32Array(3); // view right vector
 export const vup = new Float32Array(3); // view up vector
 
-export const r_notexture_mip = null; // texture_t -- fallback texture
-
-export const reinit_surfcache = 0; // if 1, surface cache is currently empty
-export const r_cache_thrash = false; // set if thrashing the surface cache
-
-// Refresh function declarations (stubs -- implemented in gl_rmain.js)
-
-export function R_Init() {
-  // Implemented in gl_rmain.js
-}
-
-export function R_InitTextures() {
-  // Implemented in gl_rmisc.js
-}
-
-export function R_InitEfrags() {
-  // Stub
-}
-
-export function R_RenderView() {
-  // Implemented in gl_rmain.js -- must set r_refdef first
-}
-
-export function R_ViewChanged(_pvrect, _lineadj, _aspect) {
-  // Called whenever r_refdef or vid change
-}
-
-export function R_InitSky(_mt) {
-  // Called at level load
-}
-
 // R_AddEfrags and R_RemoveEfrags implemented in gl_refrag.js
 export { R_AddEfrags, R_RemoveEfrags, R_StoreEfrags } from "./gl_refrag.js";
 
-export function R_NewMap() {
-  // Implemented in gl_rmain.js
-}
-
-// Particle effect stubs
+// Particle effects, implemented in r_part.js
 
 export function R_ParseParticleEffect() {
   const org = new Float32Array(3);
@@ -271,30 +236,4 @@ export function R_LavaSplash(org) {
 
 export function R_TeleportSplash(org) {
   _R_TeleportSplash(org);
-}
-
-export function R_PushDlights() {
-  // Stub
-}
-
-// Surface cache related
-
-export function D_SurfaceCacheForRes(_width, _height) {
-  return 0;
-}
-
-export function D_FlushCaches() {
-  // Stub
-}
-
-export function D_DeleteSurfaceCache() {
-  // Stub
-}
-
-export function D_InitCaches(_buffer, _size) {
-  // Stub
-}
-
-export function R_SetVrect(_pvrect, _pvrectin, _lineadj) {
-  // Stub
 }

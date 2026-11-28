@@ -4,17 +4,6 @@ import * as THREE from "three";
 
 // GL DEFINITIONS AND STATE
 
-export const ALIAS_BASE_SIZE_RATIO = 1.0 / 11.0;
-export const MAX_LBM_HEIGHT = 480;
-
-export const TILE_SIZE = 128;
-
-export const SKYSHIFT = 7;
-export const SKYSIZE = 1 << SKYSHIFT;
-export const SKYMASK = SKYSIZE - 1;
-
-export const BACKFACE_EPSILON = 0.01;
-
 // Multitexture
 export const TEXTURE0_SGIS = 0x835E;
 export const TEXTURE1_SGIS = 0x835F;
@@ -26,41 +15,7 @@ export const MAXLIGHTMAPS = 4;
 
 // TEXTURE MANAGEMENT
 
-export const MAX_GLTEXTURES = 1024;
-
-export class gltexture_t {
-  constructor() {
-    this.identifier = "";
-    this.texnum = 0;
-    this.width = 0;
-    this.height = 0;
-    this.mipmap = false;
-    // Three.js texture reference
-    this.texture = null;
-  }
-}
-
-export let texture_extension_number = 1;
 export const texture_mode = 0; // GL_LINEAR_MIPMAP_NEAREST equivalent
-
-export const gldepthmin = 0;
-export const gldepthmax = 0;
-
-export let currenttexture = -1;
-export const cnttextures = [-1, -1];
-export const particletexture = 0;
-export const playertextures = 0;
-
-export const gltextures = [];
-export const numgltextures = 0;
-
-export function setTextureExtensionNumber(n) {
-  texture_extension_number = n;
-}
-
-export function getTextureExtensionNumber() {
-  return texture_extension_number++;
-}
 
 // POLYGON STRUCTURE
 
@@ -91,44 +46,11 @@ export class glvert_t {
 
 export const glv = new glvert_t();
 
-export const glx = 0;
-export const gly = 0;
-export const glwidth = 640;
-export const glheight = 480;
-
-// PARTICLE TYPE
-
-export const pt_static = 0;
-export const pt_grav = 1;
-export const pt_slowgrav = 2;
-export const pt_fire = 3;
-export const pt_explode = 4;
-export const pt_explode2 = 5;
-export const pt_blob = 6;
-export const pt_blob2 = 7;
-
-export class particle_t {
-  constructor() {
-    // driver-usable fields
-    this.org = new Float32Array(3);
-    this.color = 0;
-    // drivers never touch the following fields
-    this.next = null;
-    this.vel = new Float32Array(3);
-    this.ramp = 0;
-    this.die = 0;
-    this.type = pt_static;
-  }
-}
-
 // RENDER STATE VARIABLES
 
-export const r_worldentity = null; // entity_t
-export const r_cache_thrash = false;
-export const modelorg = new Float32Array(3);
-export const r_entorigin = new Float32Array(3);
-export const currententity = null;
-export const r_visframecount = 0;
+// The rest of glquake.h's render state lives with the code that writes it,
+// mostly gl_rmain.js and render.js (r_refdef, r_origin, vpn, vright, vup).
+
 export let r_framecount = 0;
 export function set_r_framecount(value) {
   r_framecount = value;
@@ -136,37 +58,12 @@ export function set_r_framecount(value) {
 export function inc_r_framecount() {
   return ++r_framecount;
 }
-export const frustum = []; // mplane_t[4]
-export const c_brush_polys = 0;
-export const c_alias_polys = 0;
-
-// view origin
-export const vup = new Float32Array(3);
-export const vpn = new Float32Array(3);
-export const vright = new Float32Array(3);
-export const r_origin = new Float32Array(3);
-
-// screen size info
-export const r_refdef = null; // refdef_t
-export const r_viewleaf = null;
-export const r_oldviewleaf = null;
-export const r_notexture_mip = null;
 export const d_lightstylevalue = new Int32Array(256);
 
-export const skytexturenum = -1;
 export let mirrortexturenum = -1;
 export function set_mirrortexturenum(value) {
   mirrortexturenum = value;
 }
-export const mirror = false;
-export const mirror_plane = null;
-
-export const r_world_matrix = new Float32Array(16);
-
-// GL format constants (mapped to WebGL equivalents conceptually)
-export const gl_lightmap_format = 4; // GL_RGBA
-export const gl_solid_format = 3; // GL_RGB
-export const gl_alpha_format = 4; // GL_RGBA
 
 export const gl_mtexable = false;
 
@@ -473,26 +370,12 @@ export function GL_UpdateTextureFiltering() {
 }
 
 // THREE.JS HELPER FUNCTIONS
-// (Replacing raw GL_Bind / GL_BeginRendering / etc.)
-
-export function GL_Bind(texnum) {
-  currenttexture = texnum;
-}
 
 export function GL_DisableMultitexture() {
   // no-op in Three.js
 }
 
 export function GL_EnableMultitexture() {
-  // no-op in Three.js
-}
-
-export function GL_BeginRendering(_x, _y, _width, _height) {
-  // In Three.js, rendering is handled by the renderer
-  // These values are set by the video initialization
-}
-
-export function GL_EndRendering() {
   // no-op in Three.js
 }
 
