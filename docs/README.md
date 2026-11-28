@@ -14,6 +14,10 @@ AGENTS.md, Git workflow).
 - `browser-check-2026-11-27.md`: a browser check of `dev` at `bf3915f` after the
   LibreQuake and protocol merges, with an in-game console audit of all 54
   LibreQuake maps and a manual Safari checklist. A snapshot.
+- `browser-check-content-2026-11-27.md`: a browser check of `dev` at `3603119`
+  across content sets (id1, hipnotic, rogue, quoth, the rerelease and its add-on
+  mg1, LibreQuake): play, save and load, bundled demos, a map sweep with a
+  console audit, and the HUD styles. A snapshot.
 - `port-review.md`: a fidelity review of the port against the C source. A
   snapshot.
 - `port-inventory.md`: every C function, cvar and command in the GLQuake build's
