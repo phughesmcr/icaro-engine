@@ -1,6 +1,6 @@
 // Ported from: WinQuake/sv_main.c -- server main program
 
-import { Sys_Error } from "./sys.js";
+import { Sys_Error, Sys_Printf } from "./sys.js";
 import {
   Con_DPrintf,
   Con_Printf,
@@ -2188,7 +2188,10 @@ export function SV_DropClient(crash) {
     sv_ec_valid = false; // QuakeC may have changed any entity; rebuilt per client until the frame ends
   }
 
-  Con_Printf("Client " + client.name + " removed\n");
+  // WinQuake host.c SV_DropClient: Sys_Printf, not the game console. C has it
+  // in the !crash block with ClientDisconnect, which the port also runs for a
+  // crash, so a server's log names every dropped client
+  Sys_Printf("Client %s removed\n", client.name);
 
   // break the net connection
   if (client.netconnection != null) {
